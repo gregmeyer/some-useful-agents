@@ -1,0 +1,27 @@
+{
+  "name": "some-useful-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first agent playground. Author, schedule, and report on agents running on your machine.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "validate-agents": "node packages/core/dist/validate-agents.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gregmeyer/some-useful-agents.git"
+  },
+  "keywords": ["agents", "mcp", "temporal", "cli", "orchestration"],
+  "author": "Greg Meyer",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

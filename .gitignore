@@ -1,0 +1,31 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.js.map
+
+# Runtime data
+data/
+
+# User-installed agents
+agents/local/
+
+# Config
+.env
+.env.*
+sua.config.json
+
+# Temporal
+temporal-data/
+docker-volumes/
+
+# Local plans
+.plans/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

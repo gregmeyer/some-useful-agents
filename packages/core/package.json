@@ -1,0 +1,21 @@
+{
+  "name": "@some-useful-agents/core",
+  "version": "0.1.0",
+  "description": "Core types, schemas, and utilities for some-useful-agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/uuid": "^10.0.0"
+  },
+  "license": "MIT"
+}

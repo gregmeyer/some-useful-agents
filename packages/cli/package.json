@@ -1,0 +1,25 @@
+{
+  "name": "@some-useful-agents/cli",
+  "version": "0.1.0",
+  "description": "CLI for some-useful-agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sua": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@some-useful-agents/core": "*",
+    "commander": "^13.1.0",
+    "chalk": "^5.4.0",
+    "ora": "^8.2.0",
+    "cli-table3": "^0.6.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  },
+  "license": "MIT"
+}

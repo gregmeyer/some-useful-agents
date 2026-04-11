@@ -1,0 +1,8 @@
+name: hello-shell
+description: A simple hello world shell agent
+type: shell
+command: "echo 'Hello from some-useful-agents!'"
+timeout: 30
+author: gregmeyer
+version: "1.0.0"
+tags: [example, getting-started]

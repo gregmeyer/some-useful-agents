@@ -1,0 +1,20 @@
+{
+  "name": "@some-useful-agents/dashboard",
+  "version": "0.1.0",
+  "description": "Web dashboard for some-useful-agents",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@some-useful-agents/core": "*",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/express": "^5.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/cli" },
+    { "path": "packages/mcp-server" },
+    { "path": "packages/temporal-provider" },
+    { "path": "packages/dashboard" }
+  ]
+}
