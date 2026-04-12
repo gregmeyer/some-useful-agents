@@ -15,5 +15,6 @@
   "devDependencies": {
     "typescript": "^5.8.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "type": "module"
 }

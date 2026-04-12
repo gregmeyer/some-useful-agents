@@ -16,5 +16,6 @@
     "typescript": "^5.8.0",
     "@types/express": "^5.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "type": "module"
 }

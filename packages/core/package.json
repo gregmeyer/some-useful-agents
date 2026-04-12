@@ -17,5 +17,6 @@
     "typescript": "^5.8.0",
     "@types/uuid": "^10.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "type": "module"
 }
