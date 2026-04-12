@@ -103,11 +103,39 @@ merged, the release workflow pauses and waits for a maintainer to approve the ru
 in the Actions tab before executing `npx changeset publish`. This prevents accidental
 or malicious publishes.
 
+We use **npm Trusted Publishing (OIDC)** — no NPM_TOKEN secret exists anywhere in
+the repo. GitHub Actions exchanges a short-lived OIDC token directly with npm to
+authenticate. If CI is compromised, there is no long-lived credential to exfiltrate.
+
 To set this up on a fresh fork:
-1. Settings → Environments → New environment → name it `npm-publish`
-2. Add required reviewers (the maintainers who can approve releases)
-3. Add `NPM_TOKEN` as an environment secret (not a repo secret) so only the gated
-   environment can access it
+
+**1. GitHub side:**
+- Settings → Environments → New environment → name it `npm-publish`
+- Add required reviewers (maintainers who can approve releases)
+- No secrets needed — the workflow uses `id-token: write` permission
+
+**2. npm side (do this for EACH package — core, cli, mcp-server, temporal-provider, dashboard):**
+
+You'll need to publish the package once manually first (one-time bootstrapping) so
+it exists in the npm registry:
+
+```bash
+cd packages/core
+npm publish --access public
+```
+
+Then configure the trusted publisher:
+- Go to https://www.npmjs.com/package/@some-useful-agents/<package>/access
+- Scroll to "Trusted Publisher"
+- Click "GitHub Actions"
+- Organization or user: `gregmeyer`
+- Repository: `some-useful-agents`
+- Workflow filename: `release.yml`
+- Environment: `npm-publish`
+
+After that, all subsequent publishes happen automatically through the workflow
+with provenance attestations, and no one can publish these packages except via
+that exact workflow from the `npm-publish` environment.
 
 ### Development setup
 

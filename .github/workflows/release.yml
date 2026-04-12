@@ -17,6 +17,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # id-token: write is required for npm Trusted Publishing via OIDC.
+      # No NPM_TOKEN needed — GitHub's short-lived OIDC token is exchanged
+      # with npm directly. Configure the trusted publisher per package at
+      # https://www.npmjs.com/package/<pkg>/access
       id-token: write
 
     steps:
@@ -30,6 +34,10 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
+      # npm CLI >= 11.5.1 is required for trusted publishing
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
       - run: npm ci
       - run: npm run build
       - run: npm test
@@ -38,13 +46,11 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          # If a Release PR's version bump is on main, publish.
-          # Otherwise, open/update a Release PR aggregating pending changesets.
+          # When the Release PR is merged and changesets have been consumed,
+          # this publishes via trusted publishing. Otherwise opens the PR.
           publish: npx changeset publish
           version: npx changeset version
           commit: "chore: release"
           title: "chore: release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
