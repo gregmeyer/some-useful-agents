@@ -12,14 +12,14 @@ export interface ExecutionHandle {
   kill: () => void;
 }
 
-export function executeAgent(agent: AgentDefinition): ExecutionHandle {
+export function executeAgent(agent: AgentDefinition, env?: Record<string, string>): ExecutionHandle {
   if (agent.type === 'shell') {
-    return executeShellAgent(agent);
+    return executeShellAgent(agent, env);
   }
-  return executeClaudeCodeAgent(agent);
+  return executeClaudeCodeAgent(agent, env);
 }
 
-function executeShellAgent(agent: AgentDefinition): ExecutionHandle {
+function executeShellAgent(agent: AgentDefinition, prebuiltEnv?: Record<string, string>): ExecutionHandle {
   if (!agent.command) {
     throw new Error(`Shell agent "${agent.name}" has no command`);
   }
@@ -29,7 +29,7 @@ function executeShellAgent(agent: AgentDefinition): ExecutionHandle {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const promise = new Promise<ExecutionResult>((resolve) => {
-    const env = { ...process.env, ...(agent.env ?? {}) };
+    const env = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
 
     child = spawn('bash', ['-c', agent.command!], {
       cwd: agent.workingDirectory ?? process.cwd(),
@@ -75,7 +75,7 @@ function executeShellAgent(agent: AgentDefinition): ExecutionHandle {
   };
 }
 
-function executeClaudeCodeAgent(agent: AgentDefinition): ExecutionHandle {
+function executeClaudeCodeAgent(agent: AgentDefinition, prebuiltEnv?: Record<string, string>): ExecutionHandle {
   if (!agent.prompt) {
     throw new Error(`Claude-code agent "${agent.name}" has no prompt`);
   }
@@ -90,7 +90,7 @@ function executeClaudeCodeAgent(agent: AgentDefinition): ExecutionHandle {
     if (agent.maxTurns) { args.push('--max-turns', String(agent.maxTurns)); }
     if (agent.allowedTools?.length) { args.push('--allowedTools', agent.allowedTools.join(',')); }
 
-    const env = { ...process.env, ...(agent.env ?? {}) };
+    const env = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
 
     child = spawn('claude', args, {
       cwd: agent.workingDirectory ?? process.cwd(),

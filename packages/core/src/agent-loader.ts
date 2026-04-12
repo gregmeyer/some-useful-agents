@@ -4,8 +4,15 @@ import { parse as parseYaml } from 'yaml';
 import { agentDefinitionSchema } from './schema.js';
 import type { AgentDefinition } from './types.js';
 
+export type AgentSource = 'examples' | 'local' | 'community';
+
+export interface AgentDirConfig {
+  path: string;
+  source: AgentSource;
+}
+
 export interface LoadAgentsOptions {
-  directories: string[];
+  directories: (string | AgentDirConfig)[];
   onWarning?: (file: string, message: string) => void;
 }
 
@@ -23,7 +30,10 @@ export function loadAgents(options: LoadAgentsOptions): LoadAgentsResult {
     options.onWarning?.(file, message);
   };
 
-  for (const dir of options.directories) {
+  for (const dirEntry of options.directories) {
+    const dir = typeof dirEntry === 'string' ? dirEntry : dirEntry.path;
+    const source = typeof dirEntry === 'string' ? inferSource(dir) : dirEntry.source;
+
     if (!existsSync(dir)) {
       warn(dir, `Directory does not exist: ${dir}`);
       continue;
@@ -71,6 +81,7 @@ export function loadAgents(options: LoadAgentsOptions): LoadAgentsResult {
       }
 
       const agent = result.data as AgentDefinition;
+      agent.source = source;
 
       if (agents.has(agent.name)) {
         warn(filePath, `Duplicate agent name "${agent.name}" (overwriting previous)`);
@@ -81,4 +92,11 @@ export function loadAgents(options: LoadAgentsOptions): LoadAgentsResult {
   }
 
   return { agents, warnings };
+}
+
+function inferSource(dirPath: string): AgentSource {
+  const normalized = dirPath.replace(/\\/g, '/');
+  if (normalized.includes('/community')) return 'community';
+  if (normalized.includes('/examples')) return 'examples';
+  return 'local';
 }
