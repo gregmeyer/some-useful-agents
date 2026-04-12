@@ -4,7 +4,7 @@ A local-first agent playground. Author, schedule, and report on agents running o
 
 Define agents in YAML, run them via CLI or MCP, schedule them with Temporal, chain them into pipelines, and share them with the community.
 
-## Quick start
+## Quick start (local provider, no Docker)
 
 ```bash
 git clone https://github.com/gregmeyer/some-useful-agents.git
@@ -14,6 +14,25 @@ npm run build
 npx sua init
 npx sua agent run hello-shell
 ```
+
+## Running on Temporal
+
+```bash
+# 1. Start Temporal server (Docker)
+docker compose up -d
+
+# 2. Start the worker (on your host, so it has shell + Claude CLI access)
+sua worker start
+
+# 3. In another terminal, submit a run
+sua agent run hello-shell --provider temporal
+
+# 4. See the workflow in the Temporal UI
+open http://localhost:8233
+```
+
+The worker runs on the host (not in Docker) because agents need access to your shell
+and `claude` CLI. Temporal itself is the only service running in Docker.
 
 ## What is this?
 

@@ -6,6 +6,9 @@ export interface SuaConfig {
   agentsDir: string;
   dataDir: string;
   mcpPort: number;
+  temporalAddress?: string;
+  temporalNamespace?: string;
+  temporalTaskQueue?: string;
 }
 
 const DEFAULT_CONFIG: SuaConfig = {
@@ -13,6 +16,9 @@ const DEFAULT_CONFIG: SuaConfig = {
   agentsDir: './agents',
   dataDir: './data',
   mcpPort: 3003,
+  temporalAddress: 'localhost:7233',
+  temporalNamespace: 'default',
+  temporalTaskQueue: 'sua-agents',
 };
 
 export function loadConfig(): SuaConfig {
@@ -28,6 +34,18 @@ export function loadConfig(): SuaConfig {
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+/**
+ * Resolve which provider to use. Env var SUA_PROVIDER wins over config.
+ * CLI --provider flag passed to commands wins over both (handled per-command).
+ */
+export function resolveProvider(config: SuaConfig, override?: string): 'local' | 'temporal' {
+  const choice = override ?? process.env.SUA_PROVIDER ?? config.provider;
+  if (choice !== 'local' && choice !== 'temporal') {
+    throw new Error(`Invalid provider "${choice}". Must be "local" or "temporal".`);
+  }
+  return choice;
 }
 
 export function getAgentDirs(config: SuaConfig): { runnable: string[]; catalog: string[] } {

@@ -1,1 +1,3 @@
-// Temporal provider entry point — implementation in Phase 2b branch
+export * from './provider.js';
+export * from './worker.js';
+export type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';

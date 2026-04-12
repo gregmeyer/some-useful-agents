@@ -10,6 +10,7 @@ import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
 import { secretsCommand } from './commands/secrets.js';
+import { workerCommand } from './commands/worker.js';
 
 const program = new Command();
 
@@ -32,5 +33,6 @@ program.addCommand(initCommand);
 program.addCommand(doctorCommand);
 program.addCommand(mcpCommand);
 program.addCommand(secretsCommand);
+program.addCommand(workerCommand);
 
 program.parse();
