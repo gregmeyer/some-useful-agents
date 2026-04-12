@@ -25,5 +25,14 @@
     "dist",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gregmeyer/some-useful-agents.git",
+    "directory": "packages/dashboard"
+  },
+  "homepage": "https://github.com/gregmeyer/some-useful-agents#readme",
+  "bugs": {
+    "url": "https://github.com/gregmeyer/some-useful-agents/issues"
+  }
 }
