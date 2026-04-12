@@ -24,6 +24,10 @@ export const agentDefinitionSchema = z.object({
   dependsOn: z.array(z.string()).optional(),
   input: z.string().optional(),
 
+  // Secrets and env control
+  secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Must be a valid env var name (e.g. MY_API_KEY)')).optional(),
+  envAllowlist: z.array(z.string()).optional(),
+
   // Metadata
   author: z.string().optional(),
   version: z.string().optional(),

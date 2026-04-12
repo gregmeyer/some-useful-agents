@@ -22,6 +22,11 @@ export interface AgentDefinition {
   dependsOn?: string[];
   input?: string;
 
+  // Secrets and env control
+  secrets?: string[];
+  envAllowlist?: string[];
+  source?: 'examples' | 'local' | 'community';
+
   // Community metadata
   author?: string;
   version?: string;

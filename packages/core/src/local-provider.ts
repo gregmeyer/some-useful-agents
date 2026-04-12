@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Provider, AgentDefinition, Run, RunStatus } from './types.js';
 import { RunStore } from './run-store.js';
 import { executeAgent, type ExecutionHandle } from './agent-executor.js';
+import { buildAgentEnv, getTrustLevel } from './env-builder.js';
 
 export class LocalProvider implements Provider {
   name = 'local';
@@ -40,7 +41,26 @@ export class LocalProvider implements Provider {
 
     this.store.createRun(run);
 
-    const handle = executeAgent(request.agent);
+    const trustLevel = getTrustLevel(request.agent);
+    const { env, missingSecrets, warnings } = buildAgentEnv({
+      agent: request.agent,
+      trustLevel,
+    });
+
+    for (const w of warnings) {
+      console.warn(`[warning] ${w}`);
+    }
+
+    if (missingSecrets.length > 0) {
+      this.store.updateRun(run.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error: `Missing secrets: ${missingSecrets.join(', ')}. Run: sua secrets set <name>`,
+      });
+      return this.store.getRun(run.id) as Run;
+    }
+
+    const handle = executeAgent(request.agent, env);
     this.running.set(run.id, handle);
 
     handle.promise.then((result) => {
