@@ -28,16 +28,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Node 24 ships with npm 11+ natively, which is required for npm Trusted
+      # Publishing via OIDC. Using Node 24 here (instead of upgrading npm in-place
+      # on Node 22) avoids a known MODULE_NOT_FOUND bug in npm's self-upgrade path.
+      # The codebase itself still targets Node 22 (.nvmrc, build-and-test CI),
+      # but this release job only builds, tests, and publishes — all Node APIs
+      # we use are stable in both 22 and 24.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
-
-      # npm CLI >= 11.5.1 is required for trusted publishing.
-      # --force bypasses the bundled-deps mismatch when upgrading npm in-place.
-      - name: Upgrade npm
-        run: npm install -g npm@latest --force
 
       - run: npm ci
       - run: npm run build
