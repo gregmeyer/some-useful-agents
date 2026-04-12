@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.3/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@some-useful-agents/core",
+      "@some-useful-agents/cli",
+      "@some-useful-agents/mcp-server",
+      "@some-useful-agents/temporal-provider",
+      "@some-useful-agents/dashboard"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}
