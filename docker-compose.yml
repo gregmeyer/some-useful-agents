@@ -1,0 +1,29 @@
+services:
+  temporal:
+    image: temporalio/auto-setup:1.28.0
+    container_name: sua-temporal
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=sqlite
+      - SQLITE_PRAGMA=journal_mode=WAL
+      - SKIP_DEFAULT_NAMESPACE_CREATION=false
+      - LOG_LEVEL=warn
+    volumes:
+      - temporal-data:/etc/temporal/sqlite
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.40.0
+    container_name: sua-temporal-ui
+    ports:
+      - "8233:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000,http://localhost:3003
+    depends_on:
+      - temporal
+    restart: unless-stopped
+
+volumes:
+  temporal-data:

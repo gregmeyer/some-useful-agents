@@ -6,7 +6,8 @@
   },
   "references": [
     { "path": "../core" },
-    { "path": "../mcp-server" }
+    { "path": "../mcp-server" },
+    { "path": "../temporal-provider" }
   ],
   "include": ["src"]
 }

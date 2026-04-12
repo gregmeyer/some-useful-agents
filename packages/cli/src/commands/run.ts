@@ -1,14 +1,16 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { loadAgents, LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
+import { loadAgents } from '@some-useful-agents/core';
+import { loadConfig, getAgentDirs } from '../config.js';
+import { createProvider } from '../provider-factory.js';
 
 export const runCommand = new Command('run')
   .description('Run an agent')
   .argument('<name>', 'Agent name')
+  .option('--provider <provider>', 'Override provider (local | temporal)')
   .option('--verbose', 'Show detailed output')
-  .action(async (name: string, options) => {
+  .action(async (name: string, options: { provider?: string }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     const { agents } = loadAgents({ directories: dirs.runnable });
@@ -20,11 +22,8 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
-    const secretsStore = new EncryptedFileStore(getSecretsPath(config));
-    const provider = new LocalProvider(getDbPath(config), secretsStore);
-    await provider.initialize();
-
-    const spinner = ora(`Running ${chalk.cyan(name)}...`).start();
+    const provider = await createProvider(config, options.provider);
+    const spinner = ora(`Running ${chalk.cyan(name)} via ${chalk.dim(provider.name)}...`).start();
 
     try {
       const run = await provider.submitRun({ agent, triggeredBy: 'cli' });
@@ -32,10 +31,21 @@ export const runCommand = new Command('run')
 
       // Poll for completion
       let current = run;
+      let pendingWarned = false;
+      const startedAt = Date.now();
       while (current.status === 'running' || current.status === 'pending') {
         await new Promise(r => setTimeout(r, 250));
         const updated = await provider.getRun(run.id);
         if (updated) current = updated;
+
+        // Warn if workflow stays pending > 5s (likely no worker running for temporal)
+        if (!pendingWarned && provider.name === 'temporal' && current.status === 'pending' && Date.now() - startedAt > 5000) {
+          spinner.warn(
+            `Run still pending after 5s. Is the worker running? Start it with: ${chalk.cyan('sua worker start')}`
+          );
+          pendingWarned = true;
+          spinner.start();
+        }
       }
 
       if (current.status === 'completed') {
