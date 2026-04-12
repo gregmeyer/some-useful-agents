@@ -7,3 +7,4 @@ export * from './local-provider.js';
 export * from './chain-resolver.js';
 export * from './chain-executor.js';
 export * from './env-builder.js';
+export * from './secrets-store.js';

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { join, resolve } from 'node:path';
-import { loadConfig, getAgentDirs, getDbPath } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
 
 export const mcpCommand = new Command('mcp')
   .description('MCP server management');
@@ -29,5 +29,6 @@ mcpCommand
       port,
       agentDirs: dirs.runnable,
       dbPath,
+      secretsPath: getSecretsPath(config),
     });
   });

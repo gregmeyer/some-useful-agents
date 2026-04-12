@@ -3,14 +3,17 @@ import type { Provider, AgentDefinition, Run, RunStatus } from './types.js';
 import { RunStore } from './run-store.js';
 import { executeAgent, type ExecutionHandle } from './agent-executor.js';
 import { buildAgentEnv, getTrustLevel } from './env-builder.js';
+import type { SecretsStore } from './secrets-store.js';
 
 export class LocalProvider implements Provider {
   name = 'local';
   private store: RunStore;
+  private secretsStore?: SecretsStore;
   private running = new Map<string, ExecutionHandle>();
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, secretsStore?: SecretsStore) {
     this.store = new RunStore(dbPath);
+    this.secretsStore = secretsStore;
   }
 
   async initialize(): Promise<void> {
@@ -42,9 +45,11 @@ export class LocalProvider implements Provider {
     this.store.createRun(run);
 
     const trustLevel = getTrustLevel(request.agent);
+    const secrets = this.secretsStore ? await this.secretsStore.getAll() : undefined;
     const { env, missingSecrets, warnings } = buildAgentEnv({
       agent: request.agent,
       trustLevel,
+      secrets,
     });
 
     for (const w of warnings) {

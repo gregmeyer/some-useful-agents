@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { loadAgents, LocalProvider } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getDbPath } from '../config.js';
+import { loadAgents, LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
 
 export const runCommand = new Command('run')
   .description('Run an agent')
@@ -20,7 +20,8 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
-    const provider = new LocalProvider(getDbPath(config));
+    const secretsStore = new EncryptedFileStore(getSecretsPath(config));
+    const provider = new LocalProvider(getDbPath(config), secretsStore);
     await provider.initialize();
 
     const spinner = ora(`Running ${chalk.cyan(name)}...`).start();
