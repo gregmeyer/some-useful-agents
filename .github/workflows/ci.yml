@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+
+  validate-agents:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Validate all agent YAML files
+        run: |
+          node -e "
+            import { loadAgents } from '@some-useful-agents/core';
+            import { join } from 'path';
+            const dirs = [join('agents', 'examples'), join('agents', 'community')];
+            const { agents, warnings } = loadAgents({ directories: dirs });
+            for (const w of warnings) {
+              console.error('ERROR: ' + w.file + ': ' + w.message);
+            }
+            if (warnings.length > 0) {
+              process.exit(1);
+            }
+            console.log(agents.size + ' agent(s) validated successfully');
+          "

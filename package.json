@@ -18,10 +18,19 @@
     "type": "git",
     "url": "https://github.com/gregmeyer/some-useful-agents.git"
   },
-  "keywords": ["agents", "mcp", "temporal", "cli", "orchestration"],
+  "keywords": [
+    "agents",
+    "mcp",
+    "temporal",
+    "cli",
+    "orchestration"
+  ],
   "author": "Greg Meyer",
   "license": "MIT",
   "engines": {
     "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }
