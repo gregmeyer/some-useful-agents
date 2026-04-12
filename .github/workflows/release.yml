@@ -34,9 +34,10 @@ jobs:
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      # npm CLI >= 11.5.1 is required for trusted publishing
+      # npm CLI >= 11.5.1 is required for trusted publishing.
+      # --force bypasses the bundled-deps mismatch when upgrading npm in-place.
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@latest --force
 
       - run: npm ci
       - run: npm run build
