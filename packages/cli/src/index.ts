@@ -8,6 +8,7 @@ import { logsCommand } from './commands/logs.js';
 import { cancelCommand } from './commands/cancel.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
+import { mcpCommand } from './commands/mcp.js';
 
 const program = new Command();
 
@@ -28,5 +29,6 @@ agent.addCommand(cancelCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);
+program.addCommand(mcpCommand);
 
 program.parse();
