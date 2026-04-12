@@ -24,5 +24,13 @@
     "typescript": "^5.8.0"
   },
   "license": "MIT",
-  "type": "module"
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
 }

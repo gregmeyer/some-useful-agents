@@ -73,7 +73,26 @@ Shell agents from the community catalog run in a Docker sandbox with restricted 
 3. Make your changes
 4. Run tests: `npm test`
 5. Run the build: `npm run build`
-6. Open a PR against `main`
+6. **Add a changeset** if your change affects any published package: `npx changeset`
+7. Open a PR against `main`
+
+### Changesets
+
+We use [changesets](https://github.com/changesets/changesets) for version management.
+When you change code in any `packages/*` directory, add a changeset:
+
+```bash
+npx changeset
+```
+
+This prompts you to:
+1. Select which packages are affected (all ours version together, so pick any)
+2. Choose bump type (patch / minor / major)
+3. Write a one-line summary of what changed
+
+The changeset is a markdown file in `.changeset/` that gets committed with your PR.
+When PRs are merged to `main`, a bot opens a "Release" PR that aggregates all pending
+changesets. Merging that PR triggers publishing to npm.
 
 ### Development setup
 
