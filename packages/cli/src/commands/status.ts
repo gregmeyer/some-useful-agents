@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { LocalProvider } from '@some-useful-agents/core';
-import { loadConfig, getDbPath } from '../config.js';
+import { LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
+import { loadConfig, getDbPath, getSecretsPath } from '../config.js';
 
 const STATUS_COLORS: Record<string, (s: string) => string> = {
   completed: chalk.green,
@@ -18,7 +18,8 @@ export const statusCommand = new Command('status')
   .option('-n, --limit <n>', 'Number of recent runs to show', '10')
   .action(async (runId?: string, options?: { limit: string }) => {
     const config = loadConfig();
-    const provider = new LocalProvider(getDbPath(config));
+    const secretsStore = new EncryptedFileStore(getSecretsPath(config));
+    const provider = new LocalProvider(getDbPath(config), secretsStore);
     await provider.initialize();
 
     try {

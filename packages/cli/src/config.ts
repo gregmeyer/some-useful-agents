@@ -41,3 +41,7 @@ export function getAgentDirs(config: SuaConfig): { runnable: string[]; catalog: 
 export function getDbPath(config: SuaConfig): string {
   return join(resolve(config.dataDir), 'runs.db');
 }
+
+export function getSecretsPath(config: SuaConfig): string {
+  return join(resolve(config.dataDir), 'secrets.enc');
+}

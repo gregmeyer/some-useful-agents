@@ -9,6 +9,7 @@ import { cancelCommand } from './commands/cancel.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
+import { secretsCommand } from './commands/secrets.js';
 
 const program = new Command();
 
@@ -30,5 +31,6 @@ agent.addCommand(cancelCommand);
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);
 program.addCommand(mcpCommand);
+program.addCommand(secretsCommand);
 
 program.parse();

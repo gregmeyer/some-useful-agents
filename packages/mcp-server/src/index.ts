@@ -2,17 +2,19 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { LocalProvider, loadAgents } from '@some-useful-agents/core';
+import { LocalProvider, loadAgents, EncryptedFileStore } from '@some-useful-agents/core';
 import { registerTools } from './tools.js';
 
 export interface McpServerOptions {
   port: number;
   agentDirs: string[];
   dbPath: string;
+  secretsPath: string;
 }
 
 export async function startMcpServer(options: McpServerOptions): Promise<void> {
-  const provider = new LocalProvider(options.dbPath);
+  const secretsStore = new EncryptedFileStore(options.secretsPath);
+  const provider = new LocalProvider(options.dbPath, secretsStore);
   await provider.initialize();
 
   const server = new McpServer({

@@ -1,14 +1,15 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { LocalProvider } from '@some-useful-agents/core';
-import { loadConfig, getDbPath } from '../config.js';
+import { LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
+import { loadConfig, getDbPath, getSecretsPath } from '../config.js';
 
 export const logsCommand = new Command('logs')
   .description('Show logs for a run')
   .argument('<runId>', 'Run ID')
   .action(async (runId: string) => {
     const config = loadConfig();
-    const provider = new LocalProvider(getDbPath(config));
+    const secretsStore = new EncryptedFileStore(getSecretsPath(config));
+    const provider = new LocalProvider(getDbPath(config), secretsStore);
     await provider.initialize();
 
     try {
