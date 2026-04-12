@@ -1,0 +1,119 @@
+import { describe, it, expect } from 'vitest';
+import { agentDefinitionSchema } from './schema.js';
+
+describe('agentDefinitionSchema', () => {
+  it('validates a valid shell agent', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'hello-shell',
+      type: 'shell',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('validates a valid claude-code agent', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'hello-claude',
+      type: 'claude-code',
+      prompt: 'Say hello',
+      model: 'claude-sonnet-4-20250514',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects missing name', () => {
+    const result = agentDefinitionSchema.safeParse({
+      type: 'shell',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing type', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid type value', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      type: 'python',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects shell agent without command', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      type: 'shell',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects claude-code agent without prompt', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      type: 'claude-code',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects name with uppercase letters', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'Hello-Shell',
+      type: 'shell',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects name with spaces', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'hello shell',
+      type: 'shell',
+      command: 'echo hello',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('passes through extra fields (zod strips them)', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      type: 'shell',
+      command: 'echo hello',
+      unknownField: 'value',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('applies default timeout of 300', () => {
+    const result = agentDefinitionSchema.parse({
+      name: 'test',
+      type: 'shell',
+      command: 'echo hello',
+    });
+    expect(result.timeout).toBe(300);
+  });
+
+  it('validates all optional metadata fields', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'test',
+      type: 'shell',
+      command: 'echo hello',
+      author: 'gregmeyer',
+      version: '1.0.0',
+      tags: ['test', 'example'],
+      description: 'A test agent',
+      env: { FOO: 'bar' },
+      schedule: '0 9 * * *',
+      workingDirectory: '/tmp',
+      dependsOn: ['other-agent'],
+      input: '{{outputs.other-agent.result}}',
+    });
+    expect(result.success).toBe(true);
+  });
+});
