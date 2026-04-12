@@ -92,7 +92,22 @@ This prompts you to:
 
 The changeset is a markdown file in `.changeset/` that gets committed with your PR.
 When PRs are merged to `main`, a bot opens a "Release" PR that aggregates all pending
-changesets. Merging that PR triggers publishing to npm.
+changesets. Merging that Release PR then triggers a publish — but the publish step
+is gated behind a GitHub Environment (`npm-publish`) that requires a maintainer to
+approve the run before anything is pushed to npm.
+
+### Publishing (maintainers only)
+
+The `npm-publish` GitHub Environment has required reviewers. When a Release PR is
+merged, the release workflow pauses and waits for a maintainer to approve the run
+in the Actions tab before executing `npx changeset publish`. This prevents accidental
+or malicious publishes.
+
+To set this up on a fresh fork:
+1. Settings → Environments → New environment → name it `npm-publish`
+2. Add required reviewers (the maintainers who can approve releases)
+3. Add `NPM_TOKEN` as an environment secret (not a repo secret) so only the gated
+   environment can access it
 
 ### Development setup
 

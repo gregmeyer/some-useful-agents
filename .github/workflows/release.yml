@@ -8,9 +8,12 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  release:
-    name: Release
+  version-or-publish:
+    name: Version PR or Publish
     runs-on: ubuntu-latest
+    # Gate the ACTUAL publish step behind the npm-publish environment.
+    # Required reviewers on that environment must approve before publish runs.
+    environment: npm-publish
     permissions:
       contents: write
       pull-requests: write
@@ -31,10 +34,12 @@ jobs:
       - run: npm run build
       - run: npm test
 
-      - name: Create Release Pull Request or Publish
+      - name: Create Release PR or Publish to npm
         id: changesets
         uses: changesets/action@v1
         with:
+          # If a Release PR's version bump is on main, publish.
+          # Otherwise, open/update a Release PR aggregating pending changesets.
           publish: npx changeset publish
           version: npx changeset version
           commit: "chore: release"
