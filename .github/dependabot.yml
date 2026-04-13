@@ -1,0 +1,23 @@
+# Keep SHA-pinned GitHub Actions fresh.
+#
+# Actions are pinned to full SHAs in .github/workflows/ so a compromise of
+# the upstream org can't silently ship malicious code through a moving tag.
+# Dependabot opens PRs weekly with the new SHA + release notes so we can
+# review and merge rather than running unpinned tags.
+#
+# npm deps are managed manually via changesets for now.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "security"

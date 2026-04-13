@@ -21,6 +21,9 @@ docker-volumes/
 # Local plans
 .plans/
 
+# gstack security reports (local-only, not committed)
+.gstack/
+
 # OS
 .DS_Store
 Thumbs.db
