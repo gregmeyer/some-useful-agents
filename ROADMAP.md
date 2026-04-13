@@ -3,15 +3,21 @@
 A living document of where `some-useful-agents` is heading. Light on detail, heavy
 on direction.
 
-## Now (shipping in v0.3)
+## Now (v0.4.0 shipped, v0.5.0 in flight)
 
 - **Onboarding walkthrough** — `sua tutorial` walks new users through 5 stages
   ending in a real, scheduled agent (dad-joke from icanhazdadjoke.com). Claude or
   Codex can enrich any stage on request via the `explain` prompt.
 - **Local cron scheduler** — `sua schedule start` runs agents with `schedule` fields
   on cron expressions via [node-cron](https://github.com/node-cron/node-cron).
+  Schedules under 60s require an explicit `allowHighFrequency: true` opt-in
+  to avoid silent runaway-cost surprises.
 - **Dad-joke starter agent** — a concrete example that demonstrates scheduling and
   external API calls without any auth setup.
+- **Transport lockdown (v0.4.0)** — MCP server binds `127.0.0.1` by default
+  with bearer-token auth in `~/.sua/mcp-token`, Host/Origin allowlists to
+  defeat DNS rebinding, and session-to-token binding so `sua mcp rotate-token`
+  cannot be hijacked. Closes the largest item from the `/cso` audit.
 
 ## Next (3–6 months)
 
@@ -35,14 +41,29 @@ on direction.
   pipeline users.
 - **Tutorial resume** — save tutorial progress so re-running `sua tutorial` picks
   up at the last completed stage rather than restarting the prose from stage 1.
+- **Interactive agent creator** — `sua agent new` walks through type
+  (shell vs claude-code), name, description, command/prompt, optional
+  schedule, optional secrets, MCP exposure (`mcp: true`), and writes a
+  validated YAML to `agents/local/`. Validates against
+  `agentDefinitionSchema` before writing so users can't end up with
+  broken YAML. Tutorial gets a stage 6 that wraps this verb as the
+  "now make your own" graduation step. Lands after the security PRs
+  so the new schema fields (`mcp`, `allowHighFrequency`, future trust
+  flags) are baked into the prompt flow from day one.
 - **Parallel agents / swarms** — the chain-executor runs sequentially even for
   independent DAG nodes. First-class fan-out/fan-in (e.g., `parallel: [A, B, C]`
   YAML field) plus Temporal worker scaling. Separately consider whether
   inter-agent messaging during execution is in scope or left to chaining.
-- **Security audit** — formal threat model + fixes for known weak spots:
-  shell sandbox actually implemented (currently aspirational), MCP server
-  authentication, escaping `{{outputs}}` template substitutions in shell
-  contexts, schedule frequency caps, stderr-leak mitigation.
+- **Security audit follow-through** — `/cso` ran in v0.4.0 and the
+  transport layer is now locked down (MCP bearer-token + loopback bind +
+  Host/Origin checks; cron frequency cap). Remaining work, in priority
+  order: chain trust propagation so community agent output is wrapped
+  before downstream agents see it (with a hard block on community-shell
+  downstream); first-class community shell-agent gate; run-store
+  `chmod 0o600` + retention + known-prefix secret redaction; passphrase-
+  based KEK for the secrets store (replaces today's hostname-derived
+  obfuscation). Real filesystem/network sandbox for shell agents stays
+  on the long list — it's a multi-day cross-platform effort.
 
 ## Maybe (6–12 months)
 
