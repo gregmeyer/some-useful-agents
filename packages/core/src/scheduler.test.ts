@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { LocalScheduler } from './scheduler.js';
 import type { AgentDefinition, Provider, Run } from './types.js';
 
-function makeAgent(name: string, schedule?: string): AgentDefinition {
-  return { name, type: 'shell', command: `echo ${name}`, schedule };
+function makeAgent(name: string, schedule?: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+  return { name, type: 'shell', command: `echo ${name}`, schedule, ...overrides };
 }
 
 function makeFakeProvider(): Provider {
@@ -42,7 +42,23 @@ describe('LocalScheduler', () => {
       ['bad', makeAgent('bad', 'not-a-cron')],
     ]);
     const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
-    expect(() => scheduler.getScheduledAgents()).toThrow('invalid cron schedule');
+    expect(() => scheduler.getScheduledAgents()).toThrow(/Invalid cron expression/);
+  });
+
+  it('throws on 6-field schedules without allowHighFrequency', () => {
+    const agents = new Map<string, AgentDefinition>([
+      ['fast', makeAgent('fast', '* * * * * *')],
+    ]);
+    const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
+    expect(() => scheduler.getScheduledAgents()).toThrow(/fires more often than the minimum/);
+  });
+
+  it('accepts 6-field schedules when allowHighFrequency is true', () => {
+    const agents = new Map<string, AgentDefinition>([
+      ['fast', makeAgent('fast', '* * * * * *', { allowHighFrequency: true })],
+    ]);
+    const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
+    expect(scheduler.getScheduledAgents().length).toBe(1);
   });
 
   it('isValid accepts standard cron expressions', () => {
@@ -86,9 +102,10 @@ describe('LocalScheduler', () => {
   });
 
   it('onFire callback wires to submitRun with triggeredBy=schedule', async () => {
-    // Use a cron expression that fires every second
+    // Use a cron expression that fires every second. Requires allowHighFrequency
+    // to bypass the safety cap that rejects 6-field expressions by default.
     const agents = new Map<string, AgentDefinition>([
-      ['tick', makeAgent('tick', '* * * * * *')],  // 6-field = seconds granularity
+      ['tick', makeAgent('tick', '* * * * * *', { allowHighFrequency: true })],
     ]);
     const provider = makeFakeProvider();
     const submitSpy = vi.spyOn(provider, 'submitRun');

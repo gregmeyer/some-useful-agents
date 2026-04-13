@@ -99,6 +99,45 @@ describe('agentDefinitionSchema', () => {
     expect(result.timeout).toBe(300);
   });
 
+  it('rejects 6-field cron schedules without allowHighFrequency', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'fast',
+      type: 'shell',
+      command: 'echo hi',
+      schedule: '* * * * * *',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(i => i.path[0] === 'schedule');
+      expect(issue?.message).toMatch(/fires more often than the minimum/);
+    }
+  });
+
+  it('accepts 6-field cron when allowHighFrequency is true', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'fast',
+      type: 'shell',
+      command: 'echo hi',
+      schedule: '* * * * * *',
+      allowHighFrequency: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects garbage cron schedules with a clear error', () => {
+    const result = agentDefinitionSchema.safeParse({
+      name: 'broken',
+      type: 'shell',
+      command: 'echo hi',
+      schedule: 'not-a-cron',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(i => i.path[0] === 'schedule');
+      expect(issue?.message).toMatch(/Invalid cron expression/);
+    }
+  });
+
   it('validates all optional metadata fields', () => {
     const result = agentDefinitionSchema.safeParse({
       name: 'test',

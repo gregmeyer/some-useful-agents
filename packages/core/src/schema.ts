@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 
 export const agentDefinitionSchema = z.object({
   name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Must be lowercase with hyphens only'),
@@ -18,6 +19,12 @@ export const agentDefinitionSchema = z.object({
   timeout: z.number().positive().default(300),
   env: z.record(z.string()).optional(),
   schedule: z.string().optional(),
+  /**
+   * Bypass the default cron frequency cap (60s minimum interval, 5-field only).
+   * Required to use 6-field "with-seconds" expressions. Logged loudly on every
+   * fire so the operator notices the unbounded cost surface.
+   */
+  allowHighFrequency: z.boolean().optional(),
   workingDirectory: z.string().optional(),
 
   // Chaining
@@ -39,6 +46,21 @@ export const agentDefinitionSchema = z.object({
     return false;
   },
   { message: 'Shell agents require "command", claude-code agents require "prompt"' }
-);
+).superRefine((data, ctx) => {
+  if (!data.schedule) return;
+  try {
+    validateScheduleInterval(data.schedule, { allowHighFrequency: data.allowHighFrequency });
+  } catch (err) {
+    if (err instanceof CronInvalidError || err instanceof CronTooFrequentError) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['schedule'],
+        message: err.message,
+      });
+      return;
+    }
+    throw err;
+  }
+});
 
 export type AgentDefinitionInput = z.input<typeof agentDefinitionSchema>;
