@@ -22,6 +22,11 @@ export interface AgentDefinition {
    * agents must opt in to be callable from MCP clients.
    */
   mcp?: boolean;
+  /**
+   * When true, scrub known-prefix secrets from captured stdout/stderr
+   * before they land in the run store.
+   */
+  redactSecrets?: boolean;
   workingDirectory?: string;
 
   // Chaining (Phase 2a)

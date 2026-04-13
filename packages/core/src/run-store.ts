@@ -4,17 +4,35 @@ type SqlValue = string | number | null | bigint | Uint8Array;
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Run, RunStatus } from './types.js';
+import { chmod600Safe } from './fs-utils.js';
+
+export interface RunStoreOptions {
+  /**
+   * Retention window, in days. Rows older than this are deleted on startup.
+   * Default 30. Set `Infinity` to disable. Run output can contain secrets that
+   * agents accidentally echoed, so holding it forever is an ambient leak.
+   */
+  retentionDays?: number;
+}
+
+/** Default retention window for run rows. */
+export const DEFAULT_RETENTION_DAYS = 30;
 
 export class RunStore {
   private db: DatabaseSync;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: RunStoreOptions = {}) {
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
 
     this.db = new DatabaseSync(dbPath);
+    // Lock the DB file down to user-only. Agent stdout can contain secrets
+    // and the DB is unencrypted plaintext; the only at-rest protection is
+    // POSIX perms. Safe on Windows / network mounts via chmod600Safe.
+    chmod600Safe(dbPath);
+
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS runs (
@@ -33,6 +51,21 @@ export class RunStore {
       CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agentName);
       CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
     `);
+
+    this.sweepExpired(options.retentionDays ?? DEFAULT_RETENTION_DAYS);
+  }
+
+  /**
+   * Delete any rows older than `retentionDays`. No-op if retentionDays is
+   * not finite. Called from the constructor on startup; safe to call again.
+   */
+  sweepExpired(retentionDays: number): number {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+    const stmt = this.db.prepare(
+      `DELETE FROM runs WHERE startedAt < datetime('now', ?)`,
+    );
+    const result = stmt.run(`-${Math.floor(retentionDays)} days`);
+    return Number(result.changes ?? 0);
   }
 
   createRun(run: Run): void {

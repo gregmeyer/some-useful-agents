@@ -1,19 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import type { Provider, AgentDefinition, Run, RunStatus } from './types.js';
-import { RunStore } from './run-store.js';
+import { RunStore, type RunStoreOptions } from './run-store.js';
 import { executeAgent, type ExecutionHandle } from './agent-executor.js';
 import { buildAgentEnv, getTrustLevel } from './env-builder.js';
+import { redactKnownSecrets } from './secret-redactor.js';
 import type { SecretsStore } from './secrets-store.js';
+
+export interface LocalProviderOptions {
+  /**
+   * Community shell agents are refused at execution time unless their name
+   * appears here. Per-agent and per-provider-instance so that each CLI
+   * invocation carries its own trust set — a daemon does NOT inherit CLI
+   * flags across runs.
+   */
+  allowUntrustedShell?: ReadonlySet<string>;
+  /** Retention window for the run store in days. Default 30. */
+  retentionDays?: number;
+}
 
 export class LocalProvider implements Provider {
   name = 'local';
   private store: RunStore;
   private secretsStore?: SecretsStore;
   private running = new Map<string, ExecutionHandle>();
+  private readonly allowUntrustedShell: ReadonlySet<string>;
 
-  constructor(dbPath: string, secretsStore?: SecretsStore) {
-    this.store = new RunStore(dbPath);
+  constructor(dbPath: string, secretsStore?: SecretsStore, options: LocalProviderOptions = {}) {
+    const runStoreOptions: RunStoreOptions = { retentionDays: options.retentionDays };
+    this.store = new RunStore(dbPath, runStoreOptions);
     this.secretsStore = secretsStore;
+    this.allowUntrustedShell = options.allowUntrustedShell ?? new Set<string>();
   }
 
   async initialize(): Promise<void> {
@@ -65,19 +81,39 @@ export class LocalProvider implements Provider {
       return this.store.getRun(run.id) as Run;
     }
 
-    const handle = executeAgent(request.agent, env);
+    let handle: ExecutionHandle;
+    try {
+      handle = executeAgent(request.agent, env, { allowUntrustedShell: this.allowUntrustedShell });
+    } catch (err) {
+      // Executor can throw synchronously for gate violations (e.g.
+      // UntrustedCommunityShellError). Record the failure so the run
+      // shows up in history rather than surfacing only as an uncaught.
+      this.store.updateRun(run.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
     this.running.set(run.id, handle);
 
     handle.promise.then((result) => {
       this.running.delete(run.id);
 
       const status: RunStatus = result.exitCode === 0 ? 'completed' : 'failed';
+      const scrubbed = request.agent.redactSecrets
+        ? {
+            result: redactKnownSecrets(result.result),
+            error: result.error ? redactKnownSecrets(result.error) : undefined,
+          }
+        : { result: result.result, error: result.error };
+
       this.store.updateRun(run.id, {
         status,
         completedAt: new Date().toISOString(),
-        result: result.result,
+        result: scrubbed.result,
         exitCode: result.exitCode,
-        error: result.error,
+        error: scrubbed.error,
       });
     });
 

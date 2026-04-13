@@ -9,6 +9,13 @@ export interface SuaConfig {
   temporalAddress?: string;
   temporalNamespace?: string;
   temporalTaskQueue?: string;
+  /**
+   * How many days of run history to keep before the startup sweep deletes
+   * older rows. Default 30. Set to a high number to effectively disable.
+   * Run output can contain secrets echoed by agents; retention limits the
+   * ambient leak surface.
+   */
+  runRetentionDays?: number;
 }
 
 const DEFAULT_CONFIG: SuaConfig = {
@@ -19,6 +26,7 @@ const DEFAULT_CONFIG: SuaConfig = {
   temporalAddress: 'localhost:7233',
   temporalNamespace: 'default',
   temporalTaskQueue: 'sua-agents',
+  runRetentionDays: 30,
 };
 
 export function loadConfig(): SuaConfig {
@@ -62,4 +70,8 @@ export function getDbPath(config: SuaConfig): string {
 
 export function getSecretsPath(config: SuaConfig): string {
   return join(resolve(config.dataDir), 'secrets.enc');
+}
+
+export function getRetentionDays(config: SuaConfig): number {
+  return config.runRetentionDays ?? 30;
 }

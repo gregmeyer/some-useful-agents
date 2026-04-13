@@ -12,16 +12,59 @@ export interface ExecutionHandle {
   kill: () => void;
 }
 
-export function executeAgent(agent: AgentDefinition, env?: Record<string, string>): ExecutionHandle {
+export interface ExecutionOptions {
+  /**
+   * Set of community-sourced agent names permitted to run as shell type.
+   * A shell-type agent with `source === 'community'` not in this set is
+   * refused with `UntrustedCommunityShellError` before `spawn` is called.
+   * Per-agent, not global, so one stray invocation cannot trust everything.
+   */
+  allowUntrustedShell?: ReadonlySet<string>;
+}
+
+/**
+ * Thrown by `executeAgent` when a shell-type agent sourced from
+ * `community` would run without explicit allow-listing. Community agents
+ * get the ambient authority of the user the moment they run — the gate
+ * is a forcing function to read the `command:` field first.
+ */
+export class UntrustedCommunityShellError extends Error {
+  constructor(public readonly agent: string) {
+    super(
+      `Refusing to run community shell agent "${agent}" without explicit opt-in. ` +
+        `Shell agents have full filesystem and network access as the invoking user. ` +
+        `Audit with \`sua agent audit ${agent}\`, then re-run with ` +
+        `\`--allow-untrusted-shell ${agent}\` if the command is safe.`,
+    );
+    this.name = 'UntrustedCommunityShellError';
+  }
+}
+
+export function executeAgent(
+  agent: AgentDefinition,
+  env?: Record<string, string>,
+  options: ExecutionOptions = {},
+): ExecutionHandle {
   if (agent.type === 'shell') {
-    return executeShellAgent(agent, env);
+    return executeShellAgent(agent, env, options);
   }
   return executeClaudeCodeAgent(agent, env);
 }
 
-function executeShellAgent(agent: AgentDefinition, prebuiltEnv?: Record<string, string>): ExecutionHandle {
+function executeShellAgent(
+  agent: AgentDefinition,
+  prebuiltEnv?: Record<string, string>,
+  options: ExecutionOptions = {},
+): ExecutionHandle {
   if (!agent.command) {
     throw new Error(`Shell agent "${agent.name}" has no command`);
+  }
+
+  // Community shell agents are refused by default — they get user-level
+  // ambient authority and no sandbox. Caller must opt in per-agent after
+  // auditing the command. See docs/SECURITY.md.
+  if (agent.source === 'community' && !options.allowUntrustedShell?.has(agent.name)) {
+    throw new UntrustedCommunityShellError(agent.name);
   }
 
   let child: ChildProcess;

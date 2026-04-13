@@ -1,9 +1,23 @@
 import type { AgentDefinition } from '@some-useful-agents/core';
-import { buildAgentEnv, getTrustLevel, executeAgent, EncryptedFileStore } from '@some-useful-agents/core';
+import {
+  buildAgentEnv,
+  getTrustLevel,
+  executeAgent,
+  EncryptedFileStore,
+  redactKnownSecrets,
+} from '@some-useful-agents/core';
 
 export interface RunAgentActivityInput {
   agent: AgentDefinition;
   secretsPath: string;
+  /**
+   * Names of community shell agents the caller has explicitly allowed to run.
+   * The executor refuses community shell by default; include this agent's
+   * name here to permit it. Travels with the activity payload so a worker
+   * running on a different host inherits the caller's trust decision rather
+   * than applying its own.
+   */
+  allowUntrustedShell?: string[];
 }
 
 export interface RunAgentActivityResult {
@@ -38,13 +52,29 @@ export async function runAgentActivity(input: RunAgentActivityInput): Promise<Ru
     };
   }
 
-  const handle = executeAgent(input.agent, env);
+  const allowUntrustedShell = new Set(input.allowUntrustedShell ?? []);
+  let handle;
+  try {
+    handle = executeAgent(input.agent, env, { allowUntrustedShell });
+  } catch (err) {
+    return {
+      result: '',
+      exitCode: 1,
+      error: err instanceof Error ? err.message : String(err),
+      warnings,
+    };
+  }
   const execResult = await handle.promise;
 
+  const shouldRedact = input.agent.redactSecrets;
   return {
-    result: execResult.result,
+    result: shouldRedact ? redactKnownSecrets(execResult.result) : execResult.result,
     exitCode: execResult.exitCode,
-    error: execResult.error,
+    error: execResult.error
+      ? shouldRedact
+        ? redactKnownSecrets(execResult.error)
+        : execResult.error
+      : undefined,
     warnings,
   };
 }

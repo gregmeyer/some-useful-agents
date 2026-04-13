@@ -11,6 +11,13 @@ export interface TemporalProviderOptions {
   address?: string;
   namespace?: string;
   taskQueue?: string;
+  /**
+   * Community shell agents permitted to run. Propagated to the worker via
+   * the workflow input so workers inherit the submitter's trust decision.
+   */
+  allowUntrustedShell?: ReadonlySet<string>;
+  /** Retention window for the local run-store mirror, in days. Default 30. */
+  retentionDays?: number;
 }
 
 export class TemporalProvider implements Provider {
@@ -19,10 +26,11 @@ export class TemporalProvider implements Provider {
   private store: RunStore;
   private client!: Client;
   private connection!: Connection;
-  private readonly options: Required<TemporalProviderOptions>;
+  private readonly options: Required<Omit<TemporalProviderOptions, 'allowUntrustedShell' | 'retentionDays'>>;
+  private readonly allowUntrustedShell: ReadonlySet<string>;
 
   constructor(options: TemporalProviderOptions) {
-    this.store = new RunStore(options.dbPath);
+    this.store = new RunStore(options.dbPath, { retentionDays: options.retentionDays });
     this.options = {
       dbPath: options.dbPath,
       secretsPath: options.secretsPath,
@@ -30,6 +38,7 @@ export class TemporalProvider implements Provider {
       namespace: options.namespace ?? 'default',
       taskQueue: options.taskQueue ?? DEFAULT_TASK_QUEUE,
     };
+    this.allowUntrustedShell = options.allowUntrustedShell ?? new Set<string>();
   }
 
   async initialize(): Promise<void> {
@@ -55,6 +64,7 @@ export class TemporalProvider implements Provider {
     const input: RunAgentWorkflowInput = {
       agent: request.agent,
       secretsPath: this.options.secretsPath,
+      allowUntrustedShell: [...this.allowUntrustedShell],
     };
 
     // Fire-and-forget start; poll for status later via workflow handle
