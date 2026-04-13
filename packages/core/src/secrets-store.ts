@@ -1,7 +1,8 @@
 import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { hostname, userInfo } from 'node:os';
+import { chmod600Safe } from './fs-utils.js';
 
 export interface SecretsStore {
   get(name: string): Promise<string | undefined>;
@@ -117,11 +118,7 @@ export class EncryptedFileStore implements SecretsStore {
     };
 
     writeFileSync(this.path, JSON.stringify(payload, null, 2), 'utf-8');
-    try {
-      chmodSync(this.path, 0o600);
-    } catch {
-      // Best effort: chmod may fail on Windows or network mounts
-    }
+    chmod600Safe(this.path);
   }
 }
 
