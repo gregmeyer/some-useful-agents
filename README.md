@@ -33,10 +33,12 @@ The tutorial walks you through what sua is, builds a real agent that fetches a d
 ```bash
 sua agent list                # runnable agents (examples + local)
 sua agent list --catalog      # browse the community catalog
+sua agent new                 # interactive scaffold → writes agents/local/<name>.yaml
 sua agent run <name>          # run an agent once
 sua agent status [runId]      # recent runs, or one specific run
 sua agent logs <runId>        # stdout/stderr of a past run
 sua agent cancel <runId>      # kill a running agent
+sua agent audit <name>        # print resolved YAML (use before --allow-untrusted-shell)
 ```
 
 **Scheduling**

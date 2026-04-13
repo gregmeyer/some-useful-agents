@@ -3,7 +3,7 @@
 A living document of where `some-useful-agents` is heading. Light on detail, heavy
 on direction.
 
-## Now (v0.4.0 shipped, v0.5.0 in flight)
+## Now (v0.7.0 shipped)
 
 - **Onboarding walkthrough** — `sua tutorial` walks new users through 5 stages
   ending in a real, scheduled agent (dad-joke from icanhazdadjoke.com). Claude or
@@ -18,6 +18,21 @@ on direction.
   with bearer-token auth in `~/.sua/mcp-token`, Host/Origin allowlists to
   defeat DNS rebinding, and session-to-token binding so `sua mcp rotate-token`
   cannot be hijacked. Closes the largest item from the `/cso` audit.
+- **Chain trust + MCP agent scope (v0.5.0)** — community agent output flowing
+  into claude-code downstreams is wrapped in UNTRUSTED delimiters; community
+  shell downstream is refused unless explicitly allow-listed. MCP only exposes
+  agents that opt in via `mcp: true` in their YAML. Full threat model at
+  `docs/SECURITY.md`.
+- **Community shell gate + run-store hygiene (v0.6.0/v0.6.1)** — community
+  shell agents refuse to run without `--allow-untrusted-shell <name>`.
+  `data/runs.db` is chmod 0o600 with a 30-day retention sweep. Opt-in
+  `redactSecrets: true` scrubs known-prefix tokens (AWS, GitHub PAT, OpenAI,
+  Slack) from captured output. New `sua agent audit` and `sua doctor --security`
+  verbs for self-inspection.
+- **Interactive agent creator (v0.7.0)** — `sua agent new` walks through type,
+  name, description, command/prompt, and optional advanced fields
+  (timeout, schedule, secrets, `mcp:`, `redactSecrets`), validates via
+  `agentDefinitionSchema`, and writes to `agents/local/<name>.yaml`.
 
 ## Next (3–6 months)
 
@@ -41,15 +56,10 @@ on direction.
   pipeline users.
 - **Tutorial resume** — save tutorial progress so re-running `sua tutorial` picks
   up at the last completed stage rather than restarting the prose from stage 1.
-- **Interactive agent creator** — `sua agent new` walks through type
-  (shell vs claude-code), name, description, command/prompt, optional
-  schedule, optional secrets, MCP exposure (`mcp: true`), and writes a
-  validated YAML to `agents/local/`. Validates against
-  `agentDefinitionSchema` before writing so users can't end up with
-  broken YAML. Tutorial gets a stage 6 that wraps this verb as the
-  "now make your own" graduation step. Lands after the security PRs
-  so the new schema fields (`mcp`, `allowHighFrequency`, future trust
-  flags) are baked into the prompt flow from day one.
+- **Tutorial "make your own" stage** — `sua tutorial` currently ends after
+  scheduling the dad joke. Add a stage 6 that wraps `sua agent new` so users
+  graduate from "ran examples" to "authored one myself" without leaving the
+  walkthrough. The verb shipped in v0.7.0; this is the guided wrapper.
 - **Parallel agents / swarms** — the chain-executor runs sequentially even for
   independent DAG nodes. First-class fan-out/fan-in (e.g., `parallel: [A, B, C]`
   YAML field) plus Temporal worker scaling. Separately consider whether
