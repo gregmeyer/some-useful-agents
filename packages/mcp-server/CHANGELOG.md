@@ -1,5 +1,11 @@
 # @some-useful-agents/mcp-server
 
+## 0.3.2
+
+### Patch Changes
+
+- @some-useful-agents/core@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
