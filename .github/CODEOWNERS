@@ -1,0 +1,11 @@
+# Code owners for some-useful-agents.
+#
+# Anything under .github/ affects CI, release automation, and publish credentials.
+# Require owner review for any change there so a compromised reviewer can't
+# slip a malicious workflow past us.
+#
+# See docs/SECURITY.md for the full threat model.
+
+/.github/workflows/  @gregmeyer
+/.github/CODEOWNERS  @gregmeyer
+/.github/dependabot.yml  @gregmeyer

@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import type { AgentDefinition, Provider } from './types.js';
+import { validateScheduleInterval } from './cron-validator.js';
 
 export interface ScheduledAgentEntry {
   agent: AgentDefinition;
@@ -27,15 +28,19 @@ export class LocalScheduler {
     this.onError = options.onError;
   }
 
-  /** Return entries with a `schedule` field, validated. Throws on invalid cron strings. */
+  /**
+   * Return entries with a `schedule` field, validated.
+   * Throws on invalid cron strings or schedules that exceed the frequency cap.
+   */
   getScheduledAgents(): ScheduledAgentEntry[] {
     const entries: ScheduledAgentEntry[] = [];
     for (const agent of this.agents.values()) {
       if (!agent.schedule) continue;
-      if (!cron.validate(agent.schedule)) {
-        throw new Error(
-          `Agent "${agent.name}" has invalid cron schedule: "${agent.schedule}"`
-        );
+      try {
+        validateScheduleInterval(agent.schedule, { allowHighFrequency: agent.allowHighFrequency });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Agent "${agent.name}": ${message}`);
       }
       entries.push({ agent, schedule: agent.schedule });
     }
@@ -47,6 +52,13 @@ export class LocalScheduler {
     const entries = this.getScheduledAgents();
     for (const { agent, schedule } of entries) {
       const task = cron.schedule(schedule, async () => {
+        if (agent.allowHighFrequency) {
+          // Loud warning so operators see the unbounded cost surface.
+          console.warn(
+            `[high-frequency] agent "${agent.name}" firing on schedule "${schedule}". ` +
+              `allowHighFrequency=true bypasses the safety cap.`,
+          );
+        }
         try {
           const run = await this.provider.submitRun({ agent, triggeredBy: 'schedule' });
           this.onFire?.(agent, run.id);
@@ -67,7 +79,7 @@ export class LocalScheduler {
     this.tasks = [];
   }
 
-  /** True if a cron expression parses cleanly. */
+  /** True if a cron expression parses cleanly. Does NOT enforce the frequency cap. */
   static isValid(expression: string): boolean {
     return cron.validate(expression);
   }

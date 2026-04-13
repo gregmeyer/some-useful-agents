@@ -16,6 +16,7 @@ export interface AgentDefinition {
   timeout?: number;
   env?: Record<string, string>;
   schedule?: string;
+  allowHighFrequency?: boolean;
   workingDirectory?: string;
 
   // Chaining (Phase 2a)
