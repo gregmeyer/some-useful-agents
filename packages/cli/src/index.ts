@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { Command } from 'commander';
 import { listCommand } from './commands/list.js';
 import { runCommand } from './commands/run.js';
@@ -14,12 +17,18 @@ import { workerCommand } from './commands/worker.js';
 import { scheduleCommand } from './commands/schedule.js';
 import { tutorialCommand } from './commands/tutorial.js';
 
+// Read version from our own package.json so `sua --version` always matches
+// the installed package version (no hardcoded drift).
+const here = dirname(fileURLToPath(import.meta.url));
+const pkgPath = join(here, '..', 'package.json');
+const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version: string };
+
 const program = new Command();
 
 program
   .name('sua')
   .description('some-useful-agents — a local-first agent playground')
-  .version('0.1.0');
+  .version(pkg.version);
 
 const agent = program
   .command('agent')
