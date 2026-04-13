@@ -1,8 +1,16 @@
 name: CI
 
 on:
+  # Run on direct pushes to main and on any pull_request targeting main.
+  #
+  # We also run on pushes to `changeset-release/main` so the Release PR
+  # that changesets/action opens gets CI status checks automatically.
+  # PRs opened by `github-actions[bot]` don't trigger `pull_request`
+  # workflows (GitHub prevents action-from-action loops), but the bot's
+  # *push* to the release branch is a normal push event and surfaces
+  # the checks on the PR without requiring a close+reopen dance.
   push:
-    branches: [main]
+    branches: [main, changeset-release/main]
   pull_request:
     branches: [main]
 
