@@ -12,6 +12,7 @@ import {
   getMcpTokenPath,
   readMcpToken,
 } from '@some-useful-agents/core';
+import * as ui from '../ui.js';
 
 interface Check {
   name: string;
@@ -107,20 +108,20 @@ export const doctorCommand = new Command('doctor')
 
     if (options.security) {
       const checks = buildSecurityChecks(config);
-      console.log(chalk.bold('\nsome-useful-agents doctor — security\n'));
+      ui.section('some-useful-agents doctor — security');
       let allOk = true;
       for (const check of checks) {
         const result = check.run();
-        const icon = result.ok ? chalk.green('✓') : chalk.red('✗');
-        const msg = result.ok ? chalk.dim(result.message) : chalk.red(result.message);
-        console.log(`  ${icon} ${check.name}  ${msg}`);
+        const icon = result.ok ? ui.SYMBOLS.ok : ui.SYMBOLS.fail;
+        const msg = result.ok ? ui.dim(result.message) : chalk.red(result.message);
+        console.log(`  ${icon}  ${check.name}  ${msg}`);
         if (!result.ok) allOk = false;
       }
       console.log('');
       if (allOk) {
-        console.log(chalk.green('Security posture looks good.'));
+        ui.ok('Security posture looks good.');
       } else {
-        console.log(chalk.yellow('Security findings above. See docs/SECURITY.md.'));
+        ui.warn('Security findings above. See docs/SECURITY.md.');
         process.exit(1);
       }
       return;
@@ -263,22 +264,22 @@ export const doctorCommand = new Command('doctor')
       },
     ];
 
-    console.log(chalk.bold('\nsome-useful-agents doctor\n'));
+    ui.section('some-useful-agents doctor');
 
     let allOk = true;
     for (const check of checks) {
       const result = check.run();
-      const icon = result.ok ? chalk.green('✓') : chalk.red('✗');
-      const msg = result.ok ? chalk.dim(result.message) : chalk.red(result.message);
-      console.log(`  ${icon} ${check.name} ${msg}`);
+      const icon = result.ok ? ui.SYMBOLS.ok : ui.SYMBOLS.fail;
+      const msg = result.ok ? ui.dim(result.message) : chalk.red(result.message);
+      console.log(`  ${icon}  ${check.name}  ${msg}`);
       if (!result.ok) allOk = false;
     }
 
     console.log('');
     if (allOk) {
-      console.log(chalk.green('All checks passed.'));
+      ui.ok('All checks passed.');
     } else {
-      console.log(chalk.yellow('Some checks failed. See above.'));
+      ui.warn('Some checks failed. See above.');
       process.exit(1);
     }
   });

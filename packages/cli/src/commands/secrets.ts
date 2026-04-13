@@ -4,6 +4,7 @@ import Table from 'cli-table3';
 import { createInterface } from 'node:readline';
 import { EncryptedFileStore, loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getSecretsPath, getAgentDirs } from '../config.js';
+import * as ui from '../ui.js';
 
 function getStore() {
   const config = loadConfig();
@@ -62,19 +63,19 @@ secretsCommand
   .argument('<name>', 'Secret name (e.g. MY_API_KEY)')
   .action(async (name: string) => {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
-      console.error(chalk.red(`Invalid secret name "${name}". Must be uppercase with underscores (e.g. MY_API_KEY).`));
+      ui.fail(`Invalid secret name "${name}". Must be uppercase with underscores (e.g. MY_API_KEY).`);
       process.exit(1);
     }
 
     const value = await promptSecret(name);
     if (!value) {
-      console.error(chalk.red('No value provided.'));
+      ui.fail('No value provided.');
       process.exit(1);
     }
 
     const store = getStore();
     await store.set(name, value);
-    console.log(chalk.green(`Set secret ${chalk.cyan(name)}`));
+    ui.ok(`Set secret ${ui.agent(name)}`);
   });
 
 secretsCommand
@@ -85,7 +86,7 @@ secretsCommand
     const store = getStore();
     const value = await store.get(name);
     if (value === undefined) {
-      console.error(chalk.red(`Secret "${name}" not set.`));
+      ui.fail(`Secret "${name}" not set.`);
       process.exit(1);
     }
     console.log(value);
@@ -99,16 +100,16 @@ secretsCommand
     const names = await store.list();
 
     if (names.length === 0) {
-      console.log(chalk.dim('No secrets set. Run `sua secrets set <NAME>` to add one.'));
+      ui.info('No secrets set. Run `sua secrets set <NAME>` to add one.');
       return;
     }
 
     const table = new Table({ head: [chalk.bold('Name')] });
     for (const name of names) {
-      table.push([chalk.cyan(name)]);
+      table.push([ui.agent(name)]);
     }
     console.log(table.toString());
-    console.log(chalk.dim(`\n${names.length} secret(s)`));
+    console.log(ui.dim(`\n${names.length} secret(s)`));
   });
 
 secretsCommand
@@ -118,11 +119,11 @@ secretsCommand
   .action(async (name: string) => {
     const store = getStore();
     if (!(await store.has(name))) {
-      console.error(chalk.yellow(`Secret "${name}" not found.`));
+      ui.warn(`Secret "${name}" not found.`);
       process.exit(1);
     }
     await store.delete(name);
-    console.log(chalk.green(`Deleted secret ${chalk.cyan(name)}`));
+    ui.ok(`Deleted secret ${ui.agent(name)}`);
   });
 
 secretsCommand
@@ -136,13 +137,13 @@ secretsCommand
 
     const agent = agents.get(agentName);
     if (!agent) {
-      console.error(chalk.red(`Agent "${agentName}" not found.`));
+      ui.fail(`Agent "${agentName}" not found.`);
       process.exit(1);
     }
 
     const declared = agent.secrets ?? [];
     if (declared.length === 0) {
-      console.log(chalk.dim(`Agent "${agentName}" declares no secrets.`));
+      ui.info(`Agent "${agentName}" declares no secrets.`);
       return;
     }
 
@@ -152,7 +153,7 @@ secretsCommand
     for (const name of declared) {
       const has = await store.has(name);
       table.push([
-        chalk.cyan(name),
+        ui.agent(name),
         has ? chalk.green('set') : chalk.red('missing'),
       ]);
     }

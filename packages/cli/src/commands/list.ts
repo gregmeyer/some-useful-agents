@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
+import * as ui from '../ui.js';
 
 export const listCommand = new Command('list')
   .description('List available agents')
@@ -17,11 +18,15 @@ export const listCommand = new Command('list')
     const { agents, warnings } = loadAgents({ directories });
 
     for (const w of warnings) {
-      console.error(chalk.yellow(`Warning: ${w.file}: ${w.message}`));
+      ui.warn(`${w.file}: ${w.message}`);
     }
 
     if (agents.size === 0) {
-      console.log(chalk.dim(`No agents found. ${options.catalog ? '' : 'Run "sua init" to get started.'}`));
+      ui.info(
+        options.catalog
+          ? 'No catalog agents found.'
+          : 'No agents found. Run "sua init" to get started.',
+      );
       return;
     }
 
@@ -31,13 +36,13 @@ export const listCommand = new Command('list')
 
     for (const [, agent] of agents) {
       table.push([
-        chalk.cyan(agent.name),
+        ui.agent(agent.name),
         agent.type === 'shell' ? chalk.green('shell') : chalk.magenta('claude-code'),
-        agent.description ?? chalk.dim('(no description)'),
+        agent.description ?? ui.dim('(no description)'),
       ]);
     }
 
-    console.log(`\n${chalk.bold(label)}\n`);
+    ui.section(label);
     console.log(table.toString());
-    console.log(chalk.dim(`\n${agents.size} agent(s)`));
+    console.log(ui.dim(`\n${agents.size} agent(s)`));
   });

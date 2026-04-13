@@ -3,14 +3,7 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
 import { loadConfig, getDbPath, getSecretsPath } from '../config.js';
-
-const STATUS_COLORS: Record<string, (s: string) => string> = {
-  completed: chalk.green,
-  running: chalk.blue,
-  pending: chalk.yellow,
-  failed: chalk.red,
-  cancelled: chalk.gray,
-};
+import * as ui from '../ui.js';
 
 export const statusCommand = new Command('status')
   .description('Show run status')
@@ -26,24 +19,23 @@ export const statusCommand = new Command('status')
       if (runId) {
         const run = await provider.getRun(runId);
         if (!run) {
-          console.error(chalk.red(`Run "${runId}" not found.`));
+          ui.fail(`Run "${runId}" not found.`);
           process.exit(1);
         }
 
-        const colorFn = STATUS_COLORS[run.status] ?? chalk.white;
-        console.log(`\n${chalk.bold('Run')} ${chalk.dim(run.id)}`);
-        console.log(`  Agent:     ${chalk.cyan(run.agentName)}`);
-        console.log(`  Status:    ${colorFn(run.status)}`);
-        console.log(`  Started:   ${run.startedAt}`);
-        if (run.completedAt) console.log(`  Completed: ${run.completedAt}`);
-        if (run.exitCode !== undefined) console.log(`  Exit code: ${run.exitCode}`);
-        if (run.error) console.log(`  Error:     ${chalk.red(run.error)}`);
+        console.log(`\n${chalk.bold('Run')} ${ui.id(run.id)}`);
+        ui.kv('Agent', ui.agent(run.agentName), 10);
+        ui.kv('Status', ui.colorStatus(run.status), 10);
+        ui.kv('Started', run.startedAt, 10);
+        if (run.completedAt) ui.kv('Completed', run.completedAt, 10);
+        if (run.exitCode !== undefined) ui.kv('Exit code', String(run.exitCode), 10);
+        if (run.error) ui.kv('Error', chalk.red(run.error), 10);
       } else {
         const limit = parseInt(options?.limit ?? '10', 10);
         const runs = await provider.listRuns({ limit });
 
         if (runs.length === 0) {
-          console.log(chalk.dim('No runs yet.'));
+          ui.info('No runs yet.');
           return;
         }
 
@@ -52,16 +44,15 @@ export const statusCommand = new Command('status')
         });
 
         for (const run of runs) {
-          const colorFn = STATUS_COLORS[run.status] ?? chalk.white;
           table.push([
-            chalk.dim(run.id.slice(0, 8)),
-            chalk.cyan(run.agentName),
-            colorFn(run.status),
+            ui.id(run.id.slice(0, 8)),
+            ui.agent(run.agentName),
+            ui.colorStatus(run.status),
             run.startedAt,
           ]);
         }
 
-        console.log(`\n${chalk.bold('Recent Runs')}\n`);
+        ui.section('Recent Runs');
         console.log(table.toString());
       }
     } finally {

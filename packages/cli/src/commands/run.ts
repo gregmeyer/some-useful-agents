@@ -4,6 +4,7 @@ import ora from 'ora';
 import { loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
 import { createProvider } from '../provider-factory.js';
+import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
   return [...previous, value];
@@ -29,8 +30,8 @@ export const runCommand = new Command('run')
 
     const agent = agents.get(name);
     if (!agent) {
-      console.error(chalk.red(`Agent "${name}" not found.`));
-      console.error(chalk.dim('Run "sua agent list" to see available agents.'));
+      ui.fail(`Agent "${name}" not found.`);
+      console.error(ui.dim('Run "sua agent list" to see available agents.'));
       process.exit(1);
     }
 
@@ -38,7 +39,7 @@ export const runCommand = new Command('run')
       providerOverride: options.provider,
       allowUntrustedShell: new Set(options.allowUntrustedShell),
     });
-    const spinner = ora(`Running ${chalk.cyan(name)} via ${chalk.dim(provider.name)}...`).start();
+    const spinner = ora(`Running ${ui.agent(name)} via ${ui.dim(provider.name)}...`).start();
 
     try {
       let run;
@@ -49,7 +50,7 @@ export const runCommand = new Command('run')
         process.exitCode = 1;
         return;
       }
-      spinner.text = `Running ${chalk.cyan(name)} (${chalk.dim(run.id.slice(0, 8))})...`;
+      spinner.text = `Running ${ui.agent(name)} (${ui.id(run.id.slice(0, 8))})...`;
 
       // Poll for completion
       let current = run;
@@ -63,7 +64,7 @@ export const runCommand = new Command('run')
         // Warn if workflow stays pending > 5s (likely no worker running for temporal)
         if (!pendingWarned && provider.name === 'temporal' && current.status === 'pending' && Date.now() - startedAt > 5000) {
           spinner.warn(
-            `Run still pending after 5s. Is the worker running? Start it with: ${chalk.cyan('sua worker start')}`
+            `Run still pending after 5s. Is the worker running? Start it with: ${ui.cmd('sua worker start')}`
           );
           pendingWarned = true;
           spinner.start();
@@ -71,20 +72,19 @@ export const runCommand = new Command('run')
       }
 
       if (current.status === 'completed') {
-        spinner.succeed(`${chalk.cyan(name)} completed`);
+        spinner.succeed(`${ui.agent(name)} completed`);
         if (current.result) {
-          console.log(chalk.dim('\n--- output ---'));
-          console.log(current.result.trimEnd());
-          console.log(chalk.dim('--- end ---'));
+          console.log('');
+          ui.outputFrame(current.result);
         }
       } else {
-        spinner.fail(`${chalk.cyan(name)} ${current.status}`);
+        spinner.fail(`${ui.agent(name)} ${current.status}`);
         if (current.error) {
           console.error(chalk.red(current.error));
         }
       }
 
-      console.log(chalk.dim(`\nRun ID: ${current.id}`));
+      console.log(ui.dim(`\nRun ID: ${current.id}`));
     } finally {
       await provider.shutdown();
     }

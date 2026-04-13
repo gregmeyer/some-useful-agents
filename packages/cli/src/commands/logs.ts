@@ -1,7 +1,7 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
 import { LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
 import { loadConfig, getDbPath, getSecretsPath } from '../config.js';
+import * as ui from '../ui.js';
 
 export const logsCommand = new Command('logs')
   .description('Show logs for a run')
@@ -15,9 +15,9 @@ export const logsCommand = new Command('logs')
     try {
       const logs = await provider.getRunLogs(runId);
       if (!logs || logs === '(no output)') {
-        console.log(chalk.dim('No output for this run.'));
+        ui.info('No output for this run.');
       } else {
-        console.log(logs);
+        ui.outputFrame(logs);
       }
     } finally {
       await provider.shutdown();
