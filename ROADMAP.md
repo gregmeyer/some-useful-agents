@@ -23,12 +23,26 @@ on direction.
 - **Agent registry** — `sua agent install <github-url>` fetches a YAML from a
   remote repo, validates with zod, drops it into `agents/local/`. Turns the
   community catalog into one-command installs.
+- **Daemon mode / unattended operation** — `sua schedule start` runs foreground
+  today. First-class backgrounding: either a bundled `sua daemon start|stop|status`
+  wrapper over pm2, or generators for `launchd` (macOS) and `systemd` (Linux)
+  unit files. Needed so scheduled agents actually fire when the terminal is closed.
 - **OS keychain for secrets (Phase S3)** — optional `keytar`-backed store for
   stronger at-rest encryption than the current machine-bound file cipher.
 - **Temporal scheduling** — use Temporal's Schedules API for agents running via
   the Temporal provider (so scheduling works without a local scheduler daemon).
 - **n8n provider** — second workflow provider alongside Temporal, for visual
   pipeline users.
+- **Tutorial resume** — save tutorial progress so re-running `sua tutorial` picks
+  up at the last completed stage rather than restarting the prose from stage 1.
+- **Parallel agents / swarms** — the chain-executor runs sequentially even for
+  independent DAG nodes. First-class fan-out/fan-in (e.g., `parallel: [A, B, C]`
+  YAML field) plus Temporal worker scaling. Separately consider whether
+  inter-agent messaging during execution is in scope or left to chaining.
+- **Security audit** — formal threat model + fixes for known weak spots:
+  shell sandbox actually implemented (currently aspirational), MCP server
+  authentication, escaping `{{outputs}}` template substitutions in shell
+  contexts, schedule frequency caps, stderr-leak mitigation.
 
 ## Maybe (6–12 months)
 

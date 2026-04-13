@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// MUST be the first import so the warning filter is attached before any
+// transitive import of node:sqlite fires the ExperimentalWarning.
+import './suppress-warnings.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
