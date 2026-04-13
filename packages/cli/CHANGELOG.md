@@ -1,5 +1,14 @@
 # @some-useful-agents/cli
 
+## 0.3.1
+
+### Patch Changes
+
+- c671954: Fix tutorial silently exiting after stage 3. ora's default `discardStdin: true` was fighting with readline: after the spinner stopped, stdin was left in a state that made subsequent `rl.question` calls fail silently, so the tutorial never reached stages 4 and 5. All ora calls in the tutorial now pass `discardStdin: false`. Also wraps each stage in a try/catch that logs errors before re-throwing, so future silent failures are visible.
+  - @some-useful-agents/core@0.3.1
+  - @some-useful-agents/mcp-server@0.3.1
+  - @some-useful-agents/temporal-provider@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
