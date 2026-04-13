@@ -4,15 +4,28 @@ A local-first agent playground. Author, schedule, and report on agents running o
 
 Define agents in YAML, run them via CLI or MCP, schedule them with Temporal, chain them into pipelines, and share them with the community.
 
-## Quick start (local provider, no Docker)
+## Quick start — from npm, no clone
+
+```bash
+npm install -g @some-useful-agents/cli
+mkdir my-agents && cd my-agents
+sua init           # scaffolds agents/local/hello.yaml
+sua tutorial       # 5-stage walkthrough ending with a scheduled dad joke
+```
+
+If you prefer running without global install, use `npx @some-useful-agents/cli <command>` anywhere.
+
+The tutorial ends with you having built the `dad-joke` agent, fetched a real joke from
+icanhazdadjoke.com, and optionally scheduled it to fire daily at 9am. Stages can be
+enriched on-demand with a Claude or Codex deep-dive — type `explain` at any prompt.
+
+## Cloning from source (for contributors)
 
 ```bash
 git clone https://github.com/gregmeyer/some-useful-agents.git
 cd some-useful-agents
 npm install
 npm run build
-npx sua init
-npx sua agent run hello-shell
 ```
 
 ## Running on Temporal
@@ -96,6 +109,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full schema.
 | `@some-useful-agents/mcp-server` | MCP server (HTTP/SSE) |
 | `@some-useful-agents/temporal-provider` | Temporal workflow provider |
 | `@some-useful-agents/dashboard` | Web dashboard |
+
+## Where is this going?
+
+See [ROADMAP.md](ROADMAP.md) for direction, and [docs/adr/](docs/adr/) for the
+rationale behind past architecture decisions.
 
 ## License
 

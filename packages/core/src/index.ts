@@ -8,3 +8,5 @@ export * from './chain-resolver.js';
 export * from './chain-executor.js';
 export * from './env-builder.js';
 export * from './secrets-store.js';
+export * from './scheduler.js';
+export * from './llm-invoker.js';

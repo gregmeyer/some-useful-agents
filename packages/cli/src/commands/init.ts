@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
+import { HELLO_AGENT_YAML } from '../scaffolds.js';
 
 export const initCommand = new Command('init')
   .description('Initialize some-useful-agents in the current directory')
@@ -35,6 +36,16 @@ export const initCommand = new Command('init')
       console.log(chalk.green(`Created ${config.dataDir}/`));
     }
 
-    console.log(chalk.dim('\nRun "sua agent list" to see available agents.'));
-    console.log(chalk.dim('Run "sua agent run hello-shell" to test your first agent.'));
+    // Scaffold the hello agent so `sua agent list` isn't empty
+    const helloPath = join(agentsLocal, 'hello.yaml');
+    if (!existsSync(helloPath)) {
+      writeFileSync(helloPath, HELLO_AGENT_YAML);
+      console.log(chalk.green(`Created ${helloPath}`));
+    }
+
+    console.log('');
+    console.log(chalk.bold('Next steps:'));
+    console.log(`  ${chalk.cyan('sua tutorial')}           ${chalk.dim('- guided walkthrough (recommended)')}`);
+    console.log(`  ${chalk.cyan('sua agent run hello')}    ${chalk.dim('- run your first agent')}`);
+    console.log(`  ${chalk.cyan('sua doctor')}             ${chalk.dim('- check prerequisites')}`);
   });

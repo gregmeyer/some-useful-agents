@@ -11,6 +11,8 @@ import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
 import { secretsCommand } from './commands/secrets.js';
 import { workerCommand } from './commands/worker.js';
+import { scheduleCommand } from './commands/schedule.js';
+import { tutorialCommand } from './commands/tutorial.js';
 
 const program = new Command();
 
@@ -34,5 +36,7 @@ program.addCommand(doctorCommand);
 program.addCommand(mcpCommand);
 program.addCommand(secretsCommand);
 program.addCommand(workerCommand);
+program.addCommand(scheduleCommand);
+program.addCommand(tutorialCommand);
 
 program.parse();

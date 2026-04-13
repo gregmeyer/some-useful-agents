@@ -11,7 +11,8 @@
   "dependencies": {
     "yaml": "^2.7.0",
     "zod": "^3.24.0",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "node-cron": "^4.0.0"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
