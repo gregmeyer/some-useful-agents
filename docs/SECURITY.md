@@ -44,13 +44,13 @@ The bearer token's only job is to gate *any process that can hit localhost* from
 
 Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents` and `run-agent` tools. Agents without the flag respond as "not found" — not "forbidden" — so a compromised MCP client cannot enumerate the user's full catalog. Use `sua agent list` from the CLI to see everything.
 
-### Shell agent gate (v0.5.1)
+### Shell agent gate (v0.6.0)
 
 Shell-type agents sourced from `community/` refuse to run unless the caller has explicitly opted in. The CLI surfaces this as `--allow-untrusted-shell <name>` on `sua agent run` and `sua schedule start` (repeatable, per-agent, not global). Library consumers pass `LocalProvider({ allowUntrustedShell: Set<string> })` or the equivalent on `TemporalProvider`. The executor throws `UntrustedCommunityShellError` before `spawn` is called, and the provider records a failed run in the store so the refusal shows up in history.
 
 This is a forcing function, not a sandbox. Once you opt in, the shell runs with your full ambient authority. The point is to make you read the `command:` field first. Use `sua agent audit <name>` to print the resolved YAML before opting in.
 
-### Run-store hygiene (v0.5.1)
+### Run-store hygiene (v0.6.0)
 
 - `data/runs.db` is chmod 0o600 at create time. Agent stdout can contain secrets that were echoed by an agent; the DB is unencrypted plaintext, so POSIX perms are the only at-rest protection.
 - Retention sweep: the store deletes rows older than `runRetentionDays` (default 30) on startup. Configure via `sua.config.json`. Long-running agent history is an ambient leak surface — we cap it unless you opt out.
@@ -93,9 +93,9 @@ See [ADR-0006](adr/0006-env-filtering-by-trust-level.md).
 Being explicit so you can evaluate whether sua is the right tool for your threat model:
 
 - **Shell agent sandboxing.** Once you opt in past the community-shell gate, the agent runs as the invoking user with full ambient authority: filesystem, network, processes. A malicious shell agent can `rm -rf $HOME`, exfiltrate `~/.ssh`, read browser cookies, or run any other command the user could run. The env filter reduces secret-leak blast radius but does not create a sandbox. Treat every `--allow-untrusted-shell` invocation like running the shell script yourself — because you effectively are. Real sandboxing (`nsjail` on Linux, `sandbox-exec` on macOS) is on the long-term roadmap.
-- **Secrets-store encryption.** The AES-256-GCM cipher in `data/secrets.enc` uses a key derived from `scrypt(hostname + username)`. If the file ever leaves the machine — iCloud sync, Time Machine to a network share, accidental commit — an attacker who can guess the hostname and username (trivial for a targeted attacker) can decrypt the whole store. Today's encryption is **obfuscation, not a real defense**. The file's POSIX `0600` permission is the actual at-rest protection. Passphrase-based key derivation lands in v0.6.0; until then, treat the encrypted store as plaintext for threat-modeling purposes.
+- **Secrets-store encryption.** The AES-256-GCM cipher in `data/secrets.enc` uses a key derived from `scrypt(hostname + username)`. If the file ever leaves the machine — iCloud sync, Time Machine to a network share, accidental commit — an attacker who can guess the hostname and username (trivial for a targeted attacker) can decrypt the whole store. Today's encryption is **obfuscation, not a real defense**. The file's POSIX `0600` permission is the actual at-rest protection. Passphrase-based key derivation lands in v0.7.0; until then, treat the encrypted store as plaintext for threat-modeling purposes.
 - **Prompt injection from claude-code upstream agents.** We only wrap values from `community` agents. If you write a `local` claude-code agent that can be manipulated by a user into producing prompt-injection payloads, and a second `local` agent reads its output, that output flows through unwrapped. Don't chain agents whose inputs you don't control.
-- **Run output secrets (by default).** Agent stdout lands verbatim in `data/runs.db` unless the agent opts into `redactSecrets: true` (v0.5.1). The default behavior is still "store what the agent printed." If an agent you author calls a third-party API that might return a token, set `redactSecrets: true` to catch the AWS / GitHub / LLM / Slack prefixes. Do not rely on the scrubber for unknown secret formats — it's narrow on purpose. As of v0.5.1, `runs.db` is chmod 0o600 at create and rows older than 30 days are swept on startup; neither of those replaces redaction for live secrets.
+- **Run output secrets (by default).** Agent stdout lands verbatim in `data/runs.db` unless the agent opts into `redactSecrets: true` (v0.6.0). The default behavior is still "store what the agent printed." If an agent you author calls a third-party API that might return a token, set `redactSecrets: true` to catch the AWS / GitHub / LLM / Slack prefixes. Do not rely on the scrubber for unknown secret formats — it's narrow on purpose. As of v0.6.0, `runs.db` is chmod 0o600 at create and rows older than 30 days are swept on startup; neither of those replaces redaction for live secrets.
 - **Temporal workflow history.** When running under the Temporal provider, agent inputs and outputs are persisted in Temporal's own history store. That is a second plaintext sink outside sua's control. Same advice: don't echo secrets.
 - **Remote MCP access.** MCP is localhost-only by design. If you need remote access, stand up a reverse proxy with its own auth in front of `--host 127.0.0.1` and understand that you are now maintaining that remote surface.
 - **Denial of service.** sua does not rate-limit anything. An attacker with the bearer token (i.e., a local user) can hammer `run-agent` until disk or CPU runs out. The local-first threat model considers this a non-goal.
@@ -124,5 +124,6 @@ We respond within a week. There is no bug bounty.
 
 - **v0.4.0** — MCP transport lockdown (loopback bind, bearer token, Host/Origin allowlists, session-to-token binding), cron frequency cap, CI action SHA-pinning, CODEOWNERS.
 - **v0.5.0** — Chain trust propagation (wrap community values, block community→shell), `mcp: true` agent opt-in, this document.
-- **v0.5.1** — Community shell agent gate (`UntrustedCommunityShellError` + `--allow-untrusted-shell`), run-store `chmod 0600`, 30-day retention sweep, opt-in known-prefix secret redaction, `sua agent audit`, `sua doctor --security`.
-- **v0.6.0 (planned)** — Passphrase-based KEK for the secrets store, replacing today's hostname-derived obfuscation.
+- **v0.6.0** — Community shell agent gate (`UntrustedCommunityShellError` + `--allow-untrusted-shell`), run-store `chmod 0600`, 30-day retention sweep, opt-in known-prefix secret redaction, `sua agent audit`, `sua doctor --security`.
+- **v0.6.1** — Community agents are runnable from `sua agent run` / `sua schedule start` directly; the shell gate enforces per-invocation opt-in. Previously the gate lived in the executor but was unreachable from the CLI because community agents weren't in the runnable load set.
+- **v0.7.0 (planned)** — Passphrase-based KEK for the secrets store, replacing today's hostname-derived obfuscation.

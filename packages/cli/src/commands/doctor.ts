@@ -68,7 +68,7 @@ function buildSecurityChecks(config: ReturnType<typeof loadConfig>): Check[] {
     {
       name: 'Community shell agents',
       run: () => {
-        const { agents } = loadAgents({ directories: dirs.runnable });
+        const { agents } = loadAgents({ directories: dirs.all });
         const offenders = Array.from(agents.values()).filter(
           a => a.type === 'shell' && a.source === 'community',
         );
@@ -85,7 +85,7 @@ function buildSecurityChecks(config: ReturnType<typeof loadConfig>): Check[] {
     {
       name: 'Agents exposed via MCP',
       run: () => {
-        const { agents } = loadAgents({ directories: dirs.runnable });
+        const { agents } = loadAgents({ directories: dirs.all });
         const exposed = Array.from(agents.values()).filter(a => a.mcp === true);
         return {
           ok: true,
@@ -176,7 +176,7 @@ export const doctorCommand = new Command('doctor')
         name: 'Agents directory',
         run: () => {
           const dirs = getAgentDirs(config);
-          const { agents, warnings } = loadAgents({ directories: dirs.runnable });
+          const { agents, warnings } = loadAgents({ directories: dirs.all });
           if (agents.size === 0 && warnings.length > 0) {
             return { ok: false, message: `No agents found (${warnings.length} warning(s))` };
           }
@@ -227,7 +227,7 @@ export const doctorCommand = new Command('doctor')
         name: 'Scheduled agents',
         run: () => {
           const dirs = getAgentDirs(config);
-          const { agents } = loadAgents({ directories: dirs.runnable });
+          const { agents } = loadAgents({ directories: dirs.all });
           const scheduled = Array.from(agents.values()).filter(a => a.schedule);
           if (scheduled.length === 0) {
             return { ok: true, message: 'none' };
@@ -243,7 +243,7 @@ export const doctorCommand = new Command('doctor')
         name: 'Agent secrets',
         run: () => {
           const dirs = getAgentDirs(config);
-          const { agents } = loadAgents({ directories: dirs.runnable });
+          const { agents } = loadAgents({ directories: dirs.all });
           const store = new EncryptedFileStore(getSecretsPath(config));
 
           const declaredSecrets = new Set<string>();

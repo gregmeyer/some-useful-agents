@@ -9,7 +9,7 @@ MIT-licensed. Published to npm at `@some-useful-agents/*`. Designed to feel like
 > agents marked `mcp: true` are callable from MCP clients. Community shell agents
 > refuse to run without explicit opt-in (`sua agent audit` + `--allow-untrusted-shell`);
 > community output flowing into a claude-code prompt is wrapped in UNTRUSTED
-> delimiters. Secrets are *obfuscated, not encrypted* until v0.6.0 lands
+> delimiters. Secrets are *obfuscated, not encrypted* until v0.7.0 lands
 > passphrase-based key derivation. Run `sua doctor --security` to verify your
 > install. Full model: [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -164,10 +164,10 @@ See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model. One-liners:
 - **MCP bearer token + loopback bind** — v0.4.0 closed a critical gap. `sua init` writes a 32-byte token to `~/.sua/mcp-token` (chmod 0600); the server binds `127.0.0.1`, requires `Authorization: Bearer <token>`, and rejects non-loopback Host/Origin headers.
 - **MCP agents opt in** — only agents with `mcp: true` in their YAML are exposed via MCP's `list-agents` and `run-agent` tools (v0.5.0). The rest are invisible to MCP clients.
 - **Chain trust propagation** — community agent output flowing into a downstream local agent is wrapped in UNTRUSTED delimiters (claude-code) or blocked outright (shell), unless the shell downstream is explicitly allow-listed (v0.5.0).
-- **Community shell agent gate** — shell agents sourced from `agents/community/` refuse to run without `--allow-untrusted-shell <name>` on the CLI. Use `sua agent audit <name>` to print the resolved YAML before opting in (v0.5.1).
-- **Run-store hygiene** — `data/runs.db` is chmod 0o600 at create. Rows older than `runRetentionDays` (default 30) are swept on startup. Opt-in `redactSecrets: true` on an agent scrubs known-prefix secrets (AWS, GitHub PAT, OpenAI / Anthropic, Slack) from its stdout/stderr before they land in the DB (v0.5.1).
+- **Community shell agent gate** — shell agents sourced from `agents/community/` refuse to run without `--allow-untrusted-shell <name>` on the CLI. Use `sua agent audit <name>` to print the resolved YAML before opting in (v0.6.0, wired end-to-end in v0.6.1).
+- **Run-store hygiene** — `data/runs.db` is chmod 0o600 at create. Rows older than `runRetentionDays` (default 30) are swept on startup. Opt-in `redactSecrets: true` on an agent scrubs known-prefix secrets (AWS, GitHub PAT, OpenAI / Anthropic, Slack) from its stdout/stderr before they land in the DB (v0.6.0).
 - **Cron frequency cap** — schedules fire no more than once per minute by default. 6-field sub-minute expressions require `allowHighFrequency: true` and emit a loud warning on every fire (v0.4.0).
-- **Secrets store** — machine-bound AES-256-GCM at `data/secrets.enc`, permissions `0600`. Obfuscation-grade, not vault-grade; passphrase-based key derivation is on the v0.6.0 roadmap. See [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md).
+- **Secrets store** — machine-bound AES-256-GCM at `data/secrets.enc`, permissions `0600`. Obfuscation-grade, not vault-grade; passphrase-based key derivation is on the v0.7.0 roadmap. See [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md).
 - **Self-check** — run `sua doctor --security` for a one-shot audit of file perms, MCP token presence, and community shell posture.
 - **Known-weak (still)** — the shell-agent Docker sandbox documented in [ADR-0005](docs/adr/0005-shell-sandbox-claude-on-host.md) remains aspirational; once you opt in past the community-shell gate, the agent runs with your full ambient authority. Don't install community agents you haven't audited.
 

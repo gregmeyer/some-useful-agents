@@ -132,7 +132,7 @@ secretsCommand
   .action(async (agentName: string) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
-    const { agents } = loadAgents({ directories: dirs.runnable });
+    const { agents } = loadAgents({ directories: dirs.all });
 
     const agent = agents.get(agentName);
     if (!agent) {

@@ -34,7 +34,7 @@ mcpCommand
     console.log(chalk.bold('Starting MCP server...'));
     console.log(chalk.dim(`  Host:   ${host}`));
     console.log(chalk.dim(`  Port:   ${port}`));
-    console.log(chalk.dim(`  Agents: ${dirs.runnable.join(', ')}`));
+    console.log(chalk.dim(`  Agents: ${dirs.all.join(', ')}`));
     console.log(chalk.dim(`  DB:     ${dbPath}`));
     console.log(chalk.dim(`  Token:  ${tokenPath}`));
     console.log('');
@@ -67,7 +67,9 @@ mcpCommand
     await startMcpServer({
       port,
       host,
-      agentDirs: dirs.runnable,
+      // MCP sees runnable + catalog; the `mcp: true` filter in tools.ts
+      // decides which agents are actually callable from MCP clients.
+      agentDirs: dirs.all,
       dbPath,
       secretsPath: getSecretsPath(config),
       tokenPath,

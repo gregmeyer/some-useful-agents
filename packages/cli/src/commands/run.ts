@@ -23,7 +23,9 @@ export const runCommand = new Command('run')
   .action(async (name: string, options: { provider?: string; allowUntrustedShell: string[] }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
-    const { agents } = loadAgents({ directories: dirs.runnable });
+    // Include community catalog so community agents are runnable; the shell
+    // gate in `executeAgent` enforces per-agent opt-in via --allow-untrusted-shell.
+    const { agents } = loadAgents({ directories: dirs.all });
 
     const agent = agents.get(name);
     if (!agent) {
