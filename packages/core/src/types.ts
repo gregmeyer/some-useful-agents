@@ -17,6 +17,11 @@ export interface AgentDefinition {
   env?: Record<string, string>;
   schedule?: string;
   allowHighFrequency?: boolean;
+  /**
+   * Whether this agent is exposed via the MCP server. Defaults to false —
+   * agents must opt in to be callable from MCP clients.
+   */
+  mcp?: boolean;
   workingDirectory?: string;
 
   // Chaining (Phase 2a)

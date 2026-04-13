@@ -4,6 +4,7 @@ type: claude-code
 prompt: "Say hello and tell me one interesting fact about software engineering."
 model: claude-sonnet-4-20250514
 timeout: 60
+mcp: true  # expose to MCP clients (Claude Desktop, etc.)
 author: gregmeyer
 version: "1.0.0"
 tags: [example, getting-started, claude]

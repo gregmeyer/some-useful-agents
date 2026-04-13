@@ -4,6 +4,7 @@ type: shell
 command: "curl -s -H 'Accept: text/plain' https://icanhazdadjoke.com/"
 timeout: 10
 schedule: "0 9 * * *"
+mcp: true  # expose to MCP clients (Claude Desktop, etc.)
 author: some-useful-agents
 version: "1.0.0"
 tags: [example, schedule, http]

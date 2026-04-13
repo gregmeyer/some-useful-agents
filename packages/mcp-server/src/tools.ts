@@ -1,16 +1,31 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { Provider } from '@some-useful-agents/core';
+import type { AgentDefinition, Provider } from '@some-useful-agents/core';
 import { loadAgents } from '@some-useful-agents/core';
+
+/**
+ * Only agents that opt in via `mcp: true` in their YAML are exposed to MCP
+ * clients. Non-exposed agents are reported as "not found" rather than
+ * "forbidden" so a compromised MCP client cannot enumerate the user's full
+ * agent catalog. Use `sua agent list` from the CLI to see everything.
+ */
+export function loadMcpExposedAgents(agentDirs: string[]): Map<string, AgentDefinition> {
+  const { agents } = loadAgents({ directories: agentDirs });
+  const exposed = new Map<string, AgentDefinition>();
+  for (const [name, agent] of agents) {
+    if (agent.mcp === true) exposed.set(name, agent);
+  }
+  return exposed;
+}
 
 export function registerTools(server: McpServer, provider: Provider, agentDirs: string[]): void {
 
   server.tool(
     'list-agents',
-    'List available agent definitions',
+    'List agent definitions exposed to MCP (those with `mcp: true` in YAML)',
     {},
     async () => {
-      const { agents } = loadAgents({ directories: agentDirs });
+      const agents = loadMcpExposedAgents(agentDirs);
       const list = Array.from(agents.values()).map(a => ({
         name: a.name,
         type: a.type,
@@ -22,10 +37,10 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
 
   server.tool(
     'run-agent',
-    'Start an agent run',
+    'Start an agent run (only agents with `mcp: true` are runnable)',
     { name: z.string().describe('Agent name to run') },
     async ({ name }) => {
-      const { agents } = loadAgents({ directories: agentDirs });
+      const agents = loadMcpExposedAgents(agentDirs);
       const agent = agents.get(name);
       if (!agent) {
         return { content: [{ type: 'text' as const, text: `Agent "${name}" not found.` }], isError: true };

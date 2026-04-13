@@ -4,6 +4,14 @@ A local-first agent playground. Author agents in YAML, run them from the CLI or 
 
 MIT-licensed. Published to npm at `@some-useful-agents/*`. Designed to feel like `cron + shell scripts` except each "script" can also be a Claude Code prompt and the whole thing is observable, durable, and composable.
 
+> **Threat model in 30 seconds.** sua is a local-first tool for a single user on a
+> machine they control. The MCP server binds `127.0.0.1` with a bearer token; only
+> agents marked `mcp: true` are callable from MCP clients. Community agents are
+> treated as untrusted — shell downstream of a community agent is blocked by
+> default; community output flowing into a claude-code prompt is wrapped in
+> UNTRUSTED delimiters. Secrets are *obfuscated, not encrypted* until v0.6.0
+> lands passphrase-based key derivation. Full model: [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Quick start (no clone needed)
 
 ```bash
@@ -149,9 +157,15 @@ All packages are published via OIDC with provenance attestations — verify with
 
 ## Security notes
 
+See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model. One-liners:
+
 - **Env filtering by trust level** — community agents receive a minimal env (`PATH`, `HOME`, `LANG`, `TERM`, `TMPDIR` + allowlist). Dangerous vars like `AWS_SECRET_ACCESS_KEY` do not leak. See [ADR-0006](docs/adr/0006-env-filtering-by-trust-level.md).
-- **Encrypted secrets store** — machine-bound AES-256-GCM at `data/secrets.enc`, permissions `0600`. Obfuscation-grade, not vault-grade; OS keychain is on the roadmap. See [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md).
-- **Known-weak** — the shell-agent Docker sandbox is documented in [ADR-0005](docs/adr/0005-shell-sandbox-claude-on-host.md) but not yet implemented; the MCP server has no auth; template substitutions in chains aren't shell-escaped. See ROADMAP "Security audit" item.
+- **MCP bearer token + loopback bind** — v0.4.0 closed a critical gap. `sua init` writes a 32-byte token to `~/.sua/mcp-token` (chmod 0600); the server binds `127.0.0.1`, requires `Authorization: Bearer <token>`, and rejects non-loopback Host/Origin headers.
+- **MCP agents opt in** — only agents with `mcp: true` in their YAML are exposed via MCP's `list-agents` and `run-agent` tools (v0.5.0). The rest are invisible to MCP clients.
+- **Chain trust propagation** — community agent output flowing into a downstream local agent is wrapped in UNTRUSTED delimiters (claude-code) or blocked outright (shell), unless the shell downstream is explicitly allow-listed (v0.5.0).
+- **Cron frequency cap** — schedules fire no more than once per minute by default. 6-field sub-minute expressions require `allowHighFrequency: true` and emit a loud warning on every fire (v0.4.0).
+- **Secrets store** — machine-bound AES-256-GCM at `data/secrets.enc`, permissions `0600`. Obfuscation-grade, not vault-grade; passphrase-based key derivation is on the v0.6.0 roadmap. See [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md).
+- **Known-weak (still)** — the shell-agent Docker sandbox documented in [ADR-0005](docs/adr/0005-shell-sandbox-claude-on-host.md) remains aspirational; shell agents run with the user's ambient authority over the filesystem and network. Don't install community agents you haven't audited.
 
 ## Where is this going?
 

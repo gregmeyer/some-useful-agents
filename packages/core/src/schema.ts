@@ -25,6 +25,14 @@ export const agentDefinitionSchema = z.object({
    * fire so the operator notices the unbounded cost surface.
    */
   allowHighFrequency: z.boolean().optional(),
+  /**
+   * Whether this agent is exposed via the MCP server's `list-agents` and
+   * `run-agent` tools. Defaults to false — agents must explicitly opt in
+   * to be callable from MCP clients (Claude Desktop, etc.). Shrinks the
+   * blast radius of a compromised MCP client from "all loaded agents" to
+   * "agents the user has explicitly marked safe for remote invocation".
+   */
+  mcp: z.boolean().default(false),
   workingDirectory: z.string().optional(),
 
   // Chaining

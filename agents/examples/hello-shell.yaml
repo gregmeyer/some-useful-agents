@@ -3,6 +3,7 @@ description: A simple hello world shell agent
 type: shell
 command: "echo 'Hello from some-useful-agents!'"
 timeout: 30
+mcp: true  # expose to MCP clients (Claude Desktop, etc.)
 author: gregmeyer
 version: "1.0.0"
 tags: [example, getting-started]
