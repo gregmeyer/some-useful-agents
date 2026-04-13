@@ -111,9 +111,32 @@ async function doExplain(ctx: Ctx, topic: string): Promise<void> {
 function buildExplainPrompt(topic: string): string {
   return `You are explaining the "some-useful-agents" (sua) CLI tool to a developer working through the built-in tutorial. sua is a local-first agent playground. Agents are defined in YAML files (either shell commands or Claude Code prompts), can be chained (dependsOn + {{outputs.X.result}} template syntax), can be scheduled via cron, and can run through a LocalProvider (child_process) or Temporal. Secrets are stored in an encrypted file store, and env filtering prevents secret leakage to community agents.
 
+IMPORTANT — actual CLI command surface (use ONLY these, do not invent others):
+- sua init                     # scaffold config + agents/local/hello.yaml in cwd
+- sua tutorial                 # this guided walkthrough
+- sua doctor                   # prereq + health checks
+- sua agent list               # list runnable agents
+- sua agent list --catalog     # browse community catalog
+- sua agent run <name>         # run an agent once
+- sua agent status [runId]     # recent runs or one specific run
+- sua agent logs <runId>       # stdout/stderr of a past run
+- sua agent cancel <runId>     # kill a running agent
+- sua schedule start           # run the cron scheduler (foreground daemon)
+- sua schedule list            # scheduled agents + their cron expressions
+- sua schedule validate <name> # validate a specific agent's cron string
+- sua secrets set <NAME>       # store a secret (encrypted at rest)
+- sua secrets get <NAME>
+- sua secrets list
+- sua secrets delete <NAME>
+- sua secrets check <agent>    # which secrets an agent needs vs which are set
+- sua mcp start                # HTTP/SSE MCP server on port 3003
+- sua worker start             # Temporal worker (requires docker compose up)
+
+There is NO \`sua list\` or \`sua run\` — all agent verbs are nested under \`sua agent\`.
+
 The user just reached this tutorial stage: "${topic}"
 
-Give a 3-5 sentence deeper explanation of this specific stage. Be concrete. No marketing language. End with one practical tip they can try right now.`;
+Give a 3-5 sentence deeper explanation of this specific stage. Be concrete. No marketing language. End with one practical tip using a real command from the list above.`;
 }
 
 async function stage1(ctx: Ctx): Promise<void> {
