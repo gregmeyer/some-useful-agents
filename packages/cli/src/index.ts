@@ -13,6 +13,7 @@ import { statusCommand } from './commands/status.js';
 import { logsCommand } from './commands/logs.js';
 import { cancelCommand } from './commands/cancel.js';
 import { auditCommand } from './commands/audit.js';
+import { newCommand } from './commands/new.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
@@ -39,6 +40,7 @@ const agent = program
   .description('Manage and run agents');
 
 agent.addCommand(listCommand);
+agent.addCommand(newCommand);
 agent.addCommand(runCommand);
 agent.addCommand(statusCommand);
 agent.addCommand(logsCommand);
