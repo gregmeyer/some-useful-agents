@@ -10,6 +10,9 @@ description: Your first sua agent — prints a greeting
 type: shell
 command: "echo 'Hello from some-useful-agents!'"
 timeout: 10
+# Set \`mcp: true\` to make this agent callable from MCP clients (Claude
+# Desktop, etc.). Left false by default — agents opt in explicitly.
+mcp: false
 tags: [starter]
 `;
 
@@ -18,6 +21,8 @@ description: Fetch a dad joke from icanhazdadjoke.com
 type: shell
 command: "curl -s -H 'Accept: text/plain' https://icanhazdadjoke.com/"
 timeout: 10
+# Expose to MCP so Claude Desktop can trigger the joke on demand.
+mcp: true
 tags: [example, http]
 `;
 

@@ -99,6 +99,25 @@ describe('agentDefinitionSchema', () => {
     expect(result.timeout).toBe(300);
   });
 
+  it('mcp defaults to false when omitted', () => {
+    const result = agentDefinitionSchema.parse({
+      name: 'plain',
+      type: 'shell',
+      command: 'echo hi',
+    });
+    expect(result.mcp).toBe(false);
+  });
+
+  it('accepts explicit mcp: true', () => {
+    const result = agentDefinitionSchema.parse({
+      name: 'exposed',
+      type: 'shell',
+      command: 'echo hi',
+      mcp: true,
+    });
+    expect(result.mcp).toBe(true);
+  });
+
   it('rejects 6-field cron schedules without allowHighFrequency', () => {
     const result = agentDefinitionSchema.safeParse({
       name: 'fast',
