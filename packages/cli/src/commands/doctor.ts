@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import chalk from 'chalk';
 import { loadConfig, getAgentDirs, getSecretsPath } from '../config.js';
-import { loadAgents, EncryptedFileStore } from '@some-useful-agents/core';
+import { loadAgents, EncryptedFileStore, LocalScheduler, detectLlms } from '@some-useful-agents/core';
 
 interface Check {
   name: string;
@@ -90,6 +90,42 @@ export const doctorCommand = new Command('doctor')
           } catch (err) {
             return { ok: false, message: (err as Error).message };
           }
+        },
+      },
+      {
+        name: 'Scheduler',
+        run: () => {
+          const valid = LocalScheduler.isValid('* * * * *');
+          return { ok: valid, message: valid ? 'node-cron ready' : 'node-cron not functioning' };
+        },
+      },
+      {
+        name: 'LLM CLIs (for sua tutorial --explain)',
+        run: () => {
+          const avail = detectLlms();
+          const names: string[] = [];
+          if (avail.claude.installed) names.push('claude');
+          if (avail.codex.installed) names.push('codex');
+          if (names.length === 0) {
+            return { ok: true, message: 'none installed (tutorial explain feature disabled)' };
+          }
+          return { ok: true, message: names.join(', ') + ' available' };
+        },
+      },
+      {
+        name: 'Scheduled agents',
+        run: () => {
+          const dirs = getAgentDirs(config);
+          const { agents } = loadAgents({ directories: dirs.runnable });
+          const scheduled = Array.from(agents.values()).filter(a => a.schedule);
+          if (scheduled.length === 0) {
+            return { ok: true, message: 'none' };
+          }
+          const invalid = scheduled.filter(a => !LocalScheduler.isValid(a.schedule!));
+          if (invalid.length > 0) {
+            return { ok: false, message: `${invalid.length} agent(s) with invalid cron: ${invalid.map(a => a.name).join(', ')}` };
+          }
+          return { ok: true, message: `${scheduled.length} scheduled` };
         },
       },
       {
