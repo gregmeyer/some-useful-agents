@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import chalk from 'chalk';
 import { loadConfig } from '../config.js';
+import * as ui from '../ui.js';
 
 export const workerCommand = new Command('worker')
   .description('Temporal worker management');
@@ -19,16 +19,16 @@ workerCommand
 
     const { startWorker } = await import('@some-useful-agents/temporal-provider');
 
-    console.log(chalk.bold('Starting Temporal worker...'));
-    console.log(chalk.dim(`  Address:    ${address}`));
-    console.log(chalk.dim(`  Namespace:  ${namespace}`));
-    console.log(chalk.dim(`  Task queue: ${taskQueue}`));
-    console.log('');
+    ui.banner('Starting Temporal worker', [
+      `Address:    ${address}`,
+      `Namespace:  ${namespace}`,
+      `Task queue: ${taskQueue}`,
+    ]);
 
     try {
       const worker = await startWorker({ address, namespace, taskQueue });
-      console.log(chalk.green('Worker connected. Listening for agent runs...'));
-      console.log(chalk.dim('Press Ctrl+C to stop.\n'));
+      ui.ok('Worker connected. Listening for agent runs...');
+      console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
       process.on('SIGINT', () => {
         console.log('\nShutting down worker...');
@@ -38,9 +38,9 @@ workerCommand
       await worker.run();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(chalk.red(`Worker failed: ${msg}`));
+      ui.fail(`Worker failed: ${msg}`);
       if (msg.includes('ECONNREFUSED') || msg.includes('connection refused')) {
-        console.error(chalk.dim(`\nIs Temporal running? Start it with: ${chalk.cyan('docker compose up -d')}`));
+        console.error(ui.dim(`\nIs Temporal running? Start it with: ${ui.cmd('docker compose up -d')}`));
       }
       process.exit(1);
     }

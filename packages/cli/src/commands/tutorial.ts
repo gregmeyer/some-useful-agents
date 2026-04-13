@@ -13,6 +13,7 @@ import {
 import { loadConfig, getAgentDirs } from '../config.js';
 import { createProvider } from '../provider-factory.js';
 import { DAD_JOKE_AGENT_YAML, DAILY_9AM_SCHEDULE, HELLO_AGENT_YAML } from '../scaffolds.js';
+import * as ui from '../ui.js';
 
 const STAGES = [
   'What is sua?',
@@ -110,7 +111,7 @@ async function doExplain(ctx: Ctx, topic: string): Promise<void> {
   const result = await invokeLlm({ prompt, provider: ctx.llm, timeoutMs: 60_000 });
   spinner.stop();
   if (result.exitCode !== 0) {
-    console.log(chalk.red(`[${ctx.llm} error] ${result.error ?? 'unknown'}`));
+    ui.fail(`[${ctx.llm} error] ${result.error ?? 'unknown'}`);
     return;
   }
   console.log('\n' + chalk.dim('─── ' + ctx.llm + ' says ───'));
@@ -183,7 +184,7 @@ async function stage3(ctx: Ctx): Promise<void> {
   const { agents } = loadAgents({ directories: getAgentDirs(ctx.config).runnable });
   const agent = agents.get('hello');
   if (!agent) {
-    console.log(chalk.yellow('The hello agent is missing. Did you run `sua init`?'));
+    ui.warn('The hello agent is missing. Did you run `sua init`?');
     return;
   }
 
@@ -200,13 +201,13 @@ async function stage3(ctx: Ctx): Promise<void> {
     spinner.stop();
 
     if (current.status === 'completed') {
-      console.log(chalk.green('✓ completed'));
-      console.log(chalk.dim('  output: ') + (current.result ?? '').trim());
-      console.log(chalk.dim('  run ID: ') + current.id);
-      console.log(chalk.dim('  recorded in: ' + join(ctx.config.dataDir, 'runs.db')));
+      ui.ok('completed');
+      console.log(ui.dim('  output: ') + (current.result ?? '').trim());
+      console.log(ui.dim('  run ID: ') + current.id);
+      console.log(ui.dim('  recorded in: ' + join(ctx.config.dataDir, 'runs.db')));
     } else {
-      console.log(chalk.red('agent did not complete: ' + current.status));
-      if (current.error) console.log(chalk.red(current.error));
+      ui.fail('agent did not complete: ' + current.status);
+      if (current.error) console.error(chalk.red(current.error));
     }
   } finally {
     await provider.shutdown();
@@ -224,17 +225,17 @@ async function stage4(ctx: Ctx): Promise<void> {
 
   const path = join(ctx.agentsLocalDir, 'dad-joke.yaml');
   if (existsSync(path)) {
-    console.log(chalk.dim('(already exists at ' + path + ', skipping write)'));
+    console.log(ui.dim('(already exists at ' + path + ', skipping write)'));
   } else {
     writeFileSync(path, DAD_JOKE_AGENT_YAML);
-    console.log(chalk.green('Wrote ' + path));
+    ui.ok('Wrote ' + path);
   }
 
   console.log('\nRunning it now...');
   const { agents } = loadAgents({ directories: getAgentDirs(ctx.config).runnable });
   const agent = agents.get('dad-joke');
   if (!agent) {
-    console.log(chalk.yellow('dad-joke agent did not load. Check ' + path));
+    ui.warn('dad-joke agent did not load. Check ' + path);
     return;
   }
 
@@ -255,8 +256,8 @@ async function stage4(ctx: Ctx): Promise<void> {
       console.log(chalk.bold.yellow('🎭 ' + (current.result ?? '').trim()));
       console.log('');
     } else {
-      console.log(chalk.red('failed: ' + (current.error ?? current.status)));
-      console.log(chalk.dim('Network issue? Check `sua doctor` and try `sua agent run dad-joke` manually.'));
+      ui.fail('failed: ' + (current.error ?? current.status));
+      console.log(ui.dim('Network issue? Check `sua doctor` and try `sua agent run dad-joke` manually.'));
     }
   } finally {
     await provider.shutdown();
@@ -279,7 +280,7 @@ async function stage5(ctx: Ctx): Promise<void> {
 
   const path = join(ctx.agentsLocalDir, 'dad-joke.yaml');
   if (!existsSync(path)) {
-    console.log(chalk.yellow('dad-joke.yaml missing. Re-run stage 4.'));
+    ui.warn('dad-joke.yaml missing. Re-run stage 4.');
     return;
   }
 
@@ -287,35 +288,32 @@ async function stage5(ctx: Ctx): Promise<void> {
   const contents = readFileSync(path, 'utf-8');
   if (!contents.includes('schedule:')) {
     writeFileSync(path, contents.trimEnd() + '\n' + DAILY_9AM_SCHEDULE);
-    console.log(chalk.green('Added schedule field to ' + path));
+    ui.ok('Added schedule field to ' + path);
   } else {
-    console.log(chalk.dim('Schedule already present in ' + path));
+    console.log(ui.dim('Schedule already present in ' + path));
   }
 
+  ui.section('Next: start the scheduler to fire it on cron');
+  ui.step('sua schedule start', 'foreground; Ctrl+C to stop');
+  ui.step('sua schedule list', 'see all scheduled agents');
   console.log('');
-  console.log(chalk.bold('Next:') + ' start the scheduler to fire it on cron:');
-  console.log('  ' + chalk.cyan('sua schedule start') + '   ' + chalk.dim('(foreground; Ctrl+C to stop)'));
-  console.log('  ' + chalk.cyan('sua schedule list') + '    ' + chalk.dim('(see all scheduled agents)'));
-  console.log('');
-  console.log(chalk.dim('For the daemon to run unattended, use a process manager (pm2, launchd).'));
+  console.log(ui.dim('For the daemon to run unattended, use a process manager (pm2, launchd).'));
 
   await pause(ctx, 'How the cron scheduler works: node-cron loads agents with schedule fields, runs each on its own timer, records each fire in the run store with triggeredBy=schedule. What schedules look like (standard 5-field cron).');
 }
 
 function printOutro(): void {
-  console.log('');
-  console.log(chalk.bold.green('Tutorial complete.'));
-  console.log('');
+  ui.section(chalk.green('Tutorial complete.'));
   console.log('You now have:');
-  console.log('  • a working ' + chalk.cyan('hello') + ' agent');
-  console.log('  • a ' + chalk.cyan('dad-joke') + ' agent that fetches from an external API');
+  console.log('  • a working ' + ui.agent('hello') + ' agent');
+  console.log('  • a ' + ui.agent('dad-joke') + ' agent that fetches from an external API');
   console.log('  • a schedule set for daily 9am fires');
-  console.log('');
-  console.log('Try:');
-  console.log('  ' + chalk.cyan('sua agent list') + '              ' + chalk.dim('see what you have'));
-  console.log('  ' + chalk.cyan('sua agent status') + '            ' + chalk.dim('see your run history'));
-  console.log('  ' + chalk.cyan('sua agent run dad-joke') + '      ' + chalk.dim('get another joke now'));
-  console.log('  ' + chalk.cyan('sua schedule start') + '          ' + chalk.dim('start the scheduler'));
+  ui.section('Try');
+  ui.step('sua agent list', 'see what you have');
+  ui.step('sua agent status', 'see your run history');
+  ui.step('sua agent run dad-joke', 'get another joke now');
+  ui.step('sua schedule start', 'start the scheduler');
+  ui.step('sua agent new', 'scaffold your own agent');
   console.log('');
 }
 

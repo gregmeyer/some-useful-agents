@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import { stringify as yamlStringify } from 'yaml';
 import { agentDefinitionSchema } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
+import * as ui from '../ui.js';
 
 export interface AgentAnswers {
   name: string;
@@ -78,9 +79,8 @@ export const newCommand = new Command('new')
   });
 
 async function runInteractive(rl: Rl): Promise<void> {
-  console.log('');
-  console.log(chalk.bold('sua agent new') + chalk.dim(' — scaffold a new local agent'));
-  console.log(chalk.dim('  Ctrl-C to abort. Nothing is written until you confirm at the end.'));
+  ui.section('sua agent new — scaffold a new local agent');
+  console.log(ui.dim('  Ctrl-C to abort. Nothing is written until you confirm at the end.'));
   console.log('');
 
   // 1. Type
@@ -149,7 +149,7 @@ async function runInteractive(rl: Rl): Promise<void> {
     if (timeoutRaw) {
       const n = Number(timeoutRaw);
       if (!Number.isFinite(n) || n <= 0) {
-        console.log(chalk.yellow(`  Ignoring invalid timeout "${timeoutRaw}"; leaving default.`));
+        ui.warn(`Ignoring invalid timeout "${timeoutRaw}"; leaving default.`);
       } else {
         timeout = Math.floor(n);
       }
@@ -168,10 +168,8 @@ async function runInteractive(rl: Rl): Promise<void> {
       const names = secretsRaw.split(',').map(s => s.trim()).filter(Boolean);
       const bad = names.filter(n => !SECRET_NAME_RE.test(n));
       if (bad.length > 0) {
-        console.log(
-          chalk.yellow(
-            `  Ignoring invalid secret name(s): ${bad.join(', ')} (must be UPPERCASE_WITH_UNDERSCORES)`,
-          ),
+        ui.warn(
+          `Ignoring invalid secret name(s): ${bad.join(', ')} (must be UPPERCASE_WITH_UNDERSCORES)`,
         );
       }
       const good = names.filter(n => SECRET_NAME_RE.test(n));
@@ -220,7 +218,7 @@ async function runInteractive(rl: Rl): Promise<void> {
   });
   if (!parsed.success) {
     console.error('');
-    console.error(chalk.red('Validation failed. This is a bug — please report:'));
+    ui.fail('Validation failed. This is a bug — please report:');
     for (const issue of parsed.error.issues) {
       console.error(chalk.red(`  ${issue.path.join('.')}: ${issue.message}`));
     }
@@ -229,11 +227,10 @@ async function runInteractive(rl: Rl): Promise<void> {
 
   const yamlText = buildAgentYaml(answers);
 
-  console.log('');
-  console.log(chalk.bold('Preview:'));
-  console.log(chalk.dim('---'));
+  ui.section('Preview');
+  console.log(ui.dim('---'));
   process.stdout.write(yamlText);
-  console.log(chalk.dim('---'));
+  console.log(ui.dim('---'));
   console.log('');
 
   // Destination
@@ -250,28 +247,27 @@ async function runInteractive(rl: Rl): Promise<void> {
       false,
     );
     if (!overwrite) {
-      console.log(chalk.yellow('Aborted. No file written.'));
+      ui.warn('Aborted. No file written.');
       return;
     }
   } else {
     const confirm = await askYesNo(rl, `Write to ${destPath}?`, true);
     if (!confirm) {
-      console.log(chalk.yellow('Aborted. No file written.'));
+      ui.warn('Aborted. No file written.');
       return;
     }
   }
 
   if (!existsSync(localDir)) mkdirSync(localDir, { recursive: true });
   writeFileSync(destPath, yamlText, 'utf-8');
-  console.log(chalk.green(`✓ Created ${destPath}`));
-  console.log('');
-  console.log(chalk.bold('Next:'));
-  console.log(`  ${chalk.cyan(`sua agent run ${name}`)}        ${chalk.dim('run it once')}`);
+  ui.ok(`Created ${destPath}`);
+  ui.section('Next');
+  ui.step(`sua agent run ${name}`, 'run it once');
   if (schedule) {
-    console.log(`  ${chalk.cyan('sua schedule start')}       ${chalk.dim(`fire on cron "${schedule}"`)}`);
+    ui.step('sua schedule start', `fire on cron "${schedule}"`);
   }
   if (mcp) {
-    console.log(`  ${chalk.cyan('sua mcp start')}            ${chalk.dim('expose via MCP')}`);
+    ui.step('sua mcp start', 'expose via MCP');
   }
-  console.log(`  ${chalk.cyan(`sua agent audit ${name}`)}     ${chalk.dim('inspect the generated YAML')}`);
+  ui.step(`sua agent audit ${name}`, 'inspect the generated YAML');
 }

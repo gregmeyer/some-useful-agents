@@ -7,6 +7,7 @@ import {
   rotateMcpToken,
 } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
+import * as ui from '../ui.js';
 
 export const mcpCommand = new Command('mcp')
   .description('MCP server management');
@@ -31,26 +32,23 @@ mcpCommand
     // Dynamic import to avoid loading MCP deps when not needed
     const { startMcpServer } = await import('@some-useful-agents/mcp-server');
 
-    console.log(chalk.bold('Starting MCP server...'));
-    console.log(chalk.dim(`  Host:   ${host}`));
-    console.log(chalk.dim(`  Port:   ${port}`));
-    console.log(chalk.dim(`  Agents: ${dirs.all.join(', ')}`));
-    console.log(chalk.dim(`  DB:     ${dbPath}`));
-    console.log(chalk.dim(`  Token:  ${tokenPath}`));
-    console.log('');
+    ui.banner('Starting MCP server', [
+      `Host:   ${host}`,
+      `Port:   ${port}`,
+      `Agents: ${dirs.all.join(', ')}`,
+      `DB:     ${dbPath}`,
+      `Token:  ${tokenPath}`,
+    ]);
 
     if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
-      console.warn(
-        chalk.yellow(
-          `⚠ MCP is binding to ${host}. The bearer token is your only defense ` +
-            `against remote callers. Keep ${tokenPath} secret.`,
-        ),
+      ui.warn(
+        `MCP is binding to ${host}. The bearer token is your only defense ` +
+          `against remote callers. Keep ${tokenPath} secret.`,
       );
       console.log('');
     }
 
-    console.log(chalk.bold('Add this to your MCP client config (Claude Desktop, etc.):'));
-    console.log('');
+    ui.section('Add this to your MCP client config (Claude Desktop, etc.)');
     const snippet = {
       mcpServers: {
         'some-useful-agents': {
@@ -84,16 +82,13 @@ mcpCommand
     const existing = readMcpToken(tokenPath);
     const action = existing ? 'Rotated' : 'Created';
     const newToken = rotateMcpToken(tokenPath);
-    console.log(chalk.green(`${action} bearer token at ${tokenPath} (mode 0600).`));
-    console.log('');
-    console.log(chalk.bold('New bearer token:'));
+    ui.ok(`${action} bearer token at ${tokenPath} (mode 0600).`);
+    ui.section('New bearer token');
     console.log(chalk.cyan(newToken));
     console.log('');
-    console.log(
-      chalk.yellow(
-        '⚠ Update your MCP client configs (Claude Desktop, etc.) with the new token. ' +
-          'Restart any running `sua mcp start` to pick it up.',
-      ),
+    ui.warn(
+      'Update your MCP client configs (Claude Desktop, etc.) with the new token. ' +
+        'Restart any running `sua mcp start` to pick it up.',
     );
   });
 
@@ -104,7 +99,7 @@ mcpCommand
     const tokenPath = getMcpTokenPath();
     const existing = readMcpToken(tokenPath);
     if (!existing) {
-      console.error(chalk.red(`No MCP token at ${tokenPath}. Run \`sua init\` or \`sua mcp rotate-token\`.`));
+      ui.fail(`No MCP token at ${tokenPath}. Run \`sua init\` or \`sua mcp rotate-token\`.`);
       process.exit(1);
     }
     console.log(existing);

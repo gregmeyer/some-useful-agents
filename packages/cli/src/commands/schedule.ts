@@ -4,6 +4,7 @@ import Table from 'cli-table3';
 import { loadAgents, LocalScheduler } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
 import { createProvider } from '../provider-factory.js';
+import * as ui from '../ui.js';
 
 export const scheduleCommand = new Command('schedule')
   .description('Manage scheduled agent runs');
@@ -18,7 +19,7 @@ scheduleCommand
 
     const scheduled = Array.from(agents.values()).filter(a => a.schedule);
     if (scheduled.length === 0) {
-      console.log(chalk.dim('No agents have a schedule. Add `schedule: "<cron>"` to an agent YAML.'));
+      ui.info('No agents have a schedule. Add `schedule: "<cron>"` to an agent YAML.');
       return;
     }
 
@@ -28,12 +29,12 @@ scheduleCommand
     for (const agent of scheduled) {
       const valid = LocalScheduler.isValid(agent.schedule!);
       table.push([
-        chalk.cyan(agent.name),
+        ui.agent(agent.name),
         agent.schedule!,
         valid ? chalk.green('yes') : chalk.red('no'),
       ]);
     }
-    console.log('\n' + chalk.bold('Scheduled Agents') + '\n');
+    ui.section('Scheduled Agents');
     console.log(table.toString());
   });
 
@@ -47,18 +48,18 @@ scheduleCommand
     const { agents } = loadAgents({ directories: dirs.all });
     const agent = agents.get(name);
     if (!agent) {
-      console.error(chalk.red(`Agent "${name}" not found.`));
+      ui.fail(`Agent "${name}" not found.`);
       process.exit(1);
     }
     if (!agent.schedule) {
-      console.log(chalk.yellow(`Agent "${name}" has no schedule field.`));
+      ui.warn(`Agent "${name}" has no schedule field.`);
       return;
     }
     const valid = LocalScheduler.isValid(agent.schedule);
     if (valid) {
-      console.log(chalk.green(`"${agent.schedule}" is a valid cron expression.`));
+      ui.ok(`"${agent.schedule}" is a valid cron expression.`);
     } else {
-      console.error(chalk.red(`"${agent.schedule}" is not a valid cron expression.`));
+      ui.fail(`"${agent.schedule}" is not a valid cron expression.`);
       process.exit(1);
     }
   });
@@ -84,7 +85,7 @@ scheduleCommand
     const { agents, warnings } = loadAgents({ directories: dirs.all });
 
     for (const w of warnings) {
-      console.error(chalk.yellow(`Warning: ${w.file}: ${w.message}`));
+      ui.warn(`${w.file}: ${w.message}`);
     }
 
     const provider = await createProvider(config, {
@@ -96,10 +97,10 @@ scheduleCommand
       agents,
       onFire: (agent, runId) => {
         const ts = new Date().toISOString();
-        console.log(`${chalk.dim(ts)} ${chalk.green('fired')} ${chalk.cyan(agent.name)} run=${runId.slice(0, 8)}`);
+        console.log(`${ui.dim(ts)} ${chalk.green('fired')} ${ui.agent(agent.name)} ${ui.dim(`run=${runId.slice(0, 8)}`)}`);
       },
       onError: (agent, err) => {
-        console.error(chalk.red(`Error firing ${agent.name}: ${err.message}`));
+        ui.fail(`Error firing ${agent.name}: ${err.message}`);
       },
     });
 
@@ -107,22 +108,22 @@ scheduleCommand
     try {
       entries = scheduler.start();
     } catch (err) {
-      console.error(chalk.red((err as Error).message));
+      ui.fail((err as Error).message);
       await provider.shutdown();
       process.exit(1);
     }
 
     if (entries.length === 0) {
-      console.log(chalk.yellow('No agents have a schedule. Add `schedule: "<cron>"` to an agent YAML and restart.'));
+      ui.warn('No agents have a schedule. Add `schedule: "<cron>"` to an agent YAML and restart.');
       await provider.shutdown();
       return;
     }
 
-    console.log(chalk.bold(`\nScheduler running with ${entries.length} agent(s):`));
-    for (const { agent, schedule } of entries) {
-      console.log(`  ${chalk.cyan(agent.name)}  ${chalk.dim(schedule)}`);
-    }
-    console.log(chalk.dim('\nPress Ctrl+C to stop.\n'));
+    const bannerLines = entries.map(
+      ({ agent, schedule }) => `${agent.name.padEnd(24)} ${schedule}`,
+    );
+    ui.banner(`Scheduler running (${entries.length} agent${entries.length === 1 ? '' : 's'})`, bannerLines);
+    console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
     const shutdown = async () => {
       console.log('\nShutting down scheduler...');

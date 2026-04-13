@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
+import * as ui from '../ui.js';
 
 /**
  * Read-only inspection of an agent. Prints the full resolved YAML including
@@ -18,8 +19,8 @@ export const auditCommand = new Command('audit')
 
     const agent = agents.get(name);
     if (!agent) {
-      console.error(chalk.red(`Agent "${name}" not found.`));
-      console.error(chalk.dim('Run "sua agent list" or "sua agent list --catalog" to see options.'));
+      ui.fail(`Agent "${name}" not found.`);
+      console.error(ui.dim('Run "sua agent list" or "sua agent list --catalog" to see options.'));
       process.exit(1);
     }
 
@@ -30,9 +31,9 @@ export const auditCommand = new Command('audit')
     console.log('');
 
     // Top-line fields
-    row('description', agent.description ?? chalk.dim('(none)'));
-    row('type', agent.type);
-    row('timeout', String(agent.timeout ?? 300));
+    ui.kv('description', agent.description ?? ui.dim('(none)'));
+    ui.kv('type', agent.type);
+    ui.kv('timeout', String(agent.timeout ?? 300));
 
     if (agent.type === 'shell') {
       console.log('');
@@ -43,23 +44,23 @@ export const auditCommand = new Command('audit')
       console.log('');
       console.log(chalk.bold('prompt:'));
       console.log('  ' + (agent.prompt ?? ''));
-      if (agent.model) row('model', agent.model);
-      if (agent.maxTurns) row('maxTurns', String(agent.maxTurns));
-      if (agent.allowedTools?.length) row('allowedTools', agent.allowedTools.join(', '));
+      if (agent.model) ui.kv('model', agent.model);
+      if (agent.maxTurns) ui.kv('maxTurns', String(agent.maxTurns));
+      if (agent.allowedTools?.length) ui.kv('allowedTools', agent.allowedTools.join(', '));
     }
 
     console.log('');
-    row('schedule', agent.schedule ?? chalk.dim('(none)'));
-    if (agent.allowHighFrequency) row('allowHighFrequency', chalk.yellow('true'));
-    row('mcp', agent.mcp === true ? chalk.green('true (exposed)') : 'false');
-    row('redactSecrets', agent.redactSecrets === true ? 'true' : 'false');
-    if (agent.workingDirectory) row('workingDirectory', agent.workingDirectory);
+    ui.kv('schedule', agent.schedule ?? ui.dim('(none)'));
+    if (agent.allowHighFrequency) ui.kv('allowHighFrequency', chalk.yellow('true'));
+    ui.kv('mcp', agent.mcp === true ? chalk.green('true (exposed)') : 'false');
+    ui.kv('redactSecrets', agent.redactSecrets === true ? 'true' : 'false');
+    if (agent.workingDirectory) ui.kv('workingDirectory', agent.workingDirectory);
 
     if (agent.secrets?.length) {
-      row('secrets', agent.secrets.join(', '));
+      ui.kv('secrets', agent.secrets.join(', '));
     }
     if (agent.envAllowlist?.length) {
-      row('envAllowlist', agent.envAllowlist.join(', '));
+      ui.kv('envAllowlist', agent.envAllowlist.join(', '));
     }
     if (agent.env && Object.keys(agent.env).length > 0) {
       console.log('');
@@ -68,7 +69,7 @@ export const auditCommand = new Command('audit')
         console.log(`  ${chalk.cyan(k)}=${v}`);
       }
     }
-    if (agent.dependsOn?.length) row('dependsOn', agent.dependsOn.join(', '));
+    if (agent.dependsOn?.length) ui.kv('dependsOn', agent.dependsOn.join(', '));
     if (agent.input) {
       console.log('');
       console.log(chalk.bold('input:'));
@@ -77,25 +78,11 @@ export const auditCommand = new Command('audit')
 
     if (sourceLabel === 'community') {
       console.log('');
-      console.log(
-        chalk.yellow(
-          `⚠ This is a community agent. Shell agents from community sources are refused by default; `,
-        ),
-      );
-      console.log(
-        chalk.yellow(
-          `  opt in with --allow-untrusted-shell ${agent.name} on "sua agent run" / "sua schedule start" `,
-        ),
-      );
-      console.log(
-        chalk.yellow(
+      ui.warn(
+        `This is a community agent. Shell agents from community sources are refused by default;\n` +
+          `  opt in with --allow-untrusted-shell ${agent.name} on "sua agent run" / "sua schedule start"\n` +
           `  only after reading the command above and confirming it is safe to execute as your user.`,
-        ),
       );
     }
     console.log('');
   });
-
-function row(label: string, value: string): void {
-  console.log(`  ${chalk.dim(label.padEnd(18))} ${value}`);
-}

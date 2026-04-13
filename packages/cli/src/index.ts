@@ -33,7 +33,24 @@ const program = new Command();
 program
   .name('sua')
   .description('some-useful-agents — a local-first agent playground')
-  .version(pkg.version);
+  .version(pkg.version)
+  .showHelpAfterError(true)
+  .addHelpText(
+    'after',
+    `
+Examples:
+  $ sua init                        Create sua.config.json in the current dir
+  $ sua agent new                   Scaffold a new agent interactively
+  $ sua agent run my-agent          Run an agent once
+  $ sua agent list                  See everything runnable
+  $ sua schedule start              Fire scheduled agents on cron
+  $ sua mcp start                   Start the MCP server on 127.0.0.1:3003
+  $ sua doctor --security           Audit security posture
+
+Security model: docs/SECURITY.md
+Full docs:      https://github.com/gregmeyer/some-useful-agents
+`,
+  );
 
 const agent = program
   .command('agent')
