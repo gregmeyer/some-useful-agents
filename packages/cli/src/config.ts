@@ -56,11 +56,21 @@ export function resolveProvider(config: SuaConfig, override?: string): 'local' |
   return choice;
 }
 
-export function getAgentDirs(config: SuaConfig): { runnable: string[]; catalog: string[] } {
+export function getAgentDirs(config: SuaConfig): {
+  /** Agents the user authored or ships with sua. No gate needed. */
+  runnable: string[];
+  /** Third-party community agents. Visible in `agent list --catalog`; runnable with the shell gate. */
+  catalog: string[];
+  /** Union of `runnable` + `catalog`. Use this for any command that executes an agent — the shell gate in `executeAgent` handles trust enforcement. */
+  all: string[];
+} {
   const base = resolve(config.agentsDir);
+  const runnable = [join(base, 'examples'), join(base, 'local')];
+  const catalog = [join(base, 'community')];
   return {
-    runnable: [join(base, 'examples'), join(base, 'local')],
-    catalog: [join(base, 'community')],
+    runnable,
+    catalog,
+    all: [...runnable, ...catalog],
   };
 }
 

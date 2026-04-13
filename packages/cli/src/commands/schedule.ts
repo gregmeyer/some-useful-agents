@@ -14,7 +14,7 @@ scheduleCommand
   .action(() => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
-    const { agents } = loadAgents({ directories: dirs.runnable });
+    const { agents } = loadAgents({ directories: dirs.all });
 
     const scheduled = Array.from(agents.values()).filter(a => a.schedule);
     if (scheduled.length === 0) {
@@ -44,7 +44,7 @@ scheduleCommand
   .action((name: string) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
-    const { agents } = loadAgents({ directories: dirs.runnable });
+    const { agents } = loadAgents({ directories: dirs.all });
     const agent = agents.get(name);
     if (!agent) {
       console.error(chalk.red(`Agent "${name}" not found.`));
@@ -79,7 +79,9 @@ scheduleCommand
   .action(async (options: { allowUntrustedShell: string[] }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
-    const { agents, warnings } = loadAgents({ directories: dirs.runnable });
+    // Load runnable + catalog so community agents can fire on schedule;
+    // the shell gate in executeAgent enforces per-agent opt-in.
+    const { agents, warnings } = loadAgents({ directories: dirs.all });
 
     for (const w of warnings) {
       console.error(chalk.yellow(`Warning: ${w.file}: ${w.message}`));
