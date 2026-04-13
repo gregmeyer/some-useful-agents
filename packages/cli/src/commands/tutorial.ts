@@ -43,14 +43,24 @@ async function runTutorial(): Promise<void> {
 
   try {
     printHeader();
-    await stage1(ctx);
-    await stage2(ctx);
-    await stage3(ctx);
-    await stage4(ctx);
-    await stage5(ctx);
+    await runStage(1, () => stage1(ctx));
+    await runStage(2, () => stage2(ctx));
+    await runStage(3, () => stage3(ctx));
+    await runStage(4, () => stage4(ctx));
+    await runStage(5, () => stage5(ctx));
     printOutro();
   } finally {
     rl.close();
+  }
+}
+
+async function runStage(n: number, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(chalk.red(`\n[stage ${n}] failed: ${(err as Error).message}`));
+    if ((err as Error).stack) console.error(chalk.dim((err as Error).stack));
+    throw err;
   }
 }
 
@@ -96,7 +106,7 @@ async function pause(ctx: Ctx, stageTopic: string): Promise<void> {
 async function doExplain(ctx: Ctx, topic: string): Promise<void> {
   if (!ctx.llm) return;
   const prompt = buildExplainPrompt(topic);
-  const spinner = ora(`Asking ${ctx.llm}...`).start();
+  const spinner = ora({ text: `Asking ${ctx.llm}...`, discardStdin: false }).start();
   const result = await invokeLlm({ prompt, provider: ctx.llm, timeoutMs: 60_000 });
   spinner.stop();
   if (result.exitCode !== 0) {
@@ -178,7 +188,7 @@ async function stage3(ctx: Ctx): Promise<void> {
   }
 
   const provider = await createProvider(ctx.config);
-  const spinner = ora('Running hello...').start();
+  const spinner = ora({ text: 'Running hello...', discardStdin: false }).start();
   try {
     const run = await provider.submitRun({ agent, triggeredBy: 'cli' });
     let current = run;
@@ -229,7 +239,7 @@ async function stage4(ctx: Ctx): Promise<void> {
   }
 
   const provider = await createProvider(ctx.config);
-  const spinner = ora('curl icanhazdadjoke.com...').start();
+  const spinner = ora({ text: 'curl icanhazdadjoke.com...', discardStdin: false }).start();
   try {
     const run = await provider.submitRun({ agent, triggeredBy: 'cli' });
     let current = run;
