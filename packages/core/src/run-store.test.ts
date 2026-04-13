@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync } from 'node:fs';
+import { rmSync, statSync } from 'node:fs';
+import { platform } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import type { Run } from './types.js';
@@ -92,5 +93,44 @@ describe('RunStore', () => {
     const retrieved = store.getRun('r-fields');
     expect(retrieved!.result).toBe('hello output');
     expect(retrieved!.exitCode).toBe(0);
+  });
+
+  it.skipIf(platform() === 'win32')('chmods the DB file to 0o600 on create', () => {
+    const mode = statSync(TEST_DB).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
+  it('sweepExpired deletes rows older than retention window', () => {
+    // Row 40 days ago (should be deleted with 30-day window)
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    store.createRun(makeRun({ id: 'old-run', startedAt: old }));
+    // Row 5 days ago (should survive)
+    const recent = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    store.createRun(makeRun({ id: 'recent-run', startedAt: recent }));
+
+    const deleted = store.sweepExpired(30);
+    expect(deleted).toBe(1);
+    expect(store.getRun('old-run')).toBeNull();
+    expect(store.getRun('recent-run')).not.toBeNull();
+  });
+
+  it('sweepExpired is no-op when retentionDays is Infinity', () => {
+    const old = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    store.createRun(makeRun({ id: 'ancient', startedAt: old }));
+    const deleted = store.sweepExpired(Infinity);
+    expect(deleted).toBe(0);
+    expect(store.getRun('ancient')).not.toBeNull();
+  });
+
+  it('constructor sweeps expired rows with configured retention', () => {
+    // Seed a 60-day-old row in the default store, close it, reopen with 30-day retention
+    const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    store.createRun(makeRun({ id: 'aged', startedAt: old }));
+    store.close();
+
+    const reopened = new RunStore(TEST_DB, { retentionDays: 30 });
+    expect(reopened.getRun('aged')).toBeNull();
+    reopened.close();
+    store = new RunStore(TEST_DB);  // for afterEach cleanup
   });
 });

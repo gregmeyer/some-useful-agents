@@ -63,10 +63,20 @@ scheduleCommand
     }
   });
 
+function collectName(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 scheduleCommand
   .command('start')
   .description('Start the scheduler daemon (foreground)')
-  .action(async () => {
+  .option(
+    '--allow-untrusted-shell <name>',
+    'Permit a community shell agent to fire on schedule (repeatable; per-agent, not global)',
+    collectName,
+    [] as string[],
+  )
+  .action(async (options: { allowUntrustedShell: string[] }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     const { agents, warnings } = loadAgents({ directories: dirs.runnable });
@@ -75,7 +85,9 @@ scheduleCommand
       console.error(chalk.yellow(`Warning: ${w.file}: ${w.message}`));
     }
 
-    const provider = await createProvider(config);
+    const provider = await createProvider(config, {
+      allowUntrustedShell: new Set(options.allowUntrustedShell),
+    });
 
     const scheduler = new LocalScheduler({
       provider,

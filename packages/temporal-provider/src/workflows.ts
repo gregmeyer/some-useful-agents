@@ -11,6 +11,13 @@ const { runAgentActivity } = proxyActivities<typeof activities>({
 export interface RunAgentWorkflowInput {
   agent: activities.RunAgentActivityInput['agent'];
   secretsPath: string;
+  /**
+   * Names of community shell agents the submitter has explicitly allowed.
+   * Propagated to the activity; the executor refuses community shell by
+   * default. Using string[] rather than Set<string> so the payload is
+   * serializable by Temporal's data converter.
+   */
+  allowUntrustedShell?: string[];
 }
 
 export interface RunAgentWorkflowResult {
@@ -29,5 +36,6 @@ export async function runAgentWorkflow(input: RunAgentWorkflowInput): Promise<Ru
   return runAgentActivity({
     agent: input.agent,
     secretsPath: input.secretsPath,
+    allowUntrustedShell: input.allowUntrustedShell,
   });
 }

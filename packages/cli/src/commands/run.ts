@@ -5,12 +5,22 @@ import { loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
 import { createProvider } from '../provider-factory.js';
 
+function collectName(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 export const runCommand = new Command('run')
   .description('Run an agent')
   .argument('<name>', 'Agent name')
   .option('--provider <provider>', 'Override provider (local | temporal)')
+  .option(
+    '--allow-untrusted-shell <name>',
+    'Permit a community shell agent to run (repeatable; per-agent, not global)',
+    collectName,
+    [] as string[],
+  )
   .option('--verbose', 'Show detailed output')
-  .action(async (name: string, options: { provider?: string }) => {
+  .action(async (name: string, options: { provider?: string; allowUntrustedShell: string[] }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     const { agents } = loadAgents({ directories: dirs.runnable });
@@ -22,11 +32,21 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
-    const provider = await createProvider(config, options.provider);
+    const provider = await createProvider(config, {
+      providerOverride: options.provider,
+      allowUntrustedShell: new Set(options.allowUntrustedShell),
+    });
     const spinner = ora(`Running ${chalk.cyan(name)} via ${chalk.dim(provider.name)}...`).start();
 
     try {
-      const run = await provider.submitRun({ agent, triggeredBy: 'cli' });
+      let run;
+      try {
+        run = await provider.submitRun({ agent, triggeredBy: 'cli' });
+      } catch (err) {
+        spinner.fail(err instanceof Error ? err.message : String(err));
+        process.exitCode = 1;
+        return;
+      }
       spinner.text = `Running ${chalk.cyan(name)} (${chalk.dim(run.id.slice(0, 8))})...`;
 
       // Poll for completion

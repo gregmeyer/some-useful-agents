@@ -1,19 +1,130 @@
 import { Command } from 'commander';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { platform } from 'node:os';
 import chalk from 'chalk';
-import { loadConfig, getAgentDirs, getSecretsPath } from '../config.js';
-import { loadAgents, EncryptedFileStore, LocalScheduler, detectLlms } from '@some-useful-agents/core';
+import { loadConfig, getAgentDirs, getSecretsPath, getDbPath } from '../config.js';
+import {
+  loadAgents,
+  EncryptedFileStore,
+  LocalScheduler,
+  detectLlms,
+  getMcpTokenPath,
+  readMcpToken,
+} from '@some-useful-agents/core';
 
 interface Check {
   name: string;
   run: () => { ok: boolean; message: string };
 }
 
+function checkMode600(path: string): { ok: boolean; message: string } {
+  if (platform() === 'win32') {
+    return { ok: true, message: 'skipped on Windows' };
+  }
+  if (!existsSync(path)) {
+    return { ok: true, message: `not present (yet)` };
+  }
+  const mode = statSync(path).mode & 0o777;
+  return {
+    ok: mode === 0o600,
+    message: mode === 0o600 ? `chmod 0600` : `chmod 0${mode.toString(8)} (want 0600)`,
+  };
+}
+
+function buildSecurityChecks(config: ReturnType<typeof loadConfig>): Check[] {
+  const tokenPath = getMcpTokenPath();
+  const secretsPath = getSecretsPath(config);
+  const dbPath = getDbPath(config);
+  const dirs = getAgentDirs(config);
+
+  return [
+    {
+      name: `MCP bearer token (${tokenPath})`,
+      run: () => {
+        if (!existsSync(tokenPath)) {
+          return { ok: false, message: 'not present — run `sua init` or `sua mcp rotate-token`' };
+        }
+        const token = readMcpToken(tokenPath);
+        if (!token || token.length < 32) {
+          return { ok: false, message: 'present but unexpectedly short' };
+        }
+        return { ok: true, message: `${token.length} chars` };
+      },
+    },
+    { name: `Token file perms (${tokenPath})`, run: () => checkMode600(tokenPath) },
+    { name: `Secrets file perms (${secretsPath})`, run: () => checkMode600(secretsPath) },
+    { name: `Run-store perms (${dbPath})`, run: () => checkMode600(dbPath) },
+    {
+      name: 'MCP bind host',
+      run: () => {
+        const port = config.mcpPort ?? 3003;
+        return {
+          ok: true,
+          message: `default 127.0.0.1:${port} (override with \`sua mcp start --host\`)`,
+        };
+      },
+    },
+    {
+      name: 'Community shell agents',
+      run: () => {
+        const { agents } = loadAgents({ directories: dirs.runnable });
+        const offenders = Array.from(agents.values()).filter(
+          a => a.type === 'shell' && a.source === 'community',
+        );
+        if (offenders.length === 0) return { ok: true, message: 'none loaded' };
+        return {
+          ok: false,
+          message:
+            `${offenders.length} community shell agent(s): ${offenders.map(a => a.name).join(', ')}. ` +
+            `Audit each with \`sua agent audit <name>\`; they refuse to run without ` +
+            `\`--allow-untrusted-shell <name>\`.`,
+        };
+      },
+    },
+    {
+      name: 'Agents exposed via MCP',
+      run: () => {
+        const { agents } = loadAgents({ directories: dirs.runnable });
+        const exposed = Array.from(agents.values()).filter(a => a.mcp === true);
+        return {
+          ok: true,
+          message:
+            exposed.length === 0
+              ? 'none opt in (MCP will see an empty catalog)'
+              : `${exposed.length} opted in: ${exposed.map(a => a.name).join(', ')}`,
+        };
+      },
+    },
+  ];
+}
+
 export const doctorCommand = new Command('doctor')
   .description('Check prerequisites and system health')
-  .action(() => {
+  .option('--security', 'Run security-focused checks (file perms, MCP token, community shell)')
+  .action((options: { security?: boolean }) => {
     const config = loadConfig();
+
+    if (options.security) {
+      const checks = buildSecurityChecks(config);
+      console.log(chalk.bold('\nsome-useful-agents doctor — security\n'));
+      let allOk = true;
+      for (const check of checks) {
+        const result = check.run();
+        const icon = result.ok ? chalk.green('✓') : chalk.red('✗');
+        const msg = result.ok ? chalk.dim(result.message) : chalk.red(result.message);
+        console.log(`  ${icon} ${check.name}  ${msg}`);
+        if (!result.ok) allOk = false;
+      }
+      console.log('');
+      if (allOk) {
+        console.log(chalk.green('Security posture looks good.'));
+      } else {
+        console.log(chalk.yellow('Security findings above. See docs/SECURITY.md.'));
+        process.exit(1);
+      }
+      return;
+    }
 
     const checks: Check[] = [
       {

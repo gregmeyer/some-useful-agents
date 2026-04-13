@@ -82,10 +82,14 @@ describe('runAgentActivity', () => {
     try {
       const result = await runAgentActivity({
         agent: shellAgent({
+          name: 'audited-community-agent',
           source: 'community',
           command: 'echo "leak=$TEST_FAKE_AWS_SECRET"',
         }),
         secretsPath: SECRETS_PATH,
+        // Explicit opt-in so the shell gate (v0.5.1) allows the run; the
+        // assertion that follows is about env filtering, not the gate.
+        allowUntrustedShell: ['audited-community-agent'],
       });
 
       expect(result.exitCode).toBe(0);
@@ -95,5 +99,20 @@ describe('runAgentActivity', () => {
     } finally {
       delete process.env.TEST_FAKE_AWS_SECRET;
     }
+  });
+
+  it('refuses community shell agents without allowUntrustedShell', async () => {
+    const result = await runAgentActivity({
+      agent: shellAgent({
+        name: 'unaudited-community',
+        source: 'community',
+        command: 'echo should-not-run',
+      }),
+      secretsPath: SECRETS_PATH,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toMatch(/community shell agent/);
+    expect(result.error).toMatch(/--allow-untrusted-shell/);
   });
 });

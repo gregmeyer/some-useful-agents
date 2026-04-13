@@ -33,6 +33,13 @@ export const agentDefinitionSchema = z.object({
    * "agents the user has explicitly marked safe for remote invocation".
    */
   mcp: z.boolean().default(false),
+  /**
+   * When true, known-prefix secrets (AWS access keys, GitHub PATs, OpenAI
+   * keys, Slack tokens) are scrubbed from the agent's captured stdout and
+   * stderr before they land in the run store. Useful for agents that call
+   * third-party APIs and might echo a leaked token in their response.
+   */
+  redactSecrets: z.boolean().default(false),
   workingDirectory: z.string().optional(),
 
   // Chaining

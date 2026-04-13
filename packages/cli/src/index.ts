@@ -12,6 +12,7 @@ import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
 import { logsCommand } from './commands/logs.js';
 import { cancelCommand } from './commands/cancel.js';
+import { auditCommand } from './commands/audit.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
@@ -42,6 +43,7 @@ agent.addCommand(runCommand);
 agent.addCommand(statusCommand);
 agent.addCommand(logsCommand);
 agent.addCommand(cancelCommand);
+agent.addCommand(auditCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);
