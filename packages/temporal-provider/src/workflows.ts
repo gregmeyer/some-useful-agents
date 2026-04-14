@@ -18,6 +18,11 @@ export interface RunAgentWorkflowInput {
    * serializable by Temporal's data converter.
    */
   allowUntrustedShell?: string[];
+  /**
+   * Caller-supplied input values. Validated inside the activity against
+   * the agent's `inputs:` declarations.
+   */
+  inputs?: Record<string, string>;
 }
 
 export interface RunAgentWorkflowResult {
@@ -37,5 +42,6 @@ export async function runAgentWorkflow(input: RunAgentWorkflowInput): Promise<Ru
     agent: input.agent,
     secretsPath: input.secretsPath,
     allowUntrustedShell: input.allowUntrustedShell,
+    inputs: input.inputs,
   });
 }

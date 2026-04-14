@@ -3,7 +3,7 @@
 A living document of where `some-useful-agents` is heading. Light on detail, heavy
 on direction.
 
-## Now (v0.7.0 shipped)
+## Now (v0.9.0 shipped)
 
 - **Onboarding walkthrough** — `sua tutorial` walks new users through 5 stages
   ending in a real, scheduled agent (dad-joke from icanhazdadjoke.com). Claude or
@@ -33,6 +33,19 @@ on direction.
   name, description, command/prompt, and optional advanced fields
   (timeout, schedule, secrets, `mcp:`, `redactSecrets`), validates via
   `agentDefinitionSchema`, and writes to `agents/local/<name>.yaml`.
+- **CLI visual polish (v0.8.0)** — shared `ui.ts` helpers unify every
+  command's output. One voice, one look: ✅ / ❌ / ⚠️ / 💡 / 🚀 symbols,
+  boxen-bordered banners for daemon startups, unified output frame for
+  `sua agent run`, Examples block in `sua --help`.
+- **Typed runtime inputs (v0.9.0)** — agents declare `inputs:` with types
+  (string, number, boolean, enum), defaults, and required flags. Callers
+  supply values via `sua agent run <name> --input KEY=value` (repeatable);
+  scheduler daemons via `sua schedule start --input KEY=value` (global
+  override). claude-code prompts read `{{inputs.X}}` templates; shell
+  agents read `$X` env vars (idiomatic bash, no template-injection surface).
+  Schema rejects templates in shell commands and undeclared references at
+  load time; resolver rejects missing-required, bad-type, and undeclared
+  provided values at run time.
 
 ## Next (3–6 months)
 

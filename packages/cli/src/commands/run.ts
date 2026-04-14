@@ -10,6 +10,16 @@ function collectName(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
+function collectInput(value: string, previous: Record<string, string>): Record<string, string> {
+  const eq = value.indexOf('=');
+  if (eq <= 0) {
+    throw new Error(`--input expects KEY=value (got: "${value}")`);
+  }
+  const key = value.slice(0, eq);
+  const val = value.slice(eq + 1);
+  return { ...previous, [key]: val };
+}
+
 export const runCommand = new Command('run')
   .description('Run an agent')
   .argument('<name>', 'Agent name')
@@ -20,8 +30,18 @@ export const runCommand = new Command('run')
     collectName,
     [] as string[],
   )
+  .option(
+    '--input <KEY=value>',
+    'Supply a value for a declared input (repeatable). KEY must be UPPERCASE_WITH_UNDERSCORES.',
+    collectInput,
+    {} as Record<string, string>,
+  )
   .option('--verbose', 'Show detailed output')
-  .action(async (name: string, options: { provider?: string; allowUntrustedShell: string[] }) => {
+  .action(async (name: string, options: {
+    provider?: string;
+    allowUntrustedShell: string[];
+    input: Record<string, string>;
+  }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     // Include community catalog so community agents are runnable; the shell
@@ -44,7 +64,11 @@ export const runCommand = new Command('run')
     try {
       let run;
       try {
-        run = await provider.submitRun({ agent, triggeredBy: 'cli' });
+        run = await provider.submitRun({
+          agent,
+          triggeredBy: 'cli',
+          inputs: options.input,
+        });
       } catch (err) {
         spinner.fail(err instanceof Error ? err.message : String(err));
         process.exitCode = 1;

@@ -1,3 +1,11 @@
+export interface AgentInputSpec {
+  type: 'string' | 'number' | 'boolean' | 'enum';
+  values?: string[];
+  default?: string | number | boolean;
+  required?: boolean;
+  description?: string;
+}
+
 export interface AgentDefinition {
   name: string;
   description?: string;
@@ -27,6 +35,12 @@ export interface AgentDefinition {
    * before they land in the run store.
    */
   redactSecrets?: boolean;
+  /**
+   * Typed runtime input declarations. Callers supply values via
+   * `--input KEY=value`; YAML defaults fill in the rest. See
+   * input-resolver.ts for full semantics.
+   */
+  inputs?: Record<string, AgentInputSpec>;
   workingDirectory?: string;
 
   // Chaining (Phase 2a)
@@ -58,11 +72,22 @@ export interface Run {
   triggeredBy: 'cli' | 'mcp' | 'schedule';
 }
 
+export interface RunRequest {
+  agent: AgentDefinition;
+  triggeredBy: Run['triggeredBy'];
+  /**
+   * Runtime input values supplied by the caller. Keys must match the
+   * agent's declared `inputs:` block; undeclared keys are rejected by
+   * `resolveInputs`. Missing values with no default also fail fast.
+   */
+  inputs?: Record<string, string>;
+}
+
 export interface Provider {
   name: string;
   initialize(): Promise<void>;
   shutdown(): Promise<void>;
-  submitRun(request: { agent: AgentDefinition; triggeredBy: Run['triggeredBy'] }): Promise<Run>;
+  submitRun(request: RunRequest): Promise<Run>;
   getRun(runId: string): Promise<Run | null>;
   listRuns(filter?: { agentName?: string; status?: RunStatus; limit?: number }): Promise<Run[]>;
   cancelRun(runId: string): Promise<void>;

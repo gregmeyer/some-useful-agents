@@ -5,6 +5,7 @@ import {
   executeAgent,
   EncryptedFileStore,
   redactKnownSecrets,
+  resolveInputs,
 } from '@some-useful-agents/core';
 
 export interface RunAgentActivityInput {
@@ -18,6 +19,13 @@ export interface RunAgentActivityInput {
    * than applying its own.
    */
   allowUntrustedShell?: string[];
+  /**
+   * Caller-supplied input values keyed by name. Resolved against the agent's
+   * declared `inputs:` (defaults applied, types validated) inside the
+   * activity so a misconfigured submit fails the activity with a clear
+   * error rather than surfacing halfway through execution.
+   */
+  inputs?: Record<string, string>;
 }
 
 export interface RunAgentActivityResult {
@@ -52,10 +60,25 @@ export async function runAgentActivity(input: RunAgentActivityInput): Promise<Ru
     };
   }
 
+  // Resolve declared inputs (defaults, type validation, required checks).
+  let inputs: Record<string, string>;
+  try {
+    inputs = resolveInputs(input.agent.inputs, input.inputs ?? {}, {
+      agentName: input.agent.name,
+    });
+  } catch (err) {
+    return {
+      result: '',
+      exitCode: 1,
+      error: err instanceof Error ? err.message : String(err),
+      warnings,
+    };
+  }
+
   const allowUntrustedShell = new Set(input.allowUntrustedShell ?? []);
   let handle;
   try {
-    handle = executeAgent(input.agent, env, { allowUntrustedShell });
+    handle = executeAgent(input.agent, env, { allowUntrustedShell, inputs });
   } catch (err) {
     return {
       result: '',

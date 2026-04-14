@@ -1,5 +1,21 @@
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
+import { extractInputReferences } from './input-resolver.js';
+
+/**
+ * Per-input declaration. See docs/SECURITY.md and input-resolver.ts for the
+ * full type/default/required semantics.
+ */
+export const inputSpecSchema = z.object({
+  type: z.enum(['string', 'number', 'boolean', 'enum']),
+  values: z.array(z.string()).optional(),
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+}).refine(
+  (data) => data.type !== 'enum' || (data.values && data.values.length > 0),
+  { message: 'Enum inputs must declare a non-empty "values" array.', path: ['values'] },
+);
 
 export const agentDefinitionSchema = z.object({
   name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Must be lowercase with hyphens only'),
@@ -50,6 +66,17 @@ export const agentDefinitionSchema = z.object({
   secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Must be a valid env var name (e.g. MY_API_KEY)')).optional(),
   envAllowlist: z.array(z.string()).optional(),
 
+  /**
+   * Runtime inputs declared by this agent. Callers supply values via
+   * `--input KEY=value`; YAML defaults fill in the rest. Input names must
+   * match env-var conventions (uppercase with underscores). See
+   * `input-resolver.ts` for full semantics.
+   */
+  inputs: z.record(
+    z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
+    inputSpecSchema,
+  ).optional(),
+
   // Metadata
   author: z.string().optional(),
   version: z.string().optional(),
@@ -62,19 +89,65 @@ export const agentDefinitionSchema = z.object({
   },
   { message: 'Shell agents require "command", claude-code agents require "prompt"' }
 ).superRefine((data, ctx) => {
-  if (!data.schedule) return;
-  try {
-    validateScheduleInterval(data.schedule, { allowHighFrequency: data.allowHighFrequency });
-  } catch (err) {
-    if (err instanceof CronInvalidError || err instanceof CronTooFrequentError) {
+  if (data.schedule) {
+    try {
+      validateScheduleInterval(data.schedule, { allowHighFrequency: data.allowHighFrequency });
+    } catch (err) {
+      if (err instanceof CronInvalidError || err instanceof CronTooFrequentError) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['schedule'],
+          message: err.message,
+        });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Inputs: reject `{{inputs.*}}` in shell commands. Shell agents access
+  // inputs via `$VAR` env vars; templating inside a command string would
+  // force us to shell-escape substituted values, which is fraught. This
+  // rule pushes authors into the idiomatic shell path.
+  if (data.type === 'shell' && data.command) {
+    const refs = extractInputReferences(data.command);
+    if (refs.size > 0) {
+      const first = [...refs][0];
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['schedule'],
-        message: err.message,
+        path: ['command'],
+        message:
+          `Shell agents access inputs via environment variables, not templates. ` +
+          `Replace {{inputs.${first}}} with $${first} in the command ` +
+          `(declared inputs are injected into the process env automatically).`,
       });
-      return;
     }
-    throw err;
+  }
+
+  // Every `{{inputs.X}}` reference in prompt or env values must appear in
+  // the agent's `inputs:` declaration. Catches typos at load time rather
+  // than silent empty-string substitution at run time.
+  const declared = new Set(Object.keys(data.inputs ?? {}));
+  const checkRefs = (text: string | undefined, path: (string | number)[]): void => {
+    if (!text) return;
+    const refs = extractInputReferences(text);
+    for (const name of refs) {
+      if (!declared.has(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path,
+          message:
+            `Template references {{inputs.${name}}} but "${name}" is not declared ` +
+            `in this agent's \`inputs:\` block.`,
+        });
+      }
+    }
+  };
+  checkRefs(data.prompt, ['prompt']);
+  if (data.env) {
+    for (const [k, v] of Object.entries(data.env)) {
+      checkRefs(v, ['env', k]);
+    }
   }
 });
 

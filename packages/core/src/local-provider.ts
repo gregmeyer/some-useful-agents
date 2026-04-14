@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { Provider, AgentDefinition, Run, RunStatus } from './types.js';
+import type { Provider, RunRequest, Run, RunStatus } from './types.js';
 import { RunStore, type RunStoreOptions } from './run-store.js';
 import { executeAgent, type ExecutionHandle } from './agent-executor.js';
 import { buildAgentEnv, getTrustLevel } from './env-builder.js';
 import { redactKnownSecrets } from './secret-redactor.js';
+import { resolveInputs } from './input-resolver.js';
 import type { SecretsStore } from './secrets-store.js';
 
 export interface LocalProviderOptions {
@@ -49,7 +50,7 @@ export class LocalProvider implements Provider {
     this.store.close();
   }
 
-  async submitRun(request: { agent: AgentDefinition; triggeredBy: Run['triggeredBy'] }): Promise<Run> {
+  async submitRun(request: RunRequest): Promise<Run> {
     const run: Run = {
       id: randomUUID(),
       agentName: request.agent.name,
@@ -59,6 +60,23 @@ export class LocalProvider implements Provider {
     };
 
     this.store.createRun(run);
+
+    // Resolve typed inputs (merge provided + YAML defaults, validate types).
+    // Failures here (missing required, invalid type, undeclared provided key)
+    // surface as a failed run in history AND rethrow so the caller sees it.
+    let inputs: Record<string, string>;
+    try {
+      inputs = resolveInputs(request.agent.inputs, request.inputs ?? {}, {
+        agentName: request.agent.name,
+      });
+    } catch (err) {
+      this.store.updateRun(run.id, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     const trustLevel = getTrustLevel(request.agent);
     const secrets = this.secretsStore ? await this.secretsStore.getAll() : undefined;
@@ -83,7 +101,10 @@ export class LocalProvider implements Provider {
 
     let handle: ExecutionHandle;
     try {
-      handle = executeAgent(request.agent, env, { allowUntrustedShell: this.allowUntrustedShell });
+      handle = executeAgent(request.agent, env, {
+        allowUntrustedShell: this.allowUntrustedShell,
+        inputs,
+      });
     } catch (err) {
       // Executor can throw synchronously for gate violations (e.g.
       // UntrustedCommunityShellError). Record the failure so the run

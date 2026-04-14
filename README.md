@@ -31,14 +31,15 @@ The tutorial walks you through what sua is, builds a real agent that fetches a d
 **Agents**
 
 ```bash
-sua agent list                # runnable agents (examples + local)
-sua agent list --catalog      # browse the community catalog
-sua agent new                 # interactive scaffold → writes agents/local/<name>.yaml
-sua agent run <name>          # run an agent once
-sua agent status [runId]      # recent runs, or one specific run
-sua agent logs <runId>        # stdout/stderr of a past run
-sua agent cancel <runId>      # kill a running agent
-sua agent audit <name>        # print resolved YAML (use before --allow-untrusted-shell)
+sua agent list                          # runnable agents (examples + local)
+sua agent list --catalog                # browse the community catalog
+sua agent new                           # interactive scaffold → agents/local/<name>.yaml
+sua agent run <name>                    # run an agent once
+sua agent run <name> --input K=V        # supply a declared input (repeatable)
+sua agent status [runId]                # recent runs, or one specific run
+sua agent logs <runId>                  # stdout/stderr of a past run
+sua agent cancel <runId>                # kill a running agent
+sua agent audit <name>                  # print resolved YAML (use before --allow-untrusted-shell)
 ```
 
 **Scheduling**
@@ -83,10 +84,18 @@ name: daily-summary
 description: Summarize today's git activity with Claude
 type: claude-code
 prompt: |
-  Summarize the recent commits. Keep it under 5 bullets.
+  Summarize the recent commits for {{inputs.REPO}}. Keep it under
+  {{inputs.MAX_BULLETS}} bullets.
   Commits:
   {{outputs.fetch-commits.result}}
 model: claude-sonnet-4-20250514
+inputs:                           # typed runtime parameters
+  REPO:
+    type: string
+    default: gregmeyer/some-useful-agents
+  MAX_BULLETS:
+    type: number
+    default: 5
 dependsOn: [fetch-commits]        # chain: fetch-commits runs first
 schedule: "0 18 * * *"            # daily at 6pm
 timeout: 120
@@ -98,6 +107,11 @@ author: your-github-handle
 version: "1.0.0"
 tags: [git, summary, daily]
 ```
+
+Claude-code agents use `{{inputs.X}}` templates; shell agents access
+declared inputs as `$X` environment variables (bash handles its own
+quoting). Supply values at runtime with `sua agent run <name> --input K=V`
+or bake defaults into the YAML.
 
 Required fields: `name`, `type` (`shell` or `claude-code`). Shell agents need `command`; claude-code agents need `prompt`. Everything else is optional.
 

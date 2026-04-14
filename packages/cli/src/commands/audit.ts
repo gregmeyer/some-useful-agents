@@ -76,6 +76,28 @@ export const auditCommand = new Command('audit')
       console.log('  ' + agent.input);
     }
 
+    if (agent.inputs && Object.keys(agent.inputs).length > 0) {
+      console.log('');
+      console.log(chalk.bold('inputs:'));
+      for (const [name, spec] of Object.entries(agent.inputs)) {
+        const parts: string[] = [chalk.cyan(name), ui.dim(`(${spec.type})`)];
+        if (spec.type === 'enum' && spec.values?.length) {
+          parts.push(ui.dim(`one of: ${spec.values.join(', ')}`));
+        }
+        if (spec.default !== undefined) {
+          parts.push(ui.dim(`default=${JSON.stringify(spec.default)}`));
+        } else if (spec.required !== false) {
+          parts.push(chalk.yellow('required'));
+        } else {
+          parts.push(ui.dim('optional'));
+        }
+        console.log('  ' + parts.join('  '));
+        if (spec.description) {
+          console.log('    ' + ui.dim(spec.description));
+        }
+      }
+    }
+
     if (sourceLabel === 'community') {
       console.log('');
       ui.warn(

@@ -91,6 +91,106 @@ describe('LocalProvider shell gate', () => {
   });
 });
 
+describe('LocalProvider typed inputs', () => {
+  it('substitutes {{inputs.X}} in claude-code prompts and merges into env', async () => {
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore());
+    await provider.initialize();
+
+    // Using a shell agent instead of claude-code for end-to-end checking,
+    // since shell is easier to observe. The substitution path for claude-code
+    // prompts is unit-tested in input-resolver.test.ts; this test exercises
+    // the end-to-end env-merge for declared inputs in a real subprocess.
+    const run = await provider.submitRun({
+      agent: shellAgent({
+        name: 'weather',
+        command: 'echo "zip=$ZIP style=$STYLE"',
+        inputs: {
+          ZIP: { type: 'number', required: true },
+          STYLE: { type: 'enum', values: ['haiku', 'verse'], default: 'haiku' },
+        },
+      }),
+      triggeredBy: 'cli',
+      inputs: { ZIP: '94110' },
+    });
+    const final = await waitFor(provider, run.id);
+
+    expect(final!.status).toBe('completed');
+    expect(final!.result).toContain('zip=94110');
+    expect(final!.result).toContain('style=haiku');
+    await provider.shutdown();
+  });
+
+  it('records a failed run + rethrows on missing required input', async () => {
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore());
+    await provider.initialize();
+
+    await expect(
+      provider.submitRun({
+        agent: shellAgent({
+          name: 'needs-zip',
+          command: 'echo "$ZIP"',
+          inputs: { ZIP: { type: 'number', required: true } },
+        }),
+        triggeredBy: 'cli',
+        inputs: {},
+      }),
+    ).rejects.toThrow(/Missing required input: ZIP/);
+
+    const runs = await provider.listRuns({ agentName: 'needs-zip' });
+    expect(runs.length).toBe(1);
+    expect(runs[0].status).toBe('failed');
+
+    await provider.shutdown();
+  });
+
+  it('rejects invalid types before the run starts', async () => {
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore());
+    await provider.initialize();
+
+    await expect(
+      provider.submitRun({
+        agent: shellAgent({
+          name: 'typed-zip',
+          command: 'echo "$ZIP"',
+          inputs: { ZIP: { type: 'number', required: true } },
+        }),
+        triggeredBy: 'cli',
+        inputs: { ZIP: 'not-a-number' },
+      }),
+    ).rejects.toThrow(/Invalid value for input "ZIP"/);
+
+    await provider.shutdown();
+  });
+
+  it('declared input overrides an ambient env var of the same name', async () => {
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore(), {
+      // Widen the env allowlist so the ambient ZIP reaches the shell at all,
+      // otherwise the filter would have dropped it already.
+    });
+    await provider.initialize();
+
+    // Set an ambient value that the agent's env-builder would pass through.
+    process.env.ZIP = '00000';
+    try {
+      const run = await provider.submitRun({
+        agent: shellAgent({
+          name: 'override',
+          command: 'echo "zip=$ZIP"',
+          envAllowlist: ['ZIP'],
+          inputs: { ZIP: { type: 'number', required: true } },
+        }),
+        triggeredBy: 'cli',
+        inputs: { ZIP: '94110' },
+      });
+      const final = await waitFor(provider, run.id);
+      expect(final!.result).toContain('zip=94110');
+    } finally {
+      delete process.env.ZIP;
+      await provider.shutdown();
+    }
+  });
+});
+
 describe('LocalProvider redactSecrets', () => {
   it('scrubs known-prefix secrets from result when redactSecrets is true', async () => {
     const provider = new LocalProvider(dbPath, new MemorySecretsStore());
