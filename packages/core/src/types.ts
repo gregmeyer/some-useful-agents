@@ -51,6 +51,12 @@ export interface AgentDefinition {
   secrets?: string[];
   envAllowlist?: string[];
   source?: 'examples' | 'local' | 'community';
+  /**
+   * Absolute path of the YAML file this agent was loaded from. Populated by
+   * the loader; not part of the on-disk schema. Consumers that need to
+   * round-trip to the source (e.g. `sua agent edit`) read this.
+   */
+  filePath?: string;
 
   // Community metadata
   author?: string;
