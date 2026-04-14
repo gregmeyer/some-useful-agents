@@ -1,0 +1,163 @@
+/**
+ * Agent-v2 types. An agent is now a **versioned DAG of nodes**, not a single
+ * executable YAML. These types are the in-memory shape after parsing YAML v2
+ * or reading from the `agents` + `agent_versions` DB tables.
+ *
+ * See ~/.claude/plans/eager-splashing-toast.md for the full design and the
+ * migration story from v1 (one YAML = one node) to v2 (one agent = DAG).
+ *
+ * Template vocabulary a node's command/prompt may use:
+ *   - `{{inputs.X}}` for agent-level caller-supplied input X
+ *   - `{{upstream.<nodeId>.result}}` for upstream node's stdout (claude-code
+ *     only — shell nodes receive the same value as `$UPSTREAM_<NODEID>_RESULT`
+ *     via env injection, matching how shell agents already consume inputs).
+ */
+
+import type { AgentInputSpec } from './types.js';
+import type { AgentSource } from './agent-loader.js';
+
+export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
+export type NodeType = 'shell' | 'claude-code';
+export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
+
+// Re-export so consumers of v2 types can import from one place without
+// reaching back into the v1 loader module.
+export type { AgentSource };
+
+/**
+ * A single executable step within an agent's DAG. Corresponds 1:1 with what
+ * a v1 `AgentDefinition` described, minus the cross-file chaining fields
+ * (`dependsOn`/`input`/`source`) which now live at the agent or edge level.
+ */
+export interface AgentNode {
+  id: string;
+  type: NodeType;
+
+  // Shell
+  command?: string;
+
+  // Claude-code
+  prompt?: string;
+  model?: string;
+  maxTurns?: number;
+  allowedTools?: string[];
+
+  // Common per-node
+  timeout?: number;
+  env?: Record<string, string>;
+  envAllowlist?: string[];
+  /** Secret names (UPPERCASE_WITH_UNDERSCORES) this node needs injected. */
+  secrets?: string[];
+  /** Scrub known-prefix secrets from captured stdout/stderr before storage. */
+  redactSecrets?: boolean;
+  workingDirectory?: string;
+
+  /**
+   * Upstream node ids within the SAME agent. Analogous to v1's `dependsOn:`
+   * but scoped to the enclosing agent rather than cross-file. The executor
+   * topologically sorts on this field and rejects cycles.
+   */
+  dependsOn?: string[];
+
+  /**
+   * Optional layout hint for the v0.14 drag/drop editor. Ignored by the
+   * executor. Stored in the DAG JSON so layouts survive export/import.
+   */
+  position?: { x: number; y: number };
+}
+
+/**
+ * A versioned DAG. `nodes[]` is the source of truth; the edge set is derived
+ * from each node's `dependsOn`. Keeping the DAG representation in a single
+ * list (not `nodes[]` + `edges[]`) mirrors existing v1 YAML conventions and
+ * avoids edge/node sync bugs.
+ */
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+  status: AgentStatus;
+  schedule?: string;
+  allowHighFrequency?: boolean;
+  source: AgentSource;
+  mcp?: boolean;
+  /**
+   * The agent_versions row number. On parse from YAML this is the author's
+   * hint; on read from DB it's the `current_version` pointer's target.
+   */
+  version: number;
+
+  /** Agent-level runtime inputs. Nodes reference these as `{{inputs.X}}`. */
+  inputs?: Record<string, AgentInputSpec>;
+
+  nodes: AgentNode[];
+
+  // Metadata
+  author?: string;
+  tags?: string[];
+}
+
+/**
+ * Immutable snapshot stored in the `agent_versions` table. `dag_json` is the
+ * JSON-serialised shape of the `Agent` (minus the DB-managed status/schedule/
+ * mcp fields, which live on the parent row). `commit_message` is optional
+ * freetext the author supplies at save time.
+ */
+export interface AgentVersion {
+  agentId: string;
+  version: number;
+  dag: AgentVersionDag;
+  createdAt: string;
+  createdBy: 'cli' | 'dashboard' | 'import';
+  commitMessage?: string;
+}
+
+/**
+ * Shape actually serialised into `agent_versions.dag_json`. Excludes the
+ * per-row fields the parent `agents` table owns (status/schedule/mcp/
+ * current_version) so they can be edited without creating a new version.
+ */
+export interface AgentVersionDag {
+  id: string;
+  name: string;
+  description?: string;
+  source: AgentSource;
+  inputs?: Record<string, AgentInputSpec>;
+  nodes: AgentNode[];
+  author?: string;
+  tags?: string[];
+}
+
+/**
+ * Per-node record for one DAG run. Stored in `node_executions`. Surfaces
+ * the resolved inputs and upstream snapshot at exec time so replay can
+ * reconstruct what a node saw even if the upstream output was later
+ * overwritten by a newer run.
+ */
+export interface NodeExecutionRecord {
+  runId: string;
+  nodeId: string;
+  workflowVersion: number;
+  status: NodeExecutionStatus;
+  startedAt: string;
+  completedAt?: string;
+  result?: string;
+  exitCode?: number;
+  error?: string;
+  /** Inputs that were resolved and injected into the node at exec time. */
+  inputsJson?: string;
+  /** Snapshot of upstream node results that fed into this node. */
+  upstreamInputsJson?: string;
+}
+
+/**
+ * Runtime handle produced by the executor for one node execution. Short-lived;
+ * not persisted. Useful for trust-source propagation in the DAG executor
+ * (see `chain-executor.ts:76-155` for the v1 equivalent we're lifting).
+ */
+export interface NodeOutput {
+  result: string;
+  exitCode: number;
+  /** Agent source at the time of execution; propagates for trust wrapping. */
+  source: AgentSource;
+}
