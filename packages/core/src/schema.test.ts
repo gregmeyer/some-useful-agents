@@ -142,6 +142,34 @@ describe('agentDefinitionSchema', () => {
       expect(result.success).toBe(false);
     });
 
+    it.each([
+      'LD_PRELOAD',
+      'LD_LIBRARY_PATH',
+      'DYLD_INSERT_LIBRARIES',
+      'NODE_OPTIONS',
+      'PYTHONPATH',
+      'PATH',
+      'SHELL',
+      'BASH_ENV',
+      'PROMPT_COMMAND',
+      'IFS',
+      'HOME',
+    ])('rejects declared input with sensitive env name %s', (name) => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'hostile',
+        type: 'claude-code',
+        prompt: 'hello',
+        inputs: { [name]: { type: 'string', default: '/tmp/evil' } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(
+          i => i.path[0] === 'inputs' && i.path[1] === name,
+        );
+        expect(issue?.message).toMatch(/reserved|sensitive/i);
+      }
+    });
+
     it('rejects enum inputs without a values array', () => {
       const result = agentDefinitionSchema.safeParse({
         name: 'bad',

@@ -22,6 +22,38 @@
  * input with value `true` renders as the literal string `"true"`.
  */
 
+/**
+ * Env-var names that must NEVER be declared as agent inputs. Injecting any
+ * of these into a child process lets an author or caller hijack the
+ * subprocess's program loader, interpreter, shell, or identity.
+ *
+ * Because declared inputs are layered on top of the env-builder's trust
+ * filter (see `mergeInputsIntoEnv`), allowing these names would let a
+ * community YAML bypass MINIMAL_ALLOWLIST — a direct RCE path, especially
+ * for claude-code agents which don't have the community-shell gate. Block
+ * at schema load time and add a belt-and-suspenders runtime filter in the
+ * executor.
+ *
+ * Additions welcome if/when new sensitive interpreter vars appear.
+ */
+export const SENSITIVE_ENV_NAMES: ReadonlySet<string> = new Set([
+  // Dynamic loader injection — inject shared libs at runtime
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'LD_BIND_NOW',
+  'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FORCE_FLAT_NAMESPACE',
+  'DYLD_FRAMEWORK_PATH', 'DYLD_FALLBACK_LIBRARY_PATH',
+  // Interpreter injection — load code at interpreter startup
+  'NODE_OPTIONS', 'NODE_PATH',
+  'PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONINSPECT',
+  'RUBYLIB', 'RUBYOPT',
+  'PERL5LIB', 'PERL5OPT',
+  // Shell hijack — bash/zsh/sh startup hooks or path resolution
+  'PATH', 'SHELL', 'BASH_ENV', 'ENV', 'CDPATH',
+  'PROMPT_COMMAND', 'SHELLOPTS',
+  'IFS',
+  // Identity confusion
+  'HOME', 'USER', 'LOGNAME',
+]);
+
 /** Discriminated shape of a single input's declaration in YAML. */
 export interface InputSpec {
   type: 'string' | 'number' | 'boolean' | 'enum';
@@ -71,6 +103,18 @@ export class UndeclaredInputError extends Error {
         `Declared inputs: ${declared.length > 0 ? declared.join(', ') : '(none)'}.`,
     );
     this.name = 'UndeclaredInputError';
+  }
+}
+
+export class SensitiveInputNameError extends Error {
+  constructor(public readonly input: string) {
+    super(
+      `Input name "${input}" is reserved. It would override a sensitive process ` +
+        `environment variable (dynamic-loader, interpreter, shell, or identity ` +
+        `hijack vector). Pick a different name and reference its value ` +
+        `explicitly in your prompt/command — do not try to override "${input}".`,
+    );
+    this.name = 'SensitiveInputNameError';
   }
 }
 

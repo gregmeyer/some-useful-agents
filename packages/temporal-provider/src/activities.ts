@@ -61,10 +61,15 @@ export async function runAgentActivity(input: RunAgentActivityInput): Promise<Ru
   }
 
   // Resolve declared inputs (defaults, type validation, required checks).
+  // `rejectUndeclared: false` here matches LocalProvider — the activity can
+  // be invoked from chain / scheduler paths that share a single inputs map
+  // across a fleet, so extras must be tolerated. The CLI layer does strict
+  // pre-validation for the targeted-invocation case.
   let inputs: Record<string, string>;
   try {
     inputs = resolveInputs(input.agent.inputs, input.inputs ?? {}, {
       agentName: input.agent.name,
+      rejectUndeclared: false,
     });
   } catch (err) {
     return {

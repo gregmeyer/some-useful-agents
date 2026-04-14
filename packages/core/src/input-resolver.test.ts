@@ -4,6 +4,7 @@ import {
   validateAndRender,
   extractInputReferences,
   substituteInputs,
+  SENSITIVE_ENV_NAMES,
   MissingInputError,
   InvalidInputTypeError,
   UndeclaredInputError,
@@ -134,6 +135,39 @@ describe('resolveInputs', () => {
       expect(err).toBeInstanceOf(MissingInputError);
       expect((err as Error).message).toContain('weather-verse');
     }
+  });
+});
+
+describe('SENSITIVE_ENV_NAMES', () => {
+  it('includes dynamic-loader injection vectors', () => {
+    expect(SENSITIVE_ENV_NAMES.has('LD_PRELOAD')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('LD_LIBRARY_PATH')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('DYLD_INSERT_LIBRARIES')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('DYLD_LIBRARY_PATH')).toBe(true);
+  });
+
+  it('includes interpreter-startup injection vectors', () => {
+    expect(SENSITIVE_ENV_NAMES.has('NODE_OPTIONS')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('NODE_PATH')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('PYTHONPATH')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('PYTHONSTARTUP')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('RUBYOPT')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('PERL5OPT')).toBe(true);
+  });
+
+  it('includes shell hijack vectors', () => {
+    expect(SENSITIVE_ENV_NAMES.has('PATH')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('SHELL')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('BASH_ENV')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('PROMPT_COMMAND')).toBe(true);
+    expect(SENSITIVE_ENV_NAMES.has('IFS')).toBe(true);
+  });
+
+  it('does not accidentally include benign names', () => {
+    expect(SENSITIVE_ENV_NAMES.has('ZIP')).toBe(false);
+    expect(SENSITIVE_ENV_NAMES.has('STYLE')).toBe(false);
+    expect(SENSITIVE_ENV_NAMES.has('MY_API_TOKEN')).toBe(false);
+    expect(SENSITIVE_ENV_NAMES.has('FOO')).toBe(false);
   });
 });
 

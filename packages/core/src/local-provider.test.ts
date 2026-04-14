@@ -143,7 +143,32 @@ describe('LocalProvider typed inputs', () => {
     await provider.shutdown();
   });
 
-  it('rejects invalid types before the run starts', async () => {
+  it('tolerates caller-supplied inputs the agent did not declare (chain/scheduler fan-out)', async () => {
+    // The provider is called from per-agent CLI (strict, validates at CLI
+    // layer), chain execution (shared inputs for a fleet), and the
+    // scheduler daemon (daemon-wide overrides). (2) and (3) need the
+    // provider to tolerate extras — otherwise a single `--input ZIP=...`
+    // breaks every scheduled agent that doesn't declare ZIP.
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore());
+    await provider.initialize();
+
+    const run = await provider.submitRun({
+      agent: shellAgent({
+        name: 'no-inputs-declared',
+        command: 'echo tolerated',
+        // no inputs field
+      }),
+      triggeredBy: 'schedule',
+      inputs: { ZIP: '94110', EXTRA: 'ignored' },
+    });
+    const final = await waitFor(provider, run.id);
+
+    expect(final!.status).toBe('completed');
+    expect(final!.result).toContain('tolerated');
+    await provider.shutdown();
+  });
+
+  it('still rejects invalid-type values for DECLARED inputs', async () => {
     const provider = new LocalProvider(dbPath, new MemorySecretsStore());
     await provider.initialize();
 

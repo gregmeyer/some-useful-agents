@@ -112,14 +112,25 @@ export function resolveTemplateTagged(
       if (!output) return '';
       upstreamSources.add(output.source);
       const raw = field === 'result' ? output.result : String(output.exitCode);
+      // Defense against template re-expansion: upstream agents can emit
+      // literal `{{inputs.X}}` bytes (via `printf "\x7b\x7b..."` in shell,
+      // or via a claude-code agent that returns such text). If we
+      // interpolate raw bytes into a downstream prompt, the executor's
+      // subsequent `substituteInputs` pass would re-expand those tokens
+      // using the downstream's declared inputs — even inside UNTRUSTED
+      // blocks. Escape `{{` so it can't match any later template regex.
+      // Applied regardless of source; a literal `{{` in agent output is
+      // almost always unintended, and escaping it consistently avoids
+      // surprise.
+      const safe = raw.replace(/\{\{/g, '{ {');
       if (output.source === 'community') {
         return (
           `\n${UNTRUSTED_BEGIN} FROM ${agentName} (source=community) ---\n` +
-          `${raw}\n` +
+          `${safe}\n` +
           `${UNTRUSTED_END}\n`
         );
       }
-      return raw;
+      return safe;
     },
   );
   return { text, upstreamSources };

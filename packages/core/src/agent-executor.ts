@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { AgentDefinition } from './types.js';
-import { substituteInputs } from './input-resolver.js';
+import { substituteInputs, SENSITIVE_ENV_NAMES } from './input-resolver.js';
 
 export interface ExecutionResult {
   result: string;
@@ -86,9 +86,22 @@ function mergeInputsIntoEnv(
     if (v === undefined) continue;
     out[k] = inputs ? substituteInputs(v, inputs) : v;
   }
-  // Declared inputs override (highest-priority source).
+  // Declared inputs override (highest-priority source). Belt-and-suspenders
+  // deny-list: even if something in the schema layer regresses and a
+  // sensitive env var name slips through, refuse to write it here. Sensitive
+  // names (LD_PRELOAD, PATH, NODE_OPTIONS, etc.) are defined in
+  // input-resolver.ts. The schema should reject these at load time, so
+  // hitting this branch means something upstream is broken.
   if (inputs) {
     for (const [k, v] of Object.entries(inputs)) {
+      if (SENSITIVE_ENV_NAMES.has(k)) {
+        console.warn(
+          `[security] refusing to inject sensitive env var "${k}" from declared ` +
+            `input. This should have been rejected at schema load time; please file ` +
+            `a bug at https://github.com/gregmeyer/some-useful-agents/issues`,
+        );
+        continue;
+      }
       out[k] = v;
     }
   }

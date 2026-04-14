@@ -75,6 +75,23 @@ Inputs:
       process.exit(1);
     }
 
+    // Strict pre-validation for the targeted-invocation case: any `--input`
+    // key the user typed must match something this specific agent declares.
+    // Catches typos (`--input ZIPP=...`) as a fatal before we submit. The
+    // provider itself tolerates extras (required for chain/scheduler fan-out);
+    // strict checking lives here at the per-agent CLI boundary.
+    const declaredInputs = new Set(Object.keys(agent.inputs ?? {}));
+    for (const key of Object.keys(options.input)) {
+      if (!declaredInputs.has(key)) {
+        ui.fail(
+          `Input "${key}" is not declared by agent "${name}". ` +
+            `Declared: ${declaredInputs.size > 0 ? [...declaredInputs].join(', ') : '(none)'}.`,
+        );
+        console.error(ui.dim(`Run "sua agent audit ${name}" to see the agent's inputs block.`));
+        process.exit(1);
+      }
+    }
+
     const provider = await createProvider(config, {
       providerOverride: options.provider,
       allowUntrustedShell: new Set(options.allowUntrustedShell),

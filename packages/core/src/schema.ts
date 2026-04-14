@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
-import { extractInputReferences } from './input-resolver.js';
+import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
 
 /**
  * Per-input declaration. See docs/SECURITY.md and input-resolver.ts for the
@@ -121,6 +121,26 @@ export const agentDefinitionSchema = z.object({
           `Replace {{inputs.${first}}} with $${first} in the command ` +
           `(declared inputs are injected into the process env automatically).`,
       });
+    }
+  }
+
+  // Reject declared input names that would override sensitive process env
+  // vars (LD_PRELOAD, PATH, NODE_OPTIONS, etc.). Declared inputs are
+  // layered on top of the env-builder's trust filter, so allowing any of
+  // these names turns the inputs system into a trust-filter bypass for
+  // community agents. See input-resolver.ts SENSITIVE_ENV_NAMES.
+  if (data.inputs) {
+    for (const name of Object.keys(data.inputs)) {
+      if (SENSITIVE_ENV_NAMES.has(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['inputs', name],
+          message:
+            `Input name "${name}" is reserved. It would override a sensitive ` +
+            `process environment variable (dynamic-loader, interpreter, shell, ` +
+            `or identity hijack vector). Pick a different name.`,
+        });
+      }
     }
   }
 

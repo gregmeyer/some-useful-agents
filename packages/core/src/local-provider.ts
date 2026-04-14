@@ -62,12 +62,22 @@ export class LocalProvider implements Provider {
     this.store.createRun(run);
 
     // Resolve typed inputs (merge provided + YAML defaults, validate types).
-    // Failures here (missing required, invalid type, undeclared provided key)
-    // surface as a failed run in history AND rethrow so the caller sees it.
+    // Failures here (missing required, invalid type) surface as a failed run
+    // in history AND rethrow so the caller sees it.
+    //
+    // `rejectUndeclared: false` — the provider is called from three places:
+    // (1) per-agent `sua agent run` (one target), (2) chain execution
+    // (shared inputs across a fleet), (3) scheduler daemon (daemon-wide
+    // overrides across a mixed-declaration fleet). Only (1) can sensibly
+    // know what the targeted agent declares; (2) and (3) pass a shared
+    // map to every agent. Strict reject here would fail any agent in the
+    // fleet that happens not to declare a given key. The CLI layer
+    // pre-validates for case (1) before calling submitRun.
     let inputs: Record<string, string>;
     try {
       inputs = resolveInputs(request.agent.inputs, request.inputs ?? {}, {
         agentName: request.agent.name,
+        rejectUndeclared: false,
       });
     } catch (err) {
       this.store.updateRun(run.id, {
