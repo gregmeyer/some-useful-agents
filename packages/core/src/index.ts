@@ -16,3 +16,12 @@ export * from './mcp-token.js';
 export * from './secret-redactor.js';
 export * from './input-resolver.js';
 export * from './http-auth.js';
+export * from './agent-v2-types.js';
+export {
+  agentV2Schema,
+  agentNodeSchema,
+  extractUpstreamReferences,
+  type AgentV2Input,
+  type AgentV2Parsed,
+} from './agent-v2-schema.js';
+export { parseAgent, exportAgent, exportAgents, AgentYamlParseError } from './agent-yaml.js';
