@@ -37,6 +37,26 @@ export const runCommand = new Command('run')
     {} as Record<string, string>,
   )
   .option('--verbose', 'Show detailed output')
+  .addHelpText(
+    'after',
+    `
+Inputs:
+  Agents can declare typed parameters in their YAML; supply values with
+  --input. Example:
+
+    # In agents/local/weather.yaml
+    inputs:
+      ZIP:   { type: number, required: true }
+      STYLE: { type: enum, values: [haiku, verse], default: haiku }
+
+    # Then:
+    $ sua agent run weather --input ZIP=94110
+    $ sua agent run weather --input ZIP=10001 --input STYLE=verse
+
+  claude-code prompts can reference {{inputs.X}}; shell commands read
+  them as $X environment variables. See README "Templates" section.
+`,
+  )
   .action(async (name: string, options: {
     provider?: string;
     allowUntrustedShell: string[];
