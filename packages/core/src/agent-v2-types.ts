@@ -20,6 +20,33 @@ export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 export type NodeType = 'shell' | 'claude-code';
 export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
 
+/**
+ * Why a node ended in its final state. Lets users filter run logs by failure
+ * mode ("show me every timeout this week") and lets the dashboard / CLI
+ * render debugging-useful messages without parsing free-text errors.
+ *
+ * - `setup`: failure before the node started running (e.g. resolving
+ *   secrets against a locked store, missing required input)
+ * - `input_resolution`: template substitution failed (e.g. an upstream's
+ *   output was empty when this node needed it)
+ * - `spawn_failure`: the process couldn't be launched (missing binary,
+ *   permission denied)
+ * - `exit_nonzero`: node ran to completion but the process returned
+ *   a non-zero exit code
+ * - `timeout`: node exceeded its timeout
+ * - `cancelled`: explicitly cancelled (provider shutdown, user abort)
+ * - `upstream_failed`: this node never ran because an upstream failed;
+ *   error text names the failing upstream for coherent top-to-bottom logs
+ */
+export type NodeErrorCategory =
+  | 'setup'
+  | 'input_resolution'
+  | 'spawn_failure'
+  | 'exit_nonzero'
+  | 'timeout'
+  | 'cancelled'
+  | 'upstream_failed';
+
 // Re-export so consumers of v2 types can import from one place without
 // reaching back into the v1 loader module.
 export type { AgentSource };
@@ -144,6 +171,12 @@ export interface NodeExecutionRecord {
   result?: string;
   exitCode?: number;
   error?: string;
+  /**
+   * Structured failure mode. Present when `status` is `failed`, `cancelled`,
+   * or `skipped`. Absent (undefined) for `completed` nodes. See
+   * `NodeErrorCategory` for the enum and semantics.
+   */
+  errorCategory?: NodeErrorCategory;
   /** Inputs that were resolved and injected into the node at exec time. */
   inputsJson?: string;
   /** Snapshot of upstream node results that fed into this node. */
