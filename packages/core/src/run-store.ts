@@ -18,6 +18,16 @@ export interface RunStoreOptions {
 /** Default retention window for run rows. */
 export const DEFAULT_RETENTION_DAYS = 30;
 
+/** Default + cap for queryRuns pagination. */
+export const DEFAULT_RUNS_LIMIT = 50;
+export const MAX_RUNS_LIMIT = 500;
+
+function clampLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_RUNS_LIMIT;
+  if (limit < 0) return 0;
+  return Math.min(Math.floor(limit), MAX_RUNS_LIMIT);
+}
+
 export class RunStore {
   private db: DatabaseSync;
 
@@ -50,6 +60,10 @@ export class RunStore {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agentName);
       CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+      CREATE INDEX IF NOT EXISTS idx_runs_triggeredBy ON runs(triggeredBy);
+      -- DESC ordering is the dashboard's runs-list default; without this
+      -- the ORDER BY scans the whole table.
+      CREATE INDEX IF NOT EXISTS idx_runs_startedAt ON runs(startedAt DESC);
     `);
 
     this.sweepExpired(options.retentionDays ?? DEFAULT_RETENTION_DAYS);
@@ -130,6 +144,75 @@ export class RunStore {
     const stmt = this.db.prepare(sql);
     const rows = stmt.all(...values) as Record<string, unknown>[];
     return rows.map(row => this.rowToRun(row));
+  }
+
+  /**
+   * Richer query for the dashboard. Supports filter composition (AND across
+   * fields, OR within `statuses`), pagination, and returns a total count
+   * alongside the rows so callers can render "Showing N–M of T" without a
+   * second query from the caller.
+   */
+  queryRuns(filter: {
+    agentName?: string;
+    statuses?: RunStatus[];
+    triggeredBy?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): { rows: Run[]; total: number } {
+    const clauses: string[] = [];
+    const values: SqlValue[] = [];
+
+    if (filter.agentName) {
+      clauses.push('agentName = ?');
+      values.push(filter.agentName);
+    }
+    if (filter.triggeredBy) {
+      clauses.push('triggeredBy = ?');
+      values.push(filter.triggeredBy);
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      const placeholders = filter.statuses.map(() => '?').join(', ');
+      clauses.push(`status IN (${placeholders})`);
+      values.push(...filter.statuses);
+    }
+    if (filter.q && filter.q.length > 0) {
+      // Prefix match on run id OR substring match on agent name.
+      // Escape SQL LIKE metacharacters in the user-supplied value so "%foo"
+      // doesn't match the literal "%" character by accident.
+      const escaped = filter.q.replace(/([\\%_])/g, '\\$1');
+      clauses.push(`(id LIKE ? ESCAPE '\\' OR LOWER(agentName) LIKE ? ESCAPE '\\')`);
+      values.push(`${escaped}%`, `%${escaped.toLowerCase()}%`);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const limit = clampLimit(filter.limit);
+    const offset = Math.max(0, filter.offset ?? 0);
+
+    const rowStmt = this.db.prepare(
+      `SELECT * FROM runs ${where} ORDER BY startedAt DESC LIMIT ? OFFSET ?`,
+    );
+    const rows = rowStmt.all(...values, limit, offset) as Record<string, unknown>[];
+
+    const countStmt = this.db.prepare(`SELECT COUNT(*) as c FROM runs ${where}`);
+    const countRow = countStmt.get(...values) as { c: number | bigint };
+    const total = Number(countRow.c);
+
+    return { rows: rows.map((r) => this.rowToRun(r)), total };
+  }
+
+  /**
+   * Distinct values for a given indexed column. Used to populate the
+   * dashboard's filter dropdowns without hardcoding the enum. Column name
+   * is restricted to an allowlist to avoid any SQL injection surface.
+   */
+  distinctValues(column: 'agentName' | 'status' | 'triggeredBy'): string[] {
+    const stmt = this.db.prepare(
+      `SELECT DISTINCT ${column} AS v FROM runs WHERE ${column} IS NOT NULL ORDER BY v`,
+    );
+    const rows = stmt.all() as Array<{ v: string }>;
+    return rows.map((r) => r.v);
   }
 
   close(): void {
