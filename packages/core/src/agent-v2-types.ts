@@ -140,15 +140,16 @@ export interface AgentVersion {
 }
 
 /**
- * Shape actually serialised into `agent_versions.dag_json`. Excludes the
- * per-row fields the parent `agents` table owns (status/schedule/mcp/
- * current_version) so they can be edited without creating a new version.
+ * Shape actually serialised into `agent_versions.dag_json`. Strictly the
+ * versioned parts of the DAG: nodes (the topology + per-node config),
+ * agent-level inputs, and authorial metadata (author, tags). Excludes
+ * mutable per-agent metadata — `name`, `description`, `status`, `schedule`,
+ * `mcp`, `source` — which live on the parent `agents` row and can change
+ * without creating a new version. `id` is repeated here as a sanity-check
+ * for round-trips; the authoritative id is the parent row's PK.
  */
 export interface AgentVersionDag {
   id: string;
-  name: string;
-  description?: string;
-  source: AgentSource;
   inputs?: Record<string, AgentInputSpec>;
   nodes: AgentNode[];
   author?: string;

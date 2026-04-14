@@ -25,3 +25,4 @@ export {
   type AgentV2Parsed,
 } from './agent-v2-schema.js';
 export { parseAgent, exportAgent, exportAgents, AgentYamlParseError } from './agent-yaml.js';
+export { AgentStore } from './agent-store.js';
