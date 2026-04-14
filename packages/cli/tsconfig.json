@@ -6,6 +6,7 @@
   },
   "references": [
     { "path": "../core" },
+    { "path": "../dashboard" },
     { "path": "../mcp-server" },
     { "path": "../temporal-provider" }
   ],

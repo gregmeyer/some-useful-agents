@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
+    "@some-useful-agents/dashboard": "*",
     "@some-useful-agents/mcp-server": "*",
     "@some-useful-agents/temporal-provider": "*",
     "boxen": "^8.0.0",

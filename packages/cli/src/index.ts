@@ -23,6 +23,7 @@ import { secretsCommand } from './commands/secrets.js';
 import { workerCommand } from './commands/worker.js';
 import { scheduleCommand } from './commands/schedule.js';
 import { tutorialCommand } from './commands/tutorial.js';
+import { dashboardCommand } from './commands/dashboard.js';
 
 // Read version from our own package.json so `sua --version` always matches
 // the installed package version (no hardcoded drift).
@@ -81,5 +82,6 @@ program.addCommand(secretsCommand);
 program.addCommand(workerCommand);
 program.addCommand(scheduleCommand);
 program.addCommand(tutorialCommand);
+program.addCommand(dashboardCommand);
 
 program.parse();

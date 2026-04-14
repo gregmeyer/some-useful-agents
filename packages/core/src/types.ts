@@ -75,7 +75,7 @@ export interface Run {
   result?: string;
   exitCode?: number;
   error?: string;
-  triggeredBy: 'cli' | 'mcp' | 'schedule';
+  triggeredBy: 'cli' | 'mcp' | 'schedule' | 'dashboard';
 }
 
 export interface RunRequest {
