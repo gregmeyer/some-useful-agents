@@ -9,8 +9,9 @@ MIT-licensed. Published to npm at `@some-useful-agents/*`. Designed to feel like
 > agents marked `mcp: true` are callable from MCP clients. Community shell agents
 > refuse to run without explicit opt-in (`sua agent audit` + `--allow-untrusted-shell`);
 > community output flowing into a claude-code prompt is wrapped in UNTRUSTED
-> delimiters. Secrets are *obfuscated, not encrypted* until v0.7.0 lands
-> passphrase-based key derivation. Run `sua doctor --security` to verify your
+> delimiters. The secrets store encrypts under a passphrase-derived key (scrypt
+> N=2^17); an empty passphrase explicitly opts into the legacy hostname-derived
+> fallback with a loud warning. Run `sua doctor --security` to verify your
 > install. Full model: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Quick start (no clone needed)
@@ -50,15 +51,21 @@ sua schedule validate <name>  # validate the cron expression
 sua schedule start            # foreground cron daemon
 ```
 
-**Secrets** (encrypted at rest, scoped per-agent)
+**Secrets** (passphrase-encrypted at rest, scoped per-agent)
 
 ```bash
-sua secrets set <NAME>        # prompts for value, stores encrypted
+sua secrets set <NAME>        # prompts for passphrase (first time) + value
 sua secrets get <NAME>
 sua secrets list
 sua secrets delete <NAME>
+sua secrets migrate           # re-encrypt v1 or obfuscated store under a new passphrase
 sua secrets check <agent>     # which secrets an agent needs + whether set
 ```
+
+In CI or any non-TTY context, set `SUA_SECRETS_PASSPHRASE` in the environment.
+Set it to the empty string to explicitly opt into the legacy hostname-derived
+key (labeled as `obfuscatedFallback` in the payload and flagged by
+`sua doctor --security`).
 
 **Services**
 
@@ -203,7 +210,7 @@ HOST MACHINE
 |              Provider (Local | Temporal)                      |
 |              RunStore (node:sqlite, WAL)                      |
 |              Scheduler (node-cron)                            |
-|              SecretsStore (AES-256-GCM file)                  |
+|              SecretsStore (AES-256-GCM, passphrase-KEK v2)    |
 |                                                               |
 |  Agent execution                                              |
 |   - shell agents: child_process.spawn (on host)               |

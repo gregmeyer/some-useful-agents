@@ -82,6 +82,41 @@ See [ADR-0006](adr/0006-env-filtering-by-trust-level.md).
 
 `node-cron` accepts 6-field "with-seconds" expressions silently. That would have let a malicious or typo'd YAML fire an agent every second, melting an Anthropic bill. We reject 6-field expressions by default. 5-field expressions (minimum interval 60s) pass unchanged. Sub-minute scheduling requires `allowHighFrequency: true` in the YAML and logs a `[high-frequency]` warning on every fire.
 
+### Secrets store encryption (v0.10.0)
+
+`data/secrets.enc` encrypts under a key derived from a user-chosen passphrase
+via `scrypt(passphrase, random-salt, { N: 2^17, r: 8, p: 1 })`. Each store
+generates its own 16-byte salt on first write; the KDF parameters are stored
+alongside the ciphertext so we can tune them upward without breaking old stores.
+AES-256-GCM remains the cipher; the payload is a v2 JSON envelope:
+
+```json
+{ "version": 2, "salt": "...", "iv": "...", "tag": "...",
+  "data": "...", "kdfParams": {"algorithm":"scrypt","N":131072,"r":8,"p":1,"keyLength":32} }
+```
+
+The passphrase lives only in process memory — never on disk. The CLI prompts
+for it on `sua secrets set` against a cold store and reads
+`SUA_SECRETS_PASSPHRASE` for CI and other non-TTY contexts. A v2-protected
+store that nobody can supply a passphrase for is unreadable by design, which
+is the whole point — a stolen `secrets.enc` is no longer decryptable just by
+knowing the victim's hostname and username.
+
+**Empty-passphrase fallback.** If you want the pre-v0.10 zero-friction
+behavior (e.g. for a demo `npx init`), `sua secrets set` accepts an empty
+passphrase. The store is still written in v2 format but flagged with
+`obfuscatedFallback: true`, the key is re-derived from the legacy
+hostname+username seed, and **every** read/write emits a warning telling you
+to run `sua secrets migrate`. `sua doctor --security` flags the store as
+`hostname-obfuscated` in red. This is obfuscation, not encryption — exactly
+what v1 was, except now it's explicitly labeled as such on disk and in every
+CLI surface.
+
+**Legacy v1 stores.** Payloads written by v0.9.x and earlier still decrypt
+(warning on every load). The next `sua secrets set` / `delete` auto-migrates
+to v2 under the caller's passphrase; `sua secrets migrate` does the same
+without requiring a value change.
+
 ### Supply chain (v0.4.0)
 
 - Third-party GitHub Actions are pinned to full SHAs with version comments (`actions/checkout`, `actions/setup-node`, `changesets/action`). A compromise of those orgs cannot ship malicious code through a moving tag. Dependabot refreshes the SHAs weekly in its own PRs for review.
@@ -93,7 +128,7 @@ See [ADR-0006](adr/0006-env-filtering-by-trust-level.md).
 Being explicit so you can evaluate whether sua is the right tool for your threat model:
 
 - **Shell agent sandboxing.** Once you opt in past the community-shell gate, the agent runs as the invoking user with full ambient authority: filesystem, network, processes. A malicious shell agent can `rm -rf $HOME`, exfiltrate `~/.ssh`, read browser cookies, or run any other command the user could run. The env filter reduces secret-leak blast radius but does not create a sandbox. Treat every `--allow-untrusted-shell` invocation like running the shell script yourself — because you effectively are. Real sandboxing (`nsjail` on Linux, `sandbox-exec` on macOS) is on the long-term roadmap.
-- **Secrets-store encryption.** The AES-256-GCM cipher in `data/secrets.enc` uses a key derived from `scrypt(hostname + username)`. If the file ever leaves the machine — iCloud sync, Time Machine to a network share, accidental commit — an attacker who can guess the hostname and username (trivial for a targeted attacker) can decrypt the whole store. Today's encryption is **obfuscation, not a real defense**. The file's POSIX `0600` permission is the actual at-rest protection. Passphrase-based key derivation lands in v0.7.0; until then, treat the encrypted store as plaintext for threat-modeling purposes.
+- **Secrets-store passphrase loss.** The v2 store is only decryptable with the passphrase you set. There is no recovery path — forget it, and the secrets are gone. Write it down, put it in a password manager, or use `SUA_SECRETS_PASSPHRASE` as the single source of truth; sua deliberately does not stash the passphrase on disk as any stash defeats the purpose. If you explicitly accepted the empty-passphrase fallback at setup, the store is `obfuscatedFallback: true` — secrets-store encryption degrades to obfuscation until you `sua secrets migrate` to a real passphrase. `sua doctor --security` calls this out on every run.
 - **Prompt injection from claude-code upstream agents.** We only wrap values from `community` agents. If you write a `local` claude-code agent that can be manipulated by a user into producing prompt-injection payloads, and a second `local` agent reads its output, that output flows through unwrapped. Don't chain agents whose inputs you don't control.
 - **Run output secrets (by default).** Agent stdout lands verbatim in `data/runs.db` unless the agent opts into `redactSecrets: true` (v0.6.0). The default behavior is still "store what the agent printed." If an agent you author calls a third-party API that might return a token, set `redactSecrets: true` to catch the AWS / GitHub / LLM / Slack prefixes. Do not rely on the scrubber for unknown secret formats — it's narrow on purpose. As of v0.6.0, `runs.db` is chmod 0o600 at create and rows older than 30 days are swept on startup; neither of those replaces redaction for live secrets.
 - **Temporal workflow history.** When running under the Temporal provider, agent inputs and outputs are persisted in Temporal's own history store. That is a second plaintext sink outside sua's control. Same advice: don't echo secrets.
@@ -126,4 +161,4 @@ We respond within a week. There is no bug bounty.
 - **v0.5.0** — Chain trust propagation (wrap community values, block community→shell), `mcp: true` agent opt-in, this document.
 - **v0.6.0** — Community shell agent gate (`UntrustedCommunityShellError` + `--allow-untrusted-shell`), run-store `chmod 0600`, 30-day retention sweep, opt-in known-prefix secret redaction, `sua agent audit`, `sua doctor --security`.
 - **v0.6.1** — Community agents are runnable from `sua agent run` / `sua schedule start` directly; the shell gate enforces per-invocation opt-in. Previously the gate lived in the executor but was unreachable from the CLI because community agents weren't in the runnable load set.
-- **v0.7.0 (planned)** — Passphrase-based KEK for the secrets store, replacing today's hostname-derived obfuscation.
+- **v0.10.0** — Passphrase-based KEK for the secrets store (scrypt N=2^17, per-store random salt, AES-256-GCM). v2 payload format with explicit `obfuscatedFallback` flag for users who accept the empty-passphrase legacy path. `sua secrets migrate` command; `sua doctor --security` reports the mode. Closes the last finding from the original `/cso` audit.

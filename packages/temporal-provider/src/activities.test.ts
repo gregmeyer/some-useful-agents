@@ -49,7 +49,7 @@ describe('runAgentActivity', () => {
   });
 
   it('injects secrets from store', async () => {
-    const store = new EncryptedFileStore(SECRETS_PATH);
+    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true });
     await store.set('MY_SECRET_VAR', 'injected-value');
 
     const result = await runAgentActivity({

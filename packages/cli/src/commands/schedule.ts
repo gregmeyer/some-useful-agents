@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { loadAgents, LocalScheduler } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs } from '../config.js';
+import { loadAgents, LocalScheduler, inspectSecretsFile } from '@some-useful-agents/core';
+import { loadConfig, getAgentDirs, getSecretsPath } from '../config.js';
 import { createProvider } from '../provider-factory.js';
 import * as ui from '../ui.js';
 
@@ -100,6 +100,30 @@ scheduleCommand
 
     for (const w of warnings) {
       ui.warn(`${w.file}: ${w.message}`);
+    }
+
+    // Preflight: if any scheduled agent needs secrets and the store is v2
+    // passphrase-protected without SUA_SECRETS_PASSPHRASE set, fail fast.
+    // Otherwise the daemon starts, fires on schedule, and every fire fails
+    // silently at secret-resolution time — a nasty UX.
+    const scheduledAgents = Array.from(agents.values()).filter((a) => a.schedule);
+    const needsSecrets = scheduledAgents.some((a) => (a.secrets ?? []).length > 0);
+    if (needsSecrets) {
+      const status = inspectSecretsFile(getSecretsPath(config));
+      const envPass = process.env.SUA_SECRETS_PASSPHRASE;
+      if (status.mode === 'passphrase' && (envPass === undefined || envPass.length === 0)) {
+        ui.fail(
+          'Scheduler cannot start: at least one scheduled agent needs secrets, ' +
+            'but the secrets store is passphrase-protected and SUA_SECRETS_PASSPHRASE is not set.',
+        );
+        console.error(
+          ui.dim(
+            'Export SUA_SECRETS_PASSPHRASE before starting the daemon, or run `sua secrets migrate` ' +
+              'to switch to the legacy hostname-derived key (insecure).',
+          ),
+        );
+        process.exit(1);
+      }
     }
 
     const provider = await createProvider(config, {
