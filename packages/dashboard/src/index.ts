@@ -1,1 +1,141 @@
-// Dashboard entry point — implementation in Phase 3 branch
+import express, { type Application } from 'express';
+import type { Server } from 'node:http';
+import {
+  LocalProvider,
+  RunStore,
+  EncryptedFileStore,
+  loadAgents,
+  readMcpToken,
+  getMcpTokenPath,
+  buildLoopbackAllowlist,
+  type SecretsStore,
+} from '@some-useful-agents/core';
+import type { DashboardContext } from './context.js';
+import { requireAuth } from './auth-middleware.js';
+import { healthRouter } from './routes/health.js';
+import { authRouter } from './routes/auth.js';
+import { agentsRouter } from './routes/agents.js';
+import { runsRouter } from './routes/runs.js';
+import { runNowRouter } from './routes/run-now.js';
+
+export interface StartDashboardOptions {
+  port: number;
+  /** Bind host. Defaults to '127.0.0.1'. Non-loopback emits a warning. */
+  host?: string;
+  /** Agent source directories. Typically `getAgentDirs(config).all`. */
+  agentDirs: string[];
+  /** Path to the run store SQLite DB. */
+  dbPath: string;
+  /** Path to the encrypted secrets file. */
+  secretsPath: string;
+  /** Path to the bearer token file. Defaults to `~/.sua/mcp-token`. */
+  tokenPath?: string;
+  /** Community shell agents the operator has pre-allowed. */
+  allowUntrustedShell?: Set<string>;
+  /** Optional SecretsStore override (tests). */
+  secretsStore?: SecretsStore;
+  /** Optional LocalProvider override (tests). */
+  provider?: LocalProvider;
+  /** Optional RunStore override (tests). */
+  runStore?: RunStore;
+  /** Optional token override (tests). */
+  token?: string;
+}
+
+export interface DashboardHandle {
+  server: Server;
+  /** Builds the one-time auth URL: http://host:port/auth?token=<...>. */
+  authUrl: string;
+  close(): Promise<void>;
+}
+
+/**
+ * Create and configure the Express app without starting an HTTP listener.
+ * Exported so tests can drive it via supertest.
+ */
+export function buildDashboardApp(ctx: DashboardContext): Application {
+  const app = express();
+  app.locals = ctx as unknown as Application['locals'];
+
+  app.use(express.urlencoded({ extended: false }));
+
+  // Public routes (no auth).
+  app.use(healthRouter);
+  app.use(authRouter);
+
+  // Everything below requires the session cookie.
+  app.use(requireAuth);
+
+  // Home → /agents.
+  app.get('/', (_req, res) => { res.redirect(302, '/agents'); });
+
+  app.use(agentsRouter);
+  app.use(runsRouter);
+  app.use(runNowRouter);
+
+  // Catch-all 404 for authenticated routes.
+  app.use((_req, res) => {
+    res.status(404).type('html').send('<p>Not found. <a href="/agents">Back</a></p>');
+  });
+
+  return app;
+}
+
+export async function startDashboardServer(opts: StartDashboardOptions): Promise<DashboardHandle> {
+  const host = opts.host ?? '127.0.0.1';
+  const tokenPath = opts.tokenPath ?? getMcpTokenPath();
+
+  const token = opts.token ?? readMcpToken(tokenPath);
+  if (!token) {
+    throw new Error(
+      `No MCP token at ${tokenPath}. Run \`sua init\` or \`sua mcp rotate-token\` first; ` +
+      `the dashboard shares the MCP bearer token.`,
+    );
+  }
+
+  const runStore = opts.runStore ?? new RunStore(opts.dbPath);
+  const secretsStore = opts.secretsStore ?? new EncryptedFileStore(opts.secretsPath);
+  const provider = opts.provider ?? new LocalProvider(opts.dbPath, secretsStore, {
+    allowUntrustedShell: opts.allowUntrustedShell,
+  });
+  await provider.initialize();
+
+  const ctx: DashboardContext = {
+    token,
+    allowlist: buildLoopbackAllowlist(opts.port),
+    port: opts.port,
+    provider,
+    runStore,
+    loadAgents: () => loadAgents({ directories: opts.agentDirs }),
+    secretsStore,
+    allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
+  };
+
+  const app = buildDashboardApp(ctx);
+
+  if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
+    console.warn(
+      `[warning] Dashboard binding to non-loopback host "${host}". The bearer token ` +
+      `is your only defense against remote callers — keep ${tokenPath} secret.`,
+    );
+  }
+
+  const server = await new Promise<Server>((resolve) => {
+    const s = app.listen(opts.port, host, () => resolve(s));
+  });
+
+  const authUrl = `http://${host}:${opts.port}/auth?token=${token}`;
+
+  return {
+    server,
+    authUrl,
+    async close() {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await provider.shutdown();
+      runStore.close();
+    },
+  };
+}
+
+export { buildDashboardApp as _buildDashboardApp };
+export type { DashboardContext } from './context.js';
