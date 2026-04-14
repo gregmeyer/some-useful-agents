@@ -76,6 +76,19 @@ export interface Run {
   exitCode?: number;
   error?: string;
   triggeredBy: 'cli' | 'mcp' | 'schedule' | 'dashboard';
+  /**
+   * v0.13+: populated for runs that executed a DAG-mode agent.
+   * Pre-v0.13 rows have both undefined. Nullable in the DB (NULL ↔ undefined).
+   */
+  workflowId?: string;
+  workflowVersion?: number;
+  /**
+   * Populated when this run was created by `sua workflow replay`. Points at
+   * the original run + the node the replay started from. Rendered as a
+   * "replayed from …" breadcrumb in the dashboard.
+   */
+  replayedFromRunId?: string;
+  replayedFromNodeId?: string;
 }
 
 export interface RunRequest {

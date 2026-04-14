@@ -241,6 +241,153 @@ describe('RunStore.queryRuns', () => {
   });
 });
 
+describe('RunStore node_executions', () => {
+  function baseRun(id = 'r-x'): Parameters<RunStore['createRun']>[0] {
+    return {
+      id,
+      agentName: 'news-digest',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      triggeredBy: 'cli',
+      workflowId: 'news-digest',
+      workflowVersion: 1,
+    };
+  }
+
+  beforeEach(() => {
+    store.createRun(baseRun());
+  });
+
+  it('round-trips a single node execution', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'fetch', workflowVersion: 1,
+      status: 'running', startedAt: new Date().toISOString(),
+    });
+    const got = store.getNodeExecution('r-x', 'fetch');
+    expect(got).not.toBeNull();
+    expect(got!.nodeId).toBe('fetch');
+    expect(got!.status).toBe('running');
+    expect(got!.errorCategory).toBeUndefined();
+  });
+
+  it('persists errorCategory on failed rows', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'fetch', workflowVersion: 1,
+      status: 'failed', startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      error: 'Timed out after 30s', errorCategory: 'timeout', exitCode: 124,
+    });
+    const got = store.getNodeExecution('r-x', 'fetch')!;
+    expect(got.errorCategory).toBe('timeout');
+    expect(got.error).toBe('Timed out after 30s');
+  });
+
+  it('updateNodeExecution applies a partial patch', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'fetch', workflowVersion: 1,
+      status: 'running', startedAt: new Date().toISOString(),
+    });
+    store.updateNodeExecution('r-x', 'fetch', {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      result: 'some stdout',
+      exitCode: 0,
+    });
+    const got = store.getNodeExecution('r-x', 'fetch')!;
+    expect(got.status).toBe('completed');
+    expect(got.result).toBe('some stdout');
+    expect(got.exitCode).toBe(0);
+  });
+
+  it('listNodeExecutions returns all rows for a run in startedAt order', () => {
+    const t0 = Date.now();
+    for (let i = 0; i < 3; i++) {
+      store.createNodeExecution({
+        runId: 'r-x', nodeId: `node-${i}`, workflowVersion: 1,
+        status: 'completed',
+        startedAt: new Date(t0 + i * 1000).toISOString(),
+      });
+    }
+    const list = store.listNodeExecutions('r-x');
+    expect(list.map((r) => r.nodeId)).toEqual(['node-0', 'node-1', 'node-2']);
+  });
+
+  it('queryNodeExecutionsByCategory finds rows of that category only', () => {
+    store.createRun(baseRun('r-y'));
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'a', workflowVersion: 1,
+      status: 'failed', errorCategory: 'timeout',
+      startedAt: new Date().toISOString(),
+    });
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'b', workflowVersion: 1,
+      status: 'failed', errorCategory: 'exit_nonzero',
+      startedAt: new Date().toISOString(),
+    });
+    store.createNodeExecution({
+      runId: 'r-y', nodeId: 'c', workflowVersion: 1,
+      status: 'failed', errorCategory: 'timeout',
+      startedAt: new Date().toISOString(),
+    });
+    const timeouts = store.queryNodeExecutionsByCategory('timeout');
+    expect(timeouts.map((r) => r.nodeId).sort()).toEqual(['a', 'c']);
+  });
+
+  it('cascades deletion via FK when a run is removed', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'a', workflowVersion: 1,
+      status: 'completed', startedAt: new Date().toISOString(),
+    });
+    // Manually delete from runs to exercise the cascade.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (store as any).db.prepare('DELETE FROM runs WHERE id = ?').run('r-x');
+    expect(store.getNodeExecution('r-x', 'a')).toBeNull();
+  });
+});
+
+describe('RunStore migration — workflow_id / workflow_version columns', () => {
+  it('adds the columns to a legacy DB and keeps old rows queryable', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { mkdirSync } = await import('node:fs');
+    const legacyDir = join(import.meta.dirname, '__legacy__');
+    rmSync(legacyDir, { recursive: true, force: true });
+    mkdirSync(legacyDir, { recursive: true });
+    const legacyPath = join(legacyDir, 'legacy.db');
+
+    // Step 1: build a legacy schema by hand.
+    const raw = new DatabaseSync(legacyPath);
+    raw.exec(`
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY, agentName TEXT NOT NULL, status TEXT NOT NULL,
+        startedAt TEXT NOT NULL, completedAt TEXT, result TEXT,
+        exitCode INTEGER, error TEXT, triggeredBy TEXT NOT NULL
+      )
+    `);
+    raw.prepare(`INSERT INTO runs (id, agentName, status, startedAt, triggeredBy) VALUES (?, ?, ?, ?, ?)`)
+      .run('old-row', 'legacy', 'completed', new Date().toISOString(), 'cli');
+    raw.close();
+
+    // Step 2: open with v2 RunStore — migration runs automatically.
+    const legacyStore = new RunStore(legacyPath);
+    const got = legacyStore.getRun('old-row');
+    expect(got).not.toBeNull();
+    expect(got!.workflowId).toBeUndefined();
+    expect(got!.workflowVersion).toBeUndefined();
+
+    // Step 3: new rows can use the new columns.
+    legacyStore.createRun({
+      id: 'new-row', agentName: 'news', status: 'completed',
+      startedAt: new Date().toISOString(), triggeredBy: 'cli',
+      workflowId: 'news', workflowVersion: 3,
+    });
+    expect(legacyStore.getRun('new-row')!.workflowId).toBe('news');
+    expect(legacyStore.getRun('new-row')!.workflowVersion).toBe(3);
+
+    legacyStore.close();
+    rmSync(legacyDir, { recursive: true, force: true });
+  });
+});
+
 describe('RunStore.distinctValues', () => {
   beforeEach(() => {
     store.createRun(makeRun({ id: 'a', agentName: 'hello',   status: 'completed', triggeredBy: 'cli' }));
