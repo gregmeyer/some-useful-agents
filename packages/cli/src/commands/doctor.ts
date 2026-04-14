@@ -11,6 +11,7 @@ import {
   detectLlms,
   getMcpTokenPath,
   readMcpToken,
+  inspectSecretsFile,
 } from '@some-useful-agents/core';
 import * as ui from '../ui.js';
 
@@ -55,6 +56,28 @@ function buildSecurityChecks(config: ReturnType<typeof loadConfig>): Check[] {
     },
     { name: `Token file perms (${tokenPath})`, run: () => checkMode600(tokenPath) },
     { name: `Secrets file perms (${secretsPath})`, run: () => checkMode600(secretsPath) },
+    {
+      name: 'Secrets store encryption',
+      run: () => {
+        const status = inspectSecretsFile(secretsPath);
+        if (!status.exists) {
+          return { ok: true, message: 'no store created yet' };
+        }
+        if (status.mode === 'passphrase') {
+          return { ok: true, message: 'v2 passphrase-protected' };
+        }
+        if (status.mode === 'hostname-obfuscated') {
+          const version = status.version === 1 ? 'legacy v1' : 'v2 obfuscatedFallback';
+          return {
+            ok: false,
+            message:
+              `${version} — hostname-obfuscated, not encrypted. ` +
+              `Run 'sua secrets migrate' to set a passphrase.`,
+          };
+        }
+        return { ok: false, message: 'unrecognized store format' };
+      },
+    },
     { name: `Run-store perms (${dbPath})`, run: () => checkMode600(dbPath) },
     {
       name: 'MCP bind host',
@@ -194,14 +217,23 @@ export const doctorCommand = new Command('doctor')
       {
         name: 'Secrets backend',
         run: () => {
-          try {
-            const store = new EncryptedFileStore(getSecretsPath(config));
-            // Trigger a read to verify encryption key works
-            void store.list();
-            return { ok: true, message: 'encrypted file store (machine-bound key)' };
-          } catch (err) {
-            return { ok: false, message: (err as Error).message };
+          const status = inspectSecretsFile(getSecretsPath(config));
+          if (!status.exists) {
+            return { ok: true, message: 'no store created yet' };
           }
+          if (status.mode === 'passphrase') {
+            return { ok: true, message: 'v2 passphrase-protected' };
+          }
+          if (status.mode === 'hostname-obfuscated') {
+            return {
+              ok: true,
+              message:
+                status.version === 1
+                  ? 'legacy v1 (hostname-obfuscated) — run `sua secrets migrate`'
+                  : 'v2 obfuscatedFallback (hostname-obfuscated)',
+            };
+          }
+          return { ok: false, message: 'unrecognized store format' };
         },
       },
       {

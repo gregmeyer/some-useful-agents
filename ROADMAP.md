@@ -3,7 +3,7 @@
 A living document of where `some-useful-agents` is heading. Light on detail, heavy
 on direction.
 
-## Now (v0.9.0 shipped)
+## Now (v0.10.0 shipped)
 
 - **Onboarding walkthrough** — `sua tutorial` walks new users through 5 stages
   ending in a real, scheduled agent (dad-joke from icanhazdadjoke.com). Claude or
@@ -37,6 +37,15 @@ on direction.
   command's output. One voice, one look: ✅ / ❌ / ⚠️ / 💡 / 🚀 symbols,
   boxen-bordered banners for daemon startups, unified output frame for
   `sua agent run`, Examples block in `sua --help`.
+- **Passphrase-based secrets KEK (v0.10.0)** — `data/secrets.enc` now
+  encrypts under a passphrase-derived key (scrypt N=2^17, per-store random
+  salt), replacing the v1 hostname+username seed. New payload version with
+  `kdfParams` for future tunability. Empty-passphrase fallback is preserved
+  for zero-friction demos but labeled as `obfuscatedFallback` in the payload
+  and flagged red by `sua doctor --security`. `sua secrets migrate` upgrades
+  v1 or obfuscated-fallback stores in place. CI/non-TTY contexts read
+  `SUA_SECRETS_PASSPHRASE`. Closes the last finding from the original `/cso`
+  audit; the SecretsStore description in `docs/SECURITY.md` is now honest.
 - **Typed runtime inputs (v0.9.0)** — agents declare `inputs:` with types
   (string, number, boolean, enum), defaults, and required flags. Callers
   supply values via `sua agent run <name> --input KEY=value` (repeatable);
@@ -77,16 +86,14 @@ on direction.
   independent DAG nodes. First-class fan-out/fan-in (e.g., `parallel: [A, B, C]`
   YAML field) plus Temporal worker scaling. Separately consider whether
   inter-agent messaging during execution is in scope or left to chaining.
-- **Security audit follow-through** — `/cso` ran in v0.4.0 and the
-  transport layer is now locked down (MCP bearer-token + loopback bind +
-  Host/Origin checks; cron frequency cap). Remaining work, in priority
-  order: chain trust propagation so community agent output is wrapped
-  before downstream agents see it (with a hard block on community-shell
-  downstream); first-class community shell-agent gate; run-store
-  `chmod 0o600` + retention + known-prefix secret redaction; passphrase-
-  based KEK for the secrets store (replaces today's hostname-derived
-  obfuscation). Real filesystem/network sandbox for shell agents stays
-  on the long list — it's a multi-day cross-platform effort.
+- **Security audit follow-through** — with v0.10.0 shipping the secrets KEK,
+  every original `/cso` finding is now closed (transport lockdown in v0.4.0;
+  chain trust + MCP scope in v0.5.0; shell gate + run-store hygiene in
+  v0.6.x; secrets KEK in v0.10.0). Remaining open work from later audits:
+  real filesystem/network sandbox for shell agents (multi-day cross-platform
+  effort, stays on the long list); a pure-JS keyring alternative to the
+  passphrase env var; `sua secrets rotate-passphrase` as a convenience over
+  `migrate`.
 
 ## Maybe (6–12 months)
 

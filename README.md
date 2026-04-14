@@ -9,8 +9,9 @@ MIT-licensed. Published to npm at `@some-useful-agents/*`. Designed to feel like
 > agents marked `mcp: true` are callable from MCP clients. Community shell agents
 > refuse to run without explicit opt-in (`sua agent audit` + `--allow-untrusted-shell`);
 > community output flowing into a claude-code prompt is wrapped in UNTRUSTED
-> delimiters. Secrets are *obfuscated, not encrypted* until v0.7.0 lands
-> passphrase-based key derivation. Run `sua doctor --security` to verify your
+> delimiters. The secrets store encrypts under a passphrase-derived key (scrypt
+> N=2^17); an empty passphrase explicitly opts into the legacy hostname-derived
+> fallback with a loud warning. Run `sua doctor --security` to verify your
 > install. Full model: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Quick start (no clone needed)
@@ -50,15 +51,21 @@ sua schedule validate <name>  # validate the cron expression
 sua schedule start            # foreground cron daemon
 ```
 
-**Secrets** (encrypted at rest, scoped per-agent)
+**Secrets** (passphrase-encrypted at rest, scoped per-agent)
 
 ```bash
-sua secrets set <NAME>        # prompts for value, stores encrypted
+sua secrets set <NAME>        # prompts for passphrase (first time) + value
 sua secrets get <NAME>
 sua secrets list
 sua secrets delete <NAME>
+sua secrets migrate           # re-encrypt v1 or obfuscated store under a new passphrase
 sua secrets check <agent>     # which secrets an agent needs + whether set
 ```
+
+In CI or any non-TTY context, set `SUA_SECRETS_PASSPHRASE` in the environment.
+Set it to the empty string to explicitly opt into the legacy hostname-derived
+key (labeled as `obfuscatedFallback` in the payload and flagged by
+`sua doctor --security`).
 
 **Services**
 
@@ -203,7 +210,7 @@ HOST MACHINE
 |              Provider (Local | Temporal)                      |
 |              RunStore (node:sqlite, WAL)                      |
 |              Scheduler (node-cron)                            |
-|              SecretsStore (AES-256-GCM file)                  |
+|              SecretsStore (AES-256-GCM, passphrase-KEK v2)    |
 |                                                               |
 |  Agent execution                                              |
 |   - shell agents: child_process.spawn (on host)               |
@@ -242,7 +249,7 @@ See [docs/SECURITY.md](docs/SECURITY.md) for the full threat model. One-liners:
 - **Community shell agent gate** — shell agents sourced from `agents/community/` refuse to run without `--allow-untrusted-shell <name>` on the CLI. Use `sua agent audit <name>` to print the resolved YAML before opting in (v0.6.0, wired end-to-end in v0.6.1).
 - **Run-store hygiene** — `data/runs.db` is chmod 0o600 at create. Rows older than `runRetentionDays` (default 30) are swept on startup. Opt-in `redactSecrets: true` on an agent scrubs known-prefix secrets (AWS, GitHub PAT, OpenAI / Anthropic, Slack) from its stdout/stderr before they land in the DB (v0.6.0).
 - **Cron frequency cap** — schedules fire no more than once per minute by default. 6-field sub-minute expressions require `allowHighFrequency: true` and emit a loud warning on every fire (v0.4.0).
-- **Secrets store** — machine-bound AES-256-GCM at `data/secrets.enc`, permissions `0600`. Obfuscation-grade, not vault-grade; passphrase-based key derivation is on the v0.7.0 roadmap. See [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md).
+- **Secrets store** — passphrase-derived AES-256-GCM at `data/secrets.enc`, permissions `0600`. Key = `scrypt(passphrase, random-salt, N=2^17)` with KDF params stored in the payload for forward-tunability. Empty passphrase falls back to a labeled `obfuscatedFallback` mode (hostname-derived key, every load warns; `sua doctor --security` flags it). CI/non-TTY contexts read `SUA_SECRETS_PASSPHRASE`. Shipped in v0.10.0 — see [ADR-0014](docs/adr/0014-passphrase-kek-secrets-store.md); the v1 hostname-derived design is in [ADR-0007](docs/adr/0007-encrypted-file-secrets-store.md) (superseded).
 - **Self-check** — run `sua doctor --security` for a one-shot audit of file perms, MCP token presence, and community shell posture.
 - **Known-weak (still)** — the shell-agent Docker sandbox documented in [ADR-0005](docs/adr/0005-shell-sandbox-claude-on-host.md) remains aspirational; once you opt in past the community-shell gate, the agent runs with your full ambient authority. Don't install community agents you haven't audited.
 
