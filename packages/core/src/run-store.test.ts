@@ -134,3 +134,129 @@ describe('RunStore', () => {
     store = new RunStore(TEST_DB);  // for afterEach cleanup
   });
 });
+
+describe('RunStore.queryRuns', () => {
+  beforeEach(() => {
+    // Seed a fixture set that covers the filter dimensions the dashboard
+    // ships. Mixing agents, statuses, and triggered-by values.
+    const t = Date.now();
+    const secondsAgo = (n: number) => new Date(t - n * 1000).toISOString();
+    const seed: Array<Partial<Run>> = [
+      { id: 'abc-111', agentName: 'hello',   status: 'completed', triggeredBy: 'cli',      startedAt: secondsAgo(10) },
+      { id: 'abc-222', agentName: 'hello',   status: 'failed',    triggeredBy: 'schedule', startedAt: secondsAgo(20) },
+      { id: 'def-333', agentName: 'greet',   status: 'completed', triggeredBy: 'cli',      startedAt: secondsAgo(30) },
+      { id: 'def-444', agentName: 'greet',   status: 'failed',    triggeredBy: 'mcp',      startedAt: secondsAgo(40) },
+      { id: 'ghi-555', agentName: 'weather', status: 'running',   triggeredBy: 'schedule', startedAt: secondsAgo(50) },
+      { id: 'ghi-666', agentName: 'weather', status: 'cancelled', triggeredBy: 'cli',      startedAt: secondsAgo(60) },
+    ];
+    for (const s of seed) store.createRun(makeRun(s));
+  });
+
+  it('returns all rows when no filters, newest first', () => {
+    const { rows, total } = store.queryRuns();
+    expect(total).toBe(6);
+    expect(rows).toHaveLength(6);
+    expect(rows[0].id).toBe('abc-111');
+    expect(rows[5].id).toBe('ghi-666');
+  });
+
+  it('filters by agentName', () => {
+    const { rows, total } = store.queryRuns({ agentName: 'greet' });
+    expect(total).toBe(2);
+    expect(rows.map((r) => r.id).sort()).toEqual(['def-333', 'def-444']);
+  });
+
+  it('filters by single status', () => {
+    const { rows, total } = store.queryRuns({ statuses: ['failed'] });
+    expect(total).toBe(2);
+    expect(rows.every((r) => r.status === 'failed')).toBe(true);
+  });
+
+  it('ORs multiple statuses', () => {
+    const { rows, total } = store.queryRuns({ statuses: ['completed', 'failed'] });
+    expect(total).toBe(4);
+    expect(rows.every((r) => r.status === 'completed' || r.status === 'failed')).toBe(true);
+  });
+
+  it('filters by triggeredBy', () => {
+    const { rows, total } = store.queryRuns({ triggeredBy: 'schedule' });
+    expect(total).toBe(2);
+    expect(rows.every((r) => r.triggeredBy === 'schedule')).toBe(true);
+  });
+
+  it('composes filters with AND', () => {
+    const { rows, total } = store.queryRuns({
+      agentName: 'hello',
+      statuses: ['failed'],
+      triggeredBy: 'schedule',
+    });
+    expect(total).toBe(1);
+    expect(rows[0].id).toBe('abc-222');
+  });
+
+  it('q matches run-id prefix', () => {
+    const { rows, total } = store.queryRuns({ q: 'abc' });
+    expect(total).toBe(2);
+    expect(rows.map((r) => r.id).sort()).toEqual(['abc-111', 'abc-222']);
+  });
+
+  it('q matches agentName substring case-insensitively', () => {
+    const { rows, total } = store.queryRuns({ q: 'EATHE' });
+    expect(total).toBe(2);
+    expect(rows.every((r) => r.agentName === 'weather')).toBe(true);
+  });
+
+  it('q escapes SQL LIKE metacharacters', () => {
+    // Seed a row whose id includes a literal %. Searching for "%" should
+    // not match every row — it should only match this one.
+    store.createRun(makeRun({ id: '50%-win', agentName: 'edge' }));
+    const { rows, total } = store.queryRuns({ q: '50%' });
+    expect(total).toBe(1);
+    expect(rows[0].id).toBe('50%-win');
+  });
+
+  it('clamps limit to MAX_RUNS_LIMIT', () => {
+    const { rows } = store.queryRuns({ limit: 10_000 });
+    expect(rows.length).toBeLessThanOrEqual(500);
+  });
+
+  it('honors offset for pagination', () => {
+    const page1 = store.queryRuns({ limit: 2, offset: 0 });
+    const page2 = store.queryRuns({ limit: 2, offset: 2 });
+    expect(page1.rows[0].id).toBe('abc-111');
+    expect(page2.rows[0].id).toBe('def-333');
+    expect(page1.total).toBe(page2.total); // total is filter-relative, not page-relative
+  });
+
+  it('returns empty rows but correct total when offset exceeds size', () => {
+    const { rows, total } = store.queryRuns({ offset: 1000 });
+    expect(rows).toHaveLength(0);
+    expect(total).toBe(6);
+  });
+
+  it('limit=0 returns zero rows but correct total', () => {
+    const { rows, total } = store.queryRuns({ limit: 0 });
+    expect(rows).toHaveLength(0);
+    expect(total).toBe(6);
+  });
+});
+
+describe('RunStore.distinctValues', () => {
+  beforeEach(() => {
+    store.createRun(makeRun({ id: 'a', agentName: 'hello',   status: 'completed', triggeredBy: 'cli' }));
+    store.createRun(makeRun({ id: 'b', agentName: 'greet',   status: 'failed',    triggeredBy: 'schedule' }));
+    store.createRun(makeRun({ id: 'c', agentName: 'hello',   status: 'failed',    triggeredBy: 'cli' }));
+  });
+
+  it('returns distinct agent names', () => {
+    expect(store.distinctValues('agentName')).toEqual(['greet', 'hello']);
+  });
+
+  it('returns distinct statuses', () => {
+    expect(store.distinctValues('status')).toEqual(['completed', 'failed']);
+  });
+
+  it('returns distinct triggeredBy values', () => {
+    expect(store.distinctValues('triggeredBy')).toEqual(['cli', 'schedule']);
+  });
+});
