@@ -26,3 +26,10 @@ export {
 } from './agent-v2-schema.js';
 export { parseAgent, exportAgent, exportAgents, AgentYamlParseError } from './agent-yaml.js';
 export { AgentStore } from './agent-store.js';
+export {
+  executeAgentDag,
+  topologicalSort,
+  resolveUpstreamTemplate,
+  type DagExecutorDeps,
+  type DagExecuteOptions,
+} from './dag-executor.js';
