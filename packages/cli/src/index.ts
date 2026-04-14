@@ -13,6 +13,8 @@ import { statusCommand } from './commands/status.js';
 import { logsCommand } from './commands/logs.js';
 import { cancelCommand } from './commands/cancel.js';
 import { auditCommand } from './commands/audit.js';
+import { editCommand } from './commands/edit.js';
+import { disableCommand, enableCommand } from './commands/disable.js';
 import { newCommand } from './commands/new.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -68,6 +70,9 @@ agent.addCommand(statusCommand);
 agent.addCommand(logsCommand);
 agent.addCommand(cancelCommand);
 agent.addCommand(auditCommand);
+agent.addCommand(editCommand);
+agent.addCommand(disableCommand);
+agent.addCommand(enableCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);

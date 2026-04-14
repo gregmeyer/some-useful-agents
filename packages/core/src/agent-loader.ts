@@ -82,6 +82,7 @@ export function loadAgents(options: LoadAgentsOptions): LoadAgentsResult {
 
       const agent = result.data as AgentDefinition;
       agent.source = source;
+      agent.filePath = filePath;
 
       if (agents.has(agent.name)) {
         warn(filePath, `Duplicate agent name "${agent.name}" (overwriting previous)`);
