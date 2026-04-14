@@ -75,6 +75,28 @@ secretsCommand
   .command('set')
   .description('Set a secret value')
   .argument('<name>', 'Secret name (e.g. MY_API_KEY)')
+  .addHelpText(
+    'after',
+    `
+Passphrase handling:
+  Against a cold or v1 store, 'set' prompts for a new passphrase (hidden,
+  confirmed) before asking for the secret value. An empty passphrase falls
+  back to the legacy hostname-derived key (obfuscation, not encryption);
+  the store is labeled 'obfuscatedFallback' in the payload and every load
+  warns. Against an existing v2 passphrase-protected store, 'set' prompts
+  for the existing passphrase once per invocation.
+
+Non-TTY / CI:
+  Set SUA_SECRETS_PASSPHRASE in the environment. Set it to the empty
+  string to explicitly opt into the legacy hostname-derived fallback.
+  Piped value input still works: \`echo "val" | sua secrets set KEY\`.
+
+Examples:
+  $ sua secrets set GITHUB_TOKEN               interactive
+  $ SUA_SECRETS_PASSPHRASE=pp sua secrets set GITHUB_TOKEN < token.txt
+  $ SUA_SECRETS_PASSPHRASE= sua secrets set DEMO_KEY <<< "demo"  # fallback
+`,
+  )
   .action(async (name: string) => {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) {
       ui.fail(`Invalid secret name "${name}". Must be uppercase with underscores (e.g. MY_API_KEY).`);
@@ -148,6 +170,30 @@ secretsCommand
 secretsCommand
   .command('migrate')
   .description('Re-encrypt the secrets store under a new passphrase (v1 → v2)')
+  .addHelpText(
+    'after',
+    `
+What 'migrate' does:
+  - v1 store → decrypts with the legacy hostname-derived key, re-encrypts
+    as v2 under a new passphrase (or under the labeled obfuscatedFallback
+    if you supply an empty passphrase).
+  - v2 obfuscatedFallback → decrypts with the legacy key, re-encrypts as
+    v2 under the new passphrase.
+  - v2 passphrase-protected → no-op with a confirmation message.
+
+  Atomic: writes to a temp file and renames, so an interrupted migration
+  leaves the original store intact.
+
+Non-TTY / CI:
+  Set SUA_SECRETS_PASSPHRASE to supply the new passphrase. The empty
+  string keeps the legacy hostname-derived key (still v2 on disk, with
+  obfuscatedFallback: true and loud warnings on every load).
+
+Examples:
+  $ sua secrets migrate                                   interactive
+  $ SUA_SECRETS_PASSPHRASE=pp sua secrets migrate         non-TTY
+`,
+  )
   .action(async () => {
     const config = loadConfig();
     const path = getSecretsPath(config);

@@ -1,7 +1,9 @@
 # ADR-0007: Encrypted file secrets store with machine-bound key
 
 ## Status
-Accepted
+Superseded by [ADR-0014](0014-passphrase-kek-secrets-store.md) (v0.10.0).
+
+The machine-bound key described here is now the `obfuscatedFallback` branch of the v2 payload — preserved for zero-friction `npx init` demos, labeled loudly as obfuscation-grade in the file and in `sua doctor --security`.
 
 ## Context
 
