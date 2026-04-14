@@ -89,7 +89,14 @@ export class LocalProvider implements Provider {
     }
 
     const trustLevel = getTrustLevel(request.agent);
-    const secrets = this.secretsStore ? await this.secretsStore.getAll() : undefined;
+    // Only open the secrets store when the agent actually declares secrets.
+    // Agents with no `secrets:` field never read from the store, and forcing
+    // them to unlock a v2 passphrase-protected store is a v0.10 regression:
+    // it coupled every run to the store's lock state even when no secret
+    // was ever going to be injected.
+    const needsSecrets = (request.agent.secrets?.length ?? 0) > 0;
+    const secrets =
+      needsSecrets && this.secretsStore ? await this.secretsStore.getAll() : undefined;
     const { env, missingSecrets, warnings } = buildAgentEnv({
       agent: request.agent,
       trustLevel,

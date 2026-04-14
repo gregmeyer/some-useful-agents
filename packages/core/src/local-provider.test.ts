@@ -3,7 +3,22 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalProvider, UntrustedCommunityShellError, MemorySecretsStore } from './index.js';
-import type { AgentDefinition } from './index.js';
+import type { AgentDefinition, SecretsStore } from './index.js';
+
+/**
+ * SecretsStore that explodes on any read. Lets tests assert that the
+ * provider never touches the store for agents that don't declare any
+ * `secrets:` — the regression introduced when v2 passphrase-protection
+ * landed in v0.10.0.
+ */
+class ExplodingSecretsStore implements SecretsStore {
+  async get(): Promise<string | undefined> { throw new Error('store opened unexpectedly'); }
+  async set(): Promise<void> { throw new Error('store opened unexpectedly'); }
+  async delete(): Promise<void> { throw new Error('store opened unexpectedly'); }
+  async list(): Promise<string[]> { throw new Error('store opened unexpectedly'); }
+  async has(): Promise<boolean> { throw new Error('store opened unexpectedly'); }
+  async getAll(): Promise<Record<string, string>> { throw new Error('store opened unexpectedly'); }
+}
 
 let dir: string;
 let dbPath: string;
@@ -213,6 +228,44 @@ describe('LocalProvider typed inputs', () => {
       delete process.env.ZIP;
       await provider.shutdown();
     }
+  });
+});
+
+describe('LocalProvider lazy secrets fetch (v0.10.x fix)', () => {
+  it('never opens the secrets store for agents with no declared secrets', async () => {
+    const provider = new LocalProvider(dbPath, new ExplodingSecretsStore());
+    await provider.initialize();
+
+    // Agent declares no `secrets:` — the store should never be read.
+    const run = await provider.submitRun({
+      agent: shellAgent({ name: 'no-secrets', command: 'echo ok' }),
+      triggeredBy: 'cli',
+    });
+    const final = await waitFor(provider, run.id);
+
+    expect(final!.status).toBe('completed');
+    expect(final!.result).toContain('ok');
+    await provider.shutdown();
+  });
+
+  it('still opens the store and reports missing secrets for agents that declare them', async () => {
+    const provider = new LocalProvider(dbPath, new MemorySecretsStore());
+    await provider.initialize();
+
+    const run = await provider.submitRun({
+      agent: shellAgent({
+        name: 'needs-secret',
+        command: 'echo $API_KEY',
+        secrets: ['API_KEY'],
+      }),
+      triggeredBy: 'cli',
+    });
+    const final = await waitFor(provider, run.id);
+
+    expect(final!.status).toBe('failed');
+    expect(final!.error).toContain('Missing secrets');
+    expect(final!.error).toContain('API_KEY');
+    await provider.shutdown();
   });
 });
 

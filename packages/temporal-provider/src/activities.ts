@@ -41,8 +41,13 @@ export interface RunAgentActivityResult {
  * Workflows call this activity; workflows themselves are deterministic and can't spawn processes.
  */
 export async function runAgentActivity(input: RunAgentActivityInput): Promise<RunAgentActivityResult> {
-  const secretsStore = new EncryptedFileStore(input.secretsPath);
-  const secrets = await secretsStore.getAll();
+  // Only open the secrets store when the agent actually declares secrets.
+  // Parallels the local-provider fix: a v2 passphrase-protected store
+  // should not gate agents that never ask for a secret.
+  const needsSecrets = (input.agent.secrets?.length ?? 0) > 0;
+  const secrets = needsSecrets
+    ? await new EncryptedFileStore(input.secretsPath).getAll()
+    : undefined;
   const trustLevel = getTrustLevel(input.agent);
 
   const { env, missingSecrets, warnings } = buildAgentEnv({
