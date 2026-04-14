@@ -45,6 +45,12 @@ export interface ChainOptions {
    * so one stray invocation cannot trust everything.
    */
   allowUntrustedShell?: ReadonlySet<string>;
+  /**
+   * Caller-supplied input values flowed to every agent in the chain.
+   * Each agent's `resolveInputs` validates its own declared `inputs:` block
+   * against this shared map — agents that don't declare an input ignore it.
+   */
+  inputs?: Record<string, string>;
   /** Poll interval in milliseconds for checking run status. Default 250. */
   pollInterval?: number;
 }
@@ -118,7 +124,11 @@ export async function executeChain(
       }
     }
 
-    const run = await provider.submitRun({ agent: resolvedAgent, triggeredBy });
+    const run = await provider.submitRun({
+      agent: resolvedAgent,
+      triggeredBy,
+      inputs: options.inputs,
+    });
 
     // Poll for completion
     let current = run;

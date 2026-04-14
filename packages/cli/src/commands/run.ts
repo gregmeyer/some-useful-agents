@@ -10,6 +10,16 @@ function collectName(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
+function collectInput(value: string, previous: Record<string, string>): Record<string, string> {
+  const eq = value.indexOf('=');
+  if (eq <= 0) {
+    throw new Error(`--input expects KEY=value (got: "${value}")`);
+  }
+  const key = value.slice(0, eq);
+  const val = value.slice(eq + 1);
+  return { ...previous, [key]: val };
+}
+
 export const runCommand = new Command('run')
   .description('Run an agent')
   .argument('<name>', 'Agent name')
@@ -20,8 +30,38 @@ export const runCommand = new Command('run')
     collectName,
     [] as string[],
   )
+  .option(
+    '--input <KEY=value>',
+    'Supply a value for a declared input (repeatable). KEY must be UPPERCASE_WITH_UNDERSCORES.',
+    collectInput,
+    {} as Record<string, string>,
+  )
   .option('--verbose', 'Show detailed output')
-  .action(async (name: string, options: { provider?: string; allowUntrustedShell: string[] }) => {
+  .addHelpText(
+    'after',
+    `
+Inputs:
+  Agents can declare typed parameters in their YAML; supply values with
+  --input. Example:
+
+    # In agents/local/weather.yaml
+    inputs:
+      ZIP:   { type: number, required: true }
+      STYLE: { type: enum, values: [haiku, verse], default: haiku }
+
+    # Then:
+    $ sua agent run weather --input ZIP=94110
+    $ sua agent run weather --input ZIP=10001 --input STYLE=verse
+
+  claude-code prompts can reference {{inputs.X}}; shell commands read
+  them as $X environment variables. See README "Templates" section.
+`,
+  )
+  .action(async (name: string, options: {
+    provider?: string;
+    allowUntrustedShell: string[];
+    input: Record<string, string>;
+  }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     // Include community catalog so community agents are runnable; the shell
@@ -35,6 +75,23 @@ export const runCommand = new Command('run')
       process.exit(1);
     }
 
+    // Strict pre-validation for the targeted-invocation case: any `--input`
+    // key the user typed must match something this specific agent declares.
+    // Catches typos (`--input ZIPP=...`) as a fatal before we submit. The
+    // provider itself tolerates extras (required for chain/scheduler fan-out);
+    // strict checking lives here at the per-agent CLI boundary.
+    const declaredInputs = new Set(Object.keys(agent.inputs ?? {}));
+    for (const key of Object.keys(options.input)) {
+      if (!declaredInputs.has(key)) {
+        ui.fail(
+          `Input "${key}" is not declared by agent "${name}". ` +
+            `Declared: ${declaredInputs.size > 0 ? [...declaredInputs].join(', ') : '(none)'}.`,
+        );
+        console.error(ui.dim(`Run "sua agent audit ${name}" to see the agent's inputs block.`));
+        process.exit(1);
+      }
+    }
+
     const provider = await createProvider(config, {
       providerOverride: options.provider,
       allowUntrustedShell: new Set(options.allowUntrustedShell),
@@ -44,7 +101,11 @@ export const runCommand = new Command('run')
     try {
       let run;
       try {
-        run = await provider.submitRun({ agent, triggeredBy: 'cli' });
+        run = await provider.submitRun({
+          agent,
+          triggeredBy: 'cli',
+          inputs: options.input,
+        });
       } catch (err) {
         spinner.fail(err instanceof Error ? err.message : String(err));
         process.exitCode = 1;

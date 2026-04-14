@@ -68,6 +68,14 @@ function collectName(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
+function collectInput(value: string, previous: Record<string, string>): Record<string, string> {
+  const eq = value.indexOf('=');
+  if (eq <= 0) {
+    throw new Error(`--input expects KEY=value (got: "${value}")`);
+  }
+  return { ...previous, [value.slice(0, eq)]: value.slice(eq + 1) };
+}
+
 scheduleCommand
   .command('start')
   .description('Start the scheduler daemon (foreground)')
@@ -77,7 +85,13 @@ scheduleCommand
     collectName,
     [] as string[],
   )
-  .action(async (options: { allowUntrustedShell: string[] }) => {
+  .option(
+    '--input <KEY=value>',
+    'Daemon-wide input override applied to every fired run (repeatable). Agents that don\'t declare the input ignore it.',
+    collectInput,
+    {} as Record<string, string>,
+  )
+  .action(async (options: { allowUntrustedShell: string[]; input: Record<string, string> }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     // Load runnable + catalog so community agents can fire on schedule;
@@ -95,6 +109,7 @@ scheduleCommand
     const scheduler = new LocalScheduler({
       provider,
       agents,
+      inputs: options.input,
       onFire: (agent, runId) => {
         const ts = new Date().toISOString();
         console.log(`${ui.dim(ts)} ${chalk.green('fired')} ${ui.agent(agent.name)} ${ui.dim(`run=${runId.slice(0, 8)}`)}`);

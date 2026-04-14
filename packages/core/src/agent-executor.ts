@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { AgentDefinition } from './types.js';
+import { substituteInputs, SENSITIVE_ENV_NAMES } from './input-resolver.js';
 
 export interface ExecutionResult {
   result: string;
@@ -20,6 +21,23 @@ export interface ExecutionOptions {
    * Per-agent, not global, so one stray invocation cannot trust everything.
    */
   allowUntrustedShell?: ReadonlySet<string>;
+  /**
+   * Resolved input values for this run (already validated against the
+   * agent's declared `inputs:` specs — use `resolveInputs` from
+   * `input-resolver.ts` upstream to produce this map).
+   *
+   * For shell agents: entries are merged into the process env, overriding
+   * both inherited env and YAML `env:` values — authors reference them as
+   * `$VAR` or `"$VAR"`.
+   *
+   * For claude-code agents: `{{inputs.X}}` tokens in `prompt` are
+   * substituted. Entries are ALSO merged into the env for consistency with
+   * shell agents, so a tool Claude invokes can read them.
+   *
+   * In both types, `{{inputs.X}}` tokens in `env:` values are substituted
+   * before spawn.
+   */
+  inputs?: Record<string, string>;
 }
 
 /**
@@ -48,7 +66,46 @@ export function executeAgent(
   if (agent.type === 'shell') {
     return executeShellAgent(agent, env, options);
   }
-  return executeClaudeCodeAgent(agent, env);
+  return executeClaudeCodeAgent(agent, env, options);
+}
+
+/**
+ * Apply `{{inputs.X}}` substitution to an env map's values, then layer
+ * the resolved inputs on top so declared inputs win over both ambient env
+ * and YAML `env:` values. Pure helper used by both executor paths.
+ *
+ * Tolerates `undefined` values in the source map (process.env's shape) and
+ * drops them from the output — Node's spawn expects string values only.
+ */
+function mergeInputsIntoEnv(
+  baseEnv: Record<string, string | undefined>,
+  inputs: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (v === undefined) continue;
+    out[k] = inputs ? substituteInputs(v, inputs) : v;
+  }
+  // Declared inputs override (highest-priority source). Belt-and-suspenders
+  // deny-list: even if something in the schema layer regresses and a
+  // sensitive env var name slips through, refuse to write it here. Sensitive
+  // names (LD_PRELOAD, PATH, NODE_OPTIONS, etc.) are defined in
+  // input-resolver.ts. The schema should reject these at load time, so
+  // hitting this branch means something upstream is broken.
+  if (inputs) {
+    for (const [k, v] of Object.entries(inputs)) {
+      if (SENSITIVE_ENV_NAMES.has(k)) {
+        console.warn(
+          `[security] refusing to inject sensitive env var "${k}" from declared ` +
+            `input. This should have been rejected at schema load time; please file ` +
+            `a bug at https://github.com/gregmeyer/some-useful-agents/issues`,
+        );
+        continue;
+      }
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 function executeShellAgent(
@@ -72,7 +129,8 @@ function executeShellAgent(
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const promise = new Promise<ExecutionResult>((resolve) => {
-    const env = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
+    const baseEnv = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
+    const env = mergeInputsIntoEnv(baseEnv, options.inputs);
 
     child = spawn('bash', ['-c', agent.command!], {
       cwd: agent.workingDirectory ?? process.cwd(),
@@ -118,7 +176,11 @@ function executeShellAgent(
   };
 }
 
-function executeClaudeCodeAgent(agent: AgentDefinition, prebuiltEnv?: Record<string, string>): ExecutionHandle {
+function executeClaudeCodeAgent(
+  agent: AgentDefinition,
+  prebuiltEnv?: Record<string, string>,
+  options: ExecutionOptions = {},
+): ExecutionHandle {
   if (!agent.prompt) {
     throw new Error(`Claude-code agent "${agent.name}" has no prompt`);
   }
@@ -128,12 +190,20 @@ function executeClaudeCodeAgent(agent: AgentDefinition, prebuiltEnv?: Record<str
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const promise = new Promise<ExecutionResult>((resolve) => {
-    const args = ['--print', agent.prompt!];
+    // Resolve `{{inputs.X}}` tokens in the prompt before handing to Claude.
+    // The schema loader already verified every reference is declared, so
+    // substitution is safe — missing inputs would have failed at load time.
+    const resolvedPrompt = options.inputs
+      ? substituteInputs(agent.prompt!, options.inputs)
+      : agent.prompt!;
+
+    const args = ['--print', resolvedPrompt];
     if (agent.model) { args.push('--model', agent.model); }
     if (agent.maxTurns) { args.push('--max-turns', String(agent.maxTurns)); }
     if (agent.allowedTools?.length) { args.push('--allowedTools', agent.allowedTools.join(',')); }
 
-    const env = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
+    const baseEnv = prebuiltEnv ?? { ...process.env, ...(agent.env ?? {}) };
+    const env = mergeInputsIntoEnv(baseEnv, options.inputs);
 
     child = spawn('claude', args, {
       cwd: agent.workingDirectory ?? process.cwd(),

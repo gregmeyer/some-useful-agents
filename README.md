@@ -31,14 +31,15 @@ The tutorial walks you through what sua is, builds a real agent that fetches a d
 **Agents**
 
 ```bash
-sua agent list                # runnable agents (examples + local)
-sua agent list --catalog      # browse the community catalog
-sua agent new                 # interactive scaffold → writes agents/local/<name>.yaml
-sua agent run <name>          # run an agent once
-sua agent status [runId]      # recent runs, or one specific run
-sua agent logs <runId>        # stdout/stderr of a past run
-sua agent cancel <runId>      # kill a running agent
-sua agent audit <name>        # print resolved YAML (use before --allow-untrusted-shell)
+sua agent list                          # runnable agents (examples + local)
+sua agent list --catalog                # browse the community catalog
+sua agent new                           # interactive scaffold → agents/local/<name>.yaml
+sua agent run <name>                    # run an agent once
+sua agent run <name> --input K=V        # supply a declared input (repeatable)
+sua agent status [runId]                # recent runs, or one specific run
+sua agent logs <runId>                  # stdout/stderr of a past run
+sua agent cancel <runId>                # kill a running agent
+sua agent audit <name>                  # print resolved YAML (use before --allow-untrusted-shell)
 ```
 
 **Scheduling**
@@ -83,16 +84,23 @@ name: daily-summary
 description: Summarize today's git activity with Claude
 type: claude-code
 prompt: |
-  Summarize the recent commits. Keep it under 5 bullets.
-  Commits:
-  {{outputs.fetch-commits.result}}
+  Summarize the recent commits for {{inputs.REPO}}. Keep it under
+  {{inputs.MAX_BULLETS}} bullets.
 model: claude-sonnet-4-20250514
-dependsOn: [fetch-commits]        # chain: fetch-commits runs first
-schedule: "0 18 * * *"            # daily at 6pm
+inputs:                                  # typed runtime parameters
+  REPO:
+    type: string
+    default: gregmeyer/some-useful-agents
+  MAX_BULLETS:
+    type: number
+    default: 5
+dependsOn: [fetch-commits]               # chain: fetch-commits runs first
+input: "{{outputs.fetch-commits.result}}"  # upstream output flows in here
+schedule: "0 18 * * *"                   # daily at 6pm
 timeout: 120
-secrets:                          # resolved from the secrets store
+secrets:                                 # resolved from the secrets store
   - GITHUB_TOKEN
-envAllowlist:                     # extra process.env to inherit
+envAllowlist:                            # extra process.env to inherit
   - HTTP_PROXY
 author: your-github-handle
 version: "1.0.0"
@@ -102,6 +110,71 @@ tags: [git, summary, daily]
 Required fields: `name`, `type` (`shell` or `claude-code`). Shell agents need `command`; claude-code agents need `prompt`. Everything else is optional.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full schema and security review checklist.
+
+### Templates: `{{inputs.X}}` and `{{outputs.X.result}}`
+
+Two template namespaces live in agent YAML. They look similar but do different things.
+
+#### `{{inputs.X}}` — caller-supplied values
+
+Declare typed parameters in the agent YAML and supply values at runtime with `--input K=V`:
+
+```yaml
+name: weather
+type: claude-code
+prompt: "Describe weather for zip {{inputs.ZIP}} as a {{inputs.STYLE}}."
+inputs:
+  ZIP:
+    type: number
+    required: true
+  STYLE:
+    type: enum
+    values: [haiku, verse, limerick]
+    default: haiku
+```
+
+```bash
+sua agent run weather --input ZIP=94110 --input STYLE=verse
+```
+
+Validated against the declared type (`string`, `number`, `boolean`, `enum`). Precedence: `--input` flag → `default:` in YAML → else fail. Works in `prompt:` and any `env:` value.
+
+**Shell agents read inputs as env vars**, not templates — bash's `$VAR` is the native idiom, and sua rejects `{{inputs.X}}` inside a shell `command:` at load time:
+
+```yaml
+type: shell
+command: 'curl -s "https://api.example.com/weather/$ZIP"'
+inputs:
+  ZIP: { type: number, required: true }
+```
+
+Supply via `sua agent run` (per invocation), `sua schedule start --input K=V` (daemon-wide override for every scheduled fire), or bake defaults into the YAML.
+
+#### `{{outputs.X.result}}` — chain handoff
+
+Pipe one agent's output into the next. Lives in the `input:` field of a dependent agent:
+
+```yaml
+name: fetch
+type: shell
+command: "curl -s https://icanhazdadjoke.com/ -H 'Accept: text/plain'"
+
+# ---
+
+name: summarize-joke
+type: claude-code
+prompt: "Summarize this joke in one sentence of formal English."
+dependsOn: [fetch]
+input: "{{outputs.fetch.result}}"    # appended to the prompt at run time
+```
+
+```bash
+sua agent run summarize-joke    # fetch runs first; its output flows into summarize-joke
+```
+
+You can reference `{{outputs.X.exitCode}}` the same way. For claude-code downstreams, the resolved value is appended to the prompt. For shell downstreams, it arrives as `$SUA_CHAIN_INPUT`. When the upstream is sourced from `agents/community/`, values are wrapped in `BEGIN/END UNTRUSTED INPUT` delimiters — see [docs/SECURITY.md](docs/SECURITY.md).
+
+`{{outputs.X.*}}` only resolves inside the `input:` field. Inside a `prompt:` or `command:` the literal text is sent through unchanged.
 
 ## Running on Temporal
 

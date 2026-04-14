@@ -1,6 +1,6 @@
 import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import { randomUUID } from 'node:crypto';
-import type { Provider, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
+import type { Provider, RunRequest, Run, RunStatus } from '@some-useful-agents/core';
 import { RunStore } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';
@@ -51,7 +51,7 @@ export class TemporalProvider implements Provider {
     this.store.close();
   }
 
-  async submitRun(request: { agent: AgentDefinition; triggeredBy: Run['triggeredBy'] }): Promise<Run> {
+  async submitRun(request: RunRequest): Promise<Run> {
     const run: Run = {
       id: randomUUID(),
       agentName: request.agent.name,
@@ -65,6 +65,7 @@ export class TemporalProvider implements Provider {
       agent: request.agent,
       secretsPath: this.options.secretsPath,
       allowUntrustedShell: [...this.allowUntrustedShell],
+      inputs: request.inputs,
     };
 
     // Fire-and-forget start; poll for status later via workflow handle

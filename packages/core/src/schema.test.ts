@@ -118,6 +118,122 @@ describe('agentDefinitionSchema', () => {
     expect(result.mcp).toBe(true);
   });
 
+  describe('inputs', () => {
+    it('accepts a full inputs declaration', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'weather',
+        type: 'claude-code',
+        prompt: 'Weather for zip {{inputs.ZIP}} in {{inputs.STYLE}} form.',
+        inputs: {
+          ZIP: { type: 'number', required: true },
+          STYLE: { type: 'enum', values: ['haiku', 'verse'], default: 'haiku' },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects input names that are not UPPERCASE_WITH_UNDERSCORES', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'bad',
+        type: 'claude-code',
+        prompt: 'hi',
+        inputs: { lowercase: { type: 'string' } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it.each([
+      'LD_PRELOAD',
+      'LD_LIBRARY_PATH',
+      'DYLD_INSERT_LIBRARIES',
+      'NODE_OPTIONS',
+      'PYTHONPATH',
+      'PATH',
+      'SHELL',
+      'BASH_ENV',
+      'PROMPT_COMMAND',
+      'IFS',
+      'HOME',
+    ])('rejects declared input with sensitive env name %s', (name) => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'hostile',
+        type: 'claude-code',
+        prompt: 'hello',
+        inputs: { [name]: { type: 'string', default: '/tmp/evil' } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(
+          i => i.path[0] === 'inputs' && i.path[1] === name,
+        );
+        expect(issue?.message).toMatch(/reserved|sensitive/i);
+      }
+    });
+
+    it('rejects enum inputs without a values array', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'bad',
+        type: 'claude-code',
+        prompt: 'hi',
+        inputs: { STYLE: { type: 'enum' } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects {{inputs.X}} inside shell command', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'bad-shell',
+        type: 'shell',
+        command: 'curl {{inputs.URL}}',
+        inputs: { URL: { type: 'string', required: true } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(i => i.path[0] === 'command');
+        expect(issue?.message).toMatch(/environment variables, not templates/);
+        expect(issue?.message).toMatch(/\$URL/);
+      }
+    });
+
+    it('accepts $VAR in shell command (the idiomatic path)', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'weather-shell',
+        type: 'shell',
+        command: 'curl "https://example.com/weather/$ZIP"',
+        inputs: { ZIP: { type: 'number', required: true } },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects undeclared {{inputs.X}} in prompt', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'bad-prompt',
+        type: 'claude-code',
+        prompt: 'Hello {{inputs.NAME}}',
+        inputs: { OTHER: { type: 'string', default: 'x' } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(i => i.path[0] === 'prompt');
+        expect(issue?.message).toMatch(/NAME.*not declared/);
+      }
+    });
+
+    it('rejects undeclared {{inputs.X}} in env values', () => {
+      const result = agentDefinitionSchema.safeParse({
+        name: 'bad-env',
+        type: 'shell',
+        command: 'echo ok',
+        env: { TARGET: 'https://api.example.com/{{inputs.SLUG}}' },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find(i => i.path.join('.') === 'env.TARGET');
+        expect(issue?.message).toMatch(/SLUG.*not declared/);
+      }
+    });
+  });
+
   it('rejects 6-field cron schedules without allowHighFrequency', () => {
     const result = agentDefinitionSchema.safeParse({
       name: 'fast',

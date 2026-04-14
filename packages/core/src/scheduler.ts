@@ -12,6 +12,12 @@ export interface LocalSchedulerOptions {
   agents: Map<string, AgentDefinition>;
   onFire?: (agent: AgentDefinition, runId: string) => void;
   onError?: (agent: AgentDefinition, error: Error) => void;
+  /**
+   * Daemon-wide input overrides supplied via `sua schedule start --input K=V`.
+   * Applied to every run the scheduler fires; individual agents that don't
+   * declare a given input simply ignore it (via `resolveInputs`).
+   */
+  inputs?: Record<string, string>;
 }
 
 export class LocalScheduler {
@@ -20,12 +26,14 @@ export class LocalScheduler {
   private readonly agents: Map<string, AgentDefinition>;
   private readonly onFire?: (agent: AgentDefinition, runId: string) => void;
   private readonly onError?: (agent: AgentDefinition, error: Error) => void;
+  private readonly inputs: Record<string, string>;
 
   constructor(options: LocalSchedulerOptions) {
     this.provider = options.provider;
     this.agents = options.agents;
     this.onFire = options.onFire;
     this.onError = options.onError;
+    this.inputs = options.inputs ?? {};
   }
 
   /**
@@ -60,7 +68,11 @@ export class LocalScheduler {
           );
         }
         try {
-          const run = await this.provider.submitRun({ agent, triggeredBy: 'schedule' });
+          const run = await this.provider.submitRun({
+            agent,
+            triggeredBy: 'schedule',
+            inputs: this.inputs,
+          });
           this.onFire?.(agent, run.id);
         } catch (err) {
           this.onError?.(agent, err instanceof Error ? err : new Error(String(err)));

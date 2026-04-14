@@ -39,13 +39,18 @@ program
     'after',
     `
 Examples:
-  $ sua init                        Create sua.config.json in the current dir
-  $ sua agent new                   Scaffold a new agent interactively
-  $ sua agent run my-agent          Run an agent once
-  $ sua agent list                  See everything runnable
-  $ sua schedule start              Fire scheduled agents on cron
-  $ sua mcp start                   Start the MCP server on 127.0.0.1:3003
-  $ sua doctor --security           Audit security posture
+  $ sua init                                     Create sua.config.json in the current dir
+  $ sua agent new                                Scaffold a new agent interactively
+  $ sua agent run my-agent                       Run an agent once
+  $ sua agent run weather --input ZIP=94110      Supply a declared input
+  $ sua agent list                               See everything runnable
+  $ sua schedule start                           Fire scheduled agents on cron
+  $ sua mcp start                                Start the MCP server on 127.0.0.1:3003
+  $ sua doctor --security                        Audit security posture
+
+Template syntax in agent YAML:
+  {{inputs.X}}               caller-supplied values (see \`sua agent run --help\`)
+  {{outputs.X.result}}       upstream chain output (inside the \`input:\` field only)
 
 Security model: docs/SECURITY.md
 Full docs:      https://github.com/gregmeyer/some-useful-agents
