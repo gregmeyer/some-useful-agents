@@ -87,7 +87,9 @@ export async function renderAgentDetailV2(args: {
       </div>`
     : html``;
 
-  // Per-node table below the DAG — preserves the v0.14 detail view.
+  // Per-node table below the DAG. Each row gets Edit + Delete actions
+  // that POST to the node-edit routes (PR 3). Delete is refused server-side
+  // if any downstream node depends on this one.
   const nodeRows = agent.nodes.map((n) => {
     const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
     const deps = n.dependsOn?.length ? n.dependsOn.join(', ') : html`<span class="dim">—</span>`;
@@ -99,6 +101,13 @@ export async function renderAgentDetailV2(args: {
         <td class="mono">${deps}</td>
         <td class="mono">${secrets}</td>
         <td class="dim">${body}</td>
+        <td style="white-space: nowrap;">
+          <a class="btn btn--sm" href="/agents/${agent.id}/nodes/${n.id}/edit">Edit</a>
+          <form method="POST" action="/agents/${agent.id}/nodes/${n.id}/delete" style="display: inline; margin: 0;"
+                onsubmit="return confirm('Delete node \\'${n.id}\\'?');">
+            <button type="submit" class="btn btn--sm btn--ghost" style="color: var(--color-err);">Delete</button>
+          </form>
+        </td>
       </tr>
     `;
   });
@@ -193,7 +202,7 @@ export async function renderAgentDetailV2(args: {
           <table class="table">
             <thead>
               <tr>
-                <th>Id</th><th>Type</th><th>Depends on</th><th>Secrets</th><th>Body</th>
+                <th>Id</th><th>Type</th><th>Depends on</th><th>Secrets</th><th>Body</th><th></th>
               </tr>
             </thead>
             <tbody>${nodeRows as unknown as SafeHtml[]}</tbody>
