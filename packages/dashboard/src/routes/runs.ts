@@ -64,7 +64,19 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   }
 
   const partial = req.query.partial === '1';
-  res.type('html').send(renderRunDetail({ run, partial }));
+
+  // v2 runs: pull per-node executions + the agent definition so the
+  // detail page can render the DAG and a per-node breakdown. The DAG
+  // uses the current version from the store; a follow-up PR could pull
+  // the exact version the run executed against if users expect to see
+  // old DAGs for old runs. For v0.13 "current version" is good enough.
+  let nodeExecutions, agent;
+  if (run.workflowId) {
+    nodeExecutions = ctx.runStore.listNodeExecutions(id);
+    agent = ctx.agentStore.getAgent(run.workflowId) ?? undefined;
+  }
+
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
