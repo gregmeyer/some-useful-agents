@@ -256,6 +256,24 @@
   margin-left: auto;
 }
 
+.filters__status {
+  gap: var(--space-2) !important;
+}
+
+.filters__status-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filters__status-check {
+  flex-direction: row !important;
+  gap: var(--space-1) !important;
+  align-items: center;
+  color: var(--color-text);
+  font-weight: var(--weight-regular);
+}
+
 /* ---------- Pager ---------- */
 .pager {
   display: flex;
