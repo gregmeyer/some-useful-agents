@@ -3,6 +3,7 @@ import type { RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderRunsList } from '../views/runs-list.js';
 import { renderRunDetail } from '../views/run-detail.js';
+import { deriveBack } from '../views/page-header.js';
 
 const VALID_STATUSES: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
 const VALID_STATUS_SET = new Set<string>(VALID_STATUSES);
@@ -76,7 +77,14 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     agent = ctx.agentStore.getAgent(run.workflowId) ?? undefined;
   }
 
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent }));
+  // Contextual back link — ?from=tutorial (or similar) takes priority
+  // over the Referer because it was threaded through the POST redirect
+  // from the originating page and survives multi-hop flows.
+  const referer = typeof req.headers.referer === 'string' ? req.headers.referer : undefined;
+  const expectedHost = `127.0.0.1:${ctx.port}`;
+  const back = deriveBack(referer, expectedHost, req.query.from);
+
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

@@ -1,7 +1,7 @@
 import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { pageHeader } from './page-header.js';
+import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 
@@ -10,8 +10,17 @@ export async function renderAgentDetailV2(args: {
   recentRuns: Run[];
   secretsStore: SecretsStore;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** Contextual back link ("Back to tutorial", "Back to runs", etc.). */
+  back?: PageHeaderBack;
+  /**
+   * Origin-marker propagated via ?from=… query param. When set, we
+   * thread it through the Run-now form as a hidden field so the run
+   * detail page knows the user's original origin was (e.g.) the
+   * tutorial — not just the immediate Referer.
+   */
+  from?: string;
 }): Promise<string> {
-  const { agent, recentRuns, secretsStore, flash } = args;
+  const { agent, recentRuns, secretsStore, flash, back, from } = args;
   const source = agent.source;
   const hasCommunityShellNode = source === 'community' && agent.nodes.some((n) => n.type === 'shell');
 
@@ -50,10 +59,14 @@ export async function renderAgentDetailV2(args: {
     }
   }
 
+  const fromHidden = from
+    ? html`<input type="hidden" name="from" value="${from}">`
+    : html``;
   const runNowButton = hasCommunityShellNode
     ? html`
         <form method="POST" action="/agents/${agent.id}/run">
           <input type="hidden" name="confirm_community_shell" value="yes">
+          ${fromHidden}
           <button type="submit" class="btn btn--warn"
             onclick="return confirm('This agent contains community shell nodes. Run anyway?');">
             Run now (community)
@@ -62,6 +75,7 @@ export async function renderAgentDetailV2(args: {
       `
     : html`
         <form method="POST" action="/agents/${agent.id}/run" style="display: inline;">
+          ${fromHidden}
           <button type="submit" class="btn btn--primary">Run now</button>
         </form>
       `;
@@ -133,7 +147,8 @@ export async function renderAgentDetailV2(args: {
         </div>
       </section>
 
-      <div class="inspector__actions">
+      <div class="inspector__actions" style="flex-wrap: wrap;">
+        <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
         <a class="btn btn--sm" href="#nodes">Jump to nodes</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
@@ -146,16 +161,15 @@ export async function renderAgentDetailV2(args: {
       meta: [vStatusBadge(agent.status), sourceBadge(source)],
       cta: runNowButton,
       description: agent.description ?? undefined,
+      back,
     })}
 
     ${warningBanner}
 
     <div class="agent-detail">
       <div class="agent-detail__main">
-        <section class="dag-frame">
-          ${renderDagFallback(agent)}
-          ${renderDagView({ agent })}
-        </section>
+        ${renderDagFallback(agent)}
+        ${renderDagView({ agent })}
 
         <section id="nodes">
           <h2>Nodes</h2>

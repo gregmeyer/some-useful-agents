@@ -80,10 +80,15 @@ const DASHBOARD_CSS = loadDashboardCss();
  * DAG description from the page, styles nodes by type + status, and
  * renders the graph into #dag-canvas.
  *
- * Visual choices are deliberately minimal — this is a monitoring
- * surface, not an editor. Nodes are circles with their id as the label,
- * edges are arrows pointing downstream. Colors match the CLI's
- * type vocabulary (shell = green, claude-code = magenta).
+ * Style maps to the dashboard design tokens (tokens.css) — colors are
+ * inlined as hex because Cytoscape can't read CSS variables, but they
+ * track the same palette. When we change tokens.css, mirror here.
+ *
+ * Two visual states:
+ *   - agent detail (no status data): node tinted by TYPE — soft fill,
+ *     colored border + label.
+ *   - run detail (status data per node): node tinted by STATUS — same
+ *     pattern, status colors override type.
  */
 const GRAPH_RENDER_JS = `
 (function () {
@@ -94,18 +99,32 @@ const GRAPH_RENDER_JS = `
   var payload;
   try { payload = JSON.parse(dataEl.textContent); } catch (e) { return; }
 
-  var statusColor = {
-    completed: '#15803d',
-    failed: '#b91c1c',
-    running: '#2563eb',
-    pending: '#d97706',
-    cancelled: '#b45309',
-    skipped: '#6b7280',
+  // Status tints — mirror tokens.css (--color-*-soft for fill, --color-*
+  // for border + text). Run-detail nodes use these.
+  var statusStyle = {
+    completed: { fill: '#dcfce7', border: '#15803d', text: '#166534' },
+    failed:    { fill: '#fee2e2', border: '#b91c1c', text: '#991b1b' },
+    running:   { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
+    pending:   { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
+    cancelled: { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
+    skipped:   { fill: '#f3f4f6', border: '#9ca3af', text: '#6b7280' },
   };
-  var typeColor = {
-    shell: '#15803d',
-    'claude-code': '#a21caf',
+  // Type tints — agent-detail nodes (no status) use these. Both shell
+  // and claude-code stay in the project's accent palette so the DAG
+  // viz blends with the rest of the dashboard chrome.
+  var typeStyle = {
+    shell:         { fill: '#dcfce7', border: '#15803d', text: '#166534' },
+    'claude-code': { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
   };
+  var defaultStyle = { fill: '#f9fafb', border: '#d1d5db', text: '#374151' };
+
+  function pick(n, key) {
+    var s = n.data('status');
+    if (s && statusStyle[s]) return statusStyle[s][key];
+    var t = n.data('type');
+    if (t && typeStyle[t]) return typeStyle[t][key];
+    return defaultStyle[key];
+  }
 
   var cy = window.cytoscape({
     container: el,
@@ -114,36 +133,48 @@ const GRAPH_RENDER_JS = `
       {
         selector: 'node',
         style: {
-          'background-color': function (n) {
-            var s = n.data('status');
-            if (s && statusColor[s]) return statusColor[s];
-            return typeColor[n.data('type')] || '#6b7280';
-          },
+          'background-color': function (n) { return pick(n, 'fill'); },
+          'border-color':     function (n) { return pick(n, 'border'); },
+          'color':            function (n) { return pick(n, 'text'); },
           'label': 'data(label)',
-          'color': '#fff',
           'text-valign': 'center',
           'text-halign': 'center',
-          'font-size': 11,
-          'width': 80,
-          'height': 40,
+          'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          'font-size': 10,
+          'font-weight': 600,
+          'width': 'label',
+          'height': 26,
+          'padding': '10px',
           'shape': 'round-rectangle',
           'border-width': 1,
-          'border-color': '#111',
+          'corner-radius': '6px',
         },
       },
       {
         selector: 'edge',
         style: {
-          'width': 2,
-          'line-color': '#6b7280',
-          'target-arrow-color': '#6b7280',
+          'width': 1.25,
+          'line-color': '#d1d5db',
+          'target-arrow-color': '#9ca3af',
           'target-arrow-shape': 'triangle',
+          'arrow-scale': 0.9,
           'curve-style': 'bezier',
         },
       },
     ],
-    layout: { name: 'breadthfirst', directed: true, padding: 10, spacingFactor: 1.1 },
+    layout: {
+      name: 'breadthfirst',
+      directed: true,
+      padding: 18,
+      spacingFactor: 1.25,
+      grid: false,
+    },
+    autoungrabify: true,
+    userZoomingEnabled: false,
+    userPanningEnabled: false,
+    boxSelectionEnabled: false,
   });
+  cy.fit(undefined, 18);
 
   // Click a node → anchor into the run-detail page on the same id.
   // No-op on /agents/:id (no target); clickable on /runs/:id via the
@@ -170,7 +201,10 @@ assetsRouter.get('/assets/cytoscape.min.js', (_req: Request, res: Response) => {
 });
 
 assetsRouter.get('/assets/graph-render.js', (_req: Request, res: Response) => {
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  // Short cache (5m) for our own bootstrap — during local dev we tweak
+  // node styling and want changes visible on refresh without a hard
+  // reload. Cytoscape itself stays on immutable since it's vendored.
+  res.setHeader('Cache-Control', 'public, max-age=300');
   res.type('application/javascript').send(GRAPH_RENDER_JS);
 });
 

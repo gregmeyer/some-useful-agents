@@ -24,17 +24,23 @@ export function renderDagView(args: {
   const payload = JSON.stringify({ elements });
   const navAttr = navBase ? ` data-nav-base="${escapeAttr(navBase)}"` : '';
 
+  // Wrap the canvas in <details open> so users can collapse the DAG viz
+  // when a deep run detail has scrolled past the structural view they
+  // already saw on /agents/:id. The summary mirrors the other
+  // collapsible-section styling (.run-node, .agent-card__nodes).
   return html`
-    <div style="margin: 1rem 0;">
-      <div
-        id="dag-canvas"
-        style="width: 100%; height: 320px; border: 1px solid var(--border); border-radius: 0.5rem; background: #fff;"
-        ${unsafeHtml(navAttr)}
-      ></div>
-      <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
-      <script src="/assets/cytoscape.min.js"></script>
-      <script src="/assets/graph-render.js"></script>
-    </div>
+    <details class="dag-disclosure" open>
+      <summary class="dag-disclosure__summary">
+        <span>DAG</span>
+        <span class="dim" style="font-size: var(--font-size-xs);">${String(agent.nodes.length)} node${agent.nodes.length === 1 ? '' : 's'}</span>
+      </summary>
+      <div class="dag-disclosure__body">
+        <div id="dag-canvas" class="dag-frame__canvas"${unsafeHtml(navAttr)}></div>
+        <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
+        <script src="/assets/cytoscape.min.js"></script>
+        <script src="/assets/graph-render.js"></script>
+      </div>
+    </details>
   `;
 }
 

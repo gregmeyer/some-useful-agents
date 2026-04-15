@@ -23,6 +23,12 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
   const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
   const body = (req.body ?? {}) as Record<string, unknown>;
   const confirmed = body.confirm_community_shell === 'yes';
+  // Origin marker for multi-hop back-link context. Propagated into
+  // the redirect URL so the run detail's "Back to …" label reflects
+  // where the user started (tutorial, runs list, etc.), not just the
+  // immediate Referer.
+  const fromParam = typeof body.from === 'string' && body.from.length > 0 ? body.from : undefined;
+  const fromSuffix = fromParam ? `?from=${encodeURIComponent(fromParam)}` : '';
 
   // Prefer v2 agents (post-migration).
   const v2Agent = ctx.agentStore.getAgent(name);
@@ -43,7 +49,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
           allowUntrustedShell: ctx.allowUntrustedShell,
         },
       );
-      res.redirect(303, `/runs/${encodeURIComponent(run.id)}`);
+      res.redirect(303, `/runs/${encodeURIComponent(run.id)}${fromSuffix}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent(message)}`);

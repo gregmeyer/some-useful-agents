@@ -432,6 +432,261 @@ describe('Dashboard help + tutorial', () => {
   });
 });
 
+describe('Dashboard tutorial scaffold endpoints (PR 1.6)', () => {
+  it('POST /help/tutorial/scaffold-hello creates a hello agent in AgentStore', async () => {
+    const app = await makeApp();
+    // Sanity: hello doesn't yet exist in the v2 store.
+    expect(agentStore.getAgent('hello')).toBeFalsy();
+
+    const res = await request(app)
+      .post('/help/tutorial/scaffold-hello')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    // Redirects to the agent detail page so the user sees the DAG +
+    // composition immediately, not a flash on the tutorial page. The
+    // ?from=tutorial query carries multi-hop origin context so the
+    // eventual run detail's back link says "Back to tutorial".
+    expect(res.headers.location).toMatch(/^\/agents\/hello\?from=tutorial&flash=/);
+
+    const created = agentStore.getAgent('hello');
+    expect(created).toBeDefined();
+    expect(created!.nodes).toHaveLength(1);
+    expect(created!.nodes[0].type).toBe('shell');
+    expect(created!.source).toBe('local');
+  });
+
+  it('POST /help/tutorial/scaffold-demo-dag creates a 2-node DAG with fetch -> digest', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/help/tutorial/scaffold-demo-dag')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+
+    const created = agentStore.getAgent('demo-digest');
+    expect(created).toBeDefined();
+    expect(created!.nodes).toHaveLength(2);
+    expect(created!.nodes[0].id).toBe('fetch');
+    expect(created!.nodes[1].id).toBe('digest');
+    expect(created!.nodes[1].dependsOn).toEqual(['fetch']);
+  });
+
+  it('POST /help/tutorial/scaffold-hello is idempotent — second call surfaces a flash, no duplicate', async () => {
+    const app = await makeApp();
+    await request(app).post('/help/tutorial/scaffold-hello')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const res2 = await request(app).post('/help/tutorial/scaffold-hello')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res2.status).toBe(303);
+    expect(decodeURIComponent(res2.headers.location)).toMatch(/already exists/);
+    // Still exactly one agent with that id.
+    expect(agentStore.listAgents().filter((a) => a.id === 'hello')).toHaveLength(1);
+  });
+
+  it('GET /help/tutorial shows inline action buttons (not just navigation links)', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Step 2 when no runs: a real POST form to run the first agent.
+    expect(res.text).toMatch(/action="\/agents\/hello\/run"/);
+    // Step 4 when no DAG run: a scaffold-dag button.
+    expect(res.text).toContain('/help/tutorial/scaffold-demo-dag');
+  });
+});
+
+describe('Dashboard /agents/new create form (PR 1.6)', () => {
+  it('GET /agents/new renders the form', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/agents/new')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('New agent');
+    expect(res.text).toContain('name="id"');
+    expect(res.text).toContain('name="command"');
+    expect(res.text).toContain('name="prompt"');
+  });
+
+  it('POST /agents/new creates a single-node shell agent and redirects', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'test-echo', name: 'Test Echo', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    // After creation we land on the add-node form so the user can chain
+    // a downstream node, with a fromCreate flag for the friendlier copy.
+    expect(res.headers.location).toMatch(/^\/agents\/test-echo\/add-node\?fromCreate=1$/);
+
+    const created = agentStore.getAgent('test-echo');
+    expect(created).toBeDefined();
+    expect(created!.name).toBe('Test Echo');
+    expect(created!.nodes[0].type).toBe('shell');
+    expect(created!.nodes[0].command).toBe('echo hi');
+  });
+
+  it('POST /agents/new rejects invalid id with 400 + re-rendered form', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'Invalid ID!', name: 'x', type: 'shell', command: 'echo' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/Id must be lowercase/);
+    // Form re-populates with user's attempt so they don't lose input.
+    expect(res.text).toContain('Invalid ID!');
+  });
+
+  it('POST /agents/new rejects duplicate id', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'already-here', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'already-here', name: 'Y', type: 'shell', command: 'echo' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/already exists/);
+  });
+
+  it('POST /agents/new for claude-code type requires prompt', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'needs-prompt', name: 'x', type: 'claude-code', prompt: '' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/Claude-Code agents need a prompt/);
+  });
+});
+
+describe('Dashboard /agents/:id/add-node chain flow (PR 1.6)', () => {
+  it('GET /agents/:id/add-node renders the form with current nodes listed', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'chain-base', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'first', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).get('/agents/chain-base/add-node')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Add node to chain-base');
+    expect(res.text).toContain('first');
+    // The dependsOn checkbox for the existing node should be present.
+    expect(res.text).toMatch(/name="dependsOn" value="first"/);
+  });
+
+  it('POST /agents/:id/add-node appends a downstream node and bumps version', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'chain', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo a' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/chain/add-node')
+      .type('form')
+      .send({ id: 'b', type: 'shell', command: 'echo b', dependsOn: 'a' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/agents\/chain\/add-node\?flash=/);
+
+    const updated = agentStore.getAgent('chain');
+    expect(updated).toBeDefined();
+    expect(updated!.nodes).toHaveLength(2);
+    expect(updated!.nodes[1].id).toBe('b');
+    expect(updated!.nodes[1].dependsOn).toEqual(['a']);
+    // upsertAgent created a new version when the DAG changed.
+    expect(updated!.version).toBe(2);
+  });
+
+  it('POST /agents/:id/add-node rejects unknown upstream node', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'chain2', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/chain2/add-node')
+      .type('form')
+      .send({ id: 'b', type: 'shell', command: 'echo', dependsOn: 'nonexistent' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/Unknown upstream node/);
+  });
+
+  it('POST /agents/:id/add-node rejects duplicate node id within the agent', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'chain3', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/chain3/add-node')
+      .type('form')
+      .send({ id: 'a', type: 'shell', command: 'echo' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/already exists/);
+  });
+});
+
+describe('Dashboard contextual back link (PR 1.6)', () => {
+  it('renders a "Back to runs" link on /runs/:id when Referer is /runs', async () => {
+    const app = await makeApp();
+    runStore.createRun({
+      id: 'back-test', agentName: 'hello', status: 'completed',
+      startedAt: new Date().toISOString(), triggeredBy: 'cli',
+    });
+
+    const res = await request(app).get('/runs/back-test')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Referer', `http://127.0.0.1:${PORT}/runs?status=completed`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('page-header__back');
+    expect(res.text).toContain('Back to runs');
+  });
+
+  it('omits the back link when the Referer is off-host', async () => {
+    const app = await makeApp();
+    runStore.createRun({
+      id: 'back-test-2', agentName: 'hello', status: 'completed',
+      startedAt: new Date().toISOString(), triggeredBy: 'cli',
+    });
+
+    const res = await request(app).get('/runs/back-test-2')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Referer', 'http://evil.example.com/some-page')
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('page-header__back');
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();
