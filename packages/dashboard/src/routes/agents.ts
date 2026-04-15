@@ -4,8 +4,227 @@ import { getContext } from '../context.js';
 import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../views/agent-detail-v2.js';
+import { renderAgentNew, type AgentNewFormValues } from '../views/agent-new.js';
+import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
+import { deriveBack } from '../views/page-header.js';
 
 export const agentsRouter: Router = Router();
+
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * GET  /agents/new — show the create-agent form.
+ * POST /agents/new — create a single-node v2 DAG agent via AgentStore.
+ *
+ * The dashboard was missing any in-UI create path until this route; every
+ * "make a new agent" instruction dead-ended at `sua agent new` in the
+ * terminal. This brings the create flow into the dashboard for the most
+ * common case (single-node agent); multi-node DAGs still need the CLI
+ * or the tutorial's scaffold-demo-dag button until the drag-drop editor
+ * lands in PR 3.
+ *
+ * Registered BEFORE `/agents/:name` so Express matches this exact path
+ * first instead of treating "new" as an agent id.
+ */
+agentsRouter.get('/agents/new', (_req: Request, res: Response) => {
+  res.type('html').send(renderAgentNew({}));
+});
+
+agentsRouter.post('/agents/new', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const values: AgentNewFormValues = {
+    id: typeof body.id === 'string' ? body.id.trim() : undefined,
+    name: typeof body.name === 'string' ? body.name.trim() : undefined,
+    description: typeof body.description === 'string' ? body.description.trim() : undefined,
+    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    command: typeof body.command === 'string' ? body.command : undefined,
+    prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+  };
+
+  // Validate in order of what the user typed top-to-bottom so the error
+  // points at the first thing wrong rather than a buried field.
+  if (!values.id || !AGENT_ID_RE.test(values.id)) {
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: 'Id must be lowercase letters, digits, or hyphens, starting with a letter or digit.',
+    }));
+    return;
+  }
+  if (!values.name) {
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: 'Name is required.',
+    }));
+    return;
+  }
+  if (ctx.agentStore.getAgent(values.id)) {
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: `An agent with id "${values.id}" already exists.`,
+    }));
+    return;
+  }
+  if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: 'Shell agents need a command.',
+    }));
+    return;
+  }
+  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: 'Claude-Code agents need a prompt.',
+    }));
+    return;
+  }
+
+  try {
+    ctx.agentStore.createAgent(
+      {
+        id: values.id,
+        name: values.name,
+        description: values.description || undefined,
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [
+          values.type === 'shell'
+            ? { id: 'main', type: 'shell', command: values.command! }
+            : { id: 'main', type: 'claude-code', prompt: values.prompt! },
+        ],
+      },
+      'dashboard',
+      'Created via /agents/new',
+    );
+    // Land on the add-node form with a flag — gives the user the option
+    // to chain another node downstream right away, or click "Done" to
+    // jump straight to the agent detail. Replaces the v0.15-PR1.6 flow
+    // that redirected to /agents/:id alone.
+    res.redirect(303, `/agents/${encodeURIComponent(values.id)}/add-node?fromCreate=1`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).type('html').send(renderAgentNew({
+      values,
+      error: `Create failed: ${msg}`,
+    }));
+  }
+});
+
+/**
+ * GET  /agents/:name/add-node — form to append a node to an existing
+ *                               v2 agent. v1 agents are not editable;
+ *                               redirects to the v1 detail page.
+ * POST /agents/:name/add-node — append the node, bump to a new agent
+ *                               version via upsertAgent, redirect back
+ *                               to this same form so the user can chain
+ *                               another node if they want.
+ *
+ * Registered alongside the rest of the agent routes so Express resolves
+ * paths consistently.
+ */
+const NODE_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
+
+agentsRouter.get('/agents/:name/add-node', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  const fromCreate = req.query.fromCreate === '1';
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam }));
+});
+
+agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawDeps = body.dependsOn;
+  const dependsOn: string[] = Array.isArray(rawDeps)
+    ? rawDeps.filter((d): d is string => typeof d === 'string')
+    : typeof rawDeps === 'string' ? [rawDeps] : [];
+
+  const values: AddNodeFormValues = {
+    id: typeof body.id === 'string' ? body.id.trim() : undefined,
+    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    command: typeof body.command === 'string' ? body.command : undefined,
+    prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+    dependsOn,
+  };
+
+  // Validate.
+  if (!values.id || !NODE_ID_RE.test(values.id)) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: 'Node id must be lowercase letters, digits, hyphens, or underscores.',
+    }));
+    return;
+  }
+  if (agent.nodes.some((n) => n.id === values.id)) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: `A node with id "${values.id}" already exists in this agent.`,
+    }));
+    return;
+  }
+  // Every declared dependency must be a real node in this agent.
+  const existingIds = new Set(agent.nodes.map((n) => n.id));
+  const badDep = dependsOn.find((d) => !existingIds.has(d));
+  if (badDep) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: `Unknown upstream node: "${badDep}".`,
+    }));
+    return;
+  }
+  if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: 'Shell nodes need a command.',
+    }));
+    return;
+  }
+  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: 'Claude-Code nodes need a prompt.',
+    }));
+    return;
+  }
+
+  const newNode = values.type === 'shell'
+    ? { id: values.id, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) }
+    : { id: values.id, type: 'claude-code' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+
+  try {
+    ctx.agentStore.upsertAgent(
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        status: agent.status,
+        schedule: agent.schedule,
+        source: agent.source,
+        mcp: agent.mcp,
+        nodes: [...agent.nodes, newNode],
+      },
+      'dashboard',
+      `Added node "${values.id}" via dashboard`,
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/add-node?flash=${encodeURIComponent(`Added "${values.id}". Add another or click Done.`)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, error: `Save failed: ${msg}`,
+    }));
+  }
+});
 
 agentsRouter.get('/agents', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -68,12 +287,19 @@ agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
       statuses: [] as RunStatus[],
     });
     const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
-    const flash = flashParam ? { kind: 'error' as const, message: flashParam } : undefined;
+    const fromParam = typeof req.query.from === 'string' ? req.query.from : undefined;
+    // Messages passed via ?flash= from scaffold redirects are informational;
+    // anything surfaced by a failed mutation route sends ?error= instead.
+    const flash = flashParam ? { kind: 'ok' as const, message: flashParam } : undefined;
+    const referer = typeof req.headers.referer === 'string' ? req.headers.referer : undefined;
+    const back = deriveBack(referer, `127.0.0.1:${ctx.port}`, fromParam);
     const html = await renderAgentDetailV2({
       agent: v2Agent,
       recentRuns: rows,
       secretsStore: ctx.secretsStore,
       flash,
+      back,
+      from: fromParam,
     });
     res.type('html').send(html);
     return;

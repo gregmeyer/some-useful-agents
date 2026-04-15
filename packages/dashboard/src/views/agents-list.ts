@@ -47,7 +47,12 @@ export function renderAgentsList(input: AgentsListInput): string {
   const body = html`
     ${pageHeader({
       title: 'Agents',
-      cta: html`<a class="btn btn--ghost btn--sm" href="/help/tutorial">Open tutorial</a>`,
+      cta: html`
+        <span style="display: inline-flex; gap: var(--space-2);">
+          <a class="btn btn--ghost btn--sm" href="/help/tutorial">Tutorial</a>
+          <a class="btn btn--primary btn--sm" href="/agents/new">New agent</a>
+        </span>
+      `,
     })}
 
     ${empty ? renderEmptyState() : renderStatStrip(input.stats)}
@@ -111,13 +116,16 @@ function renderEmptyState(): SafeHtml {
   return html`
     <section class="card" style="padding: var(--space-8) var(--space-6); text-align: center; margin-bottom: var(--space-6);">
       <h2 style="margin-top: 0;">No agents yet</h2>
-      <p class="dim" style="max-width: 42ch; margin: 0 auto var(--space-4);">
-        An agent is a YAML file under <code>agents/</code> that describes a task sua can run.
-        Scaffold your first one with:
+      <p class="dim" style="max-width: 48ch; margin: 0 auto var(--space-4);">
+        An agent is a named task sua can run. Create one right now from the dashboard,
+        or follow the guided tutorial.
       </p>
-      <pre style="display: inline-block; background: var(--color-terminal-bg); color: var(--color-terminal-fg); margin: 0 auto;">sua init &amp;&amp; sua agent new</pre>
-      <p style="margin-top: var(--space-4);">
-        <a class="btn btn--primary" href="/help/tutorial">Open the dashboard tutorial</a>
+      <p style="display: flex; gap: var(--space-3); justify-content: center; margin: 0;">
+        <a class="btn btn--primary" href="/agents/new">New agent</a>
+        <a class="btn" href="/help/tutorial">Open tutorial</a>
+      </p>
+      <p class="dim" style="margin-top: var(--space-4); font-size: var(--font-size-xs);">
+        Prefer the terminal? <code>sua init &amp;&amp; sua agent new</code>
       </p>
     </section>
   `;
@@ -133,6 +141,34 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
 
   const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
 
+  // Multi-node agents get an inline <details> to reveal each node without
+  // having to click through to the agent detail page. Single-node agents
+  // skip the disclosure entirely — nothing meaningful to reveal.
+  const nodesDisclosure = a.nodes.length > 1
+    ? html`
+      <details class="agent-card__nodes">
+        <summary>Show ${String(a.nodes.length)} nodes</summary>
+        <ol class="agent-card__node-list">
+          ${a.nodes.map((n) => {
+            const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
+            const typeClass = n.type === 'shell' ? 'badge--ok' : 'badge--info';
+            const deps = n.dependsOn?.length ? html`<span class="dim" style="font-size: var(--font-size-xs);"> \u2190 ${n.dependsOn.join(', ')}</span>` : html``;
+            return html`
+              <li>
+                <div style="display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap;">
+                  <code>${n.id}</code>
+                  <span class="badge ${typeClass}">${n.type}</span>
+                  ${deps}
+                </div>
+                <div class="mono dim agent-card__node-body">${body}</div>
+              </li>
+            `;
+          }) as unknown as SafeHtml[]}
+        </ol>
+      </details>
+    `
+    : html``;
+
   return html`
     <article class="agent-card">
       <div class="agent-card__header">
@@ -146,6 +182,7 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
         <span><strong>${String(a.nodes.length)}</strong> node${a.nodes.length === 1 ? '' : 's'}</span>
         ${a.schedule ? html`<span>Cron <span class="mono">${a.schedule}</span></span>` : html``}
       </div>
+      ${nodesDisclosure}
       <div class="agent-card__footer">
         <span class="agent-card__dag-shape" aria-hidden="true">${shape}</span>
         ${runInfo}
@@ -156,6 +193,12 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
       </div>
     </article>
   `;
+}
+
+function oneLine(text: string, max = 80): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= max) return collapsed;
+  return collapsed.slice(0, max - 1) + '\u2026';
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { Agent, NodeExecutionRecord, Run } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { pageHeader } from './page-header.js';
+import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { statusBadge, outputFrame, formatDuration } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 
@@ -13,10 +13,12 @@ export interface RunDetailOptions {
   nodeExecutions?: NodeExecutionRecord[];
   /** v2 agent definition at the run's version, for DAG rendering + node labels. */
   agent?: Agent;
+  /** Contextual back link derived from the request's Referer header. */
+  back?: PageHeaderBack;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent } = opts;
+  const { run, partial, nodeExecutions, agent, back } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -33,10 +35,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   ` : html``;
 
   const dagSection = isDagRun ? html`
-    <section class="dag-frame">
-      ${renderDagFallback(agent)}
-      ${renderDagView({ agent, nodeExecs: nodeExecutions, navBase: `/runs/${run.id}` })}
-    </section>
+    ${renderDagFallback(agent)}
+    ${renderDagView({ agent, nodeExecs: nodeExecutions, navBase: `/runs/${run.id}` })}
   ` : html``;
 
   // Per-node execution as click-expandable cards (one <details> per node).
@@ -53,6 +53,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     : pageHeader({
         title: `Run ${run.id.slice(0, 8)}`,
         meta: [statusBadge(run.status)],
+        back,
       });
 
   const fragment = html`
