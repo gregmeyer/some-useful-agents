@@ -31,14 +31,22 @@ on:
     branches:
       - main
       - changeset-release/main
+  # Also run on every pull request so the check reports a status on
+  # feature PRs. The ruleset requires "Release PR is up to date with
+  # main's changesets" on every merge; without a pull_request trigger,
+  # feature PRs stayed pending forever because this workflow never ran
+  # against them. The script handles the "no release branch yet" case
+  # by exiting 0, so feature PRs pass trivially until a release PR
+  # exists — at which point they correctly report the current
+  # main-vs-release-branch state (same signal as push-to-main).
+  pull_request:
+    branches:
+      - main
 
 jobs:
   check-freshness:
     name: Release PR is up to date with main's changesets
     runs-on: ubuntu-latest
-    # Only meaningful when there IS a release branch. If it doesn't exist,
-    # there's nothing to compare against — succeed silently.
-    if: github.ref == 'refs/heads/changeset-release/main' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
