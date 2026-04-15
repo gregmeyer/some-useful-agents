@@ -29,6 +29,17 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // Confirm-before-submit for forms with [data-confirm]. Used on
+  // destructive settings actions (delete secret, rotate MCP token).
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || !form.matches || !form.matches('form[data-confirm]')) return;
+    var msg = form.getAttribute('data-confirm');
+    if (msg && !window.confirm(msg)) {
+      e.preventDefault();
+    }
+  });
+
   // Auto-poll for in-progress runs
   var runDetail = document.querySelector('[data-run-in-progress]');
   if (runDetail) {

@@ -1,54 +1,239 @@
 import { Router, type Request, type Response } from 'express';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
+import { renderSettingsSecrets } from '../views/settings-secrets.js';
+import { renderSettingsGeneral } from '../views/settings-general.js';
+import { getContext, type DashboardContext } from '../context.js';
+import { SESSION_COOKIE } from '../auth-middleware.js';
 
-/**
- * Settings routes. This PR ships the shell + placeholder tab content;
- * /settings/secrets CRUD, passphrase modal, MCP token rotation, and
- * retention display arrive in PR 4 of v0.15.
- */
 export const settingsRouter: Router = Router();
+
+const SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
 settingsRouter.get('/settings', (_req: Request, res: Response) => {
   res.redirect(303, '/settings/secrets');
 });
 
-settingsRouter.get('/settings/secrets', (_req: Request, res: Response) => {
-  const body = html`
-    <div class="card">
-      <p class="card__title">Secrets</p>
-      <p>Manage encrypted secrets referenced by agent nodes. Values are
-        never rendered here.</p>
-      <p class="dim">Coming in the next v0.15 PR: list declared secrets,
-        set/delete from the UI, passphrase-gated flows for protected stores.</p>
-    </div>
-  `;
-  res.type('html').send(renderSettingsShell({ active: 'secrets', body }));
+settingsRouter.get('/settings/secrets', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash, unlockError, setError } = readQueryBanners(req);
+
+  const status = ctx.secretsSession.inspect();
+  const isUnlocked = ctx.secretsSession.isUnlocked();
+  const names = isUnlocked ? await ctx.secretsSession.listNames() : [];
+  const declared = collectDeclaredSecrets(ctx);
+  const missing = [...declared].filter((n) => !names.includes(n)).sort();
+
+  const body = renderSettingsSecrets({
+    status,
+    isUnlocked,
+    names,
+    missing,
+    unlockError,
+    setError,
+    setNameValue: typeof req.query.name === 'string' ? req.query.name : undefined,
+  });
+  res.type('html').send(renderSettingsShell({ active: 'secrets', body, flash }));
 });
 
-settingsRouter.get('/settings/integrations', (_req: Request, res: Response) => {
+settingsRouter.post('/settings/secrets/unlock', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const passphrase = typeof body.passphrase === 'string' ? body.passphrase : '';
+
+  if (passphrase.length === 0) {
+    redirectWith(res, '/settings/secrets', 'unlockError', 'Passphrase is required.');
+    return;
+  }
+
+  const ok = await ctx.secretsSession.unlock(passphrase);
+  if (!ok) {
+    redirectWith(res, '/settings/secrets', 'unlockError', 'Wrong passphrase.');
+    return;
+  }
+  redirectWith(res, '/settings/secrets', 'flash', 'Unlocked for this session.');
+});
+
+settingsRouter.post('/settings/secrets/lock', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  ctx.secretsSession.lock();
+  redirectWith(res, '/settings/secrets', 'flash', 'Locked.');
+});
+
+settingsRouter.post('/settings/secrets/set', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const value = typeof body.value === 'string' ? body.value : '';
+
+  if (!SECRET_NAME_RE.test(name)) {
+    redirectWith(
+      res,
+      '/settings/secrets',
+      'setError',
+      `Invalid name "${name}". Must be uppercase letters, digits, or underscores (e.g. MY_API_KEY).`,
+      { name },
+    );
+    return;
+  }
+  if (value.length === 0) {
+    redirectWith(res, '/settings/secrets', 'setError', 'Value is required.', { name });
+    return;
+  }
+  if (!ctx.secretsSession.isUnlocked()) {
+    redirectWith(res, '/settings/secrets', 'setError', 'Store is locked. Unlock before writing.', { name });
+    return;
+  }
+
+  try {
+    await ctx.secretsSession.setSecret(name, value);
+    redirectWith(res, '/settings/secrets', 'flash', `Saved ${name}.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    redirectWith(res, '/settings/secrets', 'setError', `Save failed: ${msg}`, { name });
+  }
+});
+
+settingsRouter.post('/settings/secrets/delete', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!SECRET_NAME_RE.test(name)) {
+    redirectWith(res, '/settings/secrets', 'setError', `Invalid name "${name}".`);
+    return;
+  }
+  if (!ctx.secretsSession.isUnlocked()) {
+    redirectWith(res, '/settings/secrets', 'setError', 'Store is locked. Unlock before deleting.');
+    return;
+  }
+
+  try {
+    await ctx.secretsSession.deleteSecret(name);
+    redirectWith(res, '/settings/secrets', 'flash', `Deleted ${name}.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    redirectWith(res, '/settings/secrets', 'setError', `Delete failed: ${msg}`);
+  }
+});
+
+settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
+  const { flash } = readQueryBanners(req);
   const body = html`
     <div class="settings-empty">
       <h3 style="margin-top: 0;">Integrations</h3>
-      <p>Integrations are coming in v0.16.</p>
+      <p>Integrations are coming in a later release.</p>
       <p class="dim">Today, external services are wired up through
         secrets (e.g. <code>SLACK_WEBHOOK</code>) referenced from agent nodes.
         Integrations will add a metadata layer on top so agents can
         reference named services instead of raw secret names.</p>
     </div>
   `;
-  res.type('html').send(renderSettingsShell({ active: 'integrations', body }));
+  res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
 
-settingsRouter.get('/settings/general', (_req: Request, res: Response) => {
-  const body = html`
-    <div class="card">
-      <p class="card__title">General</p>
-      <p>Dashboard-wide settings.</p>
-      <p class="dim">Coming in the next v0.15 PR: rotate the MCP bearer
-        token, view retention policy, show the paths sua is reading
-        config and data from.</p>
-    </div>
-  `;
-  res.type('html').send(renderSettingsShell({ active: 'general', body }));
+settingsRouter.get('/settings/general', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash } = readQueryBanners(req);
+  const rotatedToken = typeof req.query.rotated === 'string' ? req.query.rotated : undefined;
+  const body = renderSettingsGeneral({
+    tokenFingerprint: ctx.token.slice(0, 8),
+    tokenPath: ctx.tokenPath,
+    secretsPath: ctx.secretsPath,
+    dbPath: ctx.dbPath,
+    retentionDays: ctx.retentionDays,
+    rotatedToken,
+  });
+  res.type('html').send(renderSettingsShell({ active: 'general', body, flash }));
 });
+
+settingsRouter.post('/settings/general/rotate-mcp-token', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  // Rotating the file in-place invalidates every existing MCP client
+  // cookie including the one we're serving the response with. Re-cookie
+  // this browser at the same time so the operator doesn't get bounced
+  // to /auth on their next click. The freshly rotated value is rendered
+  // once on /settings/general — we never re-display it after that.
+  let newToken: string;
+  try {
+    newToken = ctx.rotateToken();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    redirectWith(res, '/settings/general', 'flash', `Rotation failed: ${msg}`);
+    return;
+  }
+
+  updateToken(ctx, newToken);
+  res.cookie(SESSION_COOKIE, newToken, {
+    httpOnly: true,
+    sameSite: 'strict',
+    path: '/',
+  });
+  res.redirect(303, `/settings/general?rotated=${encodeURIComponent(newToken)}&flash=${encodeURIComponent('Rotated bearer token. Update any MCP clients to use the new value.')}`);
+});
+
+/**
+ * Parse `?flash=` (success) and `?error=` / `?unlockError=` / `?setError=`
+ * (failure) query params into render-ready structures.
+ */
+function readQueryBanners(req: Request): {
+  flash?: { kind: 'error' | 'ok' | 'info'; message: string };
+  unlockError?: string;
+  setError?: string;
+} {
+  const flashVal = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const errorVal = typeof req.query.error === 'string' ? req.query.error : undefined;
+  const unlockError = typeof req.query.unlockError === 'string' ? req.query.unlockError : undefined;
+  const setError = typeof req.query.setError === 'string' ? req.query.setError : undefined;
+  const flash = errorVal
+    ? { kind: 'error' as const, message: errorVal }
+    : flashVal
+      ? { kind: 'ok' as const, message: flashVal }
+      : undefined;
+  return { flash, unlockError, setError };
+}
+
+/**
+ * 303-redirect back to a settings page with a query-encoded banner. The
+ * `extra` map lets callers preserve form field values (e.g. name= on a
+ * failed /set) so the user doesn't retype them.
+ */
+function redirectWith(
+  res: Response,
+  path: string,
+  kind: 'flash' | 'unlockError' | 'setError',
+  message: string,
+  extra: Record<string, string> = {},
+): void {
+  const params = new URLSearchParams();
+  params.set(kind, message);
+  for (const [k, v] of Object.entries(extra)) params.set(k, v);
+  res.redirect(303, `${path}?${params.toString()}`);
+}
+
+function collectDeclaredSecrets(ctx: DashboardContext): Set<string> {
+  const declared = new Set<string>();
+  try {
+    const { agents } = ctx.loadAgents();
+    for (const [, a] of agents) {
+      for (const s of a.secrets ?? []) declared.add(s);
+    }
+  } catch {
+    // Broken YAML on disk shouldn't prevent the Settings page from rendering.
+  }
+  try {
+    for (const agent of ctx.agentStore.listAgents()) {
+      for (const node of agent.nodes) {
+        for (const s of node.secrets ?? []) declared.add(s);
+      }
+    }
+  } catch {
+    // Same — tolerate a failing store read so Settings still renders.
+  }
+  return declared;
+}
+
+/** Mutate the live auth-check token in app.locals. Keeps the middleware
+ *  in lockstep with the on-disk file after a rotation. */
+function updateToken(ctx: DashboardContext, newToken: string): void {
+  ctx.token = newToken;
+}
