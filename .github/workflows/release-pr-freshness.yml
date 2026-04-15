@@ -1,0 +1,95 @@
+name: Release PR freshness
+
+# Guards against merging a stale release PR that hasn't yet picked up the
+# newest changesets from main. Without this check, the scenario that ate
+# v0.13.0 on 2026-04-15 can repeat: changesets bot updates
+# `changeset-release/main` asynchronously after each feature merge; if you
+# click merge on the release PR during the gap between "bot rebased onto
+# main" and "bot added the new changeset content", the PR merges with
+# fewer changesets than exist on main. Result: a partial release that
+# bumps versions but publishes nothing, followed by a second release PR
+# that skips a semver number.
+#
+# The existing `strict_required_status_checks_policy: true` in the main
+# branch ruleset only enforces commit-DAG-level freshness (is every main
+# commit in the PR's history?). It does NOT enforce content-level
+# freshness (are every main changeset's .md file in the PR's tree?).
+# This job fills that gap.
+#
+# Trigger: any push to main OR to the release branch. On every update we
+# re-evaluate: are there .changeset/*.md files on main that are missing
+# from the release branch? If so, fail; GitHub marks the release PR's
+# required check as failing, merge is blocked.
+#
+# Clearing the check: wait for the changesets bot to push an update
+# that includes the missing .md files, then this workflow re-runs and
+# passes. The bot does this automatically on every main push; delays are
+# usually under a minute but can stretch to several.
+
+on:
+  push:
+    branches:
+      - main
+      - changeset-release/main
+
+jobs:
+  check-freshness:
+    name: Release PR is up to date with main's changesets
+    runs-on: ubuntu-latest
+    # Only meaningful when there IS a release branch. If it doesn't exist,
+    # there's nothing to compare against — succeed silently.
+    if: github.ref == 'refs/heads/changeset-release/main' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Compare changesets between main and changeset-release/main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The release branch might not exist yet (no pending release).
+          if ! git show-ref --verify --quiet refs/remotes/origin/changeset-release/main; then
+            echo "No changeset-release/main branch yet — nothing to compare."
+            exit 0
+          fi
+
+          # Extract the set of changeset markdown filenames on each branch.
+          # README.md and config.json are fixtures, excluded.
+          list_changesets() {
+            git ls-tree --name-only "$1" -- .changeset/ 2>/dev/null \
+              | grep -E '\.md$' \
+              | grep -v '^README\.md$' \
+              | sort
+          }
+
+          MAIN_CS=$(list_changesets origin/main || true)
+          RELEASE_CS=$(list_changesets origin/changeset-release/main || true)
+
+          echo "== Changesets on main =="
+          echo "${MAIN_CS:-<none>}"
+          echo ""
+          echo "== Changesets on changeset-release/main =="
+          echo "${RELEASE_CS:-<none>}"
+          echo ""
+
+          # On main, the pending set should be a SUBSET of the release branch's set.
+          # (The release branch consumes changesets on merge, so it should always
+          # have at least everything main has — plus the consumed-and-removed
+          # ones from the last merge.)
+          MISSING=$(comm -23 <(echo "$MAIN_CS") <(echo "$RELEASE_CS") || true)
+
+          if [ -z "${MISSING// /}" ]; then
+            echo "✅ Release PR is up to date: every pending changeset on main is also on changeset-release/main."
+            exit 0
+          fi
+
+          echo "❌ Release PR is STALE. Main has changesets the release branch doesn't:"
+          echo "$MISSING" | sed 's/^/    /'
+          echo ""
+          echo "The changesets bot will push an update to the release PR shortly. Wait for"
+          echo "that update to land, then re-run this check. Merging the release PR in its"
+          echo "current state would produce a partial release (version bumps without"
+          echo "consuming all pending changesets)."
+          exit 1
