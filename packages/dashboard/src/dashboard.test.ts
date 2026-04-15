@@ -392,6 +392,44 @@ describe('Dashboard static assets', () => {
   });
 });
 
+describe('Dashboard help + tutorial', () => {
+  it('GET /help renders the CLI reference page', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Help &amp; tutorial');
+    expect(res.text).toContain('Open the dashboard tutorial');
+    expect(res.text).toContain('sua workflow run');
+  });
+
+  it('GET /help/tutorial marks step 1 done when agents exist, step 2 not done with no runs', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Dashboard tutorial');
+    // Step 1: "You have a project" — done (we scaffolded hello.yaml)
+    expect(res.text).toMatch(/You have a project[\s\S]*?badge--ok[\s\S]*?done/);
+    // Step 2: "Run your first agent" — not done yet, should show to-do badge
+    // The progress card should reflect: 1 of 5 complete
+    expect(res.text).toContain('of 5 steps complete');
+  });
+
+  it('GET /help/tutorial references the first agent by id for the Run CTA', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // First v1 agent is "hello" (spooky is community; v2 store is empty in this
+    // fixture). The Run CTA should link to /agents/hello.
+    expect(res.text).toContain('/agents/hello');
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();

@@ -117,11 +117,16 @@ export function renderHelp(): string {
 
     <section class="card" style="margin-bottom: var(--space-6);">
       <p class="card__title">Start here</p>
-      <p>Run the built-in interactive walkthrough from your terminal:</p>
-      <pre style="background: var(--color-terminal-bg); color: var(--color-terminal-fg); margin: var(--space-3) 0;">sua tutorial</pre>
+      <p style="margin-bottom: var(--space-3);">
+        <strong>
+          <a href="/help/tutorial" class="btn btn--primary">Open the dashboard tutorial \u2192</a>
+        </strong>
+      </p>
       <p class="dim" style="margin: 0;">
-        It scaffolds a starter agent, runs it, and shows you how to read the output.
-        Safe to run in an empty directory \u2014 no network calls, no secrets required.
+        A progress-tracked walkthrough of your project's state: registered agents, first run,
+        per-node outputs, multi-node DAGs, secrets. Each step links to the dashboard page where
+        the action happens. For a terminal-first walkthrough instead, run
+        <code>sua tutorial</code> from your project directory.
       </p>
     </section>
 
