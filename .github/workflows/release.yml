@@ -5,7 +5,28 @@ on:
     branches:
       - main
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# Supersede any in-flight release run when a newer push lands on main.
+#
+# Without `cancel-in-progress: true`, every push to main that reaches the
+# `npm-publish` environment gate queues behind the previous one. If you
+# merge a feature PR but don't immediately click Approve on its release
+# run, the next feature merge queues behind it. Merge three in a row and
+# the actual release PR's workflow is stuck hours behind a stack of
+# stale, unapproved feature-triggered runs (see main branch history
+# 2026-04-15 where release run for #50 waited 3h+ and blocked #48's
+# real publish).
+#
+# Superseding is safe for two reasons:
+#   1. Each feature-merge run is a no-op until there's a release PR to
+#      merge — changesets/action detects no consumed changesets and
+#      either opens/updates the Release PR (idempotent) or exits.
+#   2. The actual publish step only runs when the "chore: release"
+#      commit lands. If a newer push cancels that mid-publish, npm
+#      trusted publishing is idempotent per-package: the retry either
+#      completes the unpublished ones or no-ops on already-published.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   version-or-publish:
