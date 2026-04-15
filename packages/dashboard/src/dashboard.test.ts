@@ -687,6 +687,136 @@ describe('Dashboard contextual back link (PR 1.6)', () => {
   });
 });
 
+describe('Dashboard version history + status toggle (PR 2)', () => {
+  async function seedTwoVersionAgent(id = 'ver-test') {
+    agentStore.createAgent({
+      id, name: 'Ver Test', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo v1' }],
+    }, 'cli', 'initial import');
+    agentStore.createNewVersion(id, {
+      id, name: 'Ver Test', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo v1' },
+        { id: 'b', type: 'shell', command: 'echo v2', dependsOn: ['a'] },
+      ],
+    }, 'dashboard', 'added node b');
+  }
+
+  it('GET /agents/:id/versions lists all versions with current marked', async () => {
+    const app = await makeApp();
+    await seedTwoVersionAgent();
+    const res = await request(app).get('/agents/ver-test/versions')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('ver-test');
+    expect(res.text).toContain('v1');
+    expect(res.text).toContain('v2');
+    expect(res.text).toContain('initial import');
+    expect(res.text).toContain('added node b');
+    // v2 is current (most recent), so current badge shows there.
+    expect(res.text).toMatch(/v2[\s\S]*?badge--ok[\s\S]*?current/);
+  });
+
+  it('GET /agents/:id/versions/:version renders the DAG as it was', async () => {
+    const app = await makeApp();
+    await seedTwoVersionAgent();
+    const res = await request(app).get('/agents/ver-test/versions/1')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // v1 only had node "a", not "b".
+    expect(res.text).toMatch(/<td class="mono">a<\/td>/);
+    expect(res.text).not.toMatch(/<td class="mono">b<\/td>/);
+  });
+
+  it('POST /agents/:id/rollback creates a new version matching the target DAG', async () => {
+    const app = await makeApp();
+    await seedTwoVersionAgent();
+    const res = await request(app)
+      .post('/agents/ver-test/rollback')
+      .type('form')
+      .send({ targetVersion: '1' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/agents\/ver-test\/versions\?flash=/);
+
+    // A v3 should now exist, identical to v1's DAG (single node "a").
+    const updated = agentStore.getAgent('ver-test');
+    expect(updated!.version).toBe(3);
+    expect(updated!.nodes).toHaveLength(1);
+    expect(updated!.nodes[0].id).toBe('a');
+    const v3 = agentStore.getVersion('ver-test', 3);
+    expect(v3!.commitMessage).toBe('Rollback to v1');
+  });
+
+  it('POST /agents/:id/rollback rejects an invalid target', async () => {
+    const app = await makeApp();
+    await seedTwoVersionAgent();
+    const res = await request(app)
+      .post('/agents/ver-test/rollback')
+      .type('form')
+      .send({ targetVersion: '99' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/v99 not found/);
+    // No new version was created.
+    expect(agentStore.getAgent('ver-test')!.version).toBe(2);
+  });
+
+  it('POST /agents/:id/status toggles agent status', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'status-test', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/status-test/status')
+      .type('form')
+      .send({ newStatus: 'paused' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('status-test')!.status).toBe('paused');
+  });
+
+  it('POST /agents/:id/status rejects an invalid status enum', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'status-test-2', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/status-test-2/status')
+      .type('form')
+      .send({ newStatus: 'banana' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Invalid status/);
+    // Status unchanged.
+    expect(agentStore.getAgent('status-test-2')!.status).toBe('active');
+  });
+
+  it('agent detail renders the status dropdown + version history link', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'detail-ver', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).get('/agents/detail-ver')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/agents/detail-ver/status"');
+    expect(res.text).toContain('/agents/detail-ver/versions');
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();

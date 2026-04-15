@@ -1,5 +1,5 @@
 import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
-import { html, render, type SafeHtml } from './html.js';
+import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
@@ -131,9 +131,26 @@ export async function renderAgentDetailV2(args: {
       </header>
 
       <section class="inspector__section">
+        <h4>Status</h4>
+        <form method="POST" action="/agents/${agent.id}/status" style="display: flex; gap: var(--space-2); align-items: center;">
+          <select name="newStatus" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+            ${statusOption('active', agent.status)}
+            ${statusOption('paused', agent.status)}
+            ${statusOption('draft', agent.status)}
+            ${statusOption('archived', agent.status)}
+          </select>
+          <button type="submit" class="btn btn--sm">Apply</button>
+        </form>
+      </section>
+
+      <section class="inspector__section">
         <h4>Metadata</h4>
         <dl class="kv">
-          <dt>Version</dt><dd class="mono">v${String(agent.version)}</dd>
+          <dt>Version</dt>
+          <dd class="mono">
+            v${String(agent.version)}
+            <a href="/agents/${agent.id}/versions" class="dim" style="margin-left: var(--space-2); font-size: var(--font-size-xs);">history \u2192</a>
+          </dd>
           <dt>Schedule</dt><dd>${agent.schedule ?? html`<span class="dim">none</span>`}</dd>
           <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
           <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
@@ -149,7 +166,7 @@ export async function renderAgentDetailV2(args: {
 
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
-        <a class="btn btn--sm" href="#nodes">Jump to nodes</a>
+        <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
     </aside>
@@ -219,6 +236,11 @@ function vStatusBadge(status: string): SafeHtml {
     : status === 'archived' ? 'badge--muted'
     : 'badge--info';
   return html`<span class="badge ${kind}">${status}</span>`;
+}
+
+function statusOption(value: string, current: string): SafeHtml {
+  const selected = value === current ? unsafeHtml(' selected') : unsafeHtml('');
+  return html`<option value="${value}"${selected}>${value}</option>`;
 }
 
 function oneLine(text: string, max = 120): string {
