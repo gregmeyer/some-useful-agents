@@ -245,9 +245,11 @@ describe('Dashboard v2 DAG agents', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('DAG agents');
+    // Cards replaced the old table+header layout in v0.15 PR 1.5.
+    // Check that v2 agents render as agent cards with the right content.
+    expect(res.text).toContain('class="agent-card"');
     expect(res.text).toContain('news-digest');
-    expect(res.text).toContain('2 nodes');
+    expect(res.text).toMatch(/<strong>2<\/strong>\s*nodes/);
   });
 
   it('renders the DAG container + Cytoscape JSON on /agents/:id', async () => {
@@ -389,6 +391,44 @@ describe('Dashboard static assets', () => {
     expect(res.headers['content-type']).toMatch(/javascript/);
     // The minified bundle starts with a short license block or IIFE.
     expect(res.text.length).toBeGreaterThan(10000); // should be ~100KB
+  });
+});
+
+describe('Dashboard help + tutorial', () => {
+  it('GET /help renders the CLI reference page', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Help &amp; tutorial');
+    expect(res.text).toContain('Open the dashboard tutorial');
+    expect(res.text).toContain('sua workflow run');
+  });
+
+  it('GET /help/tutorial marks step 1 done when agents exist, step 2 not done with no runs', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Dashboard tutorial');
+    // Step 1: "You have a project" — done (we scaffolded hello.yaml)
+    expect(res.text).toMatch(/You have a project[\s\S]*?badge--ok[\s\S]*?done/);
+    // Step 2: "Run your first agent" — not done yet, should show to-do badge
+    // The progress card should reflect: 1 of 5 complete
+    expect(res.text).toContain('of 5 steps complete');
+  });
+
+  it('GET /help/tutorial references the first agent by id for the Run CTA', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // First v1 agent is "hello" (spooky is community; v2 store is empty in this
+    // fixture). The Run CTA should link to /agents/hello.
+    expect(res.text).toContain('/agents/hello');
   });
 });
 

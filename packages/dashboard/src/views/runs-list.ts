@@ -1,6 +1,7 @@
 import type { Run, RunStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { pageHeader } from './page-header.js';
 import { statusBadge, formatDuration, formatAge } from './components.js';
 
 export interface RunsListOptions {
@@ -53,7 +54,7 @@ export function renderRunsList(opts: RunsListOptions): string {
 
   // Status checkboxes — more ergonomic than a multi-select for 5 values.
   const statusChecks = ALL_STATUSES.map((s) => html`
-    <label class="mono" style="flex-direction: row; gap: 0.25rem; align-items: center;">
+    <label class="filters__status-check mono">
       <input type="checkbox" name="status" value="${s}" ${filter.statuses.includes(s) ? 'checked' : ''}>
       ${s}
     </label>
@@ -79,19 +80,19 @@ export function renderRunsList(opts: RunsListOptions): string {
         Search
         <input type="text" name="q" value="${filter.q ?? ''}" placeholder="id prefix or agent name">
       </label>
-      <label style="gap: 0.35rem;">
+      <label class="filters__status">
         Status
-        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">${statusChecks as unknown as SafeHtml[]}</div>
+        <div class="filters__status-row">${statusChecks as unknown as SafeHtml[]}</div>
       </label>
-      <button type="submit">Apply</button>
-      <a class="reset" href="/runs">Reset</a>
+      <button type="submit" class="btn btn--primary">Apply</button>
+      <a class="btn btn--ghost btn--sm filters__reset" href="/runs">Reset</a>
     </form>
   `;
 
   const table = rows.length === 0
     ? html`<p class="dim">No runs match the current filters.</p>`
     : html`
-      <table>
+      <table class="table">
         <thead>
           <tr>
             <th>ID</th><th>Agent</th><th>Status</th>
@@ -113,7 +114,12 @@ export function renderRunsList(opts: RunsListOptions): string {
     </div>
   ` : html``;
 
-  const body = html`<h1>Runs</h1>${filterBar}${table}${pager}`;
+  const body = html`
+    ${pageHeader({ title: 'Runs' })}
+    ${filterBar}
+    ${table}
+    ${pager}
+  `;
 
   return render(layout({ title: 'Runs', activeNav: 'runs' }, body));
 }
