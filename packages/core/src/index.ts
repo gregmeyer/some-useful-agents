@@ -33,3 +33,11 @@ export {
   type DagExecutorDeps,
   type DagExecuteOptions,
 } from './dag-executor.js';
+export {
+  planMigration,
+  applyMigration,
+  type V1Input,
+  type MigrationPlan,
+  type MigrationPlanAgent,
+  type MigrationWarning,
+} from './agent-migration.js';

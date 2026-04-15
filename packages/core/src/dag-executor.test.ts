@@ -430,6 +430,133 @@ describe('executeAgentDag — community shell gate', () => {
   });
 });
 
+describe('executeAgentDag — replay from node', () => {
+  const threeNodeAgent: Agent = {
+    id: 'pipeline', name: 'Pipeline', status: 'active', source: 'local', mcp: false, version: 1,
+    nodes: [
+      { id: 'fetch', type: 'shell', command: 'echo headlines' },
+      { id: 'summarize', type: 'claude-code', prompt: 'Summarize {{upstream.fetch.result}}', dependsOn: ['fetch'] },
+      { id: 'post', type: 'shell', command: 'echo posted', dependsOn: ['summarize'] },
+    ],
+  };
+
+  it('replays from a middle node, reusing prior upstream output', async () => {
+    // Original run: all three complete.
+    const original = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({
+          fetch: { exitCode: 0, result: 'HEADLINES-ORIG' },
+          summarize: { exitCode: 0, result: 'SUMMARY-ORIG' },
+          post: { exitCode: 0, result: 'POSTED-ORIG' },
+        }),
+      },
+    );
+    expect(original.status).toBe('completed');
+
+    // Replay from `summarize`. Fetch should NOT be re-spawned; summarize
+    // and post should execute fresh.
+    const spawned: string[] = [];
+    const replay = await executeAgentDag(
+      threeNodeAgent,
+      {
+        triggeredBy: 'cli',
+        replayFrom: { priorRunId: original.id, fromNodeId: 'summarize' },
+      },
+      {
+        runStore,
+        spawnNode: async (node) => {
+          spawned.push(node.id);
+          return { result: `${node.id.toUpperCase()}-REPLAY`, exitCode: 0 };
+        },
+      },
+    );
+    expect(replay.status).toBe('completed');
+    expect(replay.replayedFromRunId).toBe(original.id);
+    expect(replay.replayedFromNodeId).toBe('summarize');
+    expect(spawned).toEqual(['summarize', 'post']); // fetch NOT re-run
+
+    // The replay's node_executions has three rows:
+    //   - fetch: copied from original, result = 'HEADLINES-ORIG'
+    //   - summarize: fresh, result = 'SUMMARIZE-REPLAY'
+    //   - post: fresh, saw the REPLAY summarize output (not the original)
+    const rows = runStore.listNodeExecutions(replay.id);
+    const byId = new Map(rows.map((r) => [r.nodeId, r]));
+    expect(byId.get('fetch')!.result).toBe('HEADLINES-ORIG');
+    expect(byId.get('summarize')!.result).toBe('SUMMARIZE-REPLAY');
+    expect(byId.get('post')!.result).toBe('POST-REPLAY');
+  });
+
+  it('feeds the copied upstream snapshot into the pivot node\'s env', async () => {
+    const original = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({
+          fetch: { exitCode: 0, result: 'ORIGINAL-FETCH-OUTPUT' },
+          summarize: { exitCode: 0, result: 'ok' },
+          post: { exitCode: 0, result: 'ok' },
+        }),
+      },
+    );
+
+    let pivotEnv: Record<string, string> | undefined;
+    await executeAgentDag(
+      threeNodeAgent,
+      {
+        triggeredBy: 'cli',
+        replayFrom: { priorRunId: original.id, fromNodeId: 'summarize' },
+      },
+      {
+        runStore,
+        spawnNode: async (node, env) => {
+          if (node.id === 'summarize') pivotEnv = env;
+          return { result: 'ok', exitCode: 0 };
+        },
+      },
+    );
+    // summarize should see fetch's ORIGINAL output in its upstream snapshot.
+    expect(pivotEnv!.UPSTREAM_FETCH_RESULT).toBe('ORIGINAL-FETCH-OUTPUT');
+  });
+
+  it('refuses replay if pivot node is not in the agent', async () => {
+    const original = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({}) },
+    );
+    const replay = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli', replayFrom: { priorRunId: original.id, fromNodeId: 'phantom' } },
+      { runStore, spawnNode: cannedSpawner({}) },
+    );
+    expect(replay.status).toBe('failed');
+    expect(replay.error).toMatch(/not in agent/);
+  });
+
+  it('refuses replay if prior run is missing completed outputs for a node before the pivot', async () => {
+    // Original run: fetch fails, summarize + post skipped.
+    const original = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 1, error: 'boom' } }) },
+    );
+    expect(original.status).toBe('failed');
+
+    // Try to replay from post. There's no completed fetch output to reuse.
+    const replay = await executeAgentDag(
+      threeNodeAgent,
+      { triggeredBy: 'cli', replayFrom: { priorRunId: original.id, fromNodeId: 'post' } },
+      { runStore, spawnNode: cannedSpawner({}) },
+    );
+    expect(replay.status).toBe('failed');
+    expect(replay.error).toMatch(/missing completed outputs/);
+  });
+});
+
 describe('executeAgentDag — env allowlist by trust level', () => {
   it('community agents get MINIMAL_ALLOWLIST (no USER / NODE_ENV)', async () => {
     process.env.USER = 'testuser';
