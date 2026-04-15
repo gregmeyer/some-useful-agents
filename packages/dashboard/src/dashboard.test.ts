@@ -245,9 +245,11 @@ describe('Dashboard v2 DAG agents', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('DAG agents');
+    // Cards replaced the old table+header layout in v0.15 PR 1.5.
+    // Check that v2 agents render as agent cards with the right content.
+    expect(res.text).toContain('class="agent-card"');
     expect(res.text).toContain('news-digest');
-    expect(res.text).toContain('2 nodes');
+    expect(res.text).toMatch(/<strong>2<\/strong>\s*nodes/);
   });
 
   it('renders the DAG container + Cytoscape JSON on /agents/:id', async () => {

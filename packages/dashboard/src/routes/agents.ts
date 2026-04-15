@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { Agent, AgentDefinition, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { renderAgentsList } from '../views/agents-list.js';
+import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../views/agent-detail-v2.js';
 
@@ -21,7 +21,37 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
   }
   mergedV1.sort((a, b) => a.name.localeCompare(b.name));
   v2Agents.sort((a, b) => a.id.localeCompare(b.id));
-  res.type('html').send(renderAgentsList({ v1: mergedV1, v2: v2Agents }));
+
+  // Stats for the overview strip. One queryRuns per dimension keeps the
+  // SQL simple and the numbers honest — this page loads once per view.
+  const total = ctx.runStore.queryRuns({ limit: 1, offset: 0, statuses: [] as RunStatus[] });
+  const inFlight = ctx.runStore.queryRuns({
+    limit: 1,
+    offset: 0,
+    statuses: ['running', 'pending'] as RunStatus[],
+  });
+  // Recent runs for per-agent "last run" lookups. 100 covers realistic
+  // per-user fleets; the list view only reads the first hit per agent.
+  const recent = ctx.runStore.queryRuns({
+    limit: 100,
+    offset: 0,
+    statuses: [] as RunStatus[],
+  });
+
+  const stats: HomeStats = {
+    agents: v2Agents.length + mergedV1.length,
+    activeAgents: v2Agents.filter((a) => a.status === 'active').length + mergedV1.length,
+    totalRuns: total.total,
+    runningRuns: inFlight.total,
+    latestRunAt: recent.rows[0]?.startedAt,
+  };
+
+  res.type('html').send(renderAgentsList({
+    v1: mergedV1,
+    v2: v2Agents,
+    recentRuns: recent.rows,
+    stats,
+  }));
 });
 
 agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
@@ -53,10 +83,21 @@ agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
   const { agents } = ctx.loadAgents();
   const agent = agents.get(name);
   if (!agent) {
-    res.status(404).type('html').send(renderAgentsList({
-      v1: Array.from(agents.values()).sort((a, b) => a.name.localeCompare(b.name)),
-      v2: ctx.agentStore.listAgents().sort((a, b) => a.id.localeCompare(b.id)),
-    }));
+    const v2 = ctx.agentStore.listAgents().sort((a, b) => a.id.localeCompare(b.id));
+    const v1 = Array.from(agents.values()).sort((a, b) => a.name.localeCompare(b.name));
+    const total404 = ctx.runStore.queryRuns({ limit: 1, offset: 0, statuses: [] as RunStatus[] });
+    const inFlight404 = ctx.runStore.queryRuns({
+      limit: 1, offset: 0, statuses: ['running', 'pending'] as RunStatus[],
+    });
+    const recent404 = ctx.runStore.queryRuns({ limit: 100, offset: 0, statuses: [] as RunStatus[] });
+    const stats: HomeStats = {
+      agents: v2.length + v1.length,
+      activeAgents: v2.filter((a) => a.status === 'active').length + v1.length,
+      totalRuns: total404.total,
+      runningRuns: inFlight404.total,
+      latestRunAt: recent404.rows[0]?.startedAt,
+    };
+    res.status(404).type('html').send(renderAgentsList({ v1, v2, recentRuns: recent404.rows, stats }));
     return;
   }
 

@@ -419,6 +419,156 @@
   margin-bottom: var(--space-4);
 }
 
+/* ---------- Stat strip (overview tiles above lists) ---------- */
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.stat-tile {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-4);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-tile::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.stat-tile--ok::before { background: var(--color-ok); }
+.stat-tile--warn::before { background: var(--color-warn); }
+.stat-tile--info::before { background: var(--color-info); }
+.stat-tile--muted::before { background: var(--color-border-strong); }
+
+.stat-tile__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--weight-semibold);
+}
+
+.stat-tile__value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-bold);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.stat-tile__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+/* ---------- Agent cards (grid) ---------- */
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+.agent-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-6);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  transition: border-color 120ms, transform 120ms, box-shadow 120ms;
+}
+
+.agent-card:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.agent-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.agent-card__title {
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.agent-card__title a {
+  color: var(--color-text);
+}
+
+.agent-card__title a:hover {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.agent-card__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.6em;
+}
+
+.agent-card__meta {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.agent-card__meta strong {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.agent-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.agent-card__last-run {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-card__dag-shape {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.1em;
+}
+
 /*
  * Legacy class-name aliases — will be removed once all view files use
  * the BEM-style forms above. Keep this block small; no new rules belong
