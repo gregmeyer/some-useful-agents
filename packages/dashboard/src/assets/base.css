@@ -1,0 +1,93 @@
+/*
+ * Element-level defaults. No class selectors here — this is the baseline
+ * every screen starts from. Classes belong in components.css / screens.css.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+}
+
+pre {
+  background: var(--color-surface-raised);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  font-size: var(--font-size-xs);
+}
+
+h1, h2, h3 {
+  margin: 0 0 var(--space-4);
+  font-weight: var(--weight-semibold);
+  line-height: var(--line-heading);
+}
+
+h1 { font-size: var(--font-size-xl); }
+h2 { font-size: var(--font-size-lg); margin-top: var(--space-8); }
+h3 { font-size: var(--font-size-md); }
+
+p {
+  margin: 0 0 var(--space-4);
+}
+
+dl { margin: 0; }
+dt, dd { margin: 0; }
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+details > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: var(--space-2) 0;
+  list-style: none;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 120ms;
+}
+details[open] > summary::before {
+  transform: rotate(90deg);
+}

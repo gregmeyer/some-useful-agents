@@ -5,22 +5,24 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Static-asset router. Serves two files:
+ * Static-asset router. Serves:
  *
  *   1. /assets/cytoscape.min.js
  *      Resolved at startup by walking up from this module to find a
- *      node_modules/cytoscape/dist/cytoscape.min.js. Works under npm
- *      workspaces where the package lives at the monorepo root and
- *      under a hoisted install where it lives alongside the dashboard.
+ *      node_modules/cytoscape/dist/cytoscape.min.js.
  *
  *   2. /assets/graph-render.js
  *      Tiny vanilla bootstrap that reads the server-rendered DAG JSON
  *      out of a `<script type="application/json">` tag and instantiates
  *      cytoscape against a `<div id="dag-canvas">`.
  *
- * Both are read once at startup and cached in memory with a
- * long-lived immutable Cache-Control since their contents don't
- * change between dashboard restarts.
+ *   3. /assets/dashboard.css
+ *      Concatenation of tokens.css, base.css, components.css, screens.css.
+ *      The design-system foundation. Files live in src/assets/ and are
+ *      copied to dist/assets/ by the build script.
+ *
+ * All are read once at startup and cached in memory with a
+ * long-lived immutable Cache-Control.
  */
 
 const require = createRequire(import.meta.url);
@@ -49,6 +51,29 @@ function resolveCytoscapePath(): string | undefined {
 
 const CYTOSCAPE_PATH = resolveCytoscapePath();
 const CYTOSCAPE_JS = CYTOSCAPE_PATH ? readFileSync(CYTOSCAPE_PATH, 'utf-8') : '';
+
+/**
+ * Read and concatenate the dashboard CSS files at startup. Order matters:
+ *   tokens (:root vars) → base (element defaults) → components → screens
+ * Files are copied from src/assets/ to dist/assets/ by
+ * scripts/copy-assets.mjs during the build.
+ */
+function loadDashboardCss(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // Works from dist/routes/ (../assets) and from src/routes/ during tests
+  // (../assets too). The copy-assets script keeps both in sync.
+  const assetsDir = join(here, '..', 'assets');
+  const order = ['tokens.css', 'base.css', 'components.css', 'screens.css'];
+  return order
+    .map((name) => {
+      const path = join(assetsDir, name);
+      if (!existsSync(path)) return `/* missing ${name} */`;
+      return `/* ---- ${name} ---- */\n${readFileSync(path, 'utf-8')}`;
+    })
+    .join('\n');
+}
+
+const DASHBOARD_CSS = loadDashboardCss();
 
 /**
  * The client-side bootstrap. Kept small and framework-free. Reads the
@@ -147,4 +172,9 @@ assetsRouter.get('/assets/cytoscape.min.js', (_req: Request, res: Response) => {
 assetsRouter.get('/assets/graph-render.js', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   res.type('application/javascript').send(GRAPH_RENDER_JS);
+});
+
+assetsRouter.get('/assets/dashboard.css', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('text/css').send(DASHBOARD_CSS);
 });

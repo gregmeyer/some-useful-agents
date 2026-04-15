@@ -1,0 +1,212 @@
+/*
+ * Screen-specific layout. Thin — most styling is in components.css.
+ * A screen class here is always a grid/flex wrapper, never typography
+ * or color. If you're tempted to style a button differently per screen,
+ * add a `.btn--variant` in components.css instead.
+ */
+
+/* ---------- App shell ---------- */
+/* Sticky footer: body is a column flex container, main grows, footer pinned. */
+body.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  padding: var(--space-6);
+  max-width: var(--content-max);
+  margin: 0 auto;
+  width: 100%;
+  flex: 1 0 auto;
+}
+
+main.main--wide {
+  max-width: var(--content-max-wide);
+}
+
+/* ---------- Footer ---------- */
+.app-footer {
+  margin-top: var(--space-8);
+  padding: var(--space-4) 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+}
+
+.app-footer__inner {
+  max-width: var(--content-max-wide);
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.app-footer__brand {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.app-footer__nav {
+  display: flex;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+.app-footer__nav a {
+  color: var(--color-text-muted);
+}
+
+.app-footer__nav a:hover {
+  color: var(--color-text);
+}
+
+/* ---------- Agent detail: 2-col grid ---------- */
+.agent-detail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+}
+
+@media (min-width: 900px) {
+  .agent-detail {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  }
+}
+
+.agent-detail__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.agent-detail__aside {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------- Inspector (right-column panel on agent detail) ---------- */
+.inspector {
+  position: sticky;
+  top: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-6);
+  box-shadow: var(--shadow-sm);
+  max-height: calc(100vh - var(--topbar-height) - var(--space-8));
+  overflow-y: auto;
+}
+
+.inspector__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-4);
+}
+
+.inspector__title {
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+
+.inspector__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}
+
+.inspector__section + .inspector__section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.inspector__section h4 {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 var(--space-2);
+}
+
+.inspector__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* ---------- DAG viz frame (holds Cytoscape canvas) ---------- */
+.dag-frame {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.dag-frame__canvas {
+  width: 100%;
+  height: 420px;
+  background: var(--color-surface-raised);
+}
+
+/* ---------- Run detail ---------- */
+.run-node {
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-sm);
+}
+
+.run-node__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.run-node__id {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+.run-node__meta {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  display: flex;
+  gap: var(--space-3);
+}
+
+.run-node__body {
+  margin-top: var(--space-3);
+}
+
+/* ---------- Settings shell ---------- */
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-empty {
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+}

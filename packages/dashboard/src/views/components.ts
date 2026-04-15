@@ -7,21 +7,21 @@ import { html, type SafeHtml } from './html.js';
  */
 export function statusBadge(status: string): SafeHtml {
   const kind =
-    status === 'completed' ? 'badge-ok'
-    : status === 'failed' ? 'badge-err'
-    : status === 'running' || status === 'pending' ? 'badge-info'
-    : status === 'cancelled' ? 'badge-warn'
-    : 'badge-muted';
+    status === 'completed' ? 'badge--ok'
+    : status === 'failed' ? 'badge--err'
+    : status === 'running' || status === 'pending' ? 'badge--info'
+    : status === 'cancelled' ? 'badge--warn'
+    : 'badge--muted';
   return html`<span class="badge ${kind}">${status}</span>`;
 }
 
 export function typeBadge(type: string): SafeHtml {
-  const kind = type === 'shell' ? 'badge-ok' : type === 'claude-code' ? 'badge-info' : 'badge-muted';
+  const kind = type === 'shell' ? 'badge--ok' : type === 'claude-code' ? 'badge--info' : 'badge--muted';
   return html`<span class="badge ${kind}">${type}</span>`;
 }
 
 export function sourceBadge(source: string): SafeHtml {
-  const kind = source === 'community' ? 'badge-err' : source === 'examples' ? 'badge-info' : 'badge-muted';
+  const kind = source === 'community' ? 'badge--err' : source === 'examples' ? 'badge--info' : 'badge--muted';
   return html`<span class="badge ${kind}">${source}</span>`;
 }
 
