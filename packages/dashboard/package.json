@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
+    "cytoscape": "^3.30.0",
     "express": "^5.1.0"
   },
   "devDependencies": {

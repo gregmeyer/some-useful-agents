@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import {
   LocalProvider,
   RunStore,
+  AgentStore,
   EncryptedFileStore,
   loadAgents,
   readMcpToken,
@@ -17,6 +18,7 @@ import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
+import { assetsRouter } from './routes/assets.js';
 
 export interface StartDashboardOptions {
   port: number;
@@ -38,6 +40,8 @@ export interface StartDashboardOptions {
   provider?: LocalProvider;
   /** Optional RunStore override (tests). */
   runStore?: RunStore;
+  /** Optional AgentStore override (tests). */
+  agentStore?: AgentStore;
   /** Optional token override (tests). */
   token?: string;
 }
@@ -62,6 +66,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Public routes (no auth).
   app.use(healthRouter);
   app.use(authRouter);
+  // Static assets (cytoscape.js + graph-render.js). Unauth so the auth
+  // page itself could embed them if needed; the content is nonsecret
+  // library code and a tiny bootstrap script.
+  app.use(assetsRouter);
 
   // Everything below requires the session cookie.
   app.use(requireAuth);
@@ -94,6 +102,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   }
 
   const runStore = opts.runStore ?? new RunStore(opts.dbPath);
+  // AgentStore reads v2 DAG agents from the same runs.db file. Uses its own
+  // DatabaseSync — avoids changing RunStore's constructor signature. WAL
+  // mode makes concurrent handles safe.
+  const agentStore = opts.agentStore ?? new AgentStore(opts.dbPath);
   const secretsStore = opts.secretsStore ?? new EncryptedFileStore(opts.secretsPath);
   const provider = opts.provider ?? new LocalProvider(opts.dbPath, secretsStore, {
     allowUntrustedShell: opts.allowUntrustedShell,
@@ -106,6 +118,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     port: opts.port,
     provider,
     runStore,
+    agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),
     secretsStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
@@ -133,6 +146,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await provider.shutdown();
       runStore.close();
+      agentStore.close();
     },
   };
 }

@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, MemorySecretsStore, loadAgents } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, loadAgents } from '@some-useful-agents/core';
 import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
@@ -18,6 +18,7 @@ let dbPath: string;
 let agentsDir: string;
 let provider: LocalProvider;
 let runStore: RunStore;
+let agentStore: AgentStore;
 
 async function makeApp() {
   dir = mkdtempSync(join(tmpdir(), 'sua-dashboard-'));
@@ -51,6 +52,7 @@ command: echo from-the-internet
 
   const secretsStore = new MemorySecretsStore();
   runStore = new RunStore(dbPath);
+  agentStore = new AgentStore(dbPath);
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
 
@@ -60,6 +62,7 @@ command: echo from-the-internet
     port: PORT,
     provider,
     runStore,
+    agentStore,
     loadAgents: () => loadAgents({
       directories: [agentsDir, join(dir, 'agents', 'community')],
     }),
@@ -88,6 +91,7 @@ afterEach(async () => {
   // provider.shutdown() already closed its own RunStore; we opened a
   // separate one for the dashboard context, so close it too.
   try { runStore?.close(); } catch { /* already closed via same DB file */ }
+  try { agentStore?.close(); } catch { /* already closed via same DB file */ }
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -222,6 +226,169 @@ describe('Dashboard /runs + filters', () => {
     expect(res.status).toBe(200);
     // Next link should carry the agent filter and limit.
     expect(res.text).toMatch(/href="[^"]*agent=hello[^"]*offset=2/);
+  });
+});
+
+describe('Dashboard v2 DAG agents', () => {
+  it('lists v2 agents on /agents under a "DAG agents" header', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'news-digest', name: 'News Digest', status: 'active',
+      source: 'local', mcp: false,
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo h' },
+        { id: 'summarize', type: 'claude-code', prompt: 'summarize {{upstream.fetch.result}}', dependsOn: ['fetch'] },
+      ],
+    }, 'cli');
+
+    const res = await request(app).get('/agents')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('DAG agents');
+    expect(res.text).toContain('news-digest');
+    expect(res.text).toContain('2 nodes');
+  });
+
+  it('renders the DAG container + Cytoscape JSON on /agents/:id', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'pipeline', name: 'Pipeline', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo h' },
+        { id: 'post', type: 'shell', command: 'echo done', dependsOn: ['fetch'] },
+      ],
+    }, 'cli');
+
+    const res = await request(app).get('/agents/pipeline')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Cytoscape container
+    expect(res.text).toContain('id="dag-canvas"');
+    // Inline JSON elements
+    expect(res.text).toContain('id="dag-data"');
+    expect(res.text).toContain('"id":"fetch"');
+    expect(res.text).toContain('"id":"post"');
+    expect(res.text).toContain('"source":"fetch"');
+    expect(res.text).toContain('"target":"post"');
+    // Both static asset tags
+    expect(res.text).toContain('/assets/cytoscape.min.js');
+    expect(res.text).toContain('/assets/graph-render.js');
+  });
+
+  it('prefers v2 over v1 when both exist with the same id', async () => {
+    const app = await makeApp();
+    // `hello` exists as v1 YAML (set up in makeApp). Add a v2 hello too.
+    agentStore.createAgent({
+      id: 'hello', name: 'Hello v2', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo v2' }],
+    }, 'cli');
+
+    const res = await request(app).get('/agents/hello')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // v2 detail page includes the DAG canvas; v1 doesn't.
+    expect(res.text).toContain('id="dag-canvas"');
+  });
+});
+
+describe('Dashboard /runs/:id per-node table', () => {
+  it('shows per-node execution rows for a v2 DAG run', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'multi', name: 'Multi', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'first', type: 'shell', command: 'echo 1' },
+        { id: 'second', type: 'shell', command: 'echo 2', dependsOn: ['first'] },
+      ],
+    }, 'cli');
+
+    const now = new Date().toISOString();
+    runStore.createRun({
+      id: 'run-a', agentName: 'multi', status: 'completed', startedAt: now, triggeredBy: 'cli',
+      workflowId: 'multi', workflowVersion: 1,
+    });
+    runStore.createNodeExecution({
+      runId: 'run-a', nodeId: 'first', workflowVersion: 1,
+      status: 'completed', startedAt: now, completedAt: now, exitCode: 0, result: 'one',
+    });
+    runStore.createNodeExecution({
+      runId: 'run-a', nodeId: 'second', workflowVersion: 1,
+      status: 'failed', errorCategory: 'exit_nonzero', startedAt: now,
+      completedAt: now, exitCode: 2, error: 'boom',
+    });
+
+    const res = await request(app).get('/runs/run-a')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Per-node execution');
+    expect(res.text).toContain('first');
+    expect(res.text).toContain('second');
+    expect(res.text).toContain('exit_nonzero');
+    // The DAG viz should render here too
+    expect(res.text).toContain('id="dag-canvas"');
+  });
+
+  it('does not render the per-node table for a v1 run', async () => {
+    const app = await makeApp();
+    const now = new Date().toISOString();
+    runStore.createRun({
+      id: 'run-v1', agentName: 'hello', status: 'completed', startedAt: now, triggeredBy: 'cli',
+    });
+    const res = await request(app).get('/runs/run-v1')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('Per-node execution');
+    expect(res.text).not.toContain('id="dag-canvas"');
+  });
+
+  it('shows a replayed-from breadcrumb when present', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'repl', name: 'Repl', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const now = new Date().toISOString();
+    runStore.createRun({
+      id: 'repl-new', agentName: 'repl', status: 'completed', startedAt: now, triggeredBy: 'cli',
+      workflowId: 'repl', workflowVersion: 1,
+      replayedFromRunId: '00000000-0000-0000-0000-000000000001', replayedFromNodeId: 'main',
+    });
+    runStore.createNodeExecution({
+      runId: 'repl-new', nodeId: 'main', workflowVersion: 1,
+      status: 'completed', startedAt: now, completedAt: now, exitCode: 0, result: 'ok',
+    });
+    const res = await request(app).get('/runs/repl-new')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.text).toContain('Replayed from');
+    expect(res.text).toContain('main');
+  });
+});
+
+describe('Dashboard static assets', () => {
+  it('serves /assets/graph-render.js', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/assets/graph-render.js')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/javascript/);
+    expect(res.text).toContain('cytoscape');
+    expect(res.text).toContain('dag-canvas');
+  });
+
+  it('serves /assets/cytoscape.min.js', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/assets/cytoscape.min.js')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/javascript/);
+    // The minified bundle starts with a short license block or IIFE.
+    expect(res.text.length).toBeGreaterThan(10000); // should be ~100KB
   });
 });
 

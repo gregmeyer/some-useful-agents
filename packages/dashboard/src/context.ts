@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore } from '@some-useful-agents/core';
 
 /**
  * Shared resources a request handler needs. Built once in
@@ -16,7 +16,13 @@ export interface DashboardContext {
   provider: LocalProvider;
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
-  /** Loads agents on each request (no cache; cheap from YAML). */
+  /**
+   * v2 DAG-agent store reader. Dashboard prefers v2 agents when an id is
+   * present in both the YAML loader and the store (migrated agents). For
+   * v0.13 this is the read path; editing lands in v0.14.
+   */
+  agentStore: AgentStore;
+  /** Loads v1 agents on each request (no cache; cheap from YAML). */
   loadAgents: () => { agents: Map<string, AgentDefinition>; warnings: Array<{ file: string; message: string }> };
   /** Secrets store for "declared + set / missing" badges. */
   secretsStore: SecretsStore;
