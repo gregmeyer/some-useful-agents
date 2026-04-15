@@ -1,5 +1,212 @@
 # @some-useful-agents/core
 
+## 0.14.0
+
+### Minor Changes
+
+- f7c0689: **feat: DAG executor (PR 3 of 5 for agents-as-DAGs).**
+
+  Walks an Agent's nodes in topological order, writes one `node_executions` row per node, categorises every failure, and skips downstream nodes cleanly when an upstream fails.
+
+  Not yet wired into `LocalProvider.submitRun` — that swap lands in PR 4 alongside the v1 YAML migration + `sua workflow` CLI verbs. In this PR the executor is callable via `executeAgentDag(agent, options, deps)` but nothing ships a v2 Agent to it yet.
+
+  ### What ships
+
+  - **`executeAgentDag(agent, opts, deps)`** — creates the parent `runs` row, walks nodes topologically, writes per-node records, rolls up final status. Returns the completed `Run`.
+  - **`topologicalSort(nodes)`** — Kahn's algorithm with declared-order tiebreaker. Deterministic output; defensive cycle-throw even though the v2 schema already rejects cycles.
+  - **`resolveUpstreamTemplate(text, snapshot)`** — substitutes `{{upstream.<nodeId>.result}}` refs and escapes `{{` inside the substituted value so the inputs resolver can't re-expand a second time (same defense as v1 chain-resolver).
+  - **`SpawnNodeFn`** injection point — production uses the built-in real spawner; tests provide canned responses without touching `spawn()`.
+
+  ### Error categorization (per the plan's table, every row tested)
+
+  | Failure                                         | `errorCategory`   | Source                         |
+  | ----------------------------------------------- | ----------------- | ------------------------------ |
+  | Secrets store missing / locked / missing secret | `setup`           | pre-spawn `buildNodeEnv` throw |
+  | Missing required input at runtime               | `setup`           | pre-spawn resolve              |
+  | Community shell agent not allow-listed          | `setup`           | pre-spawn gate                 |
+  | `spawn()` failed (ENOENT, EACCES)               | `spawn_failure`   | exit 127 or error event        |
+  | Ran but exited non-zero                         | `exit_nonzero`    | exit != 0                      |
+  | Exceeded node timeout                           | `timeout`         | exit 124 after SIGTERM         |
+  | Upstream failed → this node never ran           | `upstream_failed` | fail-fast short-circuit        |
+
+  Categories with any non-completed status (failed / cancelled / skipped) are always populated; completed rows have `errorCategory: undefined`.
+
+  ### Trust-source propagation (simplified from v1)
+
+  The v1 chain-executor wrapped community upstream output in `--- BEGIN UNTRUSTED INPUT ---` delimiters because cross-agent chains could mix trust levels. In v2 every node inside one agent shares the parent's `source` — no cross-agent output reaches a trusted node within a single DAG. What stays: the community-shell gate. A shell node inside a `source: community` agent refuses unless the whole agent is in `allowUntrustedShell`. Same error (`UntrustedCommunityShellError`), same allow-list semantics; granularity stays at the agent id.
+
+  ### Env + secrets (per-node)
+
+  Each node spawns with its own env built from scratch:
+
+  1. `process.env` filtered by trust level (MINIMAL for community, LOCAL for local/examples)
+  2. Node's `envAllowlist` additions
+  3. Node's YAML `env:` values (with `{{inputs.X}}` + `{{upstream.X.result}}` templates resolved)
+  4. Node's **own** declared secrets from `secretsStore` — not shared across nodes
+  5. Agent-level inputs (caller-supplied + defaults; sensitive names blocked even if they slip past schema)
+  6. `UPSTREAM_<NODEID>_RESULT` env vars for each declared upstream
+
+  Logged inputs (`inputs_json` on `node_executions`) redact values for any key the node declared as a secret, so reading run logs doesn't leak credentials.
+
+  ### Tests
+
+  27 new cases in `dag-executor.test.ts`. 367 → 394 repo-wide.
+
+  - Topological sort (ordering, diamond, cycle throw)
+  - Upstream template substitution (incl. the `{{` re-expansion defense)
+  - Single-node execution: success, exit_nonzero, timeout (124), spawn_failure (127)
+  - Multi-node DAG: topological execution order, upstream snapshot persistence, `UPSTREAM_*_RESULT` env injection, fail-fast + skipped downstream with `upstream_failed`
+  - Secrets: injection, log redaction, missing-secret → setup, no-store → setup
+  - Inputs: caller values, agent defaults, missing-required → setup
+  - Community shell gate: refused by default, allowed when allow-listed, claude-code bypass
+  - Env allowlist by trust level: community MINIMAL, local LOCAL
+
+  ### What's NOT in this PR
+
+  - Replay-from-node (PR 4 — introduces new runs with copied upstream snapshots)
+  - LocalProvider wiring (PR 4 — v1 agents still dispatch through `chain-executor.ts`)
+  - Removal of `chain-executor.ts` (PR 4 — once nothing calls it)
+  - Dashboard DAG viz (PR 5)
+
+- 31fd09f: **feat: v1 → v2 migration + `sua workflow` CLI + replay-from-node (PR 4 of 5 for agents-as-DAGs).**
+
+  This PR wires everything from PRs 1–3 together into user-facing functionality. Users can now import their v1 YAML chains, see the merged DAGs, run them, inspect per-node logs, and replay from a specific node — all via the new `sua workflow` command tree.
+
+  ### Migration (`agent-migration.ts` in core)
+
+  - `planMigration(inputs)` — pure function, no filesystem reads; takes the v1 agent set, builds transitive `dependsOn` closures, emits one DAG-agent per connected component. Idempotent.
+  - `applyMigration(plan, store)` — upserts into `AgentStore` with `createdBy: 'import'`. Leaf of the component becomes the DAG's id. `{{outputs.X.result}}` rewritten to `{{upstream.X.result}}`. `.yaml.disabled` files (v0.11's paused state) map to `status: 'paused'`.
+  - Defensive rejections: mixed-source components (e.g. local depending on community) refused with a clear warning; fan-out components with multiple leaves emit an advisory and pick the alpha-first leaf; missing `dependsOn` targets flagged.
+  - 14 new tests covering isolated agents, linear chains, diamonds, fan-outs, mixed-source refusal, template rewrite, idempotent re-runs, version bumps on DAG changes, commit-message preservation.
+
+  ### `sua workflow` CLI command tree
+
+  | Verb                                                          | What it does                                              |
+  | ------------------------------------------------------------- | --------------------------------------------------------- |
+  | `import [dir] [--apply]`                                      | Dry-run by default; `--apply` commits migration to the DB |
+  | `list [--status <s>] [--source <s>]`                          | Table of imported DAG agents                              |
+  | `show <id> [--format yaml]`                                   | Text DAG view or full YAML export                         |
+  | `run <id> [--input KEY=value] [--allow-untrusted-shell <id>]` | Execute synchronously via DAG executor                    |
+  | `status <id> <status>`                                        | active / paused / archived / draft                        |
+  | `logs <runId> [--node <id>] [--category <cat>]`               | Per-node execution table with category filter             |
+  | `replay <runId> --from <nodeId>`                              | Re-run from the pivot, reusing stored upstream outputs    |
+  | `export <id>`                                                 | Emit YAML to stdout (round-trips with `import-yaml`)      |
+  | `import-yaml <file>`                                          | Ingest a v2 YAML file directly (bypasses v1 migration)    |
+
+  Run id prefixes work for `logs`/`replay`. Every command shares a single `DatabaseSync` connection via `AgentStore.fromHandle` + `RunStore.fromHandle`.
+
+  ### Replay-from-node (new executor mode)
+
+  `executeAgentDag(agent, { replayFrom: { priorRunId, fromNodeId } })`:
+
+  - Copies prior `node_executions` rows for every node before the pivot in topological order, preserving their `result`, `started_at`, and `completed_at`. The audit trail makes clear these are historical, not fresh.
+  - Seeds the executor's outputs map with copied results, so the pivot node sees exactly the upstream snapshot the original run produced.
+  - Re-executes the pivot and all downstream nodes fresh.
+  - `runs.replayed_from_run_id` + `replayed_from_node_id` populated for the UI breadcrumb.
+  - Refuses the replay if the pivot isn't in the agent or if any pre-pivot node in the prior run lacks a completed result — fail-fast setup-category error rather than running the pivot with empty upstream.
+
+  4 new replay tests: copy behavior, upstream snapshot preservation at pivot, pivot-not-in-agent refusal, missing-prior-outputs refusal.
+
+  ### Tests
+
+  18 new (14 migration + 4 replay). 394 → 412 repo-wide.
+
+  ### What's NOT in this PR (landing in PR 4b before PR 5)
+
+  - `LocalProvider.submitDagRun` — today `sua workflow run` calls the DAG executor directly. MCP and scheduler still dispatch to v1 agents via `LocalProvider.submitRun`. PR 4b adds dispatch so all three triggers (CLI, MCP, cron) route through the same DAG executor.
+  - Removal of `chain-executor.ts` — stays alive until the LocalProvider swap is complete.
+  - `@deprecated` markers on v1 `AgentDefinition` — paired with the swap.
+
+  Dashboard DAG visualisation is PR 5.
+
+  ### Manual verification
+
+  ```bash
+  cd /tmp && mkdir play && cd play
+  sua init
+  cat > agents/local/fetch.yaml <<EOF
+  name: fetch
+  type: shell
+  command: "echo headlines"
+  source: local
+  EOF
+  cat > agents/local/summarize.yaml <<EOF
+  name: summarize
+  type: shell
+  command: "echo got=\$UPSTREAM_FETCH_RESULT"
+  source: local
+  dependsOn: [fetch]
+  EOF
+  sua workflow import --apply         # merges into one DAG named 'summarize'
+  sua workflow list                   # shows fetch + summarize as a 2-node DAG
+  sua workflow show summarize         # DAG topology as text
+  sua workflow run summarize          # runs fetch → summarize; output: got=headlines
+  sua workflow logs <runId>           # per-node table with categorised errors
+  sua workflow replay <runId> --from summarize   # re-runs summarize with fetch's stored output
+  sua workflow export summarize       # emits YAML
+  sua workflow status summarize paused
+  ```
+
+### Patch Changes
+
+- b7c73aa: **feat: dashboard DAG visualization + per-node execution table (PR 5 of 5 for agents-as-DAGs).**
+
+  Completes the v0.13 user story: import your v1 YAML into DAG agents, run them, watch them in the dashboard with a real graph view and per-node logs.
+
+  ### What ships
+
+  - **`/agents` page** splits into two tables: v2 "DAG agents" (from AgentStore) at the top, unmigrated v1 YAML agents below. An id that exists in both tables collapses to the v2 row; the v1 header only appears when there are v1-only agents to show.
+  - **`/agents/:id`** (v2 variant) renders the DAG visually via Cytoscape.js (client-rendered from a server-supplied `<script type="application/json">` payload). Nodes are round-rectangles colored by type (shell green / claude-code magenta) with edges pointing downstream. `<noscript>` fallback lists nodes textually. "Run now" dispatches to the DAG executor; community-shell DAGs require confirmation.
+  - **`/runs/:id`** gains a per-node execution table for DAG runs: status, error category, duration, exit code. The DAG viz renders here too, with nodes color-coded by their execution status (completed / failed / running / skipped / cancelled). Each row links to a per-node detail section with stderr and stdout. "Replayed from …" breadcrumb shown when present.
+  - **Static assets** served from `/assets/cytoscape.min.js` + `/assets/graph-render.js` with long-cache headers. Cytoscape is resolved from `node_modules` at startup; no CDN, no bundler.
+
+  ### Files
+
+  - New: `packages/dashboard/src/routes/assets.ts`, `views/dag-view.ts`, `views/agent-detail-v2.ts`
+  - Modified: `context.ts` (adds AgentStore), `index.ts` (opens AgentStore via shared path), `routes/agents.ts` (v2-first lookup), `routes/run-now.ts` (dispatches to DAG executor for v2), `routes/runs.ts` (joins node_executions for v2 runs), `views/agents-list.ts` (two-table split), `views/run-detail.ts` (DAG + per-node table when v2)
+
+  ### Design constraints preserved
+
+  - No CDN
+  - No bundler (cytoscape vendored through npm, served from node_modules)
+  - No framework (client JS = 2KB vanilla bootstrap)
+  - v2 tagged-template rendering for everything HTML
+
+  ### Tests
+
+  8 new cases in `dashboard.test.ts`:
+
+  - v2 agents appear under a "DAG agents" header on `/agents`
+  - `/agents/:id` renders the Cytoscape JSON payload with correct nodes + edges
+  - v2 preferred over v1 when same id in both
+  - `/runs/:id` shows per-node table + DAG for v2 runs
+  - `/runs/:id` stays minimal for v1 runs (no per-node UI)
+  - Replayed-from breadcrumb renders when present
+  - `/assets/cytoscape.min.js` serves (~100KB+)
+  - `/assets/graph-render.js` serves with correct content-type
+
+  412 → 420 repo-wide.
+
+  ### Manual verification
+
+  ```bash
+  sua workflow import --apply
+  sua workflow run <agent-id>
+  sua dashboard start --port 3000
+  # /agents → DAG agents table
+  # /agents/<id> → DAG rendered + node list
+  # /runs/<id> → per-node table + DAG colored by node status
+  ```
+
+  ### Deferred to v0.14
+
+  - Drag-and-drop DAG editing (plan's v0.14 scope)
+  - Node inspector (edit secrets/inputs/env in UI)
+  - Version history view + diff + rollback in UI
+  - `/settings/*` tree (secrets / integrations / general)
+  - Version-aware DAG rendering (currently shows current_version's DAG for all runs; a follow-up can pull the exact version the run executed)
+  - `LocalProvider.submitDagRun` unification (MCP + scheduler still dispatch to v1 chain-executor — dashboard now dispatches DAG directly)
+
 ## 0.13.0
 
 ### Minor Changes
