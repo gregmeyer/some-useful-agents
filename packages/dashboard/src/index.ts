@@ -21,6 +21,7 @@ import { runNowRouter } from './routes/run-now.js';
 import { assetsRouter } from './routes/assets.js';
 import { settingsRouter } from './routes/settings.js';
 import { helpRouter } from './routes/help.js';
+import { versionsRouter } from './routes/versions.js';
 
 export interface StartDashboardOptions {
   port: number;
@@ -84,6 +85,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(runNowRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
+  app.use(versionsRouter);
 
   // Catch-all 404 for authenticated routes.
   app.use((_req, res) => {
