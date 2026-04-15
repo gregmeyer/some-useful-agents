@@ -1,0 +1,80 @@
+/*
+ * Design tokens — the ONLY file where raw hex, rem, or px values live.
+ * Every other stylesheet consumes these via var(--token). Adding a new
+ * color/size means adding a token here first.
+ *
+ * Future dark-mode hook: override these under [data-theme='dark'] :root
+ * without touching any component stylesheet.
+ */
+:root {
+  /* ---------- Color — semantic roles ---------- */
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f9fafb;
+
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
+  --color-text-subtle: #9ca3af;
+
+  --color-primary: #0f766e;
+  --color-primary-hover: #115e59;
+  --color-primary-soft: #ccfbf1;
+
+  --color-ok: #15803d;
+  --color-ok-soft: #dcfce7;
+  --color-warn: #b45309;
+  --color-warn-soft: #fef3c7;
+  --color-err: #b91c1c;
+  --color-err-soft: #fee2e2;
+  --color-info: #2563eb;
+  --color-info-soft: #dbeafe;
+
+  --color-terminal-bg: #111827;
+  --color-terminal-fg: #f3f4f6;
+
+  /* ---------- Typography ---------- */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --font-size-xs: 0.8125rem;   /* 13 */
+  --font-size-sm: 0.875rem;    /* 14 — body default */
+  --font-size-md: 1.0625rem;   /* 17 */
+  --font-size-lg: 1.375rem;    /* 22 */
+  --font-size-xl: 1.75rem;     /* 28 */
+
+  --line-body: 1.5;
+  --line-heading: 1.2;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---------- Spacing ---------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* ---------- Radius ---------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* ---------- Shadow ---------- */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 10px rgb(0 0 0 / 0.08);
+  --shadow-focus: 0 0 0 3px rgb(15 118 110 / 0.25);
+
+  /* ---------- Layout ---------- */
+  --content-max: 1200px;
+  --content-max-wide: 1400px;
+  --topbar-height: 3rem;
+  --breakpoint-md: 900px;
+}

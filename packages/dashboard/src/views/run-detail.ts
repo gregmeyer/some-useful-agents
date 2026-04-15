@@ -1,6 +1,7 @@
 import type { Agent, NodeExecutionRecord, Run } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { pageHeader } from './page-header.js';
 import { statusBadge, outputFrame, formatDuration } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 
@@ -32,48 +33,51 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   ` : html``;
 
   const dagSection = isDagRun ? html`
-    <h2>DAG</h2>
-    ${renderDagFallback(agent)}
-    ${renderDagView({ agent, nodeExecs: nodeExecutions, navBase: `/runs/${run.id}` })}
+    <section class="dag-frame">
+      ${renderDagFallback(agent)}
+      ${renderDagView({ agent, nodeExecs: nodeExecutions, navBase: `/runs/${run.id}` })}
+    </section>
   ` : html``;
 
-  const nodeTable = isDagRun ? html`
-    <h2>Per-node execution</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Node</th><th>Status</th><th>Category</th>
-          <th>Started</th><th>Duration</th><th>Exit</th>
-        </tr>
-      </thead>
-      <tbody>${renderNodeExecRows(nodeExecutions!)}</tbody>
-    </table>
-    ${renderNodeDetails(nodeExecutions!, run)}
+  // Per-node execution as click-expandable cards (one <details> per node).
+  // Compact by default; the user opens only what they care about.
+  const nodeCards = isDagRun ? html`
+    <section>
+      <h2>Per-node execution</h2>
+      ${renderNodeCards(nodeExecutions!)}
+    </section>
   ` : html``;
+
+  const header = partial
+    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)}</h1>`
+    : pageHeader({
+        title: `Run ${run.id.slice(0, 8)}`,
+        meta: [statusBadge(run.status)],
+      });
 
   const fragment = html`
     <div data-run-container${pollAttr}>
-      <h1>
-        Run <span class="mono">${run.id.slice(0, 8)}</span>
-        ${statusBadge(run.status)}
-      </h1>
-      <dl class="kv">
-        <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
-        <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
-        <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
-        <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
-        <dt>Exit code</dt><dd class="mono">${run.exitCode !== undefined ? String(run.exitCode) : ''}</dd>
-        <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
-        ${replayedFrom}
-      </dl>
+      ${header}
+
+      <div class="card" style="margin-bottom: var(--space-6);">
+        <dl class="kv">
+          <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
+          <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
+          <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
+          <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
+          <dt>Exit code</dt><dd class="mono">${run.exitCode !== undefined ? String(run.exitCode) : ''}</dd>
+          <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
+          ${replayedFrom}
+        </dl>
+      </div>
 
       ${run.error ? html`
         <h2>Error</h2>
-        <div class="flash flash-error">${run.error}</div>
+        <div class="flash flash--error">${run.error}</div>
       ` : html``}
 
       ${dagSection}
-      ${nodeTable}
+      ${nodeCards}
 
       ${isDagRun ? html`` : html`
         <h2>Output</h2>
@@ -89,40 +93,45 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs' }, fragment));
 }
 
-function renderNodeExecRows(execs: NodeExecutionRecord[]): SafeHtml {
-  const rows = execs.map((e) => html`
-    <tr>
-      <td><a href="#node-${e.nodeId}" class="mono">${e.nodeId}</a></td>
-      <td>${statusBadge(e.status)}</td>
-      <td>${e.errorCategory ? html`<span class="badge badge-err">${e.errorCategory}</span>` : html`<span class="dim">—</span>`}</td>
-      <td class="dim mono">${e.startedAt}</td>
-      <td class="dim">${formatDuration(e.startedAt, e.completedAt)}</td>
-      <td class="mono">${e.exitCode !== undefined ? String(e.exitCode) : html`<span class="dim">—</span>`}</td>
-    </tr>
-  `);
-  return rows as unknown as SafeHtml;
-}
+/**
+ * Render one collapsible card per node execution. Failed/errored nodes
+ * open by default so the user doesn't have to hunt for failures; others
+ * are collapsed to reduce scroll.
+ */
+function renderNodeCards(execs: NodeExecutionRecord[]): SafeHtml {
+  const cards = execs.map((e) => {
+    const shouldOpen = e.status === 'failed' || e.error !== undefined;
+    const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
+    const duration = formatDuration(e.startedAt, e.completedAt);
+    const exitLabel = e.exitCode !== undefined ? `exit ${e.exitCode}` : '';
+    const category = e.errorCategory
+      ? html` <span class="badge badge--err">${e.errorCategory}</span>`
+      : html``;
 
-function renderNodeDetails(execs: NodeExecutionRecord[], run: Run): SafeHtml {
-  const sections = execs.map((e) => {
-    const hasError = e.error !== undefined;
-    const hasResult = e.result !== undefined && e.result.length > 0;
-    if (!hasError && !hasResult) return html``;
+    const bodyBlocks: SafeHtml[] = [];
+    if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
+    if (e.result && e.result.length > 0) {
+      bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">stdout</h4>`);
+      bodyBlocks.push(outputFrame(e.result));
+    }
+    if (bodyBlocks.length === 0) {
+      bodyBlocks.push(html`<p class="dim" style="margin: var(--space-2) 0 0;">No output.</p>`);
+    }
+
     return html`
-      <div id="node-${e.nodeId}" style="margin: 1.5rem 0;">
-        <h3>
-          <span class="mono">${e.nodeId}</span>
+      <details class="run-node" id="node-${e.nodeId}"${openAttr}>
+        <summary class="run-node__header">
+          <span class="run-node__id">${e.nodeId}</span>
           ${statusBadge(e.status)}
-          ${e.errorCategory ? html`<span class="badge badge-err">${e.errorCategory}</span>` : html``}
-        </h3>
-        ${e.error ? html`<div class="flash flash-error">${e.error}</div>` : html``}
-        ${e.result ? html`
-          <h4 class="dim">stdout</h4>
-          ${outputFrame(e.result)}
-        ` : html``}
-      </div>
+          ${category}
+          <span class="run-node__meta">
+            <span>${duration}</span>
+            ${exitLabel ? html`<span class="mono">${exitLabel}</span>` : html``}
+          </span>
+        </summary>
+        <div class="run-node__body">${bodyBlocks as unknown as SafeHtml[]}</div>
+      </details>
     `;
   });
-  void run;
-  return sections as unknown as SafeHtml;
+  return cards as unknown as SafeHtml;
 }

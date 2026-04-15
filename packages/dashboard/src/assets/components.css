@@ -1,0 +1,448 @@
+/*
+ * Reusable components. Each class is self-contained and uses only tokens.
+ * New component? Add a section below, give it one `.component-name` entry
+ * point, and any sub-parts as `.component-name__part`.
+ */
+
+/* ---------- Topbar ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: var(--topbar-height);
+  padding: 0 var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.topbar__brand {
+  font-weight: var(--weight-bold);
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.topbar__nav {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.topbar__nav a {
+  color: var(--color-text-muted);
+  padding: var(--space-2) 0;
+  font-weight: var(--weight-medium);
+}
+
+.topbar__nav a.is-active {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------- Page header (shared across detail screens) ---------- */
+.page-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.page-header__meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.page-header__cta {
+  margin-left: auto;
+}
+
+.page-header__description {
+  flex-basis: 100%;
+  color: var(--color-text-muted);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* ---------- Card / surface ---------- */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-6);
+  box-shadow: var(--shadow-sm);
+}
+
+.card--muted {
+  background: var(--color-surface-raised);
+}
+
+.card__title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 var(--space-3);
+}
+
+/* ---------- Table ---------- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table th {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-surface-raised);
+}
+
+.table tbody tr:hover td {
+  background: var(--color-surface-raised);
+}
+
+/* ---------- Badge ---------- */
+.badge {
+  display: inline-block;
+  padding: 0.125rem var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+
+.badge--ok { background: var(--color-ok-soft); color: var(--color-ok); }
+.badge--err { background: var(--color-err-soft); color: var(--color-err); }
+.badge--warn { background: var(--color-warn-soft); color: var(--color-warn); }
+.badge--info { background: var(--color-info-soft); color: var(--color-info); }
+.badge--muted { background: var(--color-border); color: var(--color-text-muted); }
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-medium);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.btn:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-surface);
+}
+
+.btn--warn {
+  background: var(--color-warn);
+  border-color: var(--color-warn);
+  color: var(--color-surface);
+}
+
+.btn--warn:hover {
+  background: #92400e;
+  border-color: #92400e;
+  color: var(--color-surface);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+.btn--ghost:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.btn--sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+/* ---------- Filters bar ---------- */
+.filters {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.filters select,
+.filters input[type="text"] {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  min-width: 8rem;
+}
+
+.filters select:focus,
+.filters input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.filters__reset {
+  margin-left: auto;
+}
+
+/* ---------- Pager ---------- */
+.pager {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  margin-top: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* ---------- Flash (success/error banners) ---------- */
+.flash {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.flash--error {
+  background: var(--color-err-soft);
+  border-color: #fecaca;
+  color: var(--color-err);
+}
+
+.flash--info {
+  background: var(--color-info-soft);
+  border-color: #bfdbfe;
+  color: var(--color-info);
+}
+
+.flash--ok {
+  background: var(--color-ok-soft);
+  border-color: #bbf7d0;
+  color: var(--color-ok);
+}
+
+/* ---------- Output frame (terminal-style stdout) ---------- */
+.output-frame {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-fg);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Modal ---------- */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.modal-backdrop.is-open {
+  display: flex;
+}
+
+.modal {
+  background: var(--color-surface);
+  padding: var(--space-6);
+  border-radius: var(--radius-md);
+  max-width: 32rem;
+  width: 90%;
+  box-shadow: var(--shadow-md);
+}
+
+.modal h3 {
+  margin-top: 0;
+  color: var(--color-err);
+}
+
+.modal__command {
+  background: var(--color-surface-raised);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  word-break: break-all;
+}
+
+.modal__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+/* ---------- Tab strip ---------- */
+.tab-strip {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-6);
+}
+
+.tab-strip a {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab-strip a:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.tab-strip a.is-active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------- Utilities ---------- */
+.dim { color: var(--color-text-muted); }
+.subtle { color: var(--color-text-subtle); }
+.mono { font-family: var(--font-mono); font-size: 0.95em; }
+.kv {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: var(--space-1) var(--space-4);
+  font-size: var(--font-size-sm);
+}
+.kv dt {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.community-banner {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-err-soft);
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  color: var(--color-err);
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Legacy class-name aliases — will be removed once all view files use
+ * the BEM-style forms above. Keep this block small; no new rules belong
+ * here, only aliases for existing behaviour.
+ */
+.badge-ok   { background: var(--color-ok-soft);   color: var(--color-ok); }
+.badge-err  { background: var(--color-err-soft);  color: var(--color-err); }
+.badge-warn { background: var(--color-warn-soft); color: var(--color-warn); }
+.badge-info { background: var(--color-info-soft); color: var(--color-info); }
+.badge-muted { background: var(--color-border);   color: var(--color-text-muted); }
+
+.flash-error { background: var(--color-err-soft);  border-color: #fecaca; color: var(--color-err); }
+.flash-info  { background: var(--color-info-soft); border-color: #bfdbfe; color: var(--color-info); }
+
+.run-now { /* alias for .btn.btn--primary */
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.run-now:hover { background: var(--color-primary-hover); }
+.run-now-warn { background: var(--color-warn); }
+.run-now-warn:hover { background: #92400e; }
+
+.modal-actions { /* alias for .modal__actions */
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+.modal .command { /* alias for .modal__command */
+  background: var(--color-surface-raised);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  word-break: break-all;
+}
+.modal-backdrop.open { display: flex; } /* legacy; new code uses .is-open */

@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && node packages/dashboard/scripts/copy-assets.mjs",
     "clean": "tsc --build --clean",
     "test": "vitest run",
     "test:watch": "vitest",
