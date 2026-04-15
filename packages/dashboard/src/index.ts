@@ -8,10 +8,12 @@ import {
   loadAgents,
   readMcpToken,
   getMcpTokenPath,
+  rotateMcpToken,
   buildLoopbackAllowlist,
   type SecretsStore,
 } from '@some-useful-agents/core';
 import type { DashboardContext } from './context.js';
+import { EncryptedFileSecretsSession } from './secrets-session.js';
 import { requireAuth } from './auth-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
@@ -37,6 +39,8 @@ export interface StartDashboardOptions {
   tokenPath?: string;
   /** Community shell agents the operator has pre-allowed. */
   allowUntrustedShell?: Set<string>;
+  /** Run-history retention in days (shown on /settings/general). Defaults to 30. */
+  retentionDays?: number;
   /** Optional SecretsStore override (tests). */
   secretsStore?: SecretsStore;
   /** Optional LocalProvider override (tests). */
@@ -118,6 +122,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   });
   await provider.initialize();
 
+  const secretsSession = new EncryptedFileSecretsSession(opts.secretsPath);
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -127,6 +133,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),
     secretsStore,
+    secretsSession,
+    tokenPath,
+    retentionDays: opts.retentionDays ?? 30,
+    dbPath: opts.dbPath,
+    secretsPath: opts.secretsPath,
+    rotateToken: () => rotateMcpToken(tokenPath),
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
   };
 

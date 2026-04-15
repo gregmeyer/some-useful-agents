@@ -8,6 +8,7 @@ import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
 import { buildLoopbackAllowlist } from '@some-useful-agents/core';
+import { MemorySecretsSession } from './secrets-session.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3999;
@@ -20,7 +21,13 @@ let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
 
-async function makeApp() {
+interface AppOverrides {
+  secretsSession?: MemorySecretsSession;
+  rotateToken?: () => string;
+  retentionDays?: number;
+}
+
+async function makeAppWithCtx(overrides: AppOverrides = {}) {
   dir = mkdtempSync(join(tmpdir(), 'sua-dashboard-'));
   dbPath = join(dir, 'runs.db');
   agentsDir = join(dir, 'agents', 'local');
@@ -56,6 +63,8 @@ command: echo from-the-internet
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
 
+  const secretsSession = overrides.secretsSession ?? new MemorySecretsSession({ backing: secretsStore });
+
   const ctx: DashboardContext = {
     token: TOKEN,
     allowlist: buildLoopbackAllowlist(PORT),
@@ -67,10 +76,21 @@ command: echo from-the-internet
       directories: [agentsDir, join(dir, 'agents', 'community')],
     }),
     secretsStore,
+    secretsSession,
+    tokenPath: join(dir, 'mcp-token'),
+    retentionDays: overrides.retentionDays ?? 30,
+    dbPath,
+    secretsPath: join(dir, 'secrets.enc'),
+    rotateToken: overrides.rotateToken ?? (() => 'r'.repeat(64)),
     allowUntrustedShell: new Set(),
   };
 
-  return buildDashboardApp(ctx);
+  return { app: buildDashboardApp(ctx), ctx };
+}
+
+async function makeApp(overrides: AppOverrides = {}) {
+  const { app } = await makeAppWithCtx(overrides);
+  return app;
 }
 
 beforeEach(async () => {
@@ -966,5 +986,217 @@ describe('Dashboard run-now gate', () => {
     // and flashed back. Redirect back to the agent page with flash.
     expect(res.status).toBe(303);
     expect(res.headers.location).toMatch(/^\/agents\/spooky\?flash=/);
+  });
+});
+
+describe('Dashboard /settings/secrets CRUD', () => {
+  function absentStatus() {
+    return { exists: false, obfuscatedFallback: false, mode: 'absent' as const };
+  }
+  function passphraseStatus() {
+    return { exists: true, version: 2 as const, obfuscatedFallback: false, mode: 'passphrase' as const };
+  }
+
+  it('GET /settings redirects to /settings/secrets', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/settings/secrets');
+  });
+
+  it('GET /settings/secrets shows unlock form when passphrase-protected and locked', async () => {
+    const session = new MemorySecretsSession({
+      status: passphraseStatus(),
+      correctPassphrase: 'correct horse',
+    });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).get('/settings/secrets')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Secrets (locked)');
+    expect(res.text).toMatch(/action="\/settings\/secrets\/unlock"/);
+    // The list and set-secret form MUST NOT render while locked.
+    expect(res.text).not.toContain('action="/settings/secrets/set"');
+  });
+
+  it('POST /settings/secrets/unlock rejects wrong passphrase', async () => {
+    const session = new MemorySecretsSession({
+      status: passphraseStatus(),
+      correctPassphrase: 'correct horse',
+    });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/unlock')
+      .type('form')
+      .send({ passphrase: 'wrong' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/settings\/secrets\?unlockError=/);
+    expect(session.isUnlocked()).toBe(false);
+  });
+
+  it('POST /settings/secrets/unlock with the right passphrase unlocks the session', async () => {
+    const session = new MemorySecretsSession({
+      status: passphraseStatus(),
+      correctPassphrase: 'correct horse',
+    });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/unlock')
+      .type('form')
+      .send({ passphrase: 'correct horse' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/settings\/secrets\?flash=/);
+    expect(session.isUnlocked()).toBe(true);
+  });
+
+  it('POST /settings/secrets/set rejects invalid names', async () => {
+    const session = new MemorySecretsSession({ status: absentStatus() });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/set')
+      .type('form')
+      .send({ name: 'lower_case', value: 'v' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/settings\/secrets\?setError=/);
+    expect(await session.listNames()).toEqual([]);
+  });
+
+  it('POST /settings/secrets/set rejects writes to a locked store', async () => {
+    const session = new MemorySecretsSession({
+      status: passphraseStatus(),
+      correctPassphrase: 'x',
+    });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/set')
+      .type('form')
+      .send({ name: 'GOOD_NAME', value: 'v' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/setError=/);
+    expect(await session.listNames()).toEqual([]);
+  });
+
+  it('POST /settings/secrets/set stores a secret when unlocked', async () => {
+    const session = new MemorySecretsSession({ status: absentStatus() });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/set')
+      .type('form')
+      .send({ name: 'MY_API_KEY', value: 'sk-123' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/settings\/secrets\?flash=/);
+    expect(await session.listNames()).toEqual(['MY_API_KEY']);
+  });
+
+  it('POST /settings/secrets/delete removes a secret', async () => {
+    const session = new MemorySecretsSession({ status: absentStatus() });
+    await session.setSecret('DOOMED', 'v');
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/delete')
+      .type('form')
+      .send({ name: 'DOOMED' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(await session.listNames()).toEqual([]);
+  });
+
+  it('POST /settings/secrets/lock clears the session passphrase', async () => {
+    const session = new MemorySecretsSession({
+      status: passphraseStatus(),
+      correctPassphrase: 'ok',
+    });
+    await session.unlock('ok');
+    expect(session.isUnlocked()).toBe(true);
+    const app = await makeApp({ secretsSession: session });
+    await request(app).post('/settings/secrets/lock')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(session.isUnlocked()).toBe(false);
+  });
+
+  it('rejects a cross-origin POST to /settings/secrets/set (CSRF defense)', async () => {
+    const session = new MemorySecretsSession({ status: absentStatus() });
+    const app = await makeApp({ secretsSession: session });
+    const res = await request(app).post('/settings/secrets/set')
+      .type('form')
+      .send({ name: 'X', value: 'v' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Origin', 'http://evil.example.com')
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(403);
+    expect(await session.listNames()).toEqual([]);
+  });
+});
+
+describe('Dashboard /settings/general', () => {
+  it('renders MCP token fingerprint, retention, and paths', async () => {
+    const app = await makeApp({ retentionDays: 7 });
+    const res = await request(app).get('/settings/general')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // First 8 chars of TOKEN (32 'a's); full token never rendered.
+    expect(res.text).toContain('aaaaaaaa');
+    expect(res.text).not.toContain(TOKEN);
+    expect(res.text).toContain('<strong>7</strong> days');
+    expect(res.text).toContain('/settings/general/rotate-mcp-token');
+  });
+
+  it('POST rotate-mcp-token rotates, updates session cookie, reveals new token once', async () => {
+    const newToken = 'c'.repeat(64);
+    const { app, ctx } = await makeAppWithCtx({ rotateToken: () => newToken });
+    const res = await request(app).post('/settings/general/rotate-mcp-token')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(new RegExp(`rotated=${newToken}`));
+    // Cookie was re-minted so the current browser stays signed in.
+    const setCookie = res.headers['set-cookie'] as unknown as string[] | string | undefined;
+    const cookieStr = Array.isArray(setCookie) ? setCookie.join('\n') : setCookie;
+    expect(cookieStr).toMatch(new RegExp(`${SESSION_COOKIE}=${newToken}`));
+    // ctx.token must point at the new value — otherwise subsequent
+    // middleware calls would 401 and force a re-auth.
+    expect(ctx.token).toBe(newToken);
+  });
+
+  it('after rotation, the old cookie is rejected and the new one works', async () => {
+    const newToken = 'c'.repeat(64);
+    const { app } = await makeAppWithCtx({ rotateToken: () => newToken });
+    await request(app).post('/settings/general/rotate-mcp-token')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const oldCookieRes = await request(app).get('/agents')
+      .set('Accept', 'text/html')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(oldCookieRes.status).toBe(302);
+    expect(oldCookieRes.headers.location).toBe('/auth');
+
+    const newCookieRes = await request(app).get('/agents')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${newToken}`);
+    expect(newCookieRes.status).toBe(200);
+  });
+});
+
+describe('Dashboard /settings/integrations', () => {
+  it('renders placeholder copy', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/integrations')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Integrations');
+    expect(res.text).toContain('coming in a later release');
   });
 });
