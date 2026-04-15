@@ -6,6 +6,7 @@ import { renderAgentDetail } from '../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../views/agent-detail-v2.js';
 import { renderAgentNew, type AgentNewFormValues } from '../views/agent-new.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
+import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
 import { deriveBack } from '../views/page-header.js';
 
 export const agentsRouter: Router = Router();
@@ -225,6 +226,224 @@ agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
     }));
   }
 });
+
+/**
+ * GET  /agents/:name/nodes/:nodeId/edit    — form pre-filled with node's state
+ * POST /agents/:name/nodes/:nodeId/edit    — validate + write new agent version
+ * POST /agents/:name/nodes/:nodeId/delete  — remove the node (rejects if any
+ *                                             other node depends on it; users
+ *                                             delete downstream first)
+ *
+ * Node ids are immutable across edits — renaming would break every
+ * downstream `{{upstream.<id>.result}}` / `$UPSTREAM_<ID>_RESULT`
+ * reference. Users who want a different id delete + recreate.
+ */
+agentsRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const nodeId = Array.isArray(req.params.nodeId) ? req.params.nodeId[0] : req.params.nodeId;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  const node = agent.nodes.find((n) => n.id === nodeId);
+  if (!node) {
+    res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Node "${nodeId}" not found.`)}`);
+    return;
+  }
+  res.type('html').send(renderAgentEditNode({ agent, node }));
+});
+
+agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const nodeId = Array.isArray(req.params.nodeId) ? req.params.nodeId[0] : req.params.nodeId;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  const node = agent.nodes.find((n) => n.id === nodeId);
+  if (!node) {
+    res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}`);
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawDeps = body.dependsOn;
+  const dependsOn: string[] = Array.isArray(rawDeps)
+    ? rawDeps.filter((d): d is string => typeof d === 'string')
+    : typeof rawDeps === 'string' ? [rawDeps] : [];
+
+  const values: EditNodeFormValues = {
+    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    command: typeof body.command === 'string' ? body.command : undefined,
+    prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+    dependsOn,
+  };
+
+  // Every declared dependency must be a node that's not the current
+  // node itself, not a downstream (cycle), and exists.
+  const existingIds = new Set(agent.nodes.map((n) => n.id));
+  if (dependsOn.includes(nodeId)) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: 'A node cannot depend on itself.',
+    }));
+    return;
+  }
+  const badDep = dependsOn.find((d) => !existingIds.has(d));
+  if (badDep) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: `Unknown upstream node: "${badDep}".`,
+    }));
+    return;
+  }
+  // Cycle guard: the view already filters downstreams from the picker,
+  // but a hand-crafted POST could bypass it. Re-check.
+  if (hasCycleAfterEdit(agent, nodeId, dependsOn)) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: 'Those dependencies would create a cycle in the DAG.',
+    }));
+    return;
+  }
+  if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: 'Shell nodes need a command.',
+    }));
+    return;
+  }
+  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: 'Claude-Code nodes need a prompt.',
+    }));
+    return;
+  }
+
+  // Build the updated node. Preserve any fields we don't let the form
+  // edit (inputs, secrets, env, envAllowlist, allowedTools, model,
+  // maxTurns, timeout, redactSecrets, position) — those come back in
+  // a follow-up when the inspector can render them.
+  const updatedNode = values.type === 'shell'
+    ? { ...node, type: 'shell' as const, command: values.command!, prompt: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) }
+    : { ...node, type: 'claude-code' as const, prompt: values.prompt!, command: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
+
+  const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? updatedNode : n);
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        status: agent.status,
+        schedule: agent.schedule,
+        source: agent.source,
+        mcp: agent.mcp,
+        nodes: updatedNodes,
+        inputs: agent.inputs,
+        author: agent.author,
+        tags: agent.tags,
+      },
+      'dashboard',
+      `Edited node "${nodeId}"`,
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Updated "${nodeId}". New version created.`)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, error: `Save failed: ${msg}`,
+    }));
+  }
+});
+
+agentsRouter.post('/agents/:name/nodes/:nodeId/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const nodeId = Array.isArray(req.params.nodeId) ? req.params.nodeId[0] : req.params.nodeId;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  if (!agent.nodes.some((n) => n.id === nodeId)) {
+    res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}`);
+    return;
+  }
+
+  // Refuse if anyone depends on this node. Explicit is better than
+  // auto-trimming dependsOn — user may be surprised to discover their
+  // downstream node silently lost an input.
+  const dependents = agent.nodes.filter((n) => n.dependsOn?.includes(nodeId));
+  if (dependents.length > 0) {
+    const names = dependents.map((n) => `"${n.id}"`).join(', ');
+    const msg = `Cannot delete "${nodeId}" \u2014 ${names} depend${dependents.length === 1 ? 's' : ''} on it. Delete or edit ${dependents.length === 1 ? 'it' : 'them'} first.`;
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(msg)}`);
+    return;
+  }
+
+  if (agent.nodes.length === 1) {
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent('Cannot delete the last node. Delete the agent itself from the CLI if you want to remove it entirely.')}`);
+    return;
+  }
+
+  const updatedNodes = agent.nodes.filter((n) => n.id !== nodeId);
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        status: agent.status,
+        schedule: agent.schedule,
+        source: agent.source,
+        mcp: agent.mcp,
+        nodes: updatedNodes,
+        inputs: agent.inputs,
+        author: agent.author,
+        tags: agent.tags,
+      },
+      'dashboard',
+      `Deleted node "${nodeId}"`,
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Deleted "${nodeId}". New version created.`)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Delete failed: ${msg}`)}`);
+  }
+});
+
+/**
+ * Cycle guard used by the edit route. Simulates the edit and walks the
+ * DAG from each root — if we revisit a node, the graph has a cycle.
+ */
+function hasCycleAfterEdit(agent: Agent, editedNodeId: string, newDependsOn: string[]): boolean {
+  const depsByNode = new Map<string, string[]>();
+  for (const n of agent.nodes) {
+    depsByNode.set(n.id, n.id === editedNodeId ? newDependsOn : (n.dependsOn ?? []));
+  }
+  const white = new Set(depsByNode.keys());
+  const gray = new Set<string>();
+  const black = new Set<string>();
+  function visit(id: string): boolean {
+    if (black.has(id)) return false;
+    if (gray.has(id)) return true;
+    gray.add(id);
+    white.delete(id);
+    for (const d of depsByNode.get(id) ?? []) {
+      if (visit(d)) return true;
+    }
+    gray.delete(id);
+    black.add(id);
+    return false;
+  }
+  for (const id of [...white]) {
+    if (visit(id)) return true;
+  }
+  return false;
+}
 
 agentsRouter.get('/agents', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);

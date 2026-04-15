@@ -817,6 +817,122 @@ describe('Dashboard version history + status toggle (PR 2)', () => {
   });
 });
 
+describe('Dashboard node edit + delete (PR 3a)', () => {
+  async function seedChainAgent(id = 'chain-edit') {
+    agentStore.createAgent({
+      id, name: 'Chain', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo a' },
+        { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+      ],
+    }, 'cli');
+  }
+
+  it('GET /agents/:id/nodes/:nodeId/edit pre-fills the form with node state', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const res = await request(app).get('/agents/chain-edit/nodes/a/edit')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Edit a');
+    expect(res.text).toContain('echo a');
+    // Id input is read-only.
+    expect(res.text).toMatch(/readonly[^>]*value="a"/);
+  });
+
+  it('POST edit updates the node and bumps the version', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const res = await request(app)
+      .post('/agents/chain-edit/nodes/a/edit')
+      .type('form')
+      .send({ type: 'shell', command: 'echo CHANGED' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/agents\/chain-edit\?flash=/);
+
+    const updated = agentStore.getAgent('chain-edit')!;
+    expect(updated.version).toBe(2);
+    const a = updated.nodes.find((n) => n.id === 'a')!;
+    expect(a.command).toBe('echo CHANGED');
+    // Downstream node b left alone.
+    const b = updated.nodes.find((n) => n.id === 'b')!;
+    expect(b.command).toBe('echo b');
+    expect(b.dependsOn).toEqual(['a']);
+  });
+
+  it('POST edit refuses a cycle-producing dependsOn', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    // Try to make "a" depend on "b" (which already depends on "a").
+    const res = await request(app)
+      .post('/agents/chain-edit/nodes/a/edit')
+      .type('form')
+      .send({ type: 'shell', command: 'echo a', dependsOn: 'b' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/cycle/i);
+    expect(agentStore.getAgent('chain-edit')!.version).toBe(1);
+  });
+
+  it('POST delete refuses when a downstream depends on the node', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const res = await request(app)
+      .post('/agents/chain-edit/nodes/a/delete')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/"b" depends on it/);
+    // Nothing removed.
+    expect(agentStore.getAgent('chain-edit')!.nodes).toHaveLength(2);
+  });
+
+  it('POST delete removes the node when nobody depends on it', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const res = await request(app)
+      .post('/agents/chain-edit/nodes/b/delete')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Deleted "b"/);
+    const updated = agentStore.getAgent('chain-edit')!;
+    expect(updated.nodes).toHaveLength(1);
+    expect(updated.nodes[0].id).toBe('a');
+    expect(updated.version).toBe(2);
+  });
+
+  it('POST delete refuses to remove the last node', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'solo', name: 'Solo', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'only', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app)
+      .post('/agents/solo/nodes/only/delete')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/last node/);
+  });
+
+  it('agent detail renders Edit + Delete buttons on every node row', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const res = await request(app).get('/agents/chain-edit')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('/agents/chain-edit/nodes/a/edit');
+    expect(res.text).toContain('/agents/chain-edit/nodes/b/edit');
+    expect(res.text).toContain('action="/agents/chain-edit/nodes/a/delete"');
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();
