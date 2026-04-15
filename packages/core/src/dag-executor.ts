@@ -66,6 +66,24 @@ export interface DagExecuteOptions {
    * `setup`.
    */
   inputs?: Record<string, string>;
+  /**
+   * Replay mode. When set, nodes BEFORE `fromNodeId` in topological order
+   * are not re-executed — their `node_executions` rows are copied from
+   * `priorRunId` with their stored `result` intact. The executor picks up
+   * at `fromNodeId` using the copied upstream outputs.
+   *
+   * Guarantees:
+   *   - The `runs` row records `replayedFromRunId` + `replayedFromNodeId`
+   *     so the dashboard can render a "replayed from …" breadcrumb.
+   *   - Copied `node_executions` keep their original `started_at` +
+   *     `result`; they are NOT re-timestamped. This preserves the audit
+   *     trail of "these are historical outputs, not fresh work."
+   *   - If any copied node is missing a stored result (the original run
+   *     didn't complete that far, or was itself a replay with gaps), the
+   *     replay fails early with category `setup` rather than executing
+   *     the pivot with a missing upstream.
+   */
+  replayFrom?: { priorRunId: string; fromNodeId: string };
 }
 
 /**
@@ -108,13 +126,71 @@ export async function executeAgentDag(
     triggeredBy: options.triggeredBy,
     workflowId: agent.id,
     workflowVersion: agent.version,
+    replayedFromRunId: options.replayFrom?.priorRunId,
+    replayedFromNodeId: options.replayFrom?.fromNodeId,
   });
 
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
   let firstFailure: { nodeId: string; category: NodeErrorCategory } | undefined;
 
+  // Replay pre-load: copy prior node_executions for nodes before the pivot.
+  // Their stored `result` feeds downstream outputs so re-execution starts
+  // at `fromNodeId` with the exact snapshot the original run produced.
+  let replaySkipIds = new Set<string>();
+  if (options.replayFrom) {
+    const { priorRunId, fromNodeId } = options.replayFrom;
+    const pivotIndex = order.findIndex((n) => n.id === fromNodeId);
+    if (pivotIndex < 0) {
+      deps.runStore.updateRun(runId, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error: `Replay failed: node "${fromNodeId}" not in agent "${agent.id}"`,
+      });
+      const r = deps.runStore.getRun(runId);
+      if (!r) throw new Error(`Run ${runId} vanished from store after write`);
+      return r;
+    }
+    const priorExecs = deps.runStore.listNodeExecutions(priorRunId);
+    const priorByNodeId = new Map(priorExecs.map((e) => [e.nodeId, e]));
+
+    const priorIds = order.slice(0, pivotIndex).map((n) => n.id);
+    const missing: string[] = [];
+    for (const id of priorIds) {
+      const prior = priorByNodeId.get(id);
+      if (!prior || prior.status !== 'completed' || prior.result === undefined) {
+        missing.push(id);
+      }
+    }
+    if (missing.length > 0) {
+      deps.runStore.updateRun(runId, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error:
+          `Replay failed: prior run "${priorRunId}" is missing completed outputs for: ` +
+          `${missing.join(', ')}. Cannot reconstruct upstream snapshot.`,
+      });
+      const r = deps.runStore.getRun(runId);
+      if (!r) throw new Error(`Run ${runId} vanished from store after write`);
+      return r;
+    }
+
+    // Copy each prior exec into this run; seed outputs map.
+    for (const id of priorIds) {
+      const prior = priorByNodeId.get(id)!;
+      deps.runStore.createNodeExecution({
+        ...prior,
+        runId,                  // new run
+        workflowVersion: agent.version,
+        // Keep the original startedAt/completedAt so the audit trail is clear.
+      });
+      outputs.set(id, { result: prior.result!, exitCode: 0, source: agent.source });
+    }
+    replaySkipIds = new Set(priorIds);
+  }
+
   for (const node of order) {
+    if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
 
     // Short-circuit: an earlier node already failed. Write a skipped row
