@@ -1,5 +1,13 @@
 # @some-useful-agents/temporal-provider
 
+## 0.13.0
+
+### Patch Changes
+
+- Updated dependencies [e8b3079]
+- Updated dependencies [0e21b19]
+  - @some-useful-agents/core@0.13.0
+
 ## 0.12.0
 
 ### Patch Changes
