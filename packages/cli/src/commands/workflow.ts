@@ -76,15 +76,66 @@ workflowCommand
   .description('Scan v1 YAML agents + merge chains into v2 DAG agents in the run DB')
   .argument('[dir]', 'Root directory containing agents/ (defaults to current project)')
   .option('--apply', 'Commit the migration. Without this flag, prints the plan and exits.')
-  .action(async (dir: string | undefined, options: { apply?: boolean }) => {
+  .option(
+    '--allow-broken',
+    'Proceed even when some YAML files failed to parse or validate. Without this flag, ' +
+      'any file-level error aborts the migration. Use only when you know what you are ignoring.',
+  )
+  .action(async (dir: string | undefined, options: { apply?: boolean; allowBroken?: boolean }) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     const directories = dir ? [dir] : dirs.all;
 
     // Load via the existing v1 loader (picks up local + community + examples).
     const { agents: v1Agents, warnings } = loadAgents({ directories });
-    if (warnings.length > 0) {
-      for (const w of warnings) ui.warn(`${w.file}: ${w.message}`);
+
+    // Separate directory-level noise (missing optional dir, unreadable dir) from
+    // file-level errors (parse failure, schema rejection, empty file). A file-
+    // level error means we silently dropped a YAML file the user wrote; that
+    // usually breaks `dependsOn` graphs in non-obvious ways, which is exactly
+    // what ate time during the v0.13 bring-up on 2026-04-15 (shell quoting in
+    // a double-quoted YAML string skipped `summarize`, leaving `post`'s
+    // `dependsOn: [summarize]` dangling and the migration silently dropped the
+    // chain link).
+    const fileLevelWarnings = warnings.filter(
+      (w) => /\.(ya?ml(\.disabled)?)$/i.test(w.file),
+    );
+    const dirLevelWarnings = warnings.filter(
+      (w) => !/\.(ya?ml(\.disabled)?)$/i.test(w.file),
+    );
+
+    // Directory-level noise is informational — keep warning loud but advisory.
+    for (const w of dirLevelWarnings) ui.warn(`${w.file}: ${w.message}`);
+
+    // File-level problems are a hard error by default.
+    if (fileLevelWarnings.length > 0) {
+      ui.fail(
+        `${fileLevelWarnings.length} YAML file(s) failed to load. ` +
+          `These agents would be silently dropped from the migration, which usually breaks ` +
+          `dependsOn chains without any further signal. Fix the files or re-run with --allow-broken.`,
+      );
+      for (const w of fileLevelWarnings) {
+        console.error(`  ${chalk.red('✖')} ${w.file}`);
+        // w.message often wraps multi-line YAML parser output; indent it so
+        // the grouping stays visible.
+        const indented = w.message.split('\n').map((l) => `      ${l}`).join('\n');
+        console.error(indented);
+      }
+      if (!options.allowBroken) {
+        console.error('');
+        console.error(
+          ui.dim(
+            'To proceed anyway (skipping these agents), re-run with --allow-broken. ' +
+              'Be aware that any `dependsOn` pointing at a skipped agent will produce a ' +
+              'missing-dependency warning and land as a single-node DAG instead of a chain.',
+          ),
+        );
+        process.exit(1);
+      }
+      ui.warn(
+        `--allow-broken was set; proceeding with ${v1Agents.size} loadable agent(s) ` +
+          `and dropping ${fileLevelWarnings.length} broken one(s).`,
+      );
     }
 
     // Detect `.disabled` siblings: agent-loader doesn't list them, but
