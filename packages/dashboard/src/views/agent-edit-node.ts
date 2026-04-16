@@ -60,11 +60,9 @@ export function renderAgentEditNode(args: {
     : html``;
 
   const headerCta = html`
-    <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" style="margin: 0;">
-      <button type="submit" class="btn btn--warn"
-        onclick="return confirm('Delete node \\'${node.id}\\'? Refuses if any downstream node depends on it. Saving creates a new agent version.');">
-        Delete node
-      </button>
+    <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" style="margin: 0;"
+      data-confirm="Delete node '${node.id}'? Refuses if downstream nodes depend on it. Creates a new agent version.">
+      <button type="submit" class="btn btn--warn">Delete node</button>
     </form>
   `;
 
