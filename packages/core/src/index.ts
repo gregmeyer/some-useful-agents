@@ -38,6 +38,7 @@ export {
   listBuiltinTools,
   isBuiltinTool,
 } from './builtin-tools.js';
+export { extractFramedOutput, buildToolOutput } from './output-framing.js';
 
 export {
   executeAgentDag,
