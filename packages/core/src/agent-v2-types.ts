@@ -226,9 +226,32 @@ export interface Agent {
 
   nodes: AgentNode[];
 
+  /**
+   * Pulse signal declaration. When set, the agent's last run output is
+   * rendered as a tile on the /pulse dashboard. The signal defines how
+   * to extract + format the output for display.
+   */
+  signal?: AgentSignal;
+
   // Metadata
   author?: string;
   tags?: string[];
+}
+
+// -- Pulse signal --
+
+export type SignalFormat = 'text' | 'number' | 'table' | 'json' | 'chart';
+
+export interface AgentSignal {
+  title: string;
+  icon?: string;
+  format: SignalFormat;
+  /** Dot-path into the last node's structured output (default: "result"). */
+  field?: string;
+  /** Hint for auto-refresh interval (e.g. "24h", "1h", "5m"). */
+  refresh?: string;
+  /** Grid tile size on the Pulse board (default: "1x1"). */
+  size?: '1x1' | '2x1' | '1x2' | '2x2';
 }
 
 /**
@@ -259,6 +282,7 @@ export interface AgentVersionDag {
   id: string;
   inputs?: Record<string, AgentInputSpec>;
   nodes: AgentNode[];
+  signal?: AgentSignal;
   author?: string;
   tags?: string[];
 }

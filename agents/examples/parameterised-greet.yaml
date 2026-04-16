@@ -1,0 +1,25 @@
+# Tutorial step 4: Make agents configurable with inputs.
+# Teaches: inputs with defaults, $NAME env var in shell.
+# Run: sua workflow run parameterised-greet
+# Run: sua workflow run parameterised-greet --input NAME=Greg --input STYLE=formal
+id: parameterised-greet
+name: Parameterised greeting
+description: Configurable greeting using agent inputs with defaults.
+status: active
+source: examples
+signal:
+  title: Greeting
+  icon: "\U0001F4AC"
+  format: text
+inputs:
+  NAME: { type: string, default: "World", description: "Who to greet" }
+  STYLE: { type: enum, values: [formal, casual], default: casual }
+nodes:
+  - id: greet
+    type: shell
+    command: |
+      if [ "$STYLE" = "formal" ]; then
+        echo "Good day, $NAME. I trust you are well."
+      else
+        echo "Hey $NAME! What's up?"
+      fi

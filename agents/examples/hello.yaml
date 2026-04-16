@@ -1,0 +1,15 @@
+# Tutorial step 1: Your first agent.
+# Run: sua workflow run hello
+id: hello
+name: Hello
+description: Your first sua agent — prints a greeting.
+status: active
+source: examples
+signal:
+  title: Hello
+  icon: "\U0001F44B"
+  format: text
+nodes:
+  - id: greet
+    type: shell
+    command: echo "Hello from sua! You just ran your first agent."

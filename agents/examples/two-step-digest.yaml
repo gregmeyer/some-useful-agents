@@ -1,0 +1,28 @@
+# Tutorial step 2: Chain two nodes — fetch data, then format it.
+# Teaches: dependsOn, upstream output passing ($UPSTREAM_<ID>_RESULT).
+# Run: sua workflow run two-step-digest
+id: two-step-digest
+name: Two-step digest
+description: Reads local headlines and formats a summary. Teaches dependsOn + upstream passing.
+status: active
+source: examples
+signal:
+  title: Daily Digest
+  icon: "\U0001F4F0"
+  format: text
+  size: 2x1
+nodes:
+  - id: fetch
+    type: shell
+    tool: file-read
+    toolInputs:
+      path: agents/examples/data/sample-headlines.json
+  - id: summarise
+    type: shell
+    command: |
+      echo "=== Daily Digest ==="
+      echo "$UPSTREAM_FETCH_RESULT" | head -5
+      echo "---"
+      TOTAL=$(echo "$UPSTREAM_FETCH_RESULT" | grep -c '"title"' || echo 0)
+      echo "$TOTAL headlines loaded."
+    dependsOn: [fetch]

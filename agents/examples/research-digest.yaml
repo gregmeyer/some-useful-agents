@@ -1,0 +1,34 @@
+# Tutorial step 6: Orchestrate agents — a boss invokes workers, loops over results.
+# Teaches: agent-invoke, loop, nested runs.
+# Requires two-step-digest to be imported first (it's the sub-agent).
+# Run: sua workflow run research-digest
+id: research-digest
+name: Research digest
+description: Boss agent that invokes sub-agents and loops over results.
+status: active
+source: examples
+signal:
+  title: Research
+  icon: "\U0001F50D"
+  format: table
+  field: items
+  size: 2x1
+nodes:
+  - id: source
+    type: shell
+    tool: file-read
+    toolInputs:
+      path: agents/examples/data/research-topics.json
+  - id: research
+    type: loop
+    dependsOn: [source]
+    loopConfig:
+      over: topics
+      agentId: two-step-digest
+      maxIterations: 3
+  - id: compile
+    type: shell
+    command: |
+      echo "=== Research Complete ==="
+      echo "$UPSTREAM_RESEARCH_RESULT"
+    dependsOn: [research]
