@@ -342,7 +342,7 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respon
         source: agent.source,
         mcp: agent.mcp,
         nodes: updatedNodes,
-        inputs: agent.inputs,
+        inputs: mergeNewInput(agent.inputs, body),
         author: agent.author,
         tags: agent.tags,
       },
@@ -564,6 +564,37 @@ agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
   });
   res.type('html').send(html);
 });
+
+/**
+ * Merge a new agent input from the "Add variable" form on the edit-node
+ * page. If `newInputName` is present in the body and valid, adds it to
+ * the existing inputs map. Returns the merged inputs (or the original
+ * if no new input was provided).
+ */
+function mergeNewInput(
+  existing: Record<string, import('@some-useful-agents/core').AgentInputSpec> | undefined,
+  body: Record<string, unknown>,
+): Record<string, import('@some-useful-agents/core').AgentInputSpec> | undefined {
+  const name = typeof body.newInputName === 'string' ? body.newInputName.trim() : '';
+  if (!name || !/^[A-Z_][A-Z0-9_]*$/.test(name)) return existing;
+
+  const type = typeof body.newInputType === 'string' && ['string', 'number', 'boolean', 'enum'].includes(body.newInputType)
+    ? body.newInputType as 'string' | 'number' | 'boolean' | 'enum'
+    : 'string';
+
+  const rawDefault = typeof body.newInputDefault === 'string' ? body.newInputDefault.trim() : '';
+  const description = typeof body.newInputDescription === 'string' ? body.newInputDescription.trim() : '';
+
+  const spec: import('@some-useful-agents/core').AgentInputSpec = { type };
+  if (rawDefault) {
+    if (type === 'number') spec.default = Number(rawDefault);
+    else if (type === 'boolean') spec.default = rawDefault === 'true';
+    else spec.default = rawDefault;
+  }
+  if (description) spec.description = description;
+
+  return { ...(existing ?? {}), [name]: spec };
+}
 
 // Export for tests
 export type { Agent, AgentDefinition };
