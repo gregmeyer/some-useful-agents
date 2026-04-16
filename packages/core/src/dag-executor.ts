@@ -22,10 +22,14 @@
 import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
-import type { Agent, AgentNode, NodeErrorCategory, NodeOutput } from './agent-v2-types.js';
+import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { SecretsStore } from './secrets-store.js';
+import type { ToolStore } from './tool-store.js';
+import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
+import { getBuiltinTool } from './builtin-tools.js';
+import { buildToolOutput } from './output-framing.js';
 import {
   UntrustedCommunityShellError,
   type ExecutionResult,
@@ -41,6 +45,12 @@ export interface DagExecutorDeps {
    * fails with category `setup`.
    */
   secretsStore?: SecretsStore;
+  /**
+   * v0.16+: tool store for user-defined tools. Built-in tools are resolved
+   * from the in-memory registry; user tools come from this store. Optional
+   * — if absent, only built-in tools are available.
+   */
+  toolStore?: ToolStore;
   /**
    * Agent ids the operator has pre-audited for community shell execution.
    * Propagated into each node's spawn; a shell node inside a `source:
@@ -263,18 +273,68 @@ export async function executeAgentDag(
       upstreamInputsJson: JSON.stringify(upstreamSnapshot),
     });
 
-    const spawnFn = deps.spawnNode ?? spawnNodeReal;
+    // v0.16 tool dispatch: if the node references a tool, resolve it and
+    // call its execute() function. Built-in tools run in-process; user
+    // tools that use shell/claude-code implementation types go through the
+    // same spawn path as v0.15 nodes. Nodes without a tool field fall
+    // through to the legacy spawn path directly (backcompat).
+    const toolId = resolveToolId(node);
+    const builtinEntry = toolId ? getBuiltinTool(toolId) : undefined;
+
     let result: SpawnResult;
+    let structuredOutput: ToolOutput | undefined;
+
     try {
-      result = await spawnFn(node, env, {
-        agentId: agent.id,
-        agentSource: agent.source,
-        allowUntrustedShell: deps.allowUntrustedShell,
-      });
+      if (builtinEntry) {
+        // Built-in tool: call execute() directly, no child process.
+        const toolInputs = resolveToolInputs(node, upstreamSnapshot);
+        const ctx: BuiltinToolContext = {
+          workingDirectory: node.workingDirectory,
+          env,
+          timeout: node.timeout,
+        };
+        structuredOutput = await builtinEntry.execute(toolInputs, ctx);
+        const stdout = structuredOutput.result ?? '';
+        result = { result: stdout, exitCode: (structuredOutput as Record<string, unknown>).exit_code as number ?? 0 };
+      } else if (toolId && deps.toolStore) {
+        // User-defined tool from the store — resolve its implementation and
+        // spawn via the same shell/claude-code path the v0.15 nodes use.
+        // The tool's implementation.command/prompt becomes the spawned body.
+        const userTool = deps.toolStore.getTool(toolId);
+        if (!userTool) {
+          throw new Error(`Tool "${toolId}" not found in registry or store.`);
+        }
+        const spawnFn = deps.spawnNode ?? spawnNodeReal;
+        // Build a synthetic node shape matching the tool's implementation
+        // so the existing spawner doesn't need to change.
+        const synthNode: AgentNode = {
+          ...node,
+          type: userTool.implementation.type === 'claude-code' ? 'claude-code' : 'shell',
+          command: userTool.implementation.command,
+          prompt: userTool.implementation.prompt,
+        };
+        const spawnResult = await spawnFn(synthNode, env, {
+          agentId: agent.id,
+          agentSource: agent.source,
+          allowUntrustedShell: deps.allowUntrustedShell,
+        });
+        result = spawnResult;
+        structuredOutput = buildToolOutput(spawnResult.result);
+      } else {
+        // v0.15 legacy path: no tool field, dispatch by type directly.
+        const spawnFn = deps.spawnNode ?? spawnNodeReal;
+        const spawnResult = await spawnFn(node, env, {
+          agentId: agent.id,
+          agentSource: agent.source,
+          allowUntrustedShell: deps.allowUntrustedShell,
+        });
+        result = spawnResult;
+        // Try to extract framed output from stdout even for legacy nodes,
+        // so users who upgrade their shell scripts to emit framed JSON get
+        // structured outputs without changing the node YAML.
+        structuredOutput = buildToolOutput(spawnResult.result);
+      }
     } catch (err) {
-      // Only `setup`-time surprises should reach here; the spawner catches
-      // spawn/exit/timeout internally and returns them as SpawnResults.
-      // Anything truly unexpected bubbles up tagged as setup.
       const message = (err as Error).message;
       deps.runStore.updateNodeExecution(runId, node.id, {
         status: 'failed',
@@ -287,13 +347,21 @@ export async function executeAgentDag(
     }
 
     const completedAt = new Date().toISOString();
+    const outputsJson = structuredOutput ? JSON.stringify(structuredOutput) : undefined;
+
     if (result.exitCode === 0) {
-      outputs.set(node.id, { result: result.result, exitCode: 0, source: agent.source });
+      outputs.set(node.id, {
+        result: result.result,
+        exitCode: 0,
+        source: agent.source,
+        outputs: structuredOutput as NodeStructuredOutput | undefined,
+      });
       deps.runStore.updateNodeExecution(runId, node.id, {
         status: 'completed',
         completedAt,
         result: result.result,
         exitCode: 0,
+        outputsJson,
       });
     } else {
       const category: NodeErrorCategory =
@@ -308,6 +376,7 @@ export async function executeAgentDag(
         result: result.result,
         exitCode: result.exitCode,
         error: result.error ?? `Process exited with code ${result.exitCode}`,
+        outputsJson,
       });
       firstFailure = { nodeId: node.id, category };
     }
@@ -653,3 +722,41 @@ async function spawnProcess(
 const MINIMAL_ALLOWLIST = ['PATH', 'HOME', 'LANG', 'TERM', 'TMPDIR'];
 const LOCAL_ALLOWLIST = [...MINIMAL_ALLOWLIST, 'USER', 'SHELL', 'NODE_ENV', 'TZ'];
 const LOCAL_PATTERNS = [/^LC_/];
+
+// -- Tool dispatch helpers --
+
+/**
+ * Derive the tool id for a node. Only nodes that explicitly set `tool:`
+ * go through the tool dispatch path. v0.15 nodes without `tool:` use
+ * the existing spawn path directly — desugaring to `shell-exec` /
+ * `claude-code` built-ins happens at a higher layer (YAML parser /
+ * import) when the user opts in, not silently at exec time.
+ */
+function resolveToolId(node: AgentNode): string | undefined {
+  return node.tool;
+}
+
+/**
+ * Build the inputs map for a tool invocation. For v0.16 nodes with
+ * `toolInputs:`, use those directly. For v0.15 nodes, fold the inline
+ * `command` / `prompt` into the shape the built-in tool expects.
+ */
+function resolveToolInputs(
+  node: AgentNode,
+  upstreamSnapshot: Record<string, string>,
+): Record<string, unknown> {
+  if (node.toolInputs) return { ...node.toolInputs };
+  // Backcompat: v0.15 inline fields → built-in tool input shape.
+  if (node.type === 'shell' && node.command) {
+    return { command: node.command };
+  }
+  if (node.type === 'claude-code' && node.prompt) {
+    return {
+      prompt: node.prompt,
+      model: node.model,
+      maxTurns: node.maxTurns,
+      allowedTools: node.allowedTools,
+    };
+  }
+  return {};
+}
