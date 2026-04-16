@@ -216,11 +216,10 @@ nodes:
   - id: greet
     type: shell
     command: |
-      if [ "$STYLE" = "formal" ]; then
-        echo "Good day, $NAME. I trust you are well."
-      else
-        echo "Hey $NAME! What's up?"
-      fi
+      case "$STYLE" in
+        formal) echo "Good day, $NAME. I trust you are well." ;;
+        *)      echo "Hey $NAME! What's up?" ;;
+      esac
 `,
 
   'parameterised-greet-claude': `id: parameterised-greet-claude
