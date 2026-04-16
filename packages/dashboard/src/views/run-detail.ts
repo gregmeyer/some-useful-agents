@@ -93,11 +93,19 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <div class="flash flash--error">${run.error}</div>
       ` : html``}
 
-      ${dagSection}
-      ${nodeCards}
-      ${isDagRun && canReplay ? renderReplayFallback(run, agent!) : html``}
-
-      ${isDagRun ? html`` : html`
+      ${isDagRun ? html`
+        <div class="run-detail-grid">
+          <div class="run-detail-grid__dag">
+            ${dagSection}
+            ${canReplay ? renderReplayFallback(run, agent!) : html``}
+          </div>
+          <div class="run-detail-grid__inspector">
+            <h2 style="margin-top: 0;">Node execution</h2>
+            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG or expand below.</p>
+            ${renderNodeCards(nodeExecutions!)}
+          </div>
+        </div>
+      ` : html`
         <h2>Output</h2>
         ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
       `}
@@ -108,7 +116,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     return render(html`<!DOCTYPE html><html><body>${fragment}</body></html>`);
   }
 
-  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs', flash }, fragment));
+  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs', flash, wide: !!isDagRun }, fragment));
 }
 
 /**

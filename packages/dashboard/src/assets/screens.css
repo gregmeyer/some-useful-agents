@@ -246,6 +246,32 @@ main.main--wide {
   margin-top: var(--space-3);
 }
 
+/* Run detail 2-column grid — DAG left, node inspector right.
+ * Falls back to single column on narrow viewports. */
+.run-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .run-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.run-detail-grid__dag {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.run-detail-grid__inspector {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
 /* ---------- Settings shell ---------- */
 .settings-shell {
   display: flex;
