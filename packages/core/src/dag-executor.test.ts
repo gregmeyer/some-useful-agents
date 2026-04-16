@@ -1177,3 +1177,114 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(loopOutput.count).toBe(2);
   });
 });
+
+describe('executeAgentDag — end + break (Flow PR E)', () => {
+  it('end node terminates the flow and skips remaining nodes', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'cond',
+          type: 'conditional' as any,
+          dependsOn: ['check'],
+          conditionalConfig: { predicate: { field: 'abort', equals: true } },
+        },
+        {
+          id: 'abort',
+          type: 'end' as any,
+          dependsOn: ['cond'],
+          onlyIf: { upstream: 'cond', field: 'matched', equals: true },
+          endMessage: 'Aborting — upstream requested stop.',
+        },
+        {
+          id: 'after-abort',
+          type: 'shell',
+          command: 'echo should-not-run',
+          dependsOn: ['cond'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"abort": true}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    // Run completes — end is a clean exit, not a failure.
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'abort')!.status).toBe('completed');
+    expect(execs.find((e) => e.nodeId === 'abort')!.result).toContain('Aborting');
+    expect(execs.find((e) => e.nodeId === 'after-abort')!.status).toBe('skipped');
+    expect(execs.find((e) => e.nodeId === 'after-abort')!.errorCategory).toBe('flow_ended');
+  });
+
+  it('end node does not fire when its onlyIf is false', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'cond',
+          type: 'conditional' as any,
+          dependsOn: ['check'],
+          conditionalConfig: { predicate: { field: 'abort', equals: true } },
+        },
+        {
+          id: 'abort',
+          type: 'end' as any,
+          dependsOn: ['cond'],
+          onlyIf: { upstream: 'cond', field: 'matched', equals: true },
+        },
+        {
+          id: 'continue',
+          type: 'shell',
+          command: 'echo continued',
+          dependsOn: ['check'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"abort": false}' },
+      continue: { exitCode: 0, result: 'continued' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    // End node was skipped (condition not met), flow continued normally.
+    expect(execs.find((e) => e.nodeId === 'abort')!.errorCategory).toBe('condition_not_met');
+    expect(execs.find((e) => e.nodeId === 'continue')!.status).toBe('completed');
+  });
+
+  it('break node terminates the current flow (for loop body use)', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'step-1', type: 'shell', command: 'echo step1' },
+        {
+          id: 'stop',
+          type: 'break' as any,
+          dependsOn: ['step-1'],
+          endMessage: 'Breaking out of loop body.',
+        },
+        {
+          id: 'step-2',
+          type: 'shell',
+          command: 'echo should-not-run',
+          dependsOn: ['step-1'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      'step-1': { exitCode: 0, result: 'done' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    // Break completes the flow — same as end within a sub-flow context.
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'stop')!.status).toBe('completed');
+    expect(execs.find((e) => e.nodeId === 'step-2')!.errorCategory).toBe('flow_ended');
+  });
+});
