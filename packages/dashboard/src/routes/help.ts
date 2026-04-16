@@ -127,7 +127,7 @@ helpRouter.post('/help/tutorial/scaffold-parameterised-greet', (req: Request, re
         nodes: [{
           id: 'greet',
           type: 'shell',
-          command: 'if [ "$STYLE" = "formal" ]; then\n  echo "Good day, $NAME. I trust you are well."\nelse\n  echo "Hey $NAME! What\'s up?"\nfi',
+          command: 'case "$STYLE" in\n  formal) echo "Good day, $NAME. I trust you are well." ;;\n  *)      echo "Hey $NAME! What\'s up?" ;;\nesac',
         }],
       },
       'dashboard',

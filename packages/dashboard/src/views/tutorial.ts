@@ -192,7 +192,7 @@ function step4MultiNodeDag(s: TutorialState): Step {
 
   if (done) {
     summary = html`<span class="dim">You've executed a multi-node agent. The DAG viz on each run shows node-level status.</span>`;
-    action = html`<a class="btn btn--sm" href="/agents">Browse DAG agents \u2192</a>`;
+    action = html`<a class="btn btn--sm" href="/agents/demo-digest">View demo-digest \u2192</a>`;
   } else if (s.hasDemoDag) {
     summary = html`<span class="dim">The <code>demo-digest</code> 2-node DAG is already scaffolded. <a href="/agents/demo-digest">View its DAG</a> or run it.</span>`;
     action = html`

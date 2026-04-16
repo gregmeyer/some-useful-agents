@@ -100,6 +100,8 @@ export function renderAgentEditNode(args: {
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
 
+      ${renderAvailableVars(agent, node)}
+
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Implementation</legend>
 
@@ -162,6 +164,66 @@ function collectDownstream(agent: Agent, startId: string): Set<string> {
     }
   }
   return down;
+}
+
+/**
+ * Visible summary of variables available to this node. Shows agent-level
+ * inputs (with defaults), upstream node outputs, and declared secrets
+ * so the user knows what they can reference in the command/prompt without
+ * having to type $ to discover them.
+ */
+function renderAvailableVars(agent: Agent, node: AgentNode): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+  const upstreams = (node.dependsOn ?? []).filter((id) => agent.nodes.some((n) => n.id === id));
+  const secrets = node.secrets ?? [];
+
+  if (inputs.length === 0 && upstreams.length === 0 && secrets.length === 0) {
+    return html``;
+  }
+
+  const rows: SafeHtml[] = [];
+
+  for (const [name, spec] of inputs) {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    rows.push(html`
+      <tr>
+        <td class="mono" style="color: var(--color-primary);">$${name}</td>
+        <td>agent input</td>
+        <td class="dim">${defVal ? `default: ${defVal}` : 'required'}</td>
+      </tr>
+    `);
+  }
+
+  for (const id of upstreams) {
+    const envName = `UPSTREAM_${id.toUpperCase().replace(/-/g, '_')}_RESULT`;
+    rows.push(html`
+      <tr>
+        <td class="mono" style="color: var(--color-primary);">$${envName}</td>
+        <td>upstream output</td>
+        <td class="dim">from node "${id}"</td>
+      </tr>
+    `);
+  }
+
+  for (const name of secrets) {
+    rows.push(html`
+      <tr>
+        <td class="mono" style="color: var(--color-warn);">$${name}</td>
+        <td>secret</td>
+        <td class="dim">injected at runtime</td>
+      </tr>
+    `);
+  }
+
+  return html`
+    <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-raised);">
+      <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Available variables</legend>
+      <table class="table" style="font-size: var(--font-size-xs);">
+        <thead><tr><th>Variable</th><th>Source</th><th>Info</th></tr></thead>
+        <tbody>${rows as unknown as SafeHtml[]}</tbody>
+      </table>
+    </fieldset>
+  `;
 }
 
 const INPUT_STYLE: SafeHtml = unsafeHtml(
