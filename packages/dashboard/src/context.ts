@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -60,6 +60,11 @@ export interface DashboardContext {
    * middleware's constant-time compare sees the new value.
    */
   rotateToken: () => string;
+  /**
+   * v0.16+: tool store for user-defined tools. Built-in tools are resolved
+   * from the in-memory registry; user tools come from this store.
+   */
+  toolStore?: ToolStore;
   /** When true, the dashboard allows POSTs that would execute community shell. */
   allowUntrustedShell: Set<string>;
   /** Called to validate agent-supplied inputs at run-now time. Defaults built into LocalProvider. */

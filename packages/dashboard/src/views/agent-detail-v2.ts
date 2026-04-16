@@ -179,6 +179,8 @@ export async function renderAgentDetailV2(args: {
         </div>
       </section>
 
+      ${renderToolsSection(agent)}
+
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
@@ -252,6 +254,37 @@ export async function renderAgentDetailV2(args: {
   `;
 
   return render(layout({ title: agent.id, activeNav: 'agents', flash, wide: true }, body));
+}
+
+/**
+ * Collect the unique tools this agent's nodes reference and render them
+ * as a sidebar section. Derives from the DAG — no separate store query.
+ * Shows which tools the agent depends on at a glance.
+ */
+function renderToolsSection(agent: Agent): SafeHtml {
+  const toolIds = new Set<string>();
+  for (const node of agent.nodes) {
+    if (node.tool) {
+      toolIds.add(node.tool);
+    } else {
+      // v0.15 nodes without an explicit tool: show their implicit tool.
+      toolIds.add(node.type === 'shell' ? 'shell-exec' : 'claude-code');
+    }
+  }
+  if (toolIds.size === 0) return html``;
+
+  const badges = [...toolIds].sort().map((id) => html`
+    <a href="/tools/${id}" class="badge badge--muted" style="text-decoration: none;">${id}</a>
+  `);
+
+  return html`
+    <section class="inspector__section">
+      <h4>Tools</h4>
+      <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+        ${badges as unknown as SafeHtml[]}
+      </div>
+    </section>
+  `;
 }
 
 function vStatusBadge(status: string): SafeHtml {
