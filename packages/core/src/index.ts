@@ -39,6 +39,7 @@ export {
   isBuiltinTool,
 } from './builtin-tools.js';
 export { extractFramedOutput, buildToolOutput } from './output-framing.js';
+export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';
 
 export {
   executeAgentDag,
