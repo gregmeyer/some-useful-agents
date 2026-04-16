@@ -1,8 +1,9 @@
-import type { Agent, AgentNode } from '@some-useful-agents/core';
+import type { Agent, AgentNode, ToolStore } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
+import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 
 export interface EditNodeFormValues {
   type?: 'shell' | 'claude-code';
@@ -24,8 +25,10 @@ export function renderAgentEditNode(args: {
   node: AgentNode;
   values?: EditNodeFormValues;
   error?: string;
+  toolStore?: ToolStore;
 }): string {
-  const { agent, node, values: submitted, error } = args;
+  const { agent, node, values: submitted, error, toolStore } = args;
+  const allTools = getAvailableTools(toolStore);
 
   // Fall back to the node's current values if nothing's been submitted.
   const v: EditNodeFormValues = {
@@ -81,17 +84,8 @@ export function renderAgentEditNode(args: {
         <span class="dim" style="font-size: var(--font-size-xs);">Immutable. Renaming would break every <code>{{upstream.${node.id}.result}}</code> reference in this agent. Delete + re-create if you need a different id.</span>
       </label>
 
-      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Type</legend>
-        <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
-          <input type="radio" name="type" value="shell" ${isShell ? 'checked' : ''}>
-          <span><strong>Shell</strong> <span class="dim">\u2014 uses <code>$UPSTREAM_&lt;ID&gt;_RESULT</code> env vars.</span></span>
-        </label>
-        <label style="display: flex; align-items: center; gap: var(--space-2);">
-          <input type="radio" name="type" value="claude-code" ${isClaude ? 'checked' : ''}>
-          <span><strong>Claude Code</strong> <span class="dim">\u2014 uses <code>{{upstream.&lt;id&gt;.result}}</code> templates.</span></span>
-        </label>
-      </fieldset>
+      ${renderToolPicker({ tools: allTools, selectedTool: node.tool, currentType: v.type })}
+      ${renderToolInputsSection(node.tool ?? (v.type === 'claude-code' ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
 
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Depends on</legend>
@@ -101,23 +95,31 @@ export function renderAgentEditNode(args: {
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
 
-      <label class="node-field" data-node-field="shell" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
-        <strong>Command <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(shell only)</span></strong>
-        <textarea name="command" rows="4"
-          style="${TEXTAREA_STYLE}"
-          data-template-palette="shell"
-          data-palette-source="palette-edit-node">${v.command ?? ''}</textarea>
-        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
-      </label>
+      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
+        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Implementation</legend>
 
-      <label class="node-field" data-node-field="claude-code" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
-        <strong>Prompt <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(claude-code only)</span></strong>
-        <textarea name="prompt" rows="4"
-          style="${TEXTAREA_STYLE}"
-          data-template-palette="claude"
-          data-palette-source="palette-edit-node">${v.prompt ?? ''}</textarea>
-        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
-      </label>
+        <div class="node-field" data-node-field="shell">
+          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+            <strong>Command</strong>
+            <textarea name="command" rows="4"
+              style="${TEXTAREA_STYLE}"
+              data-template-palette="shell"
+              data-palette-source="palette-edit-node">${v.command ?? ''}</textarea>
+            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
+          </label>
+        </div>
+
+        <div class="node-field" data-node-field="claude-code">
+          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+            <strong>Prompt</strong>
+            <textarea name="prompt" rows="4"
+              style="${TEXTAREA_STYLE}"
+              data-template-palette="claude"
+              data-palette-source="palette-edit-node">${v.prompt ?? ''}</textarea>
+            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
+          </label>
+        </div>
+      </fieldset>
 
       ${renderPalettePayload(
         'palette-edit-node',

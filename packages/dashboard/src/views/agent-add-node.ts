@@ -3,6 +3,8 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
+import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
+import type { ToolStore } from '@some-useful-agents/core';
 
 /**
  * Render a reference card listing everything the author can inject into
@@ -84,8 +86,12 @@ export function renderAgentAddNode(args: {
   flash?: string;
   /** True if the user just landed here from /agents/new — surface a "Done" hint. */
   fromCreate?: boolean;
+  /** v0.16+: tool store for the tool picker dropdown. */
+  toolStore?: ToolStore;
 }): string {
-  const { agent, values: v = {}, error, flash, fromCreate } = args;
+  const { agent, values: v = {}, error, flash, fromCreate, toolStore } = args;
+  const allTools = getAvailableTools(toolStore);
+  const selectedTool = v.type === 'claude-code' ? 'claude-code' : 'shell-exec';
   const type = v.type ?? 'shell';
   const isShell = type === 'shell';
   const isClaude = type === 'claude-code';
@@ -155,17 +161,8 @@ export function renderAgentAddNode(args: {
         <span class="dim" style="font-size: var(--font-size-xs);">Lowercase, hyphens or underscores. Must be unique within this agent.</span>
       </label>
 
-      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Type</legend>
-        <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
-          <input type="radio" name="type" value="shell" ${isShell ? 'checked' : ''}>
-          <span><strong>Shell</strong> <span class="dim">\u2014 runs a command. Upstream outputs come in as <code>$UPSTREAM_&lt;NODEID&gt;_RESULT</code> env vars.</span></span>
-        </label>
-        <label style="display: flex; align-items: center; gap: var(--space-2);">
-          <input type="radio" name="type" value="claude-code" ${isClaude ? 'checked' : ''}>
-          <span><strong>Claude Code</strong> <span class="dim">\u2014 runs a prompt. Upstream outputs interpolate via <code>{{upstream.&lt;nodeId&gt;.result}}</code>.</span></span>
-        </label>
-      </fieldset>
+      ${renderToolPicker({ tools: allTools, selectedTool, currentType: v.type })}
+      ${renderToolInputsSection(selectedTool, allTools)}
 
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Depends on</legend>
@@ -175,23 +172,31 @@ export function renderAgentAddNode(args: {
 
       ${availableVariablesPanel(agent)}
 
-      <label class="node-field" data-node-field="shell" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
-        <strong>Command <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(shell only)</span></strong>
-        <textarea name="command" rows="4" placeholder='echo "$UPSTREAM_FETCH_RESULT" | wc -w'
-          style="${TEXTAREA_STYLE}"
-          data-template-palette="shell"
-          data-palette-source="palette-add-node">${v.command ?? ''}</textarea>
-        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
-      </label>
+      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
+        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Implementation</legend>
 
-      <label class="node-field" data-node-field="claude-code" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
-        <strong>Prompt <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(claude-code only)</span></strong>
-        <textarea name="prompt" rows="4" placeholder='Summarise: {{upstream.fetch.result}}'
-          style="${TEXTAREA_STYLE}"
-          data-template-palette="claude"
-          data-palette-source="palette-add-node">${v.prompt ?? ''}</textarea>
-        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
-      </label>
+        <div class="node-field" data-node-field="shell">
+          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+            <strong>Command</strong>
+            <textarea name="command" rows="4" placeholder='echo "$UPSTREAM_FETCH_RESULT" | wc -w'
+              style="${TEXTAREA_STYLE}"
+              data-template-palette="shell"
+              data-palette-source="palette-add-node">${v.command ?? ''}</textarea>
+            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
+          </label>
+        </div>
+
+        <div class="node-field" data-node-field="claude-code">
+          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+            <strong>Prompt</strong>
+            <textarea name="prompt" rows="4" placeholder='Summarise: {{upstream.fetch.result}}'
+              style="${TEXTAREA_STYLE}"
+              data-template-palette="claude"
+              data-palette-source="palette-add-node">${v.prompt ?? ''}</textarea>
+            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
+          </label>
+        </div>
+      </fieldset>
 
       ${renderPalettePayload('palette-add-node', computePaletteSuggestions(agent))}
 
