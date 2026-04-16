@@ -26,6 +26,19 @@ export {
 } from './agent-v2-schema.js';
 export { parseAgent, exportAgent, exportAgents, AgentYamlParseError } from './agent-yaml.js';
 export { AgentStore } from './agent-store.js';
+export * from './tool-types.js';
+export {
+  toolDefinitionSchema,
+  type ToolDefinitionInput,
+  type ToolDefinitionParsed,
+} from './tool-schema.js';
+export { ToolStore } from './tool-store.js';
+export {
+  getBuiltinTool,
+  listBuiltinTools,
+  isBuiltinTool,
+} from './builtin-tools.js';
+
 export {
   executeAgentDag,
   topologicalSort,

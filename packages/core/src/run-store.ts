@@ -161,6 +161,12 @@ export class RunStore {
       CREATE INDEX IF NOT EXISTS idx_node_executions_category
         ON node_executions(errorCategory) WHERE errorCategory IS NOT NULL;
     `);
+
+    // v0.16: structured tool outputs stored alongside the flat result.
+    const execCols = columnNames(this.db, 'node_executions');
+    if (!execCols.has('outputsjson')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN outputsJson TEXT`);
+    }
   }
 
   /**
@@ -322,8 +328,8 @@ export class RunStore {
       INSERT INTO node_executions (
         runId, nodeId, workflowVersion, status, errorCategory,
         startedAt, completedAt, result, exitCode, error,
-        inputsJson, upstreamInputsJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        inputsJson, upstreamInputsJson, outputsJson
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       record.runId, record.nodeId, record.workflowVersion, record.status,
@@ -331,6 +337,7 @@ export class RunStore {
       record.startedAt, record.completedAt ?? null,
       record.result ?? null, record.exitCode ?? null, record.error ?? null,
       record.inputsJson ?? null, record.upstreamInputsJson ?? null,
+      record.outputsJson ?? null,
     );
   }
 
@@ -338,7 +345,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson'
     >>,
   ): void {
     const fields: string[] = [];
@@ -351,6 +358,7 @@ export class RunStore {
     if (updates.error !== undefined) { fields.push('error = ?'); values.push(updates.error); }
     if (updates.inputsJson !== undefined) { fields.push('inputsJson = ?'); values.push(updates.inputsJson); }
     if (updates.upstreamInputsJson !== undefined) { fields.push('upstreamInputsJson = ?'); values.push(updates.upstreamInputsJson); }
+    if (updates.outputsJson !== undefined) { fields.push('outputsJson = ?'); values.push(updates.outputsJson); }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -435,6 +443,7 @@ export class RunStore {
       error: (row.error as string | null) ?? undefined,
       inputsJson: (row.inputsJson as string | null) ?? undefined,
       upstreamInputsJson: (row.upstreamInputsJson as string | null) ?? undefined,
+      outputsJson: (row.outputsJson as string | null) ?? undefined,
     };
   }
 }
