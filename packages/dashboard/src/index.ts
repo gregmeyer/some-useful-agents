@@ -4,6 +4,7 @@ import {
   LocalProvider,
   RunStore,
   AgentStore,
+  ToolStore,
   EncryptedFileStore,
   loadAgents,
   readMcpToken,
@@ -21,6 +22,7 @@ import { agentsRouter } from './routes/agents.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
+import { toolsRouter } from './routes/tools.js';
 import { assetsRouter } from './routes/assets.js';
 import { settingsRouter } from './routes/settings.js';
 import { helpRouter } from './routes/help.js';
@@ -92,6 +94,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
+  app.use(toolsRouter);
 
   // Catch-all 404 for authenticated routes.
   app.use((_req, res) => {
@@ -125,6 +128,13 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   await provider.initialize();
 
   const secretsSession = new EncryptedFileSecretsSession(opts.secretsPath);
+  // Tool store shares the same DB path. WAL mode makes concurrent handles safe.
+  let toolStore: ToolStore | undefined;
+  try {
+    toolStore = new ToolStore(opts.dbPath);
+  } catch {
+    // Non-fatal: tools surface degrades to built-ins only.
+  }
 
   const ctx: DashboardContext = {
     token,
@@ -141,6 +151,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     dbPath: opts.dbPath,
     secretsPath: opts.secretsPath,
     rotateToken: () => rotateMcpToken(tokenPath),
+    toolStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
   };
 

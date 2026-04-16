@@ -1372,6 +1372,58 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
   });
 });
 
+describe('Dashboard /tools (v0.16 PR 3)', () => {
+  it('GET /tools lists built-in tools', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/tools')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('shell-exec');
+    expect(res.text).toContain('http-get');
+    expect(res.text).toContain('json-parse');
+    expect(res.text).toContain('Built-in tools');
+  });
+
+  it('GET /tools/:id renders a built-in tool detail page', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/tools/http-get')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('http-get');
+    expect(res.text).toContain('builtin');
+    expect(res.text).toContain('Inputs');
+    expect(res.text).toContain('url');
+    expect(res.text).toContain('Outputs');
+    expect(res.text).toContain('status');
+  });
+
+  it('GET /tools/:unknown redirects to /tools', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/tools/nonexistent')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/tools');
+  });
+
+  it('agent detail sidebar shows tool badges', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'tool-vis-test', name: 'Tool Vis', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli', 'seed');
+    const res = await request(app).get('/agents/tool-vis-test')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // v0.15 shell node → implicit tool badge "shell-exec" in the sidebar.
+    expect(res.text).toContain('shell-exec');
+    expect(res.text).toContain('/tools/shell-exec');
+  });
+});
+
 describe('Dashboard template palette (PR 5)', () => {
   async function seedTwoNodeAgent(id = 'palette-test') {
     agentStore.createAgent({
