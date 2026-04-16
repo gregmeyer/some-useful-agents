@@ -335,7 +335,13 @@ export async function executeAgentDag(
     try {
       if (builtinEntry) {
         // Built-in tool: call execute() directly, no child process.
-        const toolInputs = resolveToolInputs(node, upstreamSnapshot);
+        // Merge tool-level config (project defaults) with per-invocation
+        // inputs so the user doesn't repeat common values every node.
+        const toolInputs = {
+          ...(builtinEntry.definition.config ?? {}),
+          ...resolveToolInputs(node, upstreamSnapshot),
+          ...(node.action ? { _action: node.action } : {}),
+        };
         const ctx: BuiltinToolContext = {
           workingDirectory: node.workingDirectory,
           env,
