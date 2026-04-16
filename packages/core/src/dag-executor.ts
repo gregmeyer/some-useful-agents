@@ -262,7 +262,9 @@ export async function executeAgentDag(
     // Check if any required upstream was condition-skipped. If a node
     // depends on a condition-skipped node and doesn't have its own onlyIf
     // (which would let it evaluate independently), it cascades.
-    if (!node.onlyIf) {
+    // Exception: branch (merge) nodes handle missing upstreams gracefully
+    // by excluding them from the merged result — they should always run.
+    if (!node.onlyIf && node.type !== 'branch') {
       const skippedDep = (node.dependsOn ?? []).find((d) => skippedNodes.has(d));
       if (skippedDep) {
         deps.runStore.createNodeExecution({
@@ -300,6 +302,43 @@ export async function executeAgentDag(
     // Control-flow node dispatch. These run in-process (no spawn, no env
     // resolution needed) and produce structured outputs that downstream
     // nodes consume via onlyIf predicates or template refs.
+    if (node.type === 'branch') {
+      // Branch (merge) node: collects all upstream outputs into a merged
+      // result. Acts as an explicit fan-in point — waits for all dependsOn
+      // to complete (the topo sort already guarantees this), then produces
+      // a { merged: Record<string, unknown> } where each key is an upstream
+      // node id and the value is its structured output or result string.
+      const merged: Record<string, unknown> = {};
+      for (const dep of node.dependsOn ?? []) {
+        const upOutput = outputs.get(dep);
+        if (upOutput) {
+          merged[dep] = upOutput.outputs ?? upOutput.result;
+        }
+        // Condition-skipped upstreams are absent from `outputs` — they
+        // simply don't appear in the merged result, which is correct.
+      }
+      const output = { merged, count: Object.keys(merged).length };
+      const outputsJson = JSON.stringify(output);
+      outputs.set(node.id, {
+        result: outputsJson,
+        exitCode: 0,
+        source: agent.source,
+        outputs: output,
+      });
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'completed',
+        startedAt: nodeStartedAt,
+        completedAt: new Date().toISOString(),
+        result: outputsJson,
+        exitCode: 0,
+        outputsJson,
+      });
+      continue;
+    }
+
     if (node.type === 'end') {
       // End node: terminate the entire flow cleanly. All remaining nodes
       // are skipped with flow_ended. The run completes as 'completed'
