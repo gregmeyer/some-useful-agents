@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process';
 import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, OnlyIfCondition } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
+import type { AgentStore } from './agent-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
@@ -51,6 +52,11 @@ export interface DagExecutorDeps {
    * — if absent, only built-in tools are available.
    */
   toolStore?: ToolStore;
+  /**
+   * v0.16+: agent store for resolving sub-agents in `agent-invoke` nodes.
+   * Required iff any node has `type: 'agent-invoke'`.
+   */
+  agentStore?: AgentStore;
   /**
    * Agent ids the operator has pre-audited for community shell execution.
    * Propagated into each node's spawn; a shell node inside a `source:
@@ -94,6 +100,10 @@ export interface DagExecuteOptions {
    *     the pivot with a missing upstream.
    */
   replayFrom?: { priorRunId: string; fromNodeId: string };
+  /** Flow control: set when this execution is a nested sub-flow invoked
+   *  by an `agent-invoke` or `loop` node in a parent run. */
+  parentRunId?: string;
+  parentNodeId?: string;
 }
 
 /**
@@ -138,6 +148,8 @@ export async function executeAgentDag(
     workflowVersion: agent.version,
     replayedFromRunId: options.replayFrom?.priorRunId,
     replayedFromNodeId: options.replayFrom?.fromNodeId,
+    parentRunId: options.parentRunId,
+    parentNodeId: options.parentNodeId,
   });
 
   const outputs = new Map<string, NodeOutput>();
@@ -271,6 +283,44 @@ export async function executeAgentDag(
     // Control-flow node dispatch. These run in-process (no spawn, no env
     // resolution needed) and produce structured outputs that downstream
     // nodes consume via onlyIf predicates or template refs.
+    if (node.type === 'agent-invoke') {
+      const invokeResult = await executeAgentInvokeNode(node, outputs, runId, options, deps, agent);
+      const completedAt = new Date().toISOString();
+      if (invokeResult.ok) {
+        const outputsJson = invokeResult.output ? JSON.stringify(invokeResult.output) : undefined;
+        outputs.set(node.id, {
+          result: invokeResult.result ?? '',
+          exitCode: 0,
+          source: agent.source,
+          outputs: invokeResult.output,
+        });
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'completed',
+          startedAt: nodeStartedAt,
+          completedAt,
+          result: invokeResult.result,
+          exitCode: 0,
+          outputsJson,
+        });
+      } else {
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'failed',
+          errorCategory: 'setup',
+          startedAt: nodeStartedAt,
+          completedAt,
+          error: invokeResult.error,
+        });
+        firstFailure = { nodeId: node.id, category: 'setup' };
+      }
+      continue;
+    }
+
     if (node.type === 'conditional' || node.type === 'switch') {
       const cfResult = executeControlFlowNode(node, outputs);
       const completedAt = new Date().toISOString();
@@ -928,6 +978,97 @@ function executeSwitchNode(
   }
 
   return { ok: true, output: { case: matchedCase, value } };
+}
+
+// -- agent-invoke dispatch --
+
+interface AgentInvokeResult {
+  ok: boolean;
+  result?: string;
+  output?: Record<string, unknown>;
+  error?: string;
+}
+
+/**
+ * Execute an `agent-invoke` node. Resolves the sub-agent from the
+ * AgentStore, maps inputs from upstream outputs, then recursively calls
+ * `executeAgentDag`. The sub-agent gets its own `runs` row linked to
+ * the parent via `parentRunId` + `parentNodeId`.
+ */
+async function executeAgentInvokeNode(
+  node: AgentNode,
+  outputs: Map<string, NodeOutput>,
+  parentRunId: string,
+  parentOptions: DagExecuteOptions,
+  deps: DagExecutorDeps,
+  parentAgent: Agent,
+): Promise<AgentInvokeResult> {
+  const config = node.agentInvokeConfig;
+  if (!config) {
+    return { ok: false, error: 'agent-invoke node missing agentInvokeConfig' };
+  }
+  if (!deps.agentStore) {
+    return { ok: false, error: 'agent-invoke requires agentStore on DagExecutorDeps' };
+  }
+
+  const subAgent = deps.agentStore.getAgent(config.agentId);
+  if (!subAgent) {
+    return { ok: false, error: `Sub-agent "${config.agentId}" not found in store` };
+  }
+
+  // Map inputs from upstream outputs or the parent's caller inputs.
+  const subInputs: Record<string, string> = {};
+  if (config.inputMapping) {
+    for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
+      // sourceExpr can be a literal or an upstream path like "upstream.fetch.result".
+      if (sourceExpr.startsWith('upstream.')) {
+        const parts = sourceExpr.split('.');
+        const upId = parts[1];
+        const field = parts.slice(2).join('.');
+        const upOutput = outputs.get(upId);
+        if (upOutput?.outputs) {
+          const val = walkPath(upOutput.outputs, field);
+          subInputs[subKey] = val !== undefined ? String(val) : '';
+        } else if (upOutput) {
+          subInputs[subKey] = upOutput.result;
+        }
+      } else {
+        // Literal value or parent input ref.
+        subInputs[subKey] = sourceExpr;
+      }
+    }
+  }
+
+  // Recursive execution with nested-run linking.
+  const subRun = await executeAgentDag(
+    subAgent,
+    {
+      triggeredBy: parentOptions.triggeredBy,
+      inputs: subInputs,
+      parentRunId,
+      parentNodeId: node.id,
+    },
+    deps,
+  );
+
+  if (subRun.status === 'completed') {
+    // Parse the sub-run's result as structured output if possible.
+    let output: Record<string, unknown> = { result: subRun.result ?? '' };
+    if (subRun.result) {
+      try {
+        const parsed = JSON.parse(subRun.result);
+        if (typeof parsed === 'object' && parsed !== null) {
+          output = { ...parsed, result: subRun.result };
+        }
+      } catch { /* plain string result */ }
+    }
+    return { ok: true, result: subRun.result ?? '', output };
+  }
+
+  return {
+    ok: false,
+    error: `Sub-agent "${config.agentId}" failed: ${subRun.error ?? subRun.status}`,
+  };
 }
 
 // -- onlyIf evaluation --
