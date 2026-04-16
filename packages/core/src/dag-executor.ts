@@ -283,6 +283,44 @@ export async function executeAgentDag(
     // Control-flow node dispatch. These run in-process (no spawn, no env
     // resolution needed) and produce structured outputs that downstream
     // nodes consume via onlyIf predicates or template refs.
+    if (node.type === 'loop') {
+      const loopResult = await executeLoopNode(node, outputs, runId, options, deps, agent);
+      const completedAt = new Date().toISOString();
+      if (loopResult.ok) {
+        const outputsJson = JSON.stringify(loopResult.output);
+        outputs.set(node.id, {
+          result: JSON.stringify(loopResult.output),
+          exitCode: 0,
+          source: agent.source,
+          outputs: loopResult.output,
+        });
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'completed',
+          startedAt: nodeStartedAt,
+          completedAt,
+          result: JSON.stringify(loopResult.output),
+          exitCode: 0,
+          outputsJson,
+        });
+      } else {
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'failed',
+          errorCategory: 'setup',
+          startedAt: nodeStartedAt,
+          completedAt,
+          error: loopResult.error,
+        });
+        firstFailure = { nodeId: node.id, category: 'setup' };
+      }
+      continue;
+    }
+
     if (node.type === 'agent-invoke') {
       const invokeResult = await executeAgentInvokeNode(node, outputs, runId, options, deps, agent);
       const completedAt = new Date().toISOString();
@@ -1068,6 +1106,107 @@ async function executeAgentInvokeNode(
   return {
     ok: false,
     error: `Sub-agent "${config.agentId}" failed: ${subRun.error ?? subRun.status}`,
+  };
+}
+
+// -- loop dispatch --
+
+/**
+ * Execute a `loop` node. Iterates over an array extracted from upstream
+ * structured output, invoking a sub-agent per item. Each iteration is
+ * a nested run linked to the parent. Results are collected into an
+ * `{ items: result[], count: number }` output.
+ *
+ * If any iteration fails, the loop continues (best-effort) and the
+ * failed item is recorded as `null` in the items array. The loop node
+ * itself only fails if the config is invalid or the sub-agent can't
+ * be found.
+ */
+async function executeLoopNode(
+  node: AgentNode,
+  outputs: Map<string, NodeOutput>,
+  parentRunId: string,
+  parentOptions: DagExecuteOptions,
+  deps: DagExecutorDeps,
+  parentAgent: Agent,
+): Promise<AgentInvokeResult> {
+  const config = node.loopConfig;
+  if (!config) {
+    return { ok: false, error: 'Loop node missing loopConfig' };
+  }
+  if (!deps.agentStore) {
+    return { ok: false, error: 'Loop node requires agentStore on DagExecutorDeps' };
+  }
+
+  const subAgent = deps.agentStore.getAgent(config.agentId);
+  if (!subAgent) {
+    return { ok: false, error: `Loop sub-agent "${config.agentId}" not found in store` };
+  }
+
+  // Extract the array to iterate over from the first upstream's output.
+  const upstreamId = (node.dependsOn ?? [])[0];
+  if (!upstreamId) {
+    return { ok: false, error: 'Loop node has no dependsOn' };
+  }
+  const upOutput = outputs.get(upstreamId);
+  if (!upOutput) {
+    return { ok: false, error: `Upstream "${upstreamId}" has no output` };
+  }
+
+  let items: unknown[];
+  if (upOutput.outputs) {
+    const arr = walkPath(upOutput.outputs, config.over);
+    if (!Array.isArray(arr)) {
+      return { ok: false, error: `Loop field "${config.over}" on upstream "${upstreamId}" is not an array` };
+    }
+    items = arr;
+  } else {
+    try {
+      const parsed = JSON.parse(upOutput.result);
+      const arr = walkPath(parsed, config.over);
+      if (!Array.isArray(arr)) {
+        return { ok: false, error: `Loop field "${config.over}" on upstream "${upstreamId}" is not an array` };
+      }
+      items = arr;
+    } catch {
+      return { ok: false, error: `Cannot parse upstream "${upstreamId}" result as JSON for loop` };
+    }
+  }
+
+  const maxIter = config.maxIterations ?? 1000;
+  const limited = items.slice(0, maxIter);
+  const results: (string | null)[] = [];
+
+  for (let i = 0; i < limited.length; i++) {
+    const item = limited[i];
+    // Each iteration passes the current item as the ITEM input to the sub-agent.
+    const subInputs: Record<string, string> = {
+      ITEM: typeof item === 'string' ? item : JSON.stringify(item),
+      ITEM_INDEX: String(i),
+    };
+
+    const subRun = await executeAgentDag(
+      subAgent,
+      {
+        triggeredBy: parentOptions.triggeredBy,
+        inputs: subInputs,
+        parentRunId,
+        parentNodeId: node.id,
+      },
+      deps,
+    );
+
+    if (subRun.status === 'completed') {
+      results.push(subRun.result ?? null);
+    } else {
+      results.push(null);
+    }
+  }
+
+  return {
+    ok: true,
+    result: JSON.stringify({ items: results, count: results.length }),
+    output: { items: results, count: results.length },
   };
 }
 
