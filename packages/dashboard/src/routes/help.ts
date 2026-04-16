@@ -105,6 +105,74 @@ helpRouter.post('/help/tutorial/scaffold-demo-dag', (req: Request, res: Response
   }
 });
 
+helpRouter.post('/help/tutorial/scaffold-parameterised-greet', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (ctx.agentStore.getAgent('parameterised-greet')) {
+    res.redirect(303, `/help/tutorial?flash=${encodeURIComponent('Agent "parameterised-greet" already exists.')}`);
+    return;
+  }
+  try {
+    ctx.agentStore.createAgent(
+      {
+        id: 'parameterised-greet',
+        name: 'Parameterised greeting',
+        description: 'Configurable greeting using agent inputs with defaults.',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: {
+          NAME: { type: 'string', default: 'World', description: 'Who to greet' },
+          STYLE: { type: 'enum', values: ['formal', 'casual'], default: 'casual' },
+        },
+        nodes: [{
+          id: 'greet',
+          type: 'shell',
+          command: 'if [ "$STYLE" = "formal" ]; then\n  echo "Good day, $NAME. I trust you are well."\nelse\n  echo "Hey $NAME! What\'s up?"\nfi',
+        }],
+      },
+      'dashboard',
+      'Scaffolded from /help/tutorial',
+    );
+    res.redirect(303, `/agents/parameterised-greet?from=tutorial&flash=${encodeURIComponent('Created! Try: Run now, or run from CLI with --input NAME=Greg --input STYLE=formal')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/help/tutorial?flash=${encodeURIComponent(`Scaffold failed: ${msg}`)}`);
+  }
+});
+
+helpRouter.post('/help/tutorial/scaffold-conditional-router', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (ctx.agentStore.getAgent('conditional-router')) {
+    res.redirect(303, `/help/tutorial?flash=${encodeURIComponent('Agent "conditional-router" already exists.')}`);
+    return;
+  }
+  try {
+    ctx.agentStore.createAgent(
+      {
+        id: 'conditional-router',
+        name: 'Conditional router',
+        description: 'Routes data through different paths based on content. Teaches flow control.',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [
+          { id: 'classify', type: 'shell', command: 'echo \'{"category":"tech","title":"New AI model released"}\'' },
+          { id: 'check', type: 'conditional' as 'shell', dependsOn: ['classify'], conditionalConfig: { predicate: { field: 'category', equals: 'tech' } } },
+          { id: 'tech-path', type: 'shell', command: 'echo "TECH ALERT: $UPSTREAM_CLASSIFY_RESULT"', dependsOn: ['check'], onlyIf: { upstream: 'check', field: 'matched', equals: true } },
+          { id: 'general-path', type: 'shell', command: 'echo "General news: $UPSTREAM_CLASSIFY_RESULT"', dependsOn: ['check'], onlyIf: { upstream: 'check', field: 'matched', notEquals: true } },
+          { id: 'merge', type: 'branch' as 'shell', dependsOn: ['tech-path', 'general-path'] },
+        ],
+      },
+      'dashboard',
+      'Scaffolded from /help/tutorial',
+    );
+    res.redirect(303, `/agents/conditional-router?from=tutorial&flash=${encodeURIComponent('Created! Run it to see conditional routing in action.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/help/tutorial?flash=${encodeURIComponent(`Scaffold failed: ${msg}`)}`);
+  }
+});
+
 function collectTutorialState(req: Request): TutorialState & { flash?: string } {
   const ctx = getContext(req.app.locals);
 
@@ -129,6 +197,9 @@ function collectTutorialState(req: Request): TutorialState & { flash?: string } 
 
   const hasHelloAgent = !!ctx.agentStore.getAgent('hello');
   const hasDemoDag = !!ctx.agentStore.getAgent('demo-digest');
+  const hasParameterisedGreet = !!ctx.agentStore.getAgent('parameterised-greet');
+  const hasConditionalRouter = !!ctx.agentStore.getAgent('conditional-router');
+  const hasResearchDigest = !!ctx.agentStore.getAgent('research-digest');
 
   // Pick the friendliest starting agent: prefer single-node v2, then any v2, then v1.
   const firstAgentId = v2Agents.find((a) => a.nodes.length === 1)?.id
@@ -146,6 +217,9 @@ function collectTutorialState(req: Request): TutorialState & { flash?: string } 
     latestRunId: latestRun?.id,
     hasHelloAgent,
     hasDemoDag,
+    hasParameterisedGreet,
+    hasConditionalRouter,
+    hasResearchDigest,
     flash,
   };
 }

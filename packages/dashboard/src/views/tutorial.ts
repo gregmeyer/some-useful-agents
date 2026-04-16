@@ -27,6 +27,12 @@ export interface TutorialState {
   hasHelloAgent: boolean;
   /** Whether the tutorial's scaffolded `demo-digest` 2-node DAG is in the DB. */
   hasDemoDag: boolean;
+  /** Whether the parameterised-greet example is in the DB. */
+  hasParameterisedGreet: boolean;
+  /** Whether the conditional-router example is in the DB. */
+  hasConditionalRouter: boolean;
+  /** Whether the research-digest example is in the DB. */
+  hasResearchDigest: boolean;
   /** Optional flash message from a scaffold action (success or error). */
   flash?: string;
 }
@@ -90,7 +96,9 @@ function buildSteps(s: TutorialState): Step[] {
     step2RunAnAgent(s),
     step3InspectOutput(s),
     step4MultiNodeDag(s),
-    step5WireUpSecret(s),
+    step5ConfigurableInputs(s),
+    step6FlowControl(s),
+    step7WireUpSecret(s),
   ];
 }
 
@@ -217,10 +225,65 @@ function step4MultiNodeDag(s: TutorialState): Step {
 }
 
 // ─── Step 5 ──────────────────────────────────────────────────────────
-// "Wire up a secret" — done when any agent declares a secret. Real CRUD
-// form lands in v0.15 PR 4; for now the action links to the placeholder
-// and the CLI command stays as the fallback.
-function step5WireUpSecret(s: TutorialState): Step {
+// "Make it configurable" — done when parameterised-greet exists.
+function step5ConfigurableInputs(s: TutorialState): Step {
+  const done = s.hasParameterisedGreet;
+
+  let summary: SafeHtml;
+  let action: SafeHtml | undefined;
+
+  if (done) {
+    summary = html`<span class="dim">The <code>parameterised-greet</code> agent is ready. Try running it with different inputs.</span>`;
+    action = html`<a class="btn btn--sm" href="/agents/parameterised-greet">View agent \u2192</a>`;
+  } else {
+    summary = html`
+      <div class="dim" style="margin-bottom: var(--space-3);">
+        Agents can declare inputs with defaults. Users supply values at run time via <code>--input NAME=Greg</code>.
+        This agent greets someone by name in a chosen style.
+      </div>
+    `;
+    action = html`
+      <form method="POST" action="/help/tutorial/scaffold-parameterised-greet" style="margin: 0; display: inline;">
+        <button type="submit" class="btn btn--primary btn--sm">Create parameterised-greet</button>
+      </form>
+    `;
+  }
+
+  return { n: 5, title: 'Make it configurable (inputs)', done, summary, action };
+}
+
+// ─── Step 6 ──────────────────────────────────────────────────────────
+// "Route with flow control" — done when conditional-router exists.
+function step6FlowControl(s: TutorialState): Step {
+  const done = s.hasConditionalRouter;
+
+  let summary: SafeHtml;
+  let action: SafeHtml | undefined;
+
+  if (done) {
+    summary = html`<span class="dim">The <code>conditional-router</code> agent is ready. Run it to see how data routes through different paths.</span>`;
+    action = html`<a class="btn btn--sm" href="/agents/conditional-router">View agent \u2192</a>`;
+  } else {
+    summary = html`
+      <div class="dim" style="margin-bottom: var(--space-3);">
+        Flow control nodes let agents make decisions. A <code>conditional</code> node evaluates a predicate;
+        downstream nodes use <code>onlyIf</code> to run only when the condition matches. A <code>branch</code>
+        node merges the results.
+      </div>
+    `;
+    action = html`
+      <form method="POST" action="/help/tutorial/scaffold-conditional-router" style="margin: 0; display: inline;">
+        <button type="submit" class="btn btn--primary btn--sm">Create conditional-router</button>
+      </form>
+    `;
+  }
+
+  return { n: 6, title: 'Route with flow control', done, summary, action };
+}
+
+// ─── Step 7 ──────────────────────────────────────────────────────────
+// "Wire up a secret" — done when any agent declares a secret.
+function step7WireUpSecret(s: TutorialState): Step {
   const done = s.usesSecrets;
   const summary = done
     ? html`<span class="dim">At least one agent declares a secret. Verify it's set on the Settings page.</span>`
