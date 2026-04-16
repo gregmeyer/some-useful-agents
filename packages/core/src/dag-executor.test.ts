@@ -1042,3 +1042,138 @@ describe('executeAgentDag — agent-invoke (Flow PR C)', () => {
     expect(execs.find((e) => e.nodeId === 'process')!.status).toBe('completed');
   });
 });
+
+describe('executeAgentDag — loop (Flow PR D)', () => {
+  let agentStore: AgentStore;
+
+  beforeEach(() => {
+    agentStore = new AgentStore(join(dir, 'runs.db'));
+  });
+
+  afterEach(() => {
+    try { agentStore.close(); } catch {}
+  });
+
+  it('iterates over an array and invokes sub-agent per item', async () => {
+    agentStore.createAgent(
+      {
+        id: 'item-handler',
+        name: 'Item Handler',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'handle', type: 'shell', command: 'echo "handled-$ITEM"' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: { over: 'items', agentId: 'item-handler' },
+        },
+      ],
+    });
+
+    const spawner = cannedSpawner({
+      source: { exitCode: 0, result: '{"items": ["a", "b", "c"]}' },
+    });
+    // Don't mock the sub-agent spawns — let them run real shell.
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    const loopExec = execs.find((e) => e.nodeId === 'each');
+    expect(loopExec!.status).toBe('completed');
+
+    const loopOutput = JSON.parse(loopExec!.result!);
+    expect(loopOutput.count).toBe(3);
+    expect(loopOutput.items).toHaveLength(3);
+
+    // Verify nested runs were created.
+    const allRuns = runStore.queryRuns({ limit: 20, offset: 0, statuses: [] });
+    const subRuns = allRuns.rows.filter((r) => r.parentRunId === run.id);
+    expect(subRuns).toHaveLength(3);
+  });
+
+  it('fails cleanly when loop field is not an array', async () => {
+    agentStore.createAgent(
+      {
+        id: 'dummy',
+        name: 'Dummy',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo ok' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: { over: 'notAnArray', agentId: 'dummy' },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      source: { exitCode: 0, result: '{"notAnArray": "string"}' },
+    });
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('failed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'each')!.error).toContain('not an array');
+  });
+
+  it('respects maxIterations', async () => {
+    agentStore.createAgent(
+      {
+        id: 'counter',
+        name: 'Counter',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'count', type: 'shell', command: 'echo counted' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: { over: 'items', agentId: 'counter', maxIterations: 2 },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      source: { exitCode: 0, result: '{"items": [1, 2, 3, 4, 5]}' },
+    });
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const loopOutput = JSON.parse(
+      runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'each')!.result!,
+    );
+    // Only 2 iterations despite 5 items.
+    expect(loopOutput.count).toBe(2);
+  });
+});
