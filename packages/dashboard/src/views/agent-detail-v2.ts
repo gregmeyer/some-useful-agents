@@ -104,7 +104,7 @@ export async function renderAgentDetailV2(args: {
         <td style="white-space: nowrap;">
           <a class="btn btn--sm" href="/agents/${agent.id}/nodes/${n.id}/edit">Edit</a>
           <form method="POST" action="/agents/${agent.id}/nodes/${n.id}/delete" style="display: inline; margin: 0;"
-                onsubmit="return confirm('Delete node \\'${n.id}\\'?');">
+                data-confirm="Delete node '${n.id}'? This creates a new version. Refuses if downstream nodes depend on it.">
             <button type="submit" class="btn btn--sm btn--ghost" style="color: var(--color-err);">Delete</button>
           </form>
         </td>

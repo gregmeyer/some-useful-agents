@@ -348,7 +348,7 @@ describe('Dashboard /runs/:id per-node table', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Per-node execution');
+    expect(res.text).toContain('Node execution');
     expect(res.text).toContain('first');
     expect(res.text).toContain('second');
     expect(res.text).toContain('exit_nonzero');
@@ -366,7 +366,7 @@ describe('Dashboard /runs/:id per-node table', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).not.toContain('Per-node execution');
+    expect(res.text).not.toContain('Node execution');
     expect(res.text).not.toContain('id="dag-canvas"');
   });
 

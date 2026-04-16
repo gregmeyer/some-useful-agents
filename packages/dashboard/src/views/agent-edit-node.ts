@@ -60,11 +60,9 @@ export function renderAgentEditNode(args: {
     : html``;
 
   const headerCta = html`
-    <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" style="margin: 0;">
-      <button type="submit" class="btn btn--warn"
-        onclick="return confirm('Delete node \\'${node.id}\\'? Refuses if any downstream node depends on it. Saving creates a new agent version.');">
-        Delete node
-      </button>
+    <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" style="margin: 0;"
+      data-confirm="Delete node '${node.id}'? Refuses if downstream nodes depend on it. Creates a new agent version.">
+      <button type="submit" class="btn btn--warn">Delete node</button>
     </form>
   `;
 
@@ -185,11 +183,16 @@ function renderAvailableVars(agent: Agent, node: AgentNode): SafeHtml {
 
   for (const [name, spec] of inputs) {
     const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const desc = spec.description ?? '';
+    const info = [
+      defVal ? `default: ${defVal}` : 'required',
+      desc,
+    ].filter(Boolean).join(' \u2014 ');
     rows.push(html`
       <tr>
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>agent input</td>
-        <td class="dim">${defVal ? `default: ${defVal}` : 'required'}</td>
+        <td class="dim">${info}</td>
       </tr>
     `);
   }
@@ -218,10 +221,47 @@ function renderAvailableVars(agent: Agent, node: AgentNode): SafeHtml {
   return html`
     <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-raised);">
       <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Available variables</legend>
-      <table class="table" style="font-size: var(--font-size-xs);">
-        <thead><tr><th>Variable</th><th>Source</th><th>Info</th></tr></thead>
-        <tbody>${rows as unknown as SafeHtml[]}</tbody>
-      </table>
+      ${rows.length > 0 ? html`
+        <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+          <thead><tr><th>Variable</th><th>Source</th><th>Info</th></tr></thead>
+          <tbody>${rows as unknown as SafeHtml[]}</tbody>
+        </table>
+      ` : html`
+        <p class="dim" style="margin: 0 0 var(--space-3); font-size: var(--font-size-xs);">No variables in scope. Add an agent input below.</p>
+      `}
+      <details style="margin-top: var(--space-1);">
+        <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-primary); font-weight: var(--weight-medium);">+ Add a variable</summary>
+        <div style="margin-top: var(--space-2); display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
+          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+            Name
+            <input type="text" name="newInputName" placeholder="API_URL" pattern="[A-Z_][A-Z0-9_]*"
+              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+            Type
+            <select name="newInputType" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
+              <option value="string">string</option>
+              <option value="number">number</option>
+              <option value="boolean">boolean</option>
+              <option value="enum">enum</option>
+            </select>
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+            Default
+            <input type="text" name="newInputDefault" placeholder="optional"
+              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+            Description
+            <input type="text" name="newInputDescription" placeholder="optional"
+              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
+          </label>
+        </div>
+        <p class="dim" style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs);">
+          New variables are added as agent-level inputs when you save. Name must be UPPERCASE_WITH_UNDERSCORES.
+          Use <code>$NAME</code> in shell commands or <code>{{inputs.NAME}}</code> in prompts.
+        </p>
+      </details>
     </fieldset>
   `;
 }

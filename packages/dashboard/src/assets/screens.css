@@ -246,6 +246,32 @@ main.main--wide {
   margin-top: var(--space-3);
 }
 
+/* Run detail 2-column grid — DAG left, node inspector right.
+ * Falls back to single column on narrow viewports. */
+.run-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .run-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.run-detail-grid__dag {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.run-detail-grid__inspector {
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
 /* ---------- Settings shell ---------- */
 .settings-shell {
   display: flex;
@@ -364,20 +390,22 @@ main.main--wide {
 
 /* Node-action dialog — opens on DAG node click. Uses the native <dialog>
  * element so the browser handles ESC + backdrop clicks + focus return. */
+/* Node-action dialog — MUI-inspired card. Tight padding, clean
+ * typography hierarchy, distinct header/body/footer bands. */
 .node-dialog {
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: var(--radius-lg);
   padding: 0;
-  max-width: 32rem;
-  width: 90%;
-  box-shadow: var(--shadow-md);
+  max-width: 26rem;
+  width: 92%;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.08);
   background: var(--color-surface);
   color: var(--color-text);
 }
 
 .node-dialog::backdrop {
-  background: rgb(15 23 42 / 0.45);
-  backdrop-filter: blur(1px);
+  background: rgb(15 23 42 / 0.5);
+  backdrop-filter: blur(2px);
 }
 
 .node-dialog__form {
@@ -392,38 +420,38 @@ main.main--wide {
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .node-dialog__id {
-  font-size: var(--font-size-md);
-  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-bold);
   color: var(--color-text);
+  letter-spacing: -0.01em;
 }
 
 .node-dialog__close {
   margin-left: auto;
   background: transparent;
   border: 0;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-md);
+  border-radius: 50%;
+  font-size: var(--font-size-sm);
   line-height: 1;
   color: var(--color-text-muted);
   cursor: pointer;
   padding: 0;
+  transition: background 100ms, color 100ms;
 }
 
 .node-dialog__close:hover {
   color: var(--color-text);
-  background: var(--color-border);
+  background: var(--color-surface-raised);
 }
 
 .node-dialog__close:focus,
@@ -434,27 +462,27 @@ main.main--wide {
 
 .node-dialog__meta {
   margin: 0;
-  padding: var(--space-4) var(--space-5) 0;
-  grid-template-columns: 7rem 1fr;
-  row-gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  grid-template-columns: 5.5rem 1fr;
+  row-gap: var(--space-1);
+  font-size: var(--font-size-xs);
 }
 
 .node-dialog__meta dt {
-  color: var(--color-text-muted);
+  color: var(--color-text-subtle);
   font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
 }
 
 .node-dialog__meta dd {
   margin: 0;
   color: var(--color-text);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
 }
 
 .node-dialog__explain {
-  padding: var(--space-4) var(--space-5) 0;
+  padding: 0 var(--space-4) var(--space-2);
   color: var(--color-text);
 }
 
@@ -464,15 +492,15 @@ main.main--wide {
 
 .node-dialog__explain-text {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   line-height: 1.5;
 }
 
 .node-dialog__warn {
-  margin: var(--space-3) 0 0;
+  margin: var(--space-2) 0 0;
   padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--color-warn);
   background: var(--color-warn-soft);
   border-radius: var(--radius-sm);
@@ -485,11 +513,8 @@ main.main--wide {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  padding: var(--space-4) var(--space-5);
-  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--color-border);
-  background: var(--color-surface-raised);
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
 
 .node-dialog__replay-form {

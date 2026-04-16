@@ -93,11 +93,19 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <div class="flash flash--error">${run.error}</div>
       ` : html``}
 
-      ${dagSection}
-      ${nodeCards}
-      ${isDagRun && canReplay ? renderReplayFallback(run, agent!) : html``}
-
-      ${isDagRun ? html`` : html`
+      ${isDagRun ? html`
+        <div class="run-detail-grid">
+          <div class="run-detail-grid__dag">
+            ${dagSection}
+            ${canReplay ? renderReplayFallback(run, agent!) : html``}
+          </div>
+          <div class="run-detail-grid__inspector">
+            <h2 style="margin-top: 0;">Node execution</h2>
+            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG to see its output.</p>
+            ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
+          </div>
+        </div>
+      ` : html`
         <h2>Output</h2>
         ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
       `}
@@ -108,7 +116,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     return render(html`<!DOCTYPE html><html><body>${fragment}</body></html>`);
   }
 
-  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs', flash }, fragment));
+  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs', flash, wide: !!isDagRun }, fragment));
 }
 
 /**
@@ -157,7 +165,7 @@ function renderReplayFallback(run: Run, agent: Agent): SafeHtml {
  * open by default so the user doesn't have to hunt for failures; others
  * are collapsed to reduce scroll.
  */
-function renderNodeCards(execs: NodeExecutionRecord[]): SafeHtml {
+function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay?: boolean): SafeHtml {
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
@@ -188,7 +196,15 @@ function renderNodeCards(execs: NodeExecutionRecord[]): SafeHtml {
             ${exitLabel ? html`<span class="mono">${exitLabel}</span>` : html``}
           </span>
         </summary>
-        <div class="run-node__body">${bodyBlocks as unknown as SafeHtml[]}</div>
+        <div class="run-node__body">
+          ${bodyBlocks as unknown as SafeHtml[]}
+          ${canReplay && runId ? html`
+            <form action="/runs/${runId}/replay" method="post" style="margin-top: var(--space-3);">
+              <input type="hidden" name="fromNodeId" value="${e.nodeId}">
+              <button type="submit" class="btn btn--sm btn--primary">Replay from ${e.nodeId}</button>
+            </form>
+          ` : html``}
+        </div>
       </details>
     `;
   });
