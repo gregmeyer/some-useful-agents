@@ -26,6 +26,7 @@ import { tutorialCommand } from './commands/tutorial.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { workflowCommand } from './commands/workflow.js';
 import { toolCommand } from './commands/tool.js';
+import { examplesCommand } from './commands/examples.js';
 
 // Read version from our own package.json so `sua --version` always matches
 // the installed package version (no hardcoded drift).
@@ -87,5 +88,6 @@ program.addCommand(tutorialCommand);
 program.addCommand(dashboardCommand);
 program.addCommand(workflowCommand);
 program.addCommand(toolCommand);
+program.addCommand(examplesCommand);
 
 program.parse();

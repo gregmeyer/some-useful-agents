@@ -1,13 +1,13 @@
 import { Command } from 'commander';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureMcpToken, getMcpTokenPath } from '@some-useful-agents/core';
+import { ensureMcpToken, getMcpTokenPath, AgentStore, parseAgent } from '@some-useful-agents/core';
 import { HELLO_AGENT_YAML } from '../scaffolds.js';
 import * as ui from '../ui.js';
 
 export const initCommand = new Command('init')
   .description('Initialize some-useful-agents in the current directory')
-  .action(() => {
+  .action(async () => {
     const configPath = join(process.cwd(), 'sua.config.json');
 
     if (existsSync(configPath)) {
@@ -53,9 +53,21 @@ export const initCommand = new Command('init')
       ui.ok(`Created ${tokenPath} (mode 0600) — MCP bearer token`);
     }
 
+    // Auto-install bundled example agents so the dashboard + agent list
+    // aren't empty on first visit. Users can remove them later with
+    // `sua examples remove`.
+    ui.section('Installing example agents');
+    try {
+      const { examplesInstall } = await import('./examples.js');
+      examplesInstall(join(config.dataDir, 'runs.db'), config.agentsDir);
+    } catch {
+      ui.info('Run `sua examples install` to add the bundled examples.');
+    }
+
     ui.section('Next steps');
     ui.step('sua tutorial', 'guided walkthrough (recommended)');
     ui.step('sua agent run hello', 'run your first agent');
+    ui.step('sua examples list', 'see installed example agents');
     ui.step('sua doctor', 'check prerequisites');
     ui.step('sua mcp start', 'start the local MCP server on 127.0.0.1:3003');
   });
