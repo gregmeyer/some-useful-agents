@@ -180,7 +180,9 @@ describe('Dashboard /runs + filters', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('No runs match');
+    // Dedicated "No runs yet" state (PR 5 polish) — was "No runs match"
+    // which didn't read right for a fresh install with no filters set.
+    expect(res.text).toContain('No runs yet');
   });
 
   it('filters by agent via query string', async () => {
@@ -1198,5 +1200,216 @@ describe('Dashboard /settings/integrations', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('Integrations');
     expect(res.text).toContain('coming in a later release');
+  });
+});
+
+describe('Dashboard /runs/:id/replay (PR 5)', () => {
+  async function seedTwoNodeAgentWithRun(agentId = 'replay-test') {
+    agentStore.createAgent({
+      id: agentId, name: 'Replay Test', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo fetched' },
+        { id: 'summarize', type: 'shell', command: 'echo summary', dependsOn: ['fetch'] },
+      ],
+    }, 'cli', 'seed');
+
+    const priorRunId = 'prior-run-1';
+    runStore.createRun({
+      id: priorRunId, agentName: agentId, status: 'completed',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      triggeredBy: 'cli',
+      workflowId: agentId,
+      workflowVersion: 1,
+    });
+    runStore.createNodeExecution({
+      runId: priorRunId, nodeId: 'fetch', workflowVersion: 1,
+      status: 'completed', startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(), exitCode: 0, result: 'fetched',
+    });
+    runStore.createNodeExecution({
+      runId: priorRunId, nodeId: 'summarize', workflowVersion: 1,
+      status: 'completed', startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(), exitCode: 0, result: 'summary',
+    });
+    return { agentId, priorRunId };
+  }
+
+  it('wires the DAG for replay on a completed v2 run', async () => {
+    const app = await makeApp();
+    const { priorRunId } = await seedTwoNodeAgentWithRun();
+    const res = await request(app).get(`/runs/${priorRunId}`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // The DAG canvas carries the replay run id so the client-side
+    // dialog can POST /runs/:id/replay when the user clicks a node.
+    expect(res.text).toContain(`data-replay-run-id="${priorRunId}"`);
+    // The <dialog> shell the client populates on node-tap.
+    expect(res.text).toContain('id="dag-node-dialog"');
+    // The click hint tells the user the interaction is available.
+    expect(res.text).toContain('Click a node to replay');
+    // No-JS fallback form is wrapped in <noscript>.
+    expect(res.text).toMatch(/<noscript>[\s\S]*action="\/runs\/[^"]+\/replay"/);
+  });
+
+  it('omits replay wiring on in-progress runs', async () => {
+    const app = await makeApp();
+    const { agentId } = await seedTwoNodeAgentWithRun('replay-running');
+    const runningId = 'running-run';
+    runStore.createRun({
+      id: runningId, agentName: agentId, status: 'running',
+      startedAt: new Date().toISOString(), triggeredBy: 'cli',
+      workflowId: agentId, workflowVersion: 1,
+    });
+    const res = await request(app).get(`/runs/${runningId}`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // No replay wiring while a run is still running — neither the
+    // canvas attribute nor the fallback form.
+    expect(res.text).not.toContain('data-replay-run-id');
+    expect(res.text).not.toMatch(/action="[^"]*\/replay"/);
+  });
+
+  it('agent detail wires the DAG for edit + replay-latest', async () => {
+    const app = await makeApp();
+    const { agentId } = await seedTwoNodeAgentWithRun('replay-agent-detail');
+    const res = await request(app).get(`/agents/${agentId}`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Edit-from-DAG and replay-latest-from-DAG both present.
+    expect(res.text).toContain(`data-edit-base="/agents/${agentId}/nodes"`);
+    expect(res.text).toMatch(/data-replay-run-id="prior-run-1"/);
+    // Stale "Click a node to inspect it" copy is gone; new honest hint
+    // reflects the interaction.
+    expect(res.text).not.toContain('Click a node to inspect it');
+    expect(res.text).toContain('Click a DAG node for its actions');
+  });
+
+  it('POST /runs/:id/replay with a missing fromNodeId flashes an error', async () => {
+    const app = await makeApp();
+    const { priorRunId } = await seedTwoNodeAgentWithRun();
+    const res = await request(app).post(`/runs/${priorRunId}/replay`)
+      .type('form')
+      .send({})
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe(`/runs/${priorRunId}?flash=${encodeURIComponent('Pick a node to replay from.')}`);
+  });
+
+  it('POST /runs/:id/replay with an unknown node flashes an error', async () => {
+    const app = await makeApp();
+    const { priorRunId } = await seedTwoNodeAgentWithRun();
+    const res = await request(app).post(`/runs/${priorRunId}/replay`)
+      .type('form')
+      .send({ fromNodeId: 'ghost-node' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(new RegExp(`^/runs/${priorRunId}\\?flash=`));
+    expect(decodeURIComponent(res.headers.location)).toContain('not in agent');
+  });
+
+  it('POST /runs/:id/replay dispatches + redirects to the new run', async () => {
+    const app = await makeApp();
+    const { priorRunId } = await seedTwoNodeAgentWithRun();
+    const res = await request(app).post(`/runs/${priorRunId}/replay`)
+      .type('form')
+      .send({ fromNodeId: 'summarize' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    // Replay redirects to the NEW run id — not the prior one.
+    expect(res.headers.location).toMatch(/^\/runs\/[^/?]+\?flash=/);
+    expect(res.headers.location).not.toContain(priorRunId);
+    expect(decodeURIComponent(res.headers.location)).toContain('Replayed from "summarize"');
+  });
+
+  it('POST /runs/:id/replay rejects cross-origin POSTs (CSRF defense)', async () => {
+    const app = await makeApp();
+    const { priorRunId } = await seedTwoNodeAgentWithRun();
+    const res = await request(app).post(`/runs/${priorRunId}/replay`)
+      .type('form')
+      .send({ fromNodeId: 'summarize' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Origin', 'http://evil.example.com')
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /runs/<missing> redirects to /runs with a flash', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/runs/does-not-exist')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/runs\?flash=/);
+    expect(decodeURIComponent(res.headers.location)).toContain('not found');
+  });
+
+  it('empty /runs renders the "No runs yet" state when nothing exists', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/runs')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('No runs yet');
+  });
+
+  it('filtered /runs with no matches renders "No runs match"', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/runs?agent=ghost')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('No runs match');
+    expect(res.text).toContain('Reset filters');
+  });
+});
+
+describe('Dashboard template palette (PR 5)', () => {
+  async function seedTwoNodeAgent(id = 'palette-test') {
+    agentStore.createAgent({
+      id, name: 'Palette Test', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo hi' },
+        { id: 'summarize', type: 'shell', command: 'echo bye', dependsOn: ['fetch'] },
+      ],
+    }, 'cli', 'seed');
+    return id;
+  }
+
+  it('add-node form embeds the palette suggestions payload', async () => {
+    const app = await makeApp();
+    const id = await seedTwoNodeAgent();
+    const res = await request(app).get(`/agents/${id}/add-node`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Both textareas are marked with their palette mode.
+    expect(res.text).toContain('data-template-palette="shell"');
+    expect(res.text).toContain('data-template-palette="claude"');
+    // The JSON payload carries every node id as a candidate upstream.
+    expect(res.text).toContain('<script id="palette-add-node" type="application/json">');
+    expect(res.text).toMatch(/"upstreams":\s*\["fetch","summarize"\]/);
+    // Friendly affordance hint is visible to the user.
+    expect(res.text).toContain('Type <code>$</code>');
+    expect(res.text).toContain('Type <code>{{</code>');
+  });
+
+  it('edit-node palette excludes the node itself from upstream suggestions', async () => {
+    const app = await makeApp();
+    const id = await seedTwoNodeAgent('palette-edit-test');
+    const res = await request(app).get(`/agents/${id}/nodes/fetch/edit`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Fetching the "fetch" node's edit form — the palette payload must
+    // not offer "fetch" as a self-reference candidate.
+    expect(res.text).toContain('<script id="palette-edit-node" type="application/json">');
+    expect(res.text).toMatch(/"upstreams":\s*\["summarize"\]/);
   });
 });

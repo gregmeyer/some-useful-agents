@@ -176,16 +176,140 @@ const GRAPH_RENDER_JS = `
   });
   cy.fit(undefined, 18);
 
-  // Click a node → anchor into the run-detail page on the same id.
-  // No-op on /agents/:id (no target); clickable on /runs/:id via the
-  // data-nav-base attribute the server rendered alongside the div.
+  // Click a node → open the node-action dialog with Edit + Replay buttons
+  // and metadata pulled from the same Cytoscape payload. When no dialog
+  // is present (older templates), fall back to hash-scrolling the per-node
+  // card below via data-nav-base.
   var navBase = el.getAttribute('data-nav-base');
-  if (navBase) {
-    cy.on('tap', 'node', function (evt) {
-      var nodeId = evt.target.id();
-      window.location.hash = 'node-' + encodeURIComponent(nodeId);
-    });
+  var replayRunId = el.getAttribute('data-replay-run-id');
+  var replayCommunity = el.getAttribute('data-replay-community') === '1';
+  var editBase = el.getAttribute('data-edit-base');
+  var dialog = document.getElementById('dag-node-dialog');
+  var dialogSupported = dialog && typeof dialog.showModal === 'function';
+
+  function fmtDuration(startedAt, completedAt) {
+    if (!startedAt || !completedAt) return '—';
+    var ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    if (!isFinite(ms) || ms < 0) return '—';
+    if (ms < 1000) return ms + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    var m = Math.floor(ms / 60000);
+    var s = Math.floor((ms % 60000) / 1000);
+    return m + 'm' + s + 's';
   }
+
+  function badge(kind, text) {
+    var span = document.createElement('span');
+    span.className = 'badge badge--' + kind;
+    span.textContent = text;
+    return span;
+  }
+
+  function openDialog(data) {
+    if (!dialogSupported) return false;
+    var idEl = dialog.querySelector('[data-node-id]');
+    var typeEl = dialog.querySelector('[data-node-type]');
+    var statusEl = dialog.querySelector('[data-node-status]');
+    var depsEl = dialog.querySelector('[data-node-deps]');
+    var durEl = dialog.querySelector('[data-node-duration]');
+    var actionsEl = dialog.querySelector('[data-node-actions]');
+
+    idEl.textContent = data.id;
+
+    typeEl.innerHTML = '';
+    if (data.type) {
+      var tKind = data.type === 'shell' ? 'ok' : data.type === 'claude-code' ? 'info' : 'muted';
+      typeEl.appendChild(badge(tKind, data.type));
+    }
+
+    statusEl.innerHTML = '';
+    if (data.status) {
+      var sKind = data.status === 'completed' ? 'ok'
+        : data.status === 'failed' ? 'err'
+        : data.status === 'running' || data.status === 'pending' ? 'info'
+        : data.status === 'cancelled' ? 'warn'
+        : 'muted';
+      statusEl.appendChild(badge(sKind, data.status));
+    }
+
+    depsEl.textContent = data.dependsOn && data.dependsOn.length > 0 ? data.dependsOn : '—';
+    durEl.textContent = fmtDuration(data.startedAt, data.completedAt);
+
+    actionsEl.innerHTML = '';
+
+    if (editBase) {
+      var edit = document.createElement('a');
+      edit.className = 'btn btn--sm';
+      edit.textContent = 'Edit node';
+      edit.href = editBase + '/' + encodeURIComponent(data.id) + '/edit';
+      actionsEl.appendChild(edit);
+    }
+
+    if (replayRunId) {
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/runs/' + encodeURIComponent(replayRunId) + '/replay';
+      form.style.display = 'inline';
+
+      var fromInput = document.createElement('input');
+      fromInput.type = 'hidden';
+      fromInput.name = 'fromNodeId';
+      fromInput.value = data.id;
+      form.appendChild(fromInput);
+
+      if (replayCommunity) {
+        var confirmInput = document.createElement('input');
+        confirmInput.type = 'hidden';
+        confirmInput.name = 'confirm_community_shell';
+        confirmInput.value = 'yes';
+        form.appendChild(confirmInput);
+      }
+
+      var btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.className = 'btn btn--sm btn--primary';
+      btn.textContent = replayCommunity ? 'Replay from here (community)' : 'Replay from here';
+      btn.addEventListener('click', function (e) {
+        var msg = 'Replay from "' + data.id + '"? Upstream outputs will be reused and this node plus downstream nodes will re-run.';
+        if (replayCommunity) {
+          msg += '\\n\\nThis agent contains community shell nodes. Continue?';
+        }
+        if (!window.confirm(msg)) e.preventDefault();
+      });
+      form.appendChild(btn);
+      actionsEl.appendChild(form);
+    }
+
+    if (navBase) {
+      var jump = document.createElement('a');
+      jump.className = 'btn btn--sm btn--ghost';
+      jump.textContent = 'Jump to details';
+      jump.href = '#node-' + encodeURIComponent(data.id);
+      jump.addEventListener('click', function () { dialog.close(); });
+      actionsEl.appendChild(jump);
+    }
+
+    dialog.showModal();
+    return true;
+  }
+
+  cy.on('tap', 'node', function (evt) {
+    var n = evt.target;
+    var data = {
+      id: n.id(),
+      label: n.data('label'),
+      type: n.data('type'),
+      status: n.data('status'),
+      dependsOn: n.data('dependsOn') || '',
+      startedAt: n.data('startedAt'),
+      completedAt: n.data('completedAt'),
+      exitCode: n.data('exitCode'),
+    };
+    if (!openDialog(data)) {
+      // No dialog support (really old browser): fall back to hash-scroll.
+      if (navBase) window.location.hash = 'node-' + encodeURIComponent(data.id);
+    }
+  });
 })();
 `;
 

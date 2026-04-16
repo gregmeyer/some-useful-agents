@@ -20,12 +20,14 @@ export interface RunsListOptions {
     statuses: string[];
     triggeredBy: string[];
   };
+  /** Banner shown above the filter bar (redirected errors from mutation routes). */
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }
 
 const ALL_STATUSES: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
 
 export function renderRunsList(opts: RunsListOptions): string {
-  const { rows, total, limit, offset, filter, distinct } = opts;
+  const { rows, total, limit, offset, filter, distinct, flash } = opts;
 
   const showingStart = total === 0 ? 0 : offset + 1;
   const showingEnd = Math.min(offset + rows.length, total);
@@ -89,8 +91,23 @@ export function renderRunsList(opts: RunsListOptions): string {
     </form>
   `;
 
+  const hasAnyFilter = filter.agent !== undefined
+    || filter.triggeredBy !== undefined
+    || (filter.q !== undefined && filter.q.length > 0)
+    || filter.statuses.length > 0;
+
   const table = rows.length === 0
-    ? html`<p class="dim">No runs match the current filters.</p>`
+    ? hasAnyFilter
+      ? html`
+        <div class="settings-empty" style="margin-top: 0;">
+          <h3 style="margin-top: 0;">No runs match</h3>
+          <p class="dim">No runs match the current filters. <a href="/runs">Reset filters</a> to see everything.</p>
+        </div>`
+      : html`
+        <div class="settings-empty" style="margin-top: 0;">
+          <h3 style="margin-top: 0;">No runs yet</h3>
+          <p class="dim">Trigger your first run from the <a href="/agents">Agents</a> page or <code>sua workflow run &lt;id&gt;</code>.</p>
+        </div>`
     : html`
       <table class="table">
         <thead>
@@ -121,7 +138,7 @@ export function renderRunsList(opts: RunsListOptions): string {
     ${pager}
   `;
 
-  return render(layout({ title: 'Runs', activeNav: 'runs' }, body));
+  return render(layout({ title: 'Runs', activeNav: 'runs', flash }, body));
 }
 
 function buildUrl(filter: RunsListOptions['filter'], limit: number, offset: number): string {

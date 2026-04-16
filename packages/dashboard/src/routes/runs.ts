@@ -13,6 +13,9 @@ export const runsRouter: Router = Router();
 runsRouter.get('/runs', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
 
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const flash = flashParam ? { kind: 'error' as const, message: flashParam } : undefined;
+
   const agent = typeof req.query.agent === 'string' && req.query.agent.length > 0
     ? req.query.agent : undefined;
   const triggeredBy = typeof req.query.triggeredBy === 'string' && req.query.triggeredBy.length > 0
@@ -52,6 +55,7 @@ runsRouter.get('/runs', (req: Request, res: Response) => {
     offset,
     filter: { agent, statuses, triggeredBy, q },
     distinct,
+    flash,
   }));
 });
 
@@ -60,7 +64,7 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const run = ctx.runStore.getRun(id);
   if (!run) {
-    res.status(404).type('html').send(`<p>Run ${escapeAttr(id)} not found. <a href="/runs">Back</a></p>`);
+    res.status(404).redirect(303, `/runs?flash=${encodeURIComponent(`Run "${id}" not found. It may have been pruned by the retention policy.`)}`);
     return;
   }
 
@@ -84,15 +88,22 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   const expectedHost = `127.0.0.1:${ctx.port}`;
   const back = deriveBack(referer, expectedHost, req.query.from);
 
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back }));
+  // Flash from replay POSTs or run-now redirects. Failed replays
+  // 303-redirect back to the prior run with ?flash=; successful replays
+  // 303 to the NEW run's page and include a "Replayed from …" note.
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const isError = flashParam
+    ? /replay failed|not found|not in agent|needs|required|only works/i.test(flashParam)
+    : false;
+  const flash = flashParam
+    ? { kind: isError ? ('error' as const) : ('ok' as const), message: flashParam }
+    : undefined;
+
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
   if (typeof v !== 'string') return fallback;
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/[<>"&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', '&': '&amp;' }[c] ?? c));
 }
