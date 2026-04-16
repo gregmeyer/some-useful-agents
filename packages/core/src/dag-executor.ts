@@ -268,6 +268,47 @@ export async function executeAgentDag(
       continue;
     }
 
+    // Control-flow node dispatch. These run in-process (no spawn, no env
+    // resolution needed) and produce structured outputs that downstream
+    // nodes consume via onlyIf predicates or template refs.
+    if (node.type === 'conditional' || node.type === 'switch') {
+      const cfResult = executeControlFlowNode(node, outputs);
+      const completedAt = new Date().toISOString();
+      const outputsJson = JSON.stringify(cfResult.output);
+      if (cfResult.ok) {
+        outputs.set(node.id, {
+          result: JSON.stringify(cfResult.output),
+          exitCode: 0,
+          source: agent.source,
+          outputs: cfResult.output,
+        });
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'completed',
+          startedAt: nodeStartedAt,
+          completedAt,
+          result: JSON.stringify(cfResult.output),
+          exitCode: 0,
+          outputsJson,
+        });
+      } else {
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'failed',
+          errorCategory: 'setup',
+          startedAt: nodeStartedAt,
+          completedAt,
+          error: cfResult.error,
+        });
+        firstFailure = { nodeId: node.id, category: 'setup' };
+      }
+      continue;
+    }
+
     // Resolve inputs + upstream snapshot before spawning. Input-resolution
     // failures (e.g. secrets store locked, missing required input) count
     // as 'setup' category, not 'exit_nonzero'.
@@ -772,6 +813,122 @@ async function spawnProcess(
 // -- Env allowlists (duplicate of env-builder constants; keeping here lets
 //    the DAG executor build env without the v1 AgentDefinition intermediary.
 //    Extract to a shared module in a follow-up if this duplicates further.) --
+
+// -- Control-flow node dispatch --
+
+interface ControlFlowResult {
+  ok: boolean;
+  output: Record<string, unknown>;
+  error?: string;
+}
+
+/**
+ * Execute a `conditional` or `switch` node. Pure in-process evaluation —
+ * no child process, no env, no secrets. Reads the upstream structured
+ * output and produces a result downstream nodes consume.
+ */
+function executeControlFlowNode(
+  node: AgentNode,
+  outputs: Map<string, NodeOutput>,
+): ControlFlowResult {
+  if (node.type === 'conditional') {
+    return executeConditionalNode(node, outputs);
+  }
+  if (node.type === 'switch') {
+    return executeSwitchNode(node, outputs);
+  }
+  return { ok: false, output: {}, error: `Unknown control-flow type: ${node.type}` };
+}
+
+function executeConditionalNode(
+  node: AgentNode,
+  outputs: Map<string, NodeOutput>,
+): ControlFlowResult {
+  const config = node.conditionalConfig;
+  if (!config) {
+    return { ok: false, output: {}, error: 'Conditional node missing conditionalConfig' };
+  }
+  // The conditional evaluates against its first upstream's output.
+  const upstreamId = (node.dependsOn ?? [])[0];
+  if (!upstreamId) {
+    return { ok: false, output: {}, error: 'Conditional node has no dependsOn' };
+  }
+  const upOutput = outputs.get(upstreamId);
+  if (!upOutput) {
+    return { ok: false, output: {}, error: `Upstream "${upstreamId}" has no output` };
+  }
+
+  // Resolve the field value from structured output or parsed JSON result.
+  let value: unknown;
+  if (upOutput.outputs) {
+    value = walkPath(upOutput.outputs, config.predicate.field);
+  } else {
+    try {
+      const parsed = JSON.parse(upOutput.result);
+      value = walkPath(parsed, config.predicate.field);
+    } catch {
+      value = config.predicate.field === 'result' ? upOutput.result : undefined;
+    }
+  }
+
+  let matched = false;
+  if (config.predicate.exists !== undefined) {
+    matched = config.predicate.exists
+      ? (value !== undefined && value !== null)
+      : (value === undefined || value === null);
+  } else if (config.predicate.equals !== undefined) {
+    matched = value == config.predicate.equals;
+  } else if (config.predicate.notEquals !== undefined) {
+    matched = value != config.predicate.notEquals;
+  } else {
+    matched = value !== undefined && value !== null;
+  }
+
+  return { ok: true, output: { matched, value } };
+}
+
+function executeSwitchNode(
+  node: AgentNode,
+  outputs: Map<string, NodeOutput>,
+): ControlFlowResult {
+  const config = node.switchConfig;
+  if (!config) {
+    return { ok: false, output: {}, error: 'Switch node missing switchConfig' };
+  }
+  const upstreamId = (node.dependsOn ?? [])[0];
+  if (!upstreamId) {
+    return { ok: false, output: {}, error: 'Switch node has no dependsOn' };
+  }
+  const upOutput = outputs.get(upstreamId);
+  if (!upOutput) {
+    return { ok: false, output: {}, error: `Upstream "${upstreamId}" has no output` };
+  }
+
+  let value: unknown;
+  if (upOutput.outputs) {
+    value = walkPath(upOutput.outputs, config.field);
+  } else {
+    try {
+      const parsed = JSON.parse(upOutput.result);
+      value = walkPath(parsed, config.field);
+    } catch {
+      value = config.field === 'result' ? upOutput.result : undefined;
+    }
+  }
+
+  // Find matching case. Cases are keyed by name; the value stored is what
+  // the field should match. If none match, case = 'default' (always present
+  // implicitly).
+  let matchedCase = 'default';
+  for (const [caseName, caseValue] of Object.entries(config.cases)) {
+    if (value == caseValue) {
+      matchedCase = caseName;
+      break;
+    }
+  }
+
+  return { ok: true, output: { case: matchedCase, value } };
+}
 
 // -- onlyIf evaluation --
 

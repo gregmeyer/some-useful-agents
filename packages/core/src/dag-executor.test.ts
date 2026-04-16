@@ -727,6 +727,147 @@ describe('executeAgentDag — onlyIf conditional edges', () => {
     expect(execs.find((e) => e.nodeId === 'if-present')!.errorCategory).toBe('condition_not_met');
   });
 
+  it('conditional node evaluates predicate and outputs matched boolean', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo hi' },
+        {
+          id: 'check',
+          type: 'conditional' as any,
+          dependsOn: ['fetch'],
+          conditionalConfig: {
+            predicate: { field: 'status', equals: 200 },
+          },
+        },
+        {
+          id: 'process',
+          type: 'shell',
+          command: 'echo ok',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'matched', equals: true },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      fetch: { exitCode: 0, result: '{"status": 200}' },
+      process: { exitCode: 0, result: 'processed' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    const checkExec = execs.find((e) => e.nodeId === 'check');
+    expect(checkExec!.status).toBe('completed');
+    const checkOutput = JSON.parse(checkExec!.result!);
+    expect(checkOutput.matched).toBe(true);
+
+    const processExec = execs.find((e) => e.nodeId === 'process');
+    expect(processExec!.status).toBe('completed');
+  });
+
+  it('conditional node: unmatched predicate → downstream onlyIf skips', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo hi' },
+        {
+          id: 'check',
+          type: 'conditional' as any,
+          dependsOn: ['fetch'],
+          conditionalConfig: {
+            predicate: { field: 'status', equals: 200 },
+          },
+        },
+        {
+          id: 'process',
+          type: 'shell',
+          command: 'echo ok',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'matched', equals: true },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      fetch: { exitCode: 0, result: '{"status": 500}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    const checkOutput = JSON.parse(execs.find((e) => e.nodeId === 'check')!.result!);
+    expect(checkOutput.matched).toBe(false);
+    expect(execs.find((e) => e.nodeId === 'process')!.errorCategory).toBe('condition_not_met');
+  });
+
+  it('switch node routes to the matching case', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo hi' },
+        {
+          id: 'route',
+          type: 'switch' as any,
+          dependsOn: ['fetch'],
+          switchConfig: {
+            field: 'tier',
+            cases: { free: 'free', pro: 'pro', enterprise: 'enterprise' },
+          },
+        },
+        {
+          id: 'handle-free',
+          type: 'shell',
+          command: 'echo free',
+          dependsOn: ['route'],
+          onlyIf: { upstream: 'route', field: 'case', equals: 'free' },
+        },
+        {
+          id: 'handle-pro',
+          type: 'shell',
+          command: 'echo pro',
+          dependsOn: ['route'],
+          onlyIf: { upstream: 'route', field: 'case', equals: 'pro' },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      fetch: { exitCode: 0, result: '{"tier": "pro"}' },
+      'handle-pro': { exitCode: 0, result: 'handled pro' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'handle-free')!.errorCategory).toBe('condition_not_met');
+    expect(execs.find((e) => e.nodeId === 'handle-pro')!.status).toBe('completed');
+    const routeOutput = JSON.parse(execs.find((e) => e.nodeId === 'route')!.result!);
+    expect(routeOutput.case).toBe('pro');
+  });
+
+  it('switch node defaults to "default" when no case matches', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'echo hi' },
+        {
+          id: 'route',
+          type: 'switch' as any,
+          dependsOn: ['fetch'],
+          switchConfig: { field: 'tier', cases: { free: 'free', pro: 'pro' } },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      fetch: { exitCode: 0, result: '{"tier": "unknown"}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    const routeOutput = JSON.parse(
+      runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'route')!.result!,
+    );
+    expect(routeOutput.case).toBe('default');
+  });
+
   it('if/else branching: one branch runs, the other skips', async () => {
     const agent = makeAgent({
       nodes: [
