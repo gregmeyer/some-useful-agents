@@ -142,6 +142,15 @@ export const agentV2Schema = z.object({
 
   nodes: z.array(agentNodeSchema).min(1, 'An agent must have at least one node'),
 
+  signal: z.object({
+    title: z.string().min(1),
+    icon: z.string().optional(),
+    format: z.enum(['text', 'number', 'table', 'json', 'chart']),
+    field: z.string().optional(),
+    refresh: z.string().optional(),
+    size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(),
+  }).optional(),
+
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {

@@ -1,0 +1,14 @@
+{
+  "headlines": [
+    { "title": "New AI safety framework published", "category": "tech", "source": "TechCrunch" },
+    { "title": "Global temperatures hit record high", "category": "science", "source": "Nature" },
+    { "title": "Open source agent toolkit reaches 1.0", "category": "tech", "source": "GitHub Blog" },
+    { "title": "Quantum computing milestone achieved", "category": "science", "source": "Wired" },
+    { "title": "Developer productivity study shows 40% gains with AI", "category": "tech", "source": "InfoQ" },
+    { "title": "New renewable energy storage breakthrough", "category": "science", "source": "Ars Technica" },
+    { "title": "MCP protocol adoption doubles in Q1", "category": "tech", "source": "The Verge" },
+    { "title": "Mars sample return mission update", "category": "science", "source": "NASA" },
+    { "title": "Local-first software movement grows", "category": "tech", "source": "Ink & Switch" },
+    { "title": "Deep sea exploration finds new species", "category": "science", "source": "BBC" }
+  ]
+}

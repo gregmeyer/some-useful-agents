@@ -1,0 +1,18 @@
+# Tutorial step 3: Schedule an agent to run on a cron.
+# Teaches: schedule field, cron syntax.
+# Run: sua workflow run daily-greeting
+id: daily-greeting
+name: Daily greeting
+description: Scheduled agent — greets you every morning at 8am.
+status: active
+source: examples
+schedule: "0 8 * * *"
+signal:
+  title: Morning Greeting
+  icon: "\u2600\uFE0F"
+  format: text
+  refresh: 24h
+nodes:
+  - id: greet
+    type: shell
+    command: echo "Good morning! Today is $(date +%A), $(date +%B\ %d)."

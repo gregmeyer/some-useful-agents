@@ -1,0 +1,37 @@
+# Tutorial step 5: Route data through different paths using flow control.
+# Teaches: conditional node, onlyIf edges, branch (merge), switch.
+# Run: sua workflow run conditional-router
+id: conditional-router
+name: Conditional router
+description: Routes data through different paths based on content. Teaches flow control.
+status: active
+source: examples
+signal:
+  title: Router
+  icon: "\U0001F500"
+  format: json
+  field: merged
+nodes:
+  - id: classify
+    type: shell
+    command: echo '{"category":"tech","title":"New AI model released","priority":"high"}'
+  - id: check
+    type: conditional
+    dependsOn: [classify]
+    conditionalConfig:
+      predicate: { field: category, equals: tech }
+  - id: tech-path
+    type: shell
+    command: |
+      echo "TECH ALERT: $UPSTREAM_CLASSIFY_RESULT"
+    dependsOn: [check]
+    onlyIf: { upstream: check, field: matched, equals: true }
+  - id: general-path
+    type: shell
+    command: |
+      echo "General news: $UPSTREAM_CLASSIFY_RESULT"
+    dependsOn: [check]
+    onlyIf: { upstream: check, field: matched, notEquals: true }
+  - id: merge
+    type: branch
+    dependsOn: [tech-path, general-path]

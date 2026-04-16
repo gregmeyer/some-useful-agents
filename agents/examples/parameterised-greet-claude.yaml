@@ -1,0 +1,15 @@
+# Companion to parameterised-greet: same concept using Claude Code.
+# Requires ANTHROPIC_API_KEY in the secrets store.
+# Run: sua workflow run parameterised-greet-claude --input NAME=Greg
+id: parameterised-greet-claude
+name: Parameterised greeting (Claude)
+description: Same concept as parameterised-greet, using Claude Code instead of shell.
+status: active
+source: examples
+inputs:
+  NAME: { type: string, default: "World" }
+  STYLE: { type: enum, values: [formal, casual], default: casual }
+nodes:
+  - id: greet
+    type: claude-code
+    prompt: "Greet {{inputs.NAME}} in a {{inputs.STYLE}} style. One sentence only."

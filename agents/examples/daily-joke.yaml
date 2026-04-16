@@ -1,0 +1,31 @@
+# Tutorial step 7: Fetch real data from the internet.
+# Teaches: http-get tool, network egress, structured output.
+# NOTE: This example requires network access (icanhazdadjoke.com).
+# Run: sua workflow run daily-joke
+id: daily-joke
+name: Daily joke
+description: Fetches a real joke from the internet using the http-get tool.
+status: active
+source: examples
+signal:
+  title: Joke of the Day
+  icon: "\U0001F3AD"
+  format: text
+  refresh: 24h
+nodes:
+  - id: fetch
+    type: shell
+    tool: http-get
+    toolInputs:
+      url: "https://icanhazdadjoke.com/"
+  - id: format
+    type: shell
+    command: |
+      echo "=== Joke of the Day ==="
+      JOKE=$(echo "$UPSTREAM_FETCH_RESULT" | grep -o '"joke":"[^"]*"' | sed 's/"joke":"//;s/"$//' 2>/dev/null)
+      if [ -n "$JOKE" ]; then
+        echo "$JOKE"
+      else
+        echo "$UPSTREAM_FETCH_RESULT"
+      fi
+    dependsOn: [fetch]
