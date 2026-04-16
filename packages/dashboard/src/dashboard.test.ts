@@ -439,7 +439,7 @@ describe('Dashboard help + tutorial', () => {
     expect(res.text).toMatch(/You have a project[\s\S]*?badge--ok[\s\S]*?done/);
     // Step 2: "Run your first agent" — not done yet, should show to-do badge
     // The progress card should reflect: 1 of 5 complete
-    expect(res.text).toContain('of 5 steps complete');
+    expect(res.text).toContain('of 7 steps complete');
   });
 
   it('GET /help/tutorial references the first agent by id for the Run CTA', async () => {
