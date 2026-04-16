@@ -48,6 +48,7 @@ export const agentNodeSchema = z.object({
    * When absent, `type` is required and v0.15 rules apply.
    */
   tool: z.string().optional(),
+  action: z.string().optional(),
   toolInputs: z.record(z.unknown()).optional(),
 
   command: z.string().optional(),

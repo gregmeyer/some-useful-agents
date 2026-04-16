@@ -33,14 +33,22 @@ const toolImplementationSchema = z.object({
   { message: 'Shell tools need command, claude-code need prompt, builtin need builtinName' },
 );
 
+const toolActionSchema = z.object({
+  description: z.string().optional(),
+  inputs: z.record(z.string(), toolInputFieldSchema).default({}),
+  outputs: z.record(z.string(), toolOutputFieldSchema).default({}),
+});
+
 export const toolDefinitionSchema = z.object({
   id: z.string().regex(TOOL_ID_RE, 'Tool id must be lowercase with hyphens only'),
   name: z.string().min(1),
   description: z.string().optional(),
   source: z.enum(['local', 'examples', 'community', 'builtin']).default('local'),
 
+  config: z.record(z.unknown()).optional(),
   inputs: z.record(z.string(), toolInputFieldSchema).default({}),
   outputs: z.record(z.string(), toolOutputFieldSchema).default({}),
+  actions: z.record(z.string(), toolActionSchema).optional(),
 
   implementation: toolImplementationSchema,
 });
