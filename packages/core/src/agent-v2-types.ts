@@ -74,6 +74,13 @@ export interface AgentNode {
   tool?: string;
 
   /**
+   * For multi-action tools: which action to invoke. When the tool has
+   * `actions:` declared, this selects the operation (e.g. `action: "query"`
+   * on a postgres tool). Single-action tools ignore this field.
+   */
+  action?: string;
+
+  /**
    * Tool-specific inputs. When `tool:` is set, these are passed to the
    * tool's execute function. For backwards compat, `command` and `prompt`
    * continue to work as top-level fields and are folded into `toolInputs`

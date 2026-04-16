@@ -41,6 +41,32 @@ export interface ToolImplementation {
 }
 
 /**
+ * Tool-level configuration. Set once per project (or per tool install),
+ * persists across invocations. Merged with per-invocation `inputs` at
+ * dispatch time — config values act as defaults that inputs can override.
+ *
+ * Example: an `http-get` tool with `config.baseUrl` set means nodes
+ * only need to pass `inputs.path` instead of a full URL every time.
+ * Config values can reference secrets via `{{secrets.NAME}}` and
+ * global variables via `{{vars.NAME}}`.
+ */
+export interface ToolConfig {
+  [key: string]: unknown;
+}
+
+/**
+ * A named operation within a multi-action tool. Single-action tools
+ * (the common case) omit `actions` and use top-level `inputs`/`outputs`
+ * directly. Multi-action tools declare each operation with its own
+ * typed I/O; the node specifies `action: "query"` alongside `tool:`.
+ */
+export interface ToolAction {
+  description?: string;
+  inputs: Record<string, ToolInputField>;
+  outputs: Record<string, ToolOutputField>;
+}
+
+/**
  * The full definition of a tool as stored in `tools/` YAML or the DB.
  * Analogous to `Agent` for agents.
  */
@@ -50,8 +76,25 @@ export interface ToolDefinition {
   description?: string;
   source: ToolSource;
 
+  /**
+   * Project-level configuration. Merged with per-invocation inputs at
+   * dispatch time. Stored in `.sua/tool-config/<id>.json` or inline in
+   * the tool YAML for bundled defaults.
+   */
+  config?: ToolConfig;
+
+  /** Per-invocation inputs for single-action tools. */
   inputs: Record<string, ToolInputField>;
+  /** Declared outputs for single-action tools. */
   outputs: Record<string, ToolOutputField>;
+
+  /**
+   * Multi-action tools declare named operations here. When `actions` is
+   * set, the top-level `inputs`/`outputs` serve as shared defaults that
+   * every action inherits (actions can override per-field). Nodes
+   * reference a specific action via `action: "query"` on the node YAML.
+   */
+  actions?: Record<string, ToolAction>;
 
   implementation: ToolImplementation;
 

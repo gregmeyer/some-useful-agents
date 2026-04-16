@@ -29,6 +29,93 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // Tool-picker dropdown: swap visible input fields when the tool changes.
+  // shell-exec → Command textarea, claude-code → Prompt textarea, other →
+  // dynamically generated fields from the tool's declared inputs schema.
+  (function () {
+    var select = document.getElementById('node-tool-select');
+    var schemasEl = document.getElementById('tool-schemas');
+    var typeHidden = document.getElementById('node-type-hidden');
+    var descEl = document.getElementById('tool-description');
+    var inputsSection = document.getElementById('tool-inputs-section');
+    if (!select || !schemasEl) return;
+
+    var schemas;
+    try { schemas = JSON.parse(schemasEl.textContent || '{}'); } catch (e) { return; }
+
+    function updateDescription(toolId) {
+      if (!descEl || !schemas[toolId]) return;
+      descEl.textContent = schemas[toolId].description || '';
+    }
+
+    function updateType(toolId) {
+      if (!typeHidden || !schemas[toolId]) return;
+      var implType = schemas[toolId].implType;
+      typeHidden.value = implType === 'claude-code' ? 'claude-code' : 'shell';
+    }
+
+    function updateFields(toolId) {
+      // Show/hide the built-in command/prompt textareas.
+      var shellField = document.querySelector('[data-node-field="shell"]');
+      var claudeField = document.querySelector('[data-node-field="claude-code"]');
+      if (shellField) shellField.style.display = (toolId === 'shell-exec') ? '' : 'none';
+      if (claudeField) claudeField.style.display = (toolId === 'claude-code') ? '' : 'none';
+
+      // For non-builtin tools, generate inputs from the schema.
+      if (!inputsSection) return;
+      if (toolId === 'shell-exec' || toolId === 'claude-code') {
+        inputsSection.innerHTML = '';
+        return;
+      }
+      var schema = schemas[toolId];
+      if (!schema || !schema.inputs) { inputsSection.innerHTML = ''; return; }
+
+      // Determine palette mode from tool's implementation type.
+      var paletteMode = schema.implType === 'claude-code' ? 'claude' : 'shell';
+      // Find the palette-source id (reuse whichever one is on the page).
+      var existingPalette = document.querySelector('[data-palette-source]');
+      var paletteSource = existingPalette ? existingPalette.getAttribute('data-palette-source') : '';
+
+      var html = '';
+      for (var name in schema.inputs) {
+        var spec = schema.inputs[name];
+        var req = spec.required ? ' required' : '';
+        var defVal = spec['default'] !== undefined ? String(spec['default']) : '';
+        var isTextLike = spec.type === 'string' || spec.type === 'json';
+        html += '<label style="display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3);">';
+        html += '<strong>' + name + ' <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(' + spec.type + (spec.required ? ', required' : '') + ')</span></strong>';
+        if (isTextLike) {
+          // Use a textarea for string/json fields so the palette can trigger.
+          html += '<textarea name="toolInput_' + name + '" rows="2"' + req;
+          html += ' data-template-palette="both"';
+          html += ' data-palette-source="' + paletteSource + '"';
+          html += ' style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);font-family:var(--font-mono);resize:vertical;">';
+          html += defVal.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          html += '</textarea>';
+          html += '<span class="dim" style="font-size:var(--font-size-xs);">Type <code>$</code> or <code>{{</code> for available refs.</span>';
+        } else {
+          html += '<input type="text" name="toolInput_' + name + '" value="' + defVal.replace(/"/g, '&quot;') + '"' + req;
+          html += ' style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);font-family:var(--font-mono);">';
+        }
+        if (spec.description) html += '<span class="dim" style="font-size:var(--font-size-xs);">' + spec.description + '</span>';
+        html += '</label>';
+      }
+      inputsSection.innerHTML = html;
+    }
+
+    // Initial render.
+    var initial = select.value;
+    updateDescription(initial);
+    updateFields(initial);
+
+    select.addEventListener('change', function () {
+      var toolId = select.value;
+      updateDescription(toolId);
+      updateType(toolId);
+      updateFields(toolId);
+    });
+  })();
+
   // Grey-out the inactive node-type field (Command vs Prompt) based on
   // which <input type="radio" name="type"> is selected. The form still
   // submits both fields — the server validates against the selected
@@ -265,9 +352,14 @@ export const DASHBOARD_JS = `
       var sugg = getSuggestions(textarea);
       if (!sugg) { closePalette(); return; }
       var mode = textarea.getAttribute('data-template-palette');
-      // $ inside a claude-prompt textarea is just a literal $, not a trigger.
-      if (mode === 'claude' && trig.mode === 'shell') { closePalette(); return; }
-      if (mode === 'shell' && trig.mode === 'claude') { closePalette(); return; }
+      // For tool-input fields (mode="both"), show whichever syntax the
+      // user is typing. For dedicated Command/Prompt textareas, enforce
+      // the single syntax. "both" is set on dynamically generated tool
+      // input fields where the user may use either syntax.
+      if (mode !== 'both') {
+        if (mode === 'claude' && trig.mode === 'shell') { closePalette(); return; }
+        if (mode === 'shell' && trig.mode === 'claude') { closePalette(); return; }
+      }
 
       var all = buildItems(trig.mode, sugg);
       var filtered = filterItems(all, trig.query);

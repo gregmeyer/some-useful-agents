@@ -138,7 +138,7 @@ agentsRouter.get('/agents/:name/add-node', (req: Request, res: Response) => {
   }
   const fromCreate = req.query.fromCreate === '1';
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
-  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam }));
+  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore }));
 });
 
 agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
@@ -252,7 +252,7 @@ agentsRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respons
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Node "${nodeId}" not found.`)}`);
     return;
   }
-  res.type('html').send(renderAgentEditNode({ agent, node }));
+  res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore }));
 });
 
 agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
