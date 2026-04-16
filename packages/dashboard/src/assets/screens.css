@@ -507,6 +507,20 @@ main.main--wide {
   color: var(--color-warn);
 }
 
+/* Node-type fields on the add/edit-node forms. The field not matching
+ * the selected type radio is greyed out but remains in the DOM — the
+ * server still sees both, but the UI nudges the user toward editing
+ * only the one that matters for the selected type. */
+.node-field--inactive {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.node-field--inactive textarea {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
 /* Template palette — command/prompt textarea autocomplete for $ and {{ */
 .template-palette {
   display: none;

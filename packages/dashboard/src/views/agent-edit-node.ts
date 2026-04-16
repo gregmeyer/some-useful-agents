@@ -101,7 +101,7 @@ export function renderAgentEditNode(args: {
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
 
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
+      <label class="node-field" data-node-field="shell" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
         <strong>Command <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(shell only)</span></strong>
         <textarea name="command" rows="4"
           style="${TEXTAREA_STYLE}"
@@ -110,7 +110,7 @@ export function renderAgentEditNode(args: {
         <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
       </label>
 
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
+      <label class="node-field" data-node-field="claude-code" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
         <strong>Prompt <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(claude-code only)</span></strong>
         <textarea name="prompt" rows="4"
           style="${TEXTAREA_STYLE}"

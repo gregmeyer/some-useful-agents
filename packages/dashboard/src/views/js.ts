@@ -29,6 +29,41 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // Grey-out the inactive node-type field (Command vs Prompt) based on
+  // which <input type="radio" name="type"> is selected. The form still
+  // submits both fields — the server validates against the selected
+  // type — but visually the irrelevant one is dimmed and disabled for
+  // input so users don't waste time editing it.
+  (function () {
+    function syncFields() {
+      var checked = document.querySelector('input[type="radio"][name="type"]:checked');
+      if (!checked) return;
+      var active = checked.value;
+      var fields = document.querySelectorAll('[data-node-field]');
+      for (var i = 0; i < fields.length; i++) {
+        var f = fields[i];
+        if (f.getAttribute('data-node-field') === active) {
+          f.classList.remove('node-field--inactive');
+        } else {
+          f.classList.add('node-field--inactive');
+        }
+      }
+    }
+    document.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t && t.matches && t.matches('input[type="radio"][name="type"]')) {
+        syncFields();
+      }
+    });
+    // Run once on DOMContentLoaded so the initial render reflects the
+    // pre-checked radio.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', syncFields);
+    } else {
+      syncFields();
+    }
+  })();
+
   // ESC closes any open custom-modal backdrop (community-shell confirm,
   // run-now audit). Native <dialog> elements already close on ESC via
   // the browser's cancel event; this fills the gap for the older
@@ -171,6 +206,7 @@ export const DASHBOARD_JS = `
     }
 
     function positionPalette(textarea) {
+      ensurePalette();
       var rect = textarea.getBoundingClientRect();
       palette.style.left = Math.round(rect.left + window.scrollX) + 'px';
       palette.style.top = Math.round(rect.bottom + window.scrollY + 4) + 'px';
