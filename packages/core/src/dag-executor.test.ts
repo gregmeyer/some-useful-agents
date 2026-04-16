@@ -1178,6 +1178,85 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
   });
 });
 
+describe('executeAgentDag — branch merge (Flow PR F)', () => {
+  it('branch node merges all upstream outputs', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo a' },
+        { id: 'b', type: 'shell', command: 'echo b' },
+        {
+          id: 'merge',
+          type: 'branch' as any,
+          dependsOn: ['a', 'b'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      a: { exitCode: 0, result: '{"val":"from-a"}' },
+      b: { exitCode: 0, result: '{"val":"from-b"}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    const mergeExec = execs.find((e) => e.nodeId === 'merge');
+    expect(mergeExec!.status).toBe('completed');
+    const mergeOutput = JSON.parse(mergeExec!.result!);
+    expect(mergeOutput.count).toBe(2);
+    expect(mergeOutput.merged.a).toBeDefined();
+    expect(mergeOutput.merged.b).toBeDefined();
+  });
+
+  it('branch node excludes condition-skipped upstreams from merge', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'gate', type: 'shell', command: 'echo gate' },
+        {
+          id: 'cond',
+          type: 'conditional' as any,
+          dependsOn: ['gate'],
+          conditionalConfig: { predicate: { field: 'go', equals: true } },
+        },
+        {
+          id: 'path-a',
+          type: 'shell',
+          command: 'echo a',
+          dependsOn: ['cond'],
+          onlyIf: { upstream: 'cond', field: 'matched', equals: true },
+        },
+        {
+          id: 'path-b',
+          type: 'shell',
+          command: 'echo b',
+          dependsOn: ['cond'],
+          onlyIf: { upstream: 'cond', field: 'matched', notEquals: true },
+        },
+        {
+          id: 'merge',
+          type: 'branch' as any,
+          dependsOn: ['path-a', 'path-b'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      gate: { exitCode: 0, result: '{"go": true}' },
+      'path-a': { exitCode: 0, result: 'took-a' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const mergeOutput = JSON.parse(
+      runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'merge')!.result!,
+    );
+    // Only path-a is in the merge; path-b was condition-skipped.
+    expect(mergeOutput.count).toBe(1);
+    expect(mergeOutput.merged['path-a']).toBeDefined();
+    expect(mergeOutput.merged['path-b']).toBeUndefined();
+  });
+});
+
 describe('executeAgentDag — end + break (Flow PR E)', () => {
   it('end node terminates the flow and skips remaining nodes', async () => {
     const agent = makeAgent({

@@ -113,10 +113,29 @@ const GRAPH_RENDER_JS = `
   // and claude-code stay in the project's accent palette so the DAG
   // viz blends with the rest of the dashboard chrome.
   var typeStyle = {
-    shell:         { fill: '#dcfce7', border: '#15803d', text: '#166534' },
-    'claude-code': { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
+    shell:           { fill: '#dcfce7', border: '#15803d', text: '#166534' },
+    'claude-code':   { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
+    'conditional':   { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
+    'switch':        { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
+    'loop':          { fill: '#e0e7ff', border: '#4f46e5', text: '#3730a3' },
+    'agent-invoke':  { fill: '#ede9fe', border: '#7c3aed', text: '#5b21b6' },
+    'branch':        { fill: '#f0fdf4', border: '#16a34a', text: '#166534' },
+    'end':           { fill: '#fee2e2', border: '#dc2626', text: '#991b1b' },
+    'break':         { fill: '#fff7ed', border: '#ea580c', text: '#9a3412' },
   };
   var defaultStyle = { fill: '#f9fafb', border: '#d1d5db', text: '#374151' };
+
+  // Control-flow nodes get distinct shapes so the DAG viz visually
+  // distinguishes execution nodes from routing/control nodes.
+  var typeShape = {
+    'conditional': 'diamond',
+    'switch':      'diamond',
+    'loop':        'round-octagon',
+    'agent-invoke': 'barrel',
+    'branch':      'round-pentagon',
+    'end':         'octagon',
+    'break':       'octagon',
+  };
 
   function pick(n, key) {
     var s = n.data('status');
@@ -145,7 +164,10 @@ const GRAPH_RENDER_JS = `
           'width': 'label',
           'height': 26,
           'padding': '10px',
-          'shape': 'round-rectangle',
+          'shape': function (n) {
+            var t = n.data('type');
+            return (t && typeShape[t]) || 'round-rectangle';
+          },
           'border-width': 1,
           'corner-radius': '6px',
         },
