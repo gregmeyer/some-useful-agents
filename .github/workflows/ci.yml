@@ -127,9 +127,11 @@ jobs:
               echo "FAIL: $f contains destructive commands (rm -rf, sudo, chmod, chown)"
               ERRORS=$((ERRORS + 1))
             fi
-            # Dynamic code execution
-            if grep -qE '\beval\b|\bsource\b' "$f"; then
-              echo "FAIL: $f contains eval or source"
+            # Dynamic code execution. Match 'eval ' (the command, not a
+            # substring) and 'source /' or '. /' (sourcing a file). The YAML
+            # field 'source: examples' is safe — it doesn't match these.
+            if grep -qE '\beval\s' "$f" || grep -qE '(^|\s)(source|\.)\s+/' "$f"; then
+              echo "FAIL: $f contains eval or source command"
               ERRORS=$((ERRORS + 1))
             fi
             # Real secret patterns (not placeholder names)
