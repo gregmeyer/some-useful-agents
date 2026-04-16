@@ -60,10 +60,31 @@ export interface AgentNode {
   id: string;
   type: NodeType;
 
-  // Shell
+  /**
+   * v0.16+: named tool this node invokes. When set, the executor resolves
+   * the tool by id from the tool registry and uses its implementation
+   * instead of the inline `type`-based dispatch. The tool's declared
+   * inputs/outputs drive template validation + structured output capture.
+   *
+   * Backwards compat: nodes without `tool` fall through to the v0.15
+   * `type`-based dispatch (shell-exec / claude-code built-in tools).
+   * At load time, `type: shell` desugars to `tool: 'shell-exec'` and
+   * `type: claude-code` desugars to `tool: 'claude-code'`.
+   */
+  tool?: string;
+
+  /**
+   * Tool-specific inputs. When `tool:` is set, these are passed to the
+   * tool's execute function. For backwards compat, `command` and `prompt`
+   * continue to work as top-level fields and are folded into `toolInputs`
+   * at load time.
+   */
+  toolInputs?: Record<string, unknown>;
+
+  // Shell (v0.15 compat — desugars to toolInputs.command)
   command?: string;
 
-  // Claude-code
+  // Claude-code (v0.15 compat — desugars to toolInputs.prompt)
   prompt?: string;
   model?: string;
   maxTurns?: number;
@@ -182,6 +203,22 @@ export interface NodeExecutionRecord {
   inputsJson?: string;
   /** Snapshot of upstream node results that fed into this node. */
   upstreamInputsJson?: string;
+  /**
+   * v0.16+: the full structured output object for this node execution,
+   * JSON-serialized. Keys match the tool's declared `outputs`. `result`
+   * stays as a convenience field but becomes derived from `outputsJson.result`
+   * for tools that declare it.
+   */
+  outputsJson?: string;
+}
+
+/**
+ * v0.16+: the parsed structured output. `result` is the v0.15-compat
+ * flat string; tool-declared fields sit alongside it.
+ */
+export interface NodeStructuredOutput {
+  [key: string]: unknown;
+  result?: string;
 }
 
 /**
@@ -192,6 +229,8 @@ export interface NodeExecutionRecord {
 export interface NodeOutput {
   result: string;
   exitCode: number;
+  /** v0.16+: structured output from the tool, if the node used one. */
+  outputs?: NodeStructuredOutput;
   /** Agent source at the time of execution; propagates for trust wrapping. */
   source: AgentSource;
 }

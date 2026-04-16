@@ -42,6 +42,14 @@ export const agentNodeSchema = z.object({
   id: z.string().regex(NODE_ID_RE, 'Node ids must be lowercase with hyphens/underscores only'),
   type: z.enum(['shell', 'claude-code']),
 
+  /**
+   * v0.16+: named tool this node invokes. When set, `type` + `command` /
+   * `prompt` are not required — the tool's implementation provides them.
+   * When absent, `type` is required and v0.15 rules apply.
+   */
+  tool: z.string().optional(),
+  toolInputs: z.record(z.unknown()).optional(),
+
   command: z.string().optional(),
   prompt: z.string().optional(),
   model: z.string().optional(),
@@ -59,11 +67,16 @@ export const agentNodeSchema = z.object({
   position: z.object({ x: z.number(), y: z.number() }).optional(),
 }).refine(
   (data) => {
+    // When a named tool is set, the tool provides the implementation —
+    // command/prompt are not required (they live in toolInputs or on the
+    // tool definition). `type` is still required: the YAML parser sets
+    // it from the tool's implementation type at load time.
+    if (data.tool) return true;
     if (data.type === 'shell') return !!data.command;
     if (data.type === 'claude-code') return !!data.prompt;
     return false;
   },
-  { message: 'Shell nodes require "command", claude-code nodes require "prompt"' },
+  { message: 'Nodes without a tool require command (shell) or prompt (claude-code)' },
 );
 
 export const agentV2Schema = z.object({
