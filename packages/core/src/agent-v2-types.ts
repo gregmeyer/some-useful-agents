@@ -17,7 +17,24 @@ import type { AgentInputSpec } from './types.js';
 import type { AgentSource } from './agent-loader.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
-export type NodeType = 'shell' | 'claude-code';
+
+/**
+ * Node types. `shell` and `claude-code` are the original v0.15 execution
+ * types. Control-flow types (conditional, switch, loop, etc.) are first-class
+ * node types added in the flow-control PR series — they dispatch to dedicated
+ * executor logic rather than spawning a child process.
+ */
+export type NodeType =
+  | 'shell'
+  | 'claude-code'
+  | 'conditional'
+  | 'switch'
+  | 'loop'
+  | 'agent-invoke'
+  | 'branch'
+  | 'end'
+  | 'break';
+
 export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
 
 /**
@@ -45,7 +62,9 @@ export type NodeErrorCategory =
   | 'exit_nonzero'
   | 'timeout'
   | 'cancelled'
-  | 'upstream_failed';
+  | 'upstream_failed'
+  | 'condition_not_met'
+  | 'flow_ended';
 
 // Re-export so consumers of v2 types can import from one place without
 // reaching back into the v1 loader module.
@@ -56,6 +75,46 @@ export type { AgentSource };
  * a v1 `AgentDefinition` described, minus the cross-file chaining fields
  * (`dependsOn`/`input`/`source`) which now live at the agent or edge level.
  */
+// -- Flow control types --
+
+/**
+ * Edge-level conditional execution. When set on a node, the executor
+ * evaluates the predicate before spawning. If the condition fails, the
+ * node is skipped with `condition_not_met` — no failure cascade.
+ * `upstream` must also appear in the node's `dependsOn`.
+ */
+export interface OnlyIfCondition {
+  upstream: string;
+  field: string;
+  equals?: unknown;
+  notEquals?: unknown;
+  exists?: boolean;
+}
+
+export interface ConditionalConfig {
+  predicate: { field: string; equals?: unknown; notEquals?: unknown; exists?: boolean };
+}
+
+export interface SwitchConfig {
+  field: string;
+  cases: Record<string, unknown>;
+}
+
+export interface LoopConfig {
+  /** Field name in upstream's structured output to iterate over. */
+  over: string;
+  /** Agent id to invoke per item. */
+  agentId: string;
+  maxIterations?: number;
+}
+
+export interface AgentInvokeConfig {
+  agentId: string;
+  inputMapping?: Record<string, string>;
+}
+
+// -- Node definition --
+
 export interface AgentNode {
   id: string;
   type: NodeType;
@@ -106,6 +165,26 @@ export interface AgentNode {
    * topologically sorts on this field and rejects cycles.
    */
   dependsOn?: string[];
+
+  // -- Flow control (first-class node types) --
+
+  /**
+   * Edge-level conditional execution. If set, the executor evaluates the
+   * predicate before spawning this node. On failure → skipped with
+   * `condition_not_met`, no failure cascade to downstream.
+   */
+  onlyIf?: OnlyIfCondition;
+
+  /** Config for `type: 'conditional'` nodes. */
+  conditionalConfig?: ConditionalConfig;
+  /** Config for `type: 'switch'` nodes. */
+  switchConfig?: SwitchConfig;
+  /** Config for `type: 'loop'` nodes. */
+  loopConfig?: LoopConfig;
+  /** Config for `type: 'agent-invoke'` nodes. */
+  agentInvokeConfig?: AgentInvokeConfig;
+  /** Message for `type: 'end'` or `type: 'break'` nodes. */
+  endMessage?: string;
 
   /**
    * Optional layout hint for the v0.14 drag/drop editor. Ignored by the

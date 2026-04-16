@@ -5,7 +5,7 @@ import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 
 export interface EditNodeFormValues {
-  type?: 'shell' | 'claude-code';
+  type?: string;
   command?: string;
   prompt?: string;
   dependsOn?: string[];

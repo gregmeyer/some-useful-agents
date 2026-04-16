@@ -38,16 +38,52 @@ export function extractUpstreamReferences(text: string): Set<string> {
   return out;
 }
 
+const CONTROL_FLOW_TYPES = new Set([
+  'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
+]);
+
+const onlyIfSchema = z.object({
+  upstream: z.string(),
+  field: z.string(),
+  equals: z.unknown().optional(),
+  notEquals: z.unknown().optional(),
+  exists: z.boolean().optional(),
+});
+
+const conditionalConfigSchema = z.object({
+  predicate: z.object({
+    field: z.string(),
+    equals: z.unknown().optional(),
+    notEquals: z.unknown().optional(),
+    exists: z.boolean().optional(),
+  }),
+});
+
+const switchConfigSchema = z.object({
+  field: z.string(),
+  cases: z.record(z.unknown()),
+});
+
+const loopConfigSchema = z.object({
+  over: z.string(),
+  agentId: z.string(),
+  maxIterations: z.number().int().positive().optional(),
+});
+
+const agentInvokeConfigSchema = z.object({
+  agentId: z.string(),
+  inputMapping: z.record(z.string()).optional(),
+});
+
 export const agentNodeSchema = z.object({
   id: z.string().regex(NODE_ID_RE, 'Node ids must be lowercase with hyphens/underscores only'),
-  type: z.enum(['shell', 'claude-code']),
+  type: z.enum([
+    'shell', 'claude-code',
+    'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
+  ]),
 
-  /**
-   * v0.16+: named tool this node invokes. When set, `type` + `command` /
-   * `prompt` are not required — the tool's implementation provides them.
-   * When absent, `type` is required and v0.15 rules apply.
-   */
   tool: z.string().optional(),
+  action: z.string().optional(),
   toolInputs: z.record(z.unknown()).optional(),
 
   command: z.string().optional(),
@@ -64,19 +100,28 @@ export const agentNodeSchema = z.object({
   workingDirectory: z.string().optional(),
 
   dependsOn: z.array(z.string()).optional(),
+
+  // Flow control
+  onlyIf: onlyIfSchema.optional(),
+  conditionalConfig: conditionalConfigSchema.optional(),
+  switchConfig: switchConfigSchema.optional(),
+  loopConfig: loopConfigSchema.optional(),
+  agentInvokeConfig: agentInvokeConfigSchema.optional(),
+  endMessage: z.string().optional(),
+
   position: z.object({ x: z.number(), y: z.number() }).optional(),
 }).refine(
   (data) => {
-    // When a named tool is set, the tool provides the implementation —
-    // command/prompt are not required (they live in toolInputs or on the
-    // tool definition). `type` is still required: the YAML parser sets
-    // it from the tool's implementation type at load time.
+    // Control-flow node types don't need command/prompt/tool.
+    if (CONTROL_FLOW_TYPES.has(data.type)) return true;
+    // When a named tool is set, the tool provides the implementation.
     if (data.tool) return true;
+    // v0.15 compat: shell needs command, claude-code needs prompt.
     if (data.type === 'shell') return !!data.command;
     if (data.type === 'claude-code') return !!data.prompt;
     return false;
   },
-  { message: 'Nodes without a tool require command (shell) or prompt (claude-code)' },
+  { message: 'Execution nodes without a tool require command (shell) or prompt (claude-code)' },
 );
 
 export const agentV2Schema = z.object({

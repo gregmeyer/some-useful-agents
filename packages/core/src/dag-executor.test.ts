@@ -591,3 +591,174 @@ describe('executeAgentDag — env allowlist by trust level', () => {
     expect(env!.NODE_ENV).toBe('test');
   });
 });
+
+describe('executeAgentDag — onlyIf conditional edges', () => {
+  it('skips a node when onlyIf.equals does not match', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'process',
+          type: 'shell',
+          command: 'echo process',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'status', equals: 200 },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"status": 404}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    // Run should complete (condition_not_met is not a failure).
+    expect(run.status).toBe('completed');
+
+    const execs = runStore.listNodeExecutions(run.id);
+    const processExec = execs.find((e) => e.nodeId === 'process');
+    expect(processExec!.status).toBe('skipped');
+    expect(processExec!.errorCategory).toBe('condition_not_met');
+  });
+
+  it('runs a node when onlyIf.equals matches', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'process',
+          type: 'shell',
+          command: 'echo process',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'status', equals: 200 },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"status": 200}' },
+      process: { exitCode: 0, result: 'done' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    const processExec = execs.find((e) => e.nodeId === 'process');
+    expect(processExec!.status).toBe('completed');
+  });
+
+  it('cascades condition_not_met to downstream nodes without their own onlyIf', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'gated',
+          type: 'shell',
+          command: 'echo gated',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'ok', equals: true },
+        },
+        {
+          id: 'after-gated',
+          type: 'shell',
+          command: 'echo after',
+          dependsOn: ['gated'],
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"ok": false}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'gated')!.errorCategory).toBe('condition_not_met');
+    expect(execs.find((e) => e.nodeId === 'after-gated')!.errorCategory).toBe('condition_not_met');
+  });
+
+  it('supports onlyIf.notEquals', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'fallback',
+          type: 'shell',
+          command: 'echo fallback',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'status', notEquals: 200 },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"status": 500}' },
+      fallback: { exitCode: 0, result: 'ran fallback' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'fallback')!.status).toBe('completed');
+  });
+
+  it('supports onlyIf.exists', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'if-present',
+          type: 'shell',
+          command: 'echo exists',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'data', exists: true },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"data": null}' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    // data is null → exists: true fails → skipped
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'if-present')!.errorCategory).toBe('condition_not_met');
+  });
+
+  it('if/else branching: one branch runs, the other skips', async () => {
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo check' },
+        {
+          id: 'on-success',
+          type: 'shell',
+          command: 'echo success',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'ok', equals: true },
+        },
+        {
+          id: 'on-failure',
+          type: 'shell',
+          command: 'echo failure',
+          dependsOn: ['check'],
+          onlyIf: { upstream: 'check', field: 'ok', notEquals: true },
+        },
+      ],
+    });
+    const spawner = cannedSpawner({
+      check: { exitCode: 0, result: '{"ok": true}' },
+      'on-success': { exitCode: 0, result: 'ran success' },
+      'on-failure': { exitCode: 0, result: 'ran failure' },
+    });
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'on-success')!.status).toBe('completed');
+    expect(execs.find((e) => e.nodeId === 'on-failure')!.status).toBe('skipped');
+    expect(execs.find((e) => e.nodeId === 'on-failure')!.errorCategory).toBe('condition_not_met');
+  });
+});

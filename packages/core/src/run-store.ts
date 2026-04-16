@@ -162,6 +162,14 @@ export class RunStore {
         ON node_executions(errorCategory) WHERE errorCategory IS NOT NULL;
     `);
 
+    // Flow control: nested runs link back to parent via parent_run_id + parent_node_id.
+    if (!runCols.has('parent_run_id')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN parent_run_id TEXT`);
+    }
+    if (!runCols.has('parent_node_id')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN parent_node_id TEXT`);
+    }
+
     // v0.16: structured tool outputs stored alongside the flat result.
     const execCols = columnNames(this.db, 'node_executions');
     if (!execCols.has('outputsjson')) {
@@ -182,11 +190,12 @@ export class RunStore {
     return Number(result.changes ?? 0);
   }
 
-  createRun(run: Run & { workflowId?: string; workflowVersion?: number; replayedFromRunId?: string; replayedFromNodeId?: string }): void {
+  createRun(run: Run & { workflowId?: string; workflowVersion?: number; replayedFromRunId?: string; replayedFromNodeId?: string; parentRunId?: string; parentNodeId?: string }): void {
     const stmt = this.db.prepare(`
       INSERT INTO runs (id, agentName, status, startedAt, completedAt, result, exitCode, error, triggeredBy,
-                        workflow_id, workflow_version, replayed_from_run_id, replayed_from_node_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        workflow_id, workflow_version, replayed_from_run_id, replayed_from_node_id,
+                        parent_run_id, parent_node_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       run.id, run.agentName, run.status, run.startedAt,
@@ -194,6 +203,7 @@ export class RunStore {
       run.error ?? null, run.triggeredBy,
       run.workflowId ?? null, run.workflowVersion ?? null,
       run.replayedFromRunId ?? null, run.replayedFromNodeId ?? null,
+      run.parentRunId ?? null, run.parentNodeId ?? null,
     );
   }
 
@@ -426,6 +436,8 @@ export class RunStore {
       workflowVersion: (row.workflow_version as number | null) ?? undefined,
       replayedFromRunId: (row.replayed_from_run_id as string | null) ?? undefined,
       replayedFromNodeId: (row.replayed_from_node_id as string | null) ?? undefined,
+      parentRunId: (row.parent_run_id as string | null) ?? undefined,
+      parentNodeId: (row.parent_node_id as string | null) ?? undefined,
     };
   }
 
