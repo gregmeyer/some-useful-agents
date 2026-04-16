@@ -155,6 +155,7 @@ export async function executeAgentDag(
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
   let firstFailure: { nodeId: string; category: NodeErrorCategory } | undefined;
+  let flowEnded = false;
   const skippedNodes = new Set<string>();
 
   // Replay pre-load: copy prior node_executions for nodes before the pivot.
@@ -215,6 +216,22 @@ export async function executeAgentDag(
   for (const node of order) {
     if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
+
+    // flow_ended: an `end` or `break` node was reached. All remaining
+    // nodes are skipped cleanly — not a failure, just early termination.
+    if (flowEnded) {
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'skipped',
+        errorCategory: 'flow_ended',
+        startedAt: nodeStartedAt,
+        completedAt: nodeStartedAt,
+        error: 'Skipped: flow ended early (end or break node reached).',
+      });
+      continue;
+    }
 
     // onlyIf: conditional edge evaluation. If the predicate fails, skip
     // with condition_not_met — NOT upstream_failed. Downstream nodes that
@@ -283,6 +300,48 @@ export async function executeAgentDag(
     // Control-flow node dispatch. These run in-process (no spawn, no env
     // resolution needed) and produce structured outputs that downstream
     // nodes consume via onlyIf predicates or template refs.
+    if (node.type === 'end') {
+      // End node: terminate the entire flow cleanly. All remaining nodes
+      // are skipped with flow_ended. The run completes as 'completed'
+      // (not 'failed') — this is a deliberate early exit, not an error.
+      const msg = node.endMessage ?? 'Flow ended early.';
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'completed',
+        startedAt: nodeStartedAt,
+        completedAt: new Date().toISOString(),
+        result: msg,
+        exitCode: 0,
+      });
+      outputs.set(node.id, { result: msg, exitCode: 0, source: agent.source });
+      // Mark everything after as flow_ended.
+      flowEnded = true;
+      continue;
+    }
+
+    if (node.type === 'break') {
+      // Break node: signal to the parent loop to stop iteration.
+      // Within the current flow, it acts like an end — remaining nodes
+      // are skipped. The executor returns a special marker so the loop
+      // dispatcher can detect the break.
+      const msg = node.endMessage ?? 'Break: exiting loop iteration.';
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'completed',
+        startedAt: nodeStartedAt,
+        completedAt: new Date().toISOString(),
+        result: msg,
+        exitCode: 0,
+      });
+      outputs.set(node.id, { result: msg, exitCode: 0, source: agent.source });
+      flowEnded = true;
+      continue;
+    }
+
     if (node.type === 'loop') {
       const loopResult = await executeLoopNode(node, outputs, runId, options, deps, agent);
       const completedAt = new Date().toISOString();
