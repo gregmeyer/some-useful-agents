@@ -73,6 +73,13 @@ export function loadAgents(options: LoadAgentsOptions): LoadAgentsResult {
         continue;
       }
 
+      // Skip v2 YAML files (id + nodes[]) — they're loaded via AgentStore /
+      // sua workflow import, not the v1 loader. Silently skip so the CI
+      // validate-agents job doesn't report them as broken v1 files.
+      if (typeof parsed === 'object' && parsed !== null && 'id' in parsed && 'nodes' in parsed) {
+        continue;
+      }
+
       const result = agentDefinitionSchema.safeParse(parsed);
       if (!result.success) {
         const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
