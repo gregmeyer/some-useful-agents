@@ -60,3 +60,88 @@ jobs:
             }
             console.log(agents.size + ' agent(s) validated successfully');
           "
+
+  run-examples:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6.3.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Initialize sua project for example runs
+        run: |
+          mkdir -p data agents/local
+          node packages/cli/dist/index.js init --yes 2>/dev/null || true
+
+      - name: Import v2 example agents
+        run: |
+          for f in agents/examples/*.yaml; do
+            echo "Importing $f..."
+            node packages/cli/dist/index.js workflow import-yaml "$f" || true
+          done
+
+      - name: Run offline examples
+        run: |
+          SUA="node packages/cli/dist/index.js"
+          echo "--- hello ---"
+          $SUA workflow run hello
+          echo "--- two-step-digest ---"
+          $SUA workflow run two-step-digest
+          echo "--- daily-greeting ---"
+          $SUA workflow run daily-greeting
+          echo "--- parameterised-greet ---"
+          $SUA workflow run parameterised-greet --input NAME=CI --input STYLE=casual
+          echo "--- conditional-router ---"
+          $SUA workflow run conditional-router
+          echo ""
+          echo "All offline examples passed."
+
+      - name: Run network examples (opt-in)
+        if: env.RUN_NETWORK_EXAMPLES == 'true'
+        run: |
+          SUA="node packages/cli/dist/index.js"
+          echo "--- daily-joke ---"
+          $SUA workflow run daily-joke
+
+  security-check-examples:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Check example agents for banned patterns
+        run: |
+          echo "Checking agents/examples/ for security-sensitive patterns..."
+          ERRORS=0
+          for f in agents/examples/*.yaml; do
+            # Destructive commands
+            if grep -qE 'rm\s+-rf|sudo\s|chmod\s|chown\s' "$f"; then
+              echo "FAIL: $f contains destructive commands (rm -rf, sudo, chmod, chown)"
+              ERRORS=$((ERRORS + 1))
+            fi
+            # Dynamic code execution. Match 'eval ' (the command, not a
+            # substring) and 'source /' or '. /' (sourcing a file). The YAML
+            # field 'source: examples' is safe — it doesn't match these.
+            if grep -qE '\beval\s' "$f" || grep -qE '(^|\s)(source|\.)\s+/' "$f"; then
+              echo "FAIL: $f contains eval or source command"
+              ERRORS=$((ERRORS + 1))
+            fi
+            # Real secret patterns (not placeholder names)
+            if grep -qE 'sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{20,}|xoxb-' "$f"; then
+              echo "FAIL: $f appears to contain a real API key"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "$ERRORS security issue(s) found."
+            exit 1
+          fi
+          echo "All examples passed security check."
