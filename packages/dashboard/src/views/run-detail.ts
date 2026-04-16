@@ -101,8 +101,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           </div>
           <div class="run-detail-grid__inspector">
             <h2 style="margin-top: 0;">Node execution</h2>
-            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG or expand below.</p>
-            ${renderNodeCards(nodeExecutions!)}
+            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG to see its output.</p>
+            ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
           </div>
         </div>
       ` : html`
@@ -165,7 +165,7 @@ function renderReplayFallback(run: Run, agent: Agent): SafeHtml {
  * open by default so the user doesn't have to hunt for failures; others
  * are collapsed to reduce scroll.
  */
-function renderNodeCards(execs: NodeExecutionRecord[]): SafeHtml {
+function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay?: boolean): SafeHtml {
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
@@ -196,7 +196,15 @@ function renderNodeCards(execs: NodeExecutionRecord[]): SafeHtml {
             ${exitLabel ? html`<span class="mono">${exitLabel}</span>` : html``}
           </span>
         </summary>
-        <div class="run-node__body">${bodyBlocks as unknown as SafeHtml[]}</div>
+        <div class="run-node__body">
+          ${bodyBlocks as unknown as SafeHtml[]}
+          ${canReplay && runId ? html`
+            <form action="/runs/${runId}/replay" method="post" style="margin-top: var(--space-3);">
+              <input type="hidden" name="fromNodeId" value="${e.nodeId}">
+              <button type="submit" class="btn btn--sm btn--primary">Replay from ${e.nodeId}</button>
+            </form>
+          ` : html``}
+        </div>
       </details>
     `;
   });

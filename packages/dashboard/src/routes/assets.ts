@@ -398,8 +398,24 @@ const GRAPH_RENDER_JS = `
       completedAt: n.data('completedAt'),
       exitCode: n.data('exitCode'),
     };
+
+    // On the run detail page (navBase set, no editBase), skip the dialog
+    // and scroll to + open the node's execution card in the inspector
+    // column. The primary action on /runs/:id is "see this node's output",
+    // not "open an action menu."
+    if (navBase && !editBase) {
+      var card = document.getElementById('node-' + data.id);
+      if (card) {
+        card.open = true;
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Brief highlight so the user sees which card activated.
+        card.style.outline = '2px solid var(--color-primary)';
+        setTimeout(function () { card.style.outline = ''; }, 1500);
+        return;
+      }
+    }
+
     if (!openDialog(data)) {
-      // No dialog support (really old browser): fall back to hash-scroll.
       if (navBase) window.location.hash = 'node-' + encodeURIComponent(data.id);
     }
   });
