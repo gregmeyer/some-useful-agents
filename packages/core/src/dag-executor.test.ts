@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
+import { AgentStore } from './agent-store.js';
 import { MemorySecretsStore } from './secrets-store.js';
 import {
   executeAgentDag,
@@ -901,5 +902,143 @@ describe('executeAgentDag — onlyIf conditional edges', () => {
     expect(execs.find((e) => e.nodeId === 'on-success')!.status).toBe('completed');
     expect(execs.find((e) => e.nodeId === 'on-failure')!.status).toBe('skipped');
     expect(execs.find((e) => e.nodeId === 'on-failure')!.errorCategory).toBe('condition_not_met');
+  });
+});
+
+describe('executeAgentDag — agent-invoke (Flow PR C)', () => {
+  let agentStore: AgentStore;
+
+  beforeEach(() => {
+    agentStore = new AgentStore(join(dir, 'runs.db'));
+  });
+
+  afterEach(() => {
+    try { agentStore.close(); } catch { /* may share DB handle */ }
+  });
+
+  it('invokes a sub-agent and captures its result', async () => {
+    // Create the sub-agent in the store.
+    agentStore.createAgent(
+      {
+        id: 'sub-agent',
+        name: 'Sub',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo sub-result' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        {
+          id: 'delegate',
+          type: 'agent-invoke' as any,
+          agentInvokeConfig: { agentId: 'sub-agent' },
+        },
+      ],
+    });
+
+    // The sub-agent's shell node runs via the real spawner (not mocked),
+    // so we don't pass spawnNode — this is a true integration test.
+    const deps: DagExecutorDeps = { runStore, agentStore };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+
+    // Parent node should have the sub-agent's result.
+    const execs = runStore.listNodeExecutions(run.id);
+    const delegateExec = execs.find((e) => e.nodeId === 'delegate');
+    expect(delegateExec!.status).toBe('completed');
+    expect(delegateExec!.result).toContain('sub-result');
+
+    // There should be a nested run with parent_run_id set.
+    const allRuns = runStore.queryRuns({ limit: 10, offset: 0, statuses: [] });
+    const subRun = allRuns.rows.find((r) => r.parentRunId === run.id);
+    expect(subRun).toBeDefined();
+    expect(subRun!.parentNodeId).toBe('delegate');
+    expect(subRun!.agentName).toBe('sub-agent');
+    expect(subRun!.status).toBe('completed');
+  });
+
+  it('fails the parent node when sub-agent is not found', async () => {
+    const parentAgent = makeAgent({
+      nodes: [
+        {
+          id: 'delegate',
+          type: 'agent-invoke' as any,
+          agentInvokeConfig: { agentId: 'nonexistent' },
+        },
+      ],
+    });
+    const deps: DagExecutorDeps = { runStore, agentStore };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('failed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'delegate')!.errorCategory).toBe('setup');
+    expect(execs.find((e) => e.nodeId === 'delegate')!.error).toContain('not found');
+  });
+
+  it('fails when agentStore is not provided', async () => {
+    const parentAgent = makeAgent({
+      nodes: [
+        {
+          id: 'delegate',
+          type: 'agent-invoke' as any,
+          agentInvokeConfig: { agentId: 'any' },
+        },
+      ],
+    });
+    const deps: DagExecutorDeps = { runStore };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('failed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'delegate')!.error).toContain('agentStore');
+  });
+
+  it('chains parent → sub-agent → downstream node', async () => {
+    agentStore.createAgent(
+      {
+        id: 'fetcher',
+        name: 'Fetcher',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'fetch', type: 'shell', command: 'echo fetched-data' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        {
+          id: 'invoke-fetcher',
+          type: 'agent-invoke' as any,
+          agentInvokeConfig: { agentId: 'fetcher' },
+        },
+        {
+          id: 'process',
+          type: 'shell',
+          command: 'echo processed',
+          dependsOn: ['invoke-fetcher'],
+        },
+      ],
+    });
+
+    const spawner = cannedSpawner({
+      process: { exitCode: 0, result: 'processed-output' },
+    });
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'invoke-fetcher')!.status).toBe('completed');
+    expect(execs.find((e) => e.nodeId === 'process')!.status).toBe('completed');
   });
 });
