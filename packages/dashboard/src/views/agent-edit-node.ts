@@ -4,6 +4,7 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
+import { renderControlFlowSection, isControlFlowNode } from './controlflow-edit.js';
 
 export interface EditNodeFormValues {
   type?: string;
@@ -84,8 +85,12 @@ export function renderAgentEditNode(args: {
         <span class="dim" style="font-size: var(--font-size-xs);">Immutable. Renaming would break every <code>{{upstream.${node.id}.result}}</code> reference in this agent. Delete + re-create if you need a different id.</span>
       </label>
 
-      ${renderToolPicker({ tools: allTools, selectedTool: node.tool, currentType: v.type })}
-      ${renderToolInputsSection(node.tool ?? (v.type === 'claude-code' ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
+      ${isControlFlowNode(node)
+        ? renderControlFlowSection(agent, node)
+        : html`
+          ${renderToolPicker({ tools: allTools, selectedTool: node.tool, currentType: v.type })}
+          ${renderToolInputsSection(node.tool ?? (v.type === 'claude-code' ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
+        `}
 
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Depends on</legend>
