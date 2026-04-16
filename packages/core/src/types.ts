@@ -89,6 +89,14 @@ export interface Run {
    */
   replayedFromRunId?: string;
   replayedFromNodeId?: string;
+  /**
+   * Flow control: when this run is a nested sub-flow (invoked by an
+   * `agent-invoke` or `loop` node in another agent), these point at the
+   * parent run + the node that triggered the invocation. Used by the
+   * dashboard to render "Sub-flow of run-abc / node delegate".
+   */
+  parentRunId?: string;
+  parentNodeId?: string;
 }
 
 export interface RunRequest {

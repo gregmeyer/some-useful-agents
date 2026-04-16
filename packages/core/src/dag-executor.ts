@@ -22,7 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
-import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput } from './agent-v2-types.js';
+import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, OnlyIfCondition } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { SecretsStore } from './secrets-store.js';
@@ -143,6 +143,7 @@ export async function executeAgentDag(
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
   let firstFailure: { nodeId: string; category: NodeErrorCategory } | undefined;
+  const skippedNodes = new Set<string>();
 
   // Replay pre-load: copy prior node_executions for nodes before the pivot.
   // Their stored `result` feeds downstream outputs so re-execution starts
@@ -202,6 +203,53 @@ export async function executeAgentDag(
   for (const node of order) {
     if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
+
+    // onlyIf: conditional edge evaluation. If the predicate fails, skip
+    // with condition_not_met — NOT upstream_failed. Downstream nodes that
+    // depend on a condition-skipped node also get condition_not_met (cascading
+    // skip, not cascading failure).
+    if (node.onlyIf) {
+      const upOutput = outputs.get(node.onlyIf.upstream);
+      if (!evaluateOnlyIf(node.onlyIf, upOutput)) {
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'skipped',
+          errorCategory: 'condition_not_met',
+          startedAt: nodeStartedAt,
+          completedAt: nodeStartedAt,
+          error: `Condition not met: ${node.onlyIf.field} on upstream "${node.onlyIf.upstream}"`,
+        });
+        // Mark as skipped in outputs so downstream nodes that depend on
+        // this node can detect the skip. We set a sentinel — downstream
+        // nodes with their own onlyIf evaluate independently; those
+        // without onlyIf cascade to condition_not_met.
+        skippedNodes.add(node.id);
+        continue;
+      }
+    }
+
+    // Check if any required upstream was condition-skipped. If a node
+    // depends on a condition-skipped node and doesn't have its own onlyIf
+    // (which would let it evaluate independently), it cascades.
+    if (!node.onlyIf) {
+      const skippedDep = (node.dependsOn ?? []).find((d) => skippedNodes.has(d));
+      if (skippedDep) {
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'skipped',
+          errorCategory: 'condition_not_met',
+          startedAt: nodeStartedAt,
+          completedAt: nodeStartedAt,
+          error: `Skipped: upstream "${skippedDep}" was condition-skipped`,
+        });
+        skippedNodes.add(node.id);
+        continue;
+      }
+    }
 
     // Short-circuit: an earlier node already failed. Write a skipped row
     // whose error field names the failing upstream — keeps the run log
@@ -724,6 +772,66 @@ async function spawnProcess(
 // -- Env allowlists (duplicate of env-builder constants; keeping here lets
 //    the DAG executor build env without the v1 AgentDefinition intermediary.
 //    Extract to a shared module in a follow-up if this duplicates further.) --
+
+// -- onlyIf evaluation --
+
+/**
+ * Evaluate an `onlyIf` predicate against an upstream node's output.
+ * Returns true if the condition is met (node should execute), false
+ * if not (node should be skipped with condition_not_met).
+ *
+ * The `field` is a dot-separated path into the upstream's structured
+ * output (or the flat `result` string for v0.15 nodes).
+ */
+function evaluateOnlyIf(condition: OnlyIfCondition, upOutput: NodeOutput | undefined): boolean {
+  if (!upOutput) return false;
+
+  // Walk the field path into the structured output if available,
+  // falling back to the flat result string.
+  let value: unknown;
+  if (upOutput.outputs) {
+    value = walkPath(upOutput.outputs, condition.field);
+  } else {
+    // v0.15 node — only "result" is available as a field.
+    if (condition.field === 'result') {
+      value = upOutput.result;
+    } else {
+      // Try parsing result as JSON and walking the path.
+      try {
+        const parsed = JSON.parse(upOutput.result);
+        value = walkPath(parsed, condition.field);
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  if (condition.exists !== undefined) {
+    return condition.exists ? value !== undefined && value !== null : value === undefined || value === null;
+  }
+  if (condition.equals !== undefined) {
+    return value == condition.equals; // loose equality for string/number coercion
+  }
+  if (condition.notEquals !== undefined) {
+    return value != condition.notEquals;
+  }
+  // No predicate specified — just check the field exists.
+  return value !== undefined && value !== null;
+}
+
+/** Walk a dot-separated path into a nested object. */
+function walkPath(obj: unknown, path: string): unknown {
+  let current: unknown = obj;
+  for (const segment of path.split('.')) {
+    if (current === null || current === undefined) return undefined;
+    if (typeof current === 'object') {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
 
 const MINIMAL_ALLOWLIST = ['PATH', 'HOME', 'LANG', 'TERM', 'TMPDIR'];
 const LOCAL_ALLOWLIST = [...MINIMAL_ALLOWLIST, 'USER', 'SHELL', 'NODE_ENV', 'TZ'];

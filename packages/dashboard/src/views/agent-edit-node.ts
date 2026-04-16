@@ -6,7 +6,7 @@ import { computePaletteSuggestions, renderPalettePayload } from './template-pale
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 
 export interface EditNodeFormValues {
-  type?: 'shell' | 'claude-code';
+  type?: string;
   command?: string;
   prompt?: string;
   dependsOn?: string[];

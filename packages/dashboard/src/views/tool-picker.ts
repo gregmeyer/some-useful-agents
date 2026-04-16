@@ -24,7 +24,7 @@ export function renderToolPicker(args: {
   tools: ToolDefinition[];
   selectedTool?: string;
   /** For edit-node: the current node's type, used to pre-select the right tool. */
-  currentType?: 'shell' | 'claude-code';
+  currentType?: string;
 }): SafeHtml {
   const { tools, selectedTool, currentType } = args;
 
