@@ -141,30 +141,17 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
 
   const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
 
-  // Multi-node agents get an inline <details> to reveal each node without
-  // having to click through to the agent detail page. Single-node agents
-  // skip the disclosure entirely — nothing meaningful to reveal.
+  // Multi-node agents get an inline <details> that reveals the DAG as
+  // mini-cards indented by topological depth. Downstream nodes sit
+  // visually under their upstreams so the reveal mirrors the actual DAG
+  // rather than a flat list that ignores the edges.
   const nodesDisclosure = a.nodes.length > 1
     ? html`
       <details class="agent-card__nodes">
         <summary>Show ${String(a.nodes.length)} nodes</summary>
-        <ol class="agent-card__node-list">
-          ${a.nodes.map((n) => {
-            const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
-            const typeClass = n.type === 'shell' ? 'badge--ok' : 'badge--info';
-            const deps = n.dependsOn?.length ? html`<span class="dim" style="font-size: var(--font-size-xs);"> \u2190 ${n.dependsOn.join(', ')}</span>` : html``;
-            return html`
-              <li>
-                <div style="display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap;">
-                  <code>${n.id}</code>
-                  <span class="badge ${typeClass}">${n.type}</span>
-                  ${deps}
-                </div>
-                <div class="mono dim agent-card__node-body">${body}</div>
-              </li>
-            `;
-          }) as unknown as SafeHtml[]}
-        </ol>
+        <div class="agent-card__dag">
+          ${renderDagMiniCards(a) as unknown as SafeHtml}
+        </div>
       </details>
     `
     : html``;
@@ -193,6 +180,83 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
       </div>
     </article>
   `;
+}
+
+/**
+ * Render each node of a multi-node agent as a mini-card, indented by
+ * its topological depth so the expansion visually reflects the DAG
+ * shape — upstream nodes at depth 0 (flush left), their downstream
+ * neighbours at depth 1, etc. Siblings at the same depth stack
+ * vertically in id order.
+ *
+ * A small connector rail on the left hints at the parent/child
+ * relationship without turning the card into a full graph widget.
+ */
+function renderDagMiniCards(a: Agent): SafeHtml {
+  const depthById = computeNodeDepths(a);
+  const sorted = [...a.nodes].sort((n1, n2) => {
+    const d1 = depthById.get(n1.id) ?? 0;
+    const d2 = depthById.get(n2.id) ?? 0;
+    if (d1 !== d2) return d1 - d2;
+    return n1.id.localeCompare(n2.id);
+  });
+
+  const cards = sorted.map((n) => {
+    const depth = depthById.get(n.id) ?? 0;
+    const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
+    const typeClass = n.type === 'shell' ? 'badge--ok' : 'badge--info';
+    const deps = n.dependsOn?.length
+      ? html`<span class="agent-card__node-dep">\u2190 ${n.dependsOn.join(', ')}</span>`
+      : html``;
+    // Inline --depth so each card can use it for padding + the left rail.
+    return html`
+      <div class="agent-card__node" style="--depth: ${String(depth)};" data-depth="${String(depth)}">
+        <div class="agent-card__node-rail" aria-hidden="true"></div>
+        <div class="agent-card__node-body-wrap">
+          <div class="agent-card__node-head">
+            <code class="agent-card__node-id">${n.id}</code>
+            <span class="badge ${typeClass}">${n.type}</span>
+            ${deps}
+          </div>
+          <div class="mono dim agent-card__node-body">${body}</div>
+        </div>
+      </div>
+    `;
+  });
+  return cards as unknown as SafeHtml;
+}
+
+/**
+ * Longest-path depth per node (roots = 0, their immediate children = 1,
+ * etc.). Iterative memoisation with cycle guard — cycles aren't legal in
+ * a v2 DAG but defensive handling keeps a broken agent from crashing the
+ * render.
+ */
+function computeNodeDepths(a: Agent): Map<string, number> {
+  const byId = new Map(a.nodes.map((n) => [n.id, n]));
+  const memo = new Map<string, number>();
+  const seen = new Set<string>();
+
+  function depth(id: string): number {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const node = byId.get(id);
+    if (!node || !node.dependsOn || node.dependsOn.length === 0) {
+      memo.set(id, 0);
+      return 0;
+    }
+    let max = 0;
+    for (const dep of node.dependsOn) {
+      const d = depth(dep);
+      if (d + 1 > max) max = d + 1;
+    }
+    memo.set(id, max);
+    return max;
+  }
+
+  for (const n of a.nodes) depth(n.id);
+  return memo;
 }
 
 function oneLine(text: string, max = 80): string {

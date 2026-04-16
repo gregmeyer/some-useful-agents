@@ -176,16 +176,211 @@ const GRAPH_RENDER_JS = `
   });
   cy.fit(undefined, 18);
 
-  // Click a node → anchor into the run-detail page on the same id.
-  // No-op on /agents/:id (no target); clickable on /runs/:id via the
-  // data-nav-base attribute the server rendered alongside the div.
+  // Click a node → open the node-action dialog with Edit + Replay buttons
+  // and metadata pulled from the same Cytoscape payload. When no dialog
+  // is present (older templates), fall back to hash-scrolling the per-node
+  // card below via data-nav-base.
   var navBase = el.getAttribute('data-nav-base');
-  if (navBase) {
-    cy.on('tap', 'node', function (evt) {
-      var nodeId = evt.target.id();
-      window.location.hash = 'node-' + encodeURIComponent(nodeId);
-    });
+  var replayRunId = el.getAttribute('data-replay-run-id');
+  var replayCommunity = el.getAttribute('data-replay-community') === '1';
+  var editBase = el.getAttribute('data-edit-base');
+  var dialog = document.getElementById('dag-node-dialog');
+  var dialogSupported = dialog && typeof dialog.showModal === 'function';
+
+  function fmtDuration(startedAt, completedAt) {
+    if (!startedAt || !completedAt) return '—';
+    var ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    if (!isFinite(ms) || ms < 0) return '—';
+    if (ms < 1000) return ms + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    var m = Math.floor(ms / 60000);
+    var s = Math.floor((ms % 60000) / 1000);
+    return m + 'm' + s + 's';
   }
+
+  function badge(kind, text) {
+    var span = document.createElement('span');
+    span.className = 'badge badge--' + kind;
+    span.textContent = text;
+    return span;
+  }
+
+  // Count nodes downstream of the tapped one so the dialog's "what
+  // will happen" summary can say, e.g., "2 downstream nodes will re-run".
+  function countDownstream(startId) {
+    var visited = {};
+    var stack = [startId];
+    while (stack.length) {
+      var cur = stack.pop();
+      cy.edges('[source = "' + cur + '"]').forEach(function (e) {
+        var t = e.target().id();
+        if (!visited[t]) { visited[t] = true; stack.push(t); }
+      });
+    }
+    // startId itself isn't in visited (it's not downstream of itself).
+    return Object.keys(visited).length;
+  }
+
+  function countUpstream(startId) {
+    var visited = {};
+    var stack = [startId];
+    while (stack.length) {
+      var cur = stack.pop();
+      cy.edges('[target = "' + cur + '"]').forEach(function (e) {
+        var s = e.source().id();
+        if (!visited[s]) { visited[s] = true; stack.push(s); }
+      });
+    }
+    return Object.keys(visited).length;
+  }
+
+  function openDialog(data) {
+    if (!dialogSupported) return false;
+    var idEl = dialog.querySelector('[data-node-id]');
+    var typeEl = dialog.querySelector('[data-node-type]');
+    var statusEl = dialog.querySelector('[data-node-status]');
+    var depsEl = dialog.querySelector('[data-node-deps]');
+    var durEl = dialog.querySelector('[data-node-duration]');
+    var explainEl = dialog.querySelector('[data-node-explain]');
+    var actionsEl = dialog.querySelector('[data-node-actions]');
+
+    idEl.textContent = data.id;
+
+    typeEl.innerHTML = '';
+    if (data.type) {
+      var tKind = data.type === 'shell' ? 'ok' : data.type === 'claude-code' ? 'info' : 'muted';
+      typeEl.appendChild(badge(tKind, data.type));
+    }
+
+    statusEl.innerHTML = '';
+    if (data.status) {
+      var sKind = data.status === 'completed' ? 'ok'
+        : data.status === 'failed' ? 'err'
+        : data.status === 'running' || data.status === 'pending' ? 'info'
+        : data.status === 'cancelled' ? 'warn'
+        : 'muted';
+      statusEl.appendChild(badge(sKind, data.status));
+    }
+
+    depsEl.textContent = data.dependsOn && data.dependsOn.length > 0 ? data.dependsOn : '—';
+    durEl.textContent = fmtDuration(data.startedAt, data.completedAt);
+
+    explainEl.innerHTML = '';
+    actionsEl.innerHTML = '';
+
+    // Explainer + action row depend on context. Replay-capable surfaces
+    // (run detail with a terminal run, agent detail with a prior run)
+    // show a "what will happen" summary above the buttons so the user
+    // can commit without a second native-confirm popup.
+    var hasReplay = !!replayRunId;
+    if (hasReplay) {
+      var ups = countUpstream(data.id);
+      var downs = countDownstream(data.id);
+      var explainText = 'Replay will reuse outputs from ' + ups + ' upstream node' + (ups === 1 ? '' : 's') +
+        ' and re-run this node plus ' + downs + ' downstream node' + (downs === 1 ? '' : 's') + '.';
+      var p = document.createElement('p');
+      p.className = 'node-dialog__explain-text';
+      p.textContent = explainText;
+      explainEl.appendChild(p);
+
+      if (replayCommunity) {
+        var warn = document.createElement('p');
+        warn.className = 'node-dialog__warn';
+        warn.textContent = 'This agent contains community shell nodes. Confirm you\\'ve audited the command before replaying.';
+        explainEl.appendChild(warn);
+      }
+    }
+
+    // Cancel is always offered so the dialog is dismissable without
+    // hunting for the × button. The method="dialog" form means this
+    // just closes the dialog without a submit.
+    var cancel = document.createElement('button');
+    cancel.type = 'submit';
+    cancel.className = 'btn btn--sm btn--ghost';
+    cancel.textContent = 'Cancel';
+    actionsEl.appendChild(cancel);
+
+    if (editBase) {
+      var edit = document.createElement('a');
+      edit.className = 'btn btn--sm';
+      edit.textContent = 'Edit node';
+      edit.href = editBase + '/' + encodeURIComponent(data.id) + '/edit';
+      actionsEl.appendChild(edit);
+    }
+
+    if (navBase) {
+      var jump = document.createElement('a');
+      jump.className = 'btn btn--sm btn--ghost';
+      jump.textContent = 'Jump to details';
+      jump.href = '#node-' + encodeURIComponent(data.id);
+      jump.addEventListener('click', function () { dialog.close(); });
+      actionsEl.appendChild(jump);
+    }
+
+    if (hasReplay) {
+      // Replay is a real POST form, separate from the method="dialog"
+      // cancel form wrapping everything else. Stick it inline so the
+      // button lives in the same row as Cancel/Edit/Jump. For community
+      // shell agents, an explicit checkbox inside the form has to be
+      // ticked before the button enables — no reliance on a native
+      // confirm() popup.
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/runs/' + encodeURIComponent(replayRunId) + '/replay';
+      form.className = 'node-dialog__replay-form';
+
+      var fromInput = document.createElement('input');
+      fromInput.type = 'hidden';
+      fromInput.name = 'fromNodeId';
+      fromInput.value = data.id;
+      form.appendChild(fromInput);
+
+      var btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.className = 'btn btn--sm btn--primary';
+      btn.textContent = 'Replay from here';
+
+      if (replayCommunity) {
+        var auditLabel = document.createElement('label');
+        auditLabel.className = 'node-dialog__audit';
+        var auditInput = document.createElement('input');
+        auditInput.type = 'checkbox';
+        auditInput.name = 'confirm_community_shell';
+        auditInput.value = 'yes';
+        auditInput.addEventListener('change', function () { btn.disabled = !auditInput.checked; });
+        auditLabel.appendChild(auditInput);
+        auditLabel.appendChild(document.createTextNode(' I audited this community shell agent'));
+        form.appendChild(auditLabel);
+        btn.disabled = true;
+        btn.className = 'btn btn--sm btn--warn';
+        btn.textContent = 'Replay (community)';
+      }
+
+      form.appendChild(btn);
+      actionsEl.appendChild(form);
+    }
+
+    dialog.showModal();
+    return true;
+  }
+
+  cy.on('tap', 'node', function (evt) {
+    var n = evt.target;
+    var data = {
+      id: n.id(),
+      label: n.data('label'),
+      type: n.data('type'),
+      status: n.data('status'),
+      dependsOn: n.data('dependsOn') || '',
+      startedAt: n.data('startedAt'),
+      completedAt: n.data('completedAt'),
+      exitCode: n.data('exitCode'),
+    };
+    if (!openDialog(data)) {
+      // No dialog support (really old browser): fall back to hash-scroll.
+      if (navBase) window.location.hash = 'node-' + encodeURIComponent(data.id);
+    }
+  });
 })();
 `;
 

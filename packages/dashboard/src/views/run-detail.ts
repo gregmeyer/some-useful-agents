@@ -15,10 +15,12 @@ export interface RunDetailOptions {
   agent?: Agent;
   /** Contextual back link derived from the request's Referer header. */
   back?: PageHeaderBack;
+  /** Success/error banner surfaced on the detail page. */
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -34,9 +36,23 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     </dd>
   ` : html``;
 
+  // Terminal v2 runs get clickable DAG nodes that offer "Replay from
+  // here". Running / pending runs intentionally don't — the executor
+  // hasn't finalised upstream outputs yet.
+  const canReplay = !!agent && (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled');
   const dagSection = isDagRun ? html`
     ${renderDagFallback(agent)}
-    ${renderDagView({ agent, nodeExecs: nodeExecutions, navBase: `/runs/${run.id}` })}
+    ${renderDagView({
+      agent,
+      nodeExecs: nodeExecutions,
+      navBase: `/runs/${run.id}`,
+      replay: canReplay
+        ? {
+            priorRunId: run.id,
+            requiresCommunityConfirm: agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell'),
+          }
+        : undefined,
+    })}
   ` : html``;
 
   // Per-node execution as click-expandable cards (one <details> per node).
@@ -79,6 +95,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
 
       ${dagSection}
       ${nodeCards}
+      ${isDagRun && canReplay ? renderReplayFallback(run, agent!) : html``}
 
       ${isDagRun ? html`` : html`
         <h2>Output</h2>
@@ -91,7 +108,48 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     return render(html`<!DOCTYPE html><html><body>${fragment}</body></html>`);
   }
 
-  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs' }, fragment));
+  return render(layout({ title: `Run ${run.id.slice(0, 8)}`, activeNav: 'runs', flash }, fragment));
+}
+
+/**
+ * No-JS fallback replay form wrapped in a <noscript>. When the DAG viz
+ * renders, the per-node dialog is the primary replay surface — this
+ * block only becomes visible if JS is disabled / the Cytoscape bootstrap
+ * fails to load. Keeps the feature reachable without JavaScript without
+ * cluttering the main flow.
+ */
+function renderReplayFallback(run: Run, agent: Agent): SafeHtml {
+  if (agent.nodes.length === 0) return html``;
+  const options = agent.nodes.map((n) => html`<option value="${n.id}">${n.id}</option>`);
+  const needsConfirm = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
+  const confirmInput = needsConfirm
+    ? html`
+      <label class="replay-form__confirm">
+        <input type="checkbox" name="confirm_community_shell" value="yes" required>
+        I've audited this community shell agent and accept the risk.
+      </label>`
+    : unsafeHtml('');
+  return html`
+    <noscript>
+      <section class="replay-form-section">
+        <h2>Replay</h2>
+        <p class="dim">
+          JavaScript is disabled, so the clickable DAG isn't available.
+          Pick a node below to replay from; upstream outputs from this run
+          will be reused.
+        </p>
+        <form action="/runs/${run.id}/replay" method="post" class="replay-form">
+          <label for="replay-from">Start from</label>
+          <select id="replay-from" name="fromNodeId" required>
+            <option value="">Select a node…</option>
+            ${options as unknown as SafeHtml[]}
+          </select>
+          ${confirmInput}
+          <button type="submit" class="btn btn--primary">Replay</button>
+        </form>
+      </section>
+    </noscript>
+  `;
 }
 
 /**

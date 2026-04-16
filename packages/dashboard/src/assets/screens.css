@@ -196,6 +196,13 @@ main.main--wide {
 
 .dag-disclosure__summary::-webkit-details-marker { display: none; }
 
+.dag-disclosure__hint {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular);
+}
+
 .dag-disclosure:not([open]) > .dag-disclosure__summary {
   border-bottom: none;
 }
@@ -299,4 +306,270 @@ main.main--wide {
   padding-left: var(--space-5);
   color: var(--color-warn);
   font-size: var(--font-size-sm);
+}
+
+/* Replay form — lives on terminal v2 run detail pages. */
+.replay-form-section {
+  margin-top: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.replay-form-section h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.replay-form {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.replay-form label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.replay-form select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  background: var(--color-surface);
+  color: var(--color-text);
+  min-width: 14rem;
+}
+
+.replay-form select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.replay-form__confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-warn);
+  flex-basis: 100%;
+}
+
+/* Node-action dialog — opens on DAG node click. Uses the native <dialog>
+ * element so the browser handles ESC + backdrop clicks + focus return. */
+.node-dialog {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  max-width: 32rem;
+  width: 90%;
+  box-shadow: var(--shadow-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.node-dialog::backdrop {
+  background: rgb(15 23 42 / 0.45);
+  backdrop-filter: blur(1px);
+}
+
+.node-dialog__form {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.node-dialog__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.node-dialog__id {
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.node-dialog__close {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.node-dialog__close:hover {
+  color: var(--color-text);
+  background: var(--color-border);
+}
+
+.node-dialog__close:focus,
+.node-dialog__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+.node-dialog__meta {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) 0;
+  grid-template-columns: 7rem 1fr;
+  row-gap: var(--space-2);
+}
+
+.node-dialog__meta dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--weight-semibold);
+}
+
+.node-dialog__meta dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.node-dialog__explain {
+  padding: var(--space-4) var(--space-5) 0;
+  color: var(--color-text);
+}
+
+.node-dialog__explain:empty {
+  display: none;
+}
+
+.node-dialog__explain-text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.node-dialog__warn {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+}
+
+.node-dialog__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.node-dialog__replay-form {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.node-dialog__audit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-warn);
+}
+
+/* Node-type fields on the add/edit-node forms. The field not matching
+ * the selected type radio is greyed out but remains in the DOM — the
+ * server still sees both, but the UI nudges the user toward editing
+ * only the one that matters for the selected type. */
+.node-field--inactive {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.node-field--inactive textarea {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+/* Template palette — command/prompt textarea autocomplete for $ and {{ */
+.template-palette {
+  display: none;
+  position: absolute;
+  z-index: 100;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+  min-width: 18rem;
+}
+
+.template-palette__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.template-palette__item.is-selected,
+.template-palette__item:hover {
+  background: var(--color-surface-raised);
+}
+
+.template-palette__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.template-palette__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  flex: 1 1 auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.template-palette__empty {
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
 }

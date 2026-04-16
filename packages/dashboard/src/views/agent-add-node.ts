@@ -2,6 +2,7 @@ import type { Agent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 
 /**
  * Render a reference card listing everything the author can inject into
@@ -174,15 +175,25 @@ export function renderAgentAddNode(args: {
 
       ${availableVariablesPanel(agent)}
 
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
+      <label class="node-field" data-node-field="shell" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
         <strong>Command <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(shell only)</span></strong>
-        <textarea name="command" rows="4" placeholder='echo "$UPSTREAM_FETCH_RESULT" | wc -w' style="${TEXTAREA_STYLE}">${v.command ?? ''}</textarea>
+        <textarea name="command" rows="4" placeholder='echo "$UPSTREAM_FETCH_RESULT" | wc -w'
+          style="${TEXTAREA_STYLE}"
+          data-template-palette="shell"
+          data-palette-source="palette-add-node">${v.command ?? ''}</textarea>
+        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
       </label>
 
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
+      <label class="node-field" data-node-field="claude-code" style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6);">
         <strong>Prompt <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(claude-code only)</span></strong>
-        <textarea name="prompt" rows="4" placeholder='Summarise: {{upstream.fetch.result}}' style="${TEXTAREA_STYLE}">${v.prompt ?? ''}</textarea>
+        <textarea name="prompt" rows="4" placeholder='Summarise: {{upstream.fetch.result}}'
+          style="${TEXTAREA_STYLE}"
+          data-template-palette="claude"
+          data-palette-source="palette-add-node">${v.prompt ?? ''}</textarea>
+        <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
       </label>
+
+      ${renderPalettePayload('palette-add-node', computePaletteSuggestions(agent))}
 
       <div style="display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center;">
         <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>

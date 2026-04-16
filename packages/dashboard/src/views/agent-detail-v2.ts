@@ -130,13 +130,19 @@ export async function renderAgentDetailV2(args: {
         ${secretsUnknown > 0 ? html`<span class="badge badge--warn">${String(secretsUnknown)} locked</span>` : html``}
       `;
 
+  // Latest completed run powers the DAG's "Replay from here" node-click
+  // action. Without one, clicking a node still opens the action dialog
+  // (Edit node is always offered) but the replay button is absent.
+  const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
+
   // Inspector (right-column) default state: agent-level summary card.
-  // Editable inspector + node-selection states arrive in PR 3 (v0.15).
+  // Node inspection happens via a dialog triggered by clicks on the
+  // DAG viz — not this panel. The inspector stays as an agent-scoped
+  // overview.
   const inspector = html`
     <aside class="inspector" id="inspector">
       <header class="inspector__header">
         <h2 class="inspector__title">Overview</h2>
-        <span class="inspector__hint">Click a node to inspect it</span>
       </header>
 
       <section class="inspector__section">
@@ -195,7 +201,16 @@ export async function renderAgentDetailV2(args: {
     <div class="agent-detail">
       <div class="agent-detail__main">
         ${renderDagFallback(agent)}
-        ${renderDagView({ agent })}
+        ${renderDagView({
+          agent,
+          editBase: `/agents/${agent.id}/nodes`,
+          replay: latestCompletedRun
+            ? {
+                priorRunId: latestCompletedRun.id,
+                requiresCommunityConfirm: hasCommunityShellNode,
+              }
+            : undefined,
+        })}
 
         <section id="nodes">
           <h2>Nodes</h2>

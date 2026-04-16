@@ -20,6 +20,7 @@ import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
+import { runMutationsRouter } from './routes/run-mutations.js';
 import { assetsRouter } from './routes/assets.js';
 import { settingsRouter } from './routes/settings.js';
 import { helpRouter } from './routes/help.js';
@@ -87,6 +88,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(agentsRouter);
   app.use(runsRouter);
   app.use(runNowRouter);
+  app.use(runMutationsRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
