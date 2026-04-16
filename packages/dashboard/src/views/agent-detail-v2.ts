@@ -143,7 +143,6 @@ export async function renderAgentDetailV2(args: {
     <aside class="inspector" id="inspector">
       <header class="inspector__header">
         <h2 class="inspector__title">Overview</h2>
-        <span class="inspector__hint">Click a DAG node for its actions</span>
       </header>
 
       <section class="inspector__section">

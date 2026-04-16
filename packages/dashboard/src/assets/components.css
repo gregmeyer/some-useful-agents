@@ -615,6 +615,78 @@
   white-space: nowrap;
 }
 
+/* DAG mini-cards inside the agent card's expansion. Each card is
+ * indented by its topological depth (--depth, set inline) so the
+ * expansion reflects the DAG shape. A left-edge rail hints at the
+ * parent/child relationship without a full graph widget. */
+.agent-card__dag {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.agent-card__node {
+  position: relative;
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + var(--depth, 0) * 1.25rem);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: var(--space-2);
+  transition: border-color 120ms;
+}
+
+.agent-card__node[data-depth="0"] {
+  background: var(--color-surface-raised);
+}
+
+.agent-card__node:hover {
+  border-color: var(--color-primary);
+}
+
+.agent-card__node-rail {
+  position: absolute;
+  top: 0;
+  left: calc(var(--space-2) + (var(--depth, 0) - 1) * 1.25rem + 0.5rem);
+  bottom: 0;
+  width: 2px;
+  background: var(--color-primary);
+  border-radius: 1px;
+  opacity: 0.4;
+  display: none;
+}
+
+.agent-card__node[data-depth]:not([data-depth="0"]) .agent-card__node-rail {
+  display: block;
+}
+
+.agent-card__node-body-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.agent-card__node-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.agent-card__node-id {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.agent-card__node-dep {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
 /*
  * Legacy class-name aliases — will be removed once all view files use
  * the BEM-style forms above. Keep this block small; no new rules belong

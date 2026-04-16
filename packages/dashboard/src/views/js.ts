@@ -29,6 +29,19 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // ESC closes any open custom-modal backdrop (community-shell confirm,
+  // run-now audit). Native <dialog> elements already close on ESC via
+  // the browser's cancel event; this fills the gap for the older
+  // .modal-backdrop pattern we still use in a few places.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var open = document.querySelector('.modal-backdrop.is-open, .modal-backdrop.open');
+    if (open) {
+      open.classList.remove('is-open');
+      open.classList.remove('open');
+    }
+  });
+
   // Confirm-before-submit for forms with [data-confirm]. Used on
   // destructive settings actions (delete secret, rotate MCP token).
   document.addEventListener('submit', function (e) {

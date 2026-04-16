@@ -52,11 +52,9 @@ export function renderDagView(args: {
   // when a deep run detail has scrolled past the structural view they
   // already saw on /agents/:id. The summary mirrors the other
   // collapsible-section styling (.run-node, .agent-card__nodes).
-  const hintText = replay
-    ? 'Click a node to replay from there \u2192'
-    : editBase
-      ? 'Click a node to inspect or edit it \u2192'
-      : '';
+  const hintText = replay || editBase
+    ? 'Click a node to see its actions \u2192'
+    : '';
   const hint = hintText
     ? html`<span class="dag-disclosure__hint">${hintText}</span>`
     : unsafeHtml('');
@@ -70,9 +68,12 @@ export function renderDagView(args: {
       <div class="dag-disclosure__body">
         <div id="dag-canvas" class="dag-frame__canvas"${unsafeHtml(navAttr)}${unsafeHtml(replayAttr)}${unsafeHtml(editAttr)}></div>
         <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
-        <script src="/assets/cytoscape.min.js"></script>
-        <script src="/assets/graph-render.js"></script>
 
+        <!-- Dialog rendered BEFORE the scripts so the IIFE's initial
+             getElementById lookup finds the element. Order matters:
+             synchronous <script src> tags run at parse time, and any
+             element declared after them is still invisible to the
+             first lookup inside graph-render.js. -->
         <dialog id="dag-node-dialog" class="node-dialog">
           <form method="dialog" class="node-dialog__form">
             <header class="node-dialog__header">
@@ -85,9 +86,13 @@ export function renderDagView(args: {
               <dt>Depends on</dt><dd class="mono" data-node-deps></dd>
               <dt>Duration</dt><dd class="mono" data-node-duration></dd>
             </dl>
+            <div class="node-dialog__explain" data-node-explain></div>
             <div class="node-dialog__actions" data-node-actions></div>
           </form>
         </dialog>
+
+        <script src="/assets/cytoscape.min.js"></script>
+        <script src="/assets/graph-render.js"></script>
       </div>
     </details>
   `;

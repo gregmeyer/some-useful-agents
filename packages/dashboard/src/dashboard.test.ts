@@ -1248,7 +1248,7 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
     // The <dialog> shell the client populates on node-tap.
     expect(res.text).toContain('id="dag-node-dialog"');
     // The click hint tells the user the interaction is available.
-    expect(res.text).toContain('Click a node to replay');
+    expect(res.text).toContain('Click a node to see its actions');
     // No-JS fallback form is wrapped in <noscript>.
     expect(res.text).toMatch(/<noscript>[\s\S]*action="\/runs\/[^"]+\/replay"/);
   });
@@ -1282,10 +1282,12 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
     // Edit-from-DAG and replay-latest-from-DAG both present.
     expect(res.text).toContain(`data-edit-base="/agents/${agentId}/nodes"`);
     expect(res.text).toMatch(/data-replay-run-id="prior-run-1"/);
-    // Stale "Click a node to inspect it" copy is gone; new honest hint
-    // reflects the interaction.
+    // Stale "Click a node to inspect it" + "Click a DAG node for its
+    // actions" copy is gone. Only the DAG's own hint survives — the
+    // Overview sidebar doesn't pretend to respond to node clicks.
     expect(res.text).not.toContain('Click a node to inspect it');
-    expect(res.text).toContain('Click a DAG node for its actions');
+    expect(res.text).not.toContain('Click a DAG node for its actions');
+    expect(res.text).toContain('Click a node to see its actions');
   });
 
   it('POST /runs/:id/replay with a missing fromNodeId flashes an error', async () => {
