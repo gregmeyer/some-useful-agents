@@ -175,6 +175,11 @@ export class RunStore {
     if (!execCols.has('outputsjson')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN outputsJson TEXT`);
     }
+
+    // v0.17: real-time progress events captured during multi-turn LLM execution.
+    if (!execCols.has('progressjson')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN progressJson TEXT`);
+    }
   }
 
   /**
@@ -338,8 +343,8 @@ export class RunStore {
       INSERT INTO node_executions (
         runId, nodeId, workflowVersion, status, errorCategory,
         startedAt, completedAt, result, exitCode, error,
-        inputsJson, upstreamInputsJson, outputsJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        inputsJson, upstreamInputsJson, outputsJson, progressJson
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       record.runId, record.nodeId, record.workflowVersion, record.status,
@@ -347,7 +352,7 @@ export class RunStore {
       record.startedAt, record.completedAt ?? null,
       record.result ?? null, record.exitCode ?? null, record.error ?? null,
       record.inputsJson ?? null, record.upstreamInputsJson ?? null,
-      record.outputsJson ?? null,
+      record.outputsJson ?? null, record.progressJson ?? null,
     );
   }
 
@@ -355,7 +360,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson'
     >>,
   ): void {
     const fields: string[] = [];
@@ -369,6 +374,7 @@ export class RunStore {
     if (updates.inputsJson !== undefined) { fields.push('inputsJson = ?'); values.push(updates.inputsJson); }
     if (updates.upstreamInputsJson !== undefined) { fields.push('upstreamInputsJson = ?'); values.push(updates.upstreamInputsJson); }
     if (updates.outputsJson !== undefined) { fields.push('outputsJson = ?'); values.push(updates.outputsJson); }
+    if (updates.progressJson !== undefined) { fields.push('progressJson = ?'); values.push(updates.progressJson); }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -456,6 +462,7 @@ export class RunStore {
       inputsJson: (row.inputsJson as string | null) ?? undefined,
       upstreamInputsJson: (row.upstreamInputsJson as string | null) ?? undefined,
       outputsJson: (row.outputsJson as string | null) ?? undefined,
+      progressJson: (row.progressJson as string | null) ?? undefined,
     };
   }
 }
