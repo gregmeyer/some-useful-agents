@@ -536,30 +536,34 @@ export const DASHBOARD_JS = `
       });
     }
 
-    // When the form inside the modal submits, swap content to a spinner.
+    var SPINNER_HTML =
+      '<div style="text-align:center;padding:var(--space-6);">' +
+      '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+      '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Running...</p>' +
+      '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Starting execution.</p></div>';
+
+    // When the form inside the modal submits, swap to spinner AFTER the
+    // browser has processed the submit (setTimeout avoids disconnecting
+    // the form before the POST fires).
     var runForm = runModal.querySelector('[data-run-form]');
     if (runForm) {
       runForm.addEventListener('submit', function () {
-        var mc = document.getElementById('run-modal-content');
-        if (mc) mc.innerHTML =
-          '<div style="text-align:center;padding:var(--space-6);">' +
-          '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
-          '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Running...</p>' +
-          '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Starting execution.</p></div>';
+        setTimeout(function () {
+          var mc = document.getElementById('run-modal-content');
+          if (mc) mc.innerHTML = SPINNER_HTML;
+        }, 0);
       });
     }
 
-    // Also handle no-inputs agents (form outside modal with data-run-form).
+    // No-inputs agents: form is outside the modal. Show modal with spinner.
     var externalForm = document.querySelector('form[data-run-form]:not(#run-modal form)');
     if (externalForm) {
       externalForm.addEventListener('submit', function () {
         runModal.classList.add('is-open');
-        var mc = document.getElementById('run-modal-content');
-        if (mc) mc.innerHTML =
-          '<div style="text-align:center;padding:var(--space-6);">' +
-          '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
-          '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Running...</p>' +
-          '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Starting execution.</p></div>';
+        setTimeout(function () {
+          var mc = document.getElementById('run-modal-content');
+          if (mc) mc.innerHTML = SPINNER_HTML;
+        }, 0);
       });
     }
 
