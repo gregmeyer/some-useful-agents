@@ -523,126 +523,122 @@ export const DASHBOARD_JS = `
     setTimeout(poll, 2000);
   }
 
-  // Suggest improvements — modal that stays on the agent page, fetches
-  // analysis from the analyzer agent, renders results inline.
+  // Suggest improvements — modal with progress feedback, cancel, colored diff.
   (function () {
     var btn = document.getElementById('suggest-btn');
     var modal = document.getElementById('suggest-modal');
     var content = document.getElementById('suggest-modal-content');
     if (!btn || !modal || !content) return;
-
     var agentId = btn.getAttribute('data-agent-id');
+    var PHASES = [
+      [0,'Sending YAML to Claude...'],[5,'Reading the DAG structure...'],
+      [15,'Analyzing cross-node data flow...'],[30,'Generating suggestions...'],
+      [60,'Still working (complex agent)...'],[90,'Almost there...']
+    ];
 
-    function esc(s) {
-      var d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
-
+    function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function closeModal() { modal.classList.remove('is-open'); }
+
+    function coloredDiff(oldT, newT) {
+      var oL = oldT.split('\\n'), nL = newT.split('\\n');
+      var oS = {}, nS = {};
+      for (var i = 0; i < oL.length; i++) oS[oL[i].trim()] = true;
+      for (var j = 0; j < nL.length; j++) nS[nL[j].trim()] = true;
+      var DEL = 'background:rgba(255,0,0,0.08);color:#cf222e;';
+      var ADD = 'background:rgba(0,180,0,0.08);color:#1a7f37;';
+      var P = 'font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin:0;';
+      var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-3);">';
+      h += '<div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Current</p><pre style="' + P + '">';
+      for (var a = 0; a < oL.length; a++) h += '<span style="display:block;' + (nS[oL[a].trim()] ? '' : DEL) + '">' + esc(oL[a]) + '</span>';
+      h += '</pre></div><div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Suggested</p><pre style="' + P + '">';
+      for (var b = 0; b < nL.length; b++) h += '<span style="display:block;' + (oS[nL[b].trim()] ? '' : ADD) + '">' + esc(nL[b]) + '</span>';
+      h += '</pre></div></div>';
+      return h;
+    }
 
     btn.addEventListener('click', function () {
       modal.classList.add('is-open');
+      var t0 = Date.now();
       content.innerHTML =
-        '<div style="text-align:center;padding:var(--space-6);">' +
-        '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
-        '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Analyzing ' + esc(agentId) + '...</p>' +
-        '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">This usually takes 10\u201330 seconds.</p>' +
+        '<div style="padding:var(--space-4);">' +
+        '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
+          '<div class="spinner"></div>' +
+          '<div style="flex:1;"><div style="font-weight:var(--weight-medium);">Analyzing ' + esc(agentId) + '</div>' +
+          '<div class="dim" style="font-size:var(--font-size-xs);" id="sg-phase">' + PHASES[0][1] + '</div></div>' +
+          '<div style="font-family:var(--font-mono);font-size:var(--font-size-lg);color:var(--color-text-muted);min-width:3rem;text-align:right;" id="sg-timer">0s</div>' +
+        '</div>' +
+        '<div style="height:4px;background:var(--color-border);border-radius:2px;overflow:hidden;margin-bottom:var(--space-3);">' +
+          '<div id="sg-bar" style="height:100%;background:var(--color-primary);border-radius:2px;width:0%;transition:width 1s linear;"></div>' +
+        '</div>' +
+        '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="sg-cancel">Cancel</button></div>' +
         '</div>';
 
+      var tick = setInterval(function () {
+        var s = Math.round((Date.now() - t0) / 1000);
+        var te = document.getElementById('sg-timer'); if (te) te.textContent = s + 's';
+        var be = document.getElementById('sg-bar'); if (be) be.style.width = Math.min(s/120*100, 98) + '%';
+        var pe = document.getElementById('sg-phase'); if (pe) {
+          var m = PHASES[0][1]; for (var i = 0; i < PHASES.length; i++) { if (s >= PHASES[i][0]) m = PHASES[i][1]; }
+          pe.textContent = m;
+        }
+      }, 1000);
+
+      var ctrl = new AbortController();
+      var ce = document.getElementById('sg-cancel');
+      if (ce) ce.addEventListener('click', function () { ctrl.abort(); clearInterval(tick); closeModal(); });
+
       fetch('/agents/' + encodeURIComponent(agentId) + '/analyze', {
-        method: 'POST',
-        credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: '',
+        body: '', signal: ctrl.signal,
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (!data.ok) {
-            content.innerHTML =
-              '<h3 style="margin:0 0 var(--space-3);">Analysis failed</h3>' +
-              '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
-              (data.runId ? '<p class="dim" style="font-size:var(--font-size-xs);margin:var(--space-2) 0 0;">Run: <a href="/runs/' + esc(data.runId) + '">' + esc(data.runId.slice(0, 8)) + '</a></p>' : '') +
-              '<div style="margin-top:var(--space-3);text-align:right;">' +
-              '<button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button>' +
-              '</div>';
-            return;
-          }
-
-          var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok'
-            : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
-          var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed'
-            : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
-
-          var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);">' +
-            '<span class="badge ' + bc + '">' + esc(bl) + '</span>' +
-            '</div>';
-          if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
-          if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:300px;overflow-y:auto;">' + esc(data.details) + '</pre>';
-
-          if (data.yaml && data.currentYaml) {
-            var PRE = 'font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin:0;';
-            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-3);">' +
-              '<div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Current</p>' +
-              '<pre style="' + PRE + '">' + esc(data.currentYaml) + '</pre></div>' +
-              '<div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Suggested</p>' +
-              '<pre style="' + PRE + '">' + esc(data.yaml) + '</pre></div>' +
-              '</div>';
-          } else if (data.yaml) {
-            h += '<details style="margin-bottom:var(--space-3);">' +
-              '<summary style="cursor:pointer;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);color:var(--color-primary);">View suggested YAML</summary>' +
-              '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-top:var(--space-2);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">' + esc(data.yaml) + '</pre>' +
-              '</details>';
-          }
-
-          h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
-          if (data.yaml) {
-            h += '<button type="button" class="btn btn--primary btn--sm" id="suggest-apply-btn">Review + apply</button>';
-          }
-          h += '<button type="button" class="btn btn--ghost btn--sm" id="suggest-dismiss-btn">Dismiss</button>';
-          h += '</div>';
-
-          // Wire up buttons after innerHTML is set.
-          setTimeout(function () {
-            var applyBtn = document.getElementById('suggest-apply-btn');
-            if (applyBtn && data.yaml) {
-              applyBtn.addEventListener('click', function () {
-                // Submit via a dynamic form with a textarea to preserve newlines/quotes.
-                var form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
-                var ta = document.createElement('textarea');
-                ta.name = 'prefillYaml';
-                ta.value = data.yaml;
-                ta.style.display = 'none';
-                form.appendChild(ta);
-                document.body.appendChild(form);
-                form.submit();
-              });
-            }
-            var dismissBtn = document.getElementById('suggest-dismiss-btn');
-            if (dismissBtn) {
-              dismissBtn.addEventListener('click', function () {
-                modal.classList.remove('is-open');
-              });
-            }
-          }, 0);
-
-          content.innerHTML = h;
-        })
-        .catch(function (err) {
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        clearInterval(tick);
+        if (!data.ok) {
           content.innerHTML =
-            '<h3 style="margin:0 0 var(--space-3);">Error</h3>' +
-            '<div class="flash flash--error">' + esc(String(err)) + '</div>' +
-            '<div style="margin-top:var(--space-3);text-align:right;">' +
-            '<button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button>' +
-            '</div>';
+            '<h3 style="margin:0 0 var(--space-3);">Analysis failed</h3>' +
+            '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
+            (data.runId ? '<p class="dim" style="font-size:var(--font-size-xs);margin:var(--space-2) 0 0;">Run: <a href="/runs/' + esc(data.runId) + '">' + esc(data.runId.slice(0,8)) + '</a></p>' : '') +
+            '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button></div>';
+          return;
+        }
+        var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok' : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
+        var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed' : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
+        var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);"><span class="badge ' + bc + '">' + esc(bl) + '</span></div>';
+        if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
+        if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:250px;overflow-y:auto;">' + esc(data.details) + '</pre>';
+        if (data.yaml && data.currentYaml) {
+          h += coloredDiff(data.currentYaml, data.yaml);
+        } else if (data.yaml) {
+          h += '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-3);max-height:300px;overflow-y:auto;white-space:pre-wrap;">' + esc(data.yaml) + '</pre>';
+        }
+        h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
+        if (data.yaml) h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">Review + apply</button>';
+        h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
+        content.innerHTML = h;
+        var ab = document.getElementById('sg-apply');
+        if (ab && data.yaml) ab.addEventListener('click', function () {
+          var f = document.createElement('form'); f.method = 'POST';
+          f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
+          var t = document.createElement('textarea'); t.name = 'prefillYaml'; t.value = data.yaml; t.style.display = 'none';
+          f.appendChild(t); document.body.appendChild(f); f.submit();
         });
+        var db = document.getElementById('sg-dismiss');
+        if (db) db.addEventListener('click', closeModal);
+      })
+      .catch(function (err) {
+        clearInterval(tick);
+        if (err.name === 'AbortError') return;
+        content.innerHTML =
+          '<h3 style="margin:0 0 var(--space-3);">Error</h3>' +
+          '<div class="flash flash--error">' + esc(String(err)) + '</div>' +
+          '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button></div>';
+      });
     });
 
     modal.addEventListener('click', function (e) {
       if (e.target === modal) closeModal();
-      // Delegated close for dynamically created buttons.
       if (e.target && e.target.getAttribute && e.target.getAttribute('data-close-modal')) closeModal();
     });
   })();
