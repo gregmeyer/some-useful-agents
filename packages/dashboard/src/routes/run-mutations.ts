@@ -33,6 +33,29 @@ runMutationsRouter.get('/runs/:id/replay-check', (req: Request, res: Response) =
     return;
   }
 
+  // Validate the pivot node's config. Control-flow nodes need their
+  // respective config objects; missing config will fail at execution time.
+  const pivotNode = order[pivotIndex];
+  const configErrors: string[] = [];
+  if (pivotNode.type === 'conditional' && !pivotNode.conditionalConfig) {
+    configErrors.push(`Node "${fromNodeId}" is a conditional but missing conditionalConfig.`);
+  }
+  if (pivotNode.type === 'switch' && !pivotNode.switchConfig) {
+    configErrors.push(`Node "${fromNodeId}" is a switch but missing switchConfig.`);
+  }
+  if (pivotNode.type === 'loop' && !pivotNode.loopConfig) {
+    configErrors.push(`Node "${fromNodeId}" is a loop but missing loopConfig.`);
+  }
+  if (pivotNode.type === 'agent-invoke' && !pivotNode.agentInvokeConfig) {
+    configErrors.push(`Node "${fromNodeId}" is an agent-invoke but missing agentInvokeConfig.`);
+  }
+  if (pivotNode.type === 'shell' && !pivotNode.command) {
+    configErrors.push(`Node "${fromNodeId}" is a shell node but has no command.`);
+  }
+  if (pivotNode.type === 'claude-code' && !pivotNode.prompt) {
+    configErrors.push(`Node "${fromNodeId}" is a claude-code node but has no prompt.`);
+  }
+
   // Check which upstream nodes have stored outputs in the prior run.
   const priorExecs = ctx.runStore.listNodeExecutions(id);
   const priorByNode = new Map(priorExecs.map((e) => [e.nodeId, e]));
@@ -60,8 +83,9 @@ runMutationsRouter.get('/runs/:id/replay-check', (req: Request, res: Response) =
 
   res.json({
     ok: true,
-    canReplay: missing.length === 0,
+    canReplay: missing.length === 0 && configErrors.length === 0,
     missing,
+    configErrors,
     available,
     inputs,
     fromNodeId,

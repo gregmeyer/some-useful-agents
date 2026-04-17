@@ -413,6 +413,18 @@ const GRAPH_RENDER_JS = `
                 '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(\\x27run-modal\\x27).classList.remove(\\x27is-open\\x27)">Close</button></div>';
               return;
             }
+            if (check.configErrors && check.configErrors.length > 0) {
+              replayContent.innerHTML =
+                '<h3 style="margin:0 0 var(--space-3);">Node configuration error</h3>' +
+                '<div class="flash flash--error" style="margin-bottom:var(--space-3);">' +
+                check.configErrors.map(function (e) { return '<div>' + e + '</div>'; }).join('') +
+                '</div>' +
+                '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Fix the agent definition before replaying. The node is missing required configuration.</p>' +
+                '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;">' +
+                '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(\\x27run-modal\\x27).classList.remove(\\x27is-open\\x27)">Close</button>' +
+                '</div>';
+              return;
+            }
             if (check.missing && check.missing.length > 0) {
               replayContent.innerHTML =
                 '<h3 style="margin:0 0 var(--space-3);">Missing upstream outputs</h3>' +
