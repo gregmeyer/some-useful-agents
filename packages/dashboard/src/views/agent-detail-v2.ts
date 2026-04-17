@@ -74,7 +74,7 @@ export async function renderAgentDetailV2(args: {
         </form>
       `
     : html`
-        <form method="POST" action="/agents/${agent.id}/run" style="display: inline;">
+        <form method="POST" action="/agents/${agent.id}/run" style="display: inline;" data-run-form="${agent.id}">
           ${fromHidden}
           <button type="submit" class="btn btn--primary">Run now</button>
         </form>
@@ -261,6 +261,16 @@ export async function renderAgentDetailV2(args: {
     <div id="suggest-modal" class="modal-backdrop">
       <div class="modal" style="max-width: 720px; max-height: 85vh; overflow-y: auto;">
         <div id="suggest-modal-content"></div>
+      </div>
+    </div>
+
+    <div id="run-modal" class="modal-backdrop">
+      <div class="modal" style="max-width: 400px;">
+        <div style="text-align: center; padding: var(--space-6);">
+          <div class="spinner" style="margin: 0 auto var(--space-3);"></div>
+          <p style="font-weight: var(--weight-medium); margin: 0 0 var(--space-2);">Running ${agent.id}...</p>
+          <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Starting execution. You'll be redirected to the run detail page.</p>
+        </div>
       </div>
     </div>
   `;

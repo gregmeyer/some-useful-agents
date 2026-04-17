@@ -523,6 +523,16 @@ export const DASHBOARD_JS = `
     setTimeout(poll, 2000);
   }
 
+  // Run-now modal — show spinner while the POST submits.
+  (function () {
+    var runForm = document.querySelector('[data-run-form]');
+    var runModal = document.getElementById('run-modal');
+    if (!runForm || !runModal) return;
+    runForm.addEventListener('submit', function () {
+      runModal.classList.add('is-open');
+    });
+  })();
+
   // Suggest improvements — modal with progress feedback, cancel, colored diff.
   (function () {
     var btn = document.getElementById('suggest-btn');

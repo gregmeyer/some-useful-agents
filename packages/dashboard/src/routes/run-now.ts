@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, exportAgent, parseAgent } from '@some-useful-agents/core';
+import { executeAgentDag, exportAgent, parseAgent, type RunStatus } from '@some-useful-agents/core';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
@@ -43,17 +43,49 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
       res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent(flash)}`);
       return;
     }
+    // Fire-and-forget: start the DAG executor but don't await it.
+    // The executor creates the run row in 'running' state synchronously
+    // before spawning nodes, so the redirect to /runs/:id lands on a
+    // valid page that polls for progress.
+    const runPromise = executeAgentDag(
+      v2Agent,
+      { triggeredBy: 'dashboard', inputs: {} },
+      {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        allowUntrustedShell: ctx.allowUntrustedShell,
+      },
+    );
+
+    // Give the executor a moment to create the run row, then redirect.
+    // The run row is created synchronously at the top of executeAgentDag
+    // before any async node work starts.
     try {
-      const run = await executeAgentDag(
-        v2Agent,
-        { triggeredBy: 'dashboard', inputs: {} },
-        {
-          runStore: ctx.runStore,
-          secretsStore: ctx.secretsStore,
-          allowUntrustedShell: ctx.allowUntrustedShell,
-        },
-      );
-      res.redirect(303, `/runs/${encodeURIComponent(run.id)}${fromSuffix}`);
+      // Wait just long enough for the run row to exist (near-instant).
+      const run = await Promise.race([
+        runPromise,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)),
+      ]);
+
+      if (run) {
+        // Fast agent: already finished.
+        res.redirect(303, `/runs/${encodeURIComponent(run.id)}${fromSuffix}`);
+      } else {
+        // Still running: find the most recent run for this agent.
+        const { rows } = ctx.runStore.queryRuns({
+          agentName: v2Agent.id,
+          statuses: ['running'] as RunStatus[],
+          limit: 1,
+          offset: 0,
+        });
+        if (rows.length > 0) {
+          res.redirect(303, `/runs/${encodeURIComponent(rows[0].id)}${fromSuffix}`);
+        } else {
+          // Fallback: wait for the full run.
+          const fullRun = await runPromise;
+          res.redirect(303, `/runs/${encodeURIComponent(fullRun.id)}${fromSuffix}`);
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent(message)}`);
