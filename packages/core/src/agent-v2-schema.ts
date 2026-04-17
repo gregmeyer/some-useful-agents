@@ -91,6 +91,7 @@ export const agentNodeSchema = z.object({
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   allowedTools: z.array(z.string()).optional(),
+  provider: z.enum(['claude', 'codex']).optional(),
 
   timeout: z.number().positive().optional(),
   env: z.record(z.string()).optional(),

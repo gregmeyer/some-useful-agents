@@ -102,7 +102,7 @@ const AGENT_KEY_ORDER = [
 
 const NODE_KEY_ORDER = [
   'id', 'type',
-  'command', 'prompt', 'model', 'maxTurns', 'allowedTools',
+  'command', 'prompt', 'model', 'maxTurns', 'allowedTools', 'provider',
   'timeout', 'env', 'envAllowlist', 'secrets', 'redactSecrets', 'workingDirectory',
   'dependsOn',
   'position',

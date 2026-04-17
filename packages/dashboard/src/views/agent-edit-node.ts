@@ -91,6 +91,17 @@ export function renderAgentEditNode(args: {
           ${renderToolInputsSection(node.tool ?? (v.type === 'claude-code' ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
         `}
 
+      ${node.type === 'claude-code' || v.type === 'claude-code' ? html`
+        <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
+          <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">LLM Provider</legend>
+          <select name="provider" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+            <option value="claude" ${node.provider !== 'codex' ? 'selected' : ''}>Claude</option>
+            <option value="codex" ${node.provider === 'codex' ? 'selected' : ''}>Codex</option>
+          </select>
+          <span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">Which LLM CLI to use for this node.</span>
+        </fieldset>
+      ` : html``}
+
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Depends on</legend>
         <p class="dim" style="margin: 0 0 var(--space-2); font-size: var(--font-size-xs);">Pick upstream nodes. Downstream nodes + self are excluded to prevent cycles.</p>
