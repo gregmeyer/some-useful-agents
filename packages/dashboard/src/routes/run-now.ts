@@ -229,11 +229,18 @@ runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =
   if (run.status === 'running' || run.status === 'pending') {
     const execs = ctx.runStore.listNodeExecutions(runId);
     const runningNode = execs.find((e) => e.status === 'running');
+    const completedNodes = execs.filter((e) => e.status === 'completed').map((e) => e.nodeId);
     let progress: unknown[] = [];
     if (runningNode?.progressJson) {
       try { progress = JSON.parse(runningNode.progressJson); } catch { /* ignore */ }
     }
-    res.json({ ok: true, status: 'running', progress });
+    // Add a phase message based on which node is running.
+    const phaseMessage = runningNode?.nodeId === 'analyze' ? 'Analyzing agent...'
+      : runningNode?.nodeId === 'validate' ? 'Validating suggested YAML...'
+      : runningNode?.nodeId === 'fix' ? 'Fixing validation errors...'
+      : runningNode ? `Running ${runningNode.nodeId}...`
+      : 'Starting...';
+    res.json({ ok: true, status: 'running', progress, phase: phaseMessage, completedNodes });
     return;
   }
 
@@ -243,8 +250,24 @@ runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =
     return;
   }
 
+  // The run.result is the last completed node's output. In the multi-node
+  // analyzer pipeline:
+  //   - If fix ran (validation failed): fix node's output has the corrected XML
+  //   - If fix was skipped (validation passed): validate node's JSON is the
+  //     run result, but we want the analyze node's output with the XML tags
+  // Detect by checking for <classification> tag.
+  let resultText = run.result;
+  if (!resultText.includes('<classification>')) {
+    // Result is probably the validate node's JSON. Find the analyze node's output.
+    const execs = ctx.runStore.listNodeExecutions(runId);
+    const analyzeExec = execs.find((e) => e.nodeId === 'analyze');
+    if (analyzeExec?.result) {
+      resultText = analyzeExec.result;
+    }
+  }
+
   const extract = (tag: string): string | undefined => {
-    const m = run.result!.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
+    const m = resultText.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
     return m ? m[1].trim() : undefined;
   };
   const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';

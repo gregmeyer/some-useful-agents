@@ -1,9 +1,9 @@
 id: agent-analyzer
 name: Agent Analyzer
 description: >
-  AI-powered agent review. Analyzes an agent's YAML holistically and suggests
-  improvements — missing variables, hardcoded values, prompt quality, cross-node
-  data flow. Run via "Suggest improvements" on any agent's detail page.
+  AI-powered agent review with self-correction. Analyzes an agent's YAML,
+  validates the suggested improvements against the schema, and fixes any
+  errors automatically. Run via "Suggest improvements" on any agent's detail page.
 status: active
 source: examples
 
@@ -63,6 +63,9 @@ nodes:
             type: enum
             values: [haiku, limerick, prose]
             default: haiku
+      - Template refs in prompts use {{inputs.NAME}} (not {{NAME}} or {{#inputs.NAME}}).
+      - conditional nodes MUST have conditionalConfig with a predicate.
+      - switch nodes MUST have switchConfig with field + cases.
 
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
@@ -81,3 +84,75 @@ nodes:
       {{inputs.AGENT_YAML}}
     maxTurns: 3
     timeout: 120
+
+  - id: validate
+    type: shell
+    dependsOn:
+      - analyze
+    command: |
+      # Extract <yaml>...</yaml> from the analysis output.
+      YAML_BLOCK=$(echo "$UPSTREAM_ANALYZE_RESULT" | sed -n '/<yaml>/,/<\/yaml>/p' | sed '1d;$d')
+
+      if [ -z "$YAML_BLOCK" ] || [ ${#YAML_BLOCK} -lt 10 ]; then
+        echo '{"valid":true,"skipped":true,"reason":"No YAML suggestions to validate"}'
+        exit 0
+      fi
+
+      # Write to temp file and validate with parseAgent.
+      TMPFILE=$(mktemp /tmp/sua-validate-XXXXXX.yaml)
+      echo "$YAML_BLOCK" > "$TMPFILE"
+
+      RESULT=$(node -e "
+        const { parseAgent } = require('$(pwd)/packages/core/dist/agent-yaml.js');
+        const { readFileSync } = require('fs');
+        try {
+          const yaml = readFileSync('$TMPFILE', 'utf-8');
+          parseAgent(yaml);
+          console.log(JSON.stringify({ valid: true }));
+        } catch(e) {
+          console.log(JSON.stringify({ valid: false, error: e.message }));
+        }
+      " 2>/dev/null)
+
+      rm -f "$TMPFILE"
+      echo "$RESULT"
+    timeout: 15
+
+  - id: fix
+    type: claude-code
+    dependsOn:
+      - analyze
+      - validate
+    onlyIf:
+      upstream: validate
+      field: valid
+      equals: false
+    prompt: |
+      The agent analyzer suggested improvements but the suggested YAML has
+      validation errors. Fix the YAML so it passes schema validation.
+
+      VALIDATION ERROR:
+      {{upstream.validate.result}}
+
+      ORIGINAL ANALYSIS (with the broken YAML):
+      {{upstream.analyze.result}}
+
+      Fix ONLY the YAML errors identified above. Keep all the analysis text
+      (classification, summary, details) exactly as-is. Output the complete
+      corrected response in the same XML format:
+
+      <classification>same as original</classification>
+      <summary>same as original</summary>
+      <details>same as original</details>
+      <yaml>
+      The FIXED YAML that passes validation. Apply these rules:
+      - Input names: UPPERCASE_WITH_UNDERSCORES
+      - inputs: must be an object/map, not an array
+      - enum inputs: must have a non-empty `values` array
+      - Template refs: use {{inputs.NAME}} not {{NAME}}
+      - conditional nodes: must have conditionalConfig
+      - switch nodes: must have switchConfig
+      - Keep the same agent id as the original
+      </yaml>
+    maxTurns: 2
+    timeout: 90
