@@ -224,7 +224,7 @@ export async function spawnNodeReal(
   resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
   resolvedPrompt = substituteInputs(resolvedPrompt, env);
 
-  const spawner = getSpawner('claude');
+  const spawner = getSpawner(node.provider ?? 'claude');
   const args = spawner.buildArgs({
     prompt: resolvedPrompt,
     model: node.model,
