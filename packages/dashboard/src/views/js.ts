@@ -720,11 +720,14 @@ export const DASHBOARD_JS = `
             .then(function (data) {
               if (cancelled) return;
               if (data.status === 'running') {
-                // Update phase from real progress events.
-                if (data.progress && data.progress.length > 0) {
-                  var latest = data.progress[data.progress.length - 1];
-                  var pe = document.getElementById('sg-phase');
-                  if (pe && latest.message) pe.textContent = latest.message;
+                // Update phase from server-provided phase message or progress events.
+                var pe = document.getElementById('sg-phase');
+                if (pe) {
+                  if (data.phase) pe.textContent = data.phase;
+                  else if (data.progress && data.progress.length > 0) {
+                    var latest = data.progress[data.progress.length - 1];
+                    if (latest.message) pe.textContent = latest.message;
+                  }
                 }
                 pollTimer = setTimeout(poll, 2000);
               } else if (data.status === 'done') {
