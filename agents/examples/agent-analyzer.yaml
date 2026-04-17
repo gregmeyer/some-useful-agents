@@ -74,5 +74,5 @@ nodes:
       Here is the agent YAML to review:
 
       {{inputs.AGENT_YAML}}
-    maxTurns: 1
+    maxTurns: 3
     timeout: 120
