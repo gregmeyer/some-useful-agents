@@ -2,7 +2,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 
-export type SettingsTab = 'secrets' | 'integrations' | 'general';
+export type SettingsTab = 'secrets' | 'variables' | 'integrations' | 'general';
 
 export interface SettingsShellArgs {
   active: SettingsTab;
@@ -24,6 +24,7 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
     ${pageHeader({ title: 'Settings' })}
     <nav class="tab-strip">
       ${tab('secrets', 'Secrets')}
+      ${tab('variables', 'Variables')}
       ${tab('integrations', 'Integrations')}
       ${tab('general', 'General')}
     </nav>
