@@ -154,13 +154,24 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
     const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
     const classification = ['NO_IMPROVEMENTS', 'SUGGESTIONS', 'REWRITE'].includes(classRaw) ? classRaw : 'SUGGESTIONS';
 
+    const suggestedYaml = extract('yaml') || undefined;
+    let yamlError: string | undefined;
+    if (suggestedYaml && suggestedYaml.length > 10) {
+      try {
+        parseAgent(suggestedYaml);
+      } catch (e) {
+        yamlError = e instanceof Error ? e.message : String(e);
+      }
+    }
+
     res.json({
       ok: true,
       runId: run.id,
       classification,
       summary: extract('summary') ?? '',
       details: extract('details') ?? run.result,
-      yaml: extract('yaml') || undefined,
+      yaml: suggestedYaml,
+      yamlError,
       currentYaml: targetYaml,
     });
   } catch (err) {

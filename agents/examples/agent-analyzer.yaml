@@ -43,6 +43,19 @@ nodes:
       - SUGGESTIONS: Specific improvements that would make the agent better.
       - REWRITE: The fundamental approach or logic should be rethought.
 
+      CRITICAL YAML RULES for the <yaml> section:
+      - `inputs` must be an OBJECT (map), not an array. Example:
+          inputs:
+            MY_VAR:
+              type: string
+              default: "value"
+        NOT:
+          inputs:
+            - name: MY_VAR
+              type: string
+      - Node ids must be lowercase with hyphens/underscores only.
+      - Keep the same agent `id` as the original.
+
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
       <summary>One sentence summarizing your assessment</summary>

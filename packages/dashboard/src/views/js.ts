@@ -613,8 +613,16 @@ export const DASHBOARD_JS = `
         } else if (data.yaml) {
           h += '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-3);max-height:300px;overflow-y:auto;white-space:pre-wrap;">' + esc(data.yaml) + '</pre>';
         }
+        if (data.yamlError) {
+          h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
+            '<strong>Suggested YAML has validation errors:</strong> ' + esc(data.yamlError) +
+            '<br>Click "Edit YAML" to fix manually.</div>';
+        }
         h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
-        if (data.yaml) h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">Review + apply</button>';
+        if (data.yaml) {
+          var applyLabel = data.yamlError ? 'Edit YAML to fix' : 'Review + apply';
+          h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">' + esc(applyLabel) + '</button>';
+        }
         h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
         content.innerHTML = h;
         var ab = document.getElementById('sg-apply');
