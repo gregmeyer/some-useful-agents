@@ -99,7 +99,8 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     ? { kind: isError ? ('error' as const) : ('ok' as const), message: flashParam }
     : undefined;
 
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash }));
+  const analyzerTarget = typeof req.query.analyzerTarget === 'string' ? req.query.analyzerTarget : undefined;
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, analyzerTarget }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

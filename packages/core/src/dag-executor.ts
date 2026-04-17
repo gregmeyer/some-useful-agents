@@ -988,11 +988,26 @@ async function spawnNodeReal(
     });
   }
 
-  // claude-code
+  // claude-code — resolve {{inputs.X}}, {{upstream.X.result}}, {{vars.X}}
+  // templates in the prompt before passing to the CLI. Shell nodes get
+  // these via env vars; claude-code nodes use the template syntax.
   if (!node.prompt) {
     return { result: '', exitCode: 1, error: `Claude-code node "${node.id}" has no prompt`, category: 'setup' };
   }
-  const args = ['--print', node.prompt];
+  let resolvedPrompt = node.prompt;
+  // Substitute from env which already has merged inputs, vars, upstreams
+  resolvedPrompt = substituteInputs(resolvedPrompt, env);
+  resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, (() => {
+    // Build upstream map from env's UPSTREAM_*_RESULT keys
+    const ups: Record<string, string> = {};
+    for (const [k, v] of Object.entries(env)) {
+      const m = k.match(/^UPSTREAM_(.+)_RESULT$/);
+      if (m) ups[m[1].toLowerCase().replace(/_/g, '-')] = v;
+    }
+    return ups;
+  })());
+  resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
+  const args = ['--print', resolvedPrompt];
   if (node.model) { args.push('--model', node.model); }
   if (node.maxTurns) { args.push('--max-turns', String(node.maxTurns)); }
   if (node.allowedTools?.length) { args.push('--allowedTools', node.allowedTools.join(',')); }

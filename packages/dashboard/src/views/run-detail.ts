@@ -17,10 +17,15 @@ export interface RunDetailOptions {
   back?: PageHeaderBack;
   /** Success/error banner surfaced on the detail page. */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /**
+   * When this run was triggered by the agent-analyzer, this is the id of
+   * the agent that was analyzed. Used to render the diff/apply widget.
+   */
+  analyzerTarget?: string;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, analyzerTarget } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -66,48 +71,76 @@ export function renderRunDetail(opts: RunDetailOptions): string {
 
   const header = partial
     ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)}</h1>`
+    : analyzerTarget
+    ? pageHeader({
+        title: `Analyzing ${analyzerTarget}`,
+        meta: [statusBadge(run.status)],
+        back: { href: `/agents/${analyzerTarget}`, label: `Back to ${analyzerTarget}` },
+      })
     : pageHeader({
         title: `Run ${run.id.slice(0, 8)}`,
         meta: [statusBadge(run.status)],
         back,
       });
 
+  const analyzerBanner = analyzerTarget && inProgress ? html`
+    <div class="flash flash--info" style="margin-bottom: var(--space-4);">
+      Analyzing <strong>${analyzerTarget}</strong> with the agent-analyzer. Results will appear below when complete.
+    </div>
+  ` : html``;
+
   const fragment = html`
     <div data-run-container${pollAttr}>
       ${header}
+      ${analyzerBanner}
 
-      <div class="card" style="margin-bottom: var(--space-6);">
-        <dl class="kv">
-          <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
-          <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
-          <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
-          <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
-          <dt>Exit code</dt><dd class="mono">${run.exitCode !== undefined ? String(run.exitCode) : ''}</dd>
-          <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
-          ${replayedFrom}
-        </dl>
-      </div>
+      ${analyzerTarget ? html`` : html`
+        <div class="card" style="margin-bottom: var(--space-6);">
+          <dl class="kv">
+            <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
+            <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
+            <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
+            <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
+            <dt>Exit code</dt><dd class="mono">${run.exitCode !== undefined ? String(run.exitCode) : ''}</dd>
+            <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
+            ${replayedFrom}
+          </dl>
+        </div>
+      `}
 
       ${run.error ? html`
         <h2>Error</h2>
         <div class="flash flash--error">${run.error}</div>
       ` : html``}
 
-      ${isDagRun ? html`
-        <div class="run-detail-grid">
-          <div class="run-detail-grid__dag">
-            ${dagSection}
-            ${canReplay ? renderReplayFallback(run, agent!) : html``}
-          </div>
-          <div class="run-detail-grid__inspector">
-            <h2 style="margin-top: 0;">Node execution</h2>
-            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG to see its output.</p>
-            ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
-          </div>
-        </div>
+      ${analyzerTarget ? html`
+        ${/* Analyzer mode: hide the DAG/node chrome, show only the analysis widget */
+          inProgress ? html`
+            <div class="card" style="text-align: center; padding: var(--space-8);">
+              <div class="spinner" style="margin: 0 auto var(--space-3);"></div>
+              <p style="font-size: var(--font-size-md); font-weight: var(--weight-medium); margin: 0 0 var(--space-2);">Claude is analyzing ${analyzerTarget}...</p>
+              <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">This usually takes 10\u201330 seconds.</p>
+            </div>
+          ` : run.result ? renderAnalyzerWidget(run.result, analyzerTarget)
+          : html`<p class="dim">No analysis output.</p>`
+        }
       ` : html`
-        <h2>Output</h2>
-        ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
+        ${isDagRun ? html`
+          <div class="run-detail-grid">
+            <div class="run-detail-grid__dag">
+              ${dagSection}
+              ${canReplay ? renderReplayFallback(run, agent!) : html``}
+            </div>
+            <div class="run-detail-grid__inspector">
+              <h2 style="margin-top: 0;">Node execution</h2>
+              <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG to see its output.</p>
+              ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
+            </div>
+          </div>
+        ` : html`
+          <h2>Output</h2>
+          ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
+        `}
       `}
     </div>
   `;
@@ -159,6 +192,68 @@ function renderReplayFallback(run: Run, agent: Agent): SafeHtml {
     </noscript>
   `;
 }
+
+// ── Analyzer widget ────────────────────────────────────────────────────
+
+function extractTag(text: string, tag: string): string | undefined {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i');
+  const m = text.match(re);
+  return m ? m[1].trim() : undefined;
+}
+
+/**
+ * Render the diff/apply/edit widget when this run was triggered by the
+ * agent-analyzer. Parses the structured output for classification,
+ * summary, details, and suggested YAML.
+ */
+function renderAnalyzerWidget(output: string, targetAgentId: string): SafeHtml {
+  const classification = extractTag(output, 'classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
+  const summary = extractTag(output, 'summary') ?? '';
+  const details = extractTag(output, 'details') ?? '';
+  const suggestedYaml = extractTag(output, 'yaml') ?? '';
+  const hasYaml = suggestedYaml.length > 10 && classification !== 'NO_IMPROVEMENTS';
+
+  const badge = classification === 'NO_IMPROVEMENTS'
+    ? html`<span class="badge badge--ok">No improvements needed</span>`
+    : classification === 'REWRITE'
+    ? html`<span class="badge badge--err">Recommend rewrite</span>`
+    : html`<span class="badge badge--warn">Suggested improvements</span>`;
+
+  const yamlSection = hasYaml ? html`
+    <details style="margin-top: var(--space-3);">
+      <summary style="cursor: pointer; font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-primary);">View suggested YAML</summary>
+      <pre style="font-size: var(--font-size-xs); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-top: var(--space-2); max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">${suggestedYaml}</pre>
+    </details>
+  ` : html``;
+
+  const actions = hasYaml ? html`
+    <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); flex-wrap: wrap;">
+      <form method="POST" action="/agents/${targetAgentId}/yaml" style="margin: 0;">
+        <input type="hidden" name="prefillYaml" value="${suggestedYaml}">
+        <button type="submit" class="btn btn--primary btn--sm">Review + apply</button>
+      </form>
+      <a class="btn btn--sm btn--ghost" href="/agents/${targetAgentId}">Back to ${targetAgentId}</a>
+    </div>
+  ` : html`
+    <div style="margin-top: var(--space-3);">
+      <a class="btn btn--sm btn--ghost" href="/agents/${targetAgentId}">Back to ${targetAgentId}</a>
+    </div>
+  `;
+
+  return html`
+    <section class="card" style="margin-top: var(--space-6);">
+      <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3);">
+        <p class="card__title" style="margin: 0;">Analysis</p>
+        ${badge}
+      </div>
+      ${summary ? html`<p style="font-weight: var(--weight-medium); margin: 0 0 var(--space-2);">${summary}</p>` : html``}
+      ${details ? html`<pre style="white-space: pre-wrap; font-family: inherit; font-size: var(--font-size-sm); line-height: 1.6; margin: 0; color: var(--color-text-muted);">${details}</pre>` : html``}
+      ${yamlSection}
+      ${actions}
+    </section>
+  `;
+}
+
 
 function truncate(text: string, max = 120): string {
   if (text.length <= max) return text;
