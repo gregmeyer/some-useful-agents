@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { Agent, AgentDefinition, RunStatus } from '@some-useful-agents/core';
+import type { Agent, AgentDefinition, AgentInputSpec, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
@@ -412,6 +412,79 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/delete', (req: Request, res: Resp
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Delete failed: ${msg}`)}`);
+  }
+});
+
+/**
+ * POST /agents/:name/inputs/update — update defaults and descriptions on
+ * existing agent inputs, optionally add a new input. Creates a new version.
+ */
+agentsRouter.post('/agents/:name/inputs/update', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const updatedInputs: Record<string, AgentInputSpec> = {};
+
+  // Update defaults and descriptions on existing inputs.
+  for (const [inputName, spec] of Object.entries(agent.inputs ?? {})) {
+    const newDefault = typeof body[`default_${inputName}`] === 'string'
+      ? (body[`default_${inputName}`] as string).trim()
+      : undefined;
+    const newDescription = typeof body[`description_${inputName}`] === 'string'
+      ? (body[`description_${inputName}`] as string).trim()
+      : undefined;
+
+    const updated: AgentInputSpec = { ...spec };
+
+    if (newDefault !== undefined && newDefault !== '') {
+      if (spec.type === 'number') updated.default = Number(newDefault);
+      else if (spec.type === 'boolean') updated.default = newDefault === 'true';
+      else updated.default = newDefault;
+    } else if (newDefault === '') {
+      delete updated.default;
+    }
+
+    if (newDescription !== undefined && newDescription !== '') {
+      updated.description = newDescription;
+    } else if (newDescription === '') {
+      delete updated.description;
+    }
+
+    updatedInputs[inputName] = updated;
+  }
+
+  // Merge new input (if provided).
+  const merged = mergeNewInput(updatedInputs, body);
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        status: agent.status,
+        schedule: agent.schedule,
+        source: agent.source,
+        mcp: agent.mcp,
+        nodes: agent.nodes,
+        inputs: merged && Object.keys(merged).length > 0 ? merged : undefined,
+        author: agent.author,
+        tags: agent.tags,
+      },
+      'dashboard',
+      'Updated input defaults via dashboard',
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent('Updated input defaults. New version created.')}#variables`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Save failed: ${msg}`)}#variables`);
   }
 });
 
