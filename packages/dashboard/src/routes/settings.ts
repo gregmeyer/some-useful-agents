@@ -1,7 +1,9 @@
 import { Router, type Request, type Response } from 'express';
+import { looksLikeSensitive } from '@some-useful-agents/core';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
+import { renderSettingsVariables } from '../views/settings-variables.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
@@ -9,6 +11,7 @@ import { SESSION_COOKIE } from '../auth-middleware.js';
 export const settingsRouter: Router = Router();
 
 const SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+const VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
 settingsRouter.get('/settings', (_req: Request, res: Response) => {
   res.redirect(303, '/settings/secrets');
@@ -113,6 +116,107 @@ settingsRouter.post('/settings/secrets/delete', async (req: Request, res: Respon
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     redirectWith(res, '/settings/secrets', 'setError', `Delete failed: ${msg}`);
+  }
+});
+
+// ── Variables ─────────────────────────────────────────────────────────────
+
+settingsRouter.get('/settings/variables', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash, setError } = readQueryBanners(req);
+
+  if (!ctx.variablesStore) {
+    const body = html`
+      <div class="settings-empty">
+        <h3 style="margin-top: 0;">Variables</h3>
+        <p>No variables store configured.</p>
+        <p class="dim">Start the dashboard with a <code>variablesPath</code> to enable global variables.</p>
+      </div>
+    `;
+    res.type('html').send(renderSettingsShell({ active: 'variables', body, flash }));
+    return;
+  }
+
+  const all = ctx.variablesStore.list();
+  const variables = Object.entries(all).sort(([a], [b]) => a.localeCompare(b));
+
+  const body = renderSettingsVariables({
+    variables,
+    setError,
+    setNameValue: typeof req.query.name === 'string' ? req.query.name : undefined,
+    setValueValue: typeof req.query.value === 'string' ? req.query.value : undefined,
+    setDescriptionValue: typeof req.query.description === 'string' ? req.query.description : undefined,
+  });
+  res.type('html').send(renderSettingsShell({ active: 'variables', body, flash }));
+});
+
+settingsRouter.post('/settings/variables/set', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const value = typeof body.value === 'string' ? body.value : '';
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+
+  if (!ctx.variablesStore) {
+    redirectWith(res, '/settings/variables', 'setError', 'Variables store not configured.');
+    return;
+  }
+
+  if (!VAR_NAME_RE.test(name)) {
+    redirectWith(
+      res,
+      '/settings/variables',
+      'setError',
+      `Invalid name "${name}". Must be uppercase letters, digits, or underscores (e.g. API_BASE_URL).`,
+      { name, value, description },
+    );
+    return;
+  }
+  if (value.length === 0) {
+    redirectWith(res, '/settings/variables', 'setError', 'Value is required.', { name, description });
+    return;
+  }
+
+  // Warn (but don't refuse) if the name looks like it should be a secret.
+  let flashMsg = `Saved ${name}.`;
+  if (looksLikeSensitive(name)) {
+    flashMsg += ` Note: "${name}" looks like it might be sensitive. Consider using Secrets instead.`;
+  }
+
+  try {
+    ctx.variablesStore.set(name, value, description || undefined);
+    redirectWith(res, '/settings/variables', 'flash', flashMsg);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    redirectWith(res, '/settings/variables', 'setError', `Save failed: ${msg}`, { name, value, description });
+  }
+});
+
+settingsRouter.post('/settings/variables/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+
+  if (!ctx.variablesStore) {
+    redirectWith(res, '/settings/variables', 'setError', 'Variables store not configured.');
+    return;
+  }
+
+  if (!VAR_NAME_RE.test(name)) {
+    redirectWith(res, '/settings/variables', 'setError', `Invalid name "${name}".`);
+    return;
+  }
+
+  try {
+    const deleted = ctx.variablesStore.delete(name);
+    if (deleted) {
+      redirectWith(res, '/settings/variables', 'flash', `Deleted ${name}.`);
+    } else {
+      redirectWith(res, '/settings/variables', 'setError', `Variable "${name}" not found.`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    redirectWith(res, '/settings/variables', 'setError', `Delete failed: ${msg}`);
   }
 });
 
