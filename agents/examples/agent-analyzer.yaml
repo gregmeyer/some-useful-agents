@@ -53,8 +53,11 @@ nodes:
           inputs:
             - name: MY_VAR
               type: string
-      - Node ids must be lowercase with hyphens/underscores only.
+      - Input names MUST be UPPERCASE_WITH_UNDERSCORES (e.g. TOPIC, API_URL, MAX_RETRIES).
+        Never use lowercase input names.
+      - Node ids must be lowercase with hyphens/underscores only (e.g. fetch-data, step-1).
       - Keep the same agent `id` as the original.
+      - `type` for inputs must be one of: string, number, boolean, enum.
 
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
