@@ -465,6 +465,30 @@ agentsRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
+
+  // "Edit suggested YAML first" — prefill the editor without saving.
+  if (typeof body.prefillYaml === 'string' && !body.yaml) {
+    const prefilled = body.prefillYaml as string;
+    const editorBody = h`
+      ${pageHeader({
+        title: `Edit YAML \u2014 ${agent.id}`,
+        back: { href: `/agents/${agent.id}`, label: `Back to ${agent.id}` },
+        description: `Editing AI-suggested YAML. Review and save to create a new version.`,
+      })}
+      <form method="POST" action="/agents/${agent.id}/yaml" class="card" style="max-width: 800px;">
+        <label style="display: flex; flex-direction: column; gap: var(--space-2);">
+          <textarea name="yaml" rows="30" required
+            style="padding: var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--font-size-xs); resize: vertical; line-height: 1.5; tab-size: 2;">${prefilled}</textarea>
+        </label>
+        <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); justify-content: flex-end;">
+          <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>
+          <button type="submit" class="btn btn--primary">Save YAML</button>
+        </div>
+      </form>
+    `;
+    res.type('html').send(renderHtml(layout({ title: `Edit YAML \u2014 ${agent.id}`, activeNav: 'agents' }, editorBody)));
+    return;
+  }
   const yamlText = typeof body.yaml === 'string' ? body.yaml : '';
 
   let parsed: Agent;

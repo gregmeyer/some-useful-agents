@@ -523,6 +523,32 @@ export const DASHBOARD_JS = `
     setTimeout(poll, 2000);
   }
 
+  // Auto-poll for in-progress AI suggestions
+  var suggestEl = document.querySelector('[data-suggest-in-progress]');
+  if (suggestEl) {
+    var sJobId = suggestEl.getAttribute('data-suggest-in-progress');
+    var sAgentId = suggestEl.getAttribute('data-suggest-agent');
+    var suggestPoll = function () {
+      fetch('/agents/' + encodeURIComponent(sAgentId) + '/suggest/' + encodeURIComponent(sJobId) + '?partial=1',
+        { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+        .then(function (html) {
+          var placeholder = document.createElement('div');
+          placeholder.innerHTML = html;
+          var fresh = placeholder.querySelector('[data-suggest-container]');
+          var current = document.querySelector('[data-suggest-container]');
+          if (fresh && current) {
+            current.replaceWith(fresh);
+            if (fresh.querySelector('[data-suggest-in-progress]')) {
+              setTimeout(suggestPoll, 2000);
+            }
+          }
+        })
+        .catch(function () { setTimeout(suggestPoll, 5000); });
+    };
+    setTimeout(suggestPoll, 2000);
+  }
+
   // Secret save confirmation modal — shows the value one last time with
   // a copy button before the encrypted write. Value is never shown again.
   (function () {

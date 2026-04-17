@@ -186,6 +186,7 @@ export async function renderAgentDetailV2(args: {
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/yaml">Edit YAML</a>
+        <a class="btn btn--sm" href="/agents/${agent.id}/suggest">Suggest improvements</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
