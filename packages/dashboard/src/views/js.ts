@@ -523,6 +523,98 @@ export const DASHBOARD_JS = `
     setTimeout(poll, 2000);
   }
 
+  // Suggest improvements — modal that stays on the agent page, fetches
+  // analysis from the analyzer agent, renders results inline.
+  (function () {
+    var btn = document.getElementById('suggest-btn');
+    var modal = document.getElementById('suggest-modal');
+    var content = document.getElementById('suggest-modal-content');
+    if (!btn || !modal || !content) return;
+
+    var agentId = btn.getAttribute('data-agent-id');
+
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function closeModal() { modal.classList.remove('is-open'); }
+
+    btn.addEventListener('click', function () {
+      modal.classList.add('is-open');
+      content.innerHTML =
+        '<div style="text-align:center;padding:var(--space-6);">' +
+        '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+        '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Analyzing ' + esc(agentId) + '...</p>' +
+        '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">This usually takes 10\u201330 seconds.</p>' +
+        '</div>';
+
+      fetch('/agents/' + encodeURIComponent(agentId) + '/analyze', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: '',
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) {
+            content.innerHTML =
+              '<h3 style="margin:0 0 var(--space-3);">Analysis failed</h3>' +
+              '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
+              (data.runId ? '<p class="dim" style="font-size:var(--font-size-xs);margin:var(--space-2) 0 0;">Run: <a href="/runs/' + esc(data.runId) + '">' + esc(data.runId.slice(0, 8)) + '</a></p>' : '') +
+              '<div style="margin-top:var(--space-3);text-align:right;">' +
+              '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Close</button>' +
+              '</div>';
+            return;
+          }
+
+          var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok'
+            : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
+          var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed'
+            : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
+
+          var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);">' +
+            '<span class="badge ' + bc + '">' + esc(bl) + '</span>' +
+            '</div>';
+          if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
+          if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:300px;overflow-y:auto;">' + esc(data.details) + '</pre>';
+
+          if (data.yaml) {
+            h += '<details style="margin-bottom:var(--space-3);">' +
+              '<summary style="cursor:pointer;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);color:var(--color-primary);">View suggested YAML</summary>' +
+              '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-top:var(--space-2);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">' + esc(data.yaml) + '</pre>' +
+              '</details>';
+          }
+
+          h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
+          if (data.yaml) {
+            // "Review + apply" opens the YAML editor pre-filled with the suggestion.
+            h += '<form method="POST" action="/agents/' + encodeURIComponent(agentId) + '/yaml" style="margin:0;">' +
+              '<input type="hidden" name="prefillYaml" value="' + esc(data.yaml).replace(/"/g, '&quot;') + '">' +
+              '<button type="submit" class="btn btn--primary btn--sm">Review + apply</button>' +
+              '</form>';
+          }
+          h += '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Dismiss</button>';
+          h += '</div>';
+
+          content.innerHTML = h;
+        })
+        .catch(function (err) {
+          content.innerHTML =
+            '<h3 style="margin:0 0 var(--space-3);">Error</h3>' +
+            '<div class="flash flash--error">' + esc(String(err)) + '</div>' +
+            '<div style="margin-top:var(--space-3);text-align:right;">' +
+            '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Close</button>' +
+            '</div>';
+        });
+    });
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeModal();
+    });
+  })();
+
   // Secret save confirmation modal — shows the value one last time with
   // a copy button before the encrypted write. Value is never shown again.
   (function () {

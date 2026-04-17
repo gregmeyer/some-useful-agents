@@ -186,6 +186,7 @@ export async function renderAgentDetailV2(args: {
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/yaml">Edit YAML</a>
+        <button type="button" class="btn btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
@@ -254,6 +255,12 @@ export async function renderAgentDetailV2(args: {
 
       <div class="agent-detail__aside">
         ${inspector}
+      </div>
+    </div>
+
+    <div id="suggest-modal" class="modal-backdrop">
+      <div class="modal" style="max-width: 720px; max-height: 85vh; overflow-y: auto;">
+        <div id="suggest-modal-content"></div>
       </div>
     </div>
   `;

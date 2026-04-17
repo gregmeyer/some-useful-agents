@@ -1,8 +1,12 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag } from '@some-useful-agents/core';
+import { executeAgentDag, exportAgent, parseAgent } from '@some-useful-agents/core';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
 
 export const runNowRouter: Router = Router();
+
+const ANALYZER_AGENT_ID = 'agent-analyzer';
 
 /**
  * POST /agents/:name/run — trigger an agent with YAML defaults.
@@ -83,5 +87,83 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(agent.name)}?flash=${encodeURIComponent(message)}`);
+  }
+});
+
+/**
+ * POST /agents/:name/analyze — run the agent-analyzer with the target
+ * agent's YAML as input. Returns JSON so the client can render results
+ * in a modal without navigating away.
+ */
+runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+
+  const target = ctx.agentStore.getAgent(name);
+  if (!target) {
+    res.json({ ok: false, error: 'Agent not found.' });
+    return;
+  }
+
+  // Auto-import the analyzer agent from examples if not in the store.
+  let analyzer = ctx.agentStore.getAgent(ANALYZER_AGENT_ID);
+  if (!analyzer) {
+    try {
+      const yamlPath = join(resolve('agents/examples'), `${ANALYZER_AGENT_ID}.yaml`);
+      const yamlText = readFileSync(yamlPath, 'utf-8');
+      const parsed = parseAgent(yamlText);
+      ctx.agentStore.createAgent(parsed, 'import', 'Auto-imported for suggest improvements');
+      analyzer = ctx.agentStore.getAgent(ANALYZER_AGENT_ID);
+    } catch { /* fall through */ }
+    if (!analyzer) {
+      res.json({ ok: false, error: 'Analyzer agent not found. Ensure agent-analyzer.yaml exists in agents/examples/.' });
+      return;
+    }
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
+  const targetYaml = exportAgent(target);
+
+  try {
+    const run = await executeAgentDag(
+      analyzer,
+      {
+        triggeredBy: 'dashboard',
+        inputs: {
+          AGENT_YAML: targetYaml,
+          ...(focus ? { FOCUS: `Focus your analysis on: ${focus}` } : {}),
+        },
+      },
+      {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        variablesStore: ctx.variablesStore,
+      },
+    );
+
+    if (run.status !== 'completed' || !run.result) {
+      res.json({ ok: false, error: run.error ?? `Analysis failed (status: ${run.status}).`, runId: run.id });
+      return;
+    }
+
+    const extract = (tag: string): string | undefined => {
+      const m = run.result!.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
+      return m ? m[1].trim() : undefined;
+    };
+    const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
+    const classification = ['NO_IMPROVEMENTS', 'SUGGESTIONS', 'REWRITE'].includes(classRaw) ? classRaw : 'SUGGESTIONS';
+
+    res.json({
+      ok: true,
+      runId: run.id,
+      classification,
+      summary: extract('summary') ?? '',
+      details: extract('details') ?? run.result,
+      yaml: extract('yaml') || undefined,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.json({ ok: false, error: message });
   }
 });
