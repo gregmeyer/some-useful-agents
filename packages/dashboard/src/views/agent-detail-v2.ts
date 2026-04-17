@@ -172,6 +172,8 @@ export async function renderAgentDetailV2(args: {
         </dl>
       </section>
 
+      ${renderInputsSection(agent)}
+
       <section class="inspector__section">
         <h4>Secrets</h4>
         <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
@@ -236,6 +238,8 @@ export async function renderAgentDetailV2(args: {
           </section>
         ` : html``}
 
+        ${renderInputDefaultsSection(agent)}
+
         <section id="runs">
           <h2>Recent runs</h2>
           ${recentRuns.length === 0
@@ -254,6 +258,143 @@ export async function renderAgentDetailV2(args: {
   `;
 
   return render(layout({ title: agent.id, activeNav: 'agents', flash, wide: true }, body));
+}
+
+/**
+ * Render the full "Variables" section in the main content area.
+ * Shows existing agent inputs with defaults + descriptions in a table,
+ * plus an inline form for editing defaults on existing inputs and
+ * adding new ones. Editing POSTs to /agents/:id/inputs/update.
+ *
+ * Provisional: this section migrates into the dashboard revamp's
+ * tabbed agent detail layout as its own tab.
+ */
+function renderInputDefaultsSection(agent: Agent): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+
+  const inputRows = inputs.map(([name, spec]) => {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const desc = spec.description ?? '';
+    return html`
+      <tr>
+        <td class="mono">${name}</td>
+        <td>
+          <span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>
+        </td>
+        <td>
+          <input type="text" name="default_${name}" value="${defVal}"
+            placeholder="(none)"
+            style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+        </td>
+        <td>
+          <input type="text" name="description_${name}" value="${desc}"
+            placeholder="(none)"
+            style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
+        </td>
+        <td class="dim" style="font-size: var(--font-size-xs);">
+          ${spec.required !== false && spec.default === undefined ? 'required' : 'optional'}
+        </td>
+      </tr>
+    `;
+  });
+
+  return html`
+    <section id="variables">
+      <h2>Variables</h2>
+      <p class="dim" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+        Agent-level inputs: values supplied via <code>--input NAME=value</code> at run time.
+        Defaults fill in when no value is supplied. Edit defaults below and save to create a new version.
+      </p>
+      <form method="POST" action="/agents/${agent.id}/inputs/update">
+        ${inputs.length > 0 ? html`
+          <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+            <thead>
+              <tr><th>Name</th><th>Type</th><th>Default</th><th>Description</th><th></th></tr>
+            </thead>
+            <tbody>${inputRows as unknown as SafeHtml[]}</tbody>
+          </table>
+        ` : html`
+          <p class="dim" style="margin-bottom: var(--space-3);">No inputs declared yet. Add one below.</p>
+        `}
+        <details>
+          <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-primary); font-weight: var(--weight-medium);">+ Add a new input</summary>
+          <div style="margin-top: var(--space-2); display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
+            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+              Name
+              <input type="text" name="newInputName" placeholder="API_URL" pattern="[A-Z_][A-Z0-9_]*"
+                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+              Type
+              <select name="newInputType" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
+                <option value="string">string</option>
+                <option value="number">number</option>
+                <option value="boolean">boolean</option>
+                <option value="enum">enum</option>
+              </select>
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+              Default
+              <input type="text" name="newInputDefault" placeholder="optional"
+                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+            </label>
+            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+              Description
+              <input type="text" name="newInputDescription" placeholder="optional"
+                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
+            </label>
+          </div>
+        </details>
+        <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); justify-content: flex-end;">
+          <button type="submit" class="btn btn--primary btn--sm">Save variables</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+/**
+ * Render the agent-level inputs section in the inspector sidebar.
+ * Shows declared inputs with their type, default, and description.
+ * Links to #variables for full editing.
+ */
+function renderInputsSection(agent: Agent): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+  if (inputs.length === 0) {
+    return html`
+      <section class="inspector__section">
+        <h4>Variables</h4>
+        <span class="dim" style="font-size: var(--font-size-xs);">No agent inputs declared.</span>
+        <div style="margin-top: var(--space-2);">
+          <a class="dim" href="#variables" style="font-size: var(--font-size-xs);">+ Add input</a>
+        </div>
+      </section>
+    `;
+  }
+
+  const rows = inputs.map(([name, spec]) => {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const typeBadge = html`<span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>`;
+    return html`
+      <div style="display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--font-size-xs); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border);">
+        <code style="flex: 0 0 auto;">${name}</code>
+        ${typeBadge}
+        <span class="dim" style="margin-left: auto; text-align: right;">
+          ${defVal ? defVal : spec.required !== false ? 'required' : 'optional'}
+        </span>
+      </div>
+    `;
+  });
+
+  return html`
+    <section class="inspector__section">
+      <h4>Variables</h4>
+      <div>${rows as unknown as SafeHtml[]}</div>
+      <div style="margin-top: var(--space-2);">
+        <a class="dim" href="#variables" style="font-size: var(--font-size-xs);">Edit defaults</a>
+      </div>
+    </section>
+  `;
 }
 
 /**
