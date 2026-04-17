@@ -156,6 +156,13 @@ export interface AgentNode {
   maxTurns?: number;
   allowedTools?: string[];
 
+  /**
+   * v0.17+: LLM provider for claude-code nodes. Defaults to 'claude'.
+   * Determines which CLI binary and argument format the spawner uses.
+   * Shell nodes ignore this field.
+   */
+  provider?: 'claude' | 'codex';
+
   // Common per-node
   timeout?: number;
   env?: Record<string, string>;
