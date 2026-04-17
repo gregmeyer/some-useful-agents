@@ -1,0 +1,78 @@
+id: agent-analyzer
+name: Agent Analyzer
+description: >
+  AI-powered agent review. Analyzes an agent's YAML holistically and suggests
+  improvements — missing variables, hardcoded values, prompt quality, cross-node
+  data flow. Run via "Suggest improvements" on any agent's detail page.
+status: active
+source: examples
+
+inputs:
+  AGENT_YAML:
+    type: string
+    required: true
+    description: The full YAML definition of the agent to analyze.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: Optional focus area, e.g. "what variables am I missing to count loop iterations?"
+
+nodes:
+  - id: analyze
+    type: claude-code
+    prompt: |
+      You are an expert agent architect reviewing a sua DAG agent.
+
+      Analyze the FULL agent holistically — cross-node data flow, dependency
+      ordering, input/variable usage, prompt quality, error handling, and
+      whether the design achieves its purpose efficiently.
+
+      Look for:
+      - Missing variables or inputs that would improve configurability
+      - Hardcoded values that should be agent inputs or global variables
+      - Missing error handling, timeouts, or retry logic
+      - Opportunities to split or merge nodes for clarity
+      - Unused or redundant dependencies between nodes
+      - Prompt improvements for claude-code nodes
+
+      {{inputs.FOCUS}}
+
+      Classify your assessment as exactly one of:
+      - NO_IMPROVEMENTS: The agent is well-designed, no changes needed.
+      - SUGGESTIONS: Specific improvements that would make the agent better.
+      - REWRITE: The fundamental approach or logic should be rethought.
+
+      CRITICAL YAML RULES for the <yaml> section:
+      - `inputs` must be an OBJECT (map), not an array. Example:
+          inputs:
+            MY_VAR:
+              type: string
+              default: "value"
+        NOT:
+          inputs:
+            - name: MY_VAR
+              type: string
+      - Input names MUST be UPPERCASE_WITH_UNDERSCORES (e.g. TOPIC, API_URL, MAX_RETRIES).
+        Never use lowercase input names.
+      - Node ids must be lowercase with hyphens/underscores only (e.g. fetch-data, step-1).
+      - Keep the same agent `id` as the original.
+      - `type` for inputs must be one of: string, number, boolean, enum.
+
+      Respond in EXACTLY this format (keep the XML tags):
+      <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
+      <summary>One sentence summarizing your assessment</summary>
+      <details>
+      Your detailed analysis. Be specific: name nodes, variables, prompts.
+      For multi-node agents, analyze how data flows between nodes.
+      </details>
+      <yaml>
+      If SUGGESTIONS or REWRITE, provide the complete improved YAML.
+      Must be valid, keep the same agent id. If NO_IMPROVEMENTS, leave empty.
+      </yaml>
+
+      Here is the agent YAML to review:
+
+      {{inputs.AGENT_YAML}}
+    maxTurns: 1
+    timeout: 120

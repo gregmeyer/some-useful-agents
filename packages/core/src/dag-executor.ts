@@ -988,11 +988,22 @@ async function spawnNodeReal(
     });
   }
 
-  // claude-code
+  // claude-code — resolve {{inputs.X}}, {{upstream.X.result}}, {{vars.X}}
+  // in the prompt before passing to the CLI.
   if (!node.prompt) {
     return { result: '', exitCode: 1, error: `Claude-code node "${node.id}" has no prompt`, category: 'setup' };
   }
-  const args = ['--print', node.prompt];
+  let resolvedPrompt = node.prompt;
+  // Build upstream map from env's UPSTREAM_*_RESULT keys
+  const upstreamMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    const m = k.match(/^UPSTREAM_(.+)_RESULT$/);
+    if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = v;
+  }
+  resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, upstreamMap);
+  resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
+  resolvedPrompt = substituteInputs(resolvedPrompt, env);
+  const args = ['--print', resolvedPrompt];
   if (node.model) { args.push('--model', node.model); }
   if (node.maxTurns) { args.push('--max-turns', String(node.maxTurns)); }
   if (node.allowedTools?.length) { args.push('--allowedTools', node.allowedTools.join(',')); }

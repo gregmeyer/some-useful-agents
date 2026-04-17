@@ -73,8 +73,12 @@ export async function renderAgentDetailV2(args: {
           </button>
         </form>
       `
+    : Object.keys(agent.inputs ?? {}).length > 0
+    ? html`
+        <button type="button" class="btn btn--primary" id="run-with-inputs-btn">Run now</button>
+      `
     : html`
-        <form method="POST" action="/agents/${agent.id}/run" style="display: inline;">
+        <form method="POST" action="/agents/${agent.id}/run" style="display: inline;" data-run-form="${agent.id}">
           ${fromHidden}
           <button type="submit" class="btn btn--primary">Run now</button>
         </form>
@@ -186,6 +190,7 @@ export async function renderAgentDetailV2(args: {
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/yaml">Edit YAML</a>
+        <button type="button" class="btn btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
@@ -256,9 +261,83 @@ export async function renderAgentDetailV2(args: {
         ${inspector}
       </div>
     </div>
+
+    <div id="suggest-modal" class="modal-backdrop">
+      <div class="modal" style="max-width: 720px; max-height: 85vh; overflow-y: auto;">
+        <div id="suggest-modal-content"></div>
+      </div>
+    </div>
+
+    <div id="run-modal" class="modal-backdrop">
+      <div class="modal" style="max-width: 500px;">
+        <div id="run-modal-content">
+          ${renderRunInputsForm(agent, from)}
+        </div>
+      </div>
+    </div>
   `;
 
   return render(layout({ title: agent.id, activeNav: 'agents', flash, wide: true }, body));
+}
+
+/**
+ * Render the Run Now inputs form for the run modal. Shows each declared
+ * input with its type, default value pre-filled, description, and whether
+ * it's required. Submits to POST /agents/:id/run with input_NAME fields.
+ */
+function renderRunInputsForm(agent: Agent, from?: string): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+  const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 100%;';
+
+  if (inputs.length === 0) {
+    // No inputs — just a spinner (form submits immediately via JS).
+    return html`
+      <div style="text-align: center; padding: var(--space-6);">
+        <div class="spinner" style="margin: 0 auto var(--space-3);"></div>
+        <p style="font-weight: var(--weight-medium); margin: 0 0 var(--space-2);">Running ${agent.id}...</p>
+        <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Starting execution.</p>
+      </div>
+    `;
+  }
+
+  const fields = inputs.map(([name, spec]) => {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const reqLabel = spec.required !== false && spec.default === undefined
+      ? html`<span style="color: var(--color-err); font-size: var(--font-size-xs);">required</span>`
+      : html`<span class="dim" style="font-size: var(--font-size-xs);">optional</span>`;
+    const desc = spec.description
+      ? html`<span class="dim" style="font-size: var(--font-size-xs);">${spec.description}</span>`
+      : html``;
+    return html`
+      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
+        <div style="display: flex; align-items: baseline; gap: var(--space-2);">
+          <strong style="font-size: var(--font-size-sm);">${name}</strong>
+          <span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>
+          ${reqLabel}
+        </div>
+        <input type="text" name="input_${name}" value="${defVal}"
+          placeholder="${defVal || '(empty)'}"
+          style="${FIELD}"
+          ${spec.required !== false && spec.default === undefined ? 'required' : ''}>
+        ${desc}
+      </label>
+    `;
+  });
+
+  return html`
+    <form method="POST" action="/agents/${agent.id}/run" data-run-form="${agent.id}">
+      ${from ? html`<input type="hidden" name="from" value="${from}">` : html``}
+      <h3 style="margin: 0 0 var(--space-3);">Run ${agent.id}</h3>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-4);">
+        Set input values for this run. Defaults are pre-filled.
+      </p>
+      ${fields as unknown as SafeHtml[]}
+      <div style="display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-3);">
+        <button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Cancel</button>
+        <button type="submit" class="btn btn--primary btn--sm">Run</button>
+      </div>
+    </form>
+  `;
 }
 
 /**
