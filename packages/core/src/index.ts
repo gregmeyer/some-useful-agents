@@ -45,6 +45,7 @@ export {
   executeAgentDag,
   topologicalSort,
   resolveUpstreamTemplate,
+  resolveVarsTemplate,
   type DagExecutorDeps,
   type DagExecuteOptions,
 } from './dag-executor.js';
