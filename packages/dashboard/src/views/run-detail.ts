@@ -253,6 +253,28 @@ function renderNodeVarsPanel(e: NodeExecutionRecord): SafeHtml | null {
 }
 
 /**
+ * Render a turn/progress indicator from the node's progressJson.
+ * Shows the latest progress event as a small inline label.
+ */
+function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
+  if (!e.progressJson) return html``;
+  try {
+    const events = JSON.parse(e.progressJson) as Array<{ type: string; turn?: number; message?: string }>;
+    if (events.length === 0) return html``;
+    const latest = events[events.length - 1];
+    const label = latest.message ?? latest.type;
+    if (e.status === 'running') {
+      return html`<span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">${label}</span>`;
+    }
+    // For completed nodes, show the turn count if available.
+    if (latest.turn && latest.turn > 1) {
+      return html`<span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">${String(latest.turn)} turns</span>`;
+    }
+  } catch { /* malformed */ }
+  return html``;
+}
+
+/**
  * Render one collapsible card per node execution. Failed/errored nodes
  * open by default so the user doesn't have to hunt for failures; others
  * are collapsed to reduce scroll.
@@ -266,6 +288,9 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     const category = e.errorCategory
       ? html` <span class="badge badge--err">${e.errorCategory}</span>`
       : html``;
+
+    // Parse progress events for turn indicator.
+    const progressIndicator = renderProgressIndicator(e);
 
     const bodyBlocks: SafeHtml[] = [];
 
@@ -288,6 +313,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
           <span class="run-node__id">${e.nodeId}</span>
           ${statusBadge(e.status)}
           ${category}
+          ${progressIndicator}
           <span class="run-node__meta">
             <span>${duration}</span>
             ${exitLabel ? html`<span class="mono">${exitLabel}</span>` : html``}

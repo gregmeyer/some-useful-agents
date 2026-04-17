@@ -165,57 +165,108 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
   const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
   const targetYaml = exportAgent(target);
 
-  try {
-    const run = await executeAgentDag(
-      analyzer,
-      {
-        triggeredBy: 'dashboard',
-        inputs: {
-          AGENT_YAML: targetYaml,
-          ...(focus ? { FOCUS: `Focus your analysis on: ${focus}` } : {}),
-        },
+  // Fire-and-forget: start the analyzer but don't await it.
+  // Return the runId immediately so the client can poll.
+  const runPromise = executeAgentDag(
+    analyzer,
+    {
+      triggeredBy: 'dashboard',
+      inputs: {
+        AGENT_YAML: targetYaml,
+        ...(focus ? { FOCUS: `Focus your analysis on: ${focus}` } : {}),
       },
-      {
-        runStore: ctx.runStore,
-        secretsStore: ctx.secretsStore,
-        variablesStore: ctx.variablesStore,
-      },
-    );
+    },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+    },
+  );
 
-    if (run.status !== 'completed' || !run.result) {
-      res.json({ ok: false, error: run.error ?? `Analysis failed (status: ${run.status}).`, runId: run.id });
-      return;
+  // Wait briefly for the run row to be created (near-instant).
+  await Promise.race([
+    runPromise,
+    new Promise((resolve) => setTimeout(resolve, 200)),
+  ]);
+
+  // Find the running analyzer run.
+  const { rows } = ctx.runStore.queryRuns({
+    agentName: ANALYZER_AGENT_ID,
+    statuses: ['running', 'completed', 'failed'] as RunStatus[],
+    limit: 1,
+    offset: 0,
+  });
+
+  if (rows.length > 0) {
+    res.json({ ok: true, status: 'started', runId: rows[0].id, currentYaml: targetYaml });
+  } else {
+    // Fallback: wait for the full run.
+    try {
+      const run = await runPromise;
+      res.json({ ok: true, status: 'started', runId: run.id, currentYaml: targetYaml });
+    } catch (err) {
+      res.json({ ok: false, error: (err as Error).message });
     }
-
-    const extract = (tag: string): string | undefined => {
-      const m = run.result!.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
-      return m ? m[1].trim() : undefined;
-    };
-    const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
-    const classification = ['NO_IMPROVEMENTS', 'SUGGESTIONS', 'REWRITE'].includes(classRaw) ? classRaw : 'SUGGESTIONS';
-
-    const suggestedYaml = extract('yaml') || undefined;
-    let yamlError: string | undefined;
-    if (suggestedYaml && suggestedYaml.length > 10) {
-      try {
-        parseAgent(suggestedYaml);
-      } catch (e) {
-        yamlError = e instanceof Error ? e.message : String(e);
-      }
-    }
-
-    res.json({
-      ok: true,
-      runId: run.id,
-      classification,
-      summary: extract('summary') ?? '',
-      details: extract('details') ?? run.result,
-      yaml: suggestedYaml,
-      yamlError,
-      currentYaml: targetYaml,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.json({ ok: false, error: message });
   }
+});
+
+/**
+ * GET /agents/:name/analyze/:runId — poll the analyzer run status.
+ * Returns progress events while running, parsed results when done.
+ */
+runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId;
+
+  const run = ctx.runStore.getRun(runId);
+  if (!run) {
+    res.json({ ok: false, status: 'not_found' });
+    return;
+  }
+
+  // Still running — return progress from node executions.
+  if (run.status === 'running' || run.status === 'pending') {
+    const execs = ctx.runStore.listNodeExecutions(runId);
+    const runningNode = execs.find((e) => e.status === 'running');
+    let progress: unknown[] = [];
+    if (runningNode?.progressJson) {
+      try { progress = JSON.parse(runningNode.progressJson); } catch { /* ignore */ }
+    }
+    res.json({ ok: true, status: 'running', progress });
+    return;
+  }
+
+  // Done — parse the result.
+  if (run.status !== 'completed' || !run.result) {
+    res.json({ ok: true, status: 'failed', error: run.error ?? `Analysis failed (${run.status}).` });
+    return;
+  }
+
+  const extract = (tag: string): string | undefined => {
+    const m = run.result!.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
+    return m ? m[1].trim() : undefined;
+  };
+  const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
+  const classification = ['NO_IMPROVEMENTS', 'SUGGESTIONS', 'REWRITE'].includes(classRaw) ? classRaw : 'SUGGESTIONS';
+
+  const suggestedYaml = extract('yaml') || undefined;
+  let yamlError: string | undefined;
+  if (suggestedYaml && suggestedYaml.length > 10) {
+    try { parseAgent(suggestedYaml); } catch (e) { yamlError = e instanceof Error ? e.message : String(e); }
+  }
+
+  const target = ctx.agentStore.getAgent(name);
+  const currentYaml = target ? exportAgent(target) : '';
+
+  res.json({
+    ok: true,
+    status: 'done',
+    classification,
+    summary: extract('summary') ?? '',
+    details: extract('details') ?? run.result,
+    yaml: suggestedYaml,
+    yamlError,
+    currentYaml,
+  });
 });

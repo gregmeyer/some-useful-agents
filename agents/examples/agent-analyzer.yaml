@@ -58,6 +58,11 @@ nodes:
       - Node ids must be lowercase with hyphens/underscores only (e.g. fetch-data, step-1).
       - Keep the same agent `id` as the original.
       - `type` for inputs must be one of: string, number, boolean, enum.
+      - Enum inputs MUST include a non-empty `values` array. Example:
+          STYLE:
+            type: enum
+            values: [haiku, limerick, prose]
+            default: haiku
 
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>

@@ -590,6 +590,17 @@ export const DASHBOARD_JS = `
     function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function closeModal() { modal.classList.remove('is-open'); }
 
+    // Lightweight markdown to HTML for analysis output.
+    function renderMd(text) {
+      var h = esc(text);
+      h = h.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>' + '$' + '1</strong>');
+      h = h.replace(/\\*(.+?)\\*/g, '<em>' + '$' + '1</em>');
+      h = h.replace(/^- (.+)$/gm, function(m,p1) { return '<li style="margin-left:var(--space-4);list-style:disc;">' + p1 + '</li>'; });
+      h = h.replace(/\\n{2,}/g, '<br><br>');
+      h = h.replace(/\\n/g, '<br>');
+      return h;
+    }
+
     function coloredDiff(oldT, newT) {
       var oL = oldT.split('\\n'), nL = newT.split('\\n');
       var oS = {}, nS = {};
@@ -607,88 +618,134 @@ export const DASHBOARD_JS = `
       return h;
     }
 
+    function renderResult(data) {
+      var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok' : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
+      var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed' : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
+      var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);"><span class="badge ' + bc + '">' + esc(bl) + '</span></div>';
+      if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + renderMd(data.summary) + '</p>';
+      if (data.details) h += '<div style="font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:250px;overflow-y:auto;">' + renderMd(data.details) + '</div>';
+      if (data.yaml && data.currentYaml) {
+        h += coloredDiff(data.currentYaml, data.yaml);
+      } else if (data.yaml) {
+        h += '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-3);max-height:300px;overflow-y:auto;white-space:pre-wrap;">' + esc(data.yaml) + '</pre>';
+      }
+      if (data.yamlError) {
+        h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
+          '<strong>Suggested YAML has validation errors:</strong> ' + esc(data.yamlError) +
+          '<br>Click "Edit YAML" to fix manually.</div>';
+      }
+      h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
+      if (data.yaml) {
+        var applyLabel = data.yamlError ? 'Edit YAML to fix' : 'Review + apply';
+        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">' + esc(applyLabel) + '</button>';
+      }
+      h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
+      content.innerHTML = h;
+      var ab = document.getElementById('sg-apply');
+      if (ab && data.yaml) ab.addEventListener('click', function () {
+        var f = document.createElement('form'); f.method = 'POST';
+        f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
+        var t = document.createElement('textarea'); t.name = 'prefillYaml'; t.value = data.yaml; t.style.display = 'none';
+        f.appendChild(t); document.body.appendChild(f); f.submit();
+      });
+      var db = document.getElementById('sg-dismiss');
+      if (db) db.addEventListener('click', closeModal);
+    }
+
     btn.addEventListener('click', function () {
       modal.classList.add('is-open');
       var t0 = Date.now();
-      content.innerHTML =
-        '<div style="padding:var(--space-4);">' +
-        '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
-          '<div class="spinner"></div>' +
-          '<div style="flex:1;"><div style="font-weight:var(--weight-medium);">Analyzing ' + esc(agentId) + '</div>' +
-          '<div class="dim" style="font-size:var(--font-size-xs);" id="sg-phase">' + PHASES[0][1] + '</div></div>' +
-          '<div style="font-family:var(--font-mono);font-size:var(--font-size-lg);color:var(--color-text-muted);min-width:3rem;text-align:right;" id="sg-timer">0s</div>' +
-        '</div>' +
-        '<div style="height:4px;background:var(--color-border);border-radius:2px;overflow:hidden;margin-bottom:var(--space-3);">' +
-          '<div id="sg-bar" style="height:100%;background:var(--color-primary);border-radius:2px;width:0%;transition:width 1s linear;"></div>' +
-        '</div>' +
-        '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="sg-cancel">Cancel</button></div>' +
-        '</div>';
+      var cancelled = false;
+      var pollTimer = null;
+      var tickTimer = null;
 
-      var tick = setInterval(function () {
+      function showProgress(phaseMsg) {
+        var s = Math.round((Date.now() - t0) / 1000);
+        content.innerHTML =
+          '<div style="padding:var(--space-4);">' +
+          '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4);">' +
+            '<div class="spinner"></div>' +
+            '<div style="flex:1;"><div style="font-weight:var(--weight-medium);">Analyzing ' + esc(agentId) + '</div>' +
+            '<div class="dim" style="font-size:var(--font-size-xs);" id="sg-phase">' + esc(phaseMsg) + '</div></div>' +
+            '<div style="font-family:var(--font-mono);font-size:var(--font-size-lg);color:var(--color-text-muted);min-width:3rem;text-align:right;" id="sg-timer">' + s + 's</div>' +
+          '</div>' +
+          '<div style="height:4px;background:var(--color-border);border-radius:2px;overflow:hidden;margin-bottom:var(--space-3);">' +
+            '<div style="height:100%;background:var(--color-primary);border-radius:2px;width:' + Math.min(s/120*100, 98) + '%;transition:width 1s linear;"></div>' +
+          '</div>' +
+          '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="sg-cancel">Cancel</button></div>' +
+          '</div>';
+        var ce = document.getElementById('sg-cancel');
+        if (ce) ce.addEventListener('click', function () { cancelled = true; clearInterval(tickTimer); clearTimeout(pollTimer); closeModal(); });
+      }
+
+      // Initial progress display.
+      showProgress(PHASES[0][1]);
+
+      // Timer tick updates the elapsed time + phase messages.
+      tickTimer = setInterval(function () {
         var s = Math.round((Date.now() - t0) / 1000);
         var te = document.getElementById('sg-timer'); if (te) te.textContent = s + 's';
-        var be = document.getElementById('sg-bar'); if (be) be.style.width = Math.min(s/120*100, 98) + '%';
+        var be = content.querySelector('[style*="background:var(--color-primary)"]'); if (be) be.style.width = Math.min(s/120*100, 98) + '%';
         var pe = document.getElementById('sg-phase'); if (pe) {
           var m = PHASES[0][1]; for (var i = 0; i < PHASES.length; i++) { if (s >= PHASES[i][0]) m = PHASES[i][1]; }
           pe.textContent = m;
         }
       }, 1000);
 
-      var ctrl = new AbortController();
-      var ce = document.getElementById('sg-cancel');
-      if (ce) ce.addEventListener('click', function () { ctrl.abort(); clearInterval(tick); closeModal(); });
-
+      // Start the analysis.
       fetch('/agents/' + encodeURIComponent(agentId) + '/analyze', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: '', signal: ctrl.signal,
+        body: '',
       })
       .then(function (r) { return r.json(); })
-      .then(function (data) {
-        clearInterval(tick);
-        if (!data.ok) {
+      .then(function (startData) {
+        if (!startData.ok || !startData.runId) {
+          clearInterval(tickTimer);
           content.innerHTML =
             '<h3 style="margin:0 0 var(--space-3);">Analysis failed</h3>' +
-            '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
-            (data.runId ? '<p class="dim" style="font-size:var(--font-size-xs);margin:var(--space-2) 0 0;">Run: <a href="/runs/' + esc(data.runId) + '">' + esc(data.runId.slice(0,8)) + '</a></p>' : '') +
+            '<div class="flash flash--error">' + esc(startData.error || 'Failed to start') + '</div>' +
             '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button></div>';
           return;
         }
-        var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok' : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
-        var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed' : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
-        var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);"><span class="badge ' + bc + '">' + esc(bl) + '</span></div>';
-        if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
-        if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:250px;overflow-y:auto;">' + esc(data.details) + '</pre>';
-        if (data.yaml && data.currentYaml) {
-          h += coloredDiff(data.currentYaml, data.yaml);
-        } else if (data.yaml) {
-          h += '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-3);max-height:300px;overflow-y:auto;white-space:pre-wrap;">' + esc(data.yaml) + '</pre>';
+
+        var runId = startData.runId;
+        var savedCurrentYaml = startData.currentYaml;
+
+        // Poll for progress + results.
+        function poll() {
+          if (cancelled) return;
+          fetch('/agents/' + encodeURIComponent(agentId) + '/analyze/' + encodeURIComponent(runId), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (cancelled) return;
+              if (data.status === 'running') {
+                // Update phase from real progress events.
+                if (data.progress && data.progress.length > 0) {
+                  var latest = data.progress[data.progress.length - 1];
+                  var pe = document.getElementById('sg-phase');
+                  if (pe && latest.message) pe.textContent = latest.message;
+                }
+                pollTimer = setTimeout(poll, 2000);
+              } else if (data.status === 'done') {
+                clearInterval(tickTimer);
+                data.currentYaml = data.currentYaml || savedCurrentYaml;
+                renderResult(data);
+              } else {
+                clearInterval(tickTimer);
+                content.innerHTML =
+                  '<h3 style="margin:0 0 var(--space-3);">Analysis failed</h3>' +
+                  '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
+                  '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button></div>';
+              }
+            })
+            .catch(function () { if (!cancelled) pollTimer = setTimeout(poll, 3000); });
         }
-        if (data.yamlError) {
-          h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
-            '<strong>Suggested YAML has validation errors:</strong> ' + esc(data.yamlError) +
-            '<br>Click "Edit YAML" to fix manually.</div>';
-        }
-        h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
-        if (data.yaml) {
-          var applyLabel = data.yamlError ? 'Edit YAML to fix' : 'Review + apply';
-          h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">' + esc(applyLabel) + '</button>';
-        }
-        h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
-        content.innerHTML = h;
-        var ab = document.getElementById('sg-apply');
-        if (ab && data.yaml) ab.addEventListener('click', function () {
-          var f = document.createElement('form'); f.method = 'POST';
-          f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
-          var t = document.createElement('textarea'); t.name = 'prefillYaml'; t.value = data.yaml; t.style.display = 'none';
-          f.appendChild(t); document.body.appendChild(f); f.submit();
-        });
-        var db = document.getElementById('sg-dismiss');
-        if (db) db.addEventListener('click', closeModal);
+
+        pollTimer = setTimeout(poll, 2000);
       })
       .catch(function (err) {
-        clearInterval(tick);
-        if (err.name === 'AbortError') return;
+        clearInterval(tickTimer);
         content.innerHTML =
           '<h3 style="margin:0 0 var(--space-3);">Error</h3>' +
           '<div class="flash flash--error">' + esc(String(err)) + '</div>' +

@@ -378,6 +378,84 @@ const GRAPH_RENDER_JS = `
         btn.textContent = 'Replay (community)';
       }
 
+      // Intercept submit: pre-check for missing upstream outputs,
+      // show spinner modal while replaying.
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        // Close the node dialog first.
+        if (dialogSupported) dialog.close();
+
+        // Show a replay modal (reuse run-modal if it exists, or create one).
+        var replayModal = document.getElementById('run-modal');
+        var replayContent = document.getElementById('run-modal-content');
+        if (!replayModal || !replayContent) {
+          // No modal on page — fall back to form submit.
+          form.removeEventListener('submit', arguments.callee);
+          form.submit();
+          return;
+        }
+
+        replayModal.classList.add('is-open');
+        replayContent.innerHTML =
+          '<div style="text-align:center;padding:var(--space-6);">' +
+          '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+          '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Checking replay from ' + data.id + '...</p>' +
+          '</div>';
+
+        // Pre-check.
+        fetch('/runs/' + encodeURIComponent(replayRunId) + '/replay-check?fromNodeId=' + encodeURIComponent(data.id), { credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (check) {
+            if (!check.ok) {
+              replayContent.innerHTML =
+                '<h3 style="margin:0 0 var(--space-3);">Cannot replay</h3>' +
+                '<div class="flash flash--error">' + check.error + '</div>' +
+                '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(\\x27run-modal\\x27).classList.remove(\\x27is-open\\x27)">Close</button></div>';
+              return;
+            }
+            if (check.configErrors && check.configErrors.length > 0) {
+              replayContent.innerHTML =
+                '<h3 style="margin:0 0 var(--space-3);">Node configuration error</h3>' +
+                '<div class="flash flash--error" style="margin-bottom:var(--space-3);">' +
+                check.configErrors.map(function (e) { return '<div>' + e + '</div>'; }).join('') +
+                '</div>' +
+                '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Fix the agent definition before replaying. The node is missing required configuration.</p>' +
+                '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;">' +
+                '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(\\x27run-modal\\x27).classList.remove(\\x27is-open\\x27)">Close</button>' +
+                '</div>';
+              return;
+            }
+            if (check.missing && check.missing.length > 0) {
+              replayContent.innerHTML =
+                '<h3 style="margin:0 0 var(--space-3);">Missing upstream outputs</h3>' +
+                '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">The prior run is missing completed outputs for these upstream nodes. Replay cannot proceed.</p>' +
+                '<ul style="margin:0 0 var(--space-3);padding-left:var(--space-6);">' +
+                check.missing.map(function (n) { return '<li class="mono">' + n + '</li>'; }).join('') +
+                '</ul>' +
+                '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Try running the full agent instead, or replay from an earlier node.</p>' +
+                '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;">' +
+                '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(\\x27run-modal\\x27).classList.remove(\\x27is-open\\x27)">Close</button>' +
+                '</div>';
+              return;
+            }
+            // All good — show spinner and submit.
+            replayContent.innerHTML =
+              '<div style="text-align:center;padding:var(--space-6);">' +
+              '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+              '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Replaying from ' + data.id + '...</p>' +
+              '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Reusing outputs from ' + check.available.length + ' upstream node(s).</p>' +
+              '</div>';
+            // Remove the interceptor and submit for real.
+            form.removeEventListener('submit', arguments.callee);
+            form.submit();
+          })
+          .catch(function () {
+            // Pre-check failed — submit anyway and let the server handle it.
+            form.removeEventListener('submit', arguments.callee);
+            form.submit();
+          });
+      });
+
       form.appendChild(btn);
       actionsEl.appendChild(form);
     }
