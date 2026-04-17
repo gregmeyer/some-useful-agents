@@ -1,4 +1,4 @@
-import type { Agent, AgentNode, ToolStore } from '@some-useful-agents/core';
+import type { Agent, AgentNode, ToolStore, VariablesStore } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -27,8 +27,9 @@ export function renderAgentEditNode(args: {
   values?: EditNodeFormValues;
   error?: string;
   toolStore?: ToolStore;
+  variablesStore?: VariablesStore;
 }): string {
-  const { agent, node, values: submitted, error, toolStore } = args;
+  const { agent, node, values: submitted, error, toolStore, variablesStore } = args;
   const allTools = getAvailableTools(toolStore);
 
   // Fall back to the node's current values if nothing's been submitted.
@@ -98,7 +99,7 @@ export function renderAgentEditNode(args: {
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
 
-      ${renderAvailableVars(agent, node)}
+      ${renderAvailableVars(agent, node, variablesStore)}
 
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
         <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Implementation</legend>
@@ -131,6 +132,7 @@ export function renderAgentEditNode(args: {
         computePaletteSuggestions(agent, {
           excludeNodeId: node.id,
           nodeSecrets: node.secrets,
+          variablesStore,
         }),
       )}
 
@@ -170,12 +172,13 @@ function collectDownstream(agent: Agent, startId: string): Set<string> {
  * so the user knows what they can reference in the command/prompt without
  * having to type $ to discover them.
  */
-function renderAvailableVars(agent: Agent, node: AgentNode): SafeHtml {
+function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: VariablesStore): SafeHtml {
   const inputs = Object.entries(agent.inputs ?? {});
   const upstreams = (node.dependsOn ?? []).filter((id) => agent.nodes.some((n) => n.id === id));
   const secrets = node.secrets ?? [];
+  const globalVars = variablesStore ? Object.entries(variablesStore.list()) : [];
 
-  if (inputs.length === 0 && upstreams.length === 0 && secrets.length === 0) {
+  if (inputs.length === 0 && upstreams.length === 0 && secrets.length === 0 && globalVars.length === 0) {
     return html``;
   }
 
@@ -192,6 +195,21 @@ function renderAvailableVars(agent: Agent, node: AgentNode): SafeHtml {
       <tr>
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>agent input</td>
+        <td class="dim">${info}</td>
+      </tr>
+    `);
+  }
+
+  for (const [name, variable] of globalVars) {
+    const desc = variable.description ?? '';
+    const info = [
+      `value: ${variable.value}`,
+      desc,
+    ].filter(Boolean).join(' \u2014 ');
+    rows.push(html`
+      <tr>
+        <td class="mono" style="color: var(--color-primary);">$${name}</td>
+        <td>global variable</td>
         <td class="dim">${info}</td>
       </tr>
     `);

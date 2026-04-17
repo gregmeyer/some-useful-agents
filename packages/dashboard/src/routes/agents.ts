@@ -138,7 +138,7 @@ agentsRouter.get('/agents/:name/add-node', (req: Request, res: Response) => {
   }
   const fromCreate = req.query.fromCreate === '1';
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
-  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore }));
+  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore }));
 });
 
 agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
@@ -167,13 +167,13 @@ agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
   // Validate.
   if (!values.id || !NODE_ID_RE.test(values.id)) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: 'Node id must be lowercase letters, digits, hyphens, or underscores.',
+      agent, values, variablesStore: ctx.variablesStore, error: 'Node id must be lowercase letters, digits, hyphens, or underscores.',
     }));
     return;
   }
   if (agent.nodes.some((n) => n.id === values.id)) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: `A node with id "${values.id}" already exists in this agent.`,
+      agent, values, variablesStore: ctx.variablesStore, error: `A node with id "${values.id}" already exists in this agent.`,
     }));
     return;
   }
@@ -182,19 +182,19 @@ agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
   const badDep = dependsOn.find((d) => !existingIds.has(d));
   if (badDep) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: `Unknown upstream node: "${badDep}".`,
+      agent, values, variablesStore: ctx.variablesStore, error: `Unknown upstream node: "${badDep}".`,
     }));
     return;
   }
   if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: 'Shell nodes need a command.',
+      agent, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
     }));
     return;
   }
   if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: 'Claude-Code nodes need a prompt.',
+      agent, values, variablesStore: ctx.variablesStore, error: 'Claude-Code nodes need a prompt.',
     }));
     return;
   }
@@ -222,7 +222,7 @@ agentsRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, error: `Save failed: ${msg}`,
+      agent, values, variablesStore: ctx.variablesStore, error: `Save failed: ${msg}`,
     }));
   }
 });
@@ -252,7 +252,7 @@ agentsRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respons
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Node "${nodeId}" not found.`)}`);
     return;
   }
-  res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore }));
+  res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore }));
 });
 
 agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
@@ -288,14 +288,14 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respon
   const existingIds = new Set(agent.nodes.map((n) => n.id));
   if (dependsOn.includes(nodeId)) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: 'A node cannot depend on itself.',
+      agent, node, values, variablesStore: ctx.variablesStore, error: 'A node cannot depend on itself.',
     }));
     return;
   }
   const badDep = dependsOn.find((d) => !existingIds.has(d));
   if (badDep) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: `Unknown upstream node: "${badDep}".`,
+      agent, node, values, variablesStore: ctx.variablesStore, error: `Unknown upstream node: "${badDep}".`,
     }));
     return;
   }
@@ -303,19 +303,19 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respon
   // but a hand-crafted POST could bypass it. Re-check.
   if (hasCycleAfterEdit(agent, nodeId, dependsOn)) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: 'Those dependencies would create a cycle in the DAG.',
+      agent, node, values, variablesStore: ctx.variablesStore, error: 'Those dependencies would create a cycle in the DAG.',
     }));
     return;
   }
   if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: 'Shell nodes need a command.',
+      agent, node, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
     }));
     return;
   }
   if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: 'Claude-Code nodes need a prompt.',
+      agent, node, values, variablesStore: ctx.variablesStore, error: 'Claude-Code nodes need a prompt.',
     }));
     return;
   }
@@ -353,7 +353,7 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respon
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, error: `Save failed: ${msg}`,
+      agent, node, values, variablesStore: ctx.variablesStore, error: `Save failed: ${msg}`,
     }));
   }
 });

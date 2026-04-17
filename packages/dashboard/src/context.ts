@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -67,7 +67,12 @@ export interface DashboardContext {
   toolStore?: ToolStore;
   /** When true, the dashboard allows POSTs that would execute community shell. */
   allowUntrustedShell: Set<string>;
-  /** Called to validate agent-supplied inputs at run-now time. Defaults built into LocalProvider. */
+  /**
+   * v0.17+: global variables store. Plain-text, non-sensitive values that
+   * are available to every agent at run time. Surfaces in the palette
+   * autocomplete and the /settings/variables tab.
+   */
+  variablesStore?: VariablesStore;
 }
 
 /**

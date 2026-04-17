@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { startDashboardServer } from '@some-useful-agents/dashboard';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getRetentionDays } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getRetentionDays } from '../config.js';
 import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
@@ -55,6 +55,7 @@ of scope for this release — wrap in launchd / systemd if you need it.
         agentDirs: dirs.all,
         dbPath: getDbPath(config),
         secretsPath: getSecretsPath(config),
+        variablesPath: getVariablesPath(config),
         retentionDays: getRetentionDays(config),
         allowUntrustedShell: new Set(options.allowUntrustedShell),
       });
