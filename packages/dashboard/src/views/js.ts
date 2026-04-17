@@ -464,6 +464,39 @@ export const DASHBOARD_JS = `
     }, true);
   })();
 
+  // Node vars filter — live filter by name or value on resolved variables
+  (function () {
+    document.addEventListener('input', function (e) {
+      var t = e.target;
+      if (!t || !t.matches || !t.matches('.node-vars__filter')) return;
+      var panelId = t.getAttribute('data-vars-panel');
+      if (!panelId) return;
+      var panel = document.getElementById(panelId);
+      if (!panel) return;
+      var q = t.value.toLowerCase();
+      var rows = panel.querySelectorAll('tr[data-vars-name]');
+      var visibleByGroup = {};
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var name = row.getAttribute('data-vars-name') || '';
+        var value = row.getAttribute('data-vars-value') || '';
+        var match = !q || name.indexOf(q) >= 0 || value.indexOf(q) >= 0;
+        row.style.display = match ? '' : 'none';
+        if (match) {
+          var g = row.getAttribute('data-vars-group');
+          visibleByGroup[g] = true;
+        }
+      }
+      // Hide group headings when all their rows are filtered out
+      var headings = panel.querySelectorAll('[data-vars-heading]');
+      for (var j = 0; j < headings.length; j++) {
+        var h = headings[j];
+        var group = h.getAttribute('data-vars-heading');
+        h.style.display = visibleByGroup[group] ? '' : 'none';
+      }
+    });
+  })();
+
   // Auto-poll for in-progress runs
   var runDetail = document.querySelector('[data-run-in-progress]');
   if (runDetail) {
@@ -489,5 +522,69 @@ export const DASHBOARD_JS = `
     };
     setTimeout(poll, 2000);
   }
+
+  // Secret save confirmation modal — shows the value one last time with
+  // a copy button before the encrypted write. Value is never shown again.
+  (function () {
+    var form = document.getElementById('secret-set-form');
+    var modal = document.getElementById('secret-confirm-modal');
+    if (!form || !modal) return;
+
+    var valueDisplay = document.getElementById('secret-confirm-value');
+    var copyBtn = document.getElementById('secret-copy-btn');
+    var cancelBtn = document.getElementById('secret-cancel-btn');
+    var saveBtn = document.getElementById('secret-save-btn');
+
+    form.addEventListener('submit', function (e) {
+      var nameInput = document.getElementById('secret-name');
+      var valueInput = document.getElementById('secret-value');
+      if (!nameInput || !valueInput || !nameInput.value.trim() || !valueInput.value) return;
+
+      e.preventDefault();
+      valueDisplay.textContent = valueInput.value;
+      modal.style.display = 'flex';
+    });
+
+    copyBtn.addEventListener('click', function () {
+      var text = valueDisplay.textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () {
+          copyBtn.textContent = 'Copied!';
+          setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1500);
+        });
+      } else {
+        // Fallback for non-HTTPS contexts.
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1500);
+      }
+    });
+
+    cancelBtn.addEventListener('click', function () {
+      modal.style.display = 'none';
+      valueDisplay.textContent = '';
+    });
+
+    saveBtn.addEventListener('click', function () {
+      modal.style.display = 'none';
+      valueDisplay.textContent = '';
+      form.submit();
+    });
+
+    // ESC to close
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal.style.display !== 'none') {
+        modal.style.display = 'none';
+        valueDisplay.textContent = '';
+      }
+    });
+  })();
 })();
 `;

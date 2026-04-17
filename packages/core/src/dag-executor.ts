@@ -28,7 +28,7 @@ import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
-import type { VariablesStore } from './variables-store.js';
+import { type VariablesStore, looksLikeSensitive } from './variables-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
@@ -916,17 +916,44 @@ export function resolveVarsTemplate(text: string, vars: Record<string, string>):
 }
 
 /**
+ * Patterns that look like secret values even when the env-var name
+ * doesn't match the sensitive-name heuristic. Catches common token
+ * formats that leak through env inheritance or non-standard naming.
+ */
+const SENSITIVE_VALUE_PATTERNS = [
+  /^ghp_[A-Za-z0-9]{36,}$/,      // GitHub PATs
+  /^gho_[A-Za-z0-9]{36,}$/,      // GitHub OAuth tokens
+  /^sk-[A-Za-z0-9]{20,}$/,       // OpenAI / Stripe secret keys
+  /^xox[bpars]-[A-Za-z0-9-]+$/,  // Slack tokens
+  /^AKIA[A-Z0-9]{16}$/,          // AWS access key IDs
+  /^eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, // JWTs
+];
+
+/**
  * Redact secret values from the env map before we serialise it to
- * `inputs_json` for the node_executions row. Any env key that the node
- * declared as a secret is stored as a placeholder instead of its value,
- * so reading run logs doesn't leak the secret.
+ * `inputs_json` for the node_executions row. Three layers:
+ *
+ *   1. Declared secrets — names in the node's `secrets:` array.
+ *   2. Sensitive names — names matching TOKEN, KEY, SECRET, PASS, etc.
+ *      (catches variables the user forgot to declare as secrets).
+ *   3. Sensitive values — values matching known credential formats
+ *      (GitHub PATs, Slack tokens, AWS keys, JWTs, etc.).
+ *
+ * Prefer false-positive redaction over leaking credentials in run logs.
  */
 function filterEnvForLog(env: Record<string, string>, node: AgentNode): Record<string, string> {
   const out: Record<string, string> = {};
   const secrets = new Set(node.secrets ?? []);
   for (const [k, v] of Object.entries(env)) {
-    if (secrets.has(k)) out[k] = '<redacted>';
-    else out[k] = v;
+    if (
+      secrets.has(k) ||
+      looksLikeSensitive(k) ||
+      SENSITIVE_VALUE_PATTERNS.some((re) => re.test(v))
+    ) {
+      out[k] = '<redacted>';
+    } else {
+      out[k] = v;
+    }
   }
   return out;
 }

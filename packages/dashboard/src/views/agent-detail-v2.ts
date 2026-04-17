@@ -185,6 +185,7 @@ export async function renderAgentDetailV2(args: {
 
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
+        <a class="btn btn--sm" href="/agents/${agent.id}/yaml">Edit YAML</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
@@ -269,83 +270,89 @@ export async function renderAgentDetailV2(args: {
  * Provisional: this section migrates into the dashboard revamp's
  * tabbed agent detail layout as its own tab.
  */
+function typeSelect(namePrefix: string, current: string): SafeHtml {
+  const opt = (val: string) => val === current
+    ? html`<option value="${val}" selected>${val}</option>`
+    : html`<option value="${val}">${val}</option>`;
+  return html`
+    <select name="${namePrefix}" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
+      ${opt('string')}${opt('number')}${opt('boolean')}${opt('enum')}
+    </select>
+  `;
+}
+
 function renderInputDefaultsSection(agent: Agent): SafeHtml {
   const inputs = Object.entries(agent.inputs ?? {});
+  const FIELD = 'padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
 
   const inputRows = inputs.map(([name, spec]) => {
     const defVal = spec.default !== undefined ? String(spec.default) : '';
     const desc = spec.description ?? '';
     return html`
       <tr>
-        <td class="mono">${name}</td>
-        <td>
-          <span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>
+        <td class="mono">${name}
+          <input type="hidden" name="inputName[]" value="${name}">
         </td>
+        <td>${typeSelect(`type_${name}`, spec.type)}</td>
         <td>
           <input type="text" name="default_${name}" value="${defVal}"
             placeholder="(none)"
-            style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+            style="${FIELD} font-family: var(--font-mono); width: 10rem;">
         </td>
         <td>
           <input type="text" name="description_${name}" value="${desc}"
             placeholder="(none)"
-            style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
-        </td>
-        <td class="dim" style="font-size: var(--font-size-xs);">
-          ${spec.required !== false && spec.default === undefined ? 'required' : 'optional'}
+            style="${FIELD} width: 14rem;">
         </td>
       </tr>
     `;
   });
 
+  // Inline "new row" at the bottom of the table — no separate toggle needed.
+  const newRow = html`
+    <tr style="border-top: 2px solid var(--color-border);">
+      <td>
+        <input type="text" name="newInputName" placeholder="NEW_VAR" pattern="[A-Z_][A-Z0-9_]*"
+          style="${FIELD} font-family: var(--font-mono); width: 10rem;">
+      </td>
+      <td>
+        <select name="newInputType" style="${FIELD}">
+          <option value="string">string</option>
+          <option value="number">number</option>
+          <option value="boolean">boolean</option>
+          <option value="enum">enum</option>
+        </select>
+      </td>
+      <td>
+        <input type="text" name="newInputDefault" placeholder="default"
+          style="${FIELD} font-family: var(--font-mono); width: 10rem;">
+      </td>
+      <td>
+        <input type="text" name="newInputDescription" placeholder="description"
+          style="${FIELD} width: 14rem;">
+      </td>
+    </tr>
+  `;
+
   return html`
     <section id="variables">
       <h2>Variables</h2>
       <p class="dim" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
-        Agent-level inputs: values supplied via <code>--input NAME=value</code> at run time.
-        Defaults fill in when no value is supplied. Edit defaults below and save to create a new version.
+        Agent-level inputs referenced as <code>$NAME</code> in shell or <code>{{inputs.NAME}}</code> in prompts.
+        Defaults fill in when no <code>--input</code> value is supplied at run time.
+        Fill in the bottom row to add a new variable. Save creates a new version.
       </p>
       <form method="POST" action="/agents/${agent.id}/inputs/update">
-        ${inputs.length > 0 ? html`
-          <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
-            <thead>
-              <tr><th>Name</th><th>Type</th><th>Default</th><th>Description</th><th></th></tr>
-            </thead>
-            <tbody>${inputRows as unknown as SafeHtml[]}</tbody>
-          </table>
-        ` : html`
-          <p class="dim" style="margin-bottom: var(--space-3);">No inputs declared yet. Add one below.</p>
-        `}
-        <details>
-          <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-primary); font-weight: var(--weight-medium);">+ Add a new input</summary>
-          <div style="margin-top: var(--space-2); display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
-            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
-              Name
-              <input type="text" name="newInputName" placeholder="API_URL" pattern="[A-Z_][A-Z0-9_]*"
-                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
-            </label>
-            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
-              Type
-              <select name="newInputType" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
-                <option value="string">string</option>
-                <option value="number">number</option>
-                <option value="boolean">boolean</option>
-                <option value="enum">enum</option>
-              </select>
-            </label>
-            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
-              Default
-              <input type="text" name="newInputDefault" placeholder="optional"
-                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
-            </label>
-            <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
-              Description
-              <input type="text" name="newInputDescription" placeholder="optional"
-                style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
-            </label>
-          </div>
-        </details>
-        <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); justify-content: flex-end;">
+        <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+          <thead>
+            <tr><th>Name</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            ${inputRows as unknown as SafeHtml[]}
+            ${newRow}
+          </tbody>
+        </table>
+        <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
           <button type="submit" class="btn btn--primary btn--sm">Save variables</button>
         </div>
       </form>
