@@ -5,6 +5,7 @@ import {
   RunStore,
   AgentStore,
   ToolStore,
+  VariablesStore,
   EncryptedFileStore,
   loadAgents,
   readMcpToken,
@@ -38,6 +39,8 @@ export interface StartDashboardOptions {
   dbPath: string;
   /** Path to the encrypted secrets file. */
   secretsPath: string;
+  /** Path to the plain-text global variables file (.sua/variables.json). */
+  variablesPath?: string;
   /** Path to the bearer token file. Defaults to `~/.sua/mcp-token`. */
   tokenPath?: string;
   /** Community shell agents the operator has pre-allowed. */
@@ -136,6 +139,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: tools surface degrades to built-ins only.
   }
 
+  // Global variables store (plain-text, non-sensitive).
+  let variablesStore: VariablesStore | undefined;
+  if (opts.variablesPath) {
+    variablesStore = new VariablesStore(opts.variablesPath);
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -152,6 +161,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     secretsPath: opts.secretsPath,
     rotateToken: () => rotateMcpToken(tokenPath),
     toolStore,
+    variablesStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
   };
 

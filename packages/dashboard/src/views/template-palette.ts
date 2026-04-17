@@ -1,4 +1,4 @@
-import type { Agent } from '@some-useful-agents/core';
+import type { Agent, VariablesStore } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 export interface PaletteSuggestions {
@@ -8,6 +8,8 @@ export interface PaletteSuggestions {
   inputs: string[];
   /** Secret names this node declares (per-node injection). */
   secrets: string[];
+  /** Global variable names from /settings/variables. */
+  vars: string[];
 }
 
 /**
@@ -26,7 +28,7 @@ export interface PaletteSuggestions {
  */
 export function computePaletteSuggestions(
   agent: Agent,
-  opts: { excludeNodeId?: string; nodeSecrets?: string[] } = {},
+  opts: { excludeNodeId?: string; nodeSecrets?: string[]; variablesStore?: VariablesStore } = {},
 ): PaletteSuggestions {
   const upstreams = agent.nodes
     .map((n) => n.id)
@@ -34,7 +36,8 @@ export function computePaletteSuggestions(
     .sort();
   const inputs = Object.keys(agent.inputs ?? {}).sort();
   const secrets = (opts.nodeSecrets ?? []).slice().sort();
-  return { upstreams, inputs, secrets };
+  const vars = opts.variablesStore ? opts.variablesStore.listNames() : [];
+  return { upstreams, inputs, secrets, vars };
 }
 
 /**

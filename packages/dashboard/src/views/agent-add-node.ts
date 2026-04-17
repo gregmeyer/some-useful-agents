@@ -1,10 +1,9 @@
-import type { Agent } from '@some-useful-agents/core';
+import type { Agent, ToolStore, VariablesStore } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
-import type { ToolStore } from '@some-useful-agents/core';
 
 /**
  * Render a reference card listing everything the author can inject into
@@ -88,8 +87,9 @@ export function renderAgentAddNode(args: {
   fromCreate?: boolean;
   /** v0.16+: tool store for the tool picker dropdown. */
   toolStore?: ToolStore;
+  variablesStore?: VariablesStore;
 }): string {
-  const { agent, values: v = {}, error, flash, fromCreate, toolStore } = args;
+  const { agent, values: v = {}, error, flash, fromCreate, toolStore, variablesStore } = args;
   const allTools = getAvailableTools(toolStore);
   const selectedTool = v.type === 'claude-code' ? 'claude-code' : 'shell-exec';
   const type = v.type ?? 'shell';
@@ -198,7 +198,7 @@ export function renderAgentAddNode(args: {
         </div>
       </fieldset>
 
-      ${renderPalettePayload('palette-add-node', computePaletteSuggestions(agent))}
+      ${renderPalettePayload('palette-add-node', computePaletteSuggestions(agent, { variablesStore }))}
 
       <div style="display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center;">
         <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>

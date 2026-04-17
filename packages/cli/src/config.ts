@@ -82,6 +82,10 @@ export function getSecretsPath(config: SuaConfig): string {
   return join(resolve(config.dataDir), 'secrets.enc');
 }
 
+export function getVariablesPath(config: SuaConfig): string {
+  return join(resolve(config.dataDir), '.sua', 'variables.json');
+}
+
 export function getRetentionDays(config: SuaConfig): number {
   return config.runRetentionDays ?? 30;
 }

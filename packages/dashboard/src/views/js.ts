@@ -215,10 +215,18 @@ export const DASHBOARD_JS = `
             group: 'input',
           });
         }
-        for (var k = 0; k < sugg.secrets.length; k++) {
+        for (var k = 0; k < (sugg.vars || []).length; k++) {
           items.push({
-            insert: '$' + sugg.secrets[k],
-            label: '$' + sugg.secrets[k],
+            insert: '$' + sugg.vars[k],
+            label: '$' + sugg.vars[k],
+            hint: 'global variable',
+            group: 'var',
+          });
+        }
+        for (var l = 0; l < sugg.secrets.length; l++) {
+          items.push({
+            insert: '$' + sugg.secrets[l],
+            label: '$' + sugg.secrets[l],
             hint: 'node secret',
             group: 'secret',
           });
@@ -239,6 +247,14 @@ export const DASHBOARD_JS = `
             label: '{{inputs.' + sugg.inputs[n] + '}}',
             hint: 'agent input',
             group: 'input',
+          });
+        }
+        for (var p = 0; p < (sugg.vars || []).length; p++) {
+          items.push({
+            insert: '{{vars.' + sugg.vars[p] + '}}',
+            label: '{{vars.' + sugg.vars[p] + '}}',
+            hint: 'global variable',
+            group: 'var',
           });
         }
       }
@@ -300,6 +316,13 @@ export const DASHBOARD_JS = `
       palette.style.minWidth = Math.round(Math.min(rect.width, 420)) + 'px';
     }
 
+    var GROUP_LABELS = {
+      upstream: 'Upstream outputs',
+      input: 'Agent inputs',
+      var: 'Global variables',
+      secret: 'Secrets',
+    };
+
     function renderPalette(items, selectedIndex) {
       ensurePalette();
       palette.innerHTML = '';
@@ -309,7 +332,16 @@ export const DASHBOARD_JS = `
         empty.textContent = 'No matches';
         palette.appendChild(empty);
       } else {
+        var lastGroup = null;
         for (var i = 0; i < items.length; i++) {
+          if (items[i].group !== lastGroup) {
+            lastGroup = items[i].group;
+            var sep = document.createElement('div');
+            sep.className = 'template-palette__group';
+            sep.textContent = GROUP_LABELS[lastGroup] || lastGroup;
+            palette.appendChild(sep);
+          }
+
           var row = document.createElement('div');
           row.className = 'template-palette__item' + (i === selectedIndex ? ' is-selected' : '');
           row.setAttribute('data-index', String(i));
