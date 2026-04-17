@@ -523,13 +523,50 @@ export const DASHBOARD_JS = `
     setTimeout(poll, 2000);
   }
 
-  // Run-now modal — show spinner while the POST submits.
+  // Run-now modal — open inputs form or show spinner while POST submits.
   (function () {
-    var runForm = document.querySelector('[data-run-form]');
     var runModal = document.getElementById('run-modal');
-    if (!runForm || !runModal) return;
-    runForm.addEventListener('submit', function () {
-      runModal.classList.add('is-open');
+    if (!runModal) return;
+
+    // "Run now" button for agents with inputs — opens the modal form.
+    var inputsBtn = document.getElementById('run-with-inputs-btn');
+    if (inputsBtn) {
+      inputsBtn.addEventListener('click', function () {
+        runModal.classList.add('is-open');
+      });
+    }
+
+    // When the form inside the modal submits, swap content to a spinner.
+    var runForm = runModal.querySelector('[data-run-form]');
+    if (runForm) {
+      runForm.addEventListener('submit', function () {
+        var mc = document.getElementById('run-modal-content');
+        if (mc) mc.innerHTML =
+          '<div style="text-align:center;padding:var(--space-6);">' +
+          '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+          '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Running...</p>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Starting execution.</p></div>';
+      });
+    }
+
+    // Also handle no-inputs agents (form outside modal with data-run-form).
+    var externalForm = document.querySelector('form[data-run-form]:not(#run-modal form)');
+    if (externalForm) {
+      externalForm.addEventListener('submit', function () {
+        runModal.classList.add('is-open');
+        var mc = document.getElementById('run-modal-content');
+        if (mc) mc.innerHTML =
+          '<div style="text-align:center;padding:var(--space-6);">' +
+          '<div class="spinner" style="margin:0 auto var(--space-3);"></div>' +
+          '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">Running...</p>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">Starting execution.</p></div>';
+      });
+    }
+
+    // Close modal on backdrop click or data-close-modal buttons.
+    runModal.addEventListener('click', function (e) {
+      if (e.target === runModal) runModal.classList.remove('is-open');
+      if (e.target && e.target.getAttribute && e.target.getAttribute('data-close-modal')) runModal.classList.remove('is-open');
     });
   })();
 

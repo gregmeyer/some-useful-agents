@@ -43,13 +43,21 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
       res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent(flash)}`);
       return;
     }
+    // Extract input_NAME fields from the form body.
+    const inputs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (k.startsWith('input_') && typeof v === 'string' && v.trim() !== '') {
+        inputs[k.slice(6)] = v.trim();
+      }
+    }
+
     // Fire-and-forget: start the DAG executor but don't await it.
     // The executor creates the run row in 'running' state synchronously
     // before spawning nodes, so the redirect to /runs/:id lands on a
     // valid page that polls for progress.
     const runPromise = executeAgentDag(
       v2Agent,
-      { triggeredBy: 'dashboard', inputs: {} },
+      { triggeredBy: 'dashboard', inputs },
       {
         runStore: ctx.runStore,
         secretsStore: ctx.secretsStore,
