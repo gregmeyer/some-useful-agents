@@ -328,9 +328,13 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Respon
   // edit (inputs, secrets, env, envAllowlist, allowedTools, model,
   // maxTurns, timeout, redactSecrets, position) — those come back in
   // a follow-up when the inspector can render them.
+  const provider = typeof body.provider === 'string' && ['claude', 'codex'].includes(body.provider)
+    ? body.provider as 'claude' | 'codex'
+    : undefined;
+
   const updatedNode = values.type === 'shell'
-    ? { ...node, type: 'shell' as const, command: values.command!, prompt: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) }
-    : { ...node, type: 'claude-code' as const, prompt: values.prompt!, command: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
+    ? { ...node, type: 'shell' as const, command: values.command!, prompt: undefined, provider: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) }
+    : { ...node, type: 'claude-code' as const, prompt: values.prompt!, command: undefined, ...(provider ? { provider } : {}), ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
 
   const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? updatedNode : n);
 
