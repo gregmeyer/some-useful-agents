@@ -50,6 +50,15 @@ export {
   type DagExecuteOptions,
 } from './dag-executor.js';
 export {
+  type LlmSpawner,
+  type SpawnProgress,
+  type LlmSpawnOptions,
+  claudeSpawner,
+  claudeTextSpawner,
+  codexSpawner,
+  getSpawner,
+} from './node-spawner.js';
+export {
   planMigration,
   applyMigration,
   type V1Input,
