@@ -590,6 +590,17 @@ export const DASHBOARD_JS = `
     function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function closeModal() { modal.classList.remove('is-open'); }
 
+    // Lightweight markdown to HTML for analysis output.
+    function renderMd(text) {
+      var h = esc(text);
+      h = h.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>' + '$' + '1</strong>');
+      h = h.replace(/\\*(.+?)\\*/g, '<em>' + '$' + '1</em>');
+      h = h.replace(/^- (.+)$/gm, function(m,p1) { return '<li style="margin-left:var(--space-4);list-style:disc;">' + p1 + '</li>'; });
+      h = h.replace(/\\n{2,}/g, '<br><br>');
+      h = h.replace(/\\n/g, '<br>');
+      return h;
+    }
+
     function coloredDiff(oldT, newT) {
       var oL = oldT.split('\\n'), nL = newT.split('\\n');
       var oS = {}, nS = {};
@@ -611,8 +622,8 @@ export const DASHBOARD_JS = `
       var bc = data.classification === 'NO_IMPROVEMENTS' ? 'badge--ok' : data.classification === 'REWRITE' ? 'badge--err' : 'badge--warn';
       var bl = data.classification === 'NO_IMPROVEMENTS' ? 'No improvements needed' : data.classification === 'REWRITE' ? 'Recommend rewrite' : 'Suggested improvements';
       var h = '<div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-3);"><span class="badge ' + bc + '">' + esc(bl) + '</span></div>';
-      if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
-      if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:250px;overflow-y:auto;">' + esc(data.details) + '</pre>';
+      if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + renderMd(data.summary) + '</p>';
+      if (data.details) h += '<div style="font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:250px;overflow-y:auto;">' + renderMd(data.details) + '</div>';
       if (data.yaml && data.currentYaml) {
         h += coloredDiff(data.currentYaml, data.yaml);
       } else if (data.yaml) {
