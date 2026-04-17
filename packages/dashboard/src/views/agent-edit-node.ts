@@ -196,6 +196,7 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>agent input</td>
         <td class="dim">${info}</td>
+        <td><a href="/agents/${agent.id}#variables" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
       </tr>
     `);
   }
@@ -211,6 +212,7 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>global variable</td>
         <td class="dim">${info}</td>
+        <td><a href="/settings/variables" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
       </tr>
     `);
   }
@@ -222,6 +224,7 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
         <td class="mono" style="color: var(--color-primary);">$${envName}</td>
         <td>upstream output</td>
         <td class="dim">from node "${id}"</td>
+        <td></td>
       </tr>
     `);
   }
@@ -232,6 +235,7 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
         <td class="mono" style="color: var(--color-warn);">$${name}</td>
         <td>secret</td>
         <td class="dim">injected at runtime</td>
+        <td><a href="/settings/secrets" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
       </tr>
     `);
   }
@@ -241,7 +245,7 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
       <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Available variables</legend>
       ${rows.length > 0 ? html`
         <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
-          <thead><tr><th>Variable</th><th>Source</th><th>Info</th></tr></thead>
+          <thead><tr><th>Variable</th><th>Source</th><th>Info</th><th></th></tr></thead>
           <tbody>${rows as unknown as SafeHtml[]}</tbody>
         </table>
       ` : html`

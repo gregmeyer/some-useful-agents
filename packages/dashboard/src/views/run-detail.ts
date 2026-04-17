@@ -160,6 +160,98 @@ function renderReplayFallback(run: Run, agent: Agent): SafeHtml {
   `;
 }
 
+function truncate(text: string, max = 120): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '\u2026';
+}
+
+/**
+ * Render a collapsible panel showing the resolved variables (env) that
+ * were injected into a node at execution time. Groups entries by source:
+ * agent inputs, global variables, upstream outputs, and other env.
+ * Returns null if no inputsJson was captured (pre-v0.15 runs).
+ */
+function renderNodeVarsPanel(e: NodeExecutionRecord): SafeHtml | null {
+  let inputs: Record<string, string> = {};
+  let upstreams: Record<string, string> = {};
+
+  try {
+    if (e.inputsJson) inputs = JSON.parse(e.inputsJson);
+  } catch { /* ignore malformed */ }
+  try {
+    if (e.upstreamInputsJson) upstreams = JSON.parse(e.upstreamInputsJson);
+  } catch { /* ignore malformed */ }
+
+  const inputEntries = Object.entries(inputs).sort(([a], [b]) => a.localeCompare(b));
+  const upstreamEntries = Object.entries(upstreams).sort(([a], [b]) => a.localeCompare(b));
+
+  if (inputEntries.length === 0 && upstreamEntries.length === 0) return null;
+
+  // Categorize input entries
+  const upstreamEnvKeys = new Set<string>();
+  for (const [k] of inputEntries) {
+    if (k.startsWith('UPSTREAM_') && k.endsWith('_RESULT')) upstreamEnvKeys.add(k);
+  }
+
+  const agentVars: Array<[string, string]> = [];
+  for (const [k, v] of inputEntries) {
+    if (upstreamEnvKeys.has(k)) continue;
+    agentVars.push([k, v]);
+  }
+
+  const renderRows = (entries: Array<[string, string]>, group: string) => entries.map(([k, v]) => {
+    const displayVal = v === '<redacted>'
+      ? html`<span style="color: var(--color-warn);">&lt;redacted&gt;</span>`
+      : html`<span class="mono">${truncate(v, 200)}</span>`;
+    return html`
+      <tr data-vars-group="${group}" data-vars-name="${k.toLowerCase()}" data-vars-value="${v === '<redacted>' ? '' : v.toLowerCase()}">
+        <td class="mono">${k}</td>
+        <td>${displayVal}</td>
+      </tr>
+    `;
+  });
+
+  const panelId = `vars-panel-${e.nodeId}`;
+  const filterId = `vars-filter-${e.nodeId}`;
+  const total = agentVars.length + upstreamEntries.length;
+
+  const sections: SafeHtml[] = [];
+
+  if (upstreamEntries.length > 0) {
+    sections.push(html`
+      <h5 class="node-vars__heading" data-vars-heading="upstream">Upstream outputs</h5>
+      <table class="table node-vars__table">
+        <thead><tr><th>Node</th><th>Result</th></tr></thead>
+        <tbody>${renderRows(upstreamEntries, 'upstream') as unknown as SafeHtml[]}</tbody>
+      </table>
+    `);
+  }
+
+  if (agentVars.length > 0) {
+    sections.push(html`
+      <h5 class="node-vars__heading" data-vars-heading="resolved">Resolved variables</h5>
+      <table class="table node-vars__table">
+        <thead><tr><th>Name</th><th>Value</th></tr></thead>
+        <tbody>${renderRows(agentVars, 'resolved') as unknown as SafeHtml[]}</tbody>
+      </table>
+    `);
+  }
+
+  return html`
+    <details class="node-vars" id="${panelId}" style="margin-bottom: var(--space-3);">
+      <summary class="node-vars__summary">
+        Variables (${String(total)} resolved)
+      </summary>
+      <div class="node-vars__body">
+        <input type="text" class="node-vars__filter" id="${filterId}"
+          placeholder="Filter by name or value\u2026"
+          data-vars-panel="${panelId}">
+        ${sections as unknown as SafeHtml[]}
+      </div>
+    </details>
+  `;
+}
+
 /**
  * Render one collapsible card per node execution. Failed/errored nodes
  * open by default so the user doesn't have to hunt for failures; others
@@ -176,6 +268,11 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
       : html``;
 
     const bodyBlocks: SafeHtml[] = [];
+
+    // Collapsible variables panel showing resolved env at execution time.
+    const varsPanel = renderNodeVarsPanel(e);
+    if (varsPanel) bodyBlocks.push(varsPanel);
+
     if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
     if (e.result && e.result.length > 0) {
       bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">stdout</h4>`);

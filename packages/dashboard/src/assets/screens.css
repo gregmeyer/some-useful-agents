@@ -611,3 +611,59 @@ main.main--wide {
   font-size: var(--font-size-sm);
   text-align: center;
 }
+
+/* ---------- Node execution variables panel ---------- */
+.node-vars {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.node-vars__summary {
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+}
+
+.node-vars__body {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.node-vars__filter {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  margin-bottom: var(--space-2);
+  background: var(--color-surface);
+}
+
+.node-vars__heading {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.node-vars__table {
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--space-2);
+  table-layout: fixed;
+  width: 100%;
+}
+
+.node-vars__table th:first-child,
+.node-vars__table td:first-child {
+  width: 35%;
+  word-break: break-all;
+}
+
+.node-vars__table td:last-child {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}

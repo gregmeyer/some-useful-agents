@@ -69,7 +69,7 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
         Values are written encrypted; never echoed back.
       </p>
       ${setErrorBlock(args.setError)}
-      <form action="/settings/secrets/set" method="post" class="settings-form">
+      <form action="/settings/secrets/set" method="post" class="settings-form" id="secret-set-form">
         <label class="settings-form__label" for="secret-name">Name</label>
         <input id="secret-name" name="name" type="text" required
           pattern="[A-Z_][A-Z0-9_]*"
@@ -84,6 +84,24 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
           <button type="submit" class="btn btn--primary">Save secret</button>
         </div>
       </form>
+
+      <div id="secret-confirm-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal" style="max-width: 500px;">
+          <h3 style="margin: 0 0 var(--space-3);">Copy your secret value</h3>
+          <p class="dim" style="margin: 0 0 var(--space-3);">
+            After saving, this value will be encrypted and <strong>never shown again</strong>.
+            Copy it now if you need it elsewhere.
+          </p>
+          <div style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-4);">
+            <code id="secret-confirm-value" style="flex: 1; padding: var(--space-2) var(--space-3); background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); word-break: break-all;"></code>
+            <button type="button" class="btn btn--sm" id="secret-copy-btn" title="Copy to clipboard">Copy</button>
+          </div>
+          <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+            <button type="button" class="btn btn--ghost" id="secret-cancel-btn">Cancel</button>
+            <button type="button" class="btn btn--primary" id="secret-save-btn">Save secret</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="card">

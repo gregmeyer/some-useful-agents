@@ -336,6 +336,55 @@ describe('executeAgentDag — secrets', () => {
     const [ne] = runStore.listNodeExecutions(run.id);
     expect(ne.errorCategory).toBe('setup');
   });
+
+  it('redacts env vars with sensitive names even when not declared as secrets', async () => {
+    const agent = makeAgent({
+      inputs: {
+        MY_TOKEN: { type: 'string', default: 'tok-123' },
+        REGION: { type: 'string', default: 'us-east-1' },
+      },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo $MY_TOKEN $REGION' }],
+    });
+
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: async () => ({ result: '', exitCode: 0 }) },
+    );
+    expect(run.status).toBe('completed');
+
+    const [ne] = runStore.listNodeExecutions(run.id);
+    const logged = JSON.parse(ne.inputsJson!);
+    // MY_TOKEN matches the TOKEN pattern → redacted
+    expect(logged.MY_TOKEN).toBe('<redacted>');
+    // REGION is benign → visible
+    expect(logged.REGION).toBe('us-east-1');
+  });
+
+  it('redacts values that match known credential patterns', async () => {
+    const agent = makeAgent({
+      inputs: {
+        GITHUB_PAT: { type: 'string', default: 'ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789AB' },
+        PLAIN_VAL: { type: 'string', default: 'hello-world' },
+      },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo test' }],
+    });
+
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: async () => ({ result: '', exitCode: 0 }) },
+    );
+    expect(run.status).toBe('completed');
+
+    const [ne] = runStore.listNodeExecutions(run.id);
+    const logged = JSON.parse(ne.inputsJson!);
+    // GITHUB_PAT name matches sensitive pattern → redacted
+    // (the value also matches ghp_ pattern, so it's doubly caught)
+    expect(logged.GITHUB_PAT).toBe('<redacted>');
+    // PLAIN_VAL is benign → visible
+    expect(logged.PLAIN_VAL).toBe('hello-world');
+  });
 });
 
 describe('executeAgentDag — inputs', () => {
