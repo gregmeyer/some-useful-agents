@@ -28,6 +28,7 @@ import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
+import type { VariablesStore } from './variables-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
@@ -57,6 +58,12 @@ export interface DagExecutorDeps {
    * Required iff any node has `type: 'agent-invoke'`.
    */
   agentStore?: AgentStore;
+  /**
+   * Global variables store. When present, variables are injected into
+   * every node's env as `$NAME` (shell) and available via `{{vars.NAME}}`
+   * (claude-code). Precedence: --input > agent default > variable > secret.
+   */
+  variablesStore?: VariablesStore;
   /**
    * Agent ids the operator has pre-audited for community shell execution.
    * Propagated into each node's spawn; a shell node inside a `source:
@@ -777,7 +784,9 @@ async function buildNodeEnv(
   // 3: node's YAML env: — templates substituted.
   if (node.env) {
     for (const [k, v] of Object.entries(node.env)) {
-      env[k] = substituteInputs(resolveUpstreamTemplate(v, upstreamSnapshot), mergedInputs(agent, callerInputs));
+      let resolved = resolveUpstreamTemplate(v, upstreamSnapshot);
+      if (deps.variablesStore) resolved = resolveVarsTemplate(resolved, deps.variablesStore.getAll());
+      env[k] = substituteInputs(resolved, mergedInputs(agent, callerInputs));
     }
   }
 
@@ -800,14 +809,24 @@ async function buildNodeEnv(
     }
   }
 
-  // 5: caller-supplied inputs. Drop sensitive names as a belt-and-suspenders
+  // 5: global variables. Injected as $NAME for shell nodes. Lower
+  // precedence than inputs (step 6) — inputs override variables.
+  if (deps.variablesStore) {
+    for (const [k, v] of Object.entries(deps.variablesStore.getAll())) {
+      if (SENSITIVE_ENV_NAMES.has(k)) continue;
+      env[k] = v;
+    }
+  }
+
+  // 6: caller-supplied inputs. Drop sensitive names as a belt-and-suspenders
   // on the schema check. Merge agent-level defaults for missing values.
+  // These override global variables (step 5) by being applied after.
   for (const [k, v] of Object.entries(mergedInputs(agent, callerInputs))) {
     if (SENSITIVE_ENV_NAMES.has(k)) continue;
     env[k] = v;
   }
 
-  // 6: upstream results as UPSTREAM_<NODEID>_RESULT.
+  // 7: upstream results as UPSTREAM_<NODEID>_RESULT.
   for (const [upstreamId, value] of Object.entries(upstreamSnapshot)) {
     const key = `UPSTREAM_${upstreamId.toUpperCase().replace(/-/g, '_')}_RESULT`;
     env[key] = value;
@@ -878,6 +897,20 @@ export function resolveUpstreamTemplate(text: string, snapshot: Record<string, s
     const safe = value.replace(/\{\{/g, '{ {');
     // Use a simple literal replace; the ref format is fixed.
     out = out.split(`{{upstream.${id}.result}}`).join(safe);
+  }
+  return out;
+}
+
+/**
+ * Substitute `{{vars.<NAME>}}` tokens from the global variables store.
+ * Runs after upstream resolution but before input substitution.
+ */
+export function resolveVarsTemplate(text: string, vars: Record<string, string>): string {
+  if (!text.includes('{{vars.')) return text;
+  let out = text;
+  for (const [name, value] of Object.entries(vars)) {
+    const safe = value.replace(/\{\{/g, '{ {');
+    out = out.split(`{{vars.${name}}}`).join(safe);
   }
   return out;
 }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { AgentStore } from './agent-store.js';
 import { MemorySecretsStore } from './secrets-store.js';
+import { VariablesStore } from './variables-store.js';
 import {
   executeAgentDag,
   topologicalSort,
@@ -1365,5 +1366,73 @@ describe('executeAgentDag — end + break (Flow PR E)', () => {
     const execs = runStore.listNodeExecutions(run.id);
     expect(execs.find((e) => e.nodeId === 'stop')!.status).toBe('completed');
     expect(execs.find((e) => e.nodeId === 'step-2')!.errorCategory).toBe('flow_ended');
+  });
+});
+
+describe('executeAgentDag — global variables (Variables PR 2)', () => {
+  it('injects global variables into shell node env', async () => {
+    const varsStore = new VariablesStore(join(dir, '.sua', 'variables.json'));
+    varsStore.set('API_URL', 'https://api.example.com');
+
+    const agent = makeAgent({
+      nodes: [{ id: 'main', type: 'shell', command: 'echo "$API_URL"' }],
+    });
+
+    let capturedEnv: Record<string, string> | undefined;
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      capturedEnv = env;
+      return { result: env.API_URL ?? 'MISSING', exitCode: 0 };
+    };
+
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner, variablesStore: varsStore };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    expect(capturedEnv!.API_URL).toBe('https://api.example.com');
+  });
+
+  it('agent inputs override global variables (precedence)', async () => {
+    const varsStore = new VariablesStore(join(dir, '.sua', 'variables.json'));
+    varsStore.set('NAME', 'from-vars');
+
+    const agent = makeAgent({
+      inputs: { NAME: { type: 'string', default: 'from-input-default' } },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo "$NAME"' }],
+    });
+
+    let capturedEnv: Record<string, string> | undefined;
+    const spawner: DagExecutorDeps['spawnNode'] = async (_node, env) => {
+      capturedEnv = env;
+      return { result: env.NAME ?? 'MISSING', exitCode: 0 };
+    };
+
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner, variablesStore: varsStore };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    // Agent input default wins over global variable.
+    expect(capturedEnv!.NAME).toBe('from-input-default');
+  });
+
+  it('--input overrides both agent default and global variable', async () => {
+    const varsStore = new VariablesStore(join(dir, '.sua', 'variables.json'));
+    varsStore.set('NAME', 'from-vars');
+
+    const agent = makeAgent({
+      inputs: { NAME: { type: 'string', default: 'from-default' } },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo "$NAME"' }],
+    });
+
+    let capturedEnv: Record<string, string> | undefined;
+    const spawner: DagExecutorDeps['spawnNode'] = async (_node, env) => {
+      capturedEnv = env;
+      return { result: env.NAME ?? 'MISSING', exitCode: 0 };
+    };
+
+    const deps: DagExecutorDeps = { runStore, spawnNode: spawner, variablesStore: varsStore };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { NAME: 'from-cli' } }, deps);
+
+    expect(run.status).toBe('completed');
+    expect(capturedEnv!.NAME).toBe('from-cli');
   });
 });
