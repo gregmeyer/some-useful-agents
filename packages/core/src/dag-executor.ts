@@ -32,7 +32,7 @@ import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
-import { type SpawnResult, type SpawnNodeFn, spawnNodeReal } from './node-spawner.js';
+import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import {
   executeControlFlowNode,
@@ -549,6 +549,17 @@ export async function executeAgentDag(
       upstreamInputsJson: JSON.stringify(upstreamSnapshot),
     });
 
+    // Progress collector: accumulates SpawnProgress events and writes
+    // them to the DB so the dashboard can poll for turn status.
+    const progressEvents: SpawnProgress[] = [];
+    const onProgress = (event: SpawnProgress) => {
+      progressEvents.push(event);
+      // Write to DB on each event so polling picks it up immediately.
+      deps.runStore.updateNodeExecution(runId, node.id, {
+        progressJson: JSON.stringify(progressEvents),
+      });
+    };
+
     // v0.16 tool dispatch: if the node references a tool, resolve it and
     // call its execute() function. Built-in tools run in-process; user
     // tools that use shell/claude-code implementation types go through the
@@ -595,21 +606,19 @@ export async function executeAgentDag(
           command: userTool.implementation.command,
           prompt: userTool.implementation.prompt,
         };
-        const spawnResult = await spawnFn(synthNode, env, {
-          agentId: agent.id,
-          agentSource: agent.source,
-          allowUntrustedShell: deps.allowUntrustedShell,
-        });
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
+        const spawnResult = spawnFn === spawnNodeReal
+          ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress)
+          : await spawnFn(synthNode, env, spawnOpts);
         result = spawnResult;
         structuredOutput = buildToolOutput(spawnResult.result);
       } else {
         // v0.15 legacy path: no tool field, dispatch by type directly.
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnResult = await spawnFn(node, env, {
-          agentId: agent.id,
-          agentSource: agent.source,
-          allowUntrustedShell: deps.allowUntrustedShell,
-        });
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
+        const spawnResult = spawnFn === spawnNodeReal
+          ? await spawnNodeReal(node, env, spawnOpts, onProgress)
+          : await spawnFn(node, env, spawnOpts);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get

@@ -320,6 +320,12 @@ export interface NodeExecutionRecord {
    * for tools that declare it.
    */
   outputsJson?: string;
+  /**
+   * v0.17+: real-time progress events captured during multi-turn LLM
+   * execution, JSON-serialized array of SpawnProgress events. Updated
+   * in-flight by the executor so the dashboard can poll for turn status.
+   */
+  progressJson?: string;
 }
 
 /**
