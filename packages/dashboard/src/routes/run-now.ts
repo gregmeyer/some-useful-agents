@@ -161,6 +161,7 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
       summary: extract('summary') ?? '',
       details: extract('details') ?? run.result,
       yaml: extract('yaml') || undefined,
+      currentYaml: targetYaml,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

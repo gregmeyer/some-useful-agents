@@ -564,7 +564,7 @@ export const DASHBOARD_JS = `
               '<div class="flash flash--error">' + esc(data.error || 'Unknown error') + '</div>' +
               (data.runId ? '<p class="dim" style="font-size:var(--font-size-xs);margin:var(--space-2) 0 0;">Run: <a href="/runs/' + esc(data.runId) + '">' + esc(data.runId.slice(0, 8)) + '</a></p>' : '') +
               '<div style="margin-top:var(--space-3);text-align:right;">' +
-              '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Close</button>' +
+              '<button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button>' +
               '</div>';
             return;
           }
@@ -580,7 +580,15 @@ export const DASHBOARD_JS = `
           if (data.summary) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-3);">' + esc(data.summary) + '</p>';
           if (data.details) h += '<pre style="white-space:pre-wrap;font-family:inherit;font-size:var(--font-size-sm);line-height:1.6;margin:0 0 var(--space-3);color:var(--color-text-muted);max-height:300px;overflow-y:auto;">' + esc(data.details) + '</pre>';
 
-          if (data.yaml) {
+          if (data.yaml && data.currentYaml) {
+            var PRE = 'font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin:0;';
+            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-3);">' +
+              '<div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Current</p>' +
+              '<pre style="' + PRE + '">' + esc(data.currentYaml) + '</pre></div>' +
+              '<div><p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-1);">Suggested</p>' +
+              '<pre style="' + PRE + '">' + esc(data.yaml) + '</pre></div>' +
+              '</div>';
+          } else if (data.yaml) {
             h += '<details style="margin-bottom:var(--space-3);">' +
               '<summary style="cursor:pointer;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);color:var(--color-primary);">View suggested YAML</summary>' +
               '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-top:var(--space-2);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">' + esc(data.yaml) + '</pre>' +
@@ -589,14 +597,36 @@ export const DASHBOARD_JS = `
 
           h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
           if (data.yaml) {
-            // "Review + apply" opens the YAML editor pre-filled with the suggestion.
-            h += '<form method="POST" action="/agents/' + encodeURIComponent(agentId) + '/yaml" style="margin:0;">' +
-              '<input type="hidden" name="prefillYaml" value="' + esc(data.yaml).replace(/"/g, '&quot;') + '">' +
-              '<button type="submit" class="btn btn--primary btn--sm">Review + apply</button>' +
-              '</form>';
+            h += '<button type="button" class="btn btn--primary btn--sm" id="suggest-apply-btn">Review + apply</button>';
           }
-          h += '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Dismiss</button>';
+          h += '<button type="button" class="btn btn--ghost btn--sm" id="suggest-dismiss-btn">Dismiss</button>';
           h += '</div>';
+
+          // Wire up buttons after innerHTML is set.
+          setTimeout(function () {
+            var applyBtn = document.getElementById('suggest-apply-btn');
+            if (applyBtn && data.yaml) {
+              applyBtn.addEventListener('click', function () {
+                // Submit via a dynamic form with a textarea to preserve newlines/quotes.
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
+                var ta = document.createElement('textarea');
+                ta.name = 'prefillYaml';
+                ta.value = data.yaml;
+                ta.style.display = 'none';
+                form.appendChild(ta);
+                document.body.appendChild(form);
+                form.submit();
+              });
+            }
+            var dismissBtn = document.getElementById('suggest-dismiss-btn');
+            if (dismissBtn) {
+              dismissBtn.addEventListener('click', function () {
+                modal.classList.remove('is-open');
+              });
+            }
+          }, 0);
 
           content.innerHTML = h;
         })
@@ -605,13 +635,15 @@ export const DASHBOARD_JS = `
             '<h3 style="margin:0 0 var(--space-3);">Error</h3>' +
             '<div class="flash flash--error">' + esc(String(err)) + '</div>' +
             '<div style="margin-top:var(--space-3);text-align:right;">' +
-            '<button type="button" class="btn btn--ghost btn--sm" onclick="document.getElementById(&quot;suggest-modal&quot;).classList.remove(&quot;is-open&quot;)">Close</button>' +
+            '<button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button>' +
             '</div>';
         });
     });
 
     modal.addEventListener('click', function (e) {
       if (e.target === modal) closeModal();
+      // Delegated close for dynamically created buttons.
+      if (e.target && e.target.getAttribute && e.target.getAttribute('data-close-modal')) closeModal();
     });
   })();
 
