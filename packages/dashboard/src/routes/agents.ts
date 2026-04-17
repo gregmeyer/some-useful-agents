@@ -1,5 +1,9 @@
 import { Router, type Request, type Response } from 'express';
-import type { Agent, AgentDefinition, RunStatus } from '@some-useful-agents/core';
+import type { Agent, AgentDefinition, AgentInputSpec, RunStatus } from '@some-useful-agents/core';
+import { exportAgent, parseAgent, AgentYamlParseError } from '@some-useful-agents/core';
+import { html as h, render as renderHtml } from '../views/html.js';
+import { layout } from '../views/layout.js';
+import { pageHeader } from '../views/page-header.js';
 import { getContext } from '../context.js';
 import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
@@ -412,6 +416,234 @@ agentsRouter.post('/agents/:name/nodes/:nodeId/delete', (req: Request, res: Resp
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Delete failed: ${msg}`)}`);
+  }
+});
+
+// ── Raw YAML editor ──────────────────────────────────────────────────────
+
+agentsRouter.get('/agents/:name/yaml', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const yaml = exportAgent(agent);
+  const error = typeof req.query.error === 'string' ? req.query.error : undefined;
+
+  const body = h`
+    ${pageHeader({
+      title: `Edit YAML \u2014 ${agent.id}`,
+      back: { href: `/agents/${agent.id}`, label: `Back to ${agent.id}` },
+      description: `v${String(agent.version)}. Saving creates a new version. The YAML is validated before save.`,
+    })}
+    ${error ? h`<div class="flash flash--error">${error}</div>` : h``}
+    <form method="POST" action="/agents/${agent.id}/yaml" class="card" style="max-width: 800px;">
+      <label style="display: flex; flex-direction: column; gap: var(--space-2);">
+        <textarea name="yaml" rows="30" required
+          style="padding: var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--font-size-xs); resize: vertical; line-height: 1.5; tab-size: 2;">${yaml}</textarea>
+      </label>
+      <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); justify-content: flex-end;">
+        <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>
+        <button type="submit" class="btn btn--primary">Save YAML</button>
+      </div>
+    </form>
+  `;
+
+  res.type('html').send(renderHtml(layout({ title: `Edit YAML \u2014 ${agent.id}`, activeNav: 'agents' }, body)));
+});
+
+agentsRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const yamlText = typeof body.yaml === 'string' ? body.yaml : '';
+
+  let parsed: Agent;
+  try {
+    parsed = parseAgent(yamlText);
+  } catch (err) {
+    const msg = err instanceof AgentYamlParseError
+      ? err.message
+      : `Parse error: ${(err as Error).message}`;
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/yaml?error=${encodeURIComponent(msg)}`);
+    return;
+  }
+
+  // Ensure the id matches — don't let YAML edits rename the agent.
+  if (parsed.id !== agent.id) {
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/yaml?error=${encodeURIComponent(`Agent id in YAML ("${parsed.id}") must match the current agent id ("${agent.id}"). Renaming via YAML is not supported.`)}`);
+    return;
+  }
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      {
+        id: parsed.id,
+        name: parsed.name,
+        description: parsed.description,
+        status: parsed.status,
+        schedule: parsed.schedule,
+        source: agent.source, // preserve source — don't let YAML override trust level
+        mcp: parsed.mcp,
+        nodes: parsed.nodes,
+        inputs: parsed.inputs,
+        signal: parsed.signal,
+        author: parsed.author,
+        tags: parsed.tags,
+      },
+      'dashboard',
+      'Updated via YAML editor',
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent('Saved from YAML. New version created.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/yaml?error=${encodeURIComponent(`Save failed: ${msg}`)}`);
+  }
+});
+
+const INPUT_TYPES = new Set(['string', 'number', 'boolean', 'enum']);
+
+/**
+ * Validate that a default value is compatible with the declared type.
+ * Returns an error message or undefined if valid.
+ */
+function validateDefault(inputName: string, type: string, raw: string): string | undefined {
+  if (raw === '') return undefined; // empty = no default, always ok
+  switch (type) {
+    case 'number': {
+      if (raw.trim() === '' || !Number.isFinite(Number(raw))) {
+        return `"${inputName}": default "${raw}" is not a valid number.`;
+      }
+      break;
+    }
+    case 'boolean': {
+      const lower = raw.toLowerCase();
+      if (!['true', 'false', '1', '0', 'yes', 'no'].includes(lower)) {
+        return `"${inputName}": default "${raw}" is not a valid boolean (use true/false).`;
+      }
+      break;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Coerce a raw default string to the appropriate JS type for storage.
+ */
+function coerceDefault(type: string, raw: string): string | number | boolean {
+  if (type === 'number') return Number(raw);
+  if (type === 'boolean') return ['true', '1', 'yes'].includes(raw.toLowerCase());
+  return raw;
+}
+
+/**
+ * POST /agents/:name/inputs/update — update types, defaults, and descriptions
+ * on existing agent inputs, optionally add a new input. Validates that
+ * default values match the declared type. Creates a new version.
+ */
+agentsRouter.post('/agents/:name/inputs/update', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const updatedInputs: Record<string, AgentInputSpec> = {};
+  const errors: string[] = [];
+
+  // Update type, defaults, and descriptions on existing inputs.
+  for (const [inputName, spec] of Object.entries(agent.inputs ?? {})) {
+    const rawType = typeof body[`type_${inputName}`] === 'string'
+      ? (body[`type_${inputName}`] as string).trim()
+      : undefined;
+    const newDefault = typeof body[`default_${inputName}`] === 'string'
+      ? (body[`default_${inputName}`] as string).trim()
+      : undefined;
+    const newDescription = typeof body[`description_${inputName}`] === 'string'
+      ? (body[`description_${inputName}`] as string).trim()
+      : undefined;
+
+    const updated: AgentInputSpec = { ...spec };
+
+    // Type change
+    if (rawType && INPUT_TYPES.has(rawType)) {
+      updated.type = rawType as AgentInputSpec['type'];
+    }
+
+    // Default — validate against (possibly new) type
+    if (newDefault !== undefined && newDefault !== '') {
+      const err = validateDefault(inputName, updated.type, newDefault);
+      if (err) {
+        errors.push(err);
+      } else {
+        updated.default = coerceDefault(updated.type, newDefault);
+      }
+    } else if (newDefault === '') {
+      delete updated.default;
+    }
+
+    if (newDescription !== undefined && newDescription !== '') {
+      updated.description = newDescription;
+    } else if (newDescription === '') {
+      delete updated.description;
+    }
+
+    updatedInputs[inputName] = updated;
+  }
+
+  // Validate new input default too.
+  const newInputName = typeof body.newInputName === 'string' ? body.newInputName.trim() : '';
+  const newInputType = typeof body.newInputType === 'string' ? body.newInputType : 'string';
+  const newInputDefault = typeof body.newInputDefault === 'string' ? body.newInputDefault.trim() : '';
+  if (newInputName && newInputDefault) {
+    const err = validateDefault(newInputName, newInputType, newInputDefault);
+    if (err) errors.push(err);
+  }
+
+  if (errors.length > 0) {
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(errors.join(' '))}#variables`);
+    return;
+  }
+
+  // Merge new input (if provided).
+  const merged = mergeNewInput(updatedInputs, body);
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        status: agent.status,
+        schedule: agent.schedule,
+        source: agent.source,
+        mcp: agent.mcp,
+        nodes: agent.nodes,
+        inputs: merged && Object.keys(merged).length > 0 ? merged : undefined,
+        author: agent.author,
+        tags: agent.tags,
+      },
+      'dashboard',
+      'Updated input defaults via dashboard',
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent('Updated input defaults. New version created.')}#variables`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Save failed: ${msg}`)}#variables`);
   }
 });
 

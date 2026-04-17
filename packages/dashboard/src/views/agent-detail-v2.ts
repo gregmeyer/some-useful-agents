@@ -172,6 +172,8 @@ export async function renderAgentDetailV2(args: {
         </dl>
       </section>
 
+      ${renderInputsSection(agent)}
+
       <section class="inspector__section">
         <h4>Secrets</h4>
         <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
@@ -183,6 +185,7 @@ export async function renderAgentDetailV2(args: {
 
       <div class="inspector__actions" style="flex-wrap: wrap;">
         <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
+        <a class="btn btn--sm" href="/agents/${agent.id}/yaml">Edit YAML</a>
         <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         <a class="btn btn--sm" href="#runs">Recent runs</a>
       </div>
@@ -236,6 +239,8 @@ export async function renderAgentDetailV2(args: {
           </section>
         ` : html``}
 
+        ${renderInputDefaultsSection(agent)}
+
         <section id="runs">
           <h2>Recent runs</h2>
           ${recentRuns.length === 0
@@ -254,6 +259,149 @@ export async function renderAgentDetailV2(args: {
   `;
 
   return render(layout({ title: agent.id, activeNav: 'agents', flash, wide: true }, body));
+}
+
+/**
+ * Render the full "Variables" section in the main content area.
+ * Shows existing agent inputs with defaults + descriptions in a table,
+ * plus an inline form for editing defaults on existing inputs and
+ * adding new ones. Editing POSTs to /agents/:id/inputs/update.
+ *
+ * Provisional: this section migrates into the dashboard revamp's
+ * tabbed agent detail layout as its own tab.
+ */
+function typeSelect(namePrefix: string, current: string): SafeHtml {
+  const opt = (val: string) => val === current
+    ? html`<option value="${val}" selected>${val}</option>`
+    : html`<option value="${val}">${val}</option>`;
+  return html`
+    <select name="${namePrefix}" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
+      ${opt('string')}${opt('number')}${opt('boolean')}${opt('enum')}
+    </select>
+  `;
+}
+
+function renderInputDefaultsSection(agent: Agent): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+  const FIELD = 'padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
+
+  const inputRows = inputs.map(([name, spec]) => {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const desc = spec.description ?? '';
+    return html`
+      <tr>
+        <td class="mono">${name}
+          <input type="hidden" name="inputName[]" value="${name}">
+        </td>
+        <td>${typeSelect(`type_${name}`, spec.type)}</td>
+        <td>
+          <input type="text" name="default_${name}" value="${defVal}"
+            placeholder="(none)"
+            style="${FIELD} font-family: var(--font-mono); width: 10rem;">
+        </td>
+        <td>
+          <input type="text" name="description_${name}" value="${desc}"
+            placeholder="(none)"
+            style="${FIELD} width: 14rem;">
+        </td>
+      </tr>
+    `;
+  });
+
+  // Inline "new row" at the bottom of the table — no separate toggle needed.
+  const newRow = html`
+    <tr style="border-top: 2px solid var(--color-border);">
+      <td>
+        <input type="text" name="newInputName" placeholder="NEW_VAR" pattern="[A-Z_][A-Z0-9_]*"
+          style="${FIELD} font-family: var(--font-mono); width: 10rem;">
+      </td>
+      <td>
+        <select name="newInputType" style="${FIELD}">
+          <option value="string">string</option>
+          <option value="number">number</option>
+          <option value="boolean">boolean</option>
+          <option value="enum">enum</option>
+        </select>
+      </td>
+      <td>
+        <input type="text" name="newInputDefault" placeholder="default"
+          style="${FIELD} font-family: var(--font-mono); width: 10rem;">
+      </td>
+      <td>
+        <input type="text" name="newInputDescription" placeholder="description"
+          style="${FIELD} width: 14rem;">
+      </td>
+    </tr>
+  `;
+
+  return html`
+    <section id="variables">
+      <h2>Variables</h2>
+      <p class="dim" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+        Agent-level inputs referenced as <code>$NAME</code> in shell or <code>{{inputs.NAME}}</code> in prompts.
+        Defaults fill in when no <code>--input</code> value is supplied at run time.
+        Fill in the bottom row to add a new variable. Save creates a new version.
+      </p>
+      <form method="POST" action="/agents/${agent.id}/inputs/update">
+        <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+          <thead>
+            <tr><th>Name</th><th>Type</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            ${inputRows as unknown as SafeHtml[]}
+            ${newRow}
+          </tbody>
+        </table>
+        <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+          <button type="submit" class="btn btn--primary btn--sm">Save variables</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+/**
+ * Render the agent-level inputs section in the inspector sidebar.
+ * Shows declared inputs with their type, default, and description.
+ * Links to #variables for full editing.
+ */
+function renderInputsSection(agent: Agent): SafeHtml {
+  const inputs = Object.entries(agent.inputs ?? {});
+  if (inputs.length === 0) {
+    return html`
+      <section class="inspector__section">
+        <h4>Variables</h4>
+        <span class="dim" style="font-size: var(--font-size-xs);">No agent inputs declared.</span>
+        <div style="margin-top: var(--space-2);">
+          <a class="dim" href="#variables" style="font-size: var(--font-size-xs);">+ Add input</a>
+        </div>
+      </section>
+    `;
+  }
+
+  const rows = inputs.map(([name, spec]) => {
+    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    const typeBadge = html`<span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>`;
+    return html`
+      <div style="display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--font-size-xs); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border);">
+        <code style="flex: 0 0 auto;">${name}</code>
+        ${typeBadge}
+        <span class="dim" style="margin-left: auto; text-align: right;">
+          ${defVal ? defVal : spec.required !== false ? 'required' : 'optional'}
+        </span>
+      </div>
+    `;
+  });
+
+  return html`
+    <section class="inspector__section">
+      <h4>Variables</h4>
+      <div>${rows as unknown as SafeHtml[]}</div>
+      <div style="margin-top: var(--space-2);">
+        <a class="dim" href="#variables" style="font-size: var(--font-size-xs);">Edit defaults</a>
+      </div>
+    </section>
+  `;
 }
 
 /**
