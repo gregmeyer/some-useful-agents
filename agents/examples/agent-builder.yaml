@@ -1,0 +1,171 @@
+id: agent-builder
+name: Agent Builder
+description: >
+  Goal-driven agent wizard. Describe what you want your agent to do in plain
+  language, and this agent designs a complete DAG with the right nodes, tools,
+  inputs, and wiring. Self-correcting: validates the YAML and fixes errors
+  automatically. Run via "Build from goal" on the agents page.
+status: active
+source: examples
+
+inputs:
+  GOAL:
+    type: string
+    required: true
+    description: Natural language description of what the agent should do.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: Optional constraints or preferences (e.g. "use shell nodes only", "schedule daily").
+
+nodes:
+  - id: design
+    type: claude-code
+    prompt: |
+      You are an expert agent architect for the sua agent platform.
+
+      Design a complete agent based on the user's goal. The agent should be a
+      DAG of nodes that accomplishes the goal using the available tools.
+
+      USER'S GOAL:
+      {{inputs.GOAL}}
+
+      {{inputs.FOCUS}}
+
+      AVAILABLE TOOLS (use these as node types or tool references):
+      - shell-exec (type: shell): Run shell commands. Inputs: command. Good for: data processing, file ops, API calls via curl.
+      - claude-code (type: claude-code): Run an LLM prompt. Inputs: prompt, model, maxTurns. Good for: analysis, summarization, decision-making, content generation.
+      - http-get: HTTP GET with auto-parsed JSON. Inputs: url, timeout. Good for: fetching APIs, scraping.
+      - http-post: HTTP POST with JSON body. Inputs: url, body, timeout. Good for: webhooks, API writes.
+      - file-read: Read a project file. Inputs: path. Good for: loading config, data files.
+      - file-write: Write to a project file. Inputs: path, content. Good for: saving results, generating reports.
+      - json-parse: Parse JSON string. Inputs: text. Good for: extracting structured data.
+      - json-path: Extract value from JSON. Inputs: data, path. Good for: picking fields from API responses.
+
+      DESIGN GUIDELINES:
+      - Start simple. Prefer fewer nodes that do more over many tiny nodes.
+      - Use shell nodes for deterministic work (curl, jq, file ops).
+      - Use claude-code nodes for judgment calls (analysis, summarization, decisions).
+      - Wire nodes with dependsOn. Downstream nodes access upstream output via:
+        Shell: $UPSTREAM_<NODEID>_RESULT (env var, uppercase, hyphens→underscores)
+        Claude: {{upstream.<nodeId>.result}} (template ref)
+      - Declare inputs for any value the user might want to change at run time:
+        URLs, API keys (mark as secrets instead), thresholds, output paths.
+      - Set reasonable timeouts (shell: 30-60s, claude-code: 60-120s).
+      - Add a description that explains what the agent does.
+
+      CRITICAL YAML RULES:
+      - Agent id: lowercase with hyphens only (e.g. job-scraper, daily-report).
+      - Node ids: lowercase with hyphens/underscores only.
+      - Input names: UPPERCASE_WITH_UNDERSCORES (e.g. TARGET_URL, MAX_RESULTS).
+      - inputs must be an OBJECT/map, not an array.
+      - Enum inputs must have a non-empty `values` array.
+      - Template refs: use {{inputs.NAME}} not {{NAME}}.
+      - conditional nodes must have conditionalConfig with a predicate.
+      - switch nodes must have switchConfig with field + cases.
+      - source: must be "local" (not "examples" or "community").
+
+      EXAMPLE PATTERNS:
+
+      Simple single-node (shell):
+        nodes:
+          - id: main
+            type: shell
+            command: curl -s https://api.example.com/data | jq '.items'
+            timeout: 30
+
+      Two-step pipeline (fetch + analyze):
+        nodes:
+          - id: fetch
+            type: shell
+            command: curl -s "$TARGET_URL"
+            timeout: 30
+          - id: analyze
+            type: claude-code
+            prompt: |
+              Analyze this data and summarize the key findings:
+              {{upstream.fetch.result}}
+            dependsOn: [fetch]
+            maxTurns: 1
+            timeout: 60
+
+      Multi-step with conditional:
+        nodes:
+          - id: fetch
+            type: shell
+            command: curl -s "$API_URL"
+          - id: check
+            type: conditional
+            dependsOn: [fetch]
+            conditionalConfig:
+              predicate: { field: status, equals: 200 }
+          - id: process
+            type: shell
+            command: echo "Processing $UPSTREAM_FETCH_RESULT"
+            dependsOn: [check]
+            onlyIf: { upstream: check, field: matched, equals: true }
+
+      Respond in EXACTLY this format:
+      <yaml>
+      The complete agent YAML. Must be valid and parseable.
+      </yaml>
+    maxTurns: 3
+    timeout: 120
+
+  - id: validate
+    type: shell
+    dependsOn:
+      - design
+    command: |
+      YAML_BLOCK=$(echo "$UPSTREAM_DESIGN_RESULT" | sed -n '/<yaml>/,/<\/yaml>/p' | sed '1d;$d')
+
+      if [ -z "$YAML_BLOCK" ] || [ ${#YAML_BLOCK} -lt 10 ]; then
+        echo '{"valid":false,"error":"No YAML block found in design output"}'
+        exit 0
+      fi
+
+      TMPFILE=$(mktemp /tmp/sua-validate-XXXXXX.yaml)
+      echo "$YAML_BLOCK" > "$TMPFILE"
+
+      RESULT=$(node -e "
+        const { parseAgent } = require('$(pwd)/packages/core/dist/agent-yaml.js');
+        const { readFileSync } = require('fs');
+        try {
+          const yaml = readFileSync('$TMPFILE', 'utf-8');
+          const agent = parseAgent(yaml);
+          console.log(JSON.stringify({ valid: true, agentId: agent.id, agentName: agent.name }));
+        } catch(e) {
+          console.log(JSON.stringify({ valid: false, error: e.message }));
+        }
+      " 2>/dev/null)
+
+      rm -f "$TMPFILE"
+      echo "$RESULT"
+    timeout: 15
+
+  - id: fix
+    type: claude-code
+    dependsOn:
+      - design
+      - validate
+    onlyIf:
+      upstream: validate
+      field: valid
+      equals: false
+    prompt: |
+      The agent builder designed an agent but the YAML has validation errors.
+      Fix the YAML so it passes schema validation.
+
+      VALIDATION ERROR:
+      {{upstream.validate.result}}
+
+      ORIGINAL DESIGN:
+      {{upstream.design.result}}
+
+      Fix ONLY the YAML errors. Output the corrected YAML in the same format:
+      <yaml>
+      The FIXED YAML that passes validation.
+      </yaml>
+    maxTurns: 2
+    timeout: 90
