@@ -7,6 +7,7 @@ import { getContext } from '../context.js';
 export const runNowRouter: Router = Router();
 
 const ANALYZER_AGENT_ID = 'agent-analyzer';
+const BUILDER_AGENT_ID = 'agent-builder';
 
 /**
  * POST /agents/:name/run — trigger an agent with YAML defaults.
@@ -292,4 +293,190 @@ runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =
     yamlError,
     currentYaml,
   });
+});
+
+// ── Agent Builder (goal-driven wizard) ─────────────────────────────────
+
+/**
+ * POST /agents/build — run the agent-builder with a goal prompt.
+ * Returns { runId } immediately for polling.
+ */
+runNowRouter.post('/agents/build', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
+  const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
+
+  if (!goal) {
+    res.json({ ok: false, error: 'Goal is required.' });
+    return;
+  }
+
+  // Auto-import builder agent from examples if not in store.
+  let builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
+  if (!builder) {
+    try {
+      const yamlPath = join(resolve('agents/examples'), `${BUILDER_AGENT_ID}.yaml`);
+      const yamlText = readFileSync(yamlPath, 'utf-8');
+      const parsed = parseAgent(yamlText);
+      ctx.agentStore.createAgent(parsed, 'import', 'Auto-imported for agent builder');
+      builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
+    } catch { /* fall through */ }
+    if (!builder) {
+      res.json({ ok: false, error: 'Builder agent not found. Ensure agent-builder.yaml exists in agents/examples/.' });
+      return;
+    }
+  }
+
+  const runPromise = executeAgentDag(
+    builder,
+    {
+      triggeredBy: 'dashboard',
+      inputs: {
+        GOAL: goal,
+        ...(focus ? { FOCUS: `Constraints: ${focus}` } : {}),
+      },
+    },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+    },
+  );
+
+  await Promise.race([
+    runPromise,
+    new Promise((resolve) => setTimeout(resolve, 200)),
+  ]);
+
+  const { rows } = ctx.runStore.queryRuns({
+    agentName: BUILDER_AGENT_ID,
+    statuses: ['running', 'completed', 'failed'] as RunStatus[],
+    limit: 1,
+    offset: 0,
+  });
+
+  if (rows.length > 0) {
+    res.json({ ok: true, status: 'started', runId: rows[0].id });
+  } else {
+    try {
+      const run = await runPromise;
+      res.json({ ok: true, status: 'started', runId: run.id });
+    } catch (err) {
+      res.json({ ok: false, error: (err as Error).message });
+    }
+  }
+});
+
+/**
+ * GET /agents/build/:runId — poll builder run status.
+ * Returns YAML when done so the client can preview + create.
+ */
+runNowRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId;
+
+  const run = ctx.runStore.getRun(runId);
+  if (!run) {
+    res.json({ ok: false, status: 'not_found' });
+    return;
+  }
+
+  if (run.status === 'running' || run.status === 'pending') {
+    const execs = ctx.runStore.listNodeExecutions(runId);
+    const runningNode = execs.find((e) => e.status === 'running');
+    const phaseMessage = runningNode?.nodeId === 'design' ? 'Designing agent...'
+      : runningNode?.nodeId === 'validate' ? 'Validating YAML...'
+      : runningNode?.nodeId === 'fix' ? 'Fixing validation errors...'
+      : 'Starting...';
+    let progress: unknown[] = [];
+    if (runningNode?.progressJson) {
+      try { progress = JSON.parse(runningNode.progressJson); } catch { /* */ }
+    }
+    res.json({ ok: true, status: 'running', phase: phaseMessage, progress });
+    return;
+  }
+
+  if (run.status !== 'completed' || !run.result) {
+    res.json({ ok: true, status: 'failed', error: run.error ?? `Build failed (${run.status}).` });
+    return;
+  }
+
+  // Extract YAML from the result (may come from design or fix node).
+  let resultText = run.result;
+  if (!resultText.includes('<yaml>')) {
+    const execs = ctx.runStore.listNodeExecutions(runId);
+    const fixExec = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
+    const designExec = execs.find((e) => e.nodeId === 'design');
+    if (fixExec?.result) resultText = fixExec.result;
+    else if (designExec?.result) resultText = designExec.result;
+  }
+
+  const yamlMatch = resultText.match(/<yaml>([\s\S]*?)<\/yaml>/i);
+  const yaml = yamlMatch ? yamlMatch[1].trim() : undefined;
+
+  if (!yaml) {
+    res.json({ ok: true, status: 'failed', error: 'Builder did not produce valid YAML.' });
+    return;
+  }
+
+  // Validate the YAML.
+  let agentId: string | undefined;
+  let agentName: string | undefined;
+  let yamlError: string | undefined;
+  try {
+    const parsed = parseAgent(yaml);
+    agentId = parsed.id;
+    agentName = parsed.name;
+  } catch (e) {
+    yamlError = e instanceof Error ? e.message : String(e);
+  }
+
+  res.json({
+    ok: true,
+    status: 'done',
+    yaml,
+    agentId,
+    agentName,
+    yamlError,
+  });
+});
+
+/**
+ * POST /agents/build/create — create an agent from builder-suggested YAML.
+ */
+runNowRouter.post('/agents/build/create', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const yaml = typeof body.yaml === 'string' ? body.yaml : '';
+
+  if (!yaml.trim()) {
+    res.json({ ok: false, error: 'No YAML provided.' });
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = parseAgent(yaml);
+  } catch (e) {
+    res.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    return;
+  }
+
+  // Check if agent already exists.
+  if (ctx.agentStore.getAgent(parsed.id)) {
+    res.json({ ok: false, error: `Agent "${parsed.id}" already exists. Edit the YAML to use a different id.` });
+    return;
+  }
+
+  try {
+    ctx.agentStore.createAgent(
+      { ...parsed, source: 'local' },
+      'dashboard',
+      'Created via Build from goal wizard',
+    );
+    res.json({ ok: true, agentId: parsed.id });
+  } catch (e) {
+    res.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
 });
