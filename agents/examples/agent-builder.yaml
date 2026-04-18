@@ -49,7 +49,7 @@ nodes:
       - Use claude-code nodes for judgment calls (analysis, summarization, decisions).
       - Wire nodes with dependsOn. Downstream nodes access upstream output via:
         Shell: $UPSTREAM_<NODEID>_RESULT (env var, uppercase, hyphens→underscores)
-        Claude: {{upstream.<nodeId>.result}} (template ref)
+        Claude: upstream.<nodeId>.result wrapped in double-braces (template ref)
       - Declare inputs for any value the user might want to change at run time:
         URLs, API keys (mark as secrets instead), thresholds, output paths.
       - Set reasonable timeouts (shell: 30-60s, claude-code: 60-120s).
@@ -61,7 +61,10 @@ nodes:
       - Input names: UPPERCASE_WITH_UNDERSCORES (e.g. TARGET_URL, MAX_RESULTS).
       - inputs must be an OBJECT/map, not an array.
       - Enum inputs must have a non-empty `values` array.
-      - Template refs: use {{inputs.NAME}} not {{NAME}}.
+      - Shell nodes access inputs via $ENV_VARS (e.g. $TARGET_URL), NEVER double-brace templates.
+      - Claude-code nodes access inputs via double-brace syntax in prompts (e.g. the string inputs.NAME wrapped in double braces).
+      - Shell nodes access upstream output via $UPSTREAM_<NODEID>_RESULT env vars.
+      - Claude-code nodes access upstream output via double-brace upstream.<nodeId>.result syntax.
       - conditional nodes must have conditionalConfig with a predicate.
       - switch nodes must have switchConfig with field + cases.
       - source: must be "local" (not "examples" or "community").
@@ -85,7 +88,7 @@ nodes:
             type: claude-code
             prompt: |
               Analyze this data and summarize the key findings:
-              {{upstream.fetch.result}}
+              $UPSTREAM_FETCH_RESULT
             dependsOn: [fetch]
             maxTurns: 1
             timeout: 60

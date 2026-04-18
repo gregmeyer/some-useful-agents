@@ -22,8 +22,16 @@ settingsRouter.get('/settings/secrets', async (req: Request, res: Response) => {
   const { flash, unlockError, setError } = readQueryBanners(req);
 
   const status = ctx.secretsSession.inspect();
-  const isUnlocked = ctx.secretsSession.isUnlocked();
-  const names = isUnlocked ? await ctx.secretsSession.listNames() : [];
+  let isUnlocked = false;
+  let names: string[] = [];
+  let decryptError: string | undefined;
+  try {
+    isUnlocked = ctx.secretsSession.isUnlocked();
+    names = isUnlocked ? await ctx.secretsSession.listNames() : [];
+  } catch (err) {
+    isUnlocked = false;
+    decryptError = `Could not read secrets store: ${(err as Error).message}. Try unlocking with your passphrase, or run \`sua secrets migrate\` from the CLI.`;
+  }
   const declared = collectDeclaredSecrets(ctx);
   const missing = [...declared].filter((n) => !names.includes(n)).sort();
 
@@ -32,7 +40,7 @@ settingsRouter.get('/settings/secrets', async (req: Request, res: Response) => {
     isUnlocked,
     names,
     missing,
-    unlockError,
+    unlockError: unlockError || decryptError,
     setError,
     setNameValue: typeof req.query.name === 'string' ? req.query.name : undefined,
   });
