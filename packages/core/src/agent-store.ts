@@ -85,10 +85,18 @@ export class AgentStore {
         FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
       )
     `);
+    // Additive migration: add starred column if it doesn't exist yet.
+    // ALTER ADD COLUMN is not idempotent in SQLite, so catch the error.
+    try {
+      this.db.exec(`ALTER TABLE agents ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`);
+    } catch {
+      // Column already exists — expected on subsequent opens.
+    }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
       CREATE INDEX IF NOT EXISTS idx_agents_schedule ON agents(schedule) WHERE schedule IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_agents_mcp ON agents(mcp) WHERE mcp = 1;
+      CREATE INDEX IF NOT EXISTS idx_agents_starred ON agents(starred) WHERE starred = 1;
     `);
   }
 
@@ -177,7 +185,7 @@ export class AgentStore {
     if (filter?.source) { clauses.push('source = ?'); values.push(filter.source); }
     if (filter?.mcp !== undefined) { clauses.push('mcp = ?'); values.push(filter.mcp ? 1 : 0); }
     const where = clauses.length > 0 ? 'WHERE ' + clauses.join(' AND ') : '';
-    const rows = this.db.prepare(`SELECT * FROM agents ${where} ORDER BY name`).all(...values) as Record<string, unknown>[];
+    const rows = this.db.prepare(`SELECT * FROM agents ${where} ORDER BY starred DESC, name`).all(...values) as Record<string, unknown>[];
     const out: Agent[] = [];
     for (const row of rows) {
       const v = this.getVersion(row.id as string, row.current_version as number);
@@ -193,7 +201,7 @@ export class AgentStore {
    */
   updateAgentMeta(
     id: string,
-    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp'>>,
+    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp' | 'starred'>>,
   ): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
@@ -202,6 +210,7 @@ export class AgentStore {
     if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
     if (patch.schedule !== undefined) { fields.push('schedule = ?'); values.push(patch.schedule ?? null); }
     if (patch.mcp !== undefined) { fields.push('mcp = ?'); values.push(patch.mcp ? 1 : 0); }
+    if (patch.starred !== undefined) { fields.push('starred = ?'); values.push(patch.starred ? 1 : 0); }
     if (fields.length === 0) return;
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -334,6 +343,7 @@ export class AgentStore {
       schedule: ((row.schedule as string | null) ?? undefined) as string | undefined,
       source: row.source as AgentSource,
       mcp: (row.mcp as number) === 1,
+      starred: (row.starred as number) === 1,
       version: row.current_version as number,
       inputs: dag.inputs,
       nodes: dag.nodes,

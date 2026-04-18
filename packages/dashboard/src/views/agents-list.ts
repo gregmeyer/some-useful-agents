@@ -185,6 +185,14 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
   return html`
     <article class="agent-card">
       <div class="agent-card__header">
+        <form method="POST" action="/agents/${a.id}/star" style="display:inline;margin:0;"
+              onclick="event.stopPropagation();">
+          <button type="submit" class="btn-star${a.starred ? ' is-starred' : ''}"
+                  title="${a.starred ? 'Unstar' : 'Star'}"
+                  aria-label="${a.starred ? 'Unstar' : 'Star'}">
+            ${a.starred ? '\u2605' : '\u2606'}
+          </button>
+        </form>
         <h3 class="agent-card__title"><a href="/agents/${a.id}">${a.id}</a></h3>
         ${statusBadge(a.status)}
         ${sourceBadge(a.source)}

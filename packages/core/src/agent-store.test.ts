@@ -255,3 +255,37 @@ describe('AgentStore.fromHandle — shared connection with RunStore', () => {
     store = new AgentStore(dbPath); // reopen for afterEach.
   });
 });
+
+describe('AgentStore.starred', () => {
+  it('defaults to false on create', () => {
+    const created = store.createAgent(seed(), 'cli');
+    expect(created.starred).toBeFalsy();
+    const got = store.getAgent('hello')!;
+    expect(got.starred).toBe(false);
+  });
+
+  it('toggles via updateAgentMeta', () => {
+    store.createAgent(seed(), 'cli');
+    store.updateAgentMeta('hello', { starred: true });
+    expect(store.getAgent('hello')!.starred).toBe(true);
+    store.updateAgentMeta('hello', { starred: false });
+    expect(store.getAgent('hello')!.starred).toBe(false);
+  });
+
+  it('sorts starred agents first in listAgents', () => {
+    store.createAgent(seed({ id: 'alpha', name: 'Alpha' }), 'cli');
+    store.createAgent(seed({ id: 'beta', name: 'Beta' }), 'cli');
+    store.createAgent(seed({ id: 'gamma', name: 'Gamma' }), 'cli');
+
+    // Without starring, alphabetical order.
+    expect(store.listAgents().map((a) => a.id)).toEqual(['alpha', 'beta', 'gamma']);
+
+    // Star gamma — it should sort first.
+    store.updateAgentMeta('gamma', { starred: true });
+    expect(store.listAgents().map((a) => a.id)).toEqual(['gamma', 'alpha', 'beta']);
+
+    // Star alpha too — both starred sort alphabetically before unstarred.
+    store.updateAgentMeta('alpha', { starred: true });
+    expect(store.listAgents().map((a) => a.id)).toEqual(['alpha', 'gamma', 'beta']);
+  });
+});
