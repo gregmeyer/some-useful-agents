@@ -7,12 +7,15 @@ MIT-licensed. Published to npm at `@some-useful-agents/*`.
 ## What you get
 
 - **Agents as flows** — each agent is a DAG of nodes. Nodes execute shell commands, Claude Code prompts, or named tools. Flow control (conditional, switch, loop, agent-invoke, branch, end, break) lets agents make decisions and orchestrate sub-agents.
+- **Multi-provider LLM support** — claude-code nodes can use Claude or Codex via the `provider` field. Stream-json progress tracking shows real-time turn status during execution.
 - **9 built-in tools** — `shell-exec`, `claude-code`, `http-get`, `http-post`, `file-read`, `file-write`, `json-parse`, `json-path`, `template`. User-authored tools sit alongside in `tools/`.
-- **Dashboard** — web UI for managing agents, tools, runs, secrets, and settings. Visual DAG editor, click-to-replay, template palette autocomplete, per-node action dialogs.
+- **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, and settings. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs.
+- **AI suggest improvements** — one-click agent analysis via the built-in `agent-analyzer`. Reviews your agent's YAML, classifies changes as "no improvements" / "suggestions" / "recommend rewrite", shows a colored diff, and auto-validates + fixes the suggested YAML before presenting it.
+- **Global variables** — plain-text, non-sensitive values available to every agent. CRUD via `/settings/variables` or `sua vars` CLI. Referenced as `$NAME` in shell, `{{vars.NAME}}` in prompts.
 - **MCP server** — expose agents to Claude Desktop and other MCP clients over HTTP/SSE.
-- **Secrets store** — passphrase-encrypted at rest (scrypt N=2^17). Dashboard CRUD with session-cached passphrase.
+- **Secrets store** — passphrase-encrypted at rest (scrypt N=2^17). Dashboard CRUD with copy-before-save modal and 3-layer redaction (declared secrets + sensitive name patterns + credential value patterns).
 - **Scheduling** — cron expressions on any agent. Temporal provider available for durable workflows.
-- **8 bundled examples** — from "hello world" to conditional routing to agent orchestration. Auto-installed on `sua init`.
+- **9 bundled examples** — from "hello world" to conditional routing to AI-powered agent analysis. Auto-installed on `sua init`.
 
 ## Quick start
 
@@ -40,6 +43,8 @@ Installed automatically by `sua init`. Manage with `sua examples install/remove/
 | `research-digest` | Agent-invoke + loop (nested sub-flows) |
 | `daily-joke` | HTTP tool fetching from icanhazdadjoke.com |
 | `parameterised-greet-claude` | Claude Code companion (requires API key) |
+| `llm-tells-a-joke` | Configurable topic input + clean prompt design |
+| `agent-analyzer` | Self-correcting 3-node pipeline: analyze, validate, fix |
 
 ## CLI commands
 
@@ -77,6 +82,15 @@ sua examples remove                     # remove example agents from DB
 sua examples list                       # show install status
 ```
 
+### Variables
+
+```bash
+sua vars list                           # all global variables (names + values)
+sua vars get <NAME>                     # get a variable's value
+sua vars set <NAME> <VALUE>             # set/update a variable
+sua vars delete <NAME>                  # remove a variable
+```
+
 ### Secrets
 
 ```bash
@@ -99,10 +113,12 @@ sua schedule list                       # show scheduled agents
 
 Start with `sua dashboard start`. Features:
 
-- **Agents** — card grid, DAG visualization, click nodes for actions (edit, replay), per-node status
+- **Agents** — card grid, DAG visualization, click nodes for actions (edit, replay), per-node status, YAML editor, suggest improvements (AI analysis)
+- **Variables** — inline editing of agent input defaults and types, add/remove variables, global variables tab in Settings
+- **Run now** — modal with input fields for agents that declare inputs, pre-filled with defaults
 - **Tools** — browse all 9 built-in tools + user tools, inspect inputs/outputs
-- **Runs** — filter by agent/status, replay from any node, nested run linking
-- **Settings** — secrets CRUD with passphrase unlock, MCP token rotation, retention policy
+- **Runs** — filter by agent/status, replay from any node with pre-flight validation, resolved variables panel with filter, real-time turn progress for multi-turn LLM nodes
+- **Settings** — secrets CRUD with copy-before-save modal, global variables CRUD, MCP token rotation, retention policy
 - **Tutorial** — 7-step guided walkthrough that scaffolds agents from the dashboard
 
 ## Flow control
@@ -139,6 +155,7 @@ Available node types: `conditional`, `switch`, `loop`, `agent-invoke`, `branch`,
 ## Security
 
 - **Secrets encrypted at rest** — scrypt N=2^17, passphrase-derived key
+- **3-layer redaction in run logs** — declared secrets, sensitive name patterns (TOKEN, KEY, PASS), known credential value patterns (GitHub PATs, AWS keys, JWTs)
 - **MCP binds localhost** — bearer token auth, loopback-only by default
 - **Community shell gate** — community agents require explicit `--allow-untrusted-shell`
 - **Dashboard CSRF defense** — Origin header check on all mutations
