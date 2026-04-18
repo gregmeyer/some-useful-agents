@@ -5,12 +5,33 @@ services:
     ports:
       - "7233:7233"
     environment:
-      - DB=sqlite
-      - SQLITE_PRAGMA=journal_mode=WAL
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
       - SKIP_DEFAULT_NAMESPACE_CREATION=false
       - LOG_LEVEL=warn
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  temporal-db:
+    image: postgres:16-alpine
+    container_name: sua-temporal-db
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+    ports:
+      - "5432:5432"
     volumes:
-      - temporal-data:/etc/temporal/sqlite
+      - temporal-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   temporal-ui:
@@ -26,4 +47,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  temporal-data:
+  temporal-db-data:
