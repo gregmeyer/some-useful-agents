@@ -146,20 +146,18 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
     return;
   }
 
-  // Auto-import the analyzer agent from examples if not in the store.
-  let analyzer = ctx.agentStore.getAgent(ANALYZER_AGENT_ID);
+  // Auto-import or update the analyzer agent from examples YAML.
+  let analyzer: ReturnType<typeof ctx.agentStore.getAgent> = null;
+  try {
+    const yamlPath = join(resolve('agents/examples'), `${ANALYZER_AGENT_ID}.yaml`);
+    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const parsed = parseAgent(yamlText);
+    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for suggest improvements');
+    analyzer = ctx.agentStore.getAgent(ANALYZER_AGENT_ID);
+  } catch { /* fall through */ }
   if (!analyzer) {
-    try {
-      const yamlPath = join(resolve('agents/examples'), `${ANALYZER_AGENT_ID}.yaml`);
-      const yamlText = readFileSync(yamlPath, 'utf-8');
-      const parsed = parseAgent(yamlText);
-      ctx.agentStore.createAgent(parsed, 'import', 'Auto-imported for suggest improvements');
-      analyzer = ctx.agentStore.getAgent(ANALYZER_AGENT_ID);
-    } catch { /* fall through */ }
-    if (!analyzer) {
-      res.json({ ok: false, error: 'Analyzer agent not found. Ensure agent-analyzer.yaml exists in agents/examples/.' });
-      return;
-    }
+    res.json({ ok: false, error: 'Analyzer agent not found. Ensure agent-analyzer.yaml exists in agents/examples/.' });
+    return;
   }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -312,20 +310,19 @@ runNowRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
-  // Auto-import builder agent from examples if not in store.
-  let builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
+  // Auto-import or update builder agent from examples YAML.
+  // Uses upsertAgent so prompt improvements take effect without manual deletion.
+  let builder: ReturnType<typeof ctx.agentStore.getAgent> = null;
+  try {
+    const yamlPath = join(resolve('agents/examples'), `${BUILDER_AGENT_ID}.yaml`);
+    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const parsed = parseAgent(yamlText);
+    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for agent builder');
+    builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
+  } catch { /* fall through */ }
   if (!builder) {
-    try {
-      const yamlPath = join(resolve('agents/examples'), `${BUILDER_AGENT_ID}.yaml`);
-      const yamlText = readFileSync(yamlPath, 'utf-8');
-      const parsed = parseAgent(yamlText);
-      ctx.agentStore.createAgent(parsed, 'import', 'Auto-imported for agent builder');
-      builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
-    } catch { /* fall through */ }
-    if (!builder) {
-      res.json({ ok: false, error: 'Builder agent not found. Ensure agent-builder.yaml exists in agents/examples/.' });
-      return;
-    }
+    res.json({ ok: false, error: 'Builder agent not found. Ensure agent-builder.yaml exists in agents/examples/.' });
+    return;
   }
 
   const runPromise = executeAgentDag(

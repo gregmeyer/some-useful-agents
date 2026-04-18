@@ -223,6 +223,19 @@
   font-size: var(--font-size-xs);
 }
 
+/* ---------- Star toggle ---------- */
+.btn-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  color: var(--color-text-muted);
+  padding: 0;
+  line-height: 1;
+}
+.btn-star.is-starred { color: #e8a100; }
+.btn-star:hover { color: #e8a100; }
+
 /* ---------- Filters bar ---------- */
 .filters {
   display: flex;

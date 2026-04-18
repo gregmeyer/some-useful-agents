@@ -222,6 +222,8 @@ export interface Agent {
   allowHighFrequency?: boolean;
   source: AgentSource;
   mcp?: boolean;
+  /** User-pinned favorite. Starred agents sort to the top of the list. */
+  starred?: boolean;
   /**
    * The agent_versions row number. On parse from YAML this is the author's
    * hint; on read from DB it's the `current_version` pointer's target.

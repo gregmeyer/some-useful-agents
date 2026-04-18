@@ -200,7 +200,17 @@ export async function renderAgentDetailV2(args: {
   const body = html`
     ${pageHeader({
       title: agent.id,
-      meta: [vStatusBadge(agent.status), sourceBadge(source)],
+      meta: [
+        html`<form method="POST" action="/agents/${agent.id}/star" style="display:inline;margin:0;">
+          <button type="submit" class="btn-star${agent.starred ? ' is-starred' : ''}"
+                  title="${agent.starred ? 'Unstar' : 'Star'}"
+                  aria-label="${agent.starred ? 'Unstar' : 'Star'}">
+            ${agent.starred ? '\u2605' : '\u2606'}
+          </button>
+        </form>`,
+        vStatusBadge(agent.status),
+        sourceBadge(source),
+      ],
       cta: runNowButton,
       description: agent.description ?? undefined,
       back,

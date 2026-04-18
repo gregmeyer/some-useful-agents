@@ -7,7 +7,7 @@
  */
 export const DASHBOARD_JS = `
 (function () {
-  // Community-shell confirm modal
+  // ── Community-shell confirm modal + audit checkbox ─────────────────
   function openModal(id) {
     var el = document.getElementById(id);
     if (el) el.classList.add('open');
@@ -29,7 +29,8 @@ export const DASHBOARD_JS = `
     }
   });
 
-  // Tool-picker dropdown: swap visible input fields when the tool changes.
+  // ── Tool-picker dropdown ───────────────────────────────────────────
+  // Swap visible input fields when the tool changes.
   // shell-exec → Command textarea, claude-code → Prompt textarea, other →
   // dynamically generated fields from the tool's declared inputs schema.
   (function () {
@@ -116,6 +117,7 @@ export const DASHBOARD_JS = `
     });
   })();
 
+  // ── Node type field toggle ─────────────────────────────────────────
   // Grey-out the inactive node-type field (Command vs Prompt) based on
   // which <input type="radio" name="type"> is selected. The form still
   // submits both fields — the server validates against the selected
@@ -151,6 +153,7 @@ export const DASHBOARD_JS = `
     }
   })();
 
+  // ── ESC closes modals ──────────────────────────────────────────────
   // ESC closes any open custom-modal backdrop (community-shell confirm,
   // run-now audit). Native <dialog> elements already close on ESC via
   // the browser's cancel event; this fills the gap for the older
@@ -164,6 +167,7 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // ── Confirm-before-submit ──────────────────────────────────────────
   // Confirm-before-submit for forms with [data-confirm]. Used on
   // destructive settings actions (delete secret, rotate MCP token).
   document.addEventListener('submit', function (e) {
@@ -175,7 +179,8 @@ export const DASHBOARD_JS = `
     }
   });
 
-  // Template palette — autocomplete for $ (shell env vars) and {{
+  // ── Template palette autocomplete ──────────────────────────────────
+  // Autocomplete for $ (shell env vars) and {{
   // (claude-code template refs) in node command / prompt textareas.
   // Triggered by typing the first char of either syntax; filters as the
   // user types; Up/Down + Enter to insert; Esc to close.
@@ -464,7 +469,8 @@ export const DASHBOARD_JS = `
     }, true);
   })();
 
-  // Node vars filter — live filter by name or value on resolved variables
+  // ── Node vars filter ───────────────────────────────────────────────
+  // Live filter by name or value on resolved variables
   (function () {
     document.addEventListener('input', function (e) {
       var t = e.target;
@@ -497,10 +503,11 @@ export const DASHBOARD_JS = `
     });
   })();
 
-  // Auto-poll for in-progress runs
+  // ── Run status auto-poll ───────────────────────────────────────────
   var runDetail = document.querySelector('[data-run-in-progress]');
   if (runDetail) {
     var runId = runDetail.getAttribute('data-run-in-progress');
+    var finalPollCount = 0;
     var poll = function () {
       fetch('/runs/' + encodeURIComponent(runId) + '?partial=1', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
@@ -511,19 +518,26 @@ export const DASHBOARD_JS = `
           var current = document.querySelector('[data-run-container]');
           if (fresh && current) {
             current.replaceWith(fresh);
-            // If the new fragment no longer carries the in-progress marker,
-            // the poll loop stops naturally on the next scheduled tick.
             if (fresh.querySelector('[data-run-in-progress]')) {
+              // Still in progress — keep polling.
+              finalPollCount = 0;
               setTimeout(poll, 2000);
+            } else if (finalPollCount < 2) {
+              // Run status flipped to terminal but node execution records
+              // may lag behind (executor race). Do up to 2 extra polls to
+              // catch the final node-level status updates.
+              finalPollCount++;
+              setTimeout(poll, 1000);
             }
           }
         })
-        .catch(function () { /* swallow; will retry on next tick */ setTimeout(poll, 5000); });
+        .catch(function () { setTimeout(poll, 5000); });
     };
     setTimeout(poll, 2000);
   }
 
-  // Run-now modal — open inputs form or show spinner while POST submits.
+  // ── Run-now modal ──────────────────────────────────────────────────
+  // Open inputs form or show spinner while POST submits.
   (function () {
     var runModal = document.getElementById('run-modal');
     if (!runModal) return;
@@ -574,7 +588,8 @@ export const DASHBOARD_JS = `
     });
   })();
 
-  // Suggest improvements — modal with progress feedback, cancel, colored diff.
+  // ── Suggest improvements modal ─────────────────────────────────────
+  // Modal with progress feedback, cancel, colored diff.
   (function () {
     var btn = document.getElementById('suggest-btn');
     var modal = document.getElementById('suggest-modal');
@@ -762,7 +777,8 @@ export const DASHBOARD_JS = `
     });
   })();
 
-  // Secret save confirmation modal — shows the value one last time with
+  // ── Secret save confirmation ───────────────────────────────────────
+  // Shows the value one last time with
   // a copy button before the encrypted write. Value is never shown again.
   (function () {
     var form = document.getElementById('secret-set-form');
@@ -826,7 +842,8 @@ export const DASHBOARD_JS = `
     });
   })();
 
-  // Build from goal — modal wizard that designs a new agent from a prompt.
+  // ── Build from goal wizard ─────────────────────────────────────────
+  // Modal wizard that designs a new agent from a prompt.
   (function () {
     var btn = document.getElementById('build-from-goal-btn');
     var modal = document.getElementById('build-modal');
@@ -871,13 +888,17 @@ export const DASHBOARD_JS = `
         '</div>' +
         '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="build-cancel">Cancel</button></div></div>';
 
+      var serverPhase = '';
       var tickTimer = setInterval(function () {
         var s = Math.round((Date.now() - t0) / 1000);
         var te = document.getElementById('build-timer'); if (te) te.textContent = s + 's';
         var be = document.getElementById('build-bar'); if (be) be.style.width = Math.min(s/120*100, 98) + '%';
-        var pe = document.getElementById('build-phase'); if (pe) {
-          var m = PHASES[0][1]; for (var i = 0; i < PHASES.length; i++) { if (s >= PHASES[i][0]) m = PHASES[i][1]; }
-          pe.textContent = m;
+        // Only use timer-based fallback phases when no server phase has arrived.
+        if (!serverPhase) {
+          var pe = document.getElementById('build-phase'); if (pe) {
+            var m = PHASES[0][1]; for (var i = 0; i < PHASES.length; i++) { if (s >= PHASES[i][0]) m = PHASES[i][1]; }
+            pe.textContent = m;
+          }
         }
       }, 1000);
 
@@ -906,72 +927,68 @@ export const DASHBOARD_JS = `
             .then(function (data) {
               if (cancelled) return;
               if (data.status === 'running') {
-                var pe = document.getElementById('build-phase');
-                if (pe && data.phase) pe.textContent = data.phase;
+                if (data.phase) {
+                  serverPhase = data.phase;
+                  var pe = document.getElementById('build-phase');
+                  if (pe) pe.textContent = data.phase;
+                }
                 pollTimer = setTimeout(poll, 2000);
               } else if (data.status === 'done') {
                 clearInterval(tickTimer);
                 var h = '<h3 style="margin:0 0 var(--space-3);">Agent designed</h3>';
                 if (data.agentName) h += '<p style="font-weight:var(--weight-medium);margin:0 0 var(--space-2);">' + esc(data.agentName) + ' <span class="dim">(' + esc(data.agentId) + ')</span></p>';
                 if (data.yamlError) {
-                  h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' + esc(data.yamlError) + '</div>';
+                  h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
+                    '<strong>Validation error:</strong> ' + esc(data.yamlError) +
+                    '<br>Edit the YAML below to fix, then create.</div>';
                 }
                 if (data.yaml) {
-                  h += '<details style="margin-bottom:var(--space-3);"><summary style="cursor:pointer;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);color:var(--color-primary);">View YAML</summary>' +
-                    '<pre style="font-size:var(--font-size-xs);background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-top:var(--space-2);max-height:300px;overflow-y:auto;white-space:pre-wrap;">' + esc(data.yaml) + '</pre></details>';
+                  h += '<label style="display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3);">' +
+                    '<span class="dim" style="font-size:var(--font-size-xs);font-weight:var(--weight-semibold);">Review and edit YAML before creating</span>' +
+                    '<textarea id="build-yaml-editor" rows="15" ' +
+                    'style="padding:var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);' +
+                    'font-family:var(--font-mono);font-size:var(--font-size-xs);resize:vertical;line-height:1.5;tab-size:2;">' +
+                    esc(data.yaml) + '</textarea></label>';
                 }
+                h += '<div id="build-result-flash"></div>';
                 h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
-                if (data.yaml && !data.yamlError) {
-                  h += '<button type="button" class="btn btn--primary btn--sm" id="build-create-btn">Create agent</button>';
-                }
                 if (data.yaml) {
-                  h += '<button type="button" class="btn btn--sm" id="build-edit-btn">Edit YAML first</button>';
+                  h += '<button type="button" class="btn btn--primary btn--sm" id="build-create-btn">Create agent</button>';
                 }
                 h += '<button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Dismiss</button></div>';
                 content.innerHTML = h;
 
                 var createBtn = document.getElementById('build-create-btn');
-                if (createBtn && data.yaml) {
+                if (createBtn) {
                   createBtn.addEventListener('click', function () {
+                    var yamlEditor = document.getElementById('build-yaml-editor');
+                    var yamlText = yamlEditor ? yamlEditor.value : '';
+                    if (!yamlText.trim()) return;
                     createBtn.disabled = true;
                     createBtn.textContent = 'Creating...';
+                    var flashEl = document.getElementById('build-result-flash');
+                    if (flashEl) flashEl.innerHTML = '';
                     fetch('/agents/build/create', {
                       method: 'POST', credentials: 'same-origin',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ yaml: data.yaml }),
+                      body: JSON.stringify({ yaml: yamlText }),
                     })
                     .then(function (r) { return r.json(); })
                     .then(function (result) {
                       if (result.ok) {
                         window.location.href = '/agents/' + encodeURIComponent(result.agentId);
                       } else {
-                        content.innerHTML = '<div class="flash flash--error">' + esc(result.error) + '</div>' +
-                          '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Close</button></div>';
-                      }
-                    });
-                  });
-                }
-                var editBtn = document.getElementById('build-edit-btn');
-                if (editBtn && data.yaml) {
-                  editBtn.addEventListener('click', function () {
-                    // Can't easily prefill /agents/new, so create a temporary form
-                    var f = document.createElement('form'); f.method = 'POST';
-                    f.action = '/agents/new'; // This won't work directly, redirect to YAML editor instead
-                    closeModal();
-                    // Show the YAML in an alert as fallback, or just create and redirect to YAML editor
-                    // For now, create the agent and redirect to its YAML editor
-                    fetch('/agents/build/create', {
-                      method: 'POST', credentials: 'same-origin',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ yaml: data.yaml }),
-                    })
-                    .then(function (r) { return r.json(); })
-                    .then(function (result) {
-                      if (result.ok) {
-                        window.location.href = '/agents/' + encodeURIComponent(result.agentId) + '/yaml';
-                      } else {
-                        // Agent might already exist or have errors — create didn't work, just show error
-                        alert('Could not create agent: ' + result.error);
+                        createBtn.disabled = false;
+                        createBtn.textContent = 'Create agent';
+                        // If agent already exists, show a link to it.
+                        var msg = result.error || 'Creation failed';
+                        var existsMatch = msg.match(/["']([a-z0-9][a-z0-9-]*)["'] already exists/i);
+                        if (existsMatch && flashEl) {
+                          flashEl.innerHTML = '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
+                            esc(msg) + ' <a href="/agents/' + encodeURIComponent(existsMatch[1]) + '" style="font-weight:var(--weight-semibold);">Open existing agent \u2192</a></div>';
+                        } else if (flashEl) {
+                          flashEl.innerHTML = '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' + esc(msg) + '</div>';
+                        }
                       }
                     });
                   });

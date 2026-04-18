@@ -20,6 +20,8 @@ import { requireAuth } from './auth-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
+import { agentNodesRouter } from './routes/agent-nodes.js';
+import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
@@ -75,6 +77,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.locals = ctx as unknown as Application['locals'];
 
   app.use(express.urlencoded({ extended: false }));
+  app.use(express.json());
 
   // Public routes (no auth).
   app.use(healthRouter);
@@ -91,6 +94,8 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.get('/', (_req, res) => { res.redirect(302, '/agents'); });
 
   app.use(agentsRouter);
+  app.use(agentNodesRouter);
+  app.use(agentInputsRouter);
   app.use(runsRouter);
   app.use(runNowRouter);
   app.use(runMutationsRouter);

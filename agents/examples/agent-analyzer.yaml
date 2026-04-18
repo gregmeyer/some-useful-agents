@@ -63,7 +63,7 @@ nodes:
             type: enum
             values: [haiku, limerick, prose]
             default: haiku
-      - Template refs in prompts use {{inputs.NAME}} (not {{NAME}} or {{#inputs.NAME}}).
+      - Template refs in prompts use double-brace inputs.NAME syntax (not bare NAME or #inputs.NAME).
       - conditional nodes MUST have conditionalConfig with a predicate.
       - switch nodes MUST have switchConfig with field + cases.
 
@@ -149,7 +149,7 @@ nodes:
       - Input names: UPPERCASE_WITH_UNDERSCORES
       - inputs: must be an object/map, not an array
       - enum inputs: must have a non-empty `values` array
-      - Template refs: use {{inputs.NAME}} not {{NAME}}
+      - Template refs: use double-brace inputs.NAME syntax, not bare NAME
       - conditional nodes: must have conditionalConfig
       - switch nodes: must have switchConfig
       - Keep the same agent id as the original
