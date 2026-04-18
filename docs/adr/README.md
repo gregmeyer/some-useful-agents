@@ -20,6 +20,11 @@ This directory captures the **why** behind architectural choices in
 | [0011](0011-slack-webhooks-not-oauth.md) | Slack via incoming webhooks, not OAuth | Proposed |
 | [0012](0012-local-cron-scheduler-node-cron.md) | Local cron scheduler via node-cron | Accepted |
 | [0013](0013-tutorial-and-dad-joke-example.md) | Onboarding tutorial + dad-joke example | Accepted |
+| [0014](0014-passphrase-kek-secrets-store.md) | Passphrase KEK for secrets store | Accepted |
+| [0015](0015-global-variables-store.md) | Global variables store (plain-text, non-sensitive) | Accepted |
+| [0016](0016-llm-spawner-abstraction.md) | LlmSpawner abstraction for multi-provider CLI support | Accepted |
+| [0017](0017-agent-analyzer-self-correcting.md) | Agent analyzer as a self-correcting agent pipeline | Accepted |
+| [0018](0018-three-layer-secret-redaction.md) | Three-layer secret redaction in run logs | Accepted |
 
 ## Template
 
