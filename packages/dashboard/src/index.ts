@@ -168,6 +168,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     toolStore,
     variablesStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
+    activeRuns: new Map(),
   };
 
   const app = buildDashboardApp(ctx);

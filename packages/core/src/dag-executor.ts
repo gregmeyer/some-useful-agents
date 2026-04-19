@@ -96,6 +96,12 @@ export interface DagExecuteOptions {
    */
   inputs?: Record<string, string>;
   /**
+   * Cancellation signal. When aborted, the executor SIGTERMs the running
+   * child process, marks remaining nodes as cancelled, and updates the
+   * run to status 'cancelled'.
+   */
+  signal?: AbortSignal;
+  /**
    * Replay mode. When set, nodes BEFORE `fromNodeId` in topological order
    * are not re-executed — their `node_executions` rows are copied from
    * `priorRunId` with their stored `result` intact. The executor picks up
@@ -217,6 +223,24 @@ export async function executeAgentDag(
   for (const node of order) {
     if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
+
+    // Cancellation: abort signal was fired. Mark all remaining nodes
+    // as cancelled and break out of the loop.
+    if (options.signal?.aborted) {
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'cancelled',
+        errorCategory: 'cancelled',
+        startedAt: nodeStartedAt,
+        completedAt: nodeStartedAt,
+        error: 'Cancelled by user.',
+      });
+      skippedNodes.add(node.id);
+      if (!firstFailure) firstFailure = { nodeId: node.id, category: 'cancelled' };
+      continue;
+    }
 
     // flow_ended: an `end` or `break` node was reached. All remaining
     // nodes are skipped cleanly — not a failure, just early termination.
@@ -608,7 +632,7 @@ export async function executeAgentDag(
         };
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
         const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress)
+          ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, options.signal)
           : await spawnFn(synthNode, env, spawnOpts);
         result = spawnResult;
         structuredOutput = buildToolOutput(spawnResult.result);
@@ -617,7 +641,7 @@ export async function executeAgentDag(
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
         const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(node, env, spawnOpts, onProgress)
+          ? await spawnNodeReal(node, env, spawnOpts, onProgress, options.signal)
           : await spawnFn(node, env, spawnOpts);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,

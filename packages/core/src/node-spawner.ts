@@ -198,6 +198,7 @@ export async function spawnNodeReal(
   env: Record<string, string>,
   _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string> },
   onProgress?: (event: SpawnProgress) => void,
+  signal?: AbortSignal,
 ): Promise<SpawnResult> {
   if (node.type === 'shell') {
     if (!node.command) {
@@ -207,6 +208,7 @@ export async function spawnNodeReal(
       cwd: node.workingDirectory,
       env,
       timeoutSec: node.timeout ?? 300,
+      signal,
     });
   }
 
@@ -241,6 +243,7 @@ export async function spawnNodeReal(
       if (event) onProgress(event);
     } : undefined,
     extractResult: (stdout) => spawner.extractResult(stdout),
+    signal,
   });
 }
 
@@ -254,6 +257,8 @@ export interface SpawnProcessOptions {
   onProgress?: (line: string) => void;
   /** Transform raw stdout into final result (for stream-json parsing). */
   extractResult?: (stdout: string) => string;
+  /** Cancellation signal. SIGTERMs the child process when aborted. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -306,6 +311,17 @@ export async function spawnProcess(
       child.kill('SIGTERM');
       setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
     }, opts.timeoutSec * 1000);
+
+    // Cancellation signal: SIGTERM the child when the signal fires.
+    if (opts.signal) {
+      const onAbort = () => { killed = true; child.kill('SIGTERM'); };
+      if (opts.signal.aborted) {
+        onAbort();
+      } else {
+        opts.signal.addEventListener('abort', onAbort, { once: true });
+        child.on('close', () => opts.signal!.removeEventListener('abort', onAbort));
+      }
+    }
 
     child.on('close', (code: number | null) => {
       clearTimeout(timer);

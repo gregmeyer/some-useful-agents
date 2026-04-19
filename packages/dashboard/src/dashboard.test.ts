@@ -83,6 +83,7 @@ command: echo from-the-internet
     secretsPath: join(dir, 'secrets.enc'),
     rotateToken: overrides.rotateToken ?? (() => 'r'.repeat(64)),
     allowUntrustedShell: new Set(),
+    activeRuns: new Map(),
   };
 
   return { app: buildDashboardApp(ctx), ctx };
@@ -351,7 +352,7 @@ describe('Dashboard /runs/:id per-node table', () => {
     expect(res.text).toContain('Node execution');
     expect(res.text).toContain('first');
     expect(res.text).toContain('second');
-    expect(res.text).toContain('exit_nonzero');
+    expect(res.text).toContain('Non-zero exit code');
     // The DAG viz should render here too
     expect(res.text).toContain('id="dag-canvas"');
   });
