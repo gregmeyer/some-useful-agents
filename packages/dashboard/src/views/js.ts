@@ -52,15 +52,20 @@ export const DASHBOARD_JS = `
     function updateType(toolId) {
       if (!typeHidden || !schemas[toolId]) return;
       var implType = schemas[toolId].implType;
-      typeHidden.value = implType === 'claude-code' ? 'claude-code' : 'shell';
+      typeHidden.value = implType === 'agent-invoke' ? 'agent-invoke'
+        : implType === 'claude-code' ? 'claude-code' : 'shell';
     }
 
     function updateFields(toolId) {
+      var isAgent = toolId.indexOf('agent:') === 0;
       // Show/hide the built-in command/prompt textareas.
       var shellField = document.querySelector('[data-node-field="shell"]');
       var claudeField = document.querySelector('[data-node-field="claude-code"]');
-      if (shellField) shellField.style.display = (toolId === 'shell-exec') ? '' : 'none';
-      if (claudeField) claudeField.style.display = (toolId === 'claude-code') ? '' : 'none';
+      if (shellField) shellField.style.display = (!isAgent && toolId === 'shell-exec') ? '' : 'none';
+      if (claudeField) claudeField.style.display = (!isAgent && toolId === 'claude-code') ? '' : 'none';
+      // Hide the Implementation fieldset entirely for agent-invoke nodes.
+      var implFieldset = shellField && shellField.closest('fieldset');
+      if (implFieldset) implFieldset.style.display = isAgent ? 'none' : '';
 
       // For non-builtin tools, generate inputs from the schema.
       if (!inputsSection) return;
@@ -73,6 +78,17 @@ export const DASHBOARD_JS = `
 
       // Determine palette mode from tool's implementation type.
       var paletteMode = schema.implType === 'claude-code' ? 'claude' : 'shell';
+
+      // For agent-invoke, show an info card above the input mapping fields.
+      var agentInfoHtml = '';
+      if (isAgent && schema.agentMeta) {
+        agentInfoHtml = '<div style="background:var(--color-surface-raised);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-3);">' +
+          '<p style="margin:0 0 var(--space-1);font-weight:var(--weight-semibold);">' + (schema.agentMeta.name || toolId.replace('agent:','')) + '</p>' +
+          '<p class="dim" style="margin:0;font-size:var(--font-size-xs);">' + (schema.description || '') + '</p>' +
+          '<p class="dim" style="margin:var(--space-1) 0 0;font-size:var(--font-size-xs);">' + schema.agentMeta.nodeCount + ' node' + (schema.agentMeta.nodeCount === 1 ? '' : 's') + '</p>' +
+          '</div>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-2);"><strong>Input mapping</strong> \\u2014 map values to this agent\\u0027s declared inputs. Use upstream refs or literal values.</p>';
+      }
       // Find the palette-source id (reuse whichever one is on the page).
       var existingPalette = document.querySelector('[data-palette-source]');
       var paletteSource = existingPalette ? existingPalette.getAttribute('data-palette-source') : '';
@@ -101,7 +117,7 @@ export const DASHBOARD_JS = `
         if (spec.description) html += '<span class="dim" style="font-size:var(--font-size-xs);">' + spec.description + '</span>';
         html += '</label>';
       }
-      inputsSection.innerHTML = html;
+      inputsSection.innerHTML = agentInfoHtml + html;
     }
 
     // Initial render.
@@ -522,12 +538,12 @@ export const DASHBOARD_JS = `
               // Still in progress — keep polling.
               finalPollCount = 0;
               setTimeout(poll, 2000);
-            } else if (finalPollCount < 2) {
+            } else if (finalPollCount < 5) {
               // Run status flipped to terminal but node execution records
-              // may lag behind (executor race). Do up to 2 extra polls to
-              // catch the final node-level status updates.
+              // may lag behind (executor race). Poll a few more times with
+              // increasing delays to catch the final node-level updates.
               finalPollCount++;
-              setTimeout(poll, 1000);
+              setTimeout(poll, finalPollCount <= 2 ? 1000 : 2000);
             }
           }
         })
