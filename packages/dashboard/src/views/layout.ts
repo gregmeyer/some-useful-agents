@@ -29,7 +29,13 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${opts.title} · sua dashboard</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2699;</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/dashboard.css">
+<script>
+(function(){var t=localStorage.getItem('sua-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');})();
+</script>
 </head>
 <body class="app">
 <header class="topbar">
@@ -41,6 +47,9 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>
+  <button class="topbar__theme-toggle" onclick="(function(){var h=document.documentElement;var c=h.getAttribute('data-theme');var n=c==='light'?null:'light';if(n)h.setAttribute('data-theme',n);else h.removeAttribute('data-theme');localStorage.setItem('sua-theme',n||'dark');})();" aria-label="Toggle theme">
+    <span class="topbar__theme-icon"></span>
+  </button>
 </header>
 <main class="${mainClass}">
   ${flash}

@@ -13,8 +13,10 @@ import {
   rotateMcpToken,
   buildLoopbackAllowlist,
   type SecretsStore,
+  type RunStatus,
 } from '@some-useful-agents/core';
 import type { DashboardContext } from './context.js';
+import { getContext } from './context.js';
 import { EncryptedFileSecretsSession } from './secrets-session.js';
 import { requireAuth } from './auth-middleware.js';
 import { healthRouter } from './routes/health.js';
@@ -90,8 +92,29 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Everything below requires the session cookie.
   app.use(requireAuth);
 
-  // Home → /agents.
-  app.get('/', (_req, res) => { res.redirect(302, '/agents'); });
+  // Home page with today's stats + recent activity.
+  app.get('/', (req, res) => {
+    // Dynamic import to avoid circular deps at module load.
+    import('./views/home.js').then(({ renderHomePage }) => {
+      const ctx = getContext(req.app.locals);
+      const agents = ctx.agentStore.listAgents();
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const recentResult = ctx.runStore.queryRuns({ limit: 50, offset: 0, statuses: [] as RunStatus[] });
+      const inFlightResult = ctx.runStore.queryRuns({ limit: 20, offset: 0, statuses: ['running', 'pending'] as RunStatus[] });
+      const todayRuns = recentResult.rows.filter((r: { startedAt: string }) => r.startedAt >= todayStart);
+      const scheduledAgents = agents.filter((a: { schedule?: string; status: string }) => a.schedule && a.status === 'active');
+      res.type('html').send(renderHomePage({
+        agents,
+        recentRuns: recentResult.rows,
+        todayRuns,
+        inFlightRuns: inFlightResult.rows,
+        scheduledAgents,
+      }));
+    }).catch(() => {
+      res.redirect(302, '/agents');
+    });
+  });
 
   app.use(agentsRouter);
   app.use(agentNodesRouter);
