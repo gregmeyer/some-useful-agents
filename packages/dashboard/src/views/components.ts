@@ -50,3 +50,47 @@ export function formatAge(timestamp: string): string {
   if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
   return `${Math.floor(ms / 86_400_000)}d ago`;
 }
+
+const EXIT_CODE_LABELS: Record<number, string> = {
+  0: 'success',
+  1: 'general error',
+  2: 'misuse of shell command',
+  3: 'cannot execute (curl: URL malformed)',
+  6: 'curl: could not resolve host',
+  7: 'curl: failed to connect',
+  22: 'curl: HTTP error (4xx/5xx)',
+  28: 'curl: timeout',
+  126: 'permission denied',
+  127: 'command not found',
+  128: 'invalid exit argument',
+  130: 'terminated by Ctrl+C (SIGINT)',
+  137: 'killed (SIGKILL / out of memory)',
+  139: 'segmentation fault (SIGSEGV)',
+  143: 'terminated (SIGTERM)',
+};
+
+export function formatExitCode(code: number | undefined): string {
+  if (code === undefined) return '';
+  const label = EXIT_CODE_LABELS[code];
+  if (code >= 129 && code <= 165 && !label) {
+    const signal = code - 128;
+    return `exit ${code} (signal ${signal})`;
+  }
+  return label ? `exit ${code} (${label})` : `exit ${code}`;
+}
+
+const ERROR_CATEGORY_LABELS: Record<string, string> = {
+  setup: 'Setup failed (before execution)',
+  input_resolution: 'Template substitution failed',
+  spawn_failure: 'Process could not start',
+  exit_nonzero: 'Non-zero exit code',
+  timeout: 'Timed out',
+  cancelled: 'Cancelled',
+  upstream_failed: 'Skipped (upstream failed)',
+  condition_not_met: 'Skipped (condition not met)',
+  flow_ended: 'Flow ended',
+};
+
+export function formatErrorCategory(category: string): string {
+  return ERROR_CATEGORY_LABELS[category] ?? category;
+}
