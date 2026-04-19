@@ -50,6 +50,7 @@ pre {
 
 h1, h2, h3 {
   margin: 0 0 var(--space-4);
+  font-family: var(--font-mono);
   font-weight: var(--weight-semibold);
   line-height: var(--line-heading);
 }
