@@ -1,9 +1,10 @@
-import type { Agent, ToolStore, VariablesStore } from '@some-useful-agents/core';
+import type { Agent, AgentStore, ToolStore, VariablesStore } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
+import { NODE_PATTERNS } from './node-patterns.js';
 
 /**
  * Render a reference card listing everything the author can inject into
@@ -87,10 +88,13 @@ export function renderAgentAddNode(args: {
   fromCreate?: boolean;
   /** v0.16+: tool store for the tool picker dropdown. */
   toolStore?: ToolStore;
+  /** Agent store for listing invocable agents in the tool picker. */
+  agentStore?: AgentStore;
   variablesStore?: VariablesStore;
 }): string {
-  const { agent, values: v = {}, error, flash, fromCreate, toolStore, variablesStore } = args;
+  const { agent, values: v = {}, error, flash, fromCreate, toolStore, agentStore, variablesStore } = args;
   const allTools = getAvailableTools(toolStore);
+  const allAgents = agentStore ? agentStore.listAgents() : [];
   const selectedTool = v.type === 'claude-code' ? 'claude-code' : 'shell-exec';
   const type = v.type ?? 'shell';
   const isShell = type === 'shell';
@@ -151,6 +155,20 @@ export function renderAgentAddNode(args: {
 
     ${existingNodesCard}
 
+    <section style="margin-bottom: var(--space-4);">
+      <p class="card__title" style="margin-bottom: var(--space-2);">Quick start patterns</p>
+      <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+        ${NODE_PATTERNS.map((p) => html`
+          <button type="button" class="btn btn--sm" data-pattern-tool="${p.tool}" data-pattern-defaults="${unsafeHtml(JSON.stringify(p.defaults).replace(/"/g, '&quot;'))}"
+            style="text-align: left; display: flex; flex-direction: column; align-items: flex-start; padding: var(--space-2) var(--space-3);"
+            onclick="(function(btn){var sel=document.getElementById('node-tool-select');if(sel){sel.value=btn.getAttribute('data-pattern-tool');sel.dispatchEvent(new Event('change'));}})(this)">
+            <strong style="font-size: var(--font-size-xs);">${p.name}</strong>
+            <span class="dim" style="font-size: var(--font-size-xs);">${p.description}</span>
+          </button>
+        `) as unknown as SafeHtml[]}
+      </div>
+    </section>
+
     <form method="POST" action="/agents/${agent.id}/add-node" class="card" style="max-width: 680px;">
       <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
         <strong>Node id</strong>
@@ -161,7 +179,7 @@ export function renderAgentAddNode(args: {
         <span class="dim" style="font-size: var(--font-size-xs);">Lowercase, hyphens or underscores. Must be unique within this agent.</span>
       </label>
 
-      ${renderToolPicker({ tools: allTools, selectedTool, currentType: v.type })}
+      ${renderToolPicker({ tools: allTools, agents: allAgents, selectedTool, currentType: v.type, currentAgentId: agent.id })}
       ${renderToolInputsSection(selectedTool, allTools)}
 
       <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
