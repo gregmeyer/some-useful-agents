@@ -24,7 +24,7 @@ agentNodesRouter.get('/agents/:name/add-node', (req: Request, res: Response) => 
   }
   const fromCreate = req.query.fromCreate === '1';
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
-  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore }));
+  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore, agentStore: ctx.agentStore, variablesStore: ctx.variablesStore }));
 });
 
 agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
@@ -42,9 +42,16 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     ? rawDeps.filter((d): d is string => typeof d === 'string')
     : typeof rawDeps === 'string' ? [rawDeps] : [];
 
+  // Detect agent-invoke: tool field starts with "agent:" prefix.
+  const rawTool = typeof body.tool === 'string' ? body.tool : '';
+  const isAgentInvoke = rawTool.startsWith('agent:');
+  const nodeType = body.type === 'agent-invoke' || isAgentInvoke
+    ? 'agent-invoke'
+    : body.type === 'claude-code' ? 'claude-code' : 'shell';
+
   const values: AddNodeFormValues = {
     id: typeof body.id === 'string' ? body.id.trim() : undefined,
-    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    type: nodeType === 'agent-invoke' ? 'shell' : (nodeType as 'shell' | 'claude-code'), // form compat
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
@@ -72,22 +79,53 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     }));
     return;
   }
-  if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
+
+  // Type-specific validation.
+  if (nodeType === 'agent-invoke') {
+    const invokeAgentId = rawTool.replace(/^agent:/, '');
+    if (!invokeAgentId || !ctx.agentStore.getAgent(invokeAgentId)) {
+      res.status(400).type('html').send(renderAgentAddNode({
+        agent, values, variablesStore: ctx.variablesStore, error: `Agent "${invokeAgentId}" not found.`,
+      }));
+      return;
+    }
+  } else if (nodeType === 'shell' && (!values.command || values.command.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
       agent, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
     }));
     return;
-  }
-  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+  } else if (nodeType === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
       agent, values, variablesStore: ctx.variablesStore, error: 'Claude-Code nodes need a prompt.',
     }));
     return;
   }
 
-  const newNode = values.type === 'shell'
-    ? { id: values.id, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) }
-    : { id: values.id, type: 'claude-code' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+  // Build the new node.
+  let newNode;
+  if (nodeType === 'agent-invoke') {
+    const invokeAgentId = rawTool.replace(/^agent:/, '');
+    // Build inputMapping from toolInput_* form fields.
+    const inputMapping: Record<string, string> = {};
+    for (const [key, val] of Object.entries(body)) {
+      if (typeof key === 'string' && key.startsWith('toolInput_') && typeof val === 'string' && val.trim()) {
+        inputMapping[key.replace('toolInput_', '')] = val.trim();
+      }
+    }
+    newNode = {
+      id: values.id!,
+      type: 'agent-invoke' as const,
+      agentInvokeConfig: {
+        agentId: invokeAgentId,
+        ...(Object.keys(inputMapping).length > 0 ? { inputMapping } : {}),
+      },
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
+    };
+  } else {
+    newNode = nodeType === 'shell'
+      ? { id: values.id!, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) }
+      : { id: values.id!, type: 'claude-code' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+  }
 
   try {
     ctx.agentStore.upsertAgent(

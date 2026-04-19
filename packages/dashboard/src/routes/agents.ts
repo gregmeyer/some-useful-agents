@@ -160,11 +160,19 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
     latestRunAt: recent.rows[0]?.startedAt,
   };
 
+  // Compute cross-agent invoker counts for "used by" badges.
+  const invokerCounts = new Map<string, number>();
+  for (const a of v2Agents) {
+    const invokers = ctx.agentStore.getAgentInvokers(a.id);
+    if (invokers.length > 0) invokerCounts.set(a.id, invokers.length);
+  }
+
   res.type('html').send(renderAgentsList({
     v1: mergedV1,
     v2: v2Agents,
     recentRuns: recent.rows,
     stats,
+    invokerCounts,
   }));
 });
 

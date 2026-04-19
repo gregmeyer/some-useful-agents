@@ -1,4 +1,4 @@
-import { listBuiltinTools, type ToolDefinition, type ToolStore } from '@some-useful-agents/core';
+import { listBuiltinTools, type Agent, type ToolDefinition, type ToolStore } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 /**
@@ -22,18 +22,23 @@ export function getAvailableTools(toolStore?: ToolStore): ToolDefinition[] {
  */
 export function renderToolPicker(args: {
   tools: ToolDefinition[];
+  /** Other agents that can be invoked as sub-nodes. */
+  agents?: Agent[];
   selectedTool?: string;
   /** For edit-node: the current node's type, used to pre-select the right tool. */
   currentType?: string;
+  /** The current agent id — excluded from the agents list to prevent self-invocation. */
+  currentAgentId?: string;
 }): SafeHtml {
-  const { tools, selectedTool, currentType } = args;
+  const { tools, agents = [], selectedTool, currentType, currentAgentId } = args;
 
   // Derive the effective selection. When editing a v0.15 node that
   // has no explicit `tool:`, default to its implicit tool.
   const effective = selectedTool
-    ?? (currentType === 'shell' ? 'shell-exec' : currentType === 'claude-code' ? 'claude-code' : 'shell-exec');
+    ?? (currentType === 'shell' ? 'shell-exec' : currentType === 'claude-code' ? 'claude-code'
+      : currentType === 'agent-invoke' && selectedTool ? selectedTool : 'shell-exec');
 
-  const options = tools.map((t) => {
+  const toolOptions = tools.map((t) => {
     const selected = t.id === effective ? ' selected' : '';
     const label = t.id === 'shell-exec' ? 'Shell (shell-exec)'
       : t.id === 'claude-code' ? 'Claude Code (claude-code)'
@@ -41,25 +46,59 @@ export function renderToolPicker(args: {
     return html`<option value="${t.id}"${unsafeHtml(selected)}>${label}</option>`;
   });
 
+  // Filter out the current agent to prevent self-invocation loops.
+  const invocableAgents = agents.filter((a) => a.id !== currentAgentId && a.status === 'active');
+  const agentOptions = invocableAgents.map((a) => {
+    const val = `agent:${a.id}`;
+    const selected = val === effective ? ' selected' : '';
+    const inputCount = Object.keys(a.inputs ?? {}).length;
+    const label = `${a.id} — ${a.name}${inputCount > 0 ? ` (${inputCount} inputs)` : ''}`;
+    return html`<option value="${val}"${unsafeHtml(selected)}>${label}</option>`;
+  });
+
   // Embed tool schemas so JS can render dynamic input fields.
-  const schemasPayload = JSON.stringify(
-    Object.fromEntries(tools.map((t) => [t.id, {
-      inputs: t.inputs,
-      outputs: t.outputs,
-      implType: t.implementation.type,
-      description: t.description,
-    }])),
-  ).replace(/<\/script/gi, '<\\/script');
+  // Include agent entries with their input specs for agent-invoke fields.
+  const schemas: Record<string, unknown> = Object.fromEntries(tools.map((t) => [t.id, {
+    inputs: t.inputs,
+    outputs: t.outputs,
+    implType: t.implementation.type,
+    description: t.description,
+  }]));
+
+  for (const a of invocableAgents) {
+    const agentInputs: Record<string, { type: string; description?: string; required?: boolean; default?: unknown }> = {};
+    for (const [name, spec] of Object.entries(a.inputs ?? {})) {
+      agentInputs[name] = {
+        type: spec.type,
+        description: spec.description,
+        required: spec.required,
+        default: spec.default,
+      };
+    }
+    schemas[`agent:${a.id}`] = {
+      inputs: agentInputs,
+      outputs: { result: { type: 'string', description: 'Sub-agent output' } },
+      implType: 'agent-invoke',
+      description: a.description ?? `Invoke agent "${a.id}" as a sub-node`,
+      agentMeta: { name: a.name, nodeCount: a.nodes.length },
+    };
+  }
+
+  const schemasPayload = JSON.stringify(schemas).replace(/<\/script/gi, '<\\/script');
+
+  const hiddenType = effective.startsWith('agent:') ? 'agent-invoke'
+    : effective === 'claude-code' ? 'claude-code' : 'shell';
 
   return html`
     <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
       <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Tool</legend>
       <select name="tool" id="node-tool-select" style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); min-width: 16rem;">
-        ${options as unknown as SafeHtml[]}
+        ${toolOptions as unknown as SafeHtml[]}
+        ${agentOptions.length > 0 ? html`<optgroup label="Agents">${agentOptions as unknown as SafeHtml[]}</optgroup>` : html``}
       </select>
       <p class="dim" style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs);" id="tool-description"></p>
     </fieldset>
-    <input type="hidden" name="type" id="node-type-hidden" value="${effective === 'claude-code' ? 'claude-code' : 'shell'}">
+    <input type="hidden" name="type" id="node-type-hidden" value="${hiddenType}">
     <script id="tool-schemas" type="application/json">${unsafeHtml(schemasPayload)}</script>
   `;
 }
