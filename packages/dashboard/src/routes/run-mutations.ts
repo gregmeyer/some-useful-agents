@@ -193,3 +193,46 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
     res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Replay failed: ${message}`)}`);
   }
 });
+
+// ── Cancel a running run ──────────────────────────────────────────────
+
+runMutationsRouter.post('/runs/:id/cancel', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const run = ctx.runStore.getRun(id);
+  if (!run) {
+    res.redirect(303, `/runs?flash=${encodeURIComponent('Run not found.')}`);
+    return;
+  }
+  if (run.status !== 'running' && run.status !== 'pending') {
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Run is not in progress.')}`);
+    return;
+  }
+
+  // Try DAG abort controller first (v2 runs started via dashboard).
+  const controller = ctx.activeRuns.get(id);
+  if (controller) {
+    controller.abort();
+    ctx.activeRuns.delete(id);
+  }
+
+  // Also try provider cancel (v1 runs + belt-and-suspenders for v2).
+  try {
+    await ctx.provider.cancelRun(id);
+  } catch {
+    // Provider may not have this run — that's fine if the abort above worked.
+  }
+
+  // If neither path updated the status (e.g. run finished between the
+  // check and the cancel), force-update as a fallback.
+  const updated = ctx.runStore.getRun(id);
+  if (updated && updated.status === 'running') {
+    ctx.runStore.updateRun(id, {
+      status: 'cancelled' as RunStatus,
+      completedAt: new Date().toISOString(),
+      error: 'Cancelled by user.',
+    });
+  }
+
+  res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Run cancelled.')}`);
+});

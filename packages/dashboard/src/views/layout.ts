@@ -28,6 +28,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${opts.title} · sua dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x2699;</text></svg>">
 <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body class="app">

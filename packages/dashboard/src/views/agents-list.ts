@@ -26,6 +26,8 @@ export interface AgentsListInput {
   recentRuns: Run[];
   /** Overview stats for the tiles row. */
   stats: HomeStats;
+  /** Count of agents that invoke each agent (keyed by agent id). */
+  invokerCounts?: Map<string, number>;
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -60,7 +62,7 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${hasV2 ? html`
       <div class="agent-grid">
-        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id))) as unknown as SafeHtml[]}
+        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
       </div>
     ` : html``}
 
@@ -157,7 +159,7 @@ function renderEmptyState(): SafeHtml {
   `;
 }
 
-function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
+function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
   const shape = dagShape(a);
   const runInfo = lastRun
     ? html`<span class="agent-card__last-run">
@@ -166,6 +168,9 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
     : html`<span class="agent-card__last-run dim">Never run</span>`;
 
   const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
+  const usedByBadge = invokerCount > 0
+    ? html`<span class="badge badge--info">used by ${String(invokerCount)}</span>`
+    : html``;
 
   // Multi-node agents get an inline <details> that reveals the DAG as
   // mini-cards indented by topological depth. Downstream nodes sit
@@ -197,6 +202,7 @@ function renderV2Card(a: Agent, lastRun?: Run): SafeHtml {
         ${statusBadge(a.status)}
         ${sourceBadge(a.source)}
         ${mcpBadge}
+        ${usedByBadge}
       </div>
       <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
       <div class="agent-card__meta">

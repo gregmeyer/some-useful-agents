@@ -288,12 +288,40 @@ export class AgentStore {
   }
 
   /**
+   * Find all agents that invoke a given agent via `agent-invoke` nodes.
+   * Scans all agents' current DAGs. Returns invoker agent id + the node
+   * id that references the target. Used for deletion guards and "used by"
+   * badges.
+   */
+  getAgentInvokers(targetAgentId: string): { agentId: string; nodeId: string }[] {
+    const invokers: { agentId: string; nodeId: string }[] = [];
+    for (const agent of this.listAgents()) {
+      for (const node of agent.nodes) {
+        if (node.type === 'agent-invoke' && node.agentInvokeConfig?.agentId === targetAgentId) {
+          invokers.push({ agentId: agent.id, nodeId: node.id });
+        }
+        if (node.type === 'loop' && node.loopConfig?.agentId === targetAgentId) {
+          invokers.push({ agentId: agent.id, nodeId: node.id });
+        }
+      }
+    }
+    return invokers;
+  }
+
+  /**
    * Hard delete an agent + every version + cascade to node_executions via
    * FK ON DELETE CASCADE on both agent_versions and node_executions-to-runs.
    * Use sparingly — `updateAgentMeta({ status: 'archived' })` is the usual
-   * soft path.
+   * soft path. Refuses if other agents invoke this one.
    */
   deleteAgent(id: string): void {
+    const invokers = this.getAgentInvokers(id);
+    if (invokers.length > 0) {
+      const refs = invokers.map((i) => `"${i.agentId}" (node "${i.nodeId}")`).join(', ');
+      throw new Error(
+        `Cannot delete "${id}" \u2014 invoked by ${refs}. Remove the agent-invoke node${invokers.length > 1 ? 's' : ''} first.`,
+      );
+    }
     this.db.prepare(`DELETE FROM agents WHERE id = ?`).run(id);
   }
 
