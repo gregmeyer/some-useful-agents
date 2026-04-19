@@ -73,6 +73,12 @@ export interface DashboardContext {
    * autocomplete and the /settings/variables tab.
    */
   variablesStore?: VariablesStore;
+  /**
+   * Active DAG runs with their AbortControllers. Used by POST /runs/:id/cancel
+   * to signal cancellation to the executor. Entries are added when a run starts
+   * and removed on completion.
+   */
+  activeRuns: Map<string, AbortController>;
 }
 
 /**

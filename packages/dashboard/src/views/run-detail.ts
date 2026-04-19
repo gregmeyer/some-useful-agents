@@ -2,7 +2,7 @@ import type { Agent, NodeExecutionRecord, Run } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
-import { statusBadge, outputFrame, formatDuration } from './components.js';
+import { statusBadge, outputFrame, formatDuration, formatExitCode, formatErrorCategory } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 
 export interface RunDetailOptions {
@@ -64,11 +64,43 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     </section>
   ` : html``;
 
+  const cancelButton = inProgress
+    ? html`<button type="button" class="btn btn--warn btn--sm"
+        onclick="document.getElementById('cancel-modal').classList.add('is-open')">Stop run</button>`
+    : html``;
+
+  const cancelModal = inProgress
+    ? html`
+      <div id="cancel-modal" class="modal-backdrop">
+        <div class="modal" style="max-width: 480px;">
+          <h3 style="margin: 0 0 var(--space-3);">Stop this run?</h3>
+          <p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">
+            This will terminate the running process and cancel any remaining nodes.
+          </p>
+          <dl class="kv" style="margin: 0 0 var(--space-4); font-size: var(--font-size-xs);">
+            <dt>Run</dt><dd class="mono">${run.id.slice(0, 8)}</dd>
+            <dt>Agent</dt><dd>${run.agentName}</dd>
+            <dt>Started</dt><dd>${formatDuration(run.startedAt, undefined)} ago</dd>
+          </dl>
+          <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+            <button type="button" class="btn btn--ghost btn--sm"
+              onclick="document.getElementById('cancel-modal').classList.remove('is-open')">Keep running</button>
+            <form method="POST" action="/runs/${run.id}/cancel" style="display:inline; margin:0;">
+              <button type="submit" class="btn btn--warn btn--sm">Stop run</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    `
+    : html``;
+
+
   const header = partial
-    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)}</h1>`
+    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)} ${cancelButton}</h1>`
     : pageHeader({
         title: `Run ${run.id.slice(0, 8)}`,
         meta: [statusBadge(run.status)],
+        cta: cancelButton,
         back,
       });
 
@@ -82,7 +114,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
           <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
           <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
-          <dt>Exit code</dt><dd class="mono">${run.exitCode !== undefined ? String(run.exitCode) : ''}</dd>
+          <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode)}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           ${replayedFrom}
         </dl>
@@ -109,6 +141,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <h2>Output</h2>
         ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
       `}
+      ${cancelModal}
     </div>
   `;
 
@@ -284,9 +317,9 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     const shouldOpen = e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
     const duration = formatDuration(e.startedAt, e.completedAt);
-    const exitLabel = e.exitCode !== undefined ? `exit ${e.exitCode}` : '';
+    const exitLabel = formatExitCode(e.exitCode);
     const category = e.errorCategory
-      ? html` <span class="badge badge--err">${e.errorCategory}</span>`
+      ? html` <span class="badge badge--err">${formatErrorCategory(e.errorCategory)}</span>`
       : html``;
 
     // Parse progress events for turn indicator.

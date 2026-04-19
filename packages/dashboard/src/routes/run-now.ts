@@ -56,15 +56,33 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
     // The executor creates the run row in 'running' state synchronously
     // before spawning nodes, so the redirect to /runs/:id lands on a
     // valid page that polls for progress.
+    const abortController = new AbortController();
     const runPromise = executeAgentDag(
       v2Agent,
-      { triggeredBy: 'dashboard', inputs },
+      { triggeredBy: 'dashboard', inputs, signal: abortController.signal },
       {
         runStore: ctx.runStore,
         secretsStore: ctx.secretsStore,
         allowUntrustedShell: ctx.allowUntrustedShell,
       },
     );
+
+    // Track the run so POST /runs/:id/cancel can abort it.
+    // We don't know the runId yet (it's generated inside executeAgentDag),
+    // so we register after finding it from the DB.
+    runPromise.then((run) => {
+      ctx.activeRuns.delete(run.id);
+    }).catch(() => {});
+    // Find the runId shortly after the executor creates the row.
+    setTimeout(() => {
+      const { rows } = ctx.runStore.queryRuns({
+        agentName: v2Agent.id,
+        statuses: ['running'] as RunStatus[],
+        limit: 1,
+        offset: 0,
+      });
+      if (rows.length > 0) ctx.activeRuns.set(rows[0].id, abortController);
+    }, 100);
 
     // Give the executor a moment to create the run row, then redirect.
     // The run row is created synchronously at the top of executeAgentDag
