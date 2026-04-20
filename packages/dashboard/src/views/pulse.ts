@@ -168,9 +168,10 @@ function renderMedia(tile: PulseTile): SafeHtml {
     const videoId = ytMatch![1];
     const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+    // Use nocookie domain for better embed compatibility. Autoplay on click.
+    const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
     mediaEl = unsafeHtml(
-      `<div class="pulse-media-yt" data-embed="${esc(embedUrl)}" style="position:relative;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;">` +
+      `<div class="pulse-media-yt" data-embed="${esc(embedUrl)}" data-watch="${esc(watchUrl)}" style="position:relative;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;">` +
       `<img src="${esc(thumbUrl)}" alt="${esc(title || 'YouTube video')}" loading="lazy" style="width:100%;display:block;aspect-ratio:16/9;object-fit:cover;">` +
       `<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;background:rgba(0,0,0,0.7);border-radius:50%;display:flex;align-items:center;justify-content:center;">` +
       `<span style="width:0;height:0;border-style:solid;border-width:8px 0 8px 16px;border-color:transparent transparent transparent #fff;margin-left:3px;"></span>` +
@@ -208,6 +209,7 @@ function tileWrap(tile: PulseTile, content: SafeHtml): SafeHtml {
     tileHeader(tile, isSystem).toString() +
     content.toString() +
     (isSystem ? '' : tileFooter(tile).toString()) +
+    '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>' +
     '</div>'
   );
 }

@@ -939,7 +939,7 @@ main.main--wide {
   line-height: 1.5;
   color: var(--color-text);
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* -- Template: status -- */
@@ -1066,7 +1066,11 @@ body:not(.pulse-edit-mode) .pulse-container__label {
 
 body.pulse-edit-mode .pulse-tile {
   cursor: grab;
-  overflow: hidden;
+  overflow: hidden !important;
+}
+
+body:not(.pulse-edit-mode) .pulse-tile {
+  overflow-y: auto;
 }
 
 body.pulse-edit-mode .pulse-tile:active {
@@ -1079,6 +1083,60 @@ body.pulse-edit-mode .pulse-container__empty {
 
 body:not(.pulse-edit-mode) .pulse-container__empty {
   display: none;
+}
+
+/* -- Resize handle -- */
+.pulse-tile__resize-handle {
+  display: none;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  z-index: 2;
+}
+
+.pulse-tile__resize-handle::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--color-text-muted);
+  border-bottom: 2px solid var(--color-text-muted);
+  opacity: 0.6;
+}
+
+body.pulse-edit-mode .pulse-tile {
+  position: relative;
+}
+
+body.pulse-edit-mode .pulse-tile__resize-handle {
+  display: block;
+}
+
+body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
+  opacity: 1;
+  border-color: var(--color-primary);
+}
+
+.pulse-tile--resizing {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+  z-index: 10;
+}
+
+/* Resize ghost overlay shown during drag */
+.pulse-resize-ghost {
+  position: absolute;
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft, rgba(45,212,191,0.08));
+  pointer-events: none;
+  z-index: 100;
+  transition: width 100ms ease, height 100ms ease;
 }
 
 /* -- Drag and drop -- */
