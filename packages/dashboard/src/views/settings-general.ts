@@ -30,14 +30,14 @@ export function renderSettingsGeneral(args: SettingsGeneralArgs): SafeHtml {
         secret, invalidates existing MCP client configs, and resets
         this dashboard's session cookie to the new value.
       </p>
-      <dl class="kv" style="margin-top: var(--space-3);">
+      <dl class="kv mt-3">
         <dt>Fingerprint</dt>
         <dd class="mono">${args.tokenFingerprint}…</dd>
         <dt>Path</dt>
         <dd class="mono">${args.tokenPath}</dd>
       </dl>
       ${renderRotatedBanner(args.rotatedToken)}
-      <form action="/settings/general/rotate-mcp-token" method="post" style="margin-top: var(--space-3);"
+      <form action="/settings/general/rotate-mcp-token" method="post" class="mt-3"
         data-confirm="Rotate the MCP bearer token? Existing Claude Desktop / MCP client configs will stop working until you update them.">
         <button type="submit" class="btn btn--warn">Rotate token</button>
       </form>
@@ -69,10 +69,10 @@ export function renderSettingsGeneral(args: SettingsGeneralArgs): SafeHtml {
 function renderRotatedBanner(token: string | undefined): SafeHtml {
   if (!token) return unsafeHtml('');
   return html`
-    <div class="flash flash--ok" style="margin-top: var(--space-3);">
-      <p style="margin: 0 0 var(--space-2);"><strong>New token:</strong></p>
-      <p class="mono" style="word-break: break-all; margin: 0;">${token}</p>
-      <p class="dim" style="margin-top: var(--space-2); margin-bottom: 0;">
+    <div class="flash flash--ok mt-3">
+      <p class="mb-2 mt-0"><strong>New token:</strong></p>
+      <p class="mono mt-0 mb-0" style="word-break: break-all;">${token}</p>
+      <p class="dim mb-0" style="margin-top: var(--space-2);">
         Copy it now — this is the only time it will be displayed.
         Update your MCP client config and restart any <code>sua mcp start</code>.
       </p>
