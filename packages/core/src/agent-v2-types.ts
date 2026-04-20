@@ -230,6 +230,11 @@ export interface Agent {
    */
   version: number;
 
+  /** Default LLM provider for all claude-code nodes. Nodes can override. */
+  provider?: 'claude' | 'codex';
+  /** Default model for all claude-code nodes. Nodes can override. */
+  model?: string;
+
   /** Agent-level runtime inputs. Nodes reference these as `{{inputs.X}}`. */
   inputs?: Record<string, AgentInputSpec>;
 
@@ -289,6 +294,8 @@ export interface AgentVersion {
  */
 export interface AgentVersionDag {
   id: string;
+  provider?: 'claude' | 'codex';
+  model?: string;
   inputs?: Record<string, AgentInputSpec>;
   nodes: AgentNode[];
   signal?: AgentSignal;

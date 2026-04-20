@@ -842,6 +842,75 @@ export const DASHBOARD_JS = `
       if (e.target === modal) closeModal();
       if (e.target && e.target.getAttribute && e.target.getAttribute('data-close-modal')) closeModal();
     });
+
+    // Auto-open from run detail page: ?suggest=1&focus=<error text>
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('suggest') === '1') {
+      btn.click();
+      // Pre-fill focus after the modal renders.
+      setTimeout(function () {
+        var ta = document.getElementById('sg-focus');
+        var focusParam = params.get('focus');
+        if (ta && focusParam) ta.value = focusParam;
+      }, 50);
+    }
+  })();
+
+  // ── LLM provider/model sync ─────────────────────────────────────────
+  // When the provider dropdown changes, repopulate the model dropdown
+  // with the correct models and show the selected model's description.
+  (function () {
+    var providerSel = document.getElementById('llm-provider');
+    var modelSel = document.getElementById('llm-model');
+    var descEl = document.getElementById('llm-model-desc');
+    if (!providerSel || !modelSel || !descEl) return;
+
+    var MODELS = {
+      claude: [
+        { id: '', label: 'default', desc: 'Uses the Claude CLI default model' },
+        { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable. Deep analysis, complex reasoning, long outputs' },
+        { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Fast + capable. Good balance of speed and quality' },
+        { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest. Best for simple tasks, classification, extraction' }
+      ],
+      codex: [
+        { id: '', label: 'default', desc: 'Uses the Codex CLI default model' },
+        { id: 'o4-mini', label: 'o4-mini', desc: 'Fast reasoning model. Good for code analysis and generation' },
+        { id: 'o3', label: 'o3', desc: 'Most capable reasoning model. Deep multi-step analysis' },
+        { id: 'gpt-4.1', label: 'GPT-4.1', desc: 'Latest GPT. Strong at code, instruction following' },
+        { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', desc: 'Compact GPT-4.1. Fast, lower cost' },
+        { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', desc: 'Smallest GPT-4.1. Very fast, simple tasks' }
+      ]
+    };
+
+    function updateModels() {
+      var provider = providerSel.value || 'claude';
+      var models = MODELS[provider] || MODELS.claude;
+      var currentVal = modelSel.value;
+      modelSel.innerHTML = '';
+      for (var i = 0; i < models.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = models[i].id;
+        opt.textContent = models[i].label;
+        opt.title = models[i].desc;
+        if (models[i].id === currentVal) opt.selected = true;
+        modelSel.appendChild(opt);
+      }
+      // If previous value isn't in the new list, select default.
+      if (modelSel.value !== currentVal) modelSel.selectedIndex = 0;
+      updateDesc();
+    }
+
+    function updateDesc() {
+      var provider = providerSel.value || 'claude';
+      var models = MODELS[provider] || MODELS.claude;
+      var selOpt = modelSel.options[modelSel.selectedIndex];
+      descEl.textContent = selOpt ? (selOpt.title || '') : '';
+    }
+
+    providerSel.addEventListener('change', updateModels);
+    modelSel.addEventListener('change', updateDesc);
+    // Show description for initial selection.
+    updateDesc();
   })();
 
   // ── Secret save confirmation ───────────────────────────────────────

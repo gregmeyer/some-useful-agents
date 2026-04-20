@@ -146,3 +146,50 @@ versionsRouter.post('/agents/:id/status', (req: Request, res: Response) => {
     res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Status change failed: ${msg}`)}`);
   }
 });
+
+const VALID_PROVIDERS = new Set(['claude', 'codex']);
+
+/**
+ * POST /agents/:id/llm — update agent-level provider and model defaults.
+ * Creates a new version since these are part of the versioned DAG.
+ */
+versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const provider = typeof body.provider === 'string' ? body.provider.trim() : '';
+  const model = typeof body.model === 'string' ? body.model.trim() : '';
+
+  if (provider && !VALID_PROVIDERS.has(provider)) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent('Invalid provider. Must be claude or codex.')}`);
+    return;
+  }
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  // Check for no-op.
+  const newProvider = (provider || undefined) as 'claude' | 'codex' | undefined;
+  const newModel = model || undefined;
+  if (agent.provider === newProvider && agent.model === newModel) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent('LLM defaults unchanged.')}`);
+    return;
+  }
+
+  try {
+    const updated = { ...agent, provider: newProvider, model: newModel };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', 'Updated LLM defaults');
+    const parts: string[] = [];
+    if (newProvider) parts.push(`provider: ${newProvider}`);
+    if (newModel) parts.push(`model: ${newModel}`);
+    const summary = parts.length > 0 ? parts.join(', ') : 'defaults cleared';
+    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`LLM defaults updated (${summary}).`)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`LLM update failed: ${msg}`)}`);
+  }
+});

@@ -136,6 +136,9 @@ export const agentV2Schema = z.object({
   mcp: z.boolean().default(false),
   version: z.number().int().positive().default(1),
 
+  provider: z.enum(['claude', 'codex']).optional(),
+  model: z.string().optional(),
+
   inputs: z.record(
     z.string().regex(INPUT_NAME_RE, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
     inputSpecSchema,
