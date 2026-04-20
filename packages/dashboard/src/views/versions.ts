@@ -128,7 +128,7 @@ export function renderVersionDetail(args: {
     </section>
 
     ${dag.inputs && Object.keys(dag.inputs).length > 0 ? html`
-      <section style="margin-top: var(--space-6);">
+      <section class="mt-6">
         <h2>Inputs</h2>
         <pre>${JSON.stringify(dag.inputs, null, 2)}</pre>
       </section>

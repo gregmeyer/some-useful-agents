@@ -90,13 +90,13 @@ export function renderToolPicker(args: {
     : effective === 'claude-code' ? 'claude-code' : 'shell';
 
   return html`
-    <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-      <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Tool</legend>
-      <select name="tool" id="node-tool-select" style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); min-width: 16rem;">
+    <fieldset class="fieldset">
+      <legend class="fieldset__legend">Tool</legend>
+      <select name="tool" id="node-tool-select" class="form-field__input mono" style="min-width: 16rem; width: auto;">
         ${toolOptions as unknown as SafeHtml[]}
         ${agentOptions.length > 0 ? html`<optgroup label="Agents">${agentOptions as unknown as SafeHtml[]}</optgroup>` : html``}
       </select>
-      <p class="dim" style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs);" id="tool-description"></p>
+      <p class="dim text-xs mt-3 mb-0" id="tool-description"></p>
     </fieldset>
     <input type="hidden" name="type" id="node-type-hidden" value="${hiddenType}">
     <script id="tool-schemas" type="application/json">${unsafeHtml(schemasPayload)}</script>
@@ -129,12 +129,12 @@ export function renderToolInputsSection(
     const value = existingInputs?.[name] ?? spec.default ?? '';
     const required = spec.required ? 'required' : '';
     return html`
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
-        <strong>${name} <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-xs);">(${spec.type}${spec.required ? ', required' : ''})</span></strong>
+      <div class="form-field mb-3">
+        <strong>${name} <span class="dim text-xs" style="font-weight: var(--weight-regular);">(${spec.type}${spec.required ? ', required' : ''})</span></strong>
         <input type="text" name="toolInput_${name}" value="${String(value)}" ${unsafeHtml(required)}
-          style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono);">
-        ${spec.description ? html`<span class="dim" style="font-size: var(--font-size-xs);">${spec.description}</span>` : html``}
-      </label>
+          class="form-field__input mono">
+        ${spec.description ? html`<span class="form-field__hint">${spec.description}</span>` : html``}
+      </div>
     `;
   });
 

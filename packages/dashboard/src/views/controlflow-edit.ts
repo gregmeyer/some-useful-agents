@@ -9,14 +9,6 @@ export function isControlFlowNode(node: AgentNode): boolean {
   return CONTROL_FLOW_TYPES.has(node.type);
 }
 
-/**
- * Render the control-flow-specific edit section for a node. Returns
- * empty SafeHtml for execution nodes (shell, claude-code). For control-
- * flow nodes, renders:
- *   1. An explainer describing what this node type does
- *   2. The type-specific config fields (predicate, cases, agentId, etc.)
- *   3. A "Goes to" forward-edge display showing downstream paths
- */
 export function renderControlFlowSection(
   agent: Agent,
   node: AgentNode,
@@ -28,8 +20,8 @@ export function renderControlFlowSection(
   const goesTo = renderGoesToDisplay(agent, node);
 
   return html`
-    <fieldset class="cf-section" style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-raised);">
-      <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Flow control: ${node.type}</legend>
+    <fieldset class="fieldset" style="background: var(--color-surface-raised);">
+      <legend class="fieldset__legend">Flow control: ${node.type}</legend>
       ${explainer}
       ${config}
       ${goesTo}
@@ -41,11 +33,9 @@ function renderExplainer(node: AgentNode): SafeHtml {
   const desc = EXPLAINERS[node.type];
   if (!desc) return unsafeHtml('');
   return html`
-    <div class="cf-explainer" style="margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--color-surface); border: 1px solid var(--color-border);">
-      <p style="margin: 0; font-size: var(--font-size-sm); color: var(--color-text);">
-        <strong>${desc.title}</strong>
-      </p>
-      <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-xs);">${desc.body}</p>
+    <div class="card mb-3" style="padding: var(--space-2) var(--space-3);">
+      <p class="mb-0 text-sm"><strong>${desc.title}</strong></p>
+      <p class="dim text-xs mt-0 mb-0">${desc.body}</p>
     </div>
   `;
 }
@@ -53,7 +43,7 @@ function renderExplainer(node: AgentNode): SafeHtml {
 const EXPLAINERS: Record<string, { title: string; body: string }> = {
   conditional: {
     title: 'Evaluates a predicate against upstream output.',
-    body: 'Produces { matched: true/false }. Downstream nodes use onlyIf to run conditionally. No process is spawned — evaluation happens in the executor.',
+    body: 'Produces { matched: true/false }. Downstream nodes use onlyIf to run conditionally. No process is spawned.',
   },
   switch: {
     title: 'Matches an upstream field against named cases.',
@@ -61,23 +51,23 @@ const EXPLAINERS: Record<string, { title: string; body: string }> = {
   },
   loop: {
     title: 'Iterates over an array and invokes a sub-agent per item.',
-    body: 'Reads an array field from upstream output. For each item, runs the configured sub-agent as a nested flow. Collects results into { items: [...], count: N }.',
+    body: 'Reads an array field from upstream output. For each item, runs the configured sub-agent as a nested flow.',
   },
   'agent-invoke': {
     title: 'Runs another agent as a nested sub-flow.',
-    body: 'Resolves the sub-agent from the store, maps inputs from upstream, and executes it as a child run. Parent node waits for the sub-flow to complete and captures its result.',
+    body: 'Resolves the sub-agent from the store, maps inputs from upstream, and executes it as a child run.',
   },
   branch: {
-    title: 'Merge point — collects outputs from all upstream paths.',
-    body: 'Waits for all dependsOn nodes to complete (or be condition-skipped), then merges their outputs into { merged: { nodeId: output, ... }, count: N }.',
+    title: 'Merge point \u2014 collects outputs from all upstream paths.',
+    body: 'Waits for all dependsOn nodes to complete, then merges their outputs into { merged: { nodeId: output, ... } }.',
   },
   end: {
     title: 'Terminates the entire flow.',
-    body: 'When reached, all remaining nodes are skipped with flow_ended. The run completes as "completed" (not failed). Use with onlyIf for conditional early exit.',
+    body: 'When reached, all remaining nodes are skipped with flow_ended. The run completes as "completed". Use with onlyIf for conditional early exit.',
   },
   break: {
     title: 'Exits the current loop iteration or sub-flow.',
-    body: 'Like end, but only affects the current flow level. In a loop body, the loop continues to the next item. In a top-level flow, behaves like end.',
+    body: 'Like end, but only affects the current flow level. In a loop body, the loop continues to the next item.',
   },
 };
 
@@ -89,8 +79,8 @@ function renderConfigFields(node: AgentNode): SafeHtml {
       : p.exists !== undefined ? (p.exists ? 'exists (is not null)' : 'does not exist (is null)')
       : 'is truthy';
     return html`
-      <div style="margin-bottom: var(--space-3);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Predicate</p>
+      <div class="mb-3">
+        <p class="card__title mb-0">Predicate</p>
         <dl class="kv" style="grid-template-columns: 6rem 1fr;">
           <dt>Field</dt><dd class="mono">${p.field}</dd>
           <dt>Condition</dt><dd>${comparison}</dd>
@@ -104,9 +94,9 @@ function renderConfigFields(node: AgentNode): SafeHtml {
       html`<li><code>${name}</code> \u2190 matches <code>${JSON.stringify(val)}</code></li>`,
     );
     return html`
-      <div style="margin-bottom: var(--space-3);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Switch on field: <code class="mono">${node.switchConfig.field}</code></p>
-        <ul style="margin: var(--space-1) 0 0; padding-left: var(--space-5); font-size: var(--font-size-sm);">
+      <div class="mb-3">
+        <p class="card__title mb-0">Switch on field: <code class="mono">${node.switchConfig.field}</code></p>
+        <ul class="text-sm" style="margin: var(--space-1) 0 0; padding-left: var(--space-6);">
           ${cases as unknown as SafeHtml[]}
           <li class="dim">default \u2190 anything else</li>
         </ul>
@@ -116,8 +106,8 @@ function renderConfigFields(node: AgentNode): SafeHtml {
 
   if (node.type === 'loop' && node.loopConfig) {
     return html`
-      <div style="margin-bottom: var(--space-3);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Loop config</p>
+      <div class="mb-3">
+        <p class="card__title mb-0">Loop config</p>
         <dl class="kv" style="grid-template-columns: 8rem 1fr;">
           <dt>Iterate over</dt><dd class="mono">${node.loopConfig.over}</dd>
           <dt>Sub-agent</dt><dd><a href="/agents/${node.loopConfig.agentId}" class="mono">${node.loopConfig.agentId}</a></dd>
@@ -134,14 +124,14 @@ function renderConfigFields(node: AgentNode): SafeHtml {
         )
       : [];
     return html`
-      <div style="margin-bottom: var(--space-3);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Invoke config</p>
+      <div class="mb-3">
+        <p class="card__title mb-0">Invoke config</p>
         <dl class="kv" style="grid-template-columns: 8rem 1fr;">
           <dt>Sub-agent</dt><dd><a href="/agents/${node.agentInvokeConfig.agentId}" class="mono">${node.agentInvokeConfig.agentId}</a></dd>
         </dl>
         ${mappings.length > 0 ? html`
-          <p class="card__title" style="margin: var(--space-2) 0 var(--space-1);">Input mapping</p>
-          <ul style="margin: 0; padding-left: var(--space-5); font-size: var(--font-size-sm);">
+          <p class="card__title mt-3 mb-0">Input mapping</p>
+          <ul class="text-sm" style="margin: 0; padding-left: var(--space-6);">
             ${mappings as unknown as SafeHtml[]}
           </ul>
         ` : html``}
@@ -151,33 +141,25 @@ function renderConfigFields(node: AgentNode): SafeHtml {
 
   if (node.type === 'end' || node.type === 'break') {
     return node.endMessage
-      ? html`<div style="margin-bottom: var(--space-3);"><p class="card__title" style="margin: 0 0 var(--space-1);">Message</p><p class="dim" style="margin: 0; font-size: var(--font-size-sm);">${node.endMessage}</p></div>`
+      ? html`<div class="mb-3"><p class="card__title mb-0">Message</p><p class="dim text-sm mb-0">${node.endMessage}</p></div>`
       : unsafeHtml('');
   }
 
   return unsafeHtml('');
 }
 
-/**
- * "Goes to" display — shows which downstream nodes this control-flow
- * node feeds into, grouped by condition path when applicable.
- */
 function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
-  // Find all nodes that depend on this node.
-  const downstream = agent.nodes.filter((n) =>
-    n.dependsOn?.includes(node.id),
-  );
+  const downstream = agent.nodes.filter((n) => n.dependsOn?.includes(node.id));
 
   if (downstream.length === 0) {
     return html`
-      <div style="margin-top: var(--space-2);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Goes to</p>
-        <p class="dim" style="margin: 0; font-size: var(--font-size-xs);">No downstream nodes depend on this node yet.</p>
+      <div class="mt-3">
+        <p class="card__title mb-0">Goes to</p>
+        <p class="dim text-xs mb-0">No downstream nodes depend on this node yet.</p>
       </div>
     `;
   }
 
-  // For conditional/switch nodes, group downstream by their onlyIf condition.
   if (node.type === 'conditional' || node.type === 'switch') {
     const paths: SafeHtml[] = [];
     const ungated: SafeHtml[] = [];
@@ -194,7 +176,7 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
 
         paths.push(html`
           <div class="cf-path" style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0;">
-            <span class="badge badge--info" style="font-size: var(--font-size-xs);">if ${condition}</span>
+            <span class="badge badge--info text-xs">if ${condition}</span>
             <span>\u2192</span>
             <a href="/agents/${agent.id}/nodes/${d.id}/edit" class="mono">${d.id}</a>
             <span class="badge badge--${d.type === 'shell' ? 'ok' : d.type === 'claude-code' ? 'info' : 'muted'}">${d.type}</span>
@@ -203,7 +185,7 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
       } else {
         ungated.push(html`
           <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0;">
-            <span class="badge badge--muted" style="font-size: var(--font-size-xs);">always</span>
+            <span class="badge badge--muted text-xs">always</span>
             <span>\u2192</span>
             <a href="/agents/${agent.id}/nodes/${d.id}/edit" class="mono">${d.id}</a>
           </div>
@@ -212,15 +194,14 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
     }
 
     return html`
-      <div style="margin-top: var(--space-2);">
-        <p class="card__title" style="margin: 0 0 var(--space-1);">Goes to</p>
+      <div class="mt-3">
+        <p class="card__title mb-0">Goes to</p>
         ${paths as unknown as SafeHtml[]}
         ${ungated as unknown as SafeHtml[]}
       </div>
     `;
   }
 
-  // For other control-flow types, simple downstream list.
   const items = downstream.map((d) => html`
     <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0;">
       <span>\u2192</span>
@@ -230,8 +211,8 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
   `);
 
   return html`
-    <div style="margin-top: var(--space-2);">
-      <p class="card__title" style="margin: 0 0 var(--space-1);">Goes to</p>
+    <div class="mt-3">
+      <p class="card__title mb-0">Goes to</p>
       ${items as unknown as SafeHtml[]}
     </div>
   `;

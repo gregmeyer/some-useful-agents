@@ -68,14 +68,14 @@ export function renderSettingsVariables(args: SettingsVariablesArgs): SafeHtml {
 
 function renderVariablesTable(variables: Array<[string, Variable]>): SafeHtml {
   if (variables.length === 0) {
-    return html`<p class="settings-empty" style="margin-top: var(--space-3);">No variables set yet. Add one below.</p>`;
+    return html`<p class="settings-empty mt-3">No variables set yet. Add one below.</p>`;
   }
   const rows = variables.map(([name, v]) => html`
     <tr>
       <td class="mono">${name}</td>
       <td class="mono">${v.value}</td>
       <td class="dim">${v.description ?? ''}</td>
-      <td style="text-align: right;">
+      <td class="text-right">
         <form action="/settings/variables/delete" method="post"
           data-confirm="Delete variable ${name}? Agents that reference it will get an empty value.">
           <input type="hidden" name="name" value="${name}">
@@ -85,13 +85,13 @@ function renderVariablesTable(variables: Array<[string, Variable]>): SafeHtml {
     </tr>
   `);
   return html`
-    <table class="table" style="margin-top: var(--space-3);">
+    <table class="table mt-3">
       <thead>
         <tr>
           <th>Name</th>
           <th>Value</th>
           <th>Description</th>
-          <th style="text-align: right;">Action</th>
+          <th class="text-right">Action</th>
         </tr>
       </thead>
       <tbody>${rows as unknown as SafeHtml[]}</tbody>
@@ -101,5 +101,5 @@ function renderVariablesTable(variables: Array<[string, Variable]>): SafeHtml {
 
 function setErrorBlock(err: string | undefined): SafeHtml {
   if (!err) return unsafeHtml('');
-  return html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${err}</div>`;
+  return html`<div class="flash flash--error mb-3">${err}</div>`;
 }

@@ -99,13 +99,13 @@ export function renderRunsList(opts: RunsListOptions): string {
   const table = rows.length === 0
     ? hasAnyFilter
       ? html`
-        <div class="settings-empty" style="margin-top: 0;">
-          <h3 style="margin-top: 0;">No runs match</h3>
+        <div class="settings-empty mt-0">
+          <h3 class="mt-0">No runs match</h3>
           <p class="dim">No runs match the current filters. <a href="/runs">Reset filters</a> to see everything.</p>
         </div>`
       : html`
-        <div class="settings-empty" style="margin-top: 0;">
-          <h3 style="margin-top: 0;">No runs yet</h3>
+        <div class="settings-empty mt-0">
+          <h3 class="mt-0">No runs yet</h3>
           <p class="dim">Trigger your first run from the <a href="/agents">Agents</a> page or <code>sua workflow run &lt;id&gt;</code>.</p>
         </div>`
     : html`

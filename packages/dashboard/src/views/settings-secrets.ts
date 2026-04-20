@@ -87,7 +87,7 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
 
       <div id="secret-confirm-modal" class="modal-backdrop" style="display: none;">
         <div class="modal" style="max-width: 500px;">
-          <h3 style="margin: 0 0 var(--space-3);">Copy your secret value</h3>
+          <h3 class="modal-heading">Copy your secret value</h3>
           <p class="dim" style="margin: 0 0 var(--space-3);">
             After saving, this value will be encrypted and <strong>never shown again</strong>.
             Copy it now if you need it elsewhere.
@@ -96,7 +96,7 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
             <code id="secret-confirm-value" style="flex: 1; padding: var(--space-2) var(--space-3); background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); word-break: break-all;"></code>
             <button type="button" class="btn btn--sm" id="secret-copy-btn" title="Copy to clipboard">Copy</button>
           </div>
-          <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+          <div class="flex-end">
             <button type="button" class="btn btn--ghost" id="secret-cancel-btn">Cancel</button>
             <button type="button" class="btn btn--primary" id="secret-save-btn">Save secret</button>
           </div>
@@ -111,7 +111,7 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
       </p>
       ${args.status.mode === 'passphrase'
         ? html`
-          <form action="/settings/secrets/lock" method="post" style="margin-top: var(--space-3);">
+          <form action="/settings/secrets/lock" method="post" class="mt-3">
             <button type="submit" class="btn btn--ghost">Lock now</button>
           </form>`
         : unsafeHtml('')}
@@ -121,12 +121,12 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
 
 function renderNamesTable(names: string[]): SafeHtml {
   if (names.length === 0) {
-    return html`<p class="settings-empty" style="margin-top: var(--space-3);">No secrets set yet.</p>`;
+    return html`<p class="settings-empty mt-3">No secrets set yet.</p>`;
   }
   const rows = names.map((n) => html`
     <tr>
       <td class="mono">${n}</td>
-      <td style="text-align: right;">
+      <td class="text-right">
         <form action="/settings/secrets/delete" method="post"
           data-confirm="Delete secret ${n}? Agents that reference it will fail until it's set again.">
           <input type="hidden" name="name" value="${n}">
@@ -136,11 +136,11 @@ function renderNamesTable(names: string[]): SafeHtml {
     </tr>
   `);
   return html`
-    <table class="table" style="margin-top: var(--space-3);">
+    <table class="table mt-3">
       <thead>
         <tr>
           <th>Name</th>
-          <th style="text-align: right;">Action</th>
+          <th class="text-right">Action</th>
         </tr>
       </thead>
       <tbody>${rows as unknown as SafeHtml[]}</tbody>
@@ -152,7 +152,7 @@ function renderMissingList(missing: string[]): SafeHtml {
   const items = missing.map((n) => html`<li class="mono">${n}</li>`);
   return html`
     <div style="margin-top: var(--space-4);">
-      <p class="card__title" style="margin-bottom: var(--space-2);">Declared by agents but not set</p>
+      <p class="card__title mb-2">Declared by agents but not set</p>
       <ul class="settings-missing">${items as unknown as SafeHtml[]}</ul>
     </div>
   `;
@@ -160,12 +160,12 @@ function renderMissingList(missing: string[]): SafeHtml {
 
 function unlockErrorBlock(err: string | undefined): SafeHtml {
   if (!err) return unsafeHtml('');
-  return html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${err}</div>`;
+  return html`<div class="flash flash--error mb-3">${err}</div>`;
 }
 
 function setErrorBlock(err: string | undefined): SafeHtml {
   if (!err) return unsafeHtml('');
-  return html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${err}</div>`;
+  return html`<div class="flash flash--error mb-3">${err}</div>`;
 }
 
 function secretsSummary(count: number, status: SecretsStoreStatus, isUnlocked: boolean): string {

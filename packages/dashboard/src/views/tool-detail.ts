@@ -55,7 +55,7 @@ export function renderToolDetail(args: {
     ` : html`<p class="dim">No inputs declared.</p>`}
 
     ${Object.keys(tool.outputs).length > 0 ? html`
-      <section style="margin-top: var(--space-6);">
+      <section class="mt-6">
         <h2>Outputs</h2>
         <table class="table">
           <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
@@ -64,7 +64,7 @@ export function renderToolDetail(args: {
       </section>
     ` : html`<p class="dim">No outputs declared.</p>`}
 
-    <section style="margin-top: var(--space-6);">
+    <section class="mt-6">
       <h2>Implementation</h2>
       <div class="card">
         <dl class="kv">
