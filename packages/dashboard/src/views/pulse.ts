@@ -29,7 +29,7 @@ export interface PulsePageInput {
 // ── Template renderers ───────────────────────────────────────────────────
 
 function renderMetric(tile: PulseTile): SafeHtml {
-  const val = tile.slots.value !== undefined ? String(tile.slots.value) : '--';
+  const val = tile.slots.value !== undefined ? stringify(tile.slots.value) : '--';
   const unit = tile.slots.unit ? String(tile.slots.unit) : '';
   const label = tile.slots.label ? String(tile.slots.label) : '';
   const prev = tile.slots.previous !== undefined ? Number(tile.slots.previous) : undefined;
@@ -58,14 +58,27 @@ function renderMetric(tile: PulseTile): SafeHtml {
 }
 
 function renderTextHeadline(tile: PulseTile): SafeHtml {
-  const headline = tile.slots.headline ? String(tile.slots.headline) : '';
-  const body = tile.slots.body ? String(tile.slots.body) : 'No data yet';
-  const truncBody = body.length > 500 ? body.slice(0, 500) + '...' : body;
+  const headline = tile.slots.headline ? stringify(tile.slots.headline) : '';
+  const rawBody = tile.slots.body ?? 'No data yet';
+
+  // Detect JSON content and pretty-print it in a code block.
+  const bodyStr = stringify(rawBody);
+  const isJson = looksLikeJson(bodyStr);
+  let bodyHtml: SafeHtml;
+  if (isJson) {
+    const pretty = prettyJson(bodyStr);
+    const truncated = pretty.length > 800 ? pretty.slice(0, 800) + '\n...' : pretty;
+    bodyHtml = html`<pre class="pulse-tile__code">${truncated}</pre>`;
+  } else {
+    const truncBody = bodyStr.length > 800 ? bodyStr.slice(0, 800) + '...' : bodyStr;
+    bodyHtml = unsafeHtml(`<div class="pulse-tile__body pulse-tile__body--md">${renderMarkdown(truncBody)}</div>`);
+  }
+
   return html`
     <div class="pulse-tile pulse-tile--text-headline ${sizeClass(tile.signal.size)}">
       ${tileHeader(tile)}
       ${headline ? html`<div class="pulse-tile__headline">${headline}</div>` : html``}
-      <div class="pulse-tile__body">${truncBody}</div>
+      ${bodyHtml}
       ${tileFooter(tile)}
     </div>
   `;
@@ -196,6 +209,56 @@ function renderTextImage(tile: PulseTile): SafeHtml {
   `;
 }
 
+function renderMedia(tile: PulseTile): SafeHtml {
+  const rawUrl = tile.slots.url ? String(tile.slots.url).trim() : '';
+  const title = tile.slots.title ? String(tile.slots.title) : '';
+  const caption = tile.slots.caption ? String(tile.slots.caption) : '';
+  const mediaType = tile.slots.mediaType ? String(tile.slots.mediaType).toLowerCase() : '';
+
+  // Extract YouTube video ID from various URL formats.
+  const ytMatch = rawUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  const isYoutube = !!ytMatch;
+  const isVideo = !isYoutube && (mediaType === 'video' || /\.(mp4|webm|ogg)(\?|$)/i.test(rawUrl));
+  const isImage = !isYoutube && !isVideo && /\.(png|jpe?g|gif|webp|svg|bmp)(\?|$)/i.test(rawUrl);
+
+  let mediaEl: SafeHtml;
+  if (!rawUrl) {
+    mediaEl = html`<div class="dim" style="font-size: var(--font-size-xs); padding: var(--space-4); text-align: center;">No media URL</div>`;
+  } else if (isYoutube) {
+    const videoId = ytMatch![1];
+    const thumbUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+    // Thumbnail with play button. Click swaps to iframe embed in-place.
+    // External link opens YouTube in a new tab.
+    mediaEl = unsafeHtml(
+      `<div class="pulse-media-yt" data-embed="${esc(embedUrl)}" style="position:relative;border-radius:var(--radius-sm);overflow:hidden;cursor:pointer;">` +
+      `<img src="${esc(thumbUrl)}" alt="${esc(title || 'YouTube video')}" loading="lazy" style="width:100%;display:block;aspect-ratio:16/9;object-fit:cover;">` +
+      `<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;background:rgba(0,0,0,0.7);border-radius:50%;display:flex;align-items:center;justify-content:center;">` +
+      `<span style="width:0;height:0;border-style:solid;border-width:8px 0 8px 16px;border-color:transparent transparent transparent #fff;margin-left:3px;"></span>` +
+      `</span></div>` +
+      `<a href="${esc(watchUrl)}" target="_blank" rel="noopener" style="display:block;font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:var(--space-1);text-align:right;">Open on YouTube \u2197</a>`
+    );
+  } else if (isVideo) {
+    mediaEl = unsafeHtml(`<video class="pulse-tile__media" src="${esc(rawUrl)}" controls preload="metadata" style="width:100%;border-radius:var(--radius-sm);"></video>`);
+  } else if (isImage) {
+    mediaEl = unsafeHtml(`<img class="pulse-tile__media" src="${esc(rawUrl)}" alt="${esc(title)}" loading="lazy" style="width:100%;border-radius:var(--radius-sm);object-fit:cover;max-height:240px;">`);
+  } else {
+    // Unknown media type — render as a clickable link.
+    mediaEl = unsafeHtml(`<a href="${esc(rawUrl)}" target="_blank" rel="noopener" style="color:var(--color-primary);font-family:var(--font-mono);font-size:var(--font-size-xs);word-break:break-all;">${esc(rawUrl)}</a>`);
+  }
+
+  return html`
+    <div class="pulse-tile pulse-tile--media ${sizeClass(tile.signal.size)}">
+      ${tileHeader(tile)}
+      ${title ? html`<div class="pulse-tile__headline" style="font-size: var(--font-size-sm);">${title}</div>` : html``}
+      ${mediaEl}
+      ${caption ? html`<div class="dim" style="font-size: var(--font-size-xs);">${caption}</div>` : html``}
+      ${tileFooter(tile)}
+    </div>
+  `;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function sizeClass(size?: string): string {
@@ -209,7 +272,8 @@ function tileHeader(tile: PulseTile): SafeHtml {
   const icon = tile.signal.icon ?? '';
   return html`
     <div class="pulse-tile__header">
-      <div style="display: flex; align-items: center; gap: var(--space-2); flex: 1;">
+      <button type="button" class="pulse-tile__collapse" data-tile-id="${tile.agent.id}" title="Collapse/expand">\u25BC</button>
+      <div style="display: flex; align-items: center; gap: var(--space-2); flex: 1; cursor: pointer;" data-tile-id="${tile.agent.id}" data-collapse-trigger>
         ${icon ? html`<span class="pulse-tile__icon">${icon}</span>` : html``}
         <span class="pulse-tile__title">${tile.signal.title}</span>
       </div>
@@ -238,6 +302,78 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Convert any value to a display string. Handles objects that would show as [object Object]. */
+function stringify(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  try { return JSON.stringify(val, null, 2); } catch { return String(val); }
+}
+
+/**
+ * Lightweight markdown to HTML. Handles the common patterns agents produce:
+ * headers, bold, italic, links, tables, lists, inline code, line breaks.
+ * No library dependency. Input must be pre-escaped or trusted.
+ */
+function renderMarkdown(text: string): string {
+  let h = esc(text);
+
+  // Code blocks (``` ... ```)
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="pulse-tile__code">$2</pre>');
+
+  // Inline code
+  h = h.replace(/`([^`]+)`/g, '<code style="background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:3px;font-size:var(--font-size-xs);">$1</code>');
+
+  // Headers (## and ###)
+  h = h.replace(/^### (.+)$/gm, '<strong style="font-size:var(--font-size-sm);display:block;margin-top:var(--space-2);">$1</strong>');
+  h = h.replace(/^## (.+)$/gm, '<strong style="font-size:var(--font-size-md);display:block;margin-top:var(--space-2);">$1</strong>');
+
+  // Bold and italic
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Links [text](url)
+  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:var(--color-primary);" target="_blank" rel="noopener">$1</a>');
+
+  // Markdown tables
+  const tableRe = /^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)+)/gm;
+  h = h.replace(tableRe, (_, headerRow: string, _sep: string, bodyRows: string) => {
+    const headers = headerRow.split('|').filter(Boolean).map((c: string) => c.trim());
+    const rows = bodyRows.trim().split('\n').map((r: string) =>
+      r.split('|').filter(Boolean).map((c: string) => c.trim())
+    );
+    return '<table class="pulse-table" style="margin:var(--space-2) 0;">' +
+      '<thead><tr>' + headers.map((h: string) => `<th>${h}</th>`).join('') + '</tr></thead>' +
+      '<tbody>' + rows.map((r: string[]) => '<tr>' + r.map((c: string) => `<td>${c}</td>`).join('') + '</tr>').join('') + '</tbody>' +
+      '</table>';
+  });
+
+  // Unordered lists
+  h = h.replace(/^- (.+)$/gm, '<li style="margin-left:var(--space-4);list-style:disc;">$1</li>');
+
+  // Double newline → paragraph break, single newline → <br>
+  h = h.replace(/\n{2,}/g, '<br><br>');
+  h = h.replace(/\n/g, '<br>');
+
+  return h;
+}
+
+/** Check if a string looks like JSON (starts with { or [). */
+function looksLikeJson(s: string): boolean {
+  const trimmed = s.trimStart();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false;
+  try { JSON.parse(trimmed); return true; } catch { return false; }
+}
+
+/** Pretty-print a JSON string with 2-space indent. */
+function prettyJson(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s.trim()), null, 2);
+  } catch {
+    return s;
+  }
+}
+
 function renderTile(tile: PulseTile): SafeHtml {
   const { template } = normalizeSignal(tile.signal);
   switch (template as SignalTemplate) {
@@ -248,6 +384,7 @@ function renderTile(tile: PulseTile): SafeHtml {
     case 'time-series': return renderTimeSeries(tile);
     case 'image': return renderImage(tile);
     case 'text-image': return renderTextImage(tile);
+    case 'media': return renderMedia(tile);
     default: return renderTextHeadline(tile);
   }
 }

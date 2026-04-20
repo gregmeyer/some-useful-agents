@@ -41,6 +41,44 @@ nodes:
       AVAILABLE TOOLS (use these as node types or tool references):
       {{inputs.AVAILABLE_TOOLS}}
 
+      SIGNAL BLOCK (always include a signal block so the agent shows on the Pulse dashboard):
+      Every agent MUST include a signal: block. Pick the best template for the output:
+      - metric: Big number display. Slots: value (required), label, unit. Best for: counts, percentages, latency.
+      - text-headline: Headline + body text. Slots: headline (required), body. Best for: summaries, jokes, greetings.
+      - table: Data table. Slots: rows (required, array), columns. Best for: search results, listings.
+      - status: Colored dot + label. Slots: status (required: healthy/degraded/down), label, message. Best for: health checks, monitors.
+      - media: Image or video player. Slots: url (required), title, caption. Best for: generated images, screenshots.
+      - time-series: Sparkline chart. Slots: values (required, array of numbers), current, label. Best for: trends.
+      - text-image: Text alongside an image. Slots: text (required), imageUrl (required). Best for: cards with thumbnails.
+      - image: Full image. Slots: imageUrl (required), alt. Best for: generated visuals.
+
+      The mapping maps dot-paths from the agent's structured output to template slots.
+      Use "result" to reference the full raw output. Use literal strings for static labels.
+
+      Example signal blocks:
+        signal:
+          title: API Latency
+          icon: "\u26A1"
+          format: number
+          template: metric
+          mapping:
+            value: latency_ms
+            label: API Latency
+            unit: ms
+
+        signal:
+          title: Daily Summary
+          icon: "\U0001F4CA"
+          format: text
+          template: text-headline
+          mapping:
+            headline: Daily Summary
+            body: result
+          size: 2x1
+
+      The format: field is a universal output hint (text/number/table/json/chart).
+      The template: field selects the Pulse display. Always include both.
+
       DESIGN GUIDELINES:
       - Start simple. Prefer fewer nodes that do more over many tiny nodes.
       - Use shell nodes for deterministic work (curl, jq, file ops).
@@ -52,6 +90,7 @@ nodes:
         URLs, API keys (mark as secrets instead), thresholds, output paths.
       - Set reasonable timeouts (shell: 30-60s, claude-code: 60-120s).
       - Add a description that explains what the agent does.
+      - Shape output as JSON when using metric/table/status templates so field extraction works.
 
       CRITICAL YAML RULES:
       - Agent id: lowercase with hyphens only (e.g. job-scraper, daily-report).

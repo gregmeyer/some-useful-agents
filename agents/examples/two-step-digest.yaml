@@ -10,6 +10,10 @@ signal:
   title: Daily Digest
   icon: "\U0001F4F0"
   format: text
+  template: text-headline
+  mapping:
+    headline: Daily Digest
+    body: result
   size: 2x1
 nodes:
   - id: fetch

@@ -11,6 +11,10 @@ signal:
   title: Morning Greeting
   icon: "\u2600\uFE0F"
   format: text
+  template: text-headline
+  mapping:
+    headline: Good Morning
+    body: result
   refresh: 24h
 nodes:
   - id: greet

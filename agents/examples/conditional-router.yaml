@@ -10,7 +10,11 @@ signal:
   title: Router
   icon: "\U0001F500"
   format: json
-  field: merged
+  template: status
+  mapping:
+    status: matched
+    label: Router
+    message: result
 nodes:
   - id: classify
     type: shell

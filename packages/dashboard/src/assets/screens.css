@@ -721,7 +721,13 @@ main.main--wide {
   flex-direction: column;
   gap: var(--space-3);
   min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
+  transition: padding 150ms ease-out, min-height 150ms ease-out, gap 150ms ease-out;
 }
+
+.pulse-tile--2x2 { max-height: 600px; }
+.pulse-tile--1x2 { max-height: 600px; }
 
 .pulse-tile--2x1 { grid-column: span 2; }
 .pulse-tile--1x2 { grid-row: span 2; }
@@ -848,6 +854,12 @@ main.main--wide {
   margin: var(--space-3) 0;
 }
 
+/* -- Markdown body in tiles -- */
+.pulse-tile__body--md { line-height: 1.6; }
+.pulse-tile__body--md a { color: var(--color-primary); }
+.pulse-tile__body--md strong { font-weight: 600; }
+.pulse-tile__body--md .pulse-table { margin: var(--space-2) 0; }
+
 /* -- Template: metric -- */
 .pulse-tile__unit {
   font-size: var(--font-size-sm);
@@ -939,6 +951,41 @@ main.main--wide {
   max-height: none;
   flex: 1;
   width: 100%;
+}
+
+/* -- Collapse/expand -- */
+.pulse-tile__collapse {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  line-height: 1;
+  transition: transform 150ms ease-out;
+  flex-shrink: 0;
+}
+
+.pulse-tile--collapsed .pulse-tile__collapse {
+  transform: rotate(-90deg);
+}
+
+.pulse-tile.pulse-tile--collapsed {
+  min-height: 0 !important;
+  max-height: fit-content !important;
+  height: fit-content !important;
+  padding: var(--space-2) var(--space-4) !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+  grid-row: span 1 !important;
+}
+
+.pulse-tile.pulse-tile--collapsed > *:not(.pulse-tile__header) {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
 }
 
 /* -- Hide/show toggle -- */

@@ -105,6 +105,19 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateDefinition> = {
     ],
     defaultSize: '1x1',
   },
+  media: {
+    name: 'media',
+    displayName: 'Media Player',
+    description: 'Image or video with optional title and caption',
+    icon: '\u25B6',
+    slots: [
+      { name: 'url', label: 'Media URL', required: true, type: 'url' },
+      { name: 'title', label: 'Title', required: false, type: 'string' },
+      { name: 'caption', label: 'Caption', required: false, type: 'string' },
+      { name: 'mediaType', label: 'Type (image/video)', required: false, type: 'string' },
+    ],
+    defaultSize: '2x1',
+  },
 };
 
 // ── Backward compatibility ───────────────────────────────────────────────
