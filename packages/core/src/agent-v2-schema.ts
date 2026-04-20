@@ -149,11 +149,19 @@ export const agentV2Schema = z.object({
   signal: z.object({
     title: z.string().min(1),
     icon: z.string().optional(),
-    format: z.enum(['text', 'number', 'table', 'json', 'chart']),
+    // v2 template system
+    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status']).optional(),
+    mapping: z.record(z.string()).optional(),
+    // v1 (deprecated, still accepted)
+    format: z.enum(['text', 'number', 'table', 'json', 'chart']).optional(),
     field: z.string().optional(),
     refresh: z.string().optional(),
     size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(),
-  }).optional(),
+    hidden: z.boolean().optional(),
+  }).refine(
+    (s) => s.format !== undefined || s.template !== undefined,
+    { message: 'Signal must declare either "format" (v1) or "template" (v2).' },
+  ).optional(),
 
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),

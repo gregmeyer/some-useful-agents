@@ -10,7 +10,10 @@ source: examples
 signal:
   title: Joke of the Day
   icon: "\U0001F3AD"
-  format: text
+  template: text-headline
+  mapping:
+    headline: Joke of the Day
+    body: result
   refresh: 24h
 nodes:
   - id: fetch

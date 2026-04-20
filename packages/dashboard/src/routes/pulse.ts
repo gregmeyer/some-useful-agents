@@ -3,7 +3,8 @@ import { parseAgent, type Run } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { renderPulsePage, extractSignalValue, type PulseTile } from '../views/pulse.js';
+import { renderPulsePage, type PulseTile } from '../views/pulse.js';
+import { normalizeSignal, extractMappedValues } from '../views/pulse-templates.js';
 
 export const pulseRouter: Router = Router();
 
@@ -32,45 +33,50 @@ function autoImportSignalExamples(ctx: ReturnType<typeof getContext>): void {
 }
 
 /**
- * GET /pulse — Signal tile dashboard. Shows live output from agents
- * that declare a `signal:` field in their YAML.
+ * Build a PulseTile for an agent with a signal declaration.
+ */
+function buildTile(agent: ReturnType<ReturnType<typeof getContext>['agentStore']['getAgent']> & { signal: NonNullable<unknown> }, ctx: ReturnType<typeof getContext>): PulseTile {
+  const signal = agent.signal!;
+  let lastRun: Run | undefined;
+  let outputsJson: string | undefined;
+  try {
+    const runs = ctx.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
+    if (runs.length > 0) {
+      lastRun = runs[0];
+      const execs = ctx.runStore.listNodeExecutions(lastRun.id);
+      const lastExec = execs.filter((e) => e.status === 'completed').pop();
+      if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;
+    }
+  } catch { /* run store may not have runs */ }
+
+  const { mapping } = normalizeSignal(signal);
+  const slots = extractMappedValues(lastRun, mapping, outputsJson);
+  return { agent, signal, lastRun, slots };
+}
+
+/**
+ * GET /pulse — Signal tile dashboard.
  */
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-
-  // Ensure signal-enabled example agents are imported.
   autoImportSignalExamples(ctx);
 
   const agents = ctx.agentStore.listAgents();
-
-  // Collect agents with a signal declaration.
   const tiles: PulseTile[] = [];
+  const hiddenTiles: PulseTile[] = [];
+
   for (const agent of agents) {
     if (!agent.signal) continue;
-
-    // Fetch the most recent completed run for this agent.
-    let lastRun: Run | undefined;
-    let outputsJson: string | undefined;
-    try {
-      const runs = ctx.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
-      if (runs.length > 0) {
-        lastRun = runs[0];
-        // Try to get structured output from the last node execution.
-        const execs = ctx.runStore.listNodeExecutions(lastRun.id);
-        const lastExec = execs.filter((e) => e.status === 'completed').pop();
-        if (lastExec?.outputsJson) {
-          outputsJson = lastExec.outputsJson;
-        }
-      }
-    } catch { /* run store may not have runs for this agent */ }
-
-    const value = extractSignalValue(lastRun, agent.signal, outputsJson);
-    tiles.push({ agent, signal: agent.signal, lastRun, value });
+    const tile = buildTile(agent as typeof agent & { signal: NonNullable<unknown> }, ctx);
+    if (agent.signal.hidden) {
+      hiddenTiles.push(tile);
+    } else {
+      tiles.push(tile);
+    }
   }
 
   // Compute health stats.
-  const now = new Date();
-  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   let runsToday = 0;
   let failedToday = 0;
   let totalDurationSec = 0;
@@ -90,15 +96,39 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
     }
   } catch { /* ignore */ }
 
-  const avgDurationSec = completedCount > 0 ? Math.round(totalDurationSec / completedCount) : 0;
-
   res.type('html').send(renderPulsePage({
     tiles,
+    hiddenTiles,
     stats: {
       runsToday,
       failedToday,
-      avgDurationSec,
+      avgDurationSec: completedCount > 0 ? Math.round(totalDurationSec / completedCount) : 0,
       agentCount: agents.length,
     },
   }));
+});
+
+/**
+ * POST /agents/:id/signal/toggle — toggle the hidden state of a signal tile.
+ * Creates a new version with signal.hidden flipped.
+ */
+pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent || !agent.signal) {
+    res.redirect(303, '/pulse');
+    return;
+  }
+
+  try {
+    const updated = {
+      ...agent,
+      signal: { ...agent.signal, hidden: !agent.signal.hidden },
+    };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', agent.signal.hidden ? 'Unhide signal tile' : 'Hide signal tile');
+    res.redirect(303, '/pulse');
+  } catch {
+    res.redirect(303, '/pulse');
+  }
 });

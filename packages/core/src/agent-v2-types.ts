@@ -256,16 +256,36 @@ export interface Agent {
 
 export type SignalFormat = 'text' | 'number' | 'table' | 'json' | 'chart';
 
+export type SignalTemplate =
+  | 'metric'
+  | 'time-series'
+  | 'text-headline'
+  | 'text-image'
+  | 'image'
+  | 'table'
+  | 'status';
+
 export interface AgentSignal {
   title: string;
   icon?: string;
-  format: SignalFormat;
-  /** Dot-path into the last node's structured output (default: "result"). */
+
+  /** v2: display template name (preferred over format). */
+  template?: SignalTemplate;
+  /** v2: maps output fields to template slots. Keys are slot names, values are
+   *  dot-paths into structured output or literal strings. */
+  mapping?: Record<string, string>;
+
+  /** v1 (deprecated): renderer selector. Use `template` instead. */
+  format?: SignalFormat;
+  /** v1 (deprecated): single dot-path extractor. Use `mapping` instead. */
   field?: string;
+
   /** Hint for auto-refresh interval (e.g. "24h", "1h", "5m"). */
   refresh?: string;
   /** Grid tile size on the Pulse board (default: "1x1"). */
   size?: '1x1' | '2x1' | '1x2' | '2x2';
+  /** Hidden from Pulse dashboard. Toggle via the tile's visibility button. */
+  hidden?: boolean;
 }
 
 /**

@@ -9,7 +9,10 @@ source: examples
 signal:
   title: Today's Activity
   icon: "\uD83D\uDCCA"
-  format: text
+  template: text-headline
+  mapping:
+    headline: Today's Activity
+    body: result
   refresh: 1h
   size: 2x1
 

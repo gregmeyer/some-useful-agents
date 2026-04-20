@@ -8,10 +8,13 @@ status: active
 source: examples
 
 signal:
-  title: Disk Usage
+  title: System Health
   icon: "\uD83D\uDCBE"
-  format: number
-  field: disk_percent
+  template: metric
+  mapping:
+    value: disk_percent
+    label: Disk Usage
+    unit: "%"
   refresh: 1h
   size: 1x1
 
