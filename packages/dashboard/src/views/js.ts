@@ -332,8 +332,39 @@ export const DASHBOARD_JS = `
     function positionPalette(textarea) {
       ensurePalette();
       var rect = textarea.getBoundingClientRect();
+      // Estimate cursor Y position within the textarea using a mirror div.
+      // This places the palette near the line being edited, not at the
+      // bottom of the entire textarea.
+      var cursorTop = 0;
+      try {
+        var mirror = document.createElement('div');
+        var cs = window.getComputedStyle(textarea);
+        mirror.style.cssText = 'position:absolute;visibility:hidden;white-space:pre-wrap;word-wrap:break-word;overflow:hidden;';
+        mirror.style.width = cs.width;
+        mirror.style.font = cs.font;
+        mirror.style.padding = cs.padding;
+        mirror.style.border = cs.border;
+        mirror.style.lineHeight = cs.lineHeight;
+        mirror.style.letterSpacing = cs.letterSpacing;
+        var textBefore = textarea.value.substring(0, textarea.selectionStart);
+        mirror.textContent = textBefore;
+        var marker = document.createElement('span');
+        marker.textContent = '|';
+        mirror.appendChild(marker);
+        document.body.appendChild(mirror);
+        cursorTop = marker.offsetTop - textarea.scrollTop;
+        document.body.removeChild(mirror);
+      } catch (e) {
+        cursorTop = 0;
+      }
+      // Position palette just below the cursor line, clamped within the textarea bounds.
+      var lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight, 10) || 20;
+      var top = rect.top + cursorTop + lineHeight + 4;
+      // Don't let it go above the textarea or below the viewport.
+      top = Math.max(top, rect.top + lineHeight);
+      top = Math.min(top, rect.bottom + 4);
       palette.style.left = Math.round(rect.left + window.scrollX) + 'px';
-      palette.style.top = Math.round(rect.bottom + window.scrollY + 4) + 'px';
+      palette.style.top = Math.round(top + window.scrollY) + 'px';
       palette.style.minWidth = Math.round(Math.min(rect.width, 420)) + 'px';
     }
 

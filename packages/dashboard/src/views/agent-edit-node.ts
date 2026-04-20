@@ -13,14 +13,6 @@ export interface EditNodeFormValues {
   dependsOn?: string[];
 }
 
-/**
- * Render the edit form for an existing node in a v2 agent. The node id
- * is shown read-only — renaming would break every downstream
- * `{{upstream.<id>.result}}` / `$UPSTREAM_<ID>_RESULT` reference in the
- * same agent. Users who want a different id delete + recreate.
- *
- * Saving produces a new agent version (via `createNewVersion`).
- */
 export function renderAgentEditNode(args: {
   agent: Agent;
   node: AgentNode;
@@ -32,57 +24,47 @@ export function renderAgentEditNode(args: {
   const { agent, node, values: submitted, error, toolStore, variablesStore } = args;
   const allTools = getAvailableTools(toolStore);
 
-  // Fall back to the node's current values if nothing's been submitted.
   const v: EditNodeFormValues = {
     type: submitted?.type ?? node.type,
     command: submitted?.command ?? (node.type === 'shell' ? node.command : ''),
     prompt: submitted?.prompt ?? (node.type === 'claude-code' ? node.prompt : ''),
     dependsOn: submitted?.dependsOn ?? node.dependsOn ?? [],
   };
-  const isShell = v.type === 'shell';
-  const isClaude = v.type === 'claude-code';
   const selectedDeps = new Set(v.dependsOn);
 
-  // You can depend on any OTHER node in the same agent (never on yourself).
-  // Also exclude nodes that transitively depend on this one — would be a
-  // cycle. We compute the set of downstream ids via a simple BFS.
   const downstreamIds = collectDownstream(agent, node.id);
   const pickableUpstreams = agent.nodes.filter((n) => n.id !== node.id && !downstreamIds.has(n.id));
 
   const depToggles = pickableUpstreams.map((n) => html`
-    <label style="display: inline-flex; align-items: center; gap: var(--space-1); margin-right: var(--space-3); font-weight: var(--weight-regular); font-size: var(--font-size-sm);">
+    <label class="dep-toggle">
       <input type="checkbox" name="dependsOn" value="${n.id}" ${selectedDeps.has(n.id) ? 'checked' : ''}>
       <code>${n.id}</code>
     </label>
   `);
 
-  const errorBlock = error
-    ? html`<div class="flash flash--error">${error}</div>`
-    : html``;
-
-  const headerCta = html`
-    <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" style="margin: 0;"
-      data-confirm="Delete node '${node.id}'? Refuses if downstream nodes depend on it. Creates a new agent version.">
-      <button type="submit" class="btn btn--warn">Delete node</button>
-    </form>
-  `;
+  const errorBlock = error ? html`<div class="flash flash--error">${error}</div>` : html``;
 
   const body = html`
     ${pageHeader({
       title: `Edit ${node.id}`,
       back: { href: `/agents/${agent.id}`, label: `Back to ${agent.id}` },
-      cta: headerCta,
+      cta: html`
+        <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/delete" class="inline"
+          data-confirm="Delete node '${node.id}'? Refuses if downstream nodes depend on it. Creates a new agent version.">
+          <button type="submit" class="btn btn--warn">Delete node</button>
+        </form>
+      `,
       description: `Saving creates a new version of ${agent.id} (currently v${String(agent.version)}).`,
     })}
 
     ${errorBlock}
 
     <form method="POST" action="/agents/${agent.id}/nodes/${node.id}/edit" class="card" style="max-width: 680px;">
-      <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
+      <div class="form-field">
         <strong>Node id</strong>
-        <input type="text" readonly value="${node.id}" style="${INPUT_STYLE} background: var(--color-surface-raised); color: var(--color-text-muted);">
-        <span class="dim" style="font-size: var(--font-size-xs);">Immutable. Renaming would break every <code>{{upstream.${node.id}.result}}</code> reference in this agent. Delete + re-create if you need a different id.</span>
-      </label>
+        <input type="text" readonly value="${node.id}" class="form-field__input" style="background: var(--color-surface-raised); color: var(--color-text-muted);">
+        <span class="form-field__hint">Immutable. Renaming would break every <code>{{upstream.${node.id}.result}}</code> reference. Delete + re-create if you need a different id.</span>
+      </div>
 
       ${isControlFlowNode(node)
         ? renderControlFlowSection(agent, node)
@@ -92,49 +74,49 @@ export function renderAgentEditNode(args: {
         `}
 
       ${node.type === 'claude-code' || v.type === 'claude-code' ? html`
-        <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-          <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">LLM Provider</legend>
-          <select name="provider" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+        <fieldset class="fieldset">
+          <legend class="fieldset__legend">LLM Provider</legend>
+          <select name="provider" class="form-field__input" style="width: auto;">
             <option value="claude" ${node.provider !== 'codex' ? 'selected' : ''}>Claude</option>
             <option value="codex" ${node.provider === 'codex' ? 'selected' : ''}>Codex</option>
           </select>
-          <span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">Which LLM CLI to use for this node.</span>
+          <span class="dim text-xs" style="margin-left: var(--space-2);">Which LLM CLI to use for this node.</span>
         </fieldset>
       ` : html``}
 
-      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Depends on</legend>
-        <p class="dim" style="margin: 0 0 var(--space-2); font-size: var(--font-size-xs);">Pick upstream nodes. Downstream nodes + self are excluded to prevent cycles.</p>
+      <fieldset class="fieldset">
+        <legend class="fieldset__legend">Depends on</legend>
+        <p class="dim text-xs mb-2">Pick upstream nodes. Downstream nodes + self are excluded to prevent cycles.</p>
         ${pickableUpstreams.length === 0
-          ? html`<span class="dim" style="font-size: var(--font-size-xs);">No eligible upstream nodes.</span>`
+          ? html`<span class="dim text-xs">No eligible upstream nodes.</span>`
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
 
       ${renderAvailableVars(agent, node, variablesStore)}
 
-      <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4);">
-        <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Implementation</legend>
+      <fieldset class="fieldset">
+        <legend class="fieldset__legend">Implementation</legend>
 
         <div class="node-field" data-node-field="shell">
-          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+          <div class="form-field">
             <strong>Command</strong>
             <textarea name="command" rows="4"
-              style="${TEXTAREA_STYLE}"
+              class="form-field__textarea"
               data-template-palette="shell"
               data-palette-source="palette-edit-node">${v.command ?? ''}</textarea>
-            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>$</code> for available env vars.</span>
-          </label>
+            <span class="form-field__hint">Type <code>$</code> for available env vars.</span>
+          </div>
         </div>
 
         <div class="node-field" data-node-field="claude-code">
-          <label style="display: flex; flex-direction: column; gap: var(--space-1);">
+          <div class="form-field">
             <strong>Prompt</strong>
             <textarea name="prompt" rows="4"
-              style="${TEXTAREA_STYLE}"
+              class="form-field__textarea"
               data-template-palette="claude"
               data-palette-source="palette-edit-node">${v.prompt ?? ''}</textarea>
-            <span class="dim" style="font-size: var(--font-size-xs);">Type <code>{{</code> for available template refs.</span>
-          </label>
+            <span class="form-field__hint">Type <code>{{</code> for available template refs.</span>
+          </div>
         </div>
       </fieldset>
 
@@ -147,7 +129,7 @@ export function renderAgentEditNode(args: {
         }),
       )}
 
-      <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+      <div class="flex-end">
         <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>
         <button type="submit" class="btn btn--primary">Save changes</button>
       </div>
@@ -157,11 +139,6 @@ export function renderAgentEditNode(args: {
   return render(layout({ title: `Edit ${node.id} \u2014 ${agent.id}`, activeNav: 'agents' }, body));
 }
 
-/**
- * BFS over the agent's DAG from `startId`, collecting every node that
- * transitively depends on it. Used to disallow dependsOn choices that
- * would create a cycle.
- */
 function collectDownstream(agent: Agent, startId: string): Set<string> {
   const down = new Set<string>();
   const frontier = [startId];
@@ -177,12 +154,6 @@ function collectDownstream(agent: Agent, startId: string): Set<string> {
   return down;
 }
 
-/**
- * Visible summary of variables available to this node. Shows agent-level
- * inputs (with defaults), upstream node outputs, and declared secrets
- * so the user knows what they can reference in the command/prompt without
- * having to type $ to discover them.
- */
 function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: VariablesStore): SafeHtml {
   const inputs = Object.entries(agent.inputs ?? {});
   const upstreams = (node.dependsOn ?? []).filter((id) => agent.nodes.some((n) => n.id === id));
@@ -198,32 +169,26 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
   for (const [name, spec] of inputs) {
     const defVal = spec.default !== undefined ? String(spec.default) : '';
     const desc = spec.description ?? '';
-    const info = [
-      defVal ? `default: ${defVal}` : 'required',
-      desc,
-    ].filter(Boolean).join(' \u2014 ');
+    const info = [defVal ? `default: ${defVal}` : 'required', desc].filter(Boolean).join(' \u2014 ');
     rows.push(html`
       <tr>
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>agent input</td>
         <td class="dim">${info}</td>
-        <td><a href="/agents/${agent.id}#variables" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
+        <td><a href="/agents/${agent.id}#variables" class="dim text-xs">edit</a></td>
       </tr>
     `);
   }
 
   for (const [name, variable] of globalVars) {
     const desc = variable.description ?? '';
-    const info = [
-      `value: ${variable.value}`,
-      desc,
-    ].filter(Boolean).join(' \u2014 ');
+    const info = [`value: ${variable.value}`, desc].filter(Boolean).join(' \u2014 ');
     rows.push(html`
       <tr>
         <td class="mono" style="color: var(--color-primary);">$${name}</td>
         <td>global variable</td>
         <td class="dim">${info}</td>
-        <td><a href="/settings/variables" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
+        <td><a href="/settings/variables" class="dim text-xs">edit</a></td>
       </tr>
     `);
   }
@@ -246,51 +211,51 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
         <td class="mono" style="color: var(--color-warn);">$${name}</td>
         <td>secret</td>
         <td class="dim">injected at runtime</td>
-        <td><a href="/settings/secrets" class="dim" style="font-size: var(--font-size-xs);">edit</a></td>
+        <td><a href="/settings/secrets" class="dim text-xs">edit</a></td>
       </tr>
     `);
   }
 
   return html`
-    <fieldset style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); margin-bottom: var(--space-4); background: var(--color-surface-raised);">
-      <legend style="padding: 0 var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Available variables</legend>
+    <fieldset class="fieldset" style="background: var(--color-surface-raised);">
+      <legend class="fieldset__legend">Available variables</legend>
       ${rows.length > 0 ? html`
-        <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+        <table class="table text-xs mb-3">
           <thead><tr><th>Variable</th><th>Source</th><th>Info</th><th></th></tr></thead>
           <tbody>${rows as unknown as SafeHtml[]}</tbody>
         </table>
       ` : html`
-        <p class="dim" style="margin: 0 0 var(--space-3); font-size: var(--font-size-xs);">No variables in scope. Add an agent input below.</p>
+        <p class="dim text-xs mb-3">No variables in scope. Add an agent input below.</p>
       `}
-      <details style="margin-top: var(--space-1);">
-        <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-primary); font-weight: var(--weight-medium);">+ Add a variable</summary>
-        <div style="margin-top: var(--space-2); display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
-          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+      <details class="mt-0">
+        <summary class="text-xs" style="color: var(--color-primary); font-weight: var(--weight-medium);">+ Add a variable</summary>
+        <div class="mt-3" style="display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;">
+          <label class="flex-col text-xs">
             Name
             <input type="text" name="newInputName" placeholder="API_URL" pattern="[A-Z_][A-Z0-9_]*"
-              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+              class="form-field__input" style="width: 10rem; font-family: var(--font-mono);">
           </label>
-          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+          <label class="flex-col text-xs">
             Type
-            <select name="newInputType" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">
+            <select name="newInputType" class="form-field__input" style="width: auto;">
               <option value="string">string</option>
               <option value="number">number</option>
               <option value="boolean">boolean</option>
               <option value="enum">enum</option>
             </select>
           </label>
-          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+          <label class="flex-col text-xs">
             Default
             <input type="text" name="newInputDefault" placeholder="optional"
-              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 10rem;">
+              class="form-field__input" style="width: 10rem; font-family: var(--font-mono);">
           </label>
-          <label style="display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs);">
+          <label class="flex-col text-xs">
             Description
             <input type="text" name="newInputDescription" placeholder="optional"
-              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); width: 14rem;">
+              class="form-field__input" style="width: 14rem;">
           </label>
         </div>
-        <p class="dim" style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs);">
+        <p class="dim text-xs mt-3">
           New variables are added as agent-level inputs when you save. Name must be UPPERCASE_WITH_UNDERSCORES.
           Use <code>$NAME</code> in shell commands or <code>{{inputs.NAME}}</code> in prompts.
         </p>
@@ -298,10 +263,3 @@ function renderAvailableVars(agent: Agent, node: AgentNode, variablesStore?: Var
     </fieldset>
   `;
 }
-
-const INPUT_STYLE: SafeHtml = unsafeHtml(
-  'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: inherit;',
-);
-const TEXTAREA_STYLE: SafeHtml = unsafeHtml(
-  'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--font-size-xs); resize: vertical;',
-);
