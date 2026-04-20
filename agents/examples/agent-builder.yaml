@@ -18,6 +18,11 @@ inputs:
     required: false
     default: ""
     description: Optional constraints or preferences (e.g. "use shell nodes only", "schedule daily").
+  AVAILABLE_TOOLS:
+    type: string
+    required: false
+    default: ""
+    description: Dynamically injected tool catalog. Populated by the dashboard at build time.
 
 nodes:
   - id: design
@@ -34,14 +39,7 @@ nodes:
       {{inputs.FOCUS}}
 
       AVAILABLE TOOLS (use these as node types or tool references):
-      - shell-exec (type: shell): Run shell commands. Inputs: command. Good for: data processing, file ops, API calls via curl.
-      - claude-code (type: claude-code): Run an LLM prompt. Inputs: prompt, model, maxTurns. Good for: analysis, summarization, decision-making, content generation.
-      - http-get: HTTP GET with auto-parsed JSON. Inputs: url, timeout. Good for: fetching APIs, scraping.
-      - http-post: HTTP POST with JSON body. Inputs: url, body, timeout. Good for: webhooks, API writes.
-      - file-read: Read a project file. Inputs: path. Good for: loading config, data files.
-      - file-write: Write to a project file. Inputs: path, content. Good for: saving results, generating reports.
-      - json-parse: Parse JSON string. Inputs: text. Good for: extracting structured data.
-      - json-path: Extract value from JSON. Inputs: data, path. Good for: picking fields from API responses.
+      {{inputs.AVAILABLE_TOOLS}}
 
       DESIGN GUIDELINES:
       - Start simple. Prefer fewer nodes that do more over many tiny nodes.

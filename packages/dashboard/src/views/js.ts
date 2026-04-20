@@ -716,6 +716,25 @@ export const DASHBOARD_JS = `
 
     btn.addEventListener('click', function () {
       modal.classList.add('is-open');
+
+      // Step 1: Show a prompt form so the user can optionally describe what to focus on.
+      content.innerHTML =
+        '<div style="padding:var(--space-4);">' +
+          '<h3 style="margin:0 0 var(--space-2);">Suggest improvements for ' + esc(agentId) + '</h3>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Optionally describe what you want the analysis to focus on. Leave blank for a general review.</p>' +
+          '<textarea id="sg-focus" rows="3" placeholder="e.g. &quot;Are there missing error handlers?&quot; or &quot;The last run timed out, what can I improve?&quot;" style="width:100%;padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);font-family:var(--font-mono);resize:vertical;background:var(--color-surface-raised);color:var(--color-text);"></textarea>' +
+          '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
+            '<button type="button" class="btn btn--ghost btn--sm" id="sg-prompt-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn--primary btn--sm" id="sg-prompt-go">Analyze</button>' +
+          '</div>' +
+        '</div>';
+      document.getElementById('sg-prompt-cancel').addEventListener('click', closeModal);
+      document.getElementById('sg-focus').focus();
+
+      document.getElementById('sg-prompt-go').addEventListener('click', function () {
+      var focusText = (document.getElementById('sg-focus').value || '').trim();
+
+      // Step 2: Switch to progress view and start analysis.
       var t0 = Date.now();
       var cancelled = false;
       var pollTimer = null;
@@ -754,11 +773,11 @@ export const DASHBOARD_JS = `
         }
       }, 1000);
 
-      // Start the analysis.
+      // Start the analysis with optional focus text.
       fetch('/agents/' + encodeURIComponent(agentId) + '/analyze', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: '',
+        body: focusText ? 'focus=' + encodeURIComponent(focusText) : '',
       })
       .then(function (r) { return r.json(); })
       .then(function (startData) {
@@ -816,7 +835,8 @@ export const DASHBOARD_JS = `
           '<div class="flash flash--error">' + esc(String(err)) + '</div>' +
           '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Close</button></div>';
       });
-    });
+    }); // end sg-prompt-go click
+    }); // end suggest-btn click
 
     modal.addEventListener('click', function (e) {
       if (e.target === modal) closeModal();

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, exportAgent, parseAgent, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentDag, exportAgent, listBuiltinTools, parseAgent, type RunStatus, type ToolDefinition } from '@some-useful-agents/core';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
@@ -8,6 +8,21 @@ export const runNowRouter: Router = Router();
 
 const ANALYZER_AGENT_ID = 'agent-analyzer';
 const BUILDER_AGENT_ID = 'agent-builder';
+
+/**
+ * Format a list of tool definitions into a human-readable catalog string
+ * for injection into the builder agent prompt.
+ */
+function formatToolCatalog(tools: ToolDefinition[]): string {
+  return tools
+    .map((t) => {
+      const inputNames = Object.keys(t.inputs ?? {}).join(', ');
+      const desc = t.description ? t.description.replace(/\n/g, ' ').trim() : '';
+      const implType = t.implementation?.type ?? 'builtin';
+      return `- ${t.id} (type: ${implType}): ${desc}${inputNames ? ` Inputs: ${inputNames}.` : ''}`;
+    })
+    .join('\n');
+}
 
 /**
  * POST /agents/:name/run — trigger an agent with YAML defaults.
@@ -182,6 +197,18 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
   const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
   const targetYaml = exportAgent(target);
 
+  // Fetch the most recent completed run for this agent so the analyzer
+  // can consider real execution output (errors, timeouts, etc.).
+  let lastRunOutput = '';
+  try {
+    const recent = ctx.runStore.listRuns({ agentName: name, status: 'completed', limit: 1 });
+    if (recent.length > 0 && recent[0].result) {
+      const raw = recent[0].result;
+      // Cap at 2000 chars to keep the prompt focused.
+      lastRunOutput = raw.length > 2000 ? raw.slice(0, 2000) + '\n...(truncated)' : raw;
+    }
+  } catch { /* run store may not have runs yet */ }
+
   // Fire-and-forget: start the analyzer but don't await it.
   // Return the runId immediately so the client can poll.
   const runPromise = executeAgentDag(
@@ -191,6 +218,7 @@ runNowRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =
       inputs: {
         AGENT_YAML: targetYaml,
         ...(focus ? { FOCUS: `Focus your analysis on: ${focus}` } : {}),
+        ...(lastRunOutput ? { LAST_RUN_OUTPUT: lastRunOutput } : {}),
       },
     },
     {
@@ -261,23 +289,38 @@ runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =
     return;
   }
 
-  // Done — parse the result.
-  if (run.status !== 'completed' || !run.result) {
-    res.json({ ok: true, status: 'failed', error: run.error ?? `Analysis failed (${run.status}).` });
-    return;
+  // Done — parse the result. Even if the run failed (e.g. fix node hit
+  // max_turns), the analyze node may have completed successfully. Try to
+  // extract results from individual node executions before giving up.
+  const execs = ctx.runStore.listNodeExecutions(runId);
+  const analyzeExec = execs.find((e) => e.nodeId === 'analyze');
+  const fixExec = execs.find((e) => e.nodeId === 'fix');
+
+  // Pick the best available result text:
+  // 1. Fix node output (corrected YAML) if it completed
+  // 2. Run-level result if the run completed
+  // 3. Analyze node output as fallback (even if later nodes failed)
+  let resultText = '';
+  if (fixExec?.status === 'completed' && fixExec.result) {
+    resultText = fixExec.result;
+  } else if (run.status === 'completed' && run.result) {
+    resultText = run.result;
+  } else if (analyzeExec?.status === 'completed' && analyzeExec.result) {
+    resultText = analyzeExec.result;
   }
 
-  // The run.result is the last completed node's output. In the multi-node
-  // analyzer pipeline:
-  //   - If fix ran (validation failed): fix node's output has the corrected XML
-  //   - If fix was skipped (validation passed): validate node's JSON is the
-  //     run result, but we want the analyze node's output with the XML tags
-  // Detect by checking for <classification> tag.
-  let resultText = run.result;
+  if (!resultText || !resultText.includes('<classification>')) {
+    // Try the analyze node one more time — its result may be in stream-json format
+    if (analyzeExec?.result && analyzeExec.result.includes('<classification>')) {
+      resultText = analyzeExec.result;
+    } else if (!resultText) {
+      res.json({ ok: true, status: 'failed', error: run.error ?? `Analysis failed (${run.status}).` });
+      return;
+    }
+  }
+
   if (!resultText.includes('<classification>')) {
     // Result is probably the validate node's JSON. Find the analyze node's output.
-    const execs = ctx.runStore.listNodeExecutions(runId);
-    const analyzeExec = execs.find((e) => e.nodeId === 'analyze');
     if (analyzeExec?.result) {
       resultText = analyzeExec.result;
     }
@@ -343,6 +386,15 @@ runNowRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
+  // Build a dynamic tool catalog so the builder LLM knows about all
+  // registered tools, not just the 9 hardcoded built-ins.
+  const builtins = listBuiltinTools();
+  let userTools: ToolDefinition[] = [];
+  try {
+    if (ctx.toolStore) userTools = ctx.toolStore.listTools();
+  } catch { /* store not available */ }
+  const catalog = formatToolCatalog([...builtins, ...userTools]);
+
   const runPromise = executeAgentDag(
     builder,
     {
@@ -350,6 +402,7 @@ runNowRouter.post('/agents/build', async (req: Request, res: Response) => {
       inputs: {
         GOAL: goal,
         ...(focus ? { FOCUS: `Constraints: ${focus}` } : {}),
+        AVAILABLE_TOOLS: catalog,
       },
     },
     {
