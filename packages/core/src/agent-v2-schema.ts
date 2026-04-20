@@ -158,6 +158,11 @@ export const agentV2Schema = z.object({
     refresh: z.string().optional(),
     size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(),
     hidden: z.boolean().optional(),
+    thresholds: z.array(z.object({
+      above: z.number().optional(),
+      below: z.number().optional(),
+      palette: z.string(),
+    })).optional(),
   }).refine(
     (s) => s.format !== undefined || s.template !== undefined,
     { message: 'Signal must declare either "format" (v1) or "template" (v2).' },
