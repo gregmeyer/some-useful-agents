@@ -11,6 +11,10 @@ signal:
   title: Greeting
   icon: "\U0001F4AC"
   format: text
+  template: text-headline
+  mapping:
+    headline: Greeting
+    body: result
 inputs:
   NAME: { type: string, default: "World", description: "Who to greet" }
   STYLE: { type: enum, values: [formal, casual], default: casual }

@@ -11,7 +11,9 @@ signal:
   title: Research
   icon: "\U0001F50D"
   format: table
-  field: items
+  template: table
+  mapping:
+    rows: items
   size: 2x1
 nodes:
   - id: source

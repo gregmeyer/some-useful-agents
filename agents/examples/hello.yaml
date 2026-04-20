@@ -9,6 +9,10 @@ signal:
   title: Hello
   icon: "\U0001F44B"
   format: text
+  template: text-headline
+  mapping:
+    headline: Hello
+    body: result
 nodes:
   - id: greet
     type: shell

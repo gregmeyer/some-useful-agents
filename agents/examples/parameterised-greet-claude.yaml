@@ -6,6 +6,15 @@ name: Parameterised greeting (Claude)
 description: Same concept as parameterised-greet, using Claude Code instead of shell.
 status: active
 source: examples
+signal:
+  title: Greeting (Claude)
+  icon: "\U0001F4AC"
+  format: text
+  template: text-headline
+  mapping:
+    headline: Greeting
+    body: result
+
 inputs:
   NAME: { type: string, default: "World" }
   STYLE: { type: enum, values: [formal, casual], default: casual }

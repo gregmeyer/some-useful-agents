@@ -163,6 +163,32 @@ export async function renderAgentDetailV2(args: {
       </section>
 
       <section class="inspector__section">
+        <h4>LLM defaults</h4>
+        <form method="POST" action="/agents/${agent.id}/llm" id="llm-form" style="display: flex; flex-direction: column; gap: var(--space-2);">
+          <div style="display: flex; gap: var(--space-2); align-items: center;">
+            <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Provider</label>
+            <select name="provider" id="llm-provider" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);">
+              ${providerOption('claude', agent.provider)}
+              ${providerOption('codex', agent.provider)}
+            </select>
+          </div>
+          <div style="display: flex; gap: var(--space-2); align-items: center;">
+            <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Model</label>
+            <select name="model" id="llm-model" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm); font-family: var(--font-mono);">
+              ${renderModelOptions(agent.provider, agent.model)}
+            </select>
+          </div>
+          <div id="llm-model-desc" class="dim" style="font-size: var(--font-size-xs); padding: 0 0 0 calc(55px + var(--space-2)); min-height: 1.2em;"></div>
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn--sm">Apply</button>
+          </div>
+          <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">
+            Applies to all claude-code nodes. Individual nodes can override in YAML.
+          </p>
+        </form>
+      </section>
+
+      <section class="inspector__section">
         <h4>Metadata</h4>
         <dl class="kv">
           <dt>Version</dt>
@@ -535,6 +561,44 @@ function vStatusBadge(status: string): SafeHtml {
 function statusOption(value: string, current: string): SafeHtml {
   const selected = value === current ? unsafeHtml(' selected') : unsafeHtml('');
   return html`<option value="${value}"${selected}>${value}</option>`;
+}
+
+function providerOption(value: string, current?: string): SafeHtml {
+  const effective = current ?? 'claude';
+  const selected = value === effective ? unsafeHtml(' selected') : unsafeHtml('');
+  return html`<option value="${value}"${selected}>${value}</option>`;
+}
+
+interface ModelEntry { id: string; label: string; desc: string }
+
+const CLAUDE_MODELS: ModelEntry[] = [
+  { id: '', label: 'default', desc: 'Uses the Claude CLI default model' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable. Deep analysis, complex reasoning, long outputs' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Fast + capable. Good balance of speed and quality' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest. Best for simple tasks, classification, extraction' },
+];
+
+const CODEX_MODELS: ModelEntry[] = [
+  { id: '', label: 'default', desc: 'Uses the Codex CLI default model' },
+  { id: 'o4-mini', label: 'o4-mini', desc: 'Fast reasoning model. Good for code analysis and generation' },
+  { id: 'o3', label: 'o3', desc: 'Most capable reasoning model. Deep multi-step analysis' },
+  { id: 'gpt-4.1', label: 'GPT-4.1', desc: 'Latest GPT. Strong at code, instruction following' },
+  { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', desc: 'Compact GPT-4.1. Fast, lower cost' },
+  { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', desc: 'Smallest GPT-4.1. Very fast, simple tasks' },
+];
+
+function renderModelOptions(provider?: string, currentModel?: string): SafeHtml {
+  const models = (provider === 'codex') ? CODEX_MODELS : CLAUDE_MODELS;
+  const effective = currentModel ?? '';
+  const options = models.map((m) => {
+    const sel = m.id === effective ? unsafeHtml(' selected') : unsafeHtml('');
+    return html`<option value="${m.id}" title="${m.desc}"${sel}>${m.label}</option>`;
+  });
+  // If the current model isn't in the list, add it as a custom entry.
+  if (effective && !models.some((m) => m.id === effective)) {
+    options.push(html`<option value="${effective}" selected>${effective}</option>`);
+  }
+  return html`${options as unknown as SafeHtml[]}`;
 }
 
 function oneLine(text: string, max = 120): string {

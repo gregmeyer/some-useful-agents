@@ -17,12 +17,21 @@ inputs:
     required: false
     default: ""
     description: Optional focus area, e.g. "what variables am I missing to count loop iterations?"
+  LAST_RUN_OUTPUT:
+    type: string
+    required: false
+    default: ""
+    description: Output from the agent's most recent completed run. Injected automatically by the dashboard.
 
 nodes:
   - id: analyze
     type: claude-code
     prompt: |
       You are an expert agent architect reviewing a sua DAG agent.
+
+      IMPORTANT: Respond directly with your analysis. Do NOT use any tools
+      (no file reads, no searches, no bash commands). Everything you need
+      is provided below in this prompt.
 
       Analyze the FULL agent holistically — cross-node data flow, dependency
       ordering, input/variable usage, prompt quality, error handling, and
@@ -37,6 +46,10 @@ nodes:
       - Prompt improvements for claude-code nodes
 
       {{inputs.FOCUS}}
+
+      LAST RUN OUTPUT (if available, use this to identify runtime issues like
+      errors, timeouts, unexpected results, or missing data):
+      {{inputs.LAST_RUN_OUTPUT}}
 
       Classify your assessment as exactly one of:
       - NO_IMPROVEMENTS: The agent is well-designed, no changes needed.
@@ -82,7 +95,7 @@ nodes:
       Here is the agent YAML to review:
 
       {{inputs.AGENT_YAML}}
-    maxTurns: 3
+    maxTurns: 2
     timeout: 120
 
   - id: validate
@@ -128,6 +141,9 @@ nodes:
       field: valid
       equals: false
     prompt: |
+      IMPORTANT: Respond directly with the fixed YAML. Do NOT use any tools.
+      Everything you need is provided below.
+
       The agent analyzer suggested improvements but the suggested YAML has
       validation errors. Fix the YAML so it passes schema validation.
 

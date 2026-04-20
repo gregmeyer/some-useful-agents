@@ -11,6 +11,16 @@ inputs:
     required: false
     description: Optional topic for the joke (e.g. programming, animals, coffee)
 
+signal:
+  title: Dad Joke
+  icon: "\U0001F604"
+  format: text
+  template: text-headline
+  mapping:
+    headline: Dad Joke
+    body: result
+  refresh: 24h
+
 nodes:
   - id: main
     type: claude-code

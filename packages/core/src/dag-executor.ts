@@ -624,11 +624,14 @@ export async function executeAgentDag(
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         // Build a synthetic node shape matching the tool's implementation
         // so the existing spawner doesn't need to change.
+        // Merge agent-level provider/model defaults (node overrides take precedence).
         const synthNode: AgentNode = {
           ...node,
           type: userTool.implementation.type === 'claude-code' ? 'claude-code' : 'shell',
           command: userTool.implementation.command,
           prompt: userTool.implementation.prompt,
+          provider: node.provider ?? agent.provider,
+          model: node.model ?? agent.model,
         };
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
         const spawnResult = spawnFn === spawnNodeReal
@@ -638,11 +641,17 @@ export async function executeAgentDag(
         structuredOutput = buildToolOutput(spawnResult.result);
       } else {
         // v0.15 legacy path: no tool field, dispatch by type directly.
+        // Merge agent-level provider/model defaults (node overrides take precedence).
+        const nodeWithDefaults: AgentNode = {
+          ...node,
+          provider: node.provider ?? agent.provider,
+          model: node.model ?? agent.model,
+        };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
         const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(node, env, spawnOpts, onProgress, options.signal)
-          : await spawnFn(node, env, spawnOpts);
+          ? await spawnNodeReal(nodeWithDefaults, env, spawnOpts, onProgress, options.signal)
+          : await spawnFn(nodeWithDefaults, env, spawnOpts);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get

@@ -59,6 +59,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(n.model !== undefined && { model: n.model }),
     ...(n.maxTurns !== undefined && { maxTurns: n.maxTurns }),
     ...(n.allowedTools && { allowedTools: n.allowedTools }),
+    ...(n.provider !== undefined && { provider: n.provider }),
     ...(n.timeout !== undefined && { timeout: n.timeout }),
     ...(n.env && { env: n.env }),
     ...(n.envAllowlist && { envAllowlist: n.envAllowlist }),
@@ -79,8 +80,11 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     source: p.source as AgentSource,
     mcp: p.mcp,
     version: p.version,
+    ...(p.provider !== undefined && { provider: p.provider }),
+    ...(p.model !== undefined && { model: p.model }),
     ...(p.inputs && { inputs: p.inputs }),
     nodes,
+    ...(p.signal && { signal: p.signal }),
     ...(p.author !== undefined && { author: p.author }),
     ...(p.tags && { tags: p.tags }),
   };
@@ -95,8 +99,10 @@ const AGENT_KEY_ORDER = [
   'id', 'name', 'description',
   'status', 'schedule', 'allowHighFrequency',
   'source', 'mcp', 'version',
+  'provider', 'model',
   'inputs',
   'nodes',
+  'signal',
   'author', 'tags',
 ] as const;
 

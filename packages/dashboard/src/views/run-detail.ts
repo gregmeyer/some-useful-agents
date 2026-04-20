@@ -122,7 +122,11 @@ export function renderRunDetail(opts: RunDetailOptions): string {
 
       ${run.error ? html`
         <h2>Error</h2>
-        <div class="flash flash--error">${run.error}</div>
+        <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
+          <span>${run.error}</span>
+          <a href="/agents/${run.agentName}?suggest=1&focus=${encodeURIComponent(run.error)}"
+            class="btn btn--sm btn--primary" style="white-space: nowrap; flex-shrink: 0;">Suggest improvements</a>
+        </div>
       ` : html``}
 
       ${isDagRun ? html`

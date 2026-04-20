@@ -341,7 +341,10 @@ export class AgentStore {
       id: agent.id,
       nodes: agent.nodes.map(cloneNode),
     };
+    if (agent.provider) dag.provider = agent.provider;
+    if (agent.model) dag.model = agent.model;
     if (agent.inputs) dag.inputs = agent.inputs;
+    if (agent.signal) dag.signal = agent.signal;
     if (agent.author !== undefined) dag.author = agent.author;
     if (agent.tags) dag.tags = agent.tags;
     return dag;
@@ -373,8 +376,11 @@ export class AgentStore {
       mcp: (row.mcp as number) === 1,
       starred: (row.starred as number) === 1,
       version: row.current_version as number,
+      provider: dag.provider,
+      model: dag.model,
       inputs: dag.inputs,
       nodes: dag.nodes,
+      signal: dag.signal,
       author: dag.author,
       tags: dag.tags,
     };
