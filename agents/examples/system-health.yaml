@@ -1,0 +1,26 @@
+id: system-health
+name: System Health
+description: >
+  Checks local system disk usage, memory, and CPU load.
+  Outputs a JSON object with key metrics. Signal tile shows
+  disk usage percentage on the Pulse dashboard.
+status: active
+source: examples
+
+signal:
+  title: Disk Usage
+  icon: "\uD83D\uDCBE"
+  format: number
+  field: disk_percent
+  refresh: 1h
+  size: 1x1
+
+nodes:
+  - id: check
+    type: shell
+    command: |
+      DISK=$(df -h / | awk 'NR==2 {print $5}' | tr -d '%')
+      MEM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null || free -b 2>/dev/null | awk '/Mem:/{print $2}')
+      LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || uptime | awk -F'load average:' '{print $2}' | awk -F, '{print $1}' | tr -d ' ')
+      echo "{\"disk_percent\": ${DISK:-0}, \"load_avg\": \"${LOAD:-unknown}\", \"mem_bytes\": ${MEM_TOTAL:-0}}"
+    timeout: 15

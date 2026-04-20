@@ -32,6 +32,7 @@ import { assetsRouter } from './routes/assets.js';
 import { settingsRouter } from './routes/settings.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
+import { pulseRouter } from './routes/pulse.js';
 
 export interface StartDashboardOptions {
   port: number;
@@ -126,6 +127,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(helpRouter);
   app.use(versionsRouter);
   app.use(toolsRouter);
+  app.use(pulseRouter);
 
   // Catch-all 404 for authenticated routes.
   app.use((_req, res) => {

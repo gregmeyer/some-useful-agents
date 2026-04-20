@@ -1,0 +1,40 @@
+id: daily-summary
+name: Daily Summary
+description: >
+  Summarizes today's agent activity: how many runs, which agents ran,
+  what succeeded and what failed. Signal tile shows the summary on Pulse.
+status: active
+source: examples
+
+signal:
+  title: Today's Activity
+  icon: "\uD83D\uDCCA"
+  format: text
+  refresh: 1h
+  size: 2x1
+
+nodes:
+  - id: gather
+    type: shell
+    command: |
+      # Count today's runs from the runs database.
+      DATE_PREFIX=$(date -u +%Y-%m-%d)
+      echo "Report for ${DATE_PREFIX}"
+      echo ""
+      if [ -f data/runs.db ]; then
+        node --experimental-strip-types -e "
+          import { DatabaseSync } from 'node:sqlite';
+          const db = new DatabaseSync('data/runs.db');
+          const today = '${DATE_PREFIX}';
+          const runs = db.prepare(\"SELECT agentName, status FROM runs WHERE startedAt >= ? || 'T00:00:00Z'\").all(today);
+          const total = runs.length;
+          const ok = runs.filter(r => r.status === 'completed').length;
+          const fail = runs.filter(r => r.status === 'failed').length;
+          const agents = [...new Set(runs.map(r => r.agentName))];
+          console.log(total + ' runs total: ' + ok + ' completed, ' + fail + ' failed');
+          console.log('Agents: ' + (agents.length > 0 ? agents.join(', ') : 'none'));
+        " 2>/dev/null || echo "Could not read runs database."
+      else
+        echo "No runs database found."
+      fi
+    timeout: 15

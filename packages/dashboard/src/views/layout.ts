@@ -4,8 +4,8 @@ import { footer } from './footer.js';
 
 export interface LayoutOptions {
   title: string;
-  /** Highlight in the nav (one of: agents, tools, runs, settings, help). */
-  activeNav?: 'agents' | 'tools' | 'runs' | 'settings' | 'help';
+  /** Highlight in the nav (one of: agents, tools, runs, pulse, settings, help). */
+  activeNav?: 'agents' | 'tools' | 'runs' | 'pulse' | 'settings' | 'help';
   /** Flash banner shown at the top of the body (errors from prior actions). */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** Widen the main column (for screens with 2-col layouts). */
@@ -44,6 +44,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
     <a href="/agents" class="${opts.activeNav === 'agents' ? 'is-active' : ''}">Agents</a>
     <a href="/tools" class="${opts.activeNav === 'tools' ? 'is-active' : ''}">Tools</a>
     <a href="/runs" class="${opts.activeNav === 'runs' ? 'is-active' : ''}">Runs</a>
+    <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>
