@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import type { Agent, AgentInputSpec } from '@some-useful-agents/core';
 import { exportAgent, parseAgent, AgentYamlParseError } from '@some-useful-agents/core';
+import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { html as h, render as renderHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
@@ -408,7 +409,27 @@ agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
     return;
   }
 
-  const yamlText = typeof body.yaml === 'string' ? body.yaml : '';
+  let yamlText = typeof body.yaml === 'string' ? body.yaml : '';
+
+  // Auto-fix common analyzer mistake: {{inputs.X}} in shell commands → $X.
+  // The schema validator rejects double-brace templates in shell nodes,
+  // but the analyzer LLM sometimes generates them. Fix before parsing.
+  try {
+    const raw = parseRawYaml(yamlText);
+    if (raw?.nodes && Array.isArray(raw.nodes)) {
+      let changed = false;
+      for (const node of raw.nodes) {
+        if (node.type === 'shell' && typeof node.command === 'string') {
+          const fixed = node.command.replace(
+            /\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g,
+            (_: string, name: string) => '$' + name,
+          );
+          if (fixed !== node.command) { node.command = fixed; changed = true; }
+        }
+      }
+      if (changed) yamlText = stringifyRawYaml(raw, { lineWidth: 0 });
+    }
+  } catch { /* if raw parse fails, let the real parser report the error */ }
 
   let parsed: Agent;
   try {

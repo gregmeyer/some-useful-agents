@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { executeAgentDag, exportAgent, listBuiltinTools, parseAgent, type RunStatus, type ToolDefinition } from '@some-useful-agents/core';
+import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
@@ -333,9 +334,27 @@ runNowRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =
   const classRaw = extract('classification')?.toUpperCase().trim() ?? 'SUGGESTIONS';
   const classification = ['NO_IMPROVEMENTS', 'SUGGESTIONS', 'REWRITE'].includes(classRaw) ? classRaw : 'SUGGESTIONS';
 
-  const suggestedYaml = extract('yaml') || undefined;
+  // Extract suggested YAML and auto-fix common analyzer mistakes before validation.
+  let suggestedYaml = extract('yaml') || undefined;
   let yamlError: string | undefined;
   if (suggestedYaml && suggestedYaml.length > 10) {
+    // Fix {{inputs.X}} → $X in shell node commands (analyzer LLM gets this wrong often).
+    try {
+      const raw = parseRawYaml(suggestedYaml);
+      if (raw?.nodes && Array.isArray(raw.nodes)) {
+        let changed = false;
+        for (const n of raw.nodes) {
+          if (n.type === 'shell' && typeof n.command === 'string') {
+            const fixed = n.command.replace(
+              /\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g,
+              (_: string, name: string) => '$' + name,
+            );
+            if (fixed !== n.command) { n.command = fixed; changed = true; }
+          }
+        }
+        if (changed) suggestedYaml = stringifyRawYaml(raw, { lineWidth: 0 });
+      }
+    } catch { /* let the real parser report the error */ }
     try { parseAgent(suggestedYaml); } catch (e) { yamlError = e instanceof Error ? e.message : String(e); }
   }
 

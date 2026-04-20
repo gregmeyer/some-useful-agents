@@ -697,14 +697,25 @@ export const DASHBOARD_JS = `
           '<br>Click "Edit YAML" to fix manually.</div>';
       }
       h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
-      if (data.yaml) {
-        var applyLabel = data.yamlError ? 'Edit YAML to fix' : 'Review + apply';
-        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply">' + esc(applyLabel) + '</button>';
+      if (data.yaml && !data.yamlError) {
+        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply-now">Apply now</button>';
+        h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-review">Review first</button>';
+      } else if (data.yaml) {
+        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-review">Edit YAML to fix</button>';
       }
       h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
       content.innerHTML = h;
-      var ab = document.getElementById('sg-apply');
-      if (ab && data.yaml) ab.addEventListener('click', function () {
+      // "Apply now" — save the YAML directly without opening the editor.
+      var an = document.getElementById('sg-apply-now');
+      if (an && data.yaml) an.addEventListener('click', function () {
+        var f = document.createElement('form'); f.method = 'POST';
+        f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
+        var t = document.createElement('textarea'); t.name = 'yaml'; t.value = data.yaml; t.style.display = 'none';
+        f.appendChild(t); document.body.appendChild(f); f.submit();
+      });
+      // "Review first" — open the YAML editor pre-filled.
+      var rv = document.getElementById('sg-review');
+      if (rv && data.yaml) rv.addEventListener('click', function () {
         var f = document.createElement('form'); f.method = 'POST';
         f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
         var t = document.createElement('textarea'); t.name = 'prefillYaml'; t.value = data.yaml; t.style.display = 'none';
