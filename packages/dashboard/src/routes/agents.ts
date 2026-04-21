@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { Agent, AgentDefinition, RunStatus } from '@some-useful-agents/core';
+import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
@@ -124,17 +124,42 @@ agentsRouter.post('/agents/:name/star', (req: Request, res: Response) => {
 agentsRouter.get('/agents', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const v1Agents = ctx.loadAgents().agents;
-  const v2Agents = ctx.agentStore.listAgents();
 
-  // Unify for the list view. v2 agents take precedence when ids collide
-  // (expected post-migration: the user imported their YAML into the DB).
+  // Parse filter/sort query params.
+  const qStatus = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
+  const qSource = typeof req.query.source === 'string' && req.query.source ? req.query.source : undefined;
+  const qSearch = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim().toLowerCase() : undefined;
+  const qSort = typeof req.query.sort === 'string' ? req.query.sort : 'name';
+
+  // Use store-level filtering for status and source.
+  const storeFilter: { status?: 'active' | 'paused' | 'archived' | 'draft'; source?: 'local' | 'examples' | 'community' } = {};
+  if (qStatus && ['active', 'paused', 'draft', 'archived'].includes(qStatus)) {
+    storeFilter.status = qStatus as 'active' | 'paused' | 'archived' | 'draft';
+  }
+  if (qSource && ['local', 'examples', 'community'].includes(qSource)) {
+    storeFilter.source = qSource as 'local' | 'examples' | 'community';
+  }
+  let v2Agents = ctx.agentStore.listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined);
+
+  // Client-side search filter (id or description substring).
+  if (qSearch) {
+    v2Agents = v2Agents.filter((a) =>
+      a.id.toLowerCase().includes(qSearch) ||
+      (a.description ?? '').toLowerCase().includes(qSearch) ||
+      a.name.toLowerCase().includes(qSearch)
+    );
+  }
+
+  // Unify for the list view. v2 agents take precedence when ids collide.
   const mergedV1: AgentDefinition[] = [];
   const v2Ids = new Set(v2Agents.map((a) => a.id));
   for (const [id, a] of v1Agents) {
     if (!v2Ids.has(id)) mergedV1.push(a);
   }
   mergedV1.sort((a, b) => a.name.localeCompare(b.name));
-  v2Agents.sort((a, b) => a.id.localeCompare(b.id));
+
+  // Sort v2 agents based on query param.
+  // "recent" sort needs the run lookup below, so we defer it.
 
   // Stats for the overview strip. One queryRuns per dimension keeps the
   // SQL simple and the numbers honest — this page loads once per view.
@@ -167,12 +192,33 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
     if (invokers.length > 0) invokerCounts.set(a.id, invokers.length);
   }
 
+  // Apply sorting.
+  const lastRunByAgent = new Map<string, Run>();
+  for (const r of recent.rows) {
+    if (!lastRunByAgent.has(r.agentName)) lastRunByAgent.set(r.agentName, r);
+  }
+
+  if (qSort === 'status') {
+    v2Agents.sort((a, b) => a.status.localeCompare(b.status) || a.id.localeCompare(b.id));
+  } else if (qSort === 'recent') {
+    v2Agents.sort((a, b) => {
+      const ra = lastRunByAgent.get(a.id)?.startedAt ?? '';
+      const rb = lastRunByAgent.get(b.id)?.startedAt ?? '';
+      return rb.localeCompare(ra) || a.id.localeCompare(b.id);
+    });
+  } else if (qSort === 'starred') {
+    v2Agents.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.id.localeCompare(b.id));
+  } else {
+    v2Agents.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   res.type('html').send(renderAgentsList({
     v1: mergedV1,
     v2: v2Agents,
     recentRuns: recent.rows,
     stats,
     invokerCounts,
+    filter: { status: qStatus, source: qSource, q: qSearch, sort: qSort },
   }));
 });
 

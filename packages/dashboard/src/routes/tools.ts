@@ -18,7 +18,9 @@ toolsRouter.get('/tools', (req: Request, res: Response) => {
   } catch {
     // Store not available — show builtins only.
   }
-  res.type('html').send(renderToolsList({ builtins, userTools }));
+  const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : undefined;
+  const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : undefined;
+  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type } }));
 });
 
 toolsRouter.get('/tools/:id', (req: Request, res: Response) => {

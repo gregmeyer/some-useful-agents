@@ -17,17 +17,18 @@ export interface HomeStats {
 }
 
 export interface AgentsListInput {
-  /** v1 YAML-loaded single-node agents, after removing any that were
-   *  superseded by a v2 DAG with the same id. */
   v1: AgentDefinition[];
-  /** v2 DAG agents from AgentStore. */
   v2: Agent[];
-  /** Recent runs (across all agents), used to look up last-run-per-agent. */
   recentRuns: Run[];
-  /** Overview stats for the tiles row. */
   stats: HomeStats;
-  /** Count of agents that invoke each agent (keyed by agent id). */
   invokerCounts?: Map<string, number>;
+  /** Current filter state from query params. */
+  filter?: {
+    status?: string;
+    source?: string;
+    q?: string;
+    sort?: string;
+  };
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -59,6 +60,8 @@ export function renderAgentsList(input: AgentsListInput): string {
     })}
 
     ${empty ? renderEmptyState() : renderStatStrip(input.stats)}
+
+    ${!empty ? renderFilterBar(input.filter) : html``}
 
     ${hasV2 ? html`
       <div class="agent-grid">
@@ -105,6 +108,38 @@ export function renderAgentsList(input: AgentsListInput): string {
   `;
 
   return render(layout({ title: 'Agents', activeNav: 'agents' }, body));
+}
+
+function renderFilterBar(filter?: { status?: string; source?: string; q?: string; sort?: string }): SafeHtml {
+  const f = filter ?? {};
+  const selIf = (val: string, current?: string) => val === current ? ' selected' : '';
+  return html`
+    <form method="GET" action="/agents" class="filters" style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4);">
+      <input type="text" name="q" value="${f.q ?? ''}" placeholder="Search agents..."
+        style="padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 16rem;">
+      <select name="status" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+        ${html`<option value="">All statuses</option>
+        <option value="active"${selIf('active', f.status)}>active</option>
+        <option value="paused"${selIf('paused', f.status)}>paused</option>
+        <option value="draft"${selIf('draft', f.status)}>draft</option>
+        <option value="archived"${selIf('archived', f.status)}>archived</option>`}
+      </select>
+      <select name="source" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+        ${html`<option value="">All sources</option>
+        <option value="local"${selIf('local', f.source)}>local</option>
+        <option value="examples"${selIf('examples', f.source)}>examples</option>
+        <option value="community"${selIf('community', f.source)}>community</option>`}
+      </select>
+      <select name="sort" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+        ${html`<option value="name"${selIf('name', f.sort)}>Sort: name</option>
+        <option value="status"${selIf('status', f.sort)}>Sort: status</option>
+        <option value="recent"${selIf('recent', f.sort)}>Sort: recently run</option>
+        <option value="starred"${selIf('starred', f.sort)}>Sort: starred first</option>`}
+      </select>
+      <button type="submit" class="btn btn--sm">Filter</button>
+      ${(f.q || f.status || f.source || f.sort) ? html`<a href="/agents" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
+    </form>
+  `;
 }
 
 function renderStatStrip(s: HomeStats): SafeHtml {
