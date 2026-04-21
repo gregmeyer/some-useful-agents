@@ -1,5 +1,13 @@
 # @some-useful-agents/core
 
+## 0.16.1
+
+### Patch Changes
+
+- **docs: update READMEs for v0.16 features.**
+
+  All package READMEs updated to reflect Pulse, build-from-goal, tabbed agent detail, filtering/pagination, LLM defaults, and security improvements.
+
 ## 0.16.0
 
 ### Minor Changes
