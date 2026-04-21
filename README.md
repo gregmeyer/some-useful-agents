@@ -2,7 +2,7 @@
 
 A local-first agent playground. Author agents as composable flows, run them from the CLI or MCP, schedule them on cron, chain them into multi-step pipelines with branching and loops, and manage everything from a web dashboard.
 
-MIT-licensed. Published to npm at `@some-useful-agents/*`.
+MIT-licensed. Published to [npm](https://www.npmjs.com/search?q=%40some-useful-agents).
 
 ![Pulse dashboard](docs/images/pulse.png)
 
@@ -183,11 +183,11 @@ Full model: [docs/SECURITY.md](docs/SECURITY.md)
 
 | Package | Description |
 |---|---|
-| `@some-useful-agents/core` | Types, schemas, stores, executor, tools, secrets |
-| `@some-useful-agents/cli` | CLI commands, tutorial, scaffolding |
-| `@some-useful-agents/dashboard` | Web dashboard (Express, server-rendered HTML) |
-| `@some-useful-agents/mcp-server` | MCP server (HTTP/SSE transport) |
-| `@some-useful-agents/temporal-provider` | Temporal worker for durable workflows |
+| [@some-useful-agents/core](https://www.npmjs.com/package/@some-useful-agents/core) | Types, schemas, stores, executor, tools, secrets |
+| [@some-useful-agents/cli](https://www.npmjs.com/package/@some-useful-agents/cli) | CLI commands, tutorial, scaffolding |
+| [@some-useful-agents/dashboard](https://www.npmjs.com/package/@some-useful-agents/dashboard) | Web dashboard (Express, server-rendered HTML) |
+| [@some-useful-agents/mcp-server](https://www.npmjs.com/package/@some-useful-agents/mcp-server) | MCP server (HTTP/SSE transport) |
+| [@some-useful-agents/temporal-provider](https://www.npmjs.com/package/@some-useful-agents/temporal-provider) | Temporal worker for durable workflows |
 
 ## Requirements
 
