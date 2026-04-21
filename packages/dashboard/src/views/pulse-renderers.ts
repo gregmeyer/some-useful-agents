@@ -7,7 +7,7 @@ import type { SignalTemplate } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { normalizeSignal } from './pulse-templates.js';
 import { esc, stringify, renderMarkdown, looksLikeJson, prettyJson } from './pulse-helpers.js';
-import type { PulseTile, TileWrapFn } from './pulse.js';
+import type { PulseTile, TileWrapFn } from './pulse-types.js';
 
 // ── Renderers ────────────────────────────────────────────────────────────
 
