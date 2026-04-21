@@ -3,7 +3,7 @@ import type { Agent, AgentDefinition, RunStatus } from '@some-useful-agents/core
 import { getContext } from '../context.js';
 import { renderAgentsList, type HomeStats } from '../views/agents-list.js';
 import { renderAgentDetail } from '../views/agent-detail.js';
-import { renderAgentDetailV2 } from '../views/agent-detail-v2.js';
+import { renderAgentDetailV2, renderAgentOverview, renderAgentNodes, renderAgentConfig, renderAgentRuns } from '../views/agent-detail-v2.js';
 import { renderAgentNew, type AgentNewFormValues } from '../views/agent-new.js';
 import { deriveBack } from '../views/page-header.js';
 
@@ -249,4 +249,45 @@ agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
     flash,
   });
   res.type('html').send(html);
+});
+
+// ── Agent detail tab routes ──────────────────────────────────────────────
+
+/** Shared helper: build the common args for all agent detail tabs. */
+async function buildTabArgs(req: Request, ctx: ReturnType<typeof getContext>, name: string) {
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) return null;
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const fromParam = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const flash = flashParam ? { kind: 'ok' as const, message: flashParam } : undefined;
+  const referer = typeof req.headers.referer === 'string' ? req.headers.referer : undefined;
+  const back = deriveBack(referer, `127.0.0.1:${ctx.port}`, fromParam);
+  const { rows } = ctx.runStore.queryRuns({
+    agentName: agent.id, limit: 50, offset: 0, statuses: [] as RunStatus[],
+  });
+  return { agent, recentRuns: rows, secretsStore: ctx.secretsStore, flash, back, from: fromParam };
+}
+
+agentsRouter.get('/agents/:name/nodes', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const args = await buildTabArgs(req, ctx, name);
+  if (!args) { res.status(404).redirect(303, '/agents'); return; }
+  res.type('html').send(await renderAgentNodes({ ...args, activeTab: 'nodes' }));
+});
+
+agentsRouter.get('/agents/:name/config', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const args = await buildTabArgs(req, ctx, name);
+  if (!args) { res.status(404).redirect(303, '/agents'); return; }
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config' }));
+});
+
+agentsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const args = await buildTabArgs(req, ctx, name);
+  if (!args) { res.status(404).redirect(303, '/agents'); return; }
+  res.type('html').send(renderAgentRuns({ ...args, activeTab: 'runs' }));
 });

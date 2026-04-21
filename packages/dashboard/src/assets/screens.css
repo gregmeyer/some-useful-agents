@@ -63,86 +63,18 @@ main.main--wide {
   color: var(--color-text);
 }
 
-/* ---------- Agent detail: 2-col grid ---------- */
-.agent-detail {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-6);
-}
-
-@media (min-width: 900px) {
-  .agent-detail {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  }
-}
-
-.agent-detail__main {
-  min-width: 0;
+/* ---------- Agent detail: tabbed layout ---------- */
+.agent-detail__tab-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
 }
 
-.agent-detail__aside {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-/* ---------- Inspector (right-column panel on agent detail) ---------- */
-.inspector {
-  position: sticky;
-  top: var(--space-4);
+.agent-stats {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--space-4) var(--space-6);
-  box-shadow: var(--shadow-sm);
-  max-height: calc(100vh - var(--topbar-height) - var(--space-8));
-  overflow-y: auto;
-}
-
-.inspector__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: var(--space-4);
-}
-
-.inspector__title {
-  font-size: var(--font-size-md);
-  font-weight: var(--weight-semibold);
-  margin: 0;
-}
-
-.inspector__hint {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-style: italic;
-}
-
-.inspector__section + .inspector__section {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border);
-}
-
-.inspector__section h4 {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0 0 var(--space-2);
-}
-
-.inspector__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  padding: var(--space-4);
 }
 
 /* ---------- DAG viz frame (holds Cytoscape canvas) ---------- */

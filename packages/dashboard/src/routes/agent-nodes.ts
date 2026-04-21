@@ -5,6 +5,7 @@ import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { html as h, render as renderHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
+import { agentTabStrip } from '../views/agent-detail-v2.js';
 import { getContext } from '../context.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
 import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
@@ -352,12 +353,12 @@ agentNodesRouter.get('/agents/:name/yaml', (req: Request, res: Response) => {
   const error = typeof req.query.error === 'string' ? req.query.error : undefined;
 
   const body = h`
-    ${pageHeader({
-      title: `Edit YAML \u2014 ${agent.id}`,
-      back: { href: `/agents/${agent.id}`, label: `Back to ${agent.id}` },
-      description: `v${String(agent.version)}. Saving creates a new version. The YAML is validated before save.`,
-    })}
+    <h1 style="margin: 0 0 var(--space-4);">${agent.id}</h1>
+    ${agentTabStrip(agent.id, 'yaml')}
     ${error ? h`<div class="flash flash--error">${error}</div>` : h``}
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      v${String(agent.version)}. Saving creates a new version. The YAML is validated before save.
+    </p>
     <form method="POST" action="/agents/${agent.id}/yaml" class="card" style="max-width: 800px;">
       <label style="display: flex; flex-direction: column; gap: var(--space-2);">
         <textarea name="yaml" rows="30" required
