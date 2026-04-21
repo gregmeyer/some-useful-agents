@@ -26,6 +26,7 @@ import { agentNodesRouter } from './routes/agent-nodes.js';
 import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
+import { buildRouter } from './routes/run-now-build.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
 import { toolsRouter } from './routes/tools.js';
 import { assetsRouter } from './routes/assets.js';
@@ -134,6 +135,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(agentInputsRouter);
   app.use(runsRouter);
   app.use(runNowRouter);
+  app.use(buildRouter);
   app.use(runMutationsRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
