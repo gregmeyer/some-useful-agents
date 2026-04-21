@@ -1,0 +1,60 @@
+id: api-monitor
+name: API Monitor
+description: >
+  Pings a URL and reports whether it's healthy, degraded, or down.
+  Shows response time and status code. Pulse tile displays as a
+  colored status indicator.
+status: active
+source: examples
+
+inputs:
+  TARGET_URL:
+    type: string
+    default: "https://httpbin.org/get"
+    description: URL to monitor.
+  TIMEOUT_SECONDS:
+    type: number
+    default: 10
+    description: Request timeout in seconds.
+
+signal:
+  title: API Status
+  icon: "\uD83D\uDFE2"
+  format: json
+  template: status
+  mapping:
+    status: status
+    label: API Monitor
+    message: message
+  refresh: 5m
+
+nodes:
+  - id: ping
+    type: shell
+    command: |
+      START=$(date +%s%N)
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT_SECONDS" "$TARGET_URL" 2>/dev/null || echo "000")
+      END=$(date +%s%N)
+      DURATION_MS=$(( (END - START) / 1000000 ))
+
+      if [ "$HTTP_CODE" = "000" ]; then
+        STATUS="down"
+        MSG="Connection failed (timeout or DNS)"
+      elif [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+        if [ "$DURATION_MS" -gt 2000 ]; then
+          STATUS="degraded"
+          MSG="HTTP $HTTP_CODE in ${DURATION_MS}ms (slow)"
+        else
+          STATUS="healthy"
+          MSG="HTTP $HTTP_CODE in ${DURATION_MS}ms"
+        fi
+      elif [ "$HTTP_CODE" -ge 500 ]; then
+        STATUS="down"
+        MSG="HTTP $HTTP_CODE (server error)"
+      else
+        STATUS="degraded"
+        MSG="HTTP $HTTP_CODE in ${DURATION_MS}ms"
+      fi
+
+      echo "{\"status\": \"$STATUS\", \"message\": \"$MSG\", \"http_code\": $HTTP_CODE, \"duration_ms\": $DURATION_MS}"
+    timeout: 30
