@@ -35,7 +35,7 @@ Installed automatically by `sua init`. Manage with `sua examples install/remove/
 
 | Agent | What it teaches |
 |---|---|
-| `hello` | Your first agent — single shell node |
+| `hello` | Your first agent, single shell node |
 | `two-step-digest` | Chain nodes with `dependsOn` + upstream output passing |
 | `daily-greeting` | Cron scheduling (`schedule: "0 8 * * *"`) |
 | `parameterised-greet` | Agent inputs with defaults (`--input NAME=Greg`) |
@@ -45,6 +45,9 @@ Installed automatically by `sua init`. Manage with `sua examples install/remove/
 | `parameterised-greet-claude` | Claude Code companion (requires API key) |
 | `llm-tells-a-joke` | Configurable topic input + clean prompt design |
 | `agent-analyzer` | Self-correcting 3-node pipeline: analyze, validate, fix |
+| `agent-builder` | Goal-driven wizard, builds agents from plain language |
+| `system-health` | Disk/memory/CPU check with Pulse metric tile |
+| `daily-summary` | Activity summary with Pulse text-headline tile |
 
 ## CLI commands
 
@@ -111,14 +114,16 @@ sua schedule list                       # show scheduled agents
 
 ## Dashboard
 
-Start with `sua dashboard start`. Features:
+Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm stone neutrals.
 
-- **Agents** — card grid, DAG visualization, click nodes for actions (edit, replay), per-node status, YAML editor, suggest improvements (AI analysis)
-- **Variables** — inline editing of agent input defaults and types, add/remove variables, global variables tab in Settings
-- **Run now** — modal with input fields for agents that declare inputs, pre-filled with defaults
-- **Tools** — browse all 9 built-in tools + user tools, inspect inputs/outputs
-- **Runs** — filter by agent/status, replay from any node with pre-flight validation, resolved variables panel with filter, real-time turn progress for multi-turn LLM nodes
-- **Settings** — secrets CRUD with copy-before-save modal, global variables CRUD, MCP token rotation, retention policy
+- **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 9 display templates (metric, text-headline, table, status, time-series, image, text-image, media). Container layout with drag-and-drop reorder, edit mode, widget palette with auto-theming. System metric tiles replace the health strip. Markdown rendering, YouTube media player, tile collapse/expand.
+- **Build from goal** — describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block.
+- **Agents** — card grid with filtering (status, source, search), sorting, pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (LLM defaults, variables, secrets, status), Runs (history), YAML (editor).
+- **Suggest improvements** — AI-powered agent review with "Apply now" one-click save. Auto-fixes shell template mistakes. Available from failed run pages with the error pre-filled.
+- **LLM defaults** — agent-level provider (Claude/Codex) and model selection. Nodes inherit unless they override.
+- **Tools** — browse built-in + user tools with filtering and pagination
+- **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes
+- **Settings** — secrets CRUD with passphrase unlock, global variables, MCP token rotation
 - **Tutorial** — 7-step guided walkthrough that scaffolds agents from the dashboard
 
 ## Flow control
@@ -154,11 +159,14 @@ Available node types: `conditional`, `switch`, `loop`, `agent-invoke`, `branch`,
 
 ## Security
 
-- **Secrets encrypted at rest** — scrypt N=2^17, passphrase-derived key
+- **Secrets encrypted at rest** — AES-256-GCM with scrypt KDF (OWASP 2024 params)
 - **3-layer redaction in run logs** — declared secrets, sensitive name patterns (TOKEN, KEY, PASS), known credential value patterns (GitHub PATs, AWS keys, JWTs)
-- **MCP binds localhost** — bearer token auth, loopback-only by default
+- **Path traversal protection** — file-read/file-write tools validate paths stay within the working directory
+- **Env-var injection deny-list** — agent inputs cannot override LD_PRELOAD, PATH, NODE_OPTIONS, or 25+ other sensitive env vars
+- **MCP binds localhost** — bearer token auth, loopback-only by default, timing-safe token comparison
 - **Community shell gate** — community agents require explicit `--allow-untrusted-shell`
-- **Dashboard CSRF defense** — Origin header check on all mutations
+- **Dashboard auth** — 3-layer (Host + Origin + cookie), HttpOnly SameSite=Strict cookies, 8-hour expiry
+- **CI/CD** — SHA-pinned GitHub Actions, npm Trusted Publishing via OIDC (no static NPM_TOKEN)
 - **Example agents vetted** — CI security check + execution test on every PR
 
 Full model: [docs/SECURITY.md](docs/SECURITY.md)
