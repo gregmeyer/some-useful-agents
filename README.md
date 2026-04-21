@@ -4,6 +4,8 @@ A local-first agent playground. Author agents as composable flows, run them from
 
 MIT-licensed. Published to npm at `@some-useful-agents/*`.
 
+![Pulse dashboard](docs/images/pulse.png)
+
 ## What you get
 
 - **Agents as flows** — each agent is a DAG of nodes. Nodes execute shell commands, Claude Code prompts, or named tools. Flow control (conditional, switch, loop, agent-invoke, branch, end, break) lets agents make decisions and orchestrate sub-agents.
@@ -115,6 +117,12 @@ sua schedule list                       # show scheduled agents
 ## Dashboard
 
 Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm stone neutrals.
+
+![Agents list](docs/images/agents-list.png)
+
+![Agent detail](docs/images/agent-overview.png)
+
+![Agent config](docs/images/agent-config.png)
 
 - **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 9 display templates (metric, text-headline, table, status, time-series, image, text-image, media). Container layout with drag-and-drop reorder, edit mode, widget palette with auto-theming. System metric tiles replace the health strip. Markdown rendering, YouTube media player, tile collapse/expand.
 - **Build from goal** — describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block.
