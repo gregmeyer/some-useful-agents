@@ -1,13 +1,5 @@
 # @some-useful-agents/core
 
-## 0.17.0
-
-### Minor Changes
-
-- **fix: SSRF protection on http-get and http-post tools.**
-
-  `assertSafeUrl()` resolves hostnames via DNS and blocks private (RFC 1918), loopback, link-local, cloud metadata, and IPv6 unique-local addresses before any outbound request.
-
 ## 0.16.1
 
 ### Patch Changes
