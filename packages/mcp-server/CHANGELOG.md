@@ -1,5 +1,12 @@
 # @some-useful-agents/mcp-server
 
+## 0.17.0
+
+### Minor Changes
+
+- Updated dependencies
+  - @some-useful-agents/core@0.17.0
+
 ## 0.16.1
 
 ### Patch Changes

@@ -1,5 +1,20 @@
 # @some-useful-agents/dashboard
 
+## 0.17.0
+
+### Minor Changes
+
+- **fix: auth token moved from URL query param to fragment.**
+
+  Token is no longer sent to the server in HTTP requests, eliminating leaks via server logs, browser history, and Referrer headers. Auth page reads the fragment client-side and POSTs the token.
+
+- **fix: security headers on all dashboard responses.**
+
+  Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, and Referrer-Policy headers added as global middleware.
+
+- Updated dependencies
+  - @some-useful-agents/core@0.17.0
+
 ## 0.16.1
 
 ### Patch Changes

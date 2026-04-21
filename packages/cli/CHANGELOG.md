@@ -1,5 +1,15 @@
 # @some-useful-agents/cli
 
+## 0.17.0
+
+### Minor Changes
+
+- Updated help text to reflect fragment-based auth URL.
+
+- Updated dependencies
+  - @some-useful-agents/core@0.17.0
+  - @some-useful-agents/dashboard@0.17.0
+
 ## 0.16.1
 
 ### Patch Changes
