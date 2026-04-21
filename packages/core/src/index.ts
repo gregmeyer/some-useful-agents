@@ -17,6 +17,8 @@ export * from './secret-redactor.js';
 export * from './input-resolver.js';
 export * from './http-auth.js';
 export * from './agent-v2-types.js';
+export * from './output-widget-types.js';
+export { outputWidgetSchema } from './output-widget-schema.js';
 export {
   agentV2Schema,
   agentNodeSchema,

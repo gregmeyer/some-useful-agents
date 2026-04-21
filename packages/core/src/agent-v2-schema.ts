@@ -168,6 +168,22 @@ export const agentV2Schema = z.object({
     { message: 'Signal must declare either "format" (v1) or "template" (v2).' },
   ).optional(),
 
+  outputWidget: z.object({
+    type: z.enum(['diff-apply', 'key-value', 'raw']),
+    fields: z.array(z.object({
+      name: z.string().min(1),
+      label: z.string().optional(),
+      type: z.enum(['text', 'code', 'badge', 'action']),
+    })).min(1),
+    actions: z.array(z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      method: z.literal('POST'),
+      endpoint: z.string().min(1),
+      payloadField: z.string().optional(),
+    })).optional(),
+  }).optional(),
+
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {

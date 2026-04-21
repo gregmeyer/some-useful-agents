@@ -4,6 +4,7 @@ import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { statusBadge, outputFrame, formatDuration, formatExitCode, formatErrorCategory } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
+import { renderOutputWidget } from './output-widgets.js';
 
 export interface RunDetailOptions {
   run: Run;
@@ -141,9 +142,14 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
           </div>
         </div>
+        ${!inProgress && run.result && agent?.outputWidget
+          ? html`<section style="margin-top: var(--space-6);"><h2>Result</h2>${renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result)}</section>`
+          : html``}
       ` : html`
         <h2>Output</h2>
-        ${run.result ? outputFrame(run.result) : html`<p class="dim">No output yet.</p>`}
+        ${run.result
+          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result) : outputFrame(run.result))
+          : html`<p class="dim">No output yet.</p>`}
       `}
       ${cancelModal}
     </div>
