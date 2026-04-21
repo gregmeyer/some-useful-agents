@@ -1,5 +1,26 @@
 # @some-useful-agents/mcp-server
 
+## 0.16.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [544fb33]
+- Updated dependencies
+- Updated dependencies [2ca929d]
+- Updated dependencies [b94f89b]
+- Updated dependencies [4b97cc8]
+- Updated dependencies [8b95d36]
+- Updated dependencies [48c57f8]
+- Updated dependencies [1744a9f]
+- Updated dependencies
+- Updated dependencies [3fe5c47]
+- Updated dependencies [2cb27af]
+- Updated dependencies [21cc114]
+- Updated dependencies [6c25718]
+- Updated dependencies [ffa2986]
+  - @some-useful-agents/core@0.16.0
+
 ## 0.15.0
 
 ### Patch Changes
