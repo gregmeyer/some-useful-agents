@@ -1,0 +1,40 @@
+id: weather-stub
+name: Weather
+description: >
+  Mock weather agent that generates realistic-looking temperature data.
+  Demonstrates the metric template with unit, label, and trend. Replace
+  the stub with a real weather API call for production use.
+status: active
+source: examples
+
+signal:
+  title: Temperature
+  icon: "\uD83C\uDF21\uFE0F"
+  format: number
+  template: metric
+  mapping:
+    value: temp_f
+    label: San Francisco
+    unit: "\u00B0F"
+    previous: yesterday_f
+  refresh: 1h
+
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      # Stub: generate a plausible SF temperature based on time of day.
+      HOUR=$(date +%H)
+      BASE=58
+      # Warmer midday, cooler morning/evening.
+      if [ "$HOUR" -ge 10 ] && [ "$HOUR" -le 16 ]; then
+        OFFSET=$((RANDOM % 8 + 4))
+      elif [ "$HOUR" -ge 6 ] && [ "$HOUR" -lt 10 ]; then
+        OFFSET=$((RANDOM % 4))
+      else
+        OFFSET=$(( -(RANDOM % 4) ))
+      fi
+      TEMP=$((BASE + OFFSET))
+      YESTERDAY=$((TEMP + (RANDOM % 5) - 2))
+      echo "{\"temp_f\": $TEMP, \"yesterday_f\": $YESTERDAY, \"humidity\": $((50 + RANDOM % 30)), \"location\": \"San Francisco\"}"
+    timeout: 5

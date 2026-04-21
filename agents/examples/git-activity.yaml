@@ -1,0 +1,44 @@
+id: git-activity
+name: Git Activity
+description: >
+  Counts commits per day for the last 7 days in the current repo.
+  Outputs a JSON array of daily counts for the Pulse sparkline chart.
+status: active
+source: examples
+
+signal:
+  title: Commit Activity
+  icon: "\uD83D\uDCC8"
+  format: json
+  template: time-series
+  mapping:
+    values: daily_counts
+    current: today
+    label: Commits (7 days)
+  refresh: 1h
+  size: 2x1
+
+nodes:
+  - id: count
+    type: shell
+    command: |
+      # Count commits per day for the last 7 days.
+      COUNTS="["
+      TODAY_COUNT=0
+      for i in 0 1 2 3 4 5 6; do
+        SINCE=$(date -v-${i}d +%Y-%m-%d 2>/dev/null || date -d "$i days ago" +%Y-%m-%d 2>/dev/null)
+        UNTIL=$(date -v-$((i-1))d +%Y-%m-%d 2>/dev/null || date -d "$((i-1)) days ago" +%Y-%m-%d 2>/dev/null)
+        if [ "$i" = "6" ]; then
+          N=$(git log --oneline --since="$SINCE" 2>/dev/null | wc -l | tr -d ' ')
+        else
+          N=$(git log --oneline --since="$SINCE" --until="$UNTIL" 2>/dev/null | wc -l | tr -d ' ')
+        fi
+        [ "$i" = "0" ] && TODAY_COUNT=$N
+        [ "$i" -gt 0 ] && COUNTS="$COUNTS,"
+        COUNTS="$COUNTS$N"
+      done
+      COUNTS="$COUNTS]"
+      # Reverse so oldest is first (left of sparkline).
+      REVERSED=$(echo "$COUNTS" | sed 's/\[//;s/\]//' | tr ',' '\n' | tail -r 2>/dev/null | tr '\n' ',' | sed 's/,$//' || echo "$COUNTS" | sed 's/\[//;s/\]//' | awk -F, '{for(i=NF;i>0;i--) printf "%s%s",$i,(i>1?",":"")}')
+      echo "{\"daily_counts\": [$REVERSED], \"today\": $TODAY_COUNT, \"total_7d\": $(echo "$COUNTS" | sed 's/\[//;s/\]//' | tr ',' '+' | bc 2>/dev/null || echo 0)}"
+    timeout: 15
