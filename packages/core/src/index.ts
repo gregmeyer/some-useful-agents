@@ -37,6 +37,7 @@ export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,
+  assertSafeUrl,
 } from './builtin-tools.js';
 export { extractFramedOutput, buildToolOutput } from './output-framing.js';
 export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';

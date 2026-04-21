@@ -66,7 +66,7 @@ export interface StartDashboardOptions {
 
 export interface DashboardHandle {
   server: Server;
-  /** Builds the one-time auth URL: http://host:port/auth?token=<...>. */
+  /** Builds the one-time auth URL: http://host:port/auth#token=<...>. */
   authUrl: string;
   close(): Promise<void>;
 }
@@ -81,6 +81,18 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
+
+  // Security headers on all responses.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
 
   // Public routes (no auth).
   app.use(healthRouter);
@@ -209,7 +221,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     const s = app.listen(opts.port, host, () => resolve(s));
   });
 
-  const authUrl = `http://${host}:${opts.port}/auth?token=${token}`;
+  const authUrl = `http://${host}:${opts.port}/auth#token=${token}`;
 
   return {
     server,

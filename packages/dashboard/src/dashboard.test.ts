@@ -145,15 +145,19 @@ describe('Dashboard auth', () => {
     expect(res.status).toBe(403);
   });
 
-  it('/auth?token=<wrong> returns 401', async () => {
+  it('POST /auth with wrong token returns 401', async () => {
     const app = await makeApp();
-    const res = await request(app).get(`/auth?token=${WRONG_TOKEN}`).set('Host', `127.0.0.1:${PORT}`);
+    const res = await request(app).post('/auth')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .send({ token: WRONG_TOKEN });
     expect(res.status).toBe(401);
   });
 
-  it('/auth?token=<right> sets cookie and redirects', async () => {
+  it('POST /auth with correct token sets cookie and redirects', async () => {
     const app = await makeApp();
-    const res = await request(app).get(`/auth?token=${TOKEN}`).set('Host', `127.0.0.1:${PORT}`);
+    const res = await request(app).post('/auth')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .send({ token: TOKEN });
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
     const setCookie = res.headers['set-cookie'] as unknown as string[] | string | undefined;
@@ -161,6 +165,14 @@ describe('Dashboard auth', () => {
     expect(cookieStr).toMatch(new RegExp(`${SESSION_COOKIE}=${TOKEN}`));
     expect(cookieStr).toMatch(/HttpOnly/);
     expect(cookieStr).toMatch(/SameSite=Strict/);
+  });
+
+  it('GET /auth returns 200 with auth page (token read from fragment client-side)', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/auth').set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('auth-hint');
+    expect(res.text).toContain('location.hash');
   });
 
   it('cookie-authenticated request to /agents returns 200', async () => {

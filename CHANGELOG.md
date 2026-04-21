@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-04-21
+
+### Security fixes (v0.17.0)
+- SSRF protection on `http-get` and `http-post` tools: DNS-resolved IP validation blocks private, loopback, link-local, and cloud metadata addresses
+- Auth token moved from URL query parameter to URL fragment: token never sent to server in HTTP requests, never logged, never leaked via Referrer headers
+- CSP, X-Content-Type-Options, X-Frame-Options, and Referrer-Policy headers on all dashboard responses
+- Docker Compose Postgres binds to `127.0.0.1` instead of all interfaces
+
 ## 2026-04-17
 
 ### Variables scoping (PRs #87-#92)

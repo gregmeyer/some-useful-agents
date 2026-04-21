@@ -1,12 +1,69 @@
 import { execSync, type ExecSyncOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { lookup } from 'node:dns/promises';
 import type {
   ToolDefinition,
   ToolOutput,
   BuiltinToolEntry,
   BuiltinToolContext,
 } from './tool-types.js';
+
+/**
+ * SSRF guard: resolve the hostname to an IP and reject private, loopback,
+ * link-local, and cloud-metadata addresses before making an outbound request.
+ */
+export async function assertSafeUrl(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Blocked URL scheme: ${parsed.protocol}`);
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
+
+  // Resolve to IP (catches DNS rebind to private ranges)
+  let ip: string;
+  try {
+    const result = await lookup(hostname);
+    ip = result.address;
+  } catch {
+    throw new Error(`DNS lookup failed for ${hostname}`);
+  }
+
+  if (isPrivateIp(ip)) {
+    throw new Error(
+      `Blocked request to private/reserved IP ${ip} (resolved from ${hostname}). ` +
+      `http-get and http-post only allow requests to public addresses.`,
+    );
+  }
+}
+
+function isPrivateIp(ip: string): boolean {
+  // IPv4
+  if (ip.startsWith('127.')) return true;                // loopback
+  if (ip.startsWith('10.')) return true;                 // RFC 1918
+  if (ip.startsWith('192.168.')) return true;            // RFC 1918
+  if (ip === '0.0.0.0') return true;
+  if (ip.startsWith('169.254.')) return true;            // link-local / cloud metadata
+  // 172.16.0.0/12
+  if (ip.startsWith('172.')) {
+    const second = parseInt(ip.split('.')[1], 10);
+    if (second >= 16 && second <= 31) return true;
+  }
+  // IPv6
+  if (ip === '::1') return true;                         // loopback
+  if (ip === '::') return true;
+  if (ip.startsWith('fc') || ip.startsWith('fd')) return true; // unique local
+  if (ip.startsWith('fe80')) return true;                // link-local
+
+  return false;
+}
 
 /**
  * Built-in tool registry. Each entry provides a ToolDefinition (schema)
@@ -133,6 +190,7 @@ const BUILTINS: BuiltinToolEntry[] = [
     },
     async (inputs) => {
       const url = String(inputs.url ?? '');
+      await assertSafeUrl(url);
       const timeout = Number(inputs.timeout ?? 30) * 1000;
       const start = Date.now();
       const controller = new AbortController();
@@ -172,6 +230,7 @@ const BUILTINS: BuiltinToolEntry[] = [
     },
     async (inputs) => {
       const url = String(inputs.url ?? '');
+      await assertSafeUrl(url);
       const timeout = Number(inputs.timeout ?? 30) * 1000;
       const reqBody = inputs.body !== undefined ? JSON.stringify(inputs.body) : undefined;
       const start = Date.now();

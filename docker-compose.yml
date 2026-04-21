@@ -24,7 +24,7 @@ services:
       - POSTGRES_USER=temporal
       - POSTGRES_PASSWORD=temporal
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - temporal-db-data:/var/lib/postgresql/data
     healthcheck:
