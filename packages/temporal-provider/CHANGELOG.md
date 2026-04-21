@@ -1,5 +1,12 @@
 # @some-useful-agents/temporal-provider
 
+## 0.16.1
+
+### Patch Changes
+
+- Updated dependencies
+  - @some-useful-agents/core@0.16.1
+
 ## 0.16.0
 
 ### Patch Changes
