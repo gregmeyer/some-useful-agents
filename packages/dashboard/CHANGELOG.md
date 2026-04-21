@@ -1,5 +1,305 @@
 # @some-useful-agents/dashboard
 
+## 0.16.0
+
+### Minor Changes
+
+- 170dd4c: **feat: node edit + delete in the dashboard (PR 3a of 5 for v0.15).**
+
+  Closes the last big create/edit gap: users can now modify existing nodes and remove them without dropping to YAML or the CLI. Every change becomes a new version in the audit history.
+
+  ### What ships
+
+  - **`GET /agents/:id/nodes/:nodeId/edit`** — form pre-filled with the node's current state (type, command/prompt, dependsOn). Node id is **read-only** — renaming would break every `{{upstream.<id>.result}}` / `$UPSTREAM_<ID>_RESULT` reference in the same agent. Users who want a different id delete + re-create.
+  - **`POST /agents/:id/nodes/:nodeId/edit`** — validates + writes a new version via `createNewVersion`. Commit message is auto-set to `Edited node "<id>"`. Cycle guard re-runs server-side; the form's picker already hides downstream nodes but a hand-crafted POST can't bypass it.
+  - **`POST /agents/:id/nodes/:nodeId/delete`** — removes the node + creates a new version. Refuses if:
+    - Any other node depends on this one (clear flash: `Cannot delete "fetch" — "digest" depends on it.`)
+    - The agent has only one node (delete the agent itself from the CLI instead)
+  - **Inline Edit + Delete buttons** on every row of the agent detail Nodes table.
+
+  ### Design notes
+
+  - **Node ids are immutable.** The form shows them in a disabled input with a hint explaining why. Rename becomes delete-and-recreate.
+  - **Downstream-dep check on delete is explicit, not cascading.** Auto-trimming dependents' `dependsOn` would silently reshape the DAG; a loud refusal makes the user confront the consequence.
+  - **Cycle guard uses colored-DFS.** Faster than re-running the full Zod schema for one topology check; re-validates only the edge under consideration.
+  - **Fields not yet editable from the UI** (inputs, secrets, env, envAllowlist, allowedTools, model, maxTurns, timeout, redactSecrets) are preserved on edit — the form keeps them untouched, so editing a shell node's command doesn't wipe its secrets. Those land in PR 3b (the richer inspector) alongside drag-drop.
+
+  ### Files
+
+  - New: `packages/dashboard/src/views/agent-edit-node.ts`
+  - Modified: `packages/dashboard/src/routes/agents.ts` (GET + POST for /edit, POST for /delete, plus `hasCycleAfterEdit` helper); `views/agent-detail-v2.ts` (Edit/Delete buttons on node rows + new Actions column)
+
+  ### Tests
+
+  55 total (48 → 55; +7 new):
+
+  - GET edit pre-fills the form + id input is read-only
+  - POST edit updates the node + bumps the version + leaves downstream alone
+  - POST edit refuses a cycle-producing dependsOn with a 400
+  - POST delete refuses when any node depends on the target
+  - POST delete removes the node + bumps the version when nobody depends on it
+  - POST delete refuses to remove the last node (1-node agent)
+  - Agent detail renders Edit + Delete buttons on every row
+
+  ### Plan
+
+  Remaining v0.15 PRs: **3b (DAG drag-drop visual, deferred as its own PR) → 4 (settings CRUD + passphrase modal + MCP rotate) → 5 (replay UI + polish)**. v0.16 plan for structured outputs + Claude/Codex AI-assist comes after v0.15 wraps.
+
+- d0ec3fc: **feat: replay on DAG click + node action dialog + template palette + polish (PR 5 of 5, closes v0.15).**
+
+  Turns the DAG viz into the primary interaction surface (not a decoration above a table), adds a command-palette style autocomplete to node command/prompt textareas, and tightens the empty/error states the earlier PRs in this bundle didn't quite nail.
+
+  ### Node action dialog
+
+  - **Click any DAG node** on `/runs/:id` or `/agents/:id` to open an action dialog. Dialog shows the node's id, type badge, status badge (run detail only), depends-on list, and duration — plus context-specific action buttons.
+  - **On `/runs/:id`** (terminal runs only): "Replay from here" button POSTs to `/runs/<priorRunId>/replay` with the clicked node as `fromNodeId`. Community shell agents add a confirm prompt + the audit flag. "Jump to details" scrolls to the per-node card below.
+  - **On `/agents/:id`**: "Edit node" link jumps into `/agents/:id/nodes/:nodeId/edit`. When a latest completed run exists, "Replay from here" points at that run for one-click re-execution.
+  - Uses the browser-native `<dialog>` element so ESC + backdrop clicks + focus return are free.
+  - Replaces the misleading "Click a node to inspect it" inspector hint — the interaction now actually exists and the hint tells the truth.
+  - Below-DAG "Replay" form is now a `<noscript>` fallback for users without JS.
+
+  ### Template palette (autocomplete for `$` and `{{`)
+
+  - Typing `$` in a **shell** textarea opens a floating palette with every available env-var injection:
+    - `$UPSTREAM_<ID>_RESULT` for each other node in the agent
+    - `$<INPUT>` for every declared agent-level input
+    - `$<SECRET>` for every secret declared on the node
+  - Typing `{{` in a **claude-code** prompt textarea opens the same idea with template refs:
+    - `{{upstream.<id>.result}}` per upstream node
+    - `{{inputs.<NAME>}}` per agent input
+  - Keyboard: Up/Down to navigate, Enter/Tab to insert, Esc to close. Substring match + position-scored ranking.
+  - Suggestions are computed server-side from the agent's node list + declared inputs + per-node secrets, embedded as a JSON payload in a `<script type="application/json">` tag — same pattern Cytoscape uses for its element payload.
+  - Wired into both `/agents/:id/add-node` and `/agents/:id/nodes/:nodeId/edit`. Friendly inline hint below each textarea.
+
+  ### Replay / empty / error polish
+
+  - `POST /runs/:id/replay` — validates prior run is a v2 DAG run + agent exists + node is valid; dispatches `executeAgentDag` with `replayFrom`; 303s to the NEW run's page on success, flashes back to the prior run on failure.
+  - `/runs` with zero runs renders a dedicated "No runs yet" card pointing to the Agents page + CLI. `/runs?agent=ghost` (filters + no matches) renders "No runs match" + a Reset filters link.
+  - `/runs/<missing>` 303-redirects to `/runs` with a flash explaining the run may have been pruned by the retention policy. No more raw `<p>` fallback.
+  - `/runs/:id` surfaces flash banners for replay errors via an error-vs-ok regex classifier in the route.
+
+  ### Design notes
+
+  - **Dialog chosen over popover.** The browser-native `<dialog>` element handles ESC, backdrop clicks, and focus return without extra JS. Building a custom popover positioned over a Cytoscape canvas gets messy fast.
+  - **Replay always redirects to a new run.** Even on executor-side validation failure (missing upstream snapshot), the executor creates a failed run row for the audit trail. The dashboard flashes back to the prior run's page for those cases to keep the flow consistent.
+  - **Palette doesn't filter by `dependsOn:` checkboxes.** Users can type a reference to a node they haven't yet marked as an upstream; save-time Zod validation catches it. Wiring the palette to live checkbox state adds complexity without clear value — the "helpful error at save" path already exists.
+  - **Palette is inline JS, not a new asset.** The handler is ~180 lines; adding a second `/assets/*.js` file for it adds a network round-trip without material benefit. When the palette grows (v0.16 structured-outputs will add path completions), promote to its own asset file.
+
+  ### Files
+
+  - New: `packages/dashboard/src/routes/run-mutations.ts` (replay route), `packages/dashboard/src/views/template-palette.ts` (suggestions helper + payload renderer)
+  - Modified: `views/dag-view.ts` (replay/editBase props + `<dialog>` shell), `routes/assets.ts` (node-click dialog logic in `graph-render.js` + additional per-node data), `views/run-detail.ts` (replay context + noscript fallback, removed inline replay form), `views/agent-detail-v2.ts` (editBase + replay wiring + honest hint), `views/agent-add-node.ts` + `views/agent-edit-node.ts` (palette wiring), `views/js.ts` (palette client), `routes/runs.ts` (flash classification + 303 on missing run), `views/runs-list.ts` (empty-state split), `assets/screens.css` (dialog + palette styles), `index.ts` (wire run-mutations router)
+
+  ### Tests
+
+  87 dashboard tests total (75 → 87; +12 new):
+
+  - DAG wires `data-replay-run-id` on completed v2 runs + `<dialog>` shell present + click-hint rendered
+  - No replay wiring on in-progress runs
+  - Agent detail wires edit-base + replay-latest + replaced misleading inspector hint
+  - `POST /replay` — missing node, unknown node, valid node, cross-origin refusal
+  - `GET /runs/<missing>` redirect
+  - Empty / filtered empty states
+  - Palette JSON payload on add-node form (all candidate upstreams)
+  - Palette JSON payload on edit-node form excludes the node under edit
+
+  ### Plan
+
+  v0.15 is feature-complete with this PR. Release work (changeset consolidation, CHANGELOG polish, version bump) happens via the Changesets release PR (#64). Post-v0.15: see `~/.claude/plans/agents-as-packages.md` and `~/.claude/plans/dashboard-revamp.md` for where this is heading.
+
+- 663af58: **feat: settings CRUD in the dashboard — secrets + MCP token rotation (PR 4 of 5 for v0.15).**
+
+  Moves the last CLI-only admin surfaces into the dashboard so operators can manage secrets and rotate the MCP bearer token without leaving the browser. Unblocks v0.16 AI-assist, whose Anthropic API key needs the `/settings/secrets` surface to have a home.
+
+  ### What ships
+
+  - **`/settings/secrets`** — list declared secret names (values never rendered), set a new secret, delete an existing one. Agent-declared secrets that aren't yet set are called out in a "Declared by agents but not set" list so missing config is visible without running `sua doctor`.
+  - **Passphrase unlock flow** — when the store is `v2` passphrase-protected, the page renders a dedicated unlock form instead of the list. A correct passphrase is cached in dashboard-process memory for the rest of the session; never written to disk, cookies, or sessionStorage. A "Lock now" button clears it.
+  - **`/settings/general`** — MCP token fingerprint (first 8 chars), retention-policy display, path block showing the run DB, secrets file, and MCP token file so users know where sua is reading and writing.
+  - **MCP token rotation** — one-click rotate from `/settings/general`. The handler writes a fresh token to `~/.sua/mcp-token`, updates the in-process auth check, re-mints the dashboard session cookie so the operator stays signed in, and reveals the new value exactly once. Existing MCP clients (Claude Desktop) break until they're updated — the confirm dialog spells that out.
+  - **`/settings/integrations`** — placeholder unchanged in behaviour, with copy updated to reflect that integrations are a later-release feature.
+
+  ### Design notes
+
+  - **Origin check is the CSRF defence.** Every POST under `/settings/*` flows through `requireAuth`, which already rejects non-loopback `Origin` headers. No second CSRF token layer needed.
+  - **Passphrase never persisted.** Cached in a closure on the `SecretsSession` instance, cleared on `lock()` and at process shutdown. Dashboards that crash or restart require re-unlock — intentional.
+  - **Declared-secrets discovery tolerates broken YAML.** A malformed agent file must not prevent the settings page from rendering; `collectDeclaredSecrets` swallows loader errors and falls back to what the v2 store knows.
+  - **Rotated token is shown inline, not via flash.** `?rotated=<token>` in the redirect URL renders once on `/settings/general`; we accept that a browser back/reload can re-display it because the dashboard is a local loopback and the user asked to see it.
+
+  ### Files
+
+  - New: `packages/dashboard/src/secrets-session.ts` (SecretsSession interface + `EncryptedFileSecretsSession` + `MemorySecretsSession` for tests), `packages/dashboard/src/views/settings-secrets.ts`, `packages/dashboard/src/views/settings-general.ts`, `packages/dashboard/src/secrets-session.test.ts`
+  - Modified: `packages/dashboard/src/routes/settings.ts` (real CRUD + unlock/lock/rotate routes), `context.ts` (tokenPath, secretsPath, dbPath, retentionDays, rotateToken, secretsSession), `index.ts` (wire new context fields + construct the session), `views/js.ts` (add `[data-confirm]` submit handler), `assets/screens.css` (settings-form styles), `packages/cli/src/commands/dashboard.ts` (pass retentionDays)
+
+  ### Tests
+
+  75 dashboard tests total (55 → 75; +20 new):
+
+  - Unlock form gates the list when passphrase-protected + locked
+  - Wrong passphrase is rejected; correct passphrase unlocks the session
+  - `POST /settings/secrets/set` validates the `^[A-Z_][A-Z0-9_]*$` name pattern, rejects writes while locked, and stores + redirects on success
+  - `POST /settings/secrets/delete` removes a stored secret
+  - `POST /settings/secrets/lock` clears the cached passphrase
+  - Cross-origin POST to `/settings/secrets/set` is refused (Origin check)
+  - `/settings/general` renders the token fingerprint + retention + paths and never leaks the full token
+  - `POST /settings/general/rotate-mcp-token` rotates, re-mints the session cookie, updates `ctx.token`, and reveals the new value once
+  - After rotation, the old cookie is rejected and the new one authenticates
+  - `/settings/integrations` renders placeholder copy
+  - `EncryptedFileSecretsSession` round-trips through a real file, enforces passphrase gating, and throws when writing while locked
+  - `MemorySecretsSession` simulates the passphrase-protected flow for dashboard tests
+
+  ### Plan
+
+  Remaining v0.15 PR: **5 (replay UI + microcopy polish + changeset release for the v0.15-follow-on bundle)**. v0.16 structured-outputs work comes after v0.15 wraps.
+
+- 0f002da: **feat: agent version history + status toggle + rollback (PR 2 of 5 for v0.15).**
+
+  Makes the "every save = new version" story visible and actionable. Users can now see the full history of an agent's DAG, rollback to any prior version, and toggle an agent's lifecycle state from the UI — no more dropping to the CLI for `sua workflow status`.
+
+  ### What ships
+
+  - **Status dropdown** on the agent detail inspector aside — `active` / `paused` / `draft` / `archived`. Writes through `POST /agents/:id/status` → `agentStore.updateAgentMeta`. Same values the CLI accepts.
+  - **`GET /agents/:id/versions`** — table of every version with creation time, author, commit message, and a rollback button per non-current row. Current version is highlighted.
+  - **`GET /agents/:id/versions/:version`** — single-version viewer showing the DAG as it was at that point in time, with a "Rollback to this version" primary CTA.
+  - **`POST /agents/:id/rollback`** — reconstructs the target version's DAG and calls `createNewVersion` to produce a NEW version whose structure matches the target. Append-only: nothing is deleted, rollback is itself a versioned event.
+  - Agent detail inspector gains:
+    - A **"history →"** link next to the version field
+    - A **"Versions"** button in the action row
+    - (Already had "+ Add node" from PR 1.6)
+
+  ### Design choices
+
+  - **Rollback creates, doesn't mutate.** The alternative — setting `current_version` back to v1 — would hide the rollback from history. Creating a new v3 that matches v1's DAG is auditable and reversible.
+  - **Status is metadata, not a version.** `updateAgentMeta` doesn't bump the version because status isn't part of the DAG schema. Only structural changes produce new versions.
+  - **No diff view yet.** Showing a side-by-side DAG diff between v1 and v2 requires editor context to be useful; deferred to PR 3. For now, the single-version view shows each version's DAG in isolation.
+  - **No general-purpose `POST /agents/:id/save` endpoint yet.** Without the editable inspector (PR 3) there's no UI to trigger it, and designing the API without a consumer risks getting it wrong. Lands alongside PR 3.
+
+  ### Files
+
+  - New: `packages/dashboard/src/views/versions.ts`
+  - New: `packages/dashboard/src/routes/versions.ts` (versions list, single version, rollback, status)
+  - Modified: `views/agent-detail-v2.ts` (inspector aside now has Status section + versions links), `index.ts` (mounts the new router)
+
+  ### Tests
+
+  48 total (41 → 48; +7 new):
+
+  - `/agents/:id/versions` lists all versions with current marked
+  - `/agents/:id/versions/:version` renders the DAG as it was at that version
+  - Rollback creates a new version matching the target DAG, with a "Rollback to vN" commit message
+  - Rollback rejects invalid target version (404)
+  - Status toggle changes status + rejects invalid enum values
+  - Agent detail renders the status dropdown form + versions link
+
+  ### Plan
+
+  Remaining v0.15 PRs: **3 (inspector editing + drag-drop) → 4 (settings CRUD + passphrase modal + MCP token rotate) → 5 (replay UI + states/microcopy polish)**.
+
+- 96e5add: **feat: connected tutorial + in-UI create surface + DAG polish (PR 1.6 of v0.15).**
+
+  Closes the gap from v0.15.0's first pass: the tutorial was a read-only status tracker and every "create X" step dead-ended at the CLI. This PR makes the dashboard an actual create surface.
+
+  ### What ships
+
+  - **`/agents/new`** — dashboard form that creates single-node v2 DAG agents via `agentStore.createAgent`. Validates id, name, command/prompt. No terminal handoff.
+  - **`/agents/:id/add-node`** — form that appends a node to an existing agent, bumps to a new agent version via `upsertAgent`. Supports multi-node DAG authoring from the UI with a `dependsOn` checkbox set limited to existing node ids. Post-submit stays on the same form with a "Added X" flash so users can chain another node; "Done here — view DAG" exits to the agent detail.
+  - **Active tutorial at `/help/tutorial`** — every step now has an inline action button, not a nav link:
+    - Step 1: "Create hello agent" button → POST scaffolds a minimal single-node agent → redirects to `/agents/hello?from=tutorial` so the user immediately sees the DAG + composition.
+    - Step 2: "Run <first-agent> now" button → POST runs it inline, flashes the user onto the run detail.
+    - Step 4: "Scaffold demo DAG" button → creates a 2-node fetch→digest demo → redirects to `/agents/demo-digest`.
+    - Every step shows a **"Will create" preview card** up front so the user sees the DAG shape + commands BEFORE clicking the button.
+  - **Multi-hop back navigation** — new `?from=<origin>` query propagates through POST redirects (tutorial → agent detail → run detail). Back link label reflects the _original_ origin, not the immediate Referer. Handles the "I ran hello from the tutorial, now the run detail should offer Back to tutorial" case.
+  - **DAG viewer unified + collapsible** — fixed a styling inconsistency where `/runs/:id` and `/agents/:id` rendered the DAG with different chrome (one used inline styles overriding the design-system class). Canvas now uses a dot-grid background, softer status/type tints, thinner edges, mono label font. Wrapped in a `<details open>` so deep pages can collapse the viz without scrolling past it.
+  - **Multi-node agent cards** on `/agents` gain an inline `<details>` revealing each node's id + type + command snippet without navigating away.
+  - **Contextual back link** on run detail — reads `Referer` (falls back to query param, same-origin only) and renders "← Back to runs / tutorial / agents / <agent-id>" above the page title. Off-host referers are ignored.
+  - **Available variables panel** on the add-node form — lists every upstream node with its claude-code template syntax (`{{upstream.<id>.result}}`) and shell env-var form (`$UPSTREAM_<ID>_RESULT`) so authors don't have to remember. Notes that structured outputs arrive in v0.16.
+  - **`docs/templating.md`** — reference doc for the current templating vocabulary plus a forward-looking sketch of the v0.16 structured-outputs expansion.
+
+  ### Files
+
+  - New: `packages/dashboard/src/views/{agent-new,agent-add-node,tutorial}.ts`
+  - New: `packages/dashboard/src/routes/help.ts` scaffold endpoints (POST `/help/tutorial/scaffold-hello`, POST `/help/tutorial/scaffold-demo-dag`)
+  - New: `docs/templating.md`
+  - Modified: `views/{agents-list,agent-detail-v2,run-detail,dag-view,page-header}.ts`, `routes/{agents,runs,run-now,help,assets}.ts`, `assets/{components,screens}.css`
+  - `page-header.ts` grows a `deriveBack(referer, host, fromParam)` helper the routes use to produce the contextual link.
+
+  ### Tests
+
+  41 total (35 → 41; +6 new):
+
+  - Scaffold endpoints create + are idempotent + show inline action buttons
+  - `/agents/new` renders form, creates on POST, rejects invalid id + dup id + missing prompt-for-claude-code
+  - `/agents/:id/add-node` renders with current nodes, appends + bumps version, rejects unknown upstream, rejects duplicate node id
+  - Back link renders for same-origin Referer, omitted for off-host
+
+  ### Notes
+
+  - The AI-assist idea ("Suggest with Claude" / "Write with Codex") is scoped to v0.16 alongside structured outputs — it needs the declared-outputs schema to have useful context. Plan file coming.
+  - `/agents/new` creates single-node agents only. The chain flow (`/agents/:id/add-node`) covers multi-node authoring. Real inline drag-drop + version diff lands in PR 3 of v0.15.
+
+- 9a5af08: **feat: tool CLI + /tools dashboard + tool visibility on agent detail (PR 3 of 6 for v0.16).**
+
+  Surfaces the tool abstraction from PRs 1–2 so users can browse, inspect, and validate tools from both the CLI and the dashboard.
+
+  ### What ships
+
+  - **`sua tool list`** — tabular listing of all built-in + user-defined tools with id, source, implementation type, description.
+  - **`sua tool show <id>`** — detailed view of a tool's inputs (name, type, required, default, description) + outputs + implementation.
+  - **`sua tool validate <file>`** — schema-check a tool YAML without storing it. Reports each Zod issue with path + message.
+  - **`/tools`** dashboard page — card grid of all tools, split into "Built-in tools" and "User tools" sections. Reuses the agent-card component.
+  - **`/tools/:id`** detail page — inputs table, outputs table, implementation card, back-link to /tools.
+  - **Tool visibility on agent detail sidebar** — new "Tools" section between Secrets and action buttons. Lists the unique tool ids this agent's nodes reference, each as a clickable badge linking to `/tools/:id`. v0.15 nodes show their implicit tool (`shell-exec` / `claude-code`).
+  - **"Tools" nav link** in the topbar — sits between Agents and Runs.
+
+  ### Tests
+
+  521 total (517 → 521; +4 new):
+
+  - `/tools` lists built-in tools
+  - `/tools/http-get` renders detail with inputs/outputs
+  - `/tools/nonexistent` redirects to /tools
+  - Agent detail sidebar shows tool badge for implicit shell-exec
+
+- 21cc114: **feat: tool picker on node forms + tool config/actions types (PR 4 of 6 for v0.16).**
+
+  Replaces the Shell/Claude Code type radio on add-node and edit-node forms with a tool dropdown listing all 9 built-in tools + user tools. Selecting a tool dynamically renders its declared input fields with palette autocomplete (both `$` and `{{` triggers). Extends the tool model with `config` (project-level defaults) and `actions` (multi-action tools).
+
+### Patch Changes
+
+- 1744a9f: **feat: branch (merge) node + dashboard viz shapes (Flow PR F — closes flow control).**
+
+  Final flow-control PR. Adds the `branch` merge-point node and distinct Cytoscape shapes for all control-flow node types.
+
+  - **`branch` node**: explicit fan-in merge point. Collects all upstream outputs into `{ merged: Record<string, unknown>, count: number }`. Condition-skipped upstreams are excluded gracefully (the branch always runs, even if some paths were skipped). Bypasses the condition_not_met cascade that would otherwise skip downstream nodes with a skipped dependency.
+  - **Dashboard viz shapes**: conditional/switch = diamond, loop = round-octagon, agent-invoke = barrel, branch = round-pentagon, end/break = octagon. Each control-flow type also has a distinct color tint so the DAG at a glance shows where routing happens vs where execution happens.
+
+  ### Flow control is complete
+
+  With PRs A–F, agent flows now support:
+
+  - `conditional` — if/else predicate evaluation
+  - `switch` — multi-case routing
+  - `loop` — iterate over arrays with sub-agent invocation
+  - `agent-invoke` — nested sub-flows with parent-child run linking
+  - `branch` — explicit fan-in merge
+  - `end` — clean early termination
+  - `break` — exit current loop iteration
+  - `onlyIf` — edge-level conditional execution on any node
+
+- Updated dependencies [544fb33]
+- Updated dependencies [2ca929d]
+- Updated dependencies [b94f89b]
+- Updated dependencies [4b97cc8]
+- Updated dependencies [8b95d36]
+- Updated dependencies [48c57f8]
+- Updated dependencies [1744a9f]
+- Updated dependencies [3fe5c47]
+- Updated dependencies [2cb27af]
+- Updated dependencies [21cc114]
+- Updated dependencies [6c25718]
+- Updated dependencies [ffa2986]
+  - @some-useful-agents/core@0.16.0
+
 ## 0.15.0
 
 ### Minor Changes
