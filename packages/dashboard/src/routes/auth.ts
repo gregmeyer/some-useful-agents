@@ -12,9 +12,6 @@ export const authRouter: Router = Router();
 authRouter.get('/auth', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
 
-  // Host/Origin still checked on /auth — the token is the only thing the
-  // path cares about, but we don't want a DNS-rebind attacker to set a
-  // cookie we'd accept on subsequent requests.
   const hostCheck = checkHost(req.headers.host, ctx.allowlist);
   if (!hostCheck.ok) {
     res.status(hostCheck.status).json({ error: hostCheck.error });
@@ -27,32 +24,71 @@ authRouter.get('/auth', (req: Request, res: Response) => {
     return;
   }
 
-  const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-
-  if (!token) {
-    // No token: show a static "paste the URL" hint page.
-    res.status(200).type('html').send(render(layout(
-      { title: 'Sign in' },
-      html`
+  // Serve a page that reads the token from the URL fragment (never sent to
+  // the server in HTTP requests, never logged, never leaked via Referrer)
+  // and POSTs it. Falls back to the hint page when no fragment is present.
+  res.status(200).type('html').send(render(layout(
+    { title: 'Sign in' },
+    html`
+      <div id="auth-hint" style="display:none">
         <h1>Sign in required</h1>
         <p>The dashboard is locked until you visit the one-time URL that
         <code>sua dashboard start</code> printed to your terminal.</p>
         <p>Look for a line starting with:</p>
-        <pre>Dashboard ready at http://127.0.0.1:${ctx.port}/auth?token=&lt;...&gt;</pre>
+        <pre>Dashboard ready at http://127.0.0.1:${ctx.port}/auth#token=&lt;...&gt;</pre>
         <p>Click it once to set a session cookie; after that, bookmark
         <a href="/">http://127.0.0.1:${ctx.port}/</a>.</p>
-      `,
-    )));
+      </div>
+      <p id="auth-status">Authenticating...</p>
+      <script>
+        (function() {
+          var h = location.hash;
+          var m = h && h.match(/^#token=(.+)$/);
+          if (!m) {
+            document.getElementById('auth-hint').style.display = '';
+            document.getElementById('auth-status').style.display = 'none';
+            return;
+          }
+          // Clear the fragment so it doesn't linger in browser history
+          history.replaceState(null, '', location.pathname);
+          fetch('/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: decodeURIComponent(m[1]) }),
+          }).then(function(res) {
+            if (res.redirected) { location.href = res.url; return; }
+            if (res.ok) { location.href = '/'; return; }
+            return res.text().then(function(t) {
+              document.getElementById('auth-status').textContent = 'Authentication failed. Copy the URL from your terminal again.';
+            });
+          }).catch(function() {
+            document.getElementById('auth-status').textContent = 'Network error. Please try again.';
+          });
+        })();
+      </script>
+    `,
+  )));
+});
+
+authRouter.post('/auth', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+
+  const hostCheck = checkHost(req.headers.host, ctx.allowlist);
+  if (!hostCheck.ok) {
+    res.status(hostCheck.status).json({ error: hostCheck.error });
+    return;
+  }
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  const originCheck = checkOrigin(origin, ctx.allowlist);
+  if (!originCheck.ok) {
+    res.status(originCheck.status).json({ error: originCheck.error });
     return;
   }
 
-  // Constant-time compare via the same helper the cookie middleware uses,
-  // even though here we have the token as a query string.
-  if (token.length !== ctx.token.length || !timingSafeEqualStrings(token, ctx.token)) {
-    res.status(401).type('html').send(render(layout(
-      { title: 'Invalid token', flash: { kind: 'error', message: 'Invalid token. Copy the URL from your terminal again, or run `sua mcp rotate-token` and restart the dashboard.' } },
-      html`<p><a href="/auth">Back</a></p>`,
-    )));
+  const token = typeof req.body?.token === 'string' ? req.body.token : undefined;
+
+  if (!token || token.length !== ctx.token.length || !timingSafeEqualStrings(token, ctx.token)) {
+    res.status(401).json({ error: 'Invalid token' });
     return;
   }
 

@@ -27,7 +27,7 @@ dashboardCommand
 The dashboard shares the MCP bearer token at ~/.sua/mcp-token for auth.
 On startup it prints a one-time URL like:
 
-    Dashboard ready at http://127.0.0.1:3000/auth?token=<...>
+    Dashboard ready at http://127.0.0.1:3000/auth#token=<...>
 
 Click that URL once to set the session cookie; after that, bookmark
 http://127.0.0.1:3000/. If you don't have a token yet, run 'sua init'
