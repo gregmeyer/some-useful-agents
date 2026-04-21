@@ -831,12 +831,17 @@ describe('Dashboard version history + status toggle (PR 2)', () => {
       id: 'detail-ver', name: 'X', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
     }, 'cli');
-    const res = await request(app).get('/agents/detail-ver')
+    // Status dropdown is now on the Config tab.
+    const res = await request(app).get('/agents/detail-ver/config')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('action="/agents/detail-ver/status"');
-    expect(res.text).toContain('/agents/detail-ver/versions');
+    // Version history link is on the Overview tab.
+    const overviewRes = await request(app).get('/agents/detail-ver')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(overviewRes.text).toContain('/agents/detail-ver/versions');
   });
 });
 
@@ -946,7 +951,8 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
   it('agent detail renders Edit + Delete buttons on every node row', async () => {
     const app = await makeApp();
     await seedChainAgent();
-    const res = await request(app).get('/agents/chain-edit')
+    // Node edit buttons are now on the Nodes tab.
+    const res = await request(app).get('/agents/chain-edit/nodes')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);

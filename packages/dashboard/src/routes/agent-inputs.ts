@@ -108,7 +108,7 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
   }
 
   if (errors.length > 0) {
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(errors.join(' '))}#variables`);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(errors.join(' '))}#variables`);
     return;
   }
 
@@ -134,9 +134,9 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
       'dashboard',
       'Updated input defaults via dashboard',
     );
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent('Updated input defaults. New version created.')}#variables`);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Updated input defaults. New version created.')}#variables`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Save failed: ${msg}`)}#variables`);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Save failed: ${msg}`)}#variables`);
   }
 });

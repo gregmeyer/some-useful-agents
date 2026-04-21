@@ -4,7 +4,8 @@ import { exportAgent, parseAgent, AgentYamlParseError } from '@some-useful-agent
 import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { html as h, render as renderHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
-import { pageHeader } from '../views/page-header.js';
+import { pageHeader, deriveBack } from '../views/page-header.js';
+import { renderAgentYaml } from '../views/agent-detail-v2.js';
 import { getContext } from '../context.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
 import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
@@ -351,26 +352,22 @@ agentNodesRouter.get('/agents/:name/yaml', (req: Request, res: Response) => {
   const yaml = exportAgent(agent);
   const error = typeof req.query.error === 'string' ? req.query.error : undefined;
 
-  const body = h`
-    ${pageHeader({
-      title: `Edit YAML \u2014 ${agent.id}`,
-      back: { href: `/agents/${agent.id}`, label: `Back to ${agent.id}` },
-      description: `v${String(agent.version)}. Saving creates a new version. The YAML is validated before save.`,
-    })}
-    ${error ? h`<div class="flash flash--error">${error}</div>` : h``}
-    <form method="POST" action="/agents/${agent.id}/yaml" class="card" style="max-width: 800px;">
-      <label style="display: flex; flex-direction: column; gap: var(--space-2);">
-        <textarea name="yaml" rows="30" required
-          style="padding: var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--font-size-xs); resize: vertical; line-height: 1.5; tab-size: 2;">${yaml}</textarea>
-      </label>
-      <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); justify-content: flex-end;">
-        <a class="btn btn--ghost" href="/agents/${agent.id}">Cancel</a>
-        <button type="submit" class="btn btn--primary">Save YAML</button>
-      </div>
-    </form>
-  `;
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const fromParam = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const referer = typeof req.headers.referer === 'string' ? req.headers.referer : undefined;
+  const back = deriveBack(referer, `127.0.0.1:${ctx.port}`, fromParam);
 
-  res.type('html').send(renderHtml(layout({ title: `Edit YAML \u2014 ${agent.id}`, activeNav: 'agents' }, body)));
+  res.type('html').send(renderAgentYaml({
+    agent,
+    recentRuns: [],
+    secretsStore: ctx.secretsStore,
+    activeTab: 'yaml',
+    flash: flashParam ? { kind: 'ok' as const, message: flashParam } : undefined,
+    back,
+    from: fromParam,
+    yaml,
+    error,
+  }));
 });
 
 agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {

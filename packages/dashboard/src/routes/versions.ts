@@ -123,7 +123,7 @@ versionsRouter.post('/agents/:id/status', (req: Request, res: Response) => {
   const newStatus = typeof body.newStatus === 'string' ? body.newStatus : undefined;
 
   if (!newStatus || !VALID_STATUSES.has(newStatus)) {
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Invalid status. Must be one of: ${[...VALID_STATUSES].join(', ')}.`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Invalid status. Must be one of: ${[...VALID_STATUSES].join(', ')}.`)}`);
     return;
   }
 
@@ -134,16 +134,16 @@ versionsRouter.post('/agents/:id/status', (req: Request, res: Response) => {
   }
 
   if (agent.status === newStatus) {
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Already ${newStatus}.`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Already ${newStatus}.`)}`);
     return;
   }
 
   try {
     ctx.agentStore.updateAgentMeta(id, { status: newStatus as 'active' | 'paused' | 'archived' | 'draft' });
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Status set to "${newStatus}".`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Status set to "${newStatus}".`)}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Status change failed: ${msg}`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Status change failed: ${msg}`)}`);
   }
 });
 
@@ -162,7 +162,7 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
   const model = typeof body.model === 'string' ? body.model.trim() : '';
 
   if (provider && !VALID_PROVIDERS.has(provider)) {
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent('Invalid provider. Must be claude or codex.')}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Invalid provider. Must be claude or codex.')}`);
     return;
   }
 
@@ -176,7 +176,7 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
   const newProvider = (provider || undefined) as 'claude' | 'codex' | undefined;
   const newModel = model || undefined;
   if (agent.provider === newProvider && agent.model === newModel) {
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent('LLM defaults unchanged.')}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('LLM defaults unchanged.')}`);
     return;
   }
 
@@ -187,9 +187,9 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
     if (newProvider) parts.push(`provider: ${newProvider}`);
     if (newModel) parts.push(`model: ${newModel}`);
     const summary = parts.length > 0 ? parts.join(', ') : 'defaults cleared';
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`LLM defaults updated (${summary}).`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`LLM defaults updated (${summary}).`)}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/agents/${encodeURIComponent(id)}?flash=${encodeURIComponent(`LLM update failed: ${msg}`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`LLM update failed: ${msg}`)}`);
   }
 });

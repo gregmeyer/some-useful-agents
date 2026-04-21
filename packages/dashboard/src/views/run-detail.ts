@@ -318,7 +318,7 @@ function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
  */
 function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay?: boolean): SafeHtml {
   const cards = execs.map((e) => {
-    const shouldOpen = e.status === 'failed' || e.error !== undefined;
+    const shouldOpen = e.status === 'completed' || e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
     const duration = formatDuration(e.startedAt, e.completedAt);
     const exitLabel = formatExitCode(e.exitCode);
