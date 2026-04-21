@@ -1,5 +1,182 @@
 # @some-useful-agents/core
 
+## 0.16.0
+
+### Minor Changes
+
+- **feat: goal-driven agent builder + self-correcting analyzer.**
+
+  Build-from-goal wizard: describe what you want in plain language, the builder designs a complete DAG. Self-correcting: validates YAML and fixes errors automatically. Agent analyzer reviews existing agents and suggests improvements with "Apply now" one-click save. Dynamic tool catalog injected into builder prompt. Focus prompt and last-run output context for analyzer. Auto-fix shell template mistakes.
+
+- 544fb33: **feat: Pulse signal type + 7 curated example agents (docs sweep PR 1).**
+
+  Adds the `AgentSignal` type (title, icon, format, field, refresh, size) to the Agent interface and Zod schema. Each agent can optionally declare a `signal:` block that defines how its output renders on the `/pulse` dashboard (the agent info radiator — page itself ships later in the dashboard revamp).
+
+  Ships 7 curated v2 example agents that tell a tutorial narrative ("Build a daily briefing system"), replacing the 3 minimal v1 examples:
+
+  1. **hello** — first agent, proves install works
+  2. **two-step-digest** — 2-node DAG, teaches dependsOn + upstream passing
+  3. **daily-greeting** — cron scheduling
+  4. **parameterised-greet** — inputs with defaults (shell + claude-code companion)
+  5. **conditional-router** — flow control: conditional + onlyIf + branch merge
+  6. **research-digest** — agent-invoke + loop (nested flows)
+  7. **daily-joke** — real HTTP via http-get tool (icanhazdadjoke.com, the only example with network)
+
+  Each example has a `signal:` block, a header comment explaining what it teaches, and a run command. All offline examples use mock data from `agents/examples/data/`.
+
+- **feat: DAG executor refactor — LlmSpawner, progress tracking, provider field.**
+
+  Split the monolithic executor into focused modules. LlmSpawner interface abstracts claude/codex CLI providers. progressJson column on node_executions enables real-time turn tracking in the dashboard. Provider field on nodes allows per-node claude/codex selection.
+
+- 2ca929d: **feat: flow control foundation — node types, onlyIf conditional edges, nested run support (Flow PR A).**
+
+  Lays the type + schema + executor foundation for control-flow primitives in agent flows. No new node type dispatch yet (conditional, switch, loop, etc. come in PRs B–E); this PR establishes the data layer and ships the `onlyIf` conditional edge feature end-to-end.
+
+  ### What ships
+
+  - **Extended `NodeType` union**: `conditional`, `switch`, `loop`, `agent-invoke`, `branch`, `end`, `break` join `shell` + `claude-code`. Control-flow types are first-class — the executor will dispatch to dedicated logic per type.
+  - **`onlyIf` on `AgentNode`**: edge-level conditional execution. Evaluates a predicate (`equals`, `notEquals`, `exists`) against an upstream node's structured output field before spawning. Skipped nodes get `condition_not_met` (not `upstream_failed`), which cascades to downstream nodes without triggering fail-fast.
+  - **Control-flow config interfaces**: `ConditionalConfig`, `SwitchConfig`, `LoopConfig`, `AgentInvokeConfig`, `endMessage` on AgentNode. Ready for PRs B–E to implement.
+  - **`condition_not_met` + `flow_ended`** error categories.
+  - **`parent_run_id` + `parent_node_id`** on runs table (idempotent migration). Ready for nested agent-invoke runs in PR C.
+  - **Zod schema** updated: accepts all new node types + `onlyIf` field. Control-flow nodes skip the command/prompt requirement.
+  - **If/else branching** works today: two downstream nodes with complementary `onlyIf` predicates — one runs, the other skips.
+
+  ### Tests
+
+  527 total (521 → 527; +6 new):
+
+  - onlyIf.equals skips when no match / runs when match
+  - Cascading condition_not_met to downstream nodes
+  - onlyIf.notEquals
+  - onlyIf.exists (null = absent)
+  - If/else branching pattern (complementary predicates)
+  - All 521 existing tests pass unchanged (full backcompat)
+
+- b94f89b: **feat: conditional + switch node dispatch in executor (Flow PR B).**
+
+  First-class `conditional` and `switch` nodes now execute in the DAG. Both run in-process (no child process, no env resolution) and produce structured outputs that downstream nodes consume via `onlyIf` predicates.
+
+  - **`conditional`**: evaluates a predicate (`equals`, `notEquals`, `exists`) against the first upstream's output field. Outputs `{ matched: boolean, value: unknown }`. Downstream nodes gate on `onlyIf: { upstream: check, field: matched, equals: true }`.
+  - **`switch`**: matches an upstream field against named cases. Outputs `{ case: string, value: unknown }`. Unmatched values default to `"default"`. Downstream nodes gate on `onlyIf: { upstream: route, field: case, equals: "pro" }`.
+  - Both compose with the `onlyIf` conditional edges from PR A for full if/else and multi-branch routing patterns.
+
+- 4b97cc8: **feat: agent-invoke node type + nested runs (Flow PR C).**
+
+  An `agent-invoke` node runs another agent as a nested sub-flow. The sub-agent gets its own `runs` row linked to the parent via `parent_run_id` + `parent_node_id`. The parent node waits for the sub-run to complete and captures its result as structured output.
+
+  - **Recursive `executeAgentDag`** — the executor calls itself with the sub-agent's definition, threading `parentRunId`/`parentNodeId` so the audit trail is complete.
+  - **`AgentStore` on `DagExecutorDeps`** — required for resolving sub-agents by id. Fails cleanly when absent or when the sub-agent isn't found.
+  - **Input mapping** — `agentInvokeConfig.inputMapping` maps upstream outputs to sub-agent inputs. Supports `upstream.<id>.<field>` path expressions.
+  - **Parent node result** = sub-run's final result. Sub-run failure propagates as parent node failure with `setup` category.
+
+- 8b95d36: **feat: loop node type — iterate + invoke sub-agent per item (Flow PR D).**
+
+  A `loop` node iterates over an array from upstream structured output, invoking a sub-agent per item. Each iteration is a nested run linked to the parent. Results are collected into `{ items: result[], count: number }`.
+
+  - **Best-effort**: failed iterations record `null` in the items array; the loop itself only fails on invalid config or missing sub-agent.
+  - **`maxIterations`**: caps the iteration count to prevent runaway loops.
+  - **`ITEM` + `ITEM_INDEX` inputs**: each sub-agent invocation receives the current item as `$ITEM` and its zero-based index as `$ITEM_INDEX`.
+
+- 48c57f8: **feat: end + break node types — early flow termination (Flow PR E).**
+
+  - **`end` node**: terminates the entire flow cleanly when reached. Status = `completed` (not failed). All remaining nodes are skipped with `flow_ended` category. The node's `endMessage` surfaces in the run detail.
+  - **`break` node**: exits the current flow (loop body / sub-flow) only. Within a top-level flow it behaves like `end`; within a loop iteration it stops that iteration and the loop continues to the next item.
+  - Both compose with `onlyIf` — an end/break node gated by a conditional only fires when the condition is met. When skipped by `condition_not_met`, the flow continues normally.
+
+- 1744a9f: **feat: branch (merge) node + dashboard viz shapes (Flow PR F — closes flow control).**
+
+  Final flow-control PR. Adds the `branch` merge-point node and distinct Cytoscape shapes for all control-flow node types.
+
+  - **`branch` node**: explicit fan-in merge point. Collects all upstream outputs into `{ merged: Record<string, unknown>, count: number }`. Condition-skipped upstreams are excluded gracefully (the branch always runs, even if some paths were skipped). Bypasses the condition_not_met cascade that would otherwise skip downstream nodes with a skipped dependency.
+  - **Dashboard viz shapes**: conditional/switch = diamond, loop = round-octagon, agent-invoke = barrel, branch = round-pentagon, end/break = octagon. Each control-flow type also has a distinct color tint so the DAG at a glance shows where routing happens vs where execution happens.
+
+  ### Flow control is complete
+
+  With PRs A–F, agent flows now support:
+
+  - `conditional` — if/else predicate evaluation
+  - `switch` — multi-case routing
+  - `loop` — iterate over arrays with sub-agent invocation
+  - `agent-invoke` — nested sub-flows with parent-child run linking
+  - `branch` — explicit fan-in merge
+  - `end` — clean early termination
+  - `break` — exit current loop iteration
+  - `onlyIf` — edge-level conditional execution on any node
+
+- **feat: Pulse information radiator dashboard.**
+
+  New /pulse page: customizable information radiator with signal tiles showing agent output as live widgets. 9 display templates (metric, text-headline, table, status, time-series, image, text-image, media, + backward compat). Container layout system with drag-and-drop reorder. Edit mode toggle. Widget palette (6 color options). Auto-theming by template type. Conditional thresholds. System metric tiles replace hardcoded health strip. Markdown rendering in text tiles. YouTube click-to-play media player. Tile collapse/expand. All agents wired with signal blocks.
+
+- 3fe5c47: **feat: tool abstraction foundation — types, schema, store, 9 built-in tools (PR 1 of 6 for v0.16).**
+
+  Introduces the **tool** as a named, reusable unit of work a node invokes by reference. Nodes gain `tool` + `toolInputs` fields; the executor will resolve tool refs and dispatch via the built-in registry or user-defined tools (wired in PR 2). This PR lays the data layer only — no runtime dispatch yet.
+
+  ### What ships
+
+  - **`tool-types.ts`** — `ToolDefinition`, `ToolOutput`, `BuiltinToolEntry`, `BuiltinToolContext`, `ToolSource`, `ToolFieldType`, `ToolInputField`, `ToolOutputField`, `ToolImplementation`.
+  - **`tool-schema.ts`** — Zod validation for tool YAML (id, name, source, inputs/outputs with typed fields, implementation with type-specific requirements).
+  - **`tool-store.ts`** — SQLite `tools` table with CRUD (create, get, list, update, upsert, delete). Mirrors agent-store's `DatabaseSync` + `ensureSchema()` pattern.
+  - **`builtin-tools.ts`** — registry of 9 built-in tools: `shell-exec`, `claude-code`, `http-get`, `http-post`, `file-read`, `file-write`, `json-parse`, `json-path`, `template`. Each has a `ToolDefinition` (schema) + a Node-native `execute()` function.
+  - **`AgentNode.tool`** + **`AgentNode.toolInputs`** — optional fields on the v2 node type. When `tool` is set, the node schema doesn't require inline `command`/`prompt` (the tool provides them). `type` stays required for backwards compat — the YAML parser derives it from the tool's implementation at load time.
+  - **`NodeExecutionRecord.outputsJson`** — new column on `node_executions` for structured tool outputs. Idempotent `ALTER TABLE ADD COLUMN` migration on first open.
+  - **`NodeStructuredOutput`** type + `NodeOutput.outputs` field for in-memory structured output passing between nodes.
+  - **Variable defaults confirmed** — `AgentInputSpec.default` + `description` already exist in types, Zod schema, and executor resolve. The UI surface (agent detail sidebar) is the remaining task.
+
+  ### Tests
+
+  508 total (484 → 508; +24 new):
+
+  - `tool-schema.test.ts` — 7 tests: valid shell/claude-code/builtin tools, invalid id, missing required fields, typed inputs/outputs round-trip.
+  - `tool-store.test.ts` — 7 tests: create, get, list (sorted), update, upsert, delete, nonexistent lookups.
+  - `builtin-tools.test.ts` — 10 tests: registry lists all 9 tools, retrieval by id, isBuiltinTool checks, shell-exec executes a command, json-parse/json-path/template/file-read exercise the execute functions.
+
+- 2cb27af: **feat: executor tool dispatch + output framing (PR 2 of 6 for v0.16).**
+
+  Wires the tool abstraction from PR 1 into the DAG executor so nodes with `tool:` actually run. Adds an output framing protocol for extracting structured JSON from shell tool stdout.
+
+  ### What ships
+
+  - **Executor tool dispatch** — when a node has `tool:` set, the executor resolves it from the built-in registry (or the `ToolStore` for user-defined tools) and calls the tool's `execute()` function directly. Built-in tools run in-process; user tools with shell/claude-code implementations go through the existing `spawnProcess` path with a synthetic node shape derived from the tool's definition.
+  - **Output framing** (`output-framing.ts`) — extracts the last JSON-parseable line from stdout as structured output. Shell tools that `printf '{"status":200}'` on their last line get automatic structured output capture. Plain-text stdout (v0.15 style) falls back to `{ result: stdout }`.
+  - **`outputsJson` stored** — every completed node now writes its structured output to `node_executions.outputsJson` (the column PR 1 added). Both tool-dispatched and legacy-spawned nodes populate it.
+  - **`ToolStore` on `DagExecutorDeps`** — optional; when present, the executor resolves user-defined tools from it. When absent, only built-in tools are available.
+  - **v0.15 nodes unchanged** — nodes without `tool:` go through the existing spawn path. No backcompat desugaring at exec time; opt-in only.
+
+  ### Design notes
+
+  - Built-in tool `exit_code` is extracted from the `ToolOutput` object (tools return it as a field). Legacy spawns use the process exit code as before.
+  - The executor tries framed-output extraction even on legacy nodes — if a v0.15 shell script happens to emit a JSON last line, it'll be captured. No harm if it doesn't.
+  - Template resolver v2 (path-based `{{upstream.X.body.items[0]}}`) is deferred to PR 3 — this PR gets tools running; the next PR makes their outputs addressable.
+
+  ### Tests
+
+  517 total (508 → 517; +9 new):
+
+  - `output-framing.test.ts` — 9 tests: JSON object/array extraction, trailing empty lines, non-JSON fallback, empty stdout, single-line JSON, `buildToolOutput` framed vs plain.
+  - All 508 existing tests pass unchanged.
+
+- 21cc114: **feat: tool picker on node forms + tool config/actions types (PR 4 of 6 for v0.16).**
+
+  Replaces the Shell/Claude Code type radio on add-node and edit-node forms with a tool dropdown listing all 9 built-in tools + user tools. Selecting a tool dynamically renders its declared input fields with palette autocomplete (both `$` and `{{` triggers). Extends the tool model with `config` (project-level defaults) and `actions` (multi-action tools).
+
+- 6c25718: **feat: global variables store + `sua vars` CLI (Variables PR 1 of 6).**
+
+  Adds a plain-text global variables store at `.sua/variables.json` for non-sensitive project-wide values (API_BASE_URL, REGION, DEFAULT_TIMEOUT). Variables are visible to every agent at run time — executor wiring comes in PR 2.
+
+  - **`VariablesStore`** in core — JSON-backed CRUD with `get/set/delete/list/getAll`. Creates the `.sua/` directory on first write.
+  - **`sua vars list/get/set/delete`** CLI — mirrors the secrets CLI pattern. `set` warns when a name looks sensitive (TOKEN, KEY, PASS, SECRET) and suggests using `sua secrets set` instead.
+  - **`looksLikeSensitive()`** helper — flags names that probably belong in the encrypted store.
+
+- ffa2986: **feat: executor variables wiring + {{vars.NAME}} template resolver (Variables PR 2 of 6).**
+
+  Global variables from `.sua/variables.json` are now injected into every node at run time.
+
+  - **Shell nodes**: `$NAME` env var, injected after secrets but before inputs (inputs win on collision).
+  - **Claude-code prompts**: `{{vars.NAME}}` template substitution via `resolveVarsTemplate()`.
+  - **Precedence**: `--input` override > agent input default > global variable > secret.
+  - **`VariablesStore` on `DagExecutorDeps`**: optional; when absent, no variables injected.
+
 ## 0.15.0
 
 ## 0.14.0

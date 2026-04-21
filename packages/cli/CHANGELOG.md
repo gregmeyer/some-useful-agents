@@ -1,5 +1,114 @@
 # @some-useful-agents/cli
 
+## 0.16.0
+
+### Minor Changes
+
+- 9a5af08: **feat: tool CLI + /tools dashboard + tool visibility on agent detail (PR 3 of 6 for v0.16).**
+
+  Surfaces the tool abstraction from PRs 1–2 so users can browse, inspect, and validate tools from both the CLI and the dashboard.
+
+  ### What ships
+
+  - **`sua tool list`** — tabular listing of all built-in + user-defined tools with id, source, implementation type, description.
+  - **`sua tool show <id>`** — detailed view of a tool's inputs (name, type, required, default, description) + outputs + implementation.
+  - **`sua tool validate <file>`** — schema-check a tool YAML without storing it. Reports each Zod issue with path + message.
+  - **`/tools`** dashboard page — card grid of all tools, split into "Built-in tools" and "User tools" sections. Reuses the agent-card component.
+  - **`/tools/:id`** detail page — inputs table, outputs table, implementation card, back-link to /tools.
+  - **Tool visibility on agent detail sidebar** — new "Tools" section between Secrets and action buttons. Lists the unique tool ids this agent's nodes reference, each as a clickable badge linking to `/tools/:id`. v0.15 nodes show their implicit tool (`shell-exec` / `claude-code`).
+  - **"Tools" nav link** in the topbar — sits between Agents and Runs.
+
+  ### Tests
+
+  521 total (517 → 521; +4 new):
+
+  - `/tools` lists built-in tools
+  - `/tools/http-get` renders detail with inputs/outputs
+  - `/tools/nonexistent` redirects to /tools
+  - Agent detail sidebar shows tool badge for implicit shell-exec
+
+- 6c25718: **feat: global variables store + `sua vars` CLI (Variables PR 1 of 6).**
+
+  Adds a plain-text global variables store at `.sua/variables.json` for non-sensitive project-wide values (API_BASE_URL, REGION, DEFAULT_TIMEOUT). Variables are visible to every agent at run time — executor wiring comes in PR 2.
+
+  - **`VariablesStore`** in core — JSON-backed CRUD with `get/set/delete/list/getAll`. Creates the `.sua/` directory on first write.
+  - **`sua vars list/get/set/delete`** CLI — mirrors the secrets CLI pattern. `set` warns when a name looks sensitive (TOKEN, KEY, PASS, SECRET) and suggests using `sua secrets set` instead.
+  - **`looksLikeSensitive()`** helper — flags names that probably belong in the encrypted store.
+
+### Patch Changes
+
+- 663af58: **feat: settings CRUD in the dashboard — secrets + MCP token rotation (PR 4 of 5 for v0.15).**
+
+  Moves the last CLI-only admin surfaces into the dashboard so operators can manage secrets and rotate the MCP bearer token without leaving the browser. Unblocks v0.16 AI-assist, whose Anthropic API key needs the `/settings/secrets` surface to have a home.
+
+  ### What ships
+
+  - **`/settings/secrets`** — list declared secret names (values never rendered), set a new secret, delete an existing one. Agent-declared secrets that aren't yet set are called out in a "Declared by agents but not set" list so missing config is visible without running `sua doctor`.
+  - **Passphrase unlock flow** — when the store is `v2` passphrase-protected, the page renders a dedicated unlock form instead of the list. A correct passphrase is cached in dashboard-process memory for the rest of the session; never written to disk, cookies, or sessionStorage. A "Lock now" button clears it.
+  - **`/settings/general`** — MCP token fingerprint (first 8 chars), retention-policy display, path block showing the run DB, secrets file, and MCP token file so users know where sua is reading and writing.
+  - **MCP token rotation** — one-click rotate from `/settings/general`. The handler writes a fresh token to `~/.sua/mcp-token`, updates the in-process auth check, re-mints the dashboard session cookie so the operator stays signed in, and reveals the new value exactly once. Existing MCP clients (Claude Desktop) break until they're updated — the confirm dialog spells that out.
+  - **`/settings/integrations`** — placeholder unchanged in behaviour, with copy updated to reflect that integrations are a later-release feature.
+
+  ### Design notes
+
+  - **Origin check is the CSRF defence.** Every POST under `/settings/*` flows through `requireAuth`, which already rejects non-loopback `Origin` headers. No second CSRF token layer needed.
+  - **Passphrase never persisted.** Cached in a closure on the `SecretsSession` instance, cleared on `lock()` and at process shutdown. Dashboards that crash or restart require re-unlock — intentional.
+  - **Declared-secrets discovery tolerates broken YAML.** A malformed agent file must not prevent the settings page from rendering; `collectDeclaredSecrets` swallows loader errors and falls back to what the v2 store knows.
+  - **Rotated token is shown inline, not via flash.** `?rotated=<token>` in the redirect URL renders once on `/settings/general`; we accept that a browser back/reload can re-display it because the dashboard is a local loopback and the user asked to see it.
+
+  ### Files
+
+  - New: `packages/dashboard/src/secrets-session.ts` (SecretsSession interface + `EncryptedFileSecretsSession` + `MemorySecretsSession` for tests), `packages/dashboard/src/views/settings-secrets.ts`, `packages/dashboard/src/views/settings-general.ts`, `packages/dashboard/src/secrets-session.test.ts`
+  - Modified: `packages/dashboard/src/routes/settings.ts` (real CRUD + unlock/lock/rotate routes), `context.ts` (tokenPath, secretsPath, dbPath, retentionDays, rotateToken, secretsSession), `index.ts` (wire new context fields + construct the session), `views/js.ts` (add `[data-confirm]` submit handler), `assets/screens.css` (settings-form styles), `packages/cli/src/commands/dashboard.ts` (pass retentionDays)
+
+  ### Tests
+
+  75 dashboard tests total (55 → 75; +20 new):
+
+  - Unlock form gates the list when passphrase-protected + locked
+  - Wrong passphrase is rejected; correct passphrase unlocks the session
+  - `POST /settings/secrets/set` validates the `^[A-Z_][A-Z0-9_]*$` name pattern, rejects writes while locked, and stores + redirects on success
+  - `POST /settings/secrets/delete` removes a stored secret
+  - `POST /settings/secrets/lock` clears the cached passphrase
+  - Cross-origin POST to `/settings/secrets/set` is refused (Origin check)
+  - `/settings/general` renders the token fingerprint + retention + paths and never leaks the full token
+  - `POST /settings/general/rotate-mcp-token` rotates, re-mints the session cookie, updates `ctx.token`, and reveals the new value once
+  - After rotation, the old cookie is rejected and the new one authenticates
+  - `/settings/integrations` renders placeholder copy
+  - `EncryptedFileSecretsSession` round-trips through a real file, enforces passphrase gating, and throws when writing while locked
+  - `MemorySecretsSession` simulates the passphrase-protected flow for dashboard tests
+
+  ### Plan
+
+  Remaining v0.15 PR: **5 (replay UI + microcopy polish + changeset release for the v0.15-follow-on bundle)**. v0.16 structured-outputs work comes after v0.15 wraps.
+
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies [170dd4c]
+- Updated dependencies [d0ec3fc]
+- Updated dependencies [663af58]
+- Updated dependencies [0f002da]
+- Updated dependencies [96e5add]
+- Updated dependencies [544fb33]
+- Updated dependencies
+- Updated dependencies [2ca929d]
+- Updated dependencies [b94f89b]
+- Updated dependencies [4b97cc8]
+- Updated dependencies [8b95d36]
+- Updated dependencies [48c57f8]
+- Updated dependencies [1744a9f]
+- Updated dependencies
+- Updated dependencies [3fe5c47]
+- Updated dependencies [2cb27af]
+- Updated dependencies [9a5af08]
+- Updated dependencies [21cc114]
+- Updated dependencies [6c25718]
+- Updated dependencies [ffa2986]
+  - @some-useful-agents/core@0.16.0
+  - @some-useful-agents/dashboard@0.16.0
+  - @some-useful-agents/mcp-server@0.16.0
+  - @some-useful-agents/temporal-provider@0.16.0
+
 ## 0.15.0
 
 ### Minor Changes
