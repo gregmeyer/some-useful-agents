@@ -130,6 +130,8 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
   const qSource = typeof req.query.source === 'string' && req.query.source ? req.query.source : undefined;
   const qSearch = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim().toLowerCase() : undefined;
   const qSort = typeof req.query.sort === 'string' ? req.query.sort : 'name';
+  const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
+  const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
 
   // Use store-level filtering for status and source.
   const storeFilter: { status?: 'active' | 'paused' | 'archived' | 'draft'; source?: 'local' | 'examples' | 'community' } = {};
@@ -212,13 +214,20 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
     v2Agents.sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  // Paginate v2 agents.
+  const totalV2 = v2Agents.length;
+  const paginatedV2 = v2Agents.slice(offset, offset + limit);
+
   res.type('html').send(renderAgentsList({
     v1: mergedV1,
-    v2: v2Agents,
+    v2: paginatedV2,
     recentRuns: recent.rows,
     stats,
     invokerCounts,
     filter: { status: qStatus, source: qSource, q: qSearch, sort: qSort },
+    limit,
+    offset,
+    total: totalV2,
   }));
 });
 
@@ -274,7 +283,7 @@ agentsRouter.get('/agents/:name', async (req: Request, res: Response) => {
       runningRuns: inFlight404.total,
       latestRunAt: recent404.rows[0]?.startedAt,
     };
-    res.status(404).type('html').send(renderAgentsList({ v1, v2, recentRuns: recent404.rows, stats }));
+    res.status(404).type('html').send(renderAgentsList({ v1, v2, recentRuns: recent404.rows, stats, limit: 12, offset: 0, total: v2.length }));
     return;
   }
 

@@ -78,7 +78,11 @@ function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string {
         vStatusBadge(agent.status),
         sourceBadge(source),
       ],
-      cta: runNowButton,
+      cta: html`<span style="display: inline-flex; gap: var(--space-2);">
+        <button type="button" class="btn btn--ghost btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
+        <a class="btn btn--ghost btn--sm" href="/agents/${agent.id}/versions">Versions</a>
+        ${runNowButton}
+      </span>`,
       description: agent.description ?? undefined,
       back,
     })}
@@ -150,12 +154,6 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">
         ${toolBadges as unknown as SafeHtml[]}
       </div>
-    </div>
-
-    <!-- Actions -->
-    <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
-      <button type="button" class="btn btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
-      <a class="btn btn--sm" href="/agents/${agent.id}/versions">Versions</a>
     </div>
 
     <!-- Recent runs -->

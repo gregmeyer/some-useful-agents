@@ -22,20 +22,23 @@ export interface AgentsListInput {
   recentRuns: Run[];
   stats: HomeStats;
   invokerCounts?: Map<string, number>;
-  /** Current filter state from query params. */
   filter?: {
     status?: string;
     source?: string;
     q?: string;
     sort?: string;
   };
+  /** Pagination. */
+  limit: number;
+  offset: number;
+  /** Total v2 count before pagination (after filtering). */
+  total: number;
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
   const hasV2 = input.v2.length > 0;
   const hasV1 = input.v1.length > 0;
-  const v1Count = input.v1.length;
-  const totalVisible = input.v2.length + v1Count;
+  const { limit, offset, total } = input;
 
   // Build a `lastRun` index keyed by agent id / v1 name. Uses whatever the
   // caller passed in `recentRuns`; we assume that list is sorted newest-first
@@ -71,10 +74,12 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${renderV1Block(input.v1, hasV2)}
 
+    ${total > limit ? renderAgentPager(input) : html``}
+
     ${empty ? html`` : html`
       <footer style="margin-top: var(--space-8); text-align: center;">
         <p class="dim">
-          ${String(totalVisible)} agent${totalVisible === 1 ? '' : 's'} visible \u00b7
+          ${String(total)} agent${total === 1 ? '' : 's'} total \u00b7
           <a href="/help">CLI reference</a> \u00b7
           <a href="/help/tutorial">Tutorial</a>
         </p>
@@ -140,6 +145,35 @@ function renderFilterBar(filter?: { status?: string; source?: string; q?: string
       ${(f.q || f.status || f.source || f.sort) ? html`<a href="/agents" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
     </form>
   `;
+}
+
+function renderAgentPager(input: AgentsListInput): SafeHtml {
+  const { limit, offset, total, filter: f } = input;
+  const showingStart = Math.min(offset + 1, total);
+  const showingEnd = Math.min(offset + limit, total);
+  const prevOffset = Math.max(0, offset - limit);
+  const nextOffset = offset + limit;
+  return html`
+    <div class="pager">
+      <div>Showing ${String(showingStart)}\u2013${String(showingEnd)} of ${String(total)}</div>
+      <div>
+        ${offset > 0 ? html`<a href="${agentBuildUrl(f, limit, prevOffset)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
+        ${nextOffset < total ? html`<a href="${agentBuildUrl(f, limit, nextOffset)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
+      </div>
+    </div>
+  `;
+}
+
+function agentBuildUrl(f: AgentsListInput['filter'], limit: number, offset: number): string {
+  const params = new URLSearchParams();
+  if (f?.status) params.set('status', f.status);
+  if (f?.source) params.set('source', f.source);
+  if (f?.q) params.set('q', f.q);
+  if (f?.sort && f.sort !== 'name') params.set('sort', f.sort);
+  if (limit !== 12) params.set('limit', String(limit));
+  if (offset !== 0) params.set('offset', String(offset));
+  const qs = params.toString();
+  return qs ? `/agents?${qs}` : '/agents';
 }
 
 function renderStatStrip(s: HomeStats): SafeHtml {

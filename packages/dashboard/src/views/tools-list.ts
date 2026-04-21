@@ -7,8 +7,12 @@ export function renderToolsList(args: {
   builtins: ToolDefinition[];
   userTools: ToolDefinition[];
   filter?: { q?: string; type?: string };
+  limit?: number;
+  offset?: number;
 }): string {
   const f = args.filter ?? {};
+  const limit = args.limit ?? 12;
+  const offset = args.offset ?? 0;
   let builtins = args.builtins;
   let userTools = args.userTools;
 
@@ -24,7 +28,12 @@ export function renderToolsList(args: {
     userTools = userTools.filter((t) => t.implementation.type === f.type);
   }
 
-  const total = builtins.length + userTools.length;
+  // Combine for pagination, then slice.
+  const allTools = [...builtins.map((t) => ({ tool: t, section: 'builtin' as const })), ...userTools.map((t) => ({ tool: t, section: 'user' as const }))];
+  const total = allTools.length;
+  const paged = allTools.slice(offset, offset + limit);
+  builtins = paged.filter((t) => t.section === 'builtin').map((t) => t.tool);
+  userTools = paged.filter((t) => t.section === 'user').map((t) => t.tool);
 
   const filterBar = html`
     <form method="GET" action="/tools" class="filters" style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4);">
@@ -72,6 +81,8 @@ export function renderToolsList(args: {
       </section>
     ` : html``}
 
+    ${total > limit ? toolPager(f, limit, offset, total) : html``}
+
     <footer style="margin-top: var(--space-8); text-align: center;">
       <p class="dim">${String(total)} tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : 'available'}</p>
     </footer>
@@ -110,4 +121,30 @@ function renderToolCard(t: ToolDefinition): SafeHtml {
       </div>
     </article>
   `;
+}
+
+function toolPager(f: { q?: string; type?: string }, limit: number, offset: number, total: number): SafeHtml {
+  const start = Math.min(offset + 1, total);
+  const end = Math.min(offset + limit, total);
+  const prev = Math.max(0, offset - limit);
+  const next = offset + limit;
+  return html`
+    <div class="pager">
+      <div>Showing ${String(start)}\u2013${String(end)} of ${String(total)}</div>
+      <div>
+        ${offset > 0 ? html`<a href="${toolBuildUrl(f, limit, prev)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
+        ${next < total ? html`<a href="${toolBuildUrl(f, limit, next)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
+      </div>
+    </div>
+  `;
+}
+
+function toolBuildUrl(f: { q?: string; type?: string }, limit: number, offset: number): string {
+  const params = new URLSearchParams();
+  if (f.q) params.set('q', f.q);
+  if (f.type) params.set('type', f.type);
+  if (limit !== 12) params.set('limit', String(limit));
+  if (offset !== 0) params.set('offset', String(offset));
+  const qs = params.toString();
+  return qs ? `/tools?${qs}` : '/tools';
 }
