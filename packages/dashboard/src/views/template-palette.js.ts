@@ -199,13 +199,13 @@ export const TEMPLATE_PALETTE_JS = `
           if (items[i].group !== lastGroup) {
             lastGroup = items[i].group;
             var sep = document.createElement('div');
-            sep.className = 'template-palette__group';
+            sep.className = 'template-palette__group template-palette__group--' + lastGroup;
             sep.textContent = GROUP_LABELS[lastGroup] || lastGroup;
             palette.appendChild(sep);
           }
 
           var row = document.createElement('div');
-          row.className = 'template-palette__item' + (i === selectedIndex ? ' is-selected' : '');
+          row.className = 'template-palette__item template-palette__item--' + items[i].group + (i === selectedIndex ? ' is-selected' : '');
           row.setAttribute('data-index', String(i));
           row.setAttribute('role', 'option');
 
