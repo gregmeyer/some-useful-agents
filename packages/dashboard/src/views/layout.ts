@@ -1,5 +1,9 @@
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { DASHBOARD_JS } from './js.js';
+import { TEMPLATE_PALETTE_JS } from './template-palette.js.js';
+import { SUGGEST_IMPROVEMENTS_JS } from './suggest-improvements.js.js';
+import { PULSE_LAYOUT_JS } from './pulse-layout.js.js';
+import { BUILD_FROM_GOAL_JS } from './build-from-goal.js.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
@@ -57,7 +61,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + BUILD_FROM_GOAL_JS)}</script>
 </body>
 </html>`;
 }
