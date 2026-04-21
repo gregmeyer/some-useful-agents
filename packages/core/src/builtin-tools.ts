@@ -213,7 +213,11 @@ const BUILTINS: BuiltinToolEntry[] = [
       result: { type: 'string', description: 'Alias for content.' },
     },
     async (inputs, ctx) => {
-      const filePath = resolve(ctx.workingDirectory ?? process.cwd(), String(inputs.path));
+      const cwd = ctx.workingDirectory ?? process.cwd();
+      const filePath = resolve(cwd, String(inputs.path));
+      if (!filePath.startsWith(resolve(cwd) + '/') && filePath !== resolve(cwd)) {
+        throw new Error(`Path "${String(inputs.path)}" escapes the working directory.`);
+      }
       const content = readFileSync(filePath, 'utf-8');
       return { content, bytes: Buffer.byteLength(content), result: content };
     },
@@ -233,7 +237,11 @@ const BUILTINS: BuiltinToolEntry[] = [
       result: { type: 'string', description: 'Resolved file path.' },
     },
     async (inputs, ctx) => {
-      const filePath = resolve(ctx.workingDirectory ?? process.cwd(), String(inputs.path));
+      const cwd = ctx.workingDirectory ?? process.cwd();
+      const filePath = resolve(cwd, String(inputs.path));
+      if (!filePath.startsWith(resolve(cwd) + '/') && filePath !== resolve(cwd)) {
+        throw new Error(`Path "${String(inputs.path)}" escapes the working directory.`);
+      }
       const content = String(inputs.content);
       writeFileSync(filePath, content, 'utf-8');
       return { bytes: Buffer.byteLength(content), path: filePath, result: filePath };

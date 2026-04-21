@@ -30,6 +30,9 @@
   "engines": {
     "node": ">=22.5.0"
   },
+  "overrides": {
+    "protobufjs": ">=7.5.5"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
     "vitest": "^3.2.4"
