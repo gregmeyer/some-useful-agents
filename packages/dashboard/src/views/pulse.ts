@@ -14,24 +14,8 @@ import { formatAge } from './components.js';
 import { normalizeSignal } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
-
-// ── Types ────────────────────────────────────────────────────────────────
-
-export interface PulseTile {
-  agent: Agent;
-  signal: AgentSignal;
-  lastRun?: Run;
-  slots: Record<string, unknown>;
-}
-
-export interface PulsePageInput {
-  systemTiles: PulseTile[];
-  tiles: PulseTile[];
-  hiddenTiles: PulseTile[];
-}
-
-/** Signature for the tile wrapper function, passed to renderers. */
-export type TileWrapFn = (tile: PulseTile, content: SafeHtml) => SafeHtml;
+export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
+import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
 // ── Tile chrome ──────────────────────────────────────────────────────────
 
