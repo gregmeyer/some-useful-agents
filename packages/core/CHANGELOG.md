@@ -1,5 +1,11 @@
 # @some-useful-agents/core
 
+## 0.17.0
+
+### Minor Changes
+
+- 998e881: Security: SSRF protection on http-get/http-post, auth token moved from URL query param to fragment, CSP + security headers on dashboard, Postgres bound to localhost in Docker Compose.
+
 ## 0.16.1
 
 ### Patch Changes
