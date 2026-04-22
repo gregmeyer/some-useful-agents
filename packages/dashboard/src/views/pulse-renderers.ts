@@ -180,6 +180,147 @@ function renderMedia(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   `);
 }
 
+// ── Phase 2 renderers ───────────────────────────────────────────────────
+
+function renderComparison(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  const ll = tile.slots.left_label ? String(tile.slots.left_label) : 'A';
+  const lv = tile.slots.left_value !== undefined ? stringify(tile.slots.left_value) : '--';
+  const rl = tile.slots.right_label ? String(tile.slots.right_label) : 'B';
+  const rv = tile.slots.right_value !== undefined ? stringify(tile.slots.right_value) : '--';
+  const title = tile.slots.title ? String(tile.slots.title) : '';
+
+  // Color-code: if both values are numeric, green the higher one.
+  const ln = Number(lv), rn = Number(rv);
+  const leftColor = !isNaN(ln) && !isNaN(rn) && ln > rn ? 'color: var(--color-ok);' : '';
+  const rightColor = !isNaN(ln) && !isNaN(rn) && rn > ln ? 'color: var(--color-ok);' : '';
+
+  return wrap(tile, html`
+    ${title ? html`<div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-2);">${title}</div>` : html``}
+    <div style="display: flex; align-items: center; gap: var(--space-3); flex: 1;">
+      <div style="flex: 1; text-align: center;">
+        <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono);">${ll}</div>
+        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: 2px; ${leftColor}">${lv}</div>
+      </div>
+      <div style="font-size: var(--font-size-xs); color: var(--color-text-subtle); font-weight: var(--weight-semibold);">vs</div>
+      <div style="flex: 1; text-align: center;">
+        <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono);">${rl}</div>
+        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: 2px; ${rightColor}">${rv}</div>
+      </div>
+    </div>
+  `);
+}
+
+function renderKeyValueGrid(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  const title = tile.slots.title ? String(tile.slots.title) : '';
+  let pairs: Array<{ label: string; value: string }> = [];
+
+  const raw = tile.slots.pairs;
+  if (Array.isArray(raw)) {
+    pairs = raw.map((p) => {
+      if (typeof p === 'object' && p !== null) {
+        const obj = p as Record<string, unknown>;
+        return { label: String(obj.label ?? obj.key ?? ''), value: stringify(obj.value ?? '') };
+      }
+      return { label: '', value: stringify(p) };
+    });
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        pairs = parsed.map((p: Record<string, unknown>) => ({
+          label: String(p.label ?? p.key ?? ''),
+          value: stringify(p.value ?? ''),
+        }));
+      }
+    } catch { /* not JSON */ }
+  }
+
+  if (pairs.length === 0) {
+    return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No data</p>`);
+  }
+
+  const cols = Math.min(pairs.length, 3);
+  const cells = pairs.map((p) => html`
+    <div style="text-align: center; padding: var(--space-2);">
+      <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono);">${p.label}</div>
+      <div style="font-size: var(--font-size-sm); font-weight: var(--weight-semibold); font-family: var(--font-mono); margin-top: 2px;">${p.value}</div>
+    </div>
+  `);
+
+  return wrap(tile, html`
+    ${title ? html`<div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-2);">${title}</div>` : html``}
+    <div style="display: grid; grid-template-columns: repeat(${String(cols)}, 1fr); gap: var(--space-1); background: var(--color-surface-raised); border-radius: var(--radius-sm); padding: var(--space-2);">
+      ${cells as unknown as SafeHtml[]}
+    </div>
+  `);
+}
+
+function renderStory(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  const whatChanged = tile.slots.what_changed ? String(tile.slots.what_changed) : '';
+  const timePeriod = tile.slots.time_period ? String(tile.slots.time_period) : '';
+  const whatItMeans = tile.slots.what_it_means ? String(tile.slots.what_it_means) : '';
+
+  return wrap(tile, html`
+    <div style="display: flex; flex-direction: column; gap: var(--space-2); flex: 1;">
+      ${whatChanged ? html`<div style="font-size: var(--font-size-sm); font-weight: var(--weight-bold); line-height: 1.4;">${whatChanged}</div>` : html``}
+      ${timePeriod ? html`<div><span class="badge badge--muted" style="font-size: 10px;">${timePeriod}</span></div>` : html``}
+      ${whatItMeans ? html`<div style="font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.5;">${whatItMeans}</div>` : html``}
+    </div>
+  `);
+}
+
+function renderFunnel(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  let stages: Array<{ label: string; value: number; color?: string }> = [];
+
+  const raw = tile.slots.stages;
+  if (Array.isArray(raw)) {
+    stages = raw.map((s) => {
+      if (typeof s === 'object' && s !== null) {
+        const obj = s as Record<string, unknown>;
+        return { label: String(obj.label ?? ''), value: Number(obj.value ?? 0), color: obj.color ? String(obj.color) : undefined };
+      }
+      return { label: String(s), value: 0 };
+    });
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        stages = parsed.map((s: Record<string, unknown>) => ({
+          label: String(s.label ?? ''),
+          value: Number(s.value ?? 0),
+          color: s.color ? String(s.color) : undefined,
+        }));
+      }
+    } catch { /* not JSON */ }
+  }
+
+  if (stages.length === 0) {
+    return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No stages</p>`);
+  }
+
+  const maxVal = Math.max(...stages.map((s) => s.value), 1);
+  const defaultColors = ['#2dd4bf', '#60a5fa', '#a78bfa', '#fb923c', '#f87171', '#fbbf24'];
+
+  const bars = stages.map((s, i) => {
+    const pct = Math.max(20, (s.value / maxVal) * 100); // min 20% width for label visibility
+    const color = s.color ?? defaultColors[i % defaultColors.length];
+    return html`
+      <div style="display: flex; align-items: center; gap: var(--space-2);">
+        <div style="width: ${String(Math.round(pct))}%; background: ${color}; border-radius: var(--radius-sm); padding: 4px var(--space-2); font-size: 10px; font-family: var(--font-mono); color: #fff; font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ${s.label}
+        </div>
+        <span style="font-size: var(--font-size-xs); font-family: var(--font-mono); color: var(--color-text-muted); white-space: nowrap;">${String(s.value)}</span>
+      </div>
+    `;
+  });
+
+  return wrap(tile, html`
+    <div style="display: flex; flex-direction: column; gap: var(--space-1); flex: 1;">
+      ${bars as unknown as SafeHtml[]}
+    </div>
+  `);
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
@@ -194,6 +335,10 @@ export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
     case 'text-image': return renderTextImage(tile, wrap);
     case 'media': return renderMedia(tile, wrap);
     case 'widget': return renderWidgetTile(tile, wrap);
+    case 'comparison': return renderComparison(tile, wrap);
+    case 'key-value': return renderKeyValueGrid(tile, wrap);
+    case 'story': return renderStory(tile, wrap);
+    case 'funnel': return renderFunnel(tile, wrap);
     default: return renderTextHeadline(tile, wrap);
   }
 }

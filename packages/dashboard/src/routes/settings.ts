@@ -5,6 +5,7 @@ import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
+import { renderSettingsAppearance } from '../views/settings-appearance.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 
@@ -241,6 +242,12 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
     </div>
   `;
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
+});
+
+settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
+  const { flash } = readQueryBanners(req);
+  const body = renderSettingsAppearance();
+  res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
 settingsRouter.get('/settings/general', (req: Request, res: Response) => {

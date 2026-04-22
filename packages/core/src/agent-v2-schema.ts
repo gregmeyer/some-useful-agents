@@ -150,13 +150,14 @@ export const agentV2Schema = z.object({
     title: z.string().min(1),
     icon: z.string().optional(),
     // v2 template system
-    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media', 'widget']).optional(),
+    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media', 'widget', 'comparison', 'key-value', 'story', 'funnel']).optional(),
     mapping: z.record(z.string()).optional(),
     // v1 (deprecated, still accepted)
     format: z.enum(['text', 'number', 'table', 'json', 'chart']).optional(),
     field: z.string().optional(),
     refresh: z.string().optional(),
     size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(),
+    accent: z.enum(['teal', 'blue', 'green', 'orange', 'red', 'purple']).optional(),
     hidden: z.boolean().optional(),
     thresholds: z.array(z.object({
       above: z.number().optional(),
