@@ -1,0 +1,107 @@
+# Weather Dashboard — demonstrates outputWidget rendering.
+#
+# A shell-only agent (no LLM) that generates mock weather data and renders
+# it as a structured key-value widget on the run detail page. Also shows
+# as a Pulse tile via the 'widget' signal template.
+#
+# Run: sua workflow run weather-dashboard
+#
+# This is the first agent to use `outputWidget` — the dashboard renders
+# structured fields instead of raw JSON text. Zero LLM cost.
+
+id: weather-dashboard
+name: Weather Dashboard
+description: >
+  Multi-field weather report rendered as a structured widget.
+  Demonstrates outputWidget with key-value layout. No LLM needed.
+status: active
+source: examples
+
+signal:
+  title: Weather
+  icon: "\u2600\uFE0F"
+  template: widget
+  mapping: {}
+  refresh: 1h
+  size: 2x1
+
+outputWidget:
+  type: key-value
+  fields:
+    - name: location
+      label: Location
+      type: text
+    - name: condition
+      label: Condition
+      type: badge
+    - name: temp_f
+      label: Temperature
+      type: text
+    - name: humidity
+      label: Humidity
+      type: text
+    - name: wind
+      label: Wind
+      type: text
+    - name: uv_index
+      label: UV Index
+      type: badge
+    - name: forecast
+      label: Forecast
+      type: text
+
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      HOUR=$(date +%H)
+
+      # Temperature varies by time of day.
+      BASE=62
+      if [ "$HOUR" -ge 10 ] && [ "$HOUR" -le 16 ]; then
+        OFFSET=$((RANDOM % 10 + 5))
+      elif [ "$HOUR" -ge 6 ] && [ "$HOUR" -lt 10 ]; then
+        OFFSET=$((RANDOM % 5))
+      else
+        OFFSET=$(( -(RANDOM % 5) ))
+      fi
+      TEMP=$((BASE + OFFSET))
+
+      # Conditions based on a simple random pick.
+      COND_ROLL=$((RANDOM % 10))
+      if [ "$COND_ROLL" -lt 5 ]; then
+        CONDITION="Clear"
+      elif [ "$COND_ROLL" -lt 7 ]; then
+        CONDITION="Partly Cloudy"
+      elif [ "$COND_ROLL" -lt 9 ]; then
+        CONDITION="Overcast"
+      else
+        CONDITION="Light Rain"
+      fi
+
+      HUMIDITY=$((45 + RANDOM % 35))
+      WIND_SPEED=$((3 + RANDOM % 15))
+      WIND_DIR="WSW"
+      UV=$((1 + RANDOM % 9))
+
+      # Forecast hint.
+      if [ "$TEMP" -gt 70 ]; then
+        FORECAST="Warm afternoon expected. Stay hydrated."
+      elif [ "$TEMP" -lt 55 ]; then
+        FORECAST="Cool conditions. Consider a jacket."
+      else
+        FORECAST="Pleasant weather ahead."
+      fi
+
+      cat <<WEATHER_JSON
+      {
+        "location": "San Francisco, CA",
+        "condition": "$CONDITION",
+        "temp_f": "${TEMP}\u00b0F",
+        "humidity": "${HUMIDITY}%",
+        "wind": "${WIND_SPEED} mph $WIND_DIR",
+        "uv_index": "$UV",
+        "forecast": "$FORECAST"
+      }
+      WEATHER_JSON
+    timeout: 5
