@@ -118,6 +118,14 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateDefinition> = {
     ],
     defaultSize: '2x1',
   },
+  widget: {
+    name: 'widget',
+    displayName: 'Output Widget',
+    description: 'Renders using the agent\'s declared outputWidget schema',
+    icon: '\u2B1A',
+    slots: [],
+    defaultSize: '2x1',
+  },
 };
 
 // ── Backward compatibility ───────────────────────────────────────────────

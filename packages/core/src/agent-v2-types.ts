@@ -270,7 +270,8 @@ export type SignalTemplate =
   | 'image'
   | 'table'
   | 'status'
-  | 'media';
+  | 'media'
+  | 'widget';
 
 export interface AgentSignal {
   title: string;

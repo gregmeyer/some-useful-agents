@@ -150,7 +150,7 @@ export const agentV2Schema = z.object({
     title: z.string().min(1),
     icon: z.string().optional(),
     // v2 template system
-    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media']).optional(),
+    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media', 'widget']).optional(),
     mapping: z.record(z.string()).optional(),
     // v1 (deprecated, still accepted)
     format: z.enum(['text', 'number', 'table', 'json', 'chart']).optional(),
