@@ -131,20 +131,41 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ` : html``}
 
       ${isDagRun ? html`
+        <!-- Top: DAG + Result side-by-side -->
         <div class="run-detail-grid">
           <div class="run-detail-grid__dag">
             ${dagSection}
             ${canReplay ? renderReplayFallback(run, agent!) : html``}
           </div>
-          <div class="run-detail-grid__inspector">
-            <h2 style="margin-top: 0;">Node execution</h2>
-            <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">Click a node in the DAG to see its output.</p>
-            ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
+          <div class="run-detail-grid__result">
+            <h2 style="margin-top: 0;">Result</h2>
+            ${!inProgress && run.result
+              ? (agent?.outputWidget
+                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result)
+                  : outputFrame(run.result))
+              : inProgress
+                ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
+                : html`<p class="dim" style="font-size: var(--font-size-xs);">No output yet.</p>`}
           </div>
         </div>
-        ${!inProgress && run.result && agent?.outputWidget
-          ? html`<section style="margin-top: var(--space-6);"><h2>Result</h2>${renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result)}</section>`
-          : html``}
+
+        <!-- Bottom: Node execution (full width, searchable) -->
+        <section class="run-detail-nodes" style="margin-top: var(--space-6);">
+          <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap;">
+            <h2 style="margin: 0;">Node execution</h2>
+            <input type="text" class="run-detail-nodes__search" placeholder="Search nodes..."
+              style="padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); background: var(--color-surface); color: var(--color-text); flex: 1; min-width: 120px; max-width: 280px;">
+            <select class="run-detail-nodes__status-filter"
+              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); background: var(--color-surface); color: var(--color-text);">
+              <option value="">All statuses</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="running">Running</option>
+              <option value="skipped">Skipped</option>
+            </select>
+          </div>
+          ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
+        </section>
       ` : html`
         <h2>Output</h2>
         ${run.result
@@ -351,7 +372,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     }
 
     return html`
-      <details class="run-node" id="node-${e.nodeId}"${openAttr}>
+      <details class="run-node" id="node-${e.nodeId}" data-node-id="${e.nodeId}" data-node-status="${e.status}"${openAttr}>
         <summary class="run-node__header">
           <span class="run-node__id">${e.nodeId}</span>
           ${statusBadge(e.status)}
