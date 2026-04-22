@@ -271,7 +271,13 @@ export type SignalTemplate =
   | 'table'
   | 'status'
   | 'media'
-  | 'widget';
+  | 'widget'
+  | 'comparison'
+  | 'key-value'
+  | 'story'
+  | 'funnel';
+
+export type SignalAccent = 'teal' | 'blue' | 'green' | 'orange' | 'red' | 'purple';
 
 export interface AgentSignal {
   title: string;
@@ -292,6 +298,8 @@ export interface AgentSignal {
   refresh?: string;
   /** Grid tile size on the Pulse board (default: "1x1"). */
   size?: '1x1' | '2x1' | '1x2' | '2x2';
+  /** Accent color for tile border and value tinting. */
+  accent?: SignalAccent;
   /** Hidden from Pulse dashboard. Toggle via the tile's visibility button. */
   hidden?: boolean;
   /** Conditional palette thresholds for metric tiles. Evaluated top-to-bottom, first match wins. */

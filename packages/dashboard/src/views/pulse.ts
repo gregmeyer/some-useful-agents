@@ -11,7 +11,7 @@ import type { Agent, AgentSignal, Run, SignalTemplate } from '@some-useful-agent
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
-import { normalizeSignal } from './pulse-templates.js';
+import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
@@ -27,8 +27,11 @@ export function tileWrap(tile: PulseTile, content: SafeHtml): SafeHtml {
   const paletteAttr = autoPalette && autoPalette !== 'default'
     ? ` data-auto-palette="${autoPalette}"`
     : '';
+  const accentAttr = tile.signal.accent
+    ? ` data-accent="${esc(tile.signal.accent)}"`
+    : '';
   return unsafeHtml(
-    `<div class="pulse-tile ${sizeClass(sizeAttr)}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}>` +
+    `<div class="pulse-tile ${sizeClass(sizeAttr)}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
     tileHeader(tile, isSystem).toString() +
     content.toString() +
     (isSystem ? '' : tileFooter(tile).toString()) +
@@ -70,14 +73,32 @@ function sizeClass(size: string): string {
 
 function tileHeader(tile: PulseTile, isSystem: boolean): SafeHtml {
   const icon = tile.signal.icon ?? '';
+  const { template, mapping } = normalizeSignal(tile.signal);
+  // Embed signal config as data attributes for the configure modal JS.
+  const signalData = JSON.stringify({
+    template,
+    mapping,
+    title: tile.signal.title,
+    icon: tile.signal.icon ?? '',
+    size: tile.signal.size ?? '1x1',
+    accent: tile.signal.accent ?? '',
+    refresh: tile.signal.refresh ?? '',
+  });
+  const outputFieldsJson = JSON.stringify(tile.outputFields ?? []);
+
   return html`
-    <div class="pulse-tile__header">
+    <div class="pulse-tile__header"
+      data-signal-config="${signalData}"
+      data-output-fields="${outputFieldsJson}">
       <button type="button" class="pulse-tile__collapse" data-tile-id="${tile.agent.id}" title="Collapse/expand">\u25BC</button>
       <div style="display: flex; align-items: center; gap: var(--space-2); flex: 1; cursor: pointer;" data-tile-id="${tile.agent.id}" data-collapse-trigger>
         ${icon ? html`<span class="pulse-tile__icon">${icon}</span>` : html``}
         <span class="pulse-tile__title">${tile.signal.title}</span>
       </div>
       <div style="display: flex; gap: var(--space-1); align-items: center;">
+        ${isSystem ? html`` : html`
+          <button type="button" class="pulse-tile__configure-btn" data-tile-id="${tile.agent.id}" title="Configure tile">\u2699</button>
+        `}
         <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
         ${isSystem ? html`` : html`
           <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;">
@@ -154,6 +175,7 @@ export function renderPulsePage(input: PulsePageInput): string {
     ` : html``}
 
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
+    ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
 
   return render(layout({ title: 'Pulse', activeNav: 'pulse' }, body));

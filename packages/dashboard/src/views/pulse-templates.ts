@@ -126,6 +126,53 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateDefinition> = {
     slots: [],
     defaultSize: '2x1',
   },
+  comparison: {
+    name: 'comparison',
+    displayName: 'Comparison',
+    description: 'Side-by-side A vs B comparison',
+    icon: '\u2194',
+    slots: [
+      { name: 'left_label', label: 'Left label', required: true, type: 'string' },
+      { name: 'left_value', label: 'Left value', required: true, type: 'string' },
+      { name: 'right_label', label: 'Right label', required: true, type: 'string' },
+      { name: 'right_value', label: 'Right value', required: true, type: 'string' },
+      { name: 'title', label: 'Title', required: false, type: 'string' },
+    ],
+    defaultSize: '2x1',
+  },
+  'key-value': {
+    name: 'key-value',
+    displayName: 'Key-Value Grid',
+    description: 'Stats grid with multiple labeled values',
+    icon: '\u2261',
+    slots: [
+      { name: 'pairs', label: 'Key-value pairs', required: true, type: 'array' },
+      { name: 'title', label: 'Title', required: false, type: 'string' },
+    ],
+    defaultSize: '2x1',
+  },
+  story: {
+    name: 'story',
+    displayName: 'Story',
+    description: 'Data-driven narrative with headline and context',
+    icon: '\u270D',
+    slots: [
+      { name: 'what_changed', label: 'What changed', required: true, type: 'string' },
+      { name: 'time_period', label: 'Time period', required: false, type: 'string' },
+      { name: 'what_it_means', label: 'What it means', required: false, type: 'string' },
+    ],
+    defaultSize: '2x1',
+  },
+  funnel: {
+    name: 'funnel',
+    displayName: 'Funnel',
+    description: 'Conversion funnel with stacked bars',
+    icon: '\u25BD',
+    slots: [
+      { name: 'stages', label: 'Funnel stages', required: true, type: 'array' },
+    ],
+    defaultSize: '1x2',
+  },
 };
 
 // ── Backward compatibility ───────────────────────────────────────────────

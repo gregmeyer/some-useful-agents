@@ -11,6 +11,8 @@ export interface PulseTile {
   signal: AgentSignal;
   lastRun?: Run;
   slots: Record<string, unknown>;
+  /** Keys available in the last run's output (for configure modal field picker). */
+  outputFields?: string[];
 }
 
 export interface PulsePageInput {

@@ -7,6 +7,8 @@ import { HOME_LAYOUT_JS } from './home-layout.js.js';
 import { BUILD_FROM_GOAL_JS } from './build-from-goal.js.js';
 import { OUTPUT_WIDGET_ACTIONS_JS } from './output-widget-actions.js.js';
 import { RUN_DETAIL_FILTER_JS } from './run-detail-filter.js.js';
+import { PULSE_CONFIGURE_JS } from './pulse-configure.js.js';
+import { PULSE_REFRESH_JS } from './pulse-refresh.js.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
@@ -40,11 +42,13 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/dashboard.css">
+<link rel="stylesheet" href="/assets/themes.css">
 <script>
 (function(){var t=localStorage.getItem('sua-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');})();
 </script>
 </head>
 <body class="app">
+<script>(function(){var w=localStorage.getItem('sua-widget-theme');if(w&&w!=='default'&&w!=='light')document.body.setAttribute('data-widget-theme',w);})();</script>
 <header class="topbar">
   <a class="topbar__brand" href="/">sua</a>
   <nav class="topbar__nav">
@@ -64,7 +68,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + BUILD_FROM_GOAL_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + BUILD_FROM_GOAL_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS)}</script>
 </body>
 </html>`;
 }

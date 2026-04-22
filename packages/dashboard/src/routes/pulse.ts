@@ -1,10 +1,11 @@
 import { Router, type Request, type Response } from 'express';
-import { parseAgent, type Agent, type AgentSignal, type Run } from '@some-useful-agents/core';
+import { parseAgent, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { renderPulsePage, type PulseTile } from '../views/pulse.js';
-import { normalizeSignal, extractMappedValues } from '../views/pulse-templates.js';
+import { renderPulsePage, tileWrap, type PulseTile } from '../views/pulse.js';
+import { renderTile } from '../views/pulse-renderers.js';
+import { normalizeSignal, extractMappedValues, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 
 export const pulseRouter: Router = Router();
 
@@ -46,7 +47,29 @@ function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeo
 
   const { mapping } = normalizeSignal(signal);
   const slots = extractMappedValues(lastRun, mapping, outputsJson);
-  return { agent, signal, lastRun, slots };
+
+  // Discover output field keys for the configure modal.
+  const outputFields: string[] = [];
+  const fieldSet = new Set<string>();
+  if (outputsJson) {
+    try {
+      const parsed = JSON.parse(outputsJson);
+      if (typeof parsed === 'object' && parsed !== null) {
+        for (const k of Object.keys(parsed)) fieldSet.add(k);
+      }
+    } catch { /* ignore */ }
+  }
+  if (lastRun?.result) {
+    try {
+      const parsed = JSON.parse(lastRun.result);
+      if (typeof parsed === 'object' && parsed !== null) {
+        for (const k of Object.keys(parsed)) fieldSet.add(k);
+      }
+    } catch { /* not JSON */ }
+  }
+  outputFields.push(...Array.from(fieldSet).sort());
+
+  return { agent, signal, lastRun, slots, outputFields };
 }
 
 // ── Virtual system tiles ─────────────────────────────────────────────────
@@ -173,4 +196,82 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   } catch {
     res.redirect(303, '/pulse');
   }
+});
+
+// ── Update signal config ────────────────────────────────────────────────
+
+pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.redirect(303, '/pulse');
+    return;
+  }
+
+  const body = req.body as Record<string, string>;
+  const template = body.template as SignalTemplate | undefined;
+  const accent = body.accent as SignalAccent | undefined;
+  const title = body.title?.trim();
+  const icon = body.icon?.trim();
+  const size = body.size as AgentSignal['size'] | undefined;
+  const refresh = body.refresh?.trim();
+
+  // Validate template exists in registry.
+  if (template && !TEMPLATE_REGISTRY[template]) {
+    res.redirect(303, '/pulse');
+    return;
+  }
+
+  // Parse mapping from JSON string.
+  let mapping: Record<string, string> | undefined;
+  if (body.mapping) {
+    try {
+      mapping = JSON.parse(body.mapping);
+    } catch {
+      res.redirect(303, '/pulse');
+      return;
+    }
+  }
+
+  const signal: AgentSignal = {
+    ...(agent.signal ?? { title: agent.id }),
+    ...(title ? { title } : {}),
+    ...(icon !== undefined ? { icon: icon || undefined } : {}),
+    ...(template ? { template } : {}),
+    ...(mapping ? { mapping } : {}),
+    ...(accent ? { accent } : {}),
+    ...(size ? { size } : {}),
+    ...(refresh !== undefined ? { refresh: refresh || undefined } : {}),
+  };
+
+  try {
+    const updated = { ...agent, signal };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', `Update signal config via Pulse`);
+    res.redirect(303, '/pulse');
+  } catch {
+    res.redirect(303, '/pulse');
+  }
+});
+
+// ── Tile fragment (for auto-refresh polling) ────────────────────────────
+
+pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  // System tiles.
+  if (id.startsWith('_system-')) {
+    const systemTiles = buildSystemTiles(ctx);
+    const tile = systemTiles.find((t) => t.agent.id === id);
+    if (!tile) { res.status(404).send('Tile not found'); return; }
+    res.type('html').send(renderTile(tile, tileWrap).toString());
+    return;
+  }
+
+  // Agent tiles.
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent || !agent.signal) { res.status(404).send('Tile not found'); return; }
+  const tile = buildTile(agent as Agent & { signal: AgentSignal }, ctx);
+  res.type('html').send(renderTile(tile, tileWrap).toString());
 });

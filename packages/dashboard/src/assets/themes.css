@@ -1,0 +1,70 @@
+/*
+ * Widget themes — CSS custom property overrides scoped to
+ * [data-widget-theme="X"]. Can be applied at body, container, or tile level.
+ * CSS cascade handles precedence: tile > container > body > tokens.css.
+ *
+ * Default = no overrides (uses tokens.css dark mode).
+ * Light = uses tokens.css [data-theme="light"].
+ */
+
+/* ── Warm ── */
+/* Amber accent, stone backgrounds, softer corners. */
+[data-widget-theme="warm"] {
+  --color-primary: #f59e0b;
+  --color-primary-hover: #d97706;
+  --color-primary-soft: rgba(245, 158, 11, 0.1);
+  --color-bg: #1c1917;
+  --color-surface: #292524;
+  --color-surface-raised: #44403c;
+  --color-border: #57534e;
+  --color-border-strong: #78716c;
+  --color-text: #fafaf9;
+  --color-text-muted: #d6d3d1;
+  --color-text-subtle: #a8a29e;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --shadow-focus: 0 0 0 3px rgba(245, 158, 11, 0.25);
+}
+
+/* ── Minimal ── */
+/* No borders, no shadows, flat design. Clean and focused. */
+[data-widget-theme="minimal"] {
+  --color-primary: #a3a3a3;
+  --color-primary-hover: #d4d4d4;
+  --color-primary-soft: rgba(163, 163, 163, 0.08);
+  --color-border: transparent;
+  --color-border-strong: rgba(255, 255, 255, 0.06);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-focus: 0 0 0 2px rgba(163, 163, 163, 0.3);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+}
+
+/* ── Neon ── */
+/* Purple accent, true black background, vivid status colors. */
+[data-widget-theme="neon"] {
+  --color-primary: #a855f7;
+  --color-primary-hover: #c084fc;
+  --color-primary-soft: rgba(168, 85, 247, 0.12);
+  --color-bg: #0a0a0a;
+  --color-surface: #171717;
+  --color-surface-raised: #262626;
+  --color-border: #333333;
+  --color-border-strong: #444444;
+  --color-text: #fafafa;
+  --color-text-muted: #a3a3a3;
+  --color-text-subtle: #737373;
+  --color-ok: #22d3ee;
+  --color-ok-soft: rgba(34, 211, 238, 0.1);
+  --color-err: #fb7185;
+  --color-err-soft: rgba(251, 113, 133, 0.1);
+  --color-warn: #fbbf24;
+  --color-info: #818cf8;
+  --color-info-soft: rgba(129, 140, 248, 0.1);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
+  --shadow-focus: 0 0 0 3px rgba(168, 85, 247, 0.3);
+}
