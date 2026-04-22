@@ -84,6 +84,7 @@ command: echo from-the-internet
     rotateToken: overrides.rotateToken ?? (() => 'r'.repeat(64)),
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
+    dataDir: dir,
   };
 
   return { app: buildDashboardApp(ctx), ctx };
