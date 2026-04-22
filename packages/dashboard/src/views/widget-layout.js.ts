@@ -125,16 +125,39 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       }
     }
 
+    // Check if any container has a stored position (free-form mode).
+    function hasFreePositions() {
+      for (var ci = 0; ci < layout.containers.length; ci++) {
+        if (layout.containers[ci].x !== undefined) return true;
+      }
+      return false;
+    }
+
     // Re-render containers from layout.
     function renderLayout() {
       host.innerHTML = '';
+      var isFree = hasFreePositions();
+      if (isFree) {
+        host.classList.add('pulse-canvas');
+      } else {
+        host.classList.remove('pulse-canvas');
+      }
+
       for (var ci = 0; ci < layout.containers.length; ci++) {
         var c = layout.containers[ci];
         var section = document.createElement('section');
         section.className = 'pulse-container';
         section.setAttribute('data-container-id', c.id);
 
-        // Header.
+        // Apply free-form position if stored.
+        if (c.x !== undefined && c.y !== undefined) {
+          section.classList.add('pulse-container--positioned');
+          section.style.left = c.x + 'px';
+          section.style.top = c.y + 'px';
+          if (c.w) section.style.width = c.w + 'px';
+        }
+
+        // Header (draggable in edit mode).
         var header = document.createElement('div');
         header.className = 'pulse-container__header';
         var label = document.createElement('span');
@@ -197,6 +220,103 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     }
 
     renderLayout();
+
+    // ── Container drag (free-form positioning) ──────────────────────
+    var containerDrag = null; // { el, containerId, startX, startY, origX, origY }
+
+    document.addEventListener('mousedown', function(e) {
+      if (!editMode) return;
+      var header = e.target.closest ? e.target.closest('.pulse-container__header') : null;
+      if (!header) return;
+      // Don't drag when clicking buttons or editable labels.
+      if (e.target.closest('.pulse-container__delete') || e.target.closest('.pulse-container__label')) return;
+
+      var container = header.closest('.pulse-container');
+      if (!container) return;
+      var containerId = container.getAttribute('data-container-id');
+      if (!containerId) return;
+
+      e.preventDefault();
+
+      // Get current position. If not yet positioned, compute from current offset.
+      var rect = container.getBoundingClientRect();
+      var hostRect = host.getBoundingClientRect();
+      var origX = container.classList.contains('pulse-container--positioned')
+        ? parseInt(container.style.left) || 0
+        : rect.left - hostRect.left;
+      var origY = container.classList.contains('pulse-container--positioned')
+        ? parseInt(container.style.top) || 0
+        : rect.top - hostRect.top;
+
+      containerDrag = {
+        el: container,
+        containerId: containerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: origX,
+        origY: origY,
+      };
+      container.classList.add('pulse-container--dragging');
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (!containerDrag) return;
+      e.preventDefault();
+      var dx = e.clientX - containerDrag.startX;
+      var dy = e.clientY - containerDrag.startY;
+      var newX = Math.max(0, containerDrag.origX + dx);
+      var newY = Math.max(0, containerDrag.origY + dy);
+
+      containerDrag.el.style.left = newX + 'px';
+      containerDrag.el.style.top = newY + 'px';
+      containerDrag.el.classList.add('pulse-container--positioned');
+
+      // Switch host to canvas mode on first drag.
+      if (!host.classList.contains('pulse-canvas')) {
+        // Convert all containers to absolute positions before switching.
+        var sections = host.querySelectorAll('.pulse-container');
+        var hostRect = host.getBoundingClientRect();
+        for (var s = 0; s < sections.length; s++) {
+          if (sections[s] === containerDrag.el) continue;
+          if (!sections[s].classList.contains('pulse-container--positioned')) {
+            var r = sections[s].getBoundingClientRect();
+            sections[s].style.left = (r.left - hostRect.left) + 'px';
+            sections[s].style.top = (r.top - hostRect.top) + 'px';
+            sections[s].classList.add('pulse-container--positioned');
+          }
+        }
+        host.classList.add('pulse-canvas');
+      }
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (!containerDrag) return;
+      containerDrag.el.classList.remove('pulse-container--dragging');
+
+      // Persist position to layout.
+      var cId = containerDrag.containerId;
+      for (var ci = 0; ci < layout.containers.length; ci++) {
+        if (layout.containers[ci].id === cId) {
+          layout.containers[ci].x = parseInt(containerDrag.el.style.left) || 0;
+          layout.containers[ci].y = parseInt(containerDrag.el.style.top) || 0;
+          break;
+        }
+      }
+      // Also persist all other containers' positions if they got converted.
+      var sections = host.querySelectorAll('.pulse-container--positioned');
+      for (var s = 0; s < sections.length; s++) {
+        var sId = sections[s].getAttribute('data-container-id');
+        for (var ci2 = 0; ci2 < layout.containers.length; ci2++) {
+          if (layout.containers[ci2].id === sId) {
+            layout.containers[ci2].x = parseInt(sections[s].style.left) || 0;
+            layout.containers[ci2].y = parseInt(sections[s].style.top) || 0;
+            break;
+          }
+        }
+      }
+      saveLayout(layout);
+      containerDrag = null;
+    });
 
     // ── Edit mode toggle ─────────────────────────────────────────────
     var editMode = false;
