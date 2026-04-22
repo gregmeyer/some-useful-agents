@@ -536,6 +536,15 @@ main.main--wide {
 .template-palette__group:first-child {
   border-top: none;
 }
+.template-palette__group--upstream { color: #2dd4bf; }
+.template-palette__group--input   { color: #60a5fa; }
+.template-palette__group--var     { color: #4ade80; }
+.template-palette__group--secret  { color: #fb923c; }
+
+.template-palette__item--upstream { border-left: 2px solid #2dd4bf; }
+.template-palette__item--input   { border-left: 2px solid #60a5fa; }
+.template-palette__item--var     { border-left: 2px solid #4ade80; }
+.template-palette__item--secret  { border-left: 2px solid #fb923c; }
 
 .template-palette__empty {
   padding: var(--space-3);
