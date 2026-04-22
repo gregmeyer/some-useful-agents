@@ -63,7 +63,7 @@ function loadDashboardCss(): string {
   // Works from dist/routes/ (../assets) and from src/routes/ during tests
   // (../assets too). The copy-assets script keeps both in sync.
   const assetsDir = join(here, '..', 'assets');
-  const order = ['tokens.css', 'base.css', 'components.css', 'screens.css'];
+  const order = ['tokens.css', 'base.css', 'components.css', 'screens.css', 'themes.css'];
   return order
     .map((name) => {
       const path = join(assetsDir, name);

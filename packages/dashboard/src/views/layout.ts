@@ -42,7 +42,6 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/dashboard.css">
-<link rel="stylesheet" href="/assets/themes.css">
 <script>
 (function(){var t=localStorage.getItem('sua-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');})();
 </script>
