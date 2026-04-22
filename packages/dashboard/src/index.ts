@@ -1,5 +1,6 @@
 import express, { type Application } from 'express';
 import type { Server } from 'node:http';
+import { dirname } from 'node:path';
 import {
   LocalProvider,
   RunStore,
@@ -14,6 +15,7 @@ import {
   buildLoopbackAllowlist,
   type SecretsStore,
   type RunStatus,
+  getSchedulerStatus,
 } from '@some-useful-agents/core';
 import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
@@ -106,7 +108,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Everything below requires the session cookie.
   app.use(requireAuth);
 
-  // Home page with today's stats + recent activity.
+  // Home page with today's stats + recent activity (paginated).
   app.get('/', (req, res) => {
     // Dynamic import to avoid circular deps at module load.
     import('./views/home.js').then(({ renderHomePage }) => {
@@ -114,16 +116,41 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       const agents = ctx.agentStore.listAgents();
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const recentResult = ctx.runStore.queryRuns({ limit: 50, offset: 0, statuses: [] as RunStatus[] });
+
+      // Activity feed pagination.
+      const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+      const pageSize = Math.max(1, Math.min(50, parseInt(req.query.pageSize as string, 10) || 10));
+      const offset = (page - 1) * pageSize;
+
+      const recentResult = ctx.runStore.queryRuns({ limit: pageSize, offset, statuses: [] as RunStatus[] });
+      // Separate query for today's stats (always from the start, not paginated).
+      const todayResult = ctx.runStore.queryRuns({ limit: 200, offset: 0, statuses: [] as RunStatus[] });
       const inFlightResult = ctx.runStore.queryRuns({ limit: 20, offset: 0, statuses: ['running', 'pending'] as RunStatus[] });
-      const todayRuns = recentResult.rows.filter((r: { startedAt: string }) => r.startedAt >= todayStart);
+      const todayRuns = todayResult.rows.filter((r: { startedAt: string }) => r.startedAt >= todayStart);
       const scheduledAgents = agents.filter((a: { schedule?: string; status: string }) => a.schedule && a.status === 'active');
+
+      // Scheduler status from heartbeat file.
+      const { status: schedulerStatus, heartbeat: schedulerHeartbeat } = getSchedulerStatus(ctx.dataDir);
+
+      // Last scheduled fire per agent.
+      const lastScheduledFires: Record<string, string> = {};
+      for (const a of scheduledAgents) {
+        const result = ctx.runStore.queryRuns({ agentName: a.id, triggeredBy: 'schedule', limit: 1 });
+        if (result.rows[0]?.startedAt) lastScheduledFires[a.id] = result.rows[0].startedAt;
+      }
+
       res.type('html').send(renderHomePage({
         agents,
         recentRuns: recentResult.rows,
         todayRuns,
         inFlightRuns: inFlightResult.rows,
         scheduledAgents,
+        activityPage: page,
+        activityPageSize: pageSize,
+        totalRunCount: recentResult.total,
+        schedulerStatus,
+        schedulerHeartbeat,
+        lastScheduledFires,
       }));
     }).catch(() => {
       res.redirect(302, '/agents');
@@ -208,6 +235,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
+    dataDir: dirname(opts.dbPath),
   };
 
   const app = buildDashboardApp(ctx);

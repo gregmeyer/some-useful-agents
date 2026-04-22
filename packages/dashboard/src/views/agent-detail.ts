@@ -1,7 +1,7 @@
 import type { AgentDefinition, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { typeBadge, sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
+import { typeBadge, sourceBadge, statusBadge, formatDuration, formatAge, cronToHuman } from './components.js';
 
 export async function renderAgentDetail(args: {
   agent: AgentDefinition;
@@ -110,7 +110,7 @@ export async function renderAgentDetail(args: {
     <h2>Metadata</h2>
     <dl class="kv">
       <dt>Timeout</dt><dd>${String(agent.timeout ?? 300)}s</dd>
-      <dt>Schedule</dt><dd>${agent.schedule ?? html`<span class="dim">none</span>`}</dd>
+      <dt>Schedule</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`<span class="dim">none</span>`}</dd>
       <dt>Exposed via MCP</dt><dd>${agent.mcp === true ? 'yes' : 'no'}</dd>
       <dt>Redact secrets</dt><dd>${agent.redactSecrets === true ? 'yes' : 'no'}</dd>
       ${agent.allowedTools?.length ? html`<dt>Allowed tools</dt><dd class="mono">${agent.allowedTools.join(', ')}</dd>` : html``}

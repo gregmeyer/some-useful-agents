@@ -94,3 +94,6 @@ const ERROR_CATEGORY_LABELS: Record<string, string> = {
 export function formatErrorCategory(category: string): string {
   return ERROR_CATEGORY_LABELS[category] ?? category;
 }
+
+// Re-export from core so dashboard views can import from components.
+export { cronToHuman } from '@some-useful-agents/core';
