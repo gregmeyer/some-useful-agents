@@ -69,34 +69,34 @@ describe('LocalScheduler', () => {
     expect(LocalScheduler.isValid('')).toBe(false);
   });
 
-  it('start() registers tasks for every scheduled agent', () => {
+  it('start() registers tasks for every scheduled agent', async () => {
     const agents = new Map<string, AgentDefinition>([
       ['a', makeAgent('a', '* * * * *')],
       ['b', makeAgent('b', '0 9 * * *')],
     ]);
     const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
-    const entries = scheduler.start();
+    const entries = await scheduler.start();
     expect(entries.length).toBe(2);
     scheduler.stop();
   });
 
-  it('stop() is safe to call multiple times', () => {
+  it('stop() is safe to call multiple times', async () => {
     const agents = new Map<string, AgentDefinition>([
       ['a', makeAgent('a', '* * * * *')],
     ]);
     const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
-    scheduler.start();
+    await scheduler.start();
     scheduler.stop();
     scheduler.stop();  // should not throw
   });
 
-  it('start() returns empty when no agents have schedules', () => {
+  it('start() returns empty when no agents have schedules', async () => {
     const agents = new Map<string, AgentDefinition>([
       ['a', makeAgent('a')],
       ['b', makeAgent('b')],
     ]);
     const scheduler = new LocalScheduler({ provider: makeFakeProvider(), agents });
-    const entries = scheduler.start();
+    const entries = await scheduler.start();
     expect(entries.length).toBe(0);
     scheduler.stop();
   });
@@ -117,7 +117,7 @@ describe('LocalScheduler', () => {
       onFire: (agent, runId) => fireEvents.push({ name: agent.name, runId }),
     });
 
-    scheduler.start();
+    await scheduler.start();
     await new Promise(r => setTimeout(r, 1500));  // wait for at least one tick
     scheduler.stop();
 

@@ -2,7 +2,7 @@ import type { Agent, AgentDefinition, Run } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
-import { typeBadge, sourceBadge, formatAge } from './components.js';
+import { typeBadge, sourceBadge, formatAge, cronToHuman } from './components.js';
 
 export interface HomeStats {
   agents: number;
@@ -276,7 +276,7 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
       <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
       <div class="agent-card__meta">
         <span><strong>${String(a.nodes.length)}</strong> node${a.nodes.length === 1 ? '' : 's'}</span>
-        ${a.schedule ? html`<span>Cron <span class="mono">${a.schedule}</span></span>` : html``}
+        ${a.schedule ? html`<span title="${a.schedule}">${cronToHuman(a.schedule)}</span>` : html``}
       </div>
       ${nodesDisclosure}
       <div class="agent-card__footer">
@@ -395,7 +395,7 @@ function renderV1Block(v1: AgentDefinition[], hasV2: boolean): SafeHtml {
       <td><span class="badge badge--muted">v1</span></td>
       <td>${sourceBadge(a.source ?? 'local')}</td>
       <td>${typeBadge(a.type)}</td>
-      <td>${a.schedule ?? html`<span class="dim">\u2014</span>`}</td>
+      <td>${a.schedule ? html`<span title="${a.schedule}">${cronToHuman(a.schedule)}</span>` : html`<span class="dim">\u2014</span>`}</td>
       <td>${a.mcp ? html`<span class="badge badge--info">mcp</span>` : html`<span class="dim">\u2014</span>`}</td>
       <td class="dim">${a.description ?? ''}</td>
     </tr>

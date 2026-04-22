@@ -79,6 +79,11 @@ export interface DashboardContext {
    * and removed on completion.
    */
   activeRuns: Map<string, AbortController>;
+  /**
+   * Data directory path. Used by the health endpoint to read the scheduler
+   * heartbeat file and report scheduler status.
+   */
+  dataDir: string;
 }
 
 /**

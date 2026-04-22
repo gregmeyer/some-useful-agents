@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { getSchedulerStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
 const startedAt = Date.now();
@@ -24,5 +25,22 @@ healthRouter.get('/health', (req: Request, res: Response) => {
     runsLastHour = -1;
   }
 
-  res.json({ status: 'ok', uptime_s: uptimeSeconds, runs_last_hour: runsLastHour });
+  // Scheduler status from heartbeat file (zero IPC).
+  const { status: schedulerStatus, heartbeat } = getSchedulerStatus(ctx.dataDir);
+  const scheduler = {
+    status: schedulerStatus,
+    ...(heartbeat ? {
+      pid: heartbeat.pid,
+      agentCount: heartbeat.agents.length,
+      lastHeartbeat: heartbeat.lastHeartbeat,
+      nextFires: heartbeat.nextFires,
+    } : {}),
+  };
+
+  res.json({
+    status: 'ok',
+    uptime_s: uptimeSeconds,
+    runs_last_hour: runsLastHour,
+    scheduler,
+  });
 });

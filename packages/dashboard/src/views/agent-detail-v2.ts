@@ -13,7 +13,7 @@ import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
-import { sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
+import { sourceBadge, statusBadge, formatDuration, formatAge, cronToHuman } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget } from './output-widgets.js';
 import {
@@ -184,7 +184,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       <dl class="kv">
         <dt>Version</dt><dd class="mono">v${String(agent.version)} <a href="/agents/${agent.id}/versions" class="dim" style="font-size: var(--font-size-xs);">history</a></dd>
         <dt>Provider</dt><dd class="mono">${agent.provider ?? 'claude'} / ${agent.model ?? 'default'}</dd>
-        <dt>Schedule</dt><dd>${agent.schedule ?? html`<span class="dim">none</span>`}</dd>
+        <dt>Schedule</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`<span class="dim">none</span>`}</dd>
         <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
         <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
       </dl>
