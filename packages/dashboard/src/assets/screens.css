@@ -544,6 +544,15 @@ main.main--wide {
   text-align: center;
 }
 
+/* ---------- Output widgets ---------- */
+.output-widget {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ---------- Node execution variables panel ---------- */
 .node-vars {
   border: 1px solid var(--color-border);

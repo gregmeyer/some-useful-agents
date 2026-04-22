@@ -108,7 +108,10 @@ export function checkOrigin(
   origin: string | undefined,
   allowlist: Set<string>,
 ): AuthCheckResult {
-  if (!origin) return { ok: true };
+  // No origin or "null" origin (sent by browsers for privacy-sensitive
+  // contexts like fragment-based auth pages) — allow through. The Host
+  // check is the primary defense; Origin is a supplementary CSRF guard.
+  if (!origin || origin === 'null') return { ok: true };
   let url: URL;
   try {
     url = new URL(origin);
