@@ -169,11 +169,11 @@ export const agentV2Schema = z.object({
   ).optional(),
 
   outputWidget: z.object({
-    type: z.enum(['diff-apply', 'key-value', 'raw']),
+    type: z.enum(['diff-apply', 'key-value', 'raw', 'dashboard']),
     fields: z.array(z.object({
       name: z.string().min(1),
       label: z.string().optional(),
-      type: z.enum(['text', 'code', 'badge', 'action']),
+      type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat']),
     })).min(1),
     actions: z.array(z.object({
       id: z.string().min(1),

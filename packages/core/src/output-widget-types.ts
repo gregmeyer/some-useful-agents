@@ -5,8 +5,9 @@
  */
 
 /** Field type determines rendering: text is plain, code gets monospace+scroll,
- *  badge gets a colored pill, action renders a button. */
-export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action';
+ *  badge gets a colored pill, action renders a button, metric renders a big number,
+ *  stat renders a compact label+value pair in a grid. */
+export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat';
 
 export interface WidgetField {
   /** Key in the structured output to extract this field from. */
@@ -30,7 +31,7 @@ export interface WidgetAction {
   payloadField?: string;
 }
 
-export type OutputWidgetType = 'diff-apply' | 'key-value' | 'raw';
+export type OutputWidgetType = 'diff-apply' | 'key-value' | 'raw' | 'dashboard';
 
 export interface OutputWidgetSchema {
   /** Widget type determines the layout and rendering strategy. */

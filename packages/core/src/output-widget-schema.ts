@@ -7,7 +7,7 @@ import { z } from 'zod';
 export const widgetFieldSchema = z.object({
   name: z.string().min(1),
   label: z.string().optional(),
-  type: z.enum(['text', 'code', 'badge', 'action']),
+  type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat']),
 });
 
 export const widgetActionSchema = z.object({
@@ -19,7 +19,7 @@ export const widgetActionSchema = z.object({
 });
 
 export const outputWidgetSchema = z.object({
-  type: z.enum(['diff-apply', 'key-value', 'raw']),
+  type: z.enum(['diff-apply', 'key-value', 'raw', 'dashboard']),
   fields: z.array(widgetFieldSchema).min(1),
   actions: z.array(widgetActionSchema).optional(),
 });

@@ -65,6 +65,8 @@ export function renderOutputWidget(
       return renderKeyValue(schema, fields);
     case 'raw':
       return renderRaw(schema, fields);
+    case 'dashboard':
+      return renderDashboard(schema, fields);
     default:
       return undefined;
   }
@@ -219,6 +221,73 @@ function renderRaw(
   return html`
     <div class="output-widget output-widget--raw">
       ${sections as unknown as SafeHtml[]}
+    </div>
+  `;
+}
+
+// ── dashboard ───────────────────────────────────────────────────────────
+// Visual dashboard panel: hero metrics up top, stats grid in the middle,
+// text/badge fields at the bottom. Field types drive layout placement:
+//   metric → hero row (big number + label)
+//   stat   → stats grid (compact label + value cards)
+//   badge  → inline pill
+//   text   → bottom section
+
+function renderDashboard(
+  schema: OutputWidgetSchema,
+  fields: Record<string, string | undefined>,
+): SafeHtml {
+  const heroes: SafeHtml[] = [];
+  const stats: SafeHtml[] = [];
+  const rest: SafeHtml[] = [];
+
+  for (const f of schema.fields) {
+    const value = fields[f.name];
+    if (value === undefined) continue;
+    const label = f.label ?? f.name;
+
+    if (f.type === 'metric') {
+      heroes.push(html`
+        <div style="text-align: center; flex: 1; min-width: 120px;">
+          <div style="font-size: var(--font-size-2xl, 2rem); font-weight: var(--weight-bold, 700); font-family: var(--font-mono); color: var(--color-text); line-height: 1.1;">${value}</div>
+          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1);">${label}</div>
+        </div>
+      `);
+    } else if (f.type === 'stat') {
+      stats.push(html`
+        <div style="background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); text-align: center;">
+          <div style="font-size: var(--font-size-sm); font-weight: var(--weight-semibold); font-family: var(--font-mono);">${value}</div>
+          <div style="font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px;">${label}</div>
+        </div>
+      `);
+    } else if (f.type === 'badge') {
+      rest.push(html`
+        <span class="badge" style="margin-right: var(--space-2);">${value}</span>
+      `);
+    } else {
+      rest.push(html`
+        <div style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-2);">${value}</div>
+      `);
+    }
+  }
+
+  return html`
+    <div class="output-widget output-widget--dashboard" style="display: flex; flex-direction: column; gap: var(--space-4);">
+      ${heroes.length > 0 ? html`
+        <div style="display: flex; gap: var(--space-4); justify-content: center; padding: var(--space-3) 0;">
+          ${heroes as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
+      ${stats.length > 0 ? html`
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: var(--space-2);">
+          ${stats as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
+      ${rest.length > 0 ? html`
+        <div style="border-top: 1px solid var(--color-border); padding-top: var(--space-3);">
+          ${rest as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
     </div>
   `;
 }

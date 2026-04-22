@@ -15,6 +15,7 @@ import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
+import { renderOutputWidget } from './output-widgets.js';
 import {
   renderRunInputsForm,
   renderVariablesEditor,
@@ -150,6 +151,22 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
         : undefined,
     })}
+
+    <!-- Widget preview -->
+    ${agent.outputWidget && latestCompletedRun?.result
+      ? html`
+        <section class="card" style="margin-bottom: var(--space-4);">
+          <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
+            <h3 style="margin: 0;">Output widget</h3>
+            <span class="badge badge--muted" style="font-size: 9px;">${agent.outputWidget.type}</span>
+          </div>
+          ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
+          <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">Preview from last run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
+        </section>
+      `
+      : agent.outputWidget
+        ? html`<section class="card" style="margin-bottom: var(--space-4);"><h3 style="margin: 0 0 var(--space-2);">Output widget</h3><p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Run the agent to see a preview of the <code>${agent.outputWidget.type}</code> widget.</p></section>`
+        : html``}
 
     <!-- Quick stats -->
     <div class="agent-stats">

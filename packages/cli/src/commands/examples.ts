@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import {
   AgentStore,
   parseAgent,
@@ -9,13 +9,35 @@ import {
 import { loadConfig, getDbPath, getAgentDirs } from '../config.js';
 import * as ui from '../ui.js';
 
-const EXAMPLE_IDS = [
-  'hello', 'two-step-digest', 'daily-greeting', 'parameterised-greet',
-  'parameterised-greet-claude', 'conditional-router', 'research-digest', 'daily-joke',
-];
-
 export const examplesCommand = new Command('examples')
   .description('Install or remove the bundled example agents');
+
+/**
+ * Discover example agent YAMLs. Prefers on-disk YAML files (repo/dev mode)
+ * over the embedded fallback set (npm install mode).
+ */
+function discoverExamples(agentsDir: string): Record<string, string> {
+  const examplesDir = join(agentsDir, 'examples');
+  const yamls: Record<string, string> = {};
+
+  // Try reading YAML files from disk first (repo checkout / dev mode).
+  if (existsSync(examplesDir)) {
+    try {
+      const files = readdirSync(examplesDir).filter((f) => f.endsWith('.yaml'));
+      for (const file of files) {
+        try {
+          const content = readFileSync(join(examplesDir, file), 'utf-8');
+          const parsed = parseAgent(content);
+          yamls[parsed.id] = content;
+        } catch { /* skip unparseable files */ }
+      }
+    } catch { /* directory not readable */ }
+  }
+
+  // If we found on-disk examples, use those. Otherwise fall back to embedded.
+  if (Object.keys(yamls).length > 0) return yamls;
+  return EMBEDDED_YAMLS;
+}
 
 examplesCommand
   .command('install')
@@ -30,10 +52,11 @@ examplesCommand
     const dataDir = join(config.agentsDir, 'examples', 'data');
     ensureDataFiles(dataDir);
 
+    const yamls = discoverExamples(config.agentsDir);
     let installed = 0;
     let skipped = 0;
 
-    for (const [id, yaml] of Object.entries(EXAMPLE_YAMLS)) {
+    for (const [id, yaml] of Object.entries(yamls)) {
       if (options.skipExisting && store.getAgent(id)) {
         skipped++;
         continue;
@@ -63,8 +86,9 @@ examplesCommand
     const dbPath = getDbPath(config);
     const store = new AgentStore(dbPath);
 
+    const yamls = discoverExamples(config.agentsDir);
     let removed = 0;
-    for (const id of EXAMPLE_IDS) {
+    for (const id of Object.keys(yamls)) {
       const existing = store.getAgent(id);
       if (existing && existing.source === 'examples') {
         store.deleteAgent(id);
@@ -90,7 +114,8 @@ examplesCommand
     const dbPath = getDbPath(config);
     const store = new AgentStore(dbPath);
 
-    for (const id of EXAMPLE_IDS) {
+    const yamls = discoverExamples(config.agentsDir);
+    for (const id of Object.keys(yamls).sort()) {
       const exists = !!store.getAgent(id);
       const status = exists ? '✓ installed' : '  not installed';
       console.log(`  ${status}  ${ui.agent(id)}`);
@@ -107,8 +132,9 @@ export function examplesInstall(dbPath: string, agentsDir: string): void {
   const store = new AgentStore(dbPath);
   const dataDir = join(agentsDir, 'examples', 'data');
   ensureDataFiles(dataDir);
+  const yamls = discoverExamples(agentsDir);
   let installed = 0;
-  for (const [id, yaml] of Object.entries(EXAMPLE_YAMLS)) {
+  for (const [id, yaml] of Object.entries(yamls)) {
     if (store.getAgent(id)) continue;
     try {
       const agent = parseAgent(yaml);
@@ -138,9 +164,10 @@ function ensureDataFiles(dataDir: string): void {
   }
 }
 
-// -- Embedded example YAMLs (match agents/examples/*.yaml) --
+// -- Embedded fallback YAMLs (for npm installs without the repo) --
+// These are used only when agents/examples/ is not found on disk.
 
-const EXAMPLE_YAMLS: Record<string, string> = {
+const EMBEDDED_YAMLS: Record<string, string> = {
   'hello': `id: hello
 name: Hello
 description: Your first sua agent — prints a greeting.
@@ -222,20 +249,6 @@ nodes:
       esac
 `,
 
-  'parameterised-greet-claude': `id: parameterised-greet-claude
-name: Parameterised greeting (Claude)
-description: Same concept as parameterised-greet, using Claude Code.
-status: active
-source: examples
-inputs:
-  NAME: { type: string, default: "World" }
-  STYLE: { type: enum, values: [formal, casual], default: casual }
-nodes:
-  - id: greet
-    type: claude-code
-    prompt: "Greet {{inputs.NAME}} in a {{inputs.STYLE}} style. One sentence only."
-`,
-
   'conditional-router': `id: conditional-router
 name: Conditional router
 description: Routes data through different paths based on content. Teaches flow control.
@@ -268,38 +281,6 @@ nodes:
   - id: merge
     type: branch
     dependsOn: [tech-path, general-path]
-`,
-
-  'research-digest': `id: research-digest
-name: Research digest
-description: Boss agent that invokes sub-agents and loops over results.
-status: active
-source: examples
-signal:
-  title: Research
-  icon: "\\U0001F50D"
-  format: table
-  field: items
-  size: 2x1
-nodes:
-  - id: source
-    type: shell
-    tool: file-read
-    toolInputs:
-      path: agents/examples/data/research-topics.json
-  - id: research
-    type: loop
-    dependsOn: [source]
-    loopConfig:
-      over: topics
-      agentId: two-step-digest
-      maxIterations: 3
-  - id: compile
-    type: shell
-    command: |
-      echo "=== Research Complete ==="
-      echo "$UPSTREAM_RESEARCH_RESULT"
-    dependsOn: [research]
 `,
 
   'daily-joke': `id: daily-joke
