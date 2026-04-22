@@ -15,6 +15,7 @@ import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { sourceBadge, statusBadge, formatDuration, formatAge } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
+import { renderOutputWidget } from './output-widgets.js';
 import {
   renderRunInputsForm,
   renderVariablesEditor,
@@ -141,15 +142,42 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   `);
 
   const content = html`
-    <!-- DAG -->
-    ${renderDagFallback(agent)}
-    ${renderDagView({
-      agent,
-      editBase: `/agents/${agent.id}/nodes`,
-      replay: latestCompletedRun
-        ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
-        : undefined,
-    })}
+    <!-- DAG + Widget preview (side-by-side when widget exists) -->
+    ${agent.outputWidget ? html`
+      <div class="run-detail-grid">
+        <div>
+          ${renderDagFallback(agent)}
+          ${renderDagView({
+            agent,
+            editBase: `/agents/${agent.id}/nodes`,
+            replay: latestCompletedRun
+              ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
+              : undefined,
+          })}
+        </div>
+        <div class="card" style="padding: var(--space-4);">
+          <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
+            <h3 style="margin: 0;">Output widget</h3>
+            <span class="badge badge--muted" style="font-size: 9px;">${agent.outputWidget.type}</span>
+          </div>
+          ${latestCompletedRun?.result
+            ? html`
+              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
+              <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0;">From run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
+            `
+            : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Run the agent to see a preview.</p>`}
+        </div>
+      </div>
+    ` : html`
+      ${renderDagFallback(agent)}
+      ${renderDagView({
+        agent,
+        editBase: `/agents/${agent.id}/nodes`,
+        replay: latestCompletedRun
+          ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
+          : undefined,
+      })}
+    `}
 
     <!-- Quick stats -->
     <div class="agent-stats">

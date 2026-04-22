@@ -8,6 +8,7 @@ import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { normalizeSignal } from './pulse-templates.js';
 import { esc, stringify, renderMarkdown, looksLikeJson, prettyJson } from './pulse-helpers.js';
 import type { PulseTile, TileWrapFn } from './pulse-types.js';
+import { renderOutputWidget } from './output-widgets.js';
 
 // ── Renderers ────────────────────────────────────────────────────────────
 
@@ -192,6 +193,16 @@ export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
     case 'image': return renderImage(tile, wrap);
     case 'text-image': return renderTextImage(tile, wrap);
     case 'media': return renderMedia(tile, wrap);
+    case 'widget': return renderWidgetTile(tile, wrap);
     default: return renderTextHeadline(tile, wrap);
   }
+}
+
+function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  const agent = tile.agent;
+  if (!agent.outputWidget || !tile.lastRun?.result) {
+    return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No widget output yet.</p>`);
+  }
+  const widgetHtml = renderOutputWidget(agent.outputWidget, tile.lastRun.result, agent.id);
+  return wrap(tile, widgetHtml ?? html`<p class="dim" style="font-size: var(--font-size-xs);">Widget render failed.</p>`);
 }

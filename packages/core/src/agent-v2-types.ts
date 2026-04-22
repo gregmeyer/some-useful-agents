@@ -247,6 +247,12 @@ export interface Agent {
    */
   signal?: AgentSignal;
 
+  /**
+   * Output widget declaration. When set, the dashboard renders run output
+   * as a structured widget (diff-apply, key-value, etc.) instead of raw text.
+   */
+  outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;
+
   // Metadata
   author?: string;
   tags?: string[];
@@ -264,7 +270,8 @@ export type SignalTemplate =
   | 'image'
   | 'table'
   | 'status'
-  | 'media';
+  | 'media'
+  | 'widget';
 
 export interface AgentSignal {
   title: string;
@@ -326,6 +333,7 @@ export interface AgentVersionDag {
   inputs?: Record<string, AgentInputSpec>;
   nodes: AgentNode[];
   signal?: AgentSignal;
+  outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;
   author?: string;
   tags?: string[];
 }

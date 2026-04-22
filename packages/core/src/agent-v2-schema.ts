@@ -150,7 +150,7 @@ export const agentV2Schema = z.object({
     title: z.string().min(1),
     icon: z.string().optional(),
     // v2 template system
-    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media']).optional(),
+    template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media', 'widget']).optional(),
     mapping: z.record(z.string()).optional(),
     // v1 (deprecated, still accepted)
     format: z.enum(['text', 'number', 'table', 'json', 'chart']).optional(),
@@ -167,6 +167,22 @@ export const agentV2Schema = z.object({
     (s) => s.format !== undefined || s.template !== undefined,
     { message: 'Signal must declare either "format" (v1) or "template" (v2).' },
   ).optional(),
+
+  outputWidget: z.object({
+    type: z.enum(['diff-apply', 'key-value', 'raw', 'dashboard']),
+    fields: z.array(z.object({
+      name: z.string().min(1),
+      label: z.string().optional(),
+      type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat']),
+    })).min(1),
+    actions: z.array(z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      method: z.literal('POST'),
+      endpoint: z.string().min(1),
+      payloadField: z.string().optional(),
+    })).optional(),
+  }).optional(),
 
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),

@@ -1,0 +1,115 @@
+# Weather Dashboard — real weather data rendered as an OpenUI widget.
+#
+# Fetches live weather from wttr.in (free, no API key) and renders it
+# as a structured dashboard widget: hero temperature, stats grid for
+# humidity/wind/UV, condition badge, and forecast text.
+#
+# This is the first agent to use the `dashboard` outputWidget type.
+# Zero LLM cost — pure shell + http-get, structured output drives the UI.
+#
+# Run:
+#   sua workflow run weather-dashboard
+#   sua workflow run weather-dashboard --input LOCATION="New York, NY"
+#   sua workflow run weather-dashboard --input LOCATION=90210
+
+id: weather-dashboard
+name: Weather Dashboard
+description: >
+  Live weather rendered as an OpenUI dashboard widget. Takes a city/state
+  or zip code as input. No LLM needed.
+status: active
+source: examples
+
+inputs:
+  LOCATION:
+    type: string
+    default: "Seattle"
+    description: City name (e.g. "Austin"), city and state (e.g. "Austin TX"), or zip code (e.g. 90210).
+
+signal:
+  title: Weather
+  icon: "\u2600\uFE0F"
+  template: widget
+  mapping: {}
+  refresh: 1h
+  size: 2x1
+
+outputWidget:
+  type: dashboard
+  fields:
+    - name: temperature
+      label: Temperature
+      type: metric
+    - name: condition
+      label: Condition
+      type: badge
+    - name: humidity
+      label: Humidity
+      type: stat
+    - name: wind
+      label: Wind
+      type: stat
+    - name: uv_index
+      label: UV Index
+      type: stat
+    - name: feels_like
+      label: Feels Like
+      type: stat
+    - name: location
+      label: Location
+      type: text
+    - name: forecast
+      label: Forecast
+      type: text
+
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      # Fetch weather from wttr.in as JSON (free, no API key).
+      # wttr.in expects spaces as + and no commas in location names.
+      CLEAN=$(echo "$LOCATION" | sed 's/,//g' | sed 's/ /+/g')
+      RAW=$(curl -sf "https://wttr.in/${CLEAN}?format=j1" 2>/dev/null)
+
+      if [ -z "$RAW" ]; then
+        # Fallback: generate mock data if wttr.in is unreachable.
+        HOUR=$(date +%H)
+        BASE=62
+        if [ "$HOUR" -ge 10 ] && [ "$HOUR" -le 16 ]; then
+          OFFSET=$((RANDOM % 10 + 5))
+        else
+          OFFSET=$((RANDOM % 5 - 2))
+        fi
+        TEMP=$((BASE + OFFSET))
+        echo "{\"temperature\": \"${TEMP}\u00b0F\", \"condition\": \"Unknown (offline)\", \"humidity\": \"--\", \"wind\": \"--\", \"uv_index\": \"--\", \"feels_like\": \"--\", \"location\": \"$LOCATION\", \"forecast\": \"Weather data unavailable. Check your network connection.\"}"
+        exit 0
+      fi
+
+      # Extract fields from wttr.in JSON response.
+      TEMP_F=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['temp_F'])" 2>/dev/null || echo "?")
+      FEELS_F=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['FeelsLikeF'])" 2>/dev/null || echo "?")
+      HUMIDITY=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['humidity'])" 2>/dev/null || echo "?")
+      WIND_MPH=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['windspeedMiles'])" 2>/dev/null || echo "?")
+      WIND_DIR=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['winddir16Point'])" 2>/dev/null || echo "?")
+      UV=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['uvIndex'])" 2>/dev/null || echo "?")
+      CONDITION=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['current_condition'][0]['weatherDesc'][0]['value'])" 2>/dev/null || echo "Unknown")
+      AREA=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); n=d.get('nearest_area',[{}])[0]; print(n.get('areaName',[{}])[0].get('value','') + ', ' + n.get('region',[{}])[0].get('value',''))" 2>/dev/null || echo "$LOCATION")
+
+      # Tomorrow's forecast for the text field.
+      TOMORROW_HIGH=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['weather'][1]['maxtempF'])" 2>/dev/null || echo "?")
+      TOMORROW_LOW=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['weather'][1]['mintempF'])" 2>/dev/null || echo "?")
+      TOMORROW_DESC=$(echo "$RAW" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['weather'][1]['hourly'][4]['weatherDesc'][0]['value'])" 2>/dev/null || echo "")
+
+      cat <<EOF
+      {
+        "temperature": "${TEMP_F}\u00b0F",
+        "condition": "$CONDITION",
+        "humidity": "${HUMIDITY}%",
+        "wind": "${WIND_MPH} mph $WIND_DIR",
+        "uv_index": "$UV",
+        "feels_like": "${FEELS_F}\u00b0F",
+        "location": "$AREA",
+        "forecast": "Tomorrow: ${TOMORROW_HIGH}\u00b0/${TOMORROW_LOW}\u00b0F, ${TOMORROW_DESC}"
+      }
+      EOF
+    timeout: 15

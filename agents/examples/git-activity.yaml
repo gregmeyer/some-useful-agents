@@ -18,6 +18,16 @@ signal:
   refresh: 1h
   size: 2x1
 
+outputWidget:
+  type: dashboard
+  fields:
+    - name: today
+      label: Today
+      type: metric
+    - name: total_7d
+      label: 7-Day Total
+      type: stat
+
 nodes:
   - id: count
     type: shell

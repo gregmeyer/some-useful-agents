@@ -16,14 +16,28 @@ signal:
   refresh: 1h
   size: 2x1
 
+outputWidget:
+  type: dashboard
+  fields:
+    - name: total
+      label: Runs Today
+      type: metric
+    - name: completed
+      label: Completed
+      type: stat
+    - name: failed
+      label: Failed
+      type: stat
+    - name: agents
+      label: Active Agents
+      type: text
+
 nodes:
   - id: gather
     type: shell
     command: |
       # Count today's runs from the runs database.
       DATE_PREFIX=$(date -u +%Y-%m-%d)
-      echo "Report for ${DATE_PREFIX}"
-      echo ""
       if [ -f data/runs.db ]; then
         node --experimental-strip-types -e "
           import { DatabaseSync } from 'node:sqlite';
@@ -34,10 +48,14 @@ nodes:
           const ok = runs.filter(r => r.status === 'completed').length;
           const fail = runs.filter(r => r.status === 'failed').length;
           const agents = [...new Set(runs.map(r => r.agentName))];
-          console.log(total + ' runs total: ' + ok + ' completed, ' + fail + ' failed');
-          console.log('Agents: ' + (agents.length > 0 ? agents.join(', ') : 'none'));
-        " 2>/dev/null || echo "Could not read runs database."
+          console.log(JSON.stringify({
+            total: String(total),
+            completed: String(ok),
+            failed: String(fail),
+            agents: agents.length > 0 ? agents.join(', ') : 'none'
+          }));
+        " 2>/dev/null || echo '{"total":"?","completed":"?","failed":"?","agents":"Could not read database"}'
       else
-        echo "No runs database found."
+        echo '{"total":"0","completed":"0","failed":"0","agents":"No runs database found"}'
       fi
     timeout: 15

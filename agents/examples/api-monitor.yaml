@@ -28,6 +28,22 @@ signal:
     message: message
   refresh: 5m
 
+outputWidget:
+  type: dashboard
+  fields:
+    - name: status
+      label: Status
+      type: badge
+    - name: duration_ms
+      label: Response Time
+      type: metric
+    - name: http_code
+      label: HTTP Code
+      type: stat
+    - name: message
+      label: Details
+      type: text
+
 nodes:
   - id: ping
     type: shell
@@ -56,5 +72,5 @@ nodes:
         MSG="HTTP $HTTP_CODE in ${DURATION_MS}ms"
       fi
 
-      echo "{\"status\": \"$STATUS\", \"message\": \"$MSG\", \"http_code\": $HTTP_CODE, \"duration_ms\": $DURATION_MS}"
+      echo "{\"status\": \"$STATUS\", \"message\": \"$MSG\", \"http_code\": \"$HTTP_CODE\", \"duration_ms\": \"${DURATION_MS}ms\"}"
     timeout: 30

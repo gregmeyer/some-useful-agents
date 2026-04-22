@@ -44,6 +44,38 @@ nodes:
       - Opportunities to split or merge nodes for clarity
       - Unused or redundant dependencies between nodes
       - Prompt improvements for claude-code nodes
+      - Missing or improvable outputWidget declarations (see below)
+
+      OUTPUT WIDGETS (outputWidget):
+      Agents can declare an outputWidget that controls how their run output
+      renders on the dashboard. If the agent produces structured output (JSON
+      or XML-tagged fields), suggest adding an outputWidget. Available types:
+
+      - dashboard: Hero metric + stats grid + text. Best for monitoring data.
+        Field types: metric (big number), stat (grid card), badge (colored pill), text.
+      - key-value: Labeled pairs in a definition list. Good for config/status reports.
+        Field types: text, code (monospace), badge.
+      - diff-apply: Classification badge + summary + diff + action buttons.
+        Good for analysis/review agents. Field types: text, code, badge.
+        Supports actions: [{ id, label, method: POST, endpoint, payloadField }].
+      - raw: Sectioned output with labeled fields. Fallback for mixed content.
+
+      Example outputWidget for a monitoring agent:
+        outputWidget:
+          type: dashboard
+          fields:
+            - name: status
+              label: Status
+              type: badge
+            - name: value
+              label: Value
+              type: metric
+            - name: details
+              label: Details
+              type: text
+
+      Only suggest outputWidget when the agent produces structured output.
+      Shell agents outputting plain text don't benefit from widgets.
 
       {{inputs.FOCUS}}
 
@@ -79,6 +111,9 @@ nodes:
       - Template refs in prompts use double-brace inputs.NAME syntax (not bare NAME or #inputs.NAME).
       - conditional nodes MUST have conditionalConfig with a predicate.
       - switch nodes MUST have switchConfig with field + cases.
+      - outputWidget.type must be one of: dashboard, key-value, diff-apply, raw.
+      - outputWidget.fields[].type must be one of: text, code, badge, action, metric, stat.
+      - outputWidget field names must match keys in the agent's JSON output.
 
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
