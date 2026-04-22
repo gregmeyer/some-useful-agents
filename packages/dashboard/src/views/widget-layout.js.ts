@@ -313,21 +313,70 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       setEditMode(editMode);
     });
 
-    // ── Add container ────────────────────────────────────────────────
+    // ── Add container (modal) ───────────────────────────────────────
+    var addGroupModal = null;
+    function showAddGroupModal() {
+      if (!addGroupModal) {
+        addGroupModal = document.createElement('div');
+        addGroupModal.className = 'pulse-configure-modal';
+        addGroupModal.addEventListener('click', function(e) {
+          if (e.target === addGroupModal) addGroupModal.style.display = 'none';
+        });
+        addGroupModal.innerHTML =
+          '<div class="pulse-configure-modal__content" style="max-width: 360px;">' +
+            '<div class="pulse-configure-modal__header">' +
+              '<h3 style="margin: 0;">New group</h3>' +
+              '<button type="button" class="pulse-configure-modal__close" title="Close">\\u00D7</button>' +
+            '</div>' +
+            '<div class="pulse-configure-modal__section">' +
+              '<label class="pulse-configure-modal__label">Group name</label>' +
+              '<input type="text" class="input" id="add-group-name-input" style="width: 100%;" placeholder="e.g. Monitoring" autofocus>' +
+            '</div>' +
+            '<div class="pulse-configure-modal__footer">' +
+              '<button type="button" class="btn btn--ghost btn--sm" id="add-group-cancel">Cancel</button>' +
+              '<button type="button" class="btn btn--primary btn--sm" id="add-group-confirm">Add group</button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(addGroupModal);
+
+        addGroupModal.querySelector('.pulse-configure-modal__close').addEventListener('click', function() {
+          addGroupModal.style.display = 'none';
+        });
+        document.getElementById('add-group-cancel').addEventListener('click', function() {
+          addGroupModal.style.display = 'none';
+        });
+        document.getElementById('add-group-confirm').addEventListener('click', function() {
+          var input = document.getElementById('add-group-name-input');
+          var name = input.value.trim();
+          if (!name) { input.focus(); return; }
+          var id = 'custom-' + Date.now();
+          layout.containers.push({ id: id, label: name, tiles: [] });
+          saveLayout(layout);
+          renderLayout();
+          restoreCollapsed();
+          restorePalettes();
+          applySizes();
+          setEditMode(editMode);
+          input.value = '';
+          addGroupModal.style.display = 'none';
+        });
+        document.getElementById('add-group-name-input').addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('add-group-confirm').click();
+          }
+        });
+      }
+      addGroupModal.style.display = 'flex';
+      setTimeout(function() {
+        var input = document.getElementById('add-group-name-input');
+        if (input) { input.value = ''; input.focus(); }
+      }, 50);
+    }
+
     var addBtn = document.getElementById('${config.addContainerId}');
     if (addBtn) {
-      addBtn.addEventListener('click', function() {
-        var name = prompt('Group name:');
-        if (!name || !name.trim()) return;
-        var id = 'custom-' + Date.now();
-        layout.containers.push({ id: id, label: name.trim(), tiles: [] });
-        saveLayout(layout);
-        renderLayout();
-        restoreCollapsed();
-        restorePalettes();
-        applySizes();
-        setEditMode(editMode);
-      });
+      addBtn.addEventListener('click', showAddGroupModal);
     }
 
     // ── Palette cycling ──────────────────────────────────────────────
