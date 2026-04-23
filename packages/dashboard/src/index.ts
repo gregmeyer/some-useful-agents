@@ -90,7 +90,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use((_req, res, next) => {
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src https://www.youtube.com; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com; frame-ancestors 'none'",
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
