@@ -46,9 +46,9 @@ let resolvedAllowed: string[] | null = null;
 
 function getAllowedDirs(): string[] {
   if (resolvedAllowed) return resolvedAllowed;
-  resolvedAllowed = DEFAULT_ALLOWED_DIRS
-    .map((d) => resolve(d))
-    .filter((d) => existsSync(d));
+  // Don't filter by existsSync — directories may be created by agents
+  // after the dashboard starts. Existence is checked at request time.
+  resolvedAllowed = DEFAULT_ALLOWED_DIRS.map((d) => resolve(d));
   return resolvedAllowed;
 }
 
