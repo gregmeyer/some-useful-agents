@@ -459,6 +459,7 @@ agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
         nodes: parsed.nodes,
         inputs: parsed.inputs,
         signal: parsed.signal,
+        outputWidget: parsed.outputWidget,
         author: parsed.author,
         tags: parsed.tags,
       },
