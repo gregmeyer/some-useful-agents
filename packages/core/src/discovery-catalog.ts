@@ -50,8 +50,8 @@ Use when the agent produces structured JSON. The widget renders on the agent det
 - dashboard: Hero metric + stats grid. Field types: metric (big number), stat (compact label+value), badge (pill), text.
 - key-value: Labeled pairs as definition list. Field types: text, code, badge.
 - diff-apply: Review/analysis with actions. Field types: text, code, badge. Supports actions (buttons that POST).
-- raw: Sectioned fallback for mixed content. Field types: text, code.
-Field type tips: Use metric for the single most important number. Use stat for supporting numbers. Use badge for status/category.`.trim();
+- raw: Sectioned fallback for mixed content. Field types: text, code, preview.
+Field type tips: Use metric for the single most important number. Use stat for supporting numbers. Use badge for status/category. Use preview for file paths (renders HTML/images in a sandboxed iframe).`.trim();
 
 const PATTERNS = `
 ## ARCHITECTURE PATTERNS

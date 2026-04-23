@@ -32,6 +32,7 @@ import { buildRouter } from './routes/run-now-build.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
 import { toolsRouter } from './routes/tools.js';
 import { assetsRouter } from './routes/assets.js';
+import { outputFilesRouter } from './routes/output-files.js';
 import { settingsRouter } from './routes/settings.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
@@ -107,6 +108,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
   // Everything below requires the session cookie.
   app.use(requireAuth);
+
+  // Serve agent output files from allowlisted directories.
+  app.use(outputFilesRouter);
 
   // Home page with today's stats + recent activity (paginated).
   app.get('/', (req, res) => {

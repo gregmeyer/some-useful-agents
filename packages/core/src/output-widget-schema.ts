@@ -7,7 +7,7 @@ import { z } from 'zod';
 export const widgetFieldSchema = z.object({
   name: z.string().min(1),
   label: z.string().optional(),
-  type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat']),
+  type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview']),
 });
 
 export const widgetActionSchema = z.object({

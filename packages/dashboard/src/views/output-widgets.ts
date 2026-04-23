@@ -77,6 +77,40 @@ function extractFields(
 }
 
 /**
+ * Render a file preview iframe for a 'preview' field type. The value should
+ * be a file path that gets served via GET /output-file?path=<path>.
+ */
+function renderPreview(label: string, filePath: string): SafeHtml {
+  if (!filePath) return html`<p class="dim" style="font-size: var(--font-size-xs);">No file path</p>`;
+  const encodedPath = encodeURIComponent(filePath);
+  const lower = filePath.toLowerCase();
+  const isImage = /\.(png|jpe?g|gif|svg|webp|bmp)$/.test(lower);
+
+  const header = html`
+    <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+      <h4 style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 0;">${label}</h4>
+      <a href="/output-file?path=${encodedPath}" target="_blank" rel="noopener" style="font-size: var(--font-size-xs); color: var(--color-primary);">Open in tab \u2197</a>
+    </div>
+  `;
+
+  if (isImage) {
+    return html`
+      <section style="margin-bottom: var(--space-3);">
+        ${header}
+        <img src="/output-file?path=${encodedPath}" alt="${label}" style="max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--color-border);" loading="lazy">
+      </section>
+    `;
+  }
+
+  return html`
+    <section style="margin-bottom: var(--space-3);">
+      ${header}
+      <iframe src="/output-file?path=${encodedPath}" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: #fff;"></iframe>
+    </section>
+  `;
+}
+
+/**
  * Render a widget from an agent's outputWidget schema and run output.
  * Returns undefined if the schema type is unknown.
  */
@@ -194,6 +228,9 @@ function renderKeyValue(
     .map((f) => {
       const value = fields[f.name] ?? '';
       const label = f.label ?? f.name;
+      if (f.type === 'preview') {
+        return renderPreview(label, value);
+      }
       if (f.type === 'badge') {
         return html`<dt>${label}</dt><dd><span class="badge">${value}</span></dd>`;
       }
@@ -223,6 +260,9 @@ function renderRaw(
     .map((f) => {
       const value = fields[f.name] ?? '';
       const label = f.label ?? f.name;
+      if (f.type === 'preview') {
+        return renderPreview(label, value);
+      }
       if (f.type === 'code') {
         return html`
           <section style="margin-bottom: var(--space-3);">
@@ -297,6 +337,8 @@ function renderDashboard(
           <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px;">${label}</div>
         </div>
       `);
+    } else if (f.type === 'preview') {
+      texts.push(renderPreview(label, value));
     } else {
       texts.push(html`
         <div style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
