@@ -13,6 +13,7 @@ signal:
   mapping:
     headline: Hello
     body: result
+  accent: teal
 nodes:
   - id: greet
     type: shell

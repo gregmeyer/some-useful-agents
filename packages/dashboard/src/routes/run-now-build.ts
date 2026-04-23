@@ -6,7 +6,8 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, exportAgent, listBuiltinTools, parseAgent, type RunStatus, type ToolDefinition } from '@some-useful-agents/core';
+import { executeAgentDag, exportAgent, listBuiltinTools, parseAgent, buildDiscoveryCatalog, type RunStatus, type ToolDefinition } from '@some-useful-agents/core';
+import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -81,6 +82,16 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
 
   // Fire-and-forget: start the analyzer but don't await it.
   // Return the runId immediately so the client can poll.
+  // Build discovery catalog for the analyzer.
+  const aBuiltins = listBuiltinTools();
+  let aUserTools: ToolDefinition[] = [];
+  try { if (ctx.toolStore) aUserTools = ctx.toolStore.listTools(); } catch {}
+  const discoveryCatalog = buildDiscoveryCatalog({
+    agents: ctx.agentStore.listAgents(),
+    tools: [...aBuiltins, ...aUserTools],
+    templateRegistry: TEMPLATE_REGISTRY,
+  });
+
   const runPromise = executeAgentDag(
     analyzer,
     {
@@ -89,6 +100,7 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
         AGENT_YAML: targetYaml,
         ...(focus ? { FOCUS: `Focus your analysis on: ${focus}` } : {}),
         ...(lastRunOutput ? { LAST_RUN_OUTPUT: lastRunOutput } : {}),
+        DISCOVERY_CATALOG: discoveryCatalog,
       },
     },
     {
@@ -282,6 +294,11 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     if (ctx.toolStore) userTools = ctx.toolStore.listTools();
   } catch { /* store not available */ }
   const catalog = formatToolCatalog([...builtins, ...userTools]);
+  const discoveryCatalog = buildDiscoveryCatalog({
+    agents: ctx.agentStore.listAgents(),
+    tools: [...builtins, ...userTools],
+    templateRegistry: TEMPLATE_REGISTRY,
+  });
 
   const runPromise = executeAgentDag(
     builder,
@@ -291,6 +308,7 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
         GOAL: goal,
         ...(focus ? { FOCUS: `Constraints: ${focus}` } : {}),
         AVAILABLE_TOOLS: catalog,
+        DISCOVERY_CATALOG: discoveryCatalog,
       },
     },
     {

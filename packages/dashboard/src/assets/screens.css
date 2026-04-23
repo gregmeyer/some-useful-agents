@@ -1229,6 +1229,36 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .pulse-tile[data-accent="red"]    .pulse-tile__status-dot { background: #f87171; }
 .pulse-tile[data-accent="purple"] .pulse-tile__status-dot { background: #a78bfa; }
 
+/* -- Visual polish: accent glow on metric values -- */
+.pulse-tile[data-accent] .pulse-tile__value {
+  text-shadow: 0 0 20px currentColor;
+}
+
+/* -- Status dot pulse animation for "running" states -- */
+.pulse-tile__status-dot--healthy {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* -- Story tile pull-quote style -- */
+.pulse-tile .pulse-tile__body--md blockquote,
+.pulse-tile .story-what-changed {
+  border-left: 3px solid var(--color-primary);
+  padding-left: var(--space-3);
+  font-style: italic;
+}
+
+/* -- Comparison divider -- */
+.pulse-tile .comparison-divider {
+  width: 1px;
+  background: var(--color-border);
+  align-self: stretch;
+  margin: var(--space-2) 0;
+}
+
 /* -- Configure tile button -- */
 .pulse-tile__configure-btn {
   background: none;

@@ -17,6 +17,12 @@ signal:
     unit: "%"
   refresh: 1h
   size: 1x1
+  accent: green
+  thresholds:
+    - above: 90
+      palette: accent-red
+    - above: 70
+      palette: accent-orange
 
 outputWidget:
   type: dashboard
