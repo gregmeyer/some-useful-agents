@@ -238,6 +238,11 @@ describe('extractUpstreamReferences', () => {
 
   it('ignores malformed references', () => {
     expect([...extractUpstreamReferences('{{upstream.a}}')]).toEqual([]);
-    expect([...extractUpstreamReferences('{{upstream.a.other}}')]).toEqual([]);
+  });
+
+  it('extracts dot-path field references', () => {
+    expect([...extractUpstreamReferences('{{upstream.a.headline}}')]).toEqual(['a']);
+    expect([...extractUpstreamReferences('{{upstream.write-draft.graphic_type}}')]).toEqual(['write-draft']);
+    expect([...extractUpstreamReferences('{{upstream.a.data.nested.field}}')]).toEqual(['a']);
   });
 });
