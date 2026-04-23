@@ -107,13 +107,23 @@ export const SUGGEST_IMPROVEMENTS_JS = `
         });
       });
 
-      // "Apply now" — save the YAML directly without opening the editor.
+      // "Apply now" — show success state, then save.
       var an = document.getElementById('sg-apply-now');
       if (an && data.yaml) an.addEventListener('click', function () {
-        var f = document.createElement('form'); f.method = 'POST';
-        f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
-        var t = document.createElement('textarea'); t.name = 'yaml'; t.value = data.yaml; t.style.display = 'none';
-        f.appendChild(t); document.body.appendChild(f); f.submit();
+        an.disabled = true;
+        an.textContent = 'Applying...';
+        content.innerHTML =
+          '<div style="text-align:center;padding:var(--space-8);">' +
+            '<div style="font-size:2rem;margin-bottom:var(--space-3);">\\u2705</div>' +
+            '<p style="font-weight:var(--weight-bold);font-size:var(--font-size-lg);margin:0 0 var(--space-2);">Improvements applied</p>' +
+            '<p class="dim" style="font-size:var(--font-size-xs);margin:0;">New version created. Redirecting...</p>' +
+          '</div>';
+        setTimeout(function () {
+          var f = document.createElement('form'); f.method = 'POST';
+          f.action = '/agents/' + encodeURIComponent(agentId) + '/yaml';
+          var t = document.createElement('textarea'); t.name = 'yaml'; t.value = data.yaml; t.style.display = 'none';
+          f.appendChild(t); document.body.appendChild(f); f.submit();
+        }, 800);
       });
       // "Review first" / "Edit manually" — open the YAML editor pre-filled.
       var rv = document.getElementById('sg-review');
