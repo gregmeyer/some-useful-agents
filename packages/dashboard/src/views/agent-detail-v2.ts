@@ -19,6 +19,7 @@ import { renderOutputWidget } from './output-widgets.js';
 import {
   renderRunInputsForm,
   renderVariablesEditor,
+  renderOutputWidgetEditor,
   vStatusBadge,
   statusOption,
   providerOption,
@@ -335,6 +336,12 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     <section class="card" style="margin-bottom: var(--space-6);">
       <h3 style="margin: 0 0 var(--space-3);">Variables</h3>
       ${renderVariablesEditor(agent)}
+    </section>
+
+    <!-- Output Widget -->
+    <section class="card" style="margin-bottom: var(--space-6);">
+      <h3 style="margin: 0 0 var(--space-3);">Output Widget</h3>
+      ${renderOutputWidgetEditor(agent)}
     </section>
 
     <!-- Secrets -->
