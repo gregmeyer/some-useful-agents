@@ -87,7 +87,23 @@ function autoFixYaml(yaml: string): string {
       changed = true;
     }
 
-    // Fix 6: conditional nodes missing conditionalConfig — add a default.
+    // Fix 6: repair broken template syntax in claude-code prompts.
+    // The escape function in resolveUpstreamTemplate converts {{ to { {
+    // to prevent re-expansion. If an LLM or round-trip saves this escaped
+    // form, fix it back so templates resolve at runtime.
+    if (raw.nodes && Array.isArray(raw.nodes)) {
+      for (const n of raw.nodes) {
+        if (n.type === 'claude-code' && typeof n.prompt === 'string') {
+          const fixed = n.prompt
+            .replace(/\{ \{upstream\./g, '{{upstream.')
+            .replace(/\{ \{inputs\./g, '{{inputs.')
+            .replace(/\{ \{vars\./g, '{{vars.');
+          if (fixed !== n.prompt) { n.prompt = fixed; changed = true; }
+        }
+      }
+    }
+
+    // Fix 7: conditional nodes missing conditionalConfig — add a default.
     if (raw.nodes && Array.isArray(raw.nodes)) {
       for (const n of raw.nodes) {
         if (n.type === 'conditional' && !n.conditionalConfig) {
