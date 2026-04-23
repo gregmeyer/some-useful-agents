@@ -118,19 +118,7 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
   try {
     ctx.agentStore.createNewVersion(
       agent.id,
-      {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        schedule: agent.schedule,
-        source: agent.source,
-        mcp: agent.mcp,
-        nodes: agent.nodes,
-        inputs: merged && Object.keys(merged).length > 0 ? merged : undefined,
-        author: agent.author,
-        tags: agent.tags,
-      },
+      { ...agent, inputs: merged && Object.keys(merged).length > 0 ? merged : undefined },
       'dashboard',
       'Updated input defaults via dashboard',
     );
