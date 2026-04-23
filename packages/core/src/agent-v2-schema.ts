@@ -28,8 +28,13 @@ const INPUT_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
  * Match `{{upstream.<nodeId>.result}}` anywhere in a string. Captures the
  * node id so we can cross-check against the declared node set.
  */
-const UPSTREAM_REF_RE = /\{\{upstream\.([a-z0-9][a-z0-9_-]*)\.result\}\}/g;
+/** Matches both {{upstream.nodeId.result}} and {{upstream.nodeId.fieldPath}} */
+const UPSTREAM_REF_RE = /\{\{upstream\.([a-z0-9][a-z0-9_-]*)\.([a-zA-Z0-9_.]+)\}\}/g;
 
+/**
+ * Extract upstream node IDs referenced in template text.
+ * Supports both {{upstream.<id>.result}} and {{upstream.<id>.<field>}}.
+ */
 export function extractUpstreamReferences(text: string): Set<string> {
   const out = new Set<string>();
   for (const m of text.matchAll(UPSTREAM_REF_RE)) {
@@ -314,14 +319,14 @@ export const agentV2Schema = z.object({
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: basePath,
-            message: `Template references {{upstream.${ref}.result}} but "${ref}" is not a node in this agent.`,
+            message: `Template references upstream node "${ref}" but "${ref}" is not a node in this agent.`,
           });
         } else if (!deps.has(ref)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: basePath,
             message:
-              `Template references {{upstream.${ref}.result}} but "${node.id}" does not declare ` +
+              `Template references upstream node "${ref}" but "${node.id}" does not declare ` +
               `"${ref}" in its dependsOn list. Add "${ref}" to dependsOn so the executor knows the order.`,
           });
         }
