@@ -107,31 +107,26 @@ function buildInFlight(data: HomeWidgetData): SystemWidget {
     };
   }
 
-  const fields: OutputWidgetSchema['fields'] = [
-    { name: 'count', label: 'In flight', type: 'metric' },
-  ];
-  const outputObj: Record<string, string> = { count: String(inFlightRuns.length) };
-
-  // Add each running agent as a text field (up to 5).
-  for (const r of inFlightRuns.slice(0, 5)) {
-    const key = `run_${r.id.slice(0, 8)}`;
-    fields.push({ name: key, label: r.agentName, type: 'text' });
-    outputObj[key] = formatAge(r.startedAt).toString();
-  }
-  if (inFlightRuns.length > 5) {
-    fields.push({ name: 'more', label: 'More', type: 'text' });
-    outputObj.more = `+${String(inFlightRuns.length - 5)} more`;
-  }
-
-  const schema: OutputWidgetSchema = { type: 'key-value', fields };
-  const output = JSON.stringify(outputObj);
-  const widgetHtml = renderOutputWidget(schema, output, '_home-in-flight');
+  const rows = inFlightRuns.slice(0, 5).map((r) => html`
+    <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);">
+      <div class="spinner" style="width: 10px; height: 10px; border-width: 2px; flex-shrink: 0;"></div>
+      <a href="/agents/${r.agentName}" class="mono" style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">${r.agentName}</a>
+      <a href="/runs/${r.id}" style="font-size: 10px; color: var(--color-text-subtle); margin-left: auto;">${formatAge(r.startedAt)}</a>
+    </div>
+  `);
 
   return {
     id: '_home-in-flight',
     title: 'In Flight',
     icon: '\u{1F680}',
-    html: widgetHtml ?? html`<p class="dim">No data</p>`,
+    html: html`
+      <div style="text-align: center; margin-bottom: var(--space-2);">
+        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono);">${String(inFlightRuns.length)}</div>
+        <div style="font-size: var(--font-size-xs); color: var(--color-text-muted);">In flight</div>
+      </div>
+      ${rows as unknown as SafeHtml[]}
+      ${inFlightRuns.length > 5 ? html`<div style="font-size: 10px; color: var(--color-text-subtle); padding-top: var(--space-1);">+${String(inFlightRuns.length - 5)} more</div>` : html``}
+    `,
   };
 }
 
