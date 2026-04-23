@@ -18,6 +18,80 @@ export const buildRouter: Router = Router();
 const ANALYZER_AGENT_ID = 'agent-analyzer';
 const BUILDER_AGENT_ID = 'agent-builder';
 
+// ── Auto-fix common LLM YAML mistakes ──────────────────────────────────
+
+function autoFixYaml(yaml: string): string {
+  try {
+    const raw = parseRawYaml(yaml);
+    if (!raw || typeof raw !== 'object') return yaml;
+    let changed = false;
+
+    // Fix 1: {{inputs.X}} → $X in shell node commands.
+    if (raw.nodes && Array.isArray(raw.nodes)) {
+      for (const n of raw.nodes) {
+        if (n.type === 'shell' && typeof n.command === 'string') {
+          const fixed = n.command.replace(
+            /\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g,
+            (_: string, name: string) => '$' + name,
+          );
+          if (fixed !== n.command) { n.command = fixed; changed = true; }
+        }
+      }
+    }
+
+    // Fix 2: inputs as array → object.
+    if (Array.isArray(raw.inputs)) {
+      const obj: Record<string, unknown> = {};
+      for (const item of raw.inputs) {
+        if (typeof item === 'object' && item !== null && item.name) {
+          const name = String(item.name).toUpperCase();
+          const { name: _n, ...rest } = item;
+          obj[name] = rest;
+          changed = true;
+        }
+      }
+      if (Object.keys(obj).length > 0) {
+        raw.inputs = obj;
+      }
+    }
+
+    // Fix 3: lowercase input names → UPPERCASE.
+    if (raw.inputs && typeof raw.inputs === 'object' && !Array.isArray(raw.inputs)) {
+      const fixed: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(raw.inputs)) {
+        const upper = key.toUpperCase();
+        if (upper !== key) changed = true;
+        fixed[upper] = val;
+      }
+      if (changed) raw.inputs = fixed;
+    }
+
+    // Fix 4: enum inputs missing values array.
+    if (raw.inputs && typeof raw.inputs === 'object' && !Array.isArray(raw.inputs)) {
+      for (const [_key, spec] of Object.entries(raw.inputs)) {
+        if (typeof spec === 'object' && spec !== null) {
+          const s = spec as Record<string, unknown>;
+          if (s.type === 'enum' && !Array.isArray(s.values)) {
+            if (s.default && typeof s.default === 'string') {
+              s.values = [s.default];
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+
+    // Fix 5: source: "examples" or "community" → "local".
+    if (raw.source && raw.source !== 'local') {
+      raw.source = 'local';
+      changed = true;
+    }
+
+    if (changed) return stringifyRawYaml(raw, { lineWidth: 0 });
+  } catch { /* if raw parse fails, return as-is */ }
+  return yaml;
+}
+
 /**
  * Format a list of tool definitions into a human-readable catalog string
  * for injection into the builder agent prompt.
@@ -219,23 +293,7 @@ buildRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =>
   let suggestedYaml = extract('yaml') || undefined;
   let yamlError: string | undefined;
   if (suggestedYaml && suggestedYaml.length > 10) {
-    // Fix {{inputs.X}} → $X in shell node commands (analyzer LLM gets this wrong often).
-    try {
-      const raw = parseRawYaml(suggestedYaml);
-      if (raw?.nodes && Array.isArray(raw.nodes)) {
-        let changed = false;
-        for (const n of raw.nodes) {
-          if (n.type === 'shell' && typeof n.command === 'string') {
-            const fixed = n.command.replace(
-              /\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g,
-              (_: string, name: string) => '$' + name,
-            );
-            if (fixed !== n.command) { n.command = fixed; changed = true; }
-          }
-        }
-        if (changed) suggestedYaml = stringifyRawYaml(raw, { lineWidth: 0 });
-      }
-    } catch { /* let the real parser report the error */ }
+    suggestedYaml = autoFixYaml(suggestedYaml);
     try { parseAgent(suggestedYaml); } catch (e) { yamlError = e instanceof Error ? e.message : String(e); }
   }
 
@@ -252,6 +310,117 @@ buildRouter.get('/agents/:name/analyze/:runId', (req: Request, res: Response) =>
     yamlError,
     currentYaml,
   });
+});
+
+// ── YAML auto-fix via LLM ───────────────────────────────────────────────
+
+/**
+ * POST /agents/:name/analyze/fix-yaml — send broken YAML + error to Claude
+ * for a fix attempt. Returns { yaml, yamlError? } synchronously (waits for
+ * the LLM response, ~10-30s).
+ */
+buildRouter.post('/agents/:name/analyze/fix-yaml', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const brokenYaml = typeof body.yaml === 'string' ? body.yaml : '';
+  const error = typeof body.error === 'string' ? body.error : '';
+
+  if (!brokenYaml || !error) {
+    res.json({ ok: false, error: 'Missing yaml or error fields.' });
+    return;
+  }
+
+  // Build a one-shot fix agent inline (no YAML file needed).
+  const fixAgent = {
+    id: '_yaml-fixer',
+    name: 'YAML Fixer',
+    description: 'Fix YAML validation errors',
+    status: 'active' as const,
+    source: 'local' as const,
+    version: 1,
+    nodes: [{
+      id: 'fix',
+      type: 'claude-code' as const,
+      prompt: `IMPORTANT: Respond with ONLY the fixed YAML. No explanation, no XML tags, no markdown code fences. Just the raw YAML text.
+
+Fix this sua agent YAML so it passes schema validation.
+
+VALIDATION ERROR:
+${error}
+
+BROKEN YAML:
+${brokenYaml}
+
+Rules:
+- Input names: UPPERCASE_WITH_UNDERSCORES
+- inputs: must be an object/map, not an array
+- enum inputs: must have a non-empty values array
+- Shell nodes: use $ENV_VARS for inputs, never double-brace templates
+- Claude-code nodes: use double-brace inputs.NAME syntax in prompts
+- conditional nodes: must have conditionalConfig with a predicate
+- switch nodes: must have switchConfig with field + cases
+- outputWidget.type: one of dashboard, key-value, diff-apply, raw
+- outputWidget.fields[].type: one of text, code, badge, action, metric, stat
+- source: must be "local"
+- Keep the same agent id ("${name}")
+
+Output ONLY the complete fixed YAML. Nothing else.`,
+      maxTurns: 1,
+      timeout: 60,
+    }],
+  };
+
+  try {
+    const run = await executeAgentDag(
+      fixAgent,
+      { triggeredBy: 'dashboard', inputs: {} },
+      {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        variablesStore: ctx.variablesStore,
+      },
+    );
+
+    // Wait for completion.
+    const maxWait = 65_000;
+    const pollInterval = 1_000;
+    const startTime = Date.now();
+    let result = ctx.runStore.getRun(run.id);
+
+    while (result && (result.status === 'running' || result.status === 'pending') && Date.now() - startTime < maxWait) {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      result = ctx.runStore.getRun(run.id);
+    }
+
+    if (!result?.result) {
+      res.json({ ok: false, error: 'Fix attempt timed out or produced no output.' });
+      return;
+    }
+
+    // Clean up the result — strip markdown fences, XML tags, etc.
+    let fixedYaml = result.result
+      .replace(/^```ya?ml?\n?/i, '')
+      .replace(/\n?```\s*$/, '')
+      .replace(/<yaml>\n?/gi, '')
+      .replace(/\n?<\/yaml>/gi, '')
+      .trim();
+
+    // Apply auto-fixers.
+    fixedYaml = autoFixYaml(fixedYaml);
+
+    // Validate.
+    let fixError: string | undefined;
+    try {
+      parseAgent(fixedYaml);
+    } catch (e) {
+      fixError = e instanceof Error ? e.message : String(e);
+    }
+
+    res.json({ ok: true, yaml: fixedYaml, yamlError: fixError });
+  } catch (err) {
+    res.json({ ok: false, error: (err as Error).message });
+  }
 });
 
 // ── Agent Builder (goal-driven wizard) ─────────────────────────────────

@@ -62,18 +62,51 @@ export const SUGGEST_IMPROVEMENTS_JS = `
       }
       if (data.yamlError) {
         h += '<div class="flash flash--error" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
-          '<strong>Suggested YAML has validation errors:</strong> ' + esc(data.yamlError) +
-          '<br>Click "Edit YAML" to fix manually.</div>';
+          '<strong>YAML validation error:</strong> ' + esc(data.yamlError) + '</div>';
       }
       h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">';
       if (data.yaml && !data.yamlError) {
         h += '<button type="button" class="btn btn--primary btn--sm" id="sg-apply-now">Apply now</button>';
         h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-review">Review first</button>';
-      } else if (data.yaml) {
-        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-review">Edit YAML to fix</button>';
+      } else if (data.yaml && data.yamlError) {
+        h += '<button type="button" class="btn btn--primary btn--sm" id="sg-fix-ai">Fix with AI</button>';
+        h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-review">Edit manually</button>';
       }
       h += '<button type="button" class="btn btn--ghost btn--sm" id="sg-dismiss">Dismiss</button></div>';
       content.innerHTML = h;
+
+      // "Fix with AI" — send broken YAML + error to Claude for another fix attempt.
+      var fixBtn = document.getElementById('sg-fix-ai');
+      if (fixBtn && data.yaml && data.yamlError) fixBtn.addEventListener('click', function () {
+        fixBtn.disabled = true;
+        fixBtn.textContent = 'Fixing...';
+        fetch('/agents/' + encodeURIComponent(agentId) + '/analyze/fix-yaml', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml: data.yaml, error: data.yamlError }),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (result) {
+          if (result.ok && result.yaml) {
+            data.yaml = result.yaml;
+            data.yamlError = result.yamlError || undefined;
+            renderResult(data);
+          } else {
+            fixBtn.disabled = false;
+            fixBtn.textContent = 'Fix with AI';
+            var err = document.createElement('div');
+            err.className = 'flash flash--error';
+            err.style.cssText = 'margin-top:var(--space-2);font-size:var(--font-size-xs);';
+            err.textContent = 'Fix attempt failed: ' + (result.error || 'Unknown error');
+            fixBtn.parentNode.appendChild(err);
+          }
+        })
+        .catch(function () {
+          fixBtn.disabled = false;
+          fixBtn.textContent = 'Fix with AI';
+        });
+      });
+
       // "Apply now" — save the YAML directly without opening the editor.
       var an = document.getElementById('sg-apply-now');
       if (an && data.yaml) an.addEventListener('click', function () {
@@ -82,7 +115,7 @@ export const SUGGEST_IMPROVEMENTS_JS = `
         var t = document.createElement('textarea'); t.name = 'yaml'; t.value = data.yaml; t.style.display = 'none';
         f.appendChild(t); document.body.appendChild(f); f.submit();
       });
-      // "Review first" — open the YAML editor pre-filled.
+      // "Review first" / "Edit manually" — open the YAML editor pre-filled.
       var rv = document.getElementById('sg-review');
       if (rv && data.yaml) rv.addEventListener('click', function () {
         var f = document.createElement('form'); f.method = 'POST';
