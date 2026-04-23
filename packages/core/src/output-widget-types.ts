@@ -6,8 +6,9 @@
 
 /** Field type determines rendering: text is plain, code gets monospace+scroll,
  *  badge gets a colored pill, action renders a button, metric renders a big number,
- *  stat renders a compact label+value pair in a grid. */
-export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat';
+ *  stat renders a compact label+value pair in a grid, preview renders a file
+ *  in a sandboxed iframe via the /output-file route. */
+export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat' | 'preview';
 
 export interface WidgetField {
   /** Key in the structured output to extract this field from. */
