@@ -51,10 +51,6 @@ function executeConditionalNode(
   node: AgentNode,
   outputs: Map<string, NodeOutput>,
 ): ControlFlowResult {
-  const config = node.conditionalConfig;
-  if (!config) {
-    return { ok: false, output: {}, error: 'Conditional node missing conditionalConfig' };
-  }
   const upstreamId = (node.dependsOn ?? [])[0];
   if (!upstreamId) {
     return { ok: false, output: {}, error: 'Conditional node has no dependsOn' };
@@ -63,6 +59,9 @@ function executeConditionalNode(
   if (!upOutput) {
     return { ok: false, output: {}, error: `Upstream "${upstreamId}" has no output` };
   }
+
+  // Use explicit config or auto-infer from upstream output.
+  const config = node.conditionalConfig ?? inferConditionalConfig(upOutput);
 
   let value: unknown;
   if (upOutput.outputs) {
@@ -90,6 +89,50 @@ function executeConditionalNode(
   }
 
   return { ok: true, output: { matched, value } };
+}
+
+/**
+ * Auto-infer a conditionalConfig from the upstream output shape.
+ * Checks common patterns: error field, status field, valid field.
+ * Fallback: check if output is truthy.
+ */
+function inferConditionalConfig(upOutput: NodeOutput): NonNullable<AgentNode['conditionalConfig']> {
+  // Try to parse upstream output as JSON to inspect field names.
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    const p = JSON.parse(upOutput.result);
+    if (typeof p === 'object' && p !== null) parsed = p as Record<string, unknown>;
+  } catch { /* not JSON */ }
+
+  if (parsed) {
+    // If upstream has an "error" field, check if it's absent (success = no error).
+    if ('error' in parsed) {
+      return { predicate: { field: 'error', exists: false } };
+    }
+    // If upstream has a "status" field, check for success.
+    if ('status' in parsed) {
+      const status = String(parsed.status).toLowerCase();
+      if (status === 'success' || status === 'ok' || status === 'healthy') {
+        return { predicate: { field: 'status', equals: parsed.status } };
+      }
+      // Check for failure states.
+      if (status === 'failed' || status === 'error' || status === 'down') {
+        return { predicate: { field: 'status', notEquals: parsed.status } };
+      }
+      return { predicate: { field: 'status', equals: 'success' } };
+    }
+    // If upstream has a "valid" field, check if true.
+    if ('valid' in parsed) {
+      return { predicate: { field: 'valid', equals: true } };
+    }
+    // If upstream has a "matched" field, pass it through.
+    if ('matched' in parsed) {
+      return { predicate: { field: 'matched', equals: true } };
+    }
+  }
+
+  // Fallback: check if the raw output is truthy (non-empty).
+  return { predicate: { field: 'result' } };
 }
 
 function executeSwitchNode(
