@@ -109,7 +109,14 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Everything below requires the session cookie.
   app.use(requireAuth);
 
-  // Serve agent output files from allowlisted directories.
+  // Output files: behind auth, but removes X-Frame-Options so the
+  // preview iframe can embed same-origin content.
+  app.use((req, res, next) => {
+    if (req.path === '/output-file') {
+      res.removeHeader('X-Frame-Options');
+    }
+    next();
+  });
   app.use(outputFilesRouter);
 
   // Home page with today's stats + recent activity (paginated).
