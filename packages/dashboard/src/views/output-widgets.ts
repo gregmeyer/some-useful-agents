@@ -21,15 +21,44 @@ function extractField(output: string, fieldName: string): string | undefined {
   const tagMatch = output.match(new RegExp(`<${fieldName}>([\\s\\S]*?)</${fieldName}>`, 'i'));
   if (tagMatch) return tagMatch[1].trim();
 
-  // Try JSON.
+  // Try JSON — top-level first, then deep search.
   try {
     const parsed = JSON.parse(output);
-    if (typeof parsed === 'object' && parsed !== null && fieldName in parsed) {
-      const val = parsed[fieldName];
-      return typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+    if (typeof parsed === 'object' && parsed !== null) {
+      // Top-level match (fast path).
+      if (fieldName in parsed) {
+        const val = parsed[fieldName];
+        return typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+      }
+      // Deep search: walk nested objects to find the field.
+      const found = deepFind(parsed, fieldName);
+      if (found !== undefined) {
+        return typeof found === 'string' ? found : JSON.stringify(found, null, 2);
+      }
     }
   } catch { /* not JSON */ }
 
+  return undefined;
+}
+
+/**
+ * Recursively search an object for a field name. Returns the first match
+ * found via breadth-first traversal. Handles { merged: { nodeId: { field } } }
+ * patterns from branch nodes.
+ */
+function deepFind(obj: unknown, field: string, depth = 0): unknown {
+  if (depth > 4 || obj === null || obj === undefined) return undefined;
+  if (typeof obj !== 'object') return undefined;
+  const record = obj as Record<string, unknown>;
+  // Check this level.
+  if (field in record) return record[field];
+  // Search children.
+  for (const val of Object.values(record)) {
+    if (typeof val === 'object' && val !== null) {
+      const found = deepFind(val, field, depth + 1);
+      if (found !== undefined) return found;
+    }
+  }
   return undefined;
 }
 
