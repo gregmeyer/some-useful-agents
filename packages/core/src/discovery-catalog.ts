@@ -38,7 +38,11 @@ const NODE_TYPES = `
 - branch: Merge node. Collects outputs from multiple dependsOn upstreams into { merged, count }.
 - end: Terminate flow cleanly. Optional endMessage.
 - break: Exit loop iteration early. Optional endMessage.
-- Edge conditions: Any node can have onlyIf: { upstream, field, equals/notEquals/exists } to conditionally skip.`.trim();
+- Edge conditions: Any node can have onlyIf: { upstream, field, equals/notEquals/exists } to conditionally skip.
+UPSTREAM DATA FLOW:
+- Shell nodes: $UPSTREAM_<NODEID>_RESULT env var (full output). Field extraction: pipe through jq.
+- Claude-code nodes: {{upstream.<nodeId>.result}} (full output) OR {{upstream.<nodeId>.<field>}} (JSON dot-path extraction).
+  Example: {{upstream.fetch.headline}} extracts the "headline" field from fetch's JSON output.`.trim();
 
 const OUTPUT_WIDGETS = `
 ## OUTPUT WIDGET TYPES (outputWidget: in agent YAML)

@@ -1,29 +1,56 @@
 /**
- * Template resolution for `{{upstream.<id>.result}}` and `{{vars.<NAME>}}`
- * tokens in node prompts and env values. Extracted from dag-executor.ts.
+ * Template resolution for `{{upstream.<id>.result}}`, `{{upstream.<id>.<field>}}`,
+ * and `{{vars.<NAME>}}` tokens in node prompts and env values.
+ * Extracted from dag-executor.ts.
  */
 
-import { extractUpstreamReferences } from './agent-v2-schema.js';
-
 /**
- * Substitute `{{upstream.<id>.result}}` tokens in a text blob. Deliberately
- * kept tiny and greedy — we rely on schema-time validation to guarantee
- * every reference resolves.
+ * Substitute upstream templates in a text blob. Supports:
+ *   - {{upstream.<id>.result}} — full raw output (original behavior)
+ *   - {{upstream.<id>.<field>}} — dot-path extraction from JSON output
+ *
+ * When a field path (not "result") is used, the resolver tries to parse the
+ * upstream output as JSON and extract the field. Falls back to empty string
+ * if the output isn't JSON or the field doesn't exist.
  */
 export function resolveUpstreamTemplate(text: string, snapshot: Record<string, string>): string {
   if (!text.includes('{{upstream.')) return text;
-  const refs = extractUpstreamReferences(text);
-  let out = text;
-  for (const id of refs) {
-    const value = snapshot[id] ?? '';
-    // Escape {{ in the substituted value so the inputs resolver that runs
-    // afterwards can't re-expand it as a second template layer. Same
-    // defense the v1 chain-resolver ships (chain-resolver.ts:120-125).
-    const safe = value.replace(/\{\{/g, '{ {');
-    // Use a simple literal replace; the ref format is fixed.
-    out = out.split(`{{upstream.${id}.result}}`).join(safe);
+
+  // Match all {{upstream.nodeId.path}} references.
+  const REF_RE = /\{\{upstream\.([a-z0-9][a-z0-9_-]*)\.([a-zA-Z0-9_.]+)\}\}/g;
+
+  return text.replace(REF_RE, (_match, nodeId: string, fieldPath: string) => {
+    const raw = snapshot[nodeId] ?? '';
+    const safe = (v: string) => v.replace(/\{\{/g, '{ {');
+
+    // {{upstream.X.result}} — return full output (backward compat).
+    if (fieldPath === 'result') return safe(raw);
+
+    // Try JSON dot-path extraction.
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null) {
+        const value = dotGet(parsed, fieldPath);
+        if (value !== undefined) {
+          return safe(typeof value === 'string' ? value : JSON.stringify(value));
+        }
+      }
+    } catch { /* not JSON, fall through */ }
+
+    // Fallback: return empty string (field not found).
+    return '';
+  });
+}
+
+/** Walk a dot-path into a nested object. */
+function dotGet(obj: unknown, path: string): unknown {
+  const parts = path.split('.');
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = (current as Record<string, unknown>)[part];
   }
-  return out;
+  return current;
 }
 
 /**
