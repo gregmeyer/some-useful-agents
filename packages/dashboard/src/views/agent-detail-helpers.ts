@@ -3,7 +3,7 @@
  * Extracted from agent-detail-v2.ts.
  */
 
-import type { Agent } from '@some-useful-agents/core';
+import type { Agent, OutputWidgetType, WidgetFieldType } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 // ── Run inputs form ─────────────────────────────────────────────────────
@@ -118,6 +118,78 @@ export function renderVariablesEditor(agent: Agent): SafeHtml {
         <button type="submit" class="btn btn--primary btn--sm">Save variables</button>
       </div>
     </form>
+  `;
+}
+
+// ── Output widget editor ────────────────────────────────────────────────
+
+const WIDGET_TYPES: OutputWidgetType[] = ['dashboard', 'key-value', 'diff-apply', 'raw'];
+const FIELD_TYPES: WidgetFieldType[] = ['text', 'code', 'badge', 'metric', 'stat', 'preview', 'action'];
+
+function widgetTypeSelect(current: string): string {
+  const opts = WIDGET_TYPES.map((t) =>
+    `<option value="${t}"${t === current ? ' selected' : ''}>${t}</option>`
+  ).join('');
+  return `<select name="widgetType" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">${opts}</select>`;
+}
+
+function fieldTypeSelect(name: string, current: string): string {
+  const opts = FIELD_TYPES.map((t) =>
+    `<option value="${t}"${t === current ? ' selected' : ''}>${t}</option>`
+  ).join('');
+  return `<select name="${name}" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">${opts}</select>`;
+}
+
+export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
+  const widget = agent.outputWidget;
+  const FIELD = 'padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
+
+  const fieldRows = (widget?.fields ?? []).map((f, i) => unsafeHtml(`
+    <tr>
+      <td><input type="text" name="fieldName_${i}" value="${f.name}" style="${FIELD} font-family: var(--font-mono); width: 8rem;"></td>
+      <td><input type="text" name="fieldLabel_${i}" value="${f.label ?? ''}" placeholder="${f.name}" style="${FIELD} width: 8rem;"></td>
+      <td>${fieldTypeSelect(`fieldType_${i}`, f.type)}</td>
+      <td><button type="button" class="btn btn--ghost btn--sm" style="padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);" onclick="this.closest('tr').remove();">\u00D7</button></td>
+    </tr>
+  `));
+
+  return html`
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      Controls how run output renders on the agent detail page. Use <code>preview</code> type for file paths (renders HTML/images inline).
+    </p>
+    <form method="POST" action="/agents/${agent.id}/output-widget/update">
+      <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3);">
+        <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); font-weight: var(--weight-medium);">Widget type</label>
+        ${unsafeHtml(widgetTypeSelect(widget?.type ?? 'raw'))}
+      </div>
+      <table class="table" style="font-size: var(--font-size-xs); margin-bottom: var(--space-3);">
+        <thead><tr><th>Field name</th><th>Label</th><th>Type</th><th></th></tr></thead>
+        <tbody id="widget-fields">
+          ${fieldRows as unknown as SafeHtml[]}
+        </tbody>
+      </table>
+      <div style="display: flex; gap: var(--space-2); justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn--ghost btn--sm" id="add-widget-field-btn">+ Add field</button>
+        <div style="display: flex; gap: var(--space-2);">
+          ${widget ? html`<button type="submit" name="action" value="remove" class="btn btn--ghost btn--sm" style="color: var(--color-err);">Remove widget</button>` : html``}
+          <button type="submit" name="action" value="save" class="btn btn--primary btn--sm">Save widget</button>
+        </div>
+      </div>
+    </form>
+    ${unsafeHtml(`<script>
+      document.getElementById('add-widget-field-btn')?.addEventListener('click', function() {
+        var tbody = document.getElementById('widget-fields');
+        var idx = tbody.rows.length;
+        var tr = document.createElement('tr');
+        var typeOpts = ${JSON.stringify(FIELD_TYPES)}.map(function(t) { return '<option value="' + t + '">' + t + '</option>'; }).join('');
+        tr.innerHTML =
+          '<td><input type="text" name="fieldName_' + idx + '" placeholder="field_name" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);font-family:var(--font-mono);width:8rem;"></td>' +
+          '<td><input type="text" name="fieldLabel_' + idx + '" placeholder="Label" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);width:8rem;"></td>' +
+          '<td><select name="fieldType_' + idx + '" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);">' + typeOpts + '</select></td>' +
+          '<td><button type="button" class="btn btn--ghost btn--sm" style="padding:2px 6px;font-size:var(--font-size-xs);color:var(--color-err);" onclick="this.closest(\\'tr\\').remove();">\\u00D7</button></td>';
+        tbody.appendChild(tr);
+      });
+    </script>`)}
   `;
 }
 

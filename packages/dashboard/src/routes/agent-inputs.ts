@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { AgentInputSpec } from '@some-useful-agents/core';
+import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { mergeNewInput } from './agent-nodes.js';
 
@@ -126,5 +126,80 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Save failed: ${msg}`)}#variables`);
+  }
+});
+
+// ── Output widget update ────────────────────────────────────────────────
+
+const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw']);
+const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview']);
+
+agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const action = typeof body.action === 'string' ? body.action : 'save';
+
+  // Remove widget.
+  if (action === 'remove') {
+    try {
+      ctx.agentStore.createNewVersion(
+        agent.id,
+        { ...agent, outputWidget: undefined },
+        'dashboard',
+        'Removed output widget via dashboard',
+      );
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Output widget removed.')}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Failed: ${msg}`)}`);
+    }
+    return;
+  }
+
+  // Save widget.
+  const widgetType = typeof body.widgetType === 'string' ? body.widgetType : 'raw';
+  if (!VALID_WIDGET_TYPES.has(widgetType)) {
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Invalid widget type.')}`);
+    return;
+  }
+
+  // Collect fields from the form (fieldName_0, fieldLabel_0, fieldType_0, etc.).
+  const fields: OutputWidgetSchema['fields'] = [];
+  for (let i = 0; i < 50; i++) {
+    const fieldName = body[`fieldName_${i}`];
+    const fieldLabel = body[`fieldLabel_${i}`];
+    const fieldType = body[`fieldType_${i}`];
+    if (typeof fieldName !== 'string' || !fieldName.trim()) continue;
+    const ft = typeof fieldType === 'string' && VALID_FIELD_TYPES.has(fieldType) ? fieldType : 'text';
+    fields.push({
+      name: fieldName.trim(),
+      ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
+      type: ft as WidgetFieldType,
+    });
+  }
+
+  const outputWidget: OutputWidgetSchema = {
+    type: widgetType as OutputWidgetType,
+    fields,
+  };
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      { ...agent, outputWidget },
+      'dashboard',
+      'Updated output widget via dashboard',
+    );
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Output widget saved. New version created.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
   }
 });
