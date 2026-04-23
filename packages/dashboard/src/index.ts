@@ -106,26 +106,18 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // library code and a tiny bootstrap script.
   app.use(assetsRouter);
 
-  // Output files: served before requireAuth because iframes can't handle
-  // auth redirects. The route does its own cookie check inline. Also
-  // overrides X-Frame-Options to allow same-origin embedding.
+  // Everything below requires the session cookie.
+  app.use(requireAuth);
+
+  // Output files: behind requireAuth (so auth works properly), but
+  // removes X-Frame-Options so the preview iframe can embed content.
   app.use((req, res, next) => {
     if (req.path === '/output-file') {
-      // Inline auth: check the session cookie exists.
-      const cookies = req.headers.cookie ?? '';
-      if (!cookies.includes('sua_session=')) {
-        res.status(401).type('text/plain').send('Unauthorized');
-        return;
-      }
-      // Allow iframe embedding for output file previews.
       res.removeHeader('X-Frame-Options');
     }
     next();
   });
   app.use(outputFilesRouter);
-
-  // Everything below requires the session cookie.
-  app.use(requireAuth);
 
   // Home page with today's stats + recent activity (paginated).
   app.get('/', (req, res) => {
