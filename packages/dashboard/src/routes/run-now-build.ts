@@ -87,6 +87,21 @@ function autoFixYaml(yaml: string): string {
       changed = true;
     }
 
+    // Fix 6: conditional nodes missing conditionalConfig — add a default.
+    if (raw.nodes && Array.isArray(raw.nodes)) {
+      for (const n of raw.nodes) {
+        if (n.type === 'conditional' && !n.conditionalConfig) {
+          // Infer predicate from node context.
+          n.conditionalConfig = { predicate: { field: 'error', exists: false } };
+          changed = true;
+        }
+        if (n.type === 'switch' && !n.switchConfig) {
+          n.switchConfig = { field: 'status', cases: { success: 'success', failed: 'failed' } };
+          changed = true;
+        }
+      }
+    }
+
     if (changed) return stringifyRawYaml(raw, { lineWidth: 0 });
   } catch { /* if raw parse fails, return as-is */ }
   return yaml;
