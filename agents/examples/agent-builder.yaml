@@ -23,6 +23,11 @@ inputs:
     required: false
     default: ""
     description: Dynamically injected tool catalog. Populated by the dashboard at build time.
+  DISCOVERY_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: Node types, signal templates, output widgets, available agents, and architecture patterns. Injected at build time.
 
 nodes:
   - id: design
@@ -41,43 +46,16 @@ nodes:
       AVAILABLE TOOLS (use these as node types or tool references):
       {{inputs.AVAILABLE_TOOLS}}
 
-      SIGNAL BLOCK (always include a signal block so the agent shows on the Pulse dashboard):
-      Every agent MUST include a signal: block. Pick the best template for the output:
-      - metric: Big number display. Slots: value (required), label, unit. Best for: counts, percentages, latency.
-      - text-headline: Headline + body text. Slots: headline (required), body. Best for: summaries, jokes, greetings.
-      - table: Data table. Slots: rows (required, array), columns. Best for: search results, listings.
-      - status: Colored dot + label. Slots: status (required: healthy/degraded/down), label, message. Best for: health checks, monitors.
-      - media: Image or video player. Slots: url (required), title, caption. Best for: generated images, screenshots.
-      - time-series: Sparkline chart. Slots: values (required, array of numbers), current, label. Best for: trends.
-      - text-image: Text alongside an image. Slots: text (required), imageUrl (required). Best for: cards with thumbnails.
-      - image: Full image. Slots: imageUrl (required), alt. Best for: generated visuals.
+      NODE & WIDGET DISCOVERY CATALOG:
+      {{inputs.DISCOVERY_CATALOG}}
 
+      SIGNAL BLOCK:
+      Every agent MUST include a signal: block. Pick the best template from the catalog above.
       The mapping maps dot-paths from the agent's structured output to template slots.
       Use "result" to reference the full raw output. Use literal strings for static labels.
-
-      Example signal blocks:
-        signal:
-          title: API Latency
-          icon: "\u26A1"
-          format: number
-          template: metric
-          mapping:
-            value: latency_ms
-            label: API Latency
-            unit: ms
-
-        signal:
-          title: Daily Summary
-          icon: "\U0001F4CA"
-          format: text
-          template: text-headline
-          mapping:
-            headline: Daily Summary
-            body: result
-          size: 2x1
-
-      The format: field is a universal output hint (text/number/table/json/chart).
-      The template: field selects the Pulse display. Always include both.
+      Always include both format: (text/number/table/json/chart) and template: fields.
+      Always include outputWidget: when the agent produces structured JSON output.
+      For agent-invoke and loop nodes, use agents listed in AVAILABLE AGENTS above.
 
       DESIGN GUIDELINES:
       - Start simple. Prefer fewer nodes that do more over many tiny nodes.
@@ -106,45 +84,12 @@ nodes:
       - switch nodes must have switchConfig with field + cases.
       - source: must be "local" (not "examples" or "community").
 
-      EXAMPLE PATTERNS:
-
-      Simple single-node (shell):
-        nodes:
-          - id: main
-            type: shell
-            command: curl -s https://api.example.com/data | jq '.items'
-            timeout: 30
-
-      Two-step pipeline (fetch + analyze):
-        nodes:
-          - id: fetch
-            type: shell
-            command: curl -s "$TARGET_URL"
-            timeout: 30
-          - id: analyze
-            type: claude-code
-            prompt: |
-              Analyze this data and summarize the key findings:
-              $UPSTREAM_FETCH_RESULT
-            dependsOn: [fetch]
-            maxTurns: 1
-            timeout: 60
-
-      Multi-step with conditional:
-        nodes:
-          - id: fetch
-            type: shell
-            command: curl -s "$API_URL"
-          - id: check
-            type: conditional
-            dependsOn: [fetch]
-            conditionalConfig:
-              predicate: { field: status, equals: 200 }
-          - id: process
-            type: shell
-            command: echo "Processing $UPSTREAM_FETCH_RESULT"
-            dependsOn: [check]
-            onlyIf: { upstream: check, field: matched, equals: true }
+      ARCHITECTURE PATTERNS:
+      Use the patterns from the discovery catalog above. Key tips:
+      - Conditional Router: use conditional node + onlyIf edge conditions for branching.
+      - Loop + Invoke: use loop node with loopConfig to process arrays via sub-agents.
+      - Self-Correcting: validate LLM output with a shell node, fix with onlyIf on failure.
+      - Always consider whether the goal benefits from control-flow nodes (conditional, switch, loop).
 
       Respond in EXACTLY this format:
       <yaml>

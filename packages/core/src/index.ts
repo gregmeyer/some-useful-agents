@@ -13,6 +13,7 @@ export * from './cron-validator.js';
 export * from './cron-human.js';
 export * from './scheduler-heartbeat.js';
 export * from './scheduler-catchup.js';
+export * from './discovery-catalog.js';
 export * from './llm-invoker.js';
 export * from './fs-utils.js';
 export * from './mcp-token.js';

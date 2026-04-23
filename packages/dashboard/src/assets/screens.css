@@ -1229,6 +1229,36 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .pulse-tile[data-accent="red"]    .pulse-tile__status-dot { background: #f87171; }
 .pulse-tile[data-accent="purple"] .pulse-tile__status-dot { background: #a78bfa; }
 
+/* -- Visual polish: accent glow on metric values -- */
+.pulse-tile[data-accent] .pulse-tile__value {
+  text-shadow: 0 0 20px currentColor;
+}
+
+/* -- Status dot pulse animation for "running" states -- */
+.pulse-tile__status-dot--healthy {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* -- Story tile pull-quote style -- */
+.pulse-tile .pulse-tile__body--md blockquote,
+.pulse-tile .story-what-changed {
+  border-left: 3px solid var(--color-primary);
+  padding-left: var(--space-3);
+  font-style: italic;
+}
+
+/* -- Comparison divider -- */
+.pulse-tile .comparison-divider {
+  width: 1px;
+  background: var(--color-border);
+  align-self: stretch;
+  margin: var(--space-2) 0;
+}
+
 /* -- Configure tile button -- */
 .pulse-tile__configure-btn {
   background: none;
@@ -1334,6 +1364,83 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   font-family: var(--font-mono);
   color: var(--color-text-muted);
   text-align: center;
+}
+
+/* -- Template hint (description + layout preview) -- */
+.cfg-template-hint {
+  margin-top: var(--space-2);
+}
+.cfg-template-hint__inner {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.cfg-template-hint__desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+.cfg-template-hint__layout {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-subtle);
+  margin: 0;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+/* -- Form divider -- */
+.cfg-divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-4) 0;
+}
+
+/* -- Mapping form rows -- */
+.cfg-mapping-row {
+  margin-bottom: var(--space-3);
+}
+.cfg-mapping-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+  font-weight: var(--weight-medium);
+}
+.cfg-slot-type {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-raised);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.cfg-mapping-select {
+  width: 100%;
+  margin-bottom: var(--space-1);
+}
+.cfg-literal-input {
+  width: 100%;
+}
+
+/* -- Suggested template badge -- */
+.cfg-suggested-badge {
+  font-size: 8px;
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-primary);
+  position: absolute;
+  top: 2px;
+  right: 4px;
+}
+.pulse-configure-modal__tpl-card.is-suggested {
+  position: relative;
+  border-color: rgba(45, 212, 191, 0.3);
+}
+.pulse-configure-modal__tpl-card {
+  position: relative;
 }
 
 /* -- Theme picker grid (Settings > Appearance) -- */

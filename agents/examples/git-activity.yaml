@@ -17,6 +17,7 @@ signal:
     label: Commits (7 days)
   refresh: 1h
   size: 2x1
+  accent: teal
 
 outputWidget:
   type: dashboard

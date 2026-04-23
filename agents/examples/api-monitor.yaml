@@ -27,6 +27,7 @@ signal:
     label: API Monitor
     message: message
   refresh: 5m
+  accent: green
 
 outputWidget:
   type: dashboard

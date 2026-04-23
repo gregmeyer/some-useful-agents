@@ -9,12 +9,14 @@ source: examples
 signal:
   title: Today's Activity
   icon: "\uD83D\uDCCA"
-  template: text-headline
+  template: story
   mapping:
-    headline: Today's Activity
-    body: result
+    what_changed: agents
+    time_period: Today
+    what_it_means: result
   refresh: 1h
   size: 2x1
+  accent: blue
 
 outputWidget:
   type: dashboard
