@@ -120,13 +120,23 @@ export function renderRunsList(opts: RunsListOptions): string {
       </table>
     `;
 
+  const runSizes = [25, 50, 100];
+  const runSizeLinks = runSizes.map((s) => {
+    const url = buildUrl(filter, s, 0);
+    const bold = s === limit ? ' style="font-weight: var(--weight-bold); color: var(--color-text);"' : '';
+    return `<a href="${url}"${bold}>${s}</a>`;
+  }).join(' ');
+
   const pager = total > 0 ? html`
     <div class="pager">
-      <div>Showing ${String(showingStart)}–${String(showingEnd)} of ${String(total)}</div>
-      <div>
-        ${offset > 0 ? html`<a href="${buildUrl(filter, limit, prevOffset)}">← Prev</a>` : html`<span class="dim">← Prev</span>`}
-        ${' '}
-        ${nextOffset < total ? html`<a href="${buildUrl(filter, limit, nextOffset)}">Next →</a>` : html`<span class="dim">Next →</span>`}
+      <div>Showing ${String(showingStart)}\u2013${String(showingEnd)} of ${String(total)}</div>
+      <div style="display: flex; align-items: center; gap: var(--space-3);">
+        <span style="display: flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted);">
+          Show: ${runSizeLinks}
+        </span>
+        <span style="color: var(--color-border);">|</span>
+        ${offset > 0 ? html`<a href="${buildUrl(filter, limit, prevOffset)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
+        ${nextOffset < total ? html`<a href="${buildUrl(filter, limit, nextOffset)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
       </div>
     </div>
   ` : html``;

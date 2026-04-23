@@ -81,7 +81,7 @@ export function renderToolsList(args: {
       </section>
     ` : html``}
 
-    ${total > limit ? toolPager(f, limit, offset, total) : html``}
+    ${total > 0 ? toolPager(f, limit, offset, total) : html``}
 
     <footer style="margin-top: var(--space-8); text-align: center;">
       <p class="dim">${String(total)} tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : 'available'}</p>
@@ -128,10 +128,22 @@ function toolPager(f: { q?: string; type?: string }, limit: number, offset: numb
   const end = Math.min(offset + limit, total);
   const prev = Math.max(0, offset - limit);
   const next = offset + limit;
+
+  const sizes = [12, 24, 48, 100];
+  const sizeLinks = sizes.map((s) => {
+    const url = toolBuildUrl(f, s, 0);
+    const bold = s === limit ? ' style="font-weight: var(--weight-bold); color: var(--color-text);"' : '';
+    return `<a href="${url}"${bold}>${s}</a>`;
+  }).join(' ');
+
   return html`
     <div class="pager">
       <div>Showing ${String(start)}\u2013${String(end)} of ${String(total)}</div>
-      <div>
+      <div style="display: flex; align-items: center; gap: var(--space-3);">
+        <span style="display: flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted);">
+          Show: ${sizeLinks}
+        </span>
+        <span style="color: var(--color-border);">|</span>
         ${offset > 0 ? html`<a href="${toolBuildUrl(f, limit, prev)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
         ${next < total ? html`<a href="${toolBuildUrl(f, limit, next)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
       </div>
