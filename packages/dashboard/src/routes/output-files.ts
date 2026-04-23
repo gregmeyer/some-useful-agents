@@ -115,9 +115,14 @@ outputFilesRouter.get('/output-file', (req: Request, res: Response) => {
     const content = readFileSync(absPath);
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    // Sandbox HTML files to prevent script execution in the dashboard context.
+    // Allow HTML files to render with inline styles, fonts, and images.
+    // These are user-generated output files, not untrusted third-party content.
     if (ext === '.html' || ext === '.htm') {
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:;");
+      res.setHeader('Content-Security-Policy',
+        "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src https://fonts.gstatic.com; " +
+        "img-src data: https: http:; " +
+        "connect-src 'none'; script-src 'none';");
     }
     res.type(contentType).send(content);
   } catch {
