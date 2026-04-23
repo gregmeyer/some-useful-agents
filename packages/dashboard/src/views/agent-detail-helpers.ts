@@ -28,6 +28,28 @@ export function renderRunInputsForm(agent: Agent, from?: string): SafeHtml {
       ? html`<span style="color: var(--color-err); font-size: var(--font-size-xs);">required</span>`
       : html`<span class="dim" style="font-size: var(--font-size-xs);">optional</span>`;
     const desc = spec.description ? html`<span class="dim" style="font-size: var(--font-size-xs);">${spec.description}</span>` : html``;
+    const isRequired = spec.required !== false && spec.default === undefined;
+
+    // Render the appropriate input control based on type.
+    let inputEl: SafeHtml;
+    if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.length > 0) {
+      const options = spec.values.map((v) => {
+        const val = String(v);
+        const selected = val === defVal ? ' selected' : '';
+        return `<option value="${val}"${selected}>${val}</option>`;
+      });
+      inputEl = unsafeHtml(`<select name="input_${name}" style="${FIELD}">${options.join('')}</select>`);
+    } else if (spec.type === 'boolean') {
+      inputEl = unsafeHtml(
+        `<select name="input_${name}" style="${FIELD}">` +
+        `<option value="true"${defVal === 'true' ? ' selected' : ''}>true</option>` +
+        `<option value="false"${defVal !== 'true' ? ' selected' : ''}>false</option>` +
+        `</select>`
+      );
+    } else {
+      inputEl = html`<input type="text" name="input_${name}" value="${defVal}" placeholder="${defVal || '(empty)'}" style="${FIELD}" ${isRequired ? 'required' : ''}>`;
+    }
+
     return html`
       <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
         <div style="display: flex; align-items: baseline; gap: var(--space-2);">
@@ -35,7 +57,7 @@ export function renderRunInputsForm(agent: Agent, from?: string): SafeHtml {
           <span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>
           ${reqLabel}
         </div>
-        <input type="text" name="input_${name}" value="${defVal}" placeholder="${defVal || '(empty)'}" style="${FIELD}" ${spec.required !== false && spec.default === undefined ? 'required' : ''}>
+        ${inputEl}
         ${desc}
       </label>
     `;
