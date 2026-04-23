@@ -1366,6 +1366,83 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   text-align: center;
 }
 
+/* -- Template hint (description + layout preview) -- */
+.cfg-template-hint {
+  margin-top: var(--space-2);
+}
+.cfg-template-hint__inner {
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.cfg-template-hint__desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+.cfg-template-hint__layout {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-subtle);
+  margin: 0;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+/* -- Form divider -- */
+.cfg-divider {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--space-4) 0;
+}
+
+/* -- Mapping form rows -- */
+.cfg-mapping-row {
+  margin-bottom: var(--space-3);
+}
+.cfg-mapping-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+  font-weight: var(--weight-medium);
+}
+.cfg-slot-type {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-raised);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.cfg-mapping-select {
+  width: 100%;
+  margin-bottom: var(--space-1);
+}
+.cfg-literal-input {
+  width: 100%;
+}
+
+/* -- Suggested template badge -- */
+.cfg-suggested-badge {
+  font-size: 8px;
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-primary);
+  position: absolute;
+  top: 2px;
+  right: 4px;
+}
+.pulse-configure-modal__tpl-card.is-suggested {
+  position: relative;
+  border-color: rgba(45, 212, 191, 0.3);
+}
+.pulse-configure-modal__tpl-card {
+  position: relative;
+}
+
 /* -- Theme picker grid (Settings > Appearance) -- */
 .theme-grid {
   display: grid;

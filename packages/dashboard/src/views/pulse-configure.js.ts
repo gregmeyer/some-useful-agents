@@ -10,6 +10,32 @@ export const PULSE_CONFIGURE_JS = `
     var currentConfig = null;
     var currentOutputFields = [];
 
+    var ACCENT_COLORS = {
+      '': '#6b7280',
+      teal: '#2dd4bf',
+      blue: '#60a5fa',
+      green: '#4ade80',
+      orange: '#fb923c',
+      red: '#f87171',
+      purple: '#a78bfa',
+    };
+
+    // Layout hint per template — shows how the template arranges data.
+    var LAYOUT_HINTS = {
+      'metric': '\\u250C\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2510\\n\\u2502  42ms   \\u2502\\n\\u2502  label  \\u2502\\n\\u2514\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2518',
+      'time-series': 'Sparkline chart + current value',
+      'text-headline': 'Bold headline\\nBody text below',
+      'table': 'Column headers\\nRow 1  Row 2  Row 3',
+      'status': '\\u25CF healthy \\u2014 message',
+      'comparison': 'Left value  vs  Right value',
+      'key-value': 'Label: Value\\nLabel: Value\\nLabel: Value',
+      'story': 'What changed (bold)\\nTime period (badge)\\nWhat it means (body)',
+      'funnel': '\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588 Stage 1\\n\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588 Stage 2\\n\\u2588\\u2588\\u2588\\u2588 Stage 3',
+      'media': 'Image/video player + caption',
+      'text-image': 'Text alongside image',
+      'image': 'Full image display',
+    };
+
     function getRegistry() {
       if (registry) return registry;
       var el = document.getElementById('pulse-template-registry');
@@ -35,6 +61,17 @@ export const PULSE_CONFIGURE_JS = `
       currentConfig = null;
     }
 
+    function accentSwatch(value, label, selected) {
+      var color = ACCENT_COLORS[value] || '#6b7280';
+      var border = selected ? '2px solid var(--color-primary)' : '2px solid transparent';
+      return '<button type="button" class="cfg-accent-btn" data-accent="' + esc(value) + '" ' +
+        'style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--radius-sm);border:' + border + ';background:var(--color-surface-raised);cursor:pointer;" ' +
+        'title="' + esc(label) + '">' +
+        '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:' + color + ';"></span>' +
+        '<span style="font-size:var(--font-size-xs);">' + esc(label) + '</span>' +
+        '</button>';
+    }
+
     function openModal(agentId, config, outputFields) {
       ensureModal();
       currentAgentId = agentId;
@@ -43,6 +80,13 @@ export const PULSE_CONFIGURE_JS = `
 
       var reg = getRegistry();
       var selectedTemplate = config.template || 'metric';
+      var currentAccent = config.accent || '';
+
+      var accentSwatches = '';
+      var accentEntries = [['', 'None'], ['teal', 'Teal'], ['blue', 'Blue'], ['green', 'Green'], ['orange', 'Orange'], ['red', 'Red'], ['purple', 'Purple']];
+      for (var a = 0; a < accentEntries.length; a++) {
+        accentSwatches += accentSwatch(accentEntries[a][0], accentEntries[a][1], accentEntries[a][0] === currentAccent);
+      }
 
       modal.innerHTML = '<div class="pulse-configure-modal__content">' +
         '<div class="pulse-configure-modal__header">' +
@@ -50,20 +94,29 @@ export const PULSE_CONFIGURE_JS = `
           '<button type="button" class="pulse-configure-modal__close" title="Close">\\u00D7</button>' +
         '</div>' +
         '<form method="POST" action="/agents/' + encodeURIComponent(agentId) + '/signal" class="pulse-configure-modal__form">' +
+
+          // Template picker
           '<div class="pulse-configure-modal__section">' +
             '<label class="pulse-configure-modal__label">Template</label>' +
             '<div class="pulse-configure-modal__templates" id="cfg-template-grid"></div>' +
+            '<div id="cfg-template-hint" class="cfg-template-hint"></div>' +
           '</div>' +
+
+          '<hr class="cfg-divider">' +
+
+          // Title
           '<div class="pulse-configure-modal__section">' +
             '<label class="pulse-configure-modal__label">Title</label>' +
             '<input type="text" name="title" value="' + esc(config.title || '') + '" class="input" style="width: 100%;">' +
           '</div>' +
-          '<div class="pulse-configure-modal__section" style="display: flex; gap: var(--space-3);">' +
-            '<div style="flex: 1;">' +
+
+          // Icon + Size row
+          '<div class="pulse-configure-modal__section" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">' +
+            '<div>' +
               '<label class="pulse-configure-modal__label">Icon</label>' +
               '<input type="text" name="icon" value="' + esc(config.icon || '') + '" class="input" style="width: 100%;" placeholder="emoji or symbol">' +
             '</div>' +
-            '<div style="flex: 1;">' +
+            '<div>' +
               '<label class="pulse-configure-modal__label">Size</label>' +
               '<select name="size" class="input" style="width: 100%;">' +
                 '<option value="1x1"' + (config.size === '1x1' ? ' selected' : '') + '>1\\u00D71</option>' +
@@ -73,30 +126,34 @@ export const PULSE_CONFIGURE_JS = `
               '</select>' +
             '</div>' +
           '</div>' +
-          '<div class="pulse-configure-modal__section" style="display: flex; gap: var(--space-3);">' +
-            '<div style="flex: 1;">' +
-              '<label class="pulse-configure-modal__label">Accent</label>' +
-              '<select name="accent" class="input" style="width: 100%;">' +
-                '<option value=""' + (!config.accent ? ' selected' : '') + '>None</option>' +
-                '<option value="teal"' + (config.accent === 'teal' ? ' selected' : '') + '>Teal</option>' +
-                '<option value="blue"' + (config.accent === 'blue' ? ' selected' : '') + '>Blue</option>' +
-                '<option value="green"' + (config.accent === 'green' ? ' selected' : '') + '>Green</option>' +
-                '<option value="orange"' + (config.accent === 'orange' ? ' selected' : '') + '>Orange</option>' +
-                '<option value="red"' + (config.accent === 'red' ? ' selected' : '') + '>Red</option>' +
-                '<option value="purple"' + (config.accent === 'purple' ? ' selected' : '') + '>Purple</option>' +
-              '</select>' +
+
+          // Accent
+          '<div class="pulse-configure-modal__section">' +
+            '<label class="pulse-configure-modal__label">Accent</label>' +
+            '<div style="display: flex; flex-wrap: wrap; gap: var(--space-2);" id="cfg-accent-row">' +
+              accentSwatches +
             '</div>' +
-            '<div style="flex: 1;">' +
-              '<label class="pulse-configure-modal__label">Refresh</label>' +
-              '<input type="text" name="refresh" value="' + esc(config.refresh || '') + '" class="input" style="width: 100%;" placeholder="e.g. 5m, 1h">' +
-            '</div>' +
+            '<input type="hidden" name="accent" id="cfg-accent-value" value="' + esc(currentAccent) + '">' +
           '</div>' +
+
+          // Refresh
+          '<div class="pulse-configure-modal__section">' +
+            '<label class="pulse-configure-modal__label">Auto-refresh</label>' +
+            '<input type="text" name="refresh" value="' + esc(config.refresh || '') + '" class="input" style="width: 100%;" placeholder="e.g. 5m, 1h, 24h (leave empty to disable)">' +
+          '</div>' +
+
+          '<hr class="cfg-divider">' +
+
+          // Field mapping
           '<div class="pulse-configure-modal__section">' +
             '<label class="pulse-configure-modal__label">Field mapping</label>' +
+            '<p style="font-size:var(--font-size-xs);color:var(--color-text-subtle);margin:0 0 var(--space-2);">Map your agent\\u2019s output fields to the template\\u2019s display slots.</p>' +
             '<div id="cfg-mapping-form"></div>' +
           '</div>' +
+
           '<input type="hidden" name="template" id="cfg-template-value" value="' + esc(selectedTemplate) + '">' +
           '<input type="hidden" name="mapping" id="cfg-mapping-value" value="">' +
+
           '<div class="pulse-configure-modal__footer">' +
             '<button type="button" class="btn btn--ghost btn--sm" onclick="this.closest(\\'.pulse-configure-modal\\').style.display=\\'none\\'">Cancel</button>' +
             '<button type="submit" class="btn btn--primary btn--sm">Save</button>' +
@@ -107,17 +164,51 @@ export const PULSE_CONFIGURE_JS = `
       // Close button
       modal.querySelector('.pulse-configure-modal__close').addEventListener('click', closeModal);
 
+      // Accent swatch click
+      var accentBtns = modal.querySelectorAll('.cfg-accent-btn');
+      for (var ab = 0; ab < accentBtns.length; ab++) {
+        accentBtns[ab].addEventListener('click', function () {
+          var val = this.getAttribute('data-accent');
+          document.getElementById('cfg-accent-value').value = val;
+          var all = modal.querySelectorAll('.cfg-accent-btn');
+          for (var j = 0; j < all.length; j++) all[j].style.border = '2px solid transparent';
+          this.style.border = '2px solid var(--color-primary)';
+        });
+      }
+
+      // Score templates by how well they match the agent's output fields.
+      function scoreFit(tpl) {
+        if (!tpl.slots || tpl.slots.length === 0) return 0;
+        var requiredSlots = tpl.slots.filter(function(s) { return s.required; });
+        if (requiredSlots.length === 0) return 0;
+        var matched = 0;
+        for (var s = 0; s < requiredSlots.length; s++) {
+          if (currentOutputFields.indexOf(requiredSlots[s].name) !== -1) matched++;
+        }
+        return matched / requiredSlots.length;
+      }
+
       // Build template picker grid
       var grid = document.getElementById('cfg-template-grid');
       var templateNames = Object.keys(reg);
+      // Find best-fit template for "Suggested" badge.
+      var bestFitName = '';
+      var bestFitScore = 0;
+      for (var b = 0; b < templateNames.length; b++) {
+        var score = scoreFit(reg[templateNames[b]]);
+        if (score > bestFitScore) { bestFitScore = score; bestFitName = templateNames[b]; }
+      }
+
       for (var i = 0; i < templateNames.length; i++) {
         var t = reg[templateNames[i]];
+        var isSuggested = t.name === bestFitName && bestFitScore > 0;
         var card = document.createElement('button');
         card.type = 'button';
-        card.className = 'pulse-configure-modal__tpl-card' + (t.name === selectedTemplate ? ' is-active' : '');
+        card.className = 'pulse-configure-modal__tpl-card' + (t.name === selectedTemplate ? ' is-active' : '') + (isSuggested ? ' is-suggested' : '');
         card.setAttribute('data-template', t.name);
         card.innerHTML = '<span class="pulse-configure-modal__tpl-icon">' + (t.icon || '') + '</span>' +
-          '<span class="pulse-configure-modal__tpl-name">' + esc(t.displayName) + '</span>';
+          '<span class="pulse-configure-modal__tpl-name">' + esc(t.displayName) + '</span>' +
+          (isSuggested ? '<span class="cfg-suggested-badge">Suggested</span>' : '');
         card.title = t.description || '';
         card.addEventListener('click', (function (name) {
           return function () {
@@ -126,12 +217,14 @@ export const PULSE_CONFIGURE_JS = `
             for (var j = 0; j < cards.length; j++) cards[j].classList.remove('is-active');
             this.classList.add('is-active');
             renderMappingForm(name);
+            updateTemplateHint(name);
           };
         })(t.name));
         grid.appendChild(card);
       }
 
-      // Initial mapping form
+      // Initial template hint + mapping form
+      updateTemplateHint(selectedTemplate);
       renderMappingForm(selectedTemplate);
 
       // Serialize mapping on submit
@@ -152,6 +245,21 @@ export const PULSE_CONFIGURE_JS = `
       });
 
       modal.style.display = 'flex';
+    }
+
+    function updateTemplateHint(templateName) {
+      var hint = document.getElementById('cfg-template-hint');
+      if (!hint) return;
+      var reg = getRegistry();
+      var tpl = reg[templateName];
+      if (!tpl) { hint.innerHTML = ''; return; }
+
+      var layout = LAYOUT_HINTS[templateName] || tpl.description || '';
+      hint.innerHTML =
+        '<div class="cfg-template-hint__inner">' +
+          '<div class="cfg-template-hint__desc">' + esc(tpl.description) + '</div>' +
+          (layout ? '<pre class="cfg-template-hint__layout">' + esc(layout) + '</pre>' : '') +
+        '</div>';
     }
 
     function renderMappingForm(templateName) {
@@ -175,13 +283,13 @@ export const PULSE_CONFIGURE_JS = `
         row.setAttribute('data-slot', slot.name);
 
         var label = document.createElement('label');
-        label.style.cssText = 'font-size: var(--font-size-xs); color: var(--color-text-muted); display: block; margin-bottom: 2px;';
-        label.textContent = slot.label + (slot.required ? ' *' : '');
+        label.className = 'cfg-mapping-label';
+        label.innerHTML = esc(slot.label) + (slot.required ? ' <span style="color:var(--color-err);">*</span>' : '') +
+          ' <span class="cfg-slot-type">' + esc(slot.type) + '</span>';
         row.appendChild(label);
 
         var select = document.createElement('select');
-        select.className = 'input';
-        select.style.cssText = 'width: 100%; margin-bottom: var(--space-2);';
+        select.className = 'input cfg-mapping-select';
 
         // Add output field options
         var currentVal = currentMapping[slot.name] || '';
@@ -218,7 +326,6 @@ export const PULSE_CONFIGURE_JS = `
         var litInput = document.createElement('input');
         litInput.type = 'text';
         litInput.className = 'input cfg-literal-input';
-        litInput.style.cssText = 'width: 100%; margin-bottom: var(--space-2);';
         litInput.placeholder = 'Enter literal value';
         litInput.value = (!hasFieldMatch && currentVal) ? currentVal : '';
         litInput.style.display = (!hasFieldMatch && currentVal) ? '' : 'none';
