@@ -131,16 +131,7 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
 
   try {
     ctx.agentStore.upsertAgent(
-      {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        schedule: agent.schedule,
-        source: agent.source,
-        mcp: agent.mcp,
-        nodes: [...agent.nodes, newNode],
-      },
+      { ...agent, nodes: [...agent.nodes, newNode] },
       'dashboard',
       `Added node "${values.id}" via dashboard`,
     );
@@ -254,19 +245,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   try {
     ctx.agentStore.createNewVersion(
       agent.id,
-      {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        schedule: agent.schedule,
-        source: agent.source,
-        mcp: agent.mcp,
-        nodes: updatedNodes,
-        inputs: mergeNewInput(agent.inputs, body),
-        author: agent.author,
-        tags: agent.tags,
-      },
+      { ...agent, nodes: updatedNodes, inputs: mergeNewInput(agent.inputs, body) },
       'dashboard',
       `Edited node "${nodeId}"`,
     );
@@ -315,19 +294,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/delete', (req: Request, res: 
   try {
     ctx.agentStore.createNewVersion(
       agent.id,
-      {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        schedule: agent.schedule,
-        source: agent.source,
-        mcp: agent.mcp,
-        nodes: updatedNodes,
-        inputs: agent.inputs,
-        author: agent.author,
-        tags: agent.tags,
-      },
+      { ...agent, nodes: updatedNodes },
       'dashboard',
       `Deleted node "${nodeId}"`,
     );

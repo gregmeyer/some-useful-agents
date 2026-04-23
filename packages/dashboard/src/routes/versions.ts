@@ -93,19 +93,7 @@ versionsRouter.post('/agents/:id/rollback', (req: Request, res: Response) => {
     // the DAG, so they carry over unchanged on rollback).
     ctx.agentStore.createNewVersion(
       id,
-      {
-        id: agent.id,
-        name: agent.name,
-        description: agent.description,
-        status: agent.status,
-        schedule: agent.schedule,
-        source: agent.source,
-        mcp: agent.mcp,
-        nodes: targetVersion.dag.nodes,
-        inputs: targetVersion.dag.inputs,
-        author: targetVersion.dag.author,
-        tags: targetVersion.dag.tags,
-      },
+      { ...agent, ...targetVersion.dag },
       'dashboard',
       `Rollback to v${target}`,
     );
