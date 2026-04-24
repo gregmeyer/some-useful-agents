@@ -173,15 +173,51 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
   const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
   const targetYaml = exportAgent(target);
 
-  // Fetch the most recent completed run for this agent so the analyzer
-  // can consider real execution output (errors, timeouts, etc.).
+  // Fetch the most recent runs (completed AND failed) so the analyzer
+  // can consider real execution output, errors, and timeouts.
   let lastRunOutput = '';
   try {
-    const recent = ctx.runStore.listRuns({ agentName: name, status: 'completed', limit: 1 });
-    if (recent.length > 0 && recent[0].result) {
-      const raw = recent[0].result;
-      // Cap at 2000 chars to keep the prompt focused.
+    // Try completed first.
+    const completed = ctx.runStore.listRuns({ agentName: name, status: 'completed', limit: 1 });
+    if (completed.length > 0 && completed[0].result) {
+      const raw = completed[0].result;
       lastRunOutput = raw.length > 2000 ? raw.slice(0, 2000) + '\n...(truncated)' : raw;
+    }
+
+    // Also check for recent failed runs — include the error so the
+    // analyzer can diagnose what went wrong without the user pasting it.
+    const failed = ctx.runStore.listRuns({ agentName: name, status: 'failed', limit: 1 });
+    if (failed.length > 0) {
+      const f = failed[0];
+      const failedAt = f.completedAt ?? f.startedAt;
+      const completedAt = completed[0]?.completedAt ?? '';
+      // Include if the failure is more recent than the last success.
+      if (!completedAt || failedAt > completedAt) {
+        const errorInfo = [
+          `\n\nMOST RECENT RUN FAILED (${f.id.slice(0, 8)}):`,
+          f.error ? `Error: ${f.error}` : '',
+          f.result ? `Output: ${f.result.slice(0, 1000)}` : '',
+        ].filter(Boolean).join('\n');
+        lastRunOutput += errorInfo;
+
+        // Also include per-node errors from the failed run.
+        try {
+          const execs = ctx.runStore.listNodeExecutions(f.id);
+          const failedNodes = execs.filter((e) => e.status === 'failed');
+          if (failedNodes.length > 0) {
+            lastRunOutput += '\n\nFailed nodes:';
+            for (const e of failedNodes) {
+              lastRunOutput += `\n- ${e.nodeId}: ${e.error ?? 'no error message'}`;
+              if (e.result) lastRunOutput += ` | output: ${e.result.slice(0, 200)}`;
+            }
+          }
+        } catch { /* node executions might not exist */ }
+      }
+    }
+
+    // Cap total size.
+    if (lastRunOutput.length > 3000) {
+      lastRunOutput = lastRunOutput.slice(0, 3000) + '\n...(truncated)';
     }
   } catch { /* run store may not have runs yet */ }
 
