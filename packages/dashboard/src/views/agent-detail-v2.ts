@@ -39,6 +39,8 @@ export interface AgentDetailArgs {
   back?: PageHeaderBack;
   from?: string;
   activeTab: AgentTab;
+  /** Previous run's agent-level inputs, for pre-filling the Run Now modal. */
+  previousInputs?: Record<string, string>;
 }
 
 // ── Tab strip ────────────────────────────────────────────────────────────
@@ -112,7 +114,7 @@ function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string {
     <div id="run-modal" class="modal-backdrop">
       <div class="modal" style="max-width: 500px;">
         <div id="run-modal-content">
-          ${renderRunInputsForm(agent, from)}
+          ${renderRunInputsForm(agent, from, args.previousInputs)}
         </div>
       </div>
     </div>

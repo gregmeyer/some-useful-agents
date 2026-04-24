@@ -8,7 +8,7 @@ import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 // ── Run inputs form ─────────────────────────────────────────────────────
 
-export function renderRunInputsForm(agent: Agent, from?: string): SafeHtml {
+export function renderRunInputsForm(agent: Agent, from?: string, previousInputs?: Record<string, string>): SafeHtml {
   const inputs = Object.entries(agent.inputs ?? {});
   const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 100%;';
 
@@ -23,7 +23,9 @@ export function renderRunInputsForm(agent: Agent, from?: string): SafeHtml {
   }
 
   const fields = inputs.map(([name, spec]) => {
-    const defVal = spec.default !== undefined ? String(spec.default) : '';
+    // Previous run's value takes priority over spec default.
+    const prevVal = previousInputs?.[name];
+    const defVal = prevVal !== undefined ? prevVal : (spec.default !== undefined ? String(spec.default) : '');
     const reqLabel = spec.required !== false && spec.default === undefined
       ? html`<span style="color: var(--color-err); font-size: var(--font-size-xs);">required</span>`
       : html`<span class="dim" style="font-size: var(--font-size-xs);">optional</span>`;
