@@ -384,12 +384,18 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       function refreshPreview() {
         clearTimeout(previewTimer);
         previewTimer = setTimeout(function () {
+          // Express only parses urlencoded + json; FormData would send multipart
+          // and arrive as an empty body. Build URLSearchParams from the form.
+          var params = new URLSearchParams();
           var fd = new FormData(form);
-          // Remove action fields so POST preview doesn't look like a save.
-          fd.delete('action');
+          fd.forEach(function (value, key) {
+            if (key === 'action') return;
+            params.append(key, typeof value === 'string' ? value : '');
+          });
           fetch('/agents/' + encodeURIComponent(AGENT_ID) + '/output-widget/preview', {
             method: 'POST',
-            body: fd,
+            body: params,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             credentials: 'same-origin',
           }).then(function (r) { return r.text(); }).then(function (html) {
             preview.innerHTML = html || '<span class="dim">Add a field to see the preview.</span>';
@@ -435,12 +441,13 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
           if (!promptVal) { aiStatusEl.textContent = 'Write a prompt first.'; return; }
           aiGenBtn.disabled = true;
           aiStatusEl.textContent = 'Generating…';
-          var fd = new FormData();
-          fd.append('prompt', promptVal);
-          if (aiProviderEl && aiProviderEl.value) fd.append('provider', aiProviderEl.value);
+          var params2 = new URLSearchParams();
+          params2.append('prompt', promptVal);
+          if (aiProviderEl && aiProviderEl.value) params2.append('provider', aiProviderEl.value);
           fetch('/agents/' + encodeURIComponent(AGENT_ID) + '/output-widget/generate', {
             method: 'POST',
-            body: fd,
+            body: params2,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             credentials: 'same-origin',
           }).then(function (r) {
             if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
