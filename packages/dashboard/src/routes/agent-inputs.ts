@@ -366,8 +366,12 @@ agentInputsRouter.post('/agents/:name/output-widget/generate', async (req: Reque
   const fieldNames = declared.length > 0 ? declared : undefined;
 
   try {
+    // Wire express req.aborted to AbortController so Claude is killed when
+    // the user clicks Cancel in the modal.
+    const ac = new AbortController();
+    req.on('close', () => { if (!res.writableEnded) ac.abort(); });
     const gen = getTemplateGenerator(provider);
-    const raw = await gen.generate({ prompt, sampleOutput: sampleOutput || undefined, fieldNames });
+    const raw = await gen.generate({ prompt, sampleOutput: sampleOutput || undefined, fieldNames, signal: ac.signal });
     const sanitized = sanitizeHtml(raw).trim();
     if (!sanitized) {
       res.status(502).type('text/plain').send('Generator returned empty output after sanitization. Try a different prompt.');

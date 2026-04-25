@@ -435,30 +435,71 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       var aiTemplateEl = document.getElementById('ow-ai-template');
       var aiProviderEl = document.getElementById('ow-ai-provider');
       var aiStatusEl = document.getElementById('ow-ai-status');
+      // Build a modal overlay reused for every Generate click. Stays in DOM
+      // so creating + tearing down is cheap; toggled via display.
+      var aiModal = document.createElement('div');
+      aiModal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;';
+      aiModal.innerHTML =
+        '<div style="background:var(--color-surface-raised);padding:var(--space-5);border-radius:var(--radius-md);max-width:24rem;width:90%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.2);">' +
+          '<div class="spinner" style="margin:0 auto var(--space-3);width:32px;height:32px;border-width:3px;"></div>' +
+          '<p style="font-weight:var(--weight-bold);margin:0 0 var(--space-2);font-size:var(--font-size-sm);">Generating template…</p>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);" id="ow-ai-modal-detail">Sending prompt to <span id="ow-ai-modal-provider">Claude</span>. Typically 5–30s.</p>' +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);font-family:var(--font-mono);" id="ow-ai-modal-elapsed">0s</p>' +
+          '<button type="button" class="btn btn--ghost btn--sm" id="ow-ai-modal-cancel">Cancel</button>' +
+        '</div>';
+      document.body.appendChild(aiModal);
+
       if (aiGenBtn) {
         aiGenBtn.addEventListener('click', function () {
           var promptVal = (aiPromptEl && aiPromptEl.value || '').trim();
           if (!promptVal) { aiStatusEl.textContent = 'Write a prompt first.'; return; }
+
+          var providerLabel = (aiProviderEl && aiProviderEl.options[aiProviderEl.selectedIndex] && aiProviderEl.options[aiProviderEl.selectedIndex].textContent) || 'Claude';
+          var providerEl = document.getElementById('ow-ai-modal-provider');
+          if (providerEl) providerEl.textContent = providerLabel;
+          var elapsedEl = document.getElementById('ow-ai-modal-elapsed');
+          var detailEl = document.getElementById('ow-ai-modal-detail');
+          var startTime = Date.now();
+          var elapsedTimer = setInterval(function () {
+            if (!elapsedEl) return;
+            var s = Math.floor((Date.now() - startTime) / 1000);
+            elapsedEl.textContent = s + 's';
+            if (s > 30 && detailEl) detailEl.textContent = 'Still working… complex prompts can take a minute.';
+          }, 500);
+
+          var controller = new AbortController();
+          var cancelBtn = document.getElementById('ow-ai-modal-cancel');
+          var onCancel = function () { controller.abort(); };
+          if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+
+          aiModal.style.display = 'flex';
           aiGenBtn.disabled = true;
-          aiStatusEl.textContent = 'Generating…';
+          aiStatusEl.textContent = '';
+
           var params2 = new URLSearchParams();
           params2.append('prompt', promptVal);
           if (aiProviderEl && aiProviderEl.value) params2.append('provider', aiProviderEl.value);
+
           fetch('/agents/' + encodeURIComponent(AGENT_ID) + '/output-widget/generate', {
             method: 'POST',
             body: params2,
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             credentials: 'same-origin',
+            signal: controller.signal,
           }).then(function (r) {
             if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
             return r.text();
           }).then(function (html) {
             aiTemplateEl.value = html;
-            aiStatusEl.textContent = 'Generated. Edit + Save when ready.';
+            var seconds = Math.floor((Date.now() - startTime) / 1000);
+            aiStatusEl.textContent = 'Generated in ' + seconds + 's. Edit + Save when ready.';
             refreshPreview();
           }).catch(function (err) {
-            aiStatusEl.textContent = 'Failed: ' + err.message;
+            aiStatusEl.textContent = err.name === 'AbortError' ? 'Cancelled.' : ('Failed: ' + err.message);
           }).finally(function () {
+            clearInterval(elapsedTimer);
+            if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+            aiModal.style.display = 'none';
             aiGenBtn.disabled = false;
           });
         });
