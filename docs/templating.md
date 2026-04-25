@@ -53,38 +53,61 @@ $UPSTREAM_<NODEID>_RESULT      # same, as env var (shell)
 
 That's it. Everything else the executor knows is not yet addressable from a template.
 
-## Planned expansion (v0.16.0 — `structured-outputs-v0.16.md`)
+## Global variables
 
-The v0.16 release replaces "stdout is a string" with **structured, declared outputs per node**. Shape under discussion:
+Non-sensitive, project-wide values. Set via `/settings/variables` or `sua vars set NAME value`.
+
+| Node type | Syntax | Example |
+|---|---|---|
+| `claude-code` | `{{vars.NAME}}` | `Publish to {{vars.SLACK_CHANNEL}}` |
+| `shell` | `$NAME` (same as inputs — env var) | `echo "deploying to $DEPLOY_ENV"` |
+
+Variables lose to agent inputs with the same name, so agents can selectively override.
+
+## Tool-declared outputs
+
+A user tool can declare typed outputs in its YAML; the runtime extracts them from the tool's result. See [Tool reference](tools.md) for the schema.
+
+Downstream nodes reach those fields via the same `{{upstream.<id>.<field>}}` shape. Example — the `csv-to-chart-json` builtin emits `data_json`, `labels`, `values`, `series`, `cohorts`:
 
 ```yaml
-- id: fetch
-  type: shell
-  command: curl -s https://api.example.com/items
-  outputs:
-    status:    { type: number, from: exit_code }
-    body:      { type: json,   from: stdout }
-    duration_ms: { type: number, from: runtime }
+- id: parse
+  tool: csv-to-chart-json
+  toolInputs:
+    csv: "{{inputs.CSV_TEXT}}"
+    shape: simple
+
+- id: chart
+  tool: modern-graphics-generate-graphic
+  dependsOn: [parse]
+  toolInputs:
+    layout: bar-chart
+    data: "{{upstream.parse.result}}"     # the stringified JSON
 ```
 
-Template syntax becomes path-based and validated:
+For shell downstream nodes, each declared output is exported as `$UPSTREAM_<NODEID>_<FIELD>`.
+
+## Output widget placeholders
+
+Output widgets use the **same extractor** (XML tag or JSON key) but a different template syntax — `{{outputs.NAME}}` and `{{result}}`. See [Output widgets](output-widgets.md) for the full reference.
+
+Run output is extracted first, HTML-escaped, then substituted into the (sanitized) template. The AI-generated `ai-template` widget is the primary consumer.
+
+## Quick reference
 
 ```
-{{upstream.fetch.body.items[0].title}}   # traverses the JSON-typed output
-{{upstream.fetch.status}}                # declared scalar
-{{upstream.fetch.exit_code}}             # built-in per-node scalar
-{{upstream.fetch.duration_ms}}           # built-in per-node scalar
+{{inputs.<NAME>}}              # agent-level runtime input (claude-code)
+$<NAME>                        # same, as env var (shell)
+{{vars.<NAME>}}                # global variable (claude-code)
+$<NAME>                        # same — inputs win if the name collides (shell)
+{{upstream.<nodeId>.result}}   # upstream stdout (claude-code)
+$UPSTREAM_<NODEID>_RESULT      # same, as env var (shell)
+{{outputs.<NAME>}}             # output widget placeholder (ai-template widgets only)
+{{result}}                     # raw run output (ai-template widgets only)
 ```
 
-Standard execution vocabulary available to every node (reserved namespace):
+## Related
 
-```
-{{run.id}}, {{run.agent}}, {{run.triggered_by}}
-{{node.id}}, {{node.attempt}}
-{{now}}, {{date}}
-{{upstream.<id>.stderr}}, {{upstream.<id>.exit_code}}, {{upstream.<id>.duration_ms}}
-```
-
-Backwards compatibility: `{{upstream.<id>.result}}` stays as a synonym for "full stdout as string" so existing agents keep working.
-
-Plus: AI-assisted template authoring ("Suggest with Claude", "Write with Codex") on the dashboard forms — the editor already knows each upstream's declared outputs, so the AI gets real context.
+- [Agents reference](agents.md) — declaring `inputs:` on an agent
+- [Tools reference](tools.md) — declaring `outputs:` on a tool
+- [Output widgets](output-widgets.md) — `{{outputs.*}}` and the AI template flow

@@ -25,6 +25,10 @@ This directory captures the **why** behind architectural choices in
 | [0016](0016-llm-spawner-abstraction.md) | LlmSpawner abstraction for multi-provider CLI support | Accepted |
 | [0017](0017-agent-analyzer-self-correcting.md) | Agent analyzer as a self-correcting agent pipeline | Accepted |
 | [0018](0018-three-layer-secret-redaction.md) | Three-layer secret redaction in run logs | Accepted |
+| [0019](0019-mcp-servers-first-class.md) | MCP servers as a first-class entity | Accepted |
+| [0020](0020-ai-template-widget.md) | AI-generated template widget (`ai-template`) | Accepted |
+| [0021](0021-html-allowlist-sanitizer.md) | HTML allowlist sanitizer (zero-deps) | Accepted |
+| [0022](0022-output-widget-schema-v2.md) | Output widget schema extension for ai-template | Accepted |
 
 ## Template
 
