@@ -121,7 +121,7 @@ export const TEMPLATE_REGISTRY: Record<string, TemplateDefinition> = {
   widget: {
     name: 'widget',
     displayName: 'Output Widget',
-    description: 'Renders using the agent\'s declared outputWidget schema',
+    description: 'Uses the agent\'s own outputWidget schema — the tile mirrors whatever the agent\'s detail page shows for its most recent run. No slot mapping needed.',
     icon: '\u2B1A',
     slots: [],
     defaultSize: '2x1',

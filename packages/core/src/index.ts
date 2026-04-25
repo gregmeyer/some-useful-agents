@@ -46,6 +46,23 @@ export {
   assertSafeUrl,
 } from './builtin-tools.js';
 export { extractFramedOutput, buildToolOutput } from './output-framing.js';
+export { callMcpTool, listMcpTools, closeAllMcpClients } from './mcp-client.js';
+export {
+  claudeTemplateGenerator,
+  getTemplateGenerator,
+  listTemplateGenerators,
+  registerTemplateGenerator,
+  type TemplateGenerator,
+  type TemplateGenerationRequest,
+} from './template-generator.js';
+export { sanitizeHtml, substitutePlaceholders } from './html-sanitizer.js';
+export {
+  mcpServerConfigSchema,
+  mcpServerIdFromKey,
+  type McpServerConfig,
+  type McpTransport,
+} from './mcp-server-types.js';
+export { parseMcpServersBlob, type ParsedMcpBlob } from './mcp-config-parse.js';
 export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';
 
 export {

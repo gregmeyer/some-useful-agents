@@ -31,16 +31,18 @@ sua dashboard start              # open the web dashboard
 - `sua dashboard` — start
 - `sua init`, `sua doctor`, `sua tutorial`
 
-## v0.16.0 highlights
+## Recent highlights
 
-- **Build from goal** — `sua dashboard start`, click "Build from goal", describe what you want. The builder designs a complete agent YAML with the right nodes, tools, and wiring.
-- **Pulse dashboard** — `/pulse` shows a live information radiator with signal tiles from your agents. 9 display templates, drag-and-drop layout, auto-theming.
+- **MCP servers as first-class (v0.18)** — paste a `mcpServers` config at `/tools/mcp/import`, sua discovers tools and imports them in bulk. Manage + enable/disable + delete from `/settings/mcp-servers`.
+- **AI-generated output widgets (v0.18)** — `ai-template` widget type: describe a layout in English, Claude generates sanitized HTML; per-run values substitute at render time.
+- **Build from goal** — `sua dashboard start`, click "Build from goal". The builder designs a complete agent YAML with the right nodes, tools, and wiring.
+- **Pulse dashboard** — `/pulse` shows a live information radiator with signal tiles from your agents. 10 display templates including `widget` (mirrors the agent's outputWidget).
 - **Agent-level LLM defaults** — set `provider: codex` and `model: o4-mini` at the agent level. Nodes inherit unless they override.
 - **Flow control** — conditional, switch, loop, agent-invoke, branch, end, break nodes.
-- **9 built-in tools** — shell-exec, claude-code, http-get/post, file-read/write, json-parse/path, template.
-- **13 example agents** — from hello world to conditional routing to AI-powered analysis.
+- **10 built-in tools** — shell-exec, claude-code, http-get/post, file-read/write, json-parse/path, template, csv-to-chart-json.
+- **15 example agents** — from hello world to MCP-driven graphics generation.
 
-See the [main repo README](https://github.com/gregmeyer/some-useful-agents) for full documentation.
+See the [main repo README](https://github.com/gregmeyer/some-useful-agents) and [docs/](https://github.com/gregmeyer/some-useful-agents/tree/main/docs) for full documentation.
 
 ## License
 

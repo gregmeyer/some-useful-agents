@@ -9,7 +9,8 @@
  */
 
 import type { OutputWidgetSchema } from '@some-useful-agents/core';
-import { html, type SafeHtml } from './html.js';
+import { sanitizeHtml, substitutePlaceholders } from '@some-useful-agents/core';
+import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 /**
  * Extract a field value from run output text. Supports two extraction modes:
@@ -70,7 +71,7 @@ function extractFields(
   schema: OutputWidgetSchema,
 ): Record<string, string | undefined> {
   const result: Record<string, string | undefined> = {};
-  for (const field of schema.fields) {
+  for (const field of schema.fields ?? []) {
     result[field.name] = extractField(output, field.name);
   }
   return result;
@@ -130,9 +131,49 @@ export function renderOutputWidget(
       return renderRaw(schema, fields);
     case 'dashboard':
       return renderDashboard(schema, fields);
+    case 'ai-template':
+      return renderAiTemplate(schema, output, fields);
     default:
       return undefined;
   }
+}
+
+// ── ai-template ────────────────────────────────────────────────────────
+
+/**
+ * Render the agent's stored HTML template after substituting
+ * {{outputs.X}} / {{result}} placeholders with the run's actual output,
+ * then running the result back through the sanitizer for defense-in-depth
+ * (the template was sanitized at save time, but values may contain HTML).
+ */
+function renderAiTemplate(
+  schema: OutputWidgetSchema,
+  output: string,
+  fields: Record<string, string | undefined>,
+): SafeHtml {
+  if (!schema.template) {
+    return html`<p class="dim">No template stored. Click "Generate" in the agent's Output Widget settings to build one.</p>`;
+  }
+
+  // Pull every {{outputs.NAME}} reference from the template so we can
+  // extract values for placeholders the user didn't declare in `fields`.
+  const outputsForSub: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (typeof v === 'string') outputsForSub[k] = v;
+  }
+  const re = /\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(schema.template)) !== null) {
+    const name = m[1];
+    if (outputsForSub[name] === undefined) {
+      const v = extractField(output, name);
+      if (typeof v === 'string') outputsForSub[name] = v;
+    }
+  }
+
+  const substituted = substitutePlaceholders(schema.template, { outputs: outputsForSub, result: output });
+  const safe = sanitizeHtml(substituted);
+  return unsafeHtml(`<div class="ai-template-widget">${safe}</div>`);
 }
 
 // ── diff-apply ──────────────────────────────────────────────────────────
@@ -223,7 +264,7 @@ function renderKeyValue(
   schema: OutputWidgetSchema,
   fields: Record<string, string | undefined>,
 ): SafeHtml {
-  const rows = schema.fields
+  const rows = (schema.fields ?? [])
     .filter((f) => fields[f.name] !== undefined)
     .map((f) => {
       const value = fields[f.name] ?? '';
@@ -255,7 +296,7 @@ function renderRaw(
   schema: OutputWidgetSchema,
   fields: Record<string, string | undefined>,
 ): SafeHtml {
-  const sections = schema.fields
+  const sections = (schema.fields ?? [])
     .filter((f) => fields[f.name] !== undefined)
     .map((f) => {
       const value = fields[f.name] ?? '';
@@ -311,7 +352,7 @@ function renderDashboard(
   const stats: SafeHtml[] = [];
   const texts: SafeHtml[] = [];
 
-  for (const f of schema.fields) {
+  for (const f of schema.fields ?? []) {
     const value = fields[f.name];
     if (value === undefined) continue;
     const label = f.label ?? f.name;

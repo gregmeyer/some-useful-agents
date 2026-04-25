@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, loadAgents } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, loadAgents } from '@some-useful-agents/core';
 import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
@@ -25,6 +25,7 @@ interface AppOverrides {
   secretsSession?: MemorySecretsSession;
   rotateToken?: () => string;
   retentionDays?: number;
+  toolStore?: ToolStore;
 }
 
 async function makeAppWithCtx(overrides: AppOverrides = {}) {
@@ -76,6 +77,7 @@ command: echo from-the-internet
       directories: [agentsDir, join(dir, 'agents', 'community')],
     }),
     secretsStore,
+    toolStore: overrides.toolStore,
     secretsSession,
     tokenPath: join(dir, 'mcp-token'),
     retentionDays: overrides.retentionDays ?? 30,
@@ -1395,14 +1397,14 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
 describe('Dashboard /tools (v0.16 PR 3)', () => {
   it('GET /tools lists built-in tools', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/tools')
+    const res = await request(app).get('/tools?tab=builtin')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('shell-exec');
     expect(res.text).toContain('http-get');
     expect(res.text).toContain('json-parse');
-    expect(res.text).toContain('Built-in tools');
+    expect(res.text).toContain('Built-in');
   });
 
   it('GET /tools/:id renders a built-in tool detail page', async () => {
@@ -1485,5 +1487,240 @@ describe('Dashboard template palette (PR 5)', () => {
     // not offer "fetch" as a self-reference candidate.
     expect(res.text).toContain('<script id="palette-edit-node" type="application/json">');
     expect(res.text).toMatch(/"upstreams":\s*\["summarize"\]/);
+  });
+});
+
+describe('Dashboard /settings/mcp-servers', () => {
+  function withServer(): ToolStore {
+    const toolStore = new ToolStore(':memory:');
+    toolStore.createMcpServer({
+      id: 'graphics', name: 'graphics', transport: 'stdio',
+      command: 'docker', args: ['run', '--rm'], enabled: true,
+    });
+    toolStore.createTool({
+      id: 'graphics-do', name: 'do', source: 'local', inputs: {}, outputs: {},
+      implementation: { type: 'mcp', mcpTransport: 'stdio', mcpCommand: 'docker', mcpToolName: 'do' },
+    }, undefined, 'graphics');
+    return toolStore;
+  }
+
+  it('GET lists imported servers with tool counts', async () => {
+    const toolStore = withServer();
+    const app = await makeApp({ toolStore });
+    const res = await request(app).get('/settings/mcp-servers')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('graphics');
+    expect(res.text).toContain('enabled');
+    // Tool count column shows "1"
+    expect(res.text).toMatch(/<td>1<\/td>/);
+  });
+
+  it('POST /toggle flips the enabled flag', async () => {
+    const toolStore = withServer();
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/settings/mcp-servers/toggle')
+      .type('form').send({ id: 'graphics', action: 'disable' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(toolStore.getMcpServer('graphics')!.enabled).toBe(false);
+  });
+
+  it('POST /delete cascades to tools', async () => {
+    const toolStore = withServer();
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/settings/mcp-servers/delete')
+      .type('form').send({ id: 'graphics' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(toolStore.getMcpServer('graphics')).toBeUndefined();
+    expect(toolStore.getTool('graphics-do')).toBeUndefined();
+  });
+
+  it('POST /toggle on unknown server returns setError', async () => {
+    const toolStore = withServer();
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/settings/mcp-servers/toggle')
+      .type('form').send({ id: 'ghost', action: 'enable' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/setError=/);
+  });
+});
+
+describe('Dashboard /tools/mcp/import form validation', () => {
+  it('GET renders the paste form', async () => {
+    const toolStore = new ToolStore(':memory:');
+    const app = await makeApp({ toolStore });
+    const res = await request(app).get('/tools/mcp/import')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('name="configBlob"');
+  });
+
+  it('POST with empty blob shows an error', async () => {
+    const toolStore = new ToolStore(':memory:');
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/tools/mcp/import')
+      .type('form').send({ step: 'discover', configBlob: '' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Enter a URL for quick-add');
+  });
+
+  it('POST with quick-add URL synthesises a config and attempts discovery', async () => {
+    const toolStore = new ToolStore(':memory:');
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/tools/mcp/import')
+      .type('form').send({ step: 'discover', quickUrl: 'http://127.0.0.1:1/mcp' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    // Discovery itself will fail (nothing listening on port 1) — but the
+    // route should render the server section with a per-server error,
+    // not return a 400 parse failure.
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('connect failed');
+  });
+
+  it('POST with unparseable blob reports parse error without crashing', async () => {
+    const toolStore = new ToolStore(':memory:');
+    const app = await makeApp({ toolStore });
+    const res = await request(app).post('/tools/mcp/import')
+      .type('form').send({ step: 'discover', configBlob: '{not json' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('No valid MCP servers');
+  });
+});
+
+describe('Output widget editor UI', () => {
+  it('renders all 4 widget-type cards on the config page', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-cards', name: 'ow-cards', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).get('/agents/ow-cards/config')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    for (const t of ['raw', 'key-value', 'diff-apply', 'dashboard']) {
+      expect(res.text).toContain(`data-widget-type="${t}"`);
+    }
+    // Helper copy for the default (raw) should be present.
+    expect(res.text).toContain('titled section');
+    // Load-example dropdown + preview container.
+    expect(res.text).toContain('id="ow-example"');
+    expect(res.text).toContain('id="ow-preview"');
+  });
+
+  it('POST /output-widget/preview renders HTML for a valid body', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-preview-ok', name: 'ow-preview-ok', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/ow-preview-ok/output-widget/preview')
+      .type('form').send({
+        widgetType: 'key-value',
+        fieldName_0: 'total', fieldType_0: 'text',
+        fieldName_1: 'status', fieldType_1: 'badge',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // key-value renders a definition list; at minimum our sample values land in the HTML.
+    expect(res.text.toLowerCase()).toMatch(/total|sample|ready/);
+  });
+
+  it('renders the 5th ai-template card and the AI panel when selected', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ai-cards', name: 'ow-ai-cards', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).get('/agents/ow-ai-cards/config')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('data-widget-type="ai-template"');
+    expect(res.text).toContain('id="ow-ai-prompt"');
+    expect(res.text).toContain('id="ow-ai-generate"');
+    expect(res.text).toContain('id="ow-ai-template"');
+  });
+
+  it('POST /output-widget/preview renders sanitized ai-template HTML', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ai-preview', name: 'ow-ai-preview', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/ow-ai-preview/output-widget/preview')
+      .type('form').send({
+        widgetType: 'ai-template',
+        template: '<div class="card"><h3>{{outputs.headline}}</h3><script>x</script></div>',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('sample headline');
+    expect(res.text).not.toContain('<script');
+  });
+
+  it('POST /output-widget/update saves an ai-template widget', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ai-save', name: 'ow-ai-save', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/ow-ai-save/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'ai-template',
+        prompt: 'show the headline',
+        template: '<div><strong>{{outputs.headline}}</strong></div>',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ai-save');
+    expect(saved?.outputWidget?.type).toBe('ai-template');
+    expect(saved?.outputWidget?.template).toContain('<strong>');
+    expect(saved?.outputWidget?.prompt).toBe('show the headline');
+  });
+
+  it('POST /output-widget/generate returns 400 with no prompt', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ai-gen-bad', name: 'ow-ai-gen-bad', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/ow-ai-gen-bad/output-widget/generate')
+      .type('form').send({})
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Prompt is required');
+  });
+
+  it('POST /output-widget/preview returns 400 for missing widgetType', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-preview-bad', name: 'ow-preview-bad', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/ow-preview-bad/output-widget/preview')
+      .type('form').send({ fieldName_0: 'x', fieldType_0: 'text' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Pick a widget type');
   });
 });

@@ -1485,3 +1485,34 @@ describe('executeAgentDag — global variables (Variables PR 2)', () => {
     expect(capturedEnv!.NAME).toBe('from-cli');
   });
 });
+
+describe('executeAgentDag — MCP server disabled gate', () => {
+  it('fails an MCP-tool node with setup category when its server is disabled', async () => {
+    const { ToolStore } = await import('./tool-store.js');
+    const toolStore = new ToolStore(join(dir, 'tools.db'));
+    toolStore.createMcpServer({
+      id: 'disabled-svr', name: 'disabled-svr', transport: 'stdio', command: 'x',
+      enabled: false,
+    });
+    toolStore.createTool({
+      id: 'disabled-svr-do', name: 'do', source: 'local',
+      inputs: {}, outputs: {},
+      implementation: { type: 'mcp', mcpTransport: 'stdio', mcpCommand: 'x', mcpToolName: 'do' },
+    }, undefined, 'disabled-svr');
+
+    const agent = makeAgent({
+      nodes: [{ id: 'main', type: 'shell', tool: 'disabled-svr-do', toolInputs: {} }],
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, toolStore },
+    );
+    expect(run.status).toBe('failed');
+    const [ne] = runStore.listNodeExecutions(run.id);
+    expect(ne.status).toBe('failed');
+    expect(ne.errorCategory).toBe('setup');
+    expect(ne.error).toMatch(/disabled-svr.*disabled/);
+    toolStore.close();
+  });
+});

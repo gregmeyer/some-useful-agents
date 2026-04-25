@@ -123,6 +123,38 @@ without requiring a value change.
 - npm publish runs through OIDC trusted publishing via the `npm-publish` GitHub environment. No long-lived `NPM_TOKEN` exists to leak.
 - `.github/CODEOWNERS` requires owner review on any change under `.github/workflows/` once the matching branch ruleset is enabled.
 
+### HTML sanitizer (v0.18)
+
+The `ai-template` output widget type stores LLM-generated HTML and re-renders it on every run. Two places the sanitizer guards:
+
+1. **At save time**, on the output of `claude --print` (or any registered `TemplateGenerator`). Anything outside the allowlist is stripped before the template reaches the DB.
+2. **At render time**, on the substituted string (template + interpolated values). Defense-in-depth — if a run output somehow smuggled a tag through the per-value HTML escape, the second pass catches it.
+
+**Allowlisted tags:** standard text + layout (`div`, `span`, `p`, `h1-h6`, `ul/ol/li`, `dl/dt/dd`, `table/tr/td/th`, `section`, `article`, `header`, `footer`, `figure`, `figcaption`, `blockquote`, `q`, `details`, `summary`, `a`, `img`, `pre`, `code`, `strong`, `em`, `b`, `i`, `u`, `br`, `hr`, `small`) plus SVG (`svg`, `g`, `path`, `circle`, `ellipse`, `rect`, `line`, `polyline`, `polygon`, `text`, `tspan`, `defs`, `use`, `symbol`, `linearGradient`, `radialGradient`, `stop`, `clipPath`, `mask`).
+
+**Allowlisted attrs:** `class`, `style`, `id`, `role`, `title`, `lang`, `dir`, `tabindex`, plus any `aria-*` / `data-*`, plus per-tag attrs (href/src/alt/width/height/viewBox/d/fill/stroke/etc.). Full per-tag list: [packages/core/src/html-sanitizer.ts](../packages/core/src/html-sanitizer.ts) lines 17–85.
+
+**Always stripped:** `<script>`, `<iframe>`, `<object>`, `<embed>`, `<link>`, `<meta>`, `<form>`, `<input>`, `<button>`, `<textarea>`, `<style>`, any `on*` attribute, `javascript:` / `vbscript:` URLs in href/src/style, HTML comments.
+
+**URL rules:** `http(s)://`, `mailto:`, `data:image/*`, anchors (`#...`), and relative paths are allowed. `data:text/html`, `data:application/*`, and every other scheme are rejected.
+
+**Values from run output are always HTML-escaped** before substitution, so even without the sanitizer a hostile run could not inject tags through `{{outputs.X}}`. The sanitizer is the second layer.
+
+### MCP server trust
+
+sua opens an MCP client against every server imported at `/tools/mcp/import`. Threats + mitigations:
+
+- **stdio servers run in host env.** The paste-config `env:` block is merged **on top of** `process.env` for the child process — anything you list overrides host env only for that subprocess. The parent sua process is unchanged. Malicious server = malicious subprocess with your ambient authority; treat the paste-config textarea the same as `--allow-untrusted-shell`.
+- **HTTP servers are not loopback-enforced.** The import page accepts any URL. Don't point it at servers you haven't authenticated. No certificate pinning yet. Run loopback-only unless you trust the network path.
+- **Server config is stored verbatim** in the `mcp_servers` table. Command, args, env, url. Treat the DB file (`data/runs.db`, chmod 0o600) as sensitive — anyone who can read it can see the full stdio command and any env values baked into the server config.
+- **The disabled-server gate is cooperative, not mandatory.** It prevents accidental invocation of a flakey server; it is not a security boundary against a malicious agent author who can edit tool rows directly.
+
+### Output widget templates
+
+Templates (both hand-authored and AI-generated) are trusted at save time. Anyone who can save an agent can save a template. The sanitizer is a correctness + defense-in-depth layer, not access control.
+
+The dashboard's auth model (cookie + Host + Origin allowlist) is what gates *who can save*.
+
 ## What sua does NOT defend against
 
 Being explicit so you can evaluate whether sua is the right tool for your threat model:
@@ -162,3 +194,5 @@ We respond within a week. There is no bug bounty.
 - **v0.6.0** — Community shell agent gate (`UntrustedCommunityShellError` + `--allow-untrusted-shell`), run-store `chmod 0600`, 30-day retention sweep, opt-in known-prefix secret redaction, `sua agent audit`, `sua doctor --security`.
 - **v0.6.1** — Community agents are runnable from `sua agent run` / `sua schedule start` directly; the shell gate enforces per-invocation opt-in. Previously the gate lived in the executor but was unreachable from the CLI because community agents weren't in the runnable load set.
 - **v0.10.0** — Passphrase-based KEK for the secrets store (scrypt N=2^17, per-store random salt, AES-256-GCM). v2 payload format with explicit `obfuscatedFallback` flag for users who accept the empty-passphrase legacy path. `sua secrets migrate` command; `sua doctor --security` reports the mode. Closes the last finding from the original `/cso` audit.
+- **v0.17.0** — SSRF protection on `http-get` / `http-post` (DNS-resolved IP validation blocks private, loopback, link-local, cloud metadata). Auth token moved from URL query to fragment (never sent to server, never logged, never leaked via Referer). CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy on every dashboard response.
+- **v0.18.0** — HTML allowlist sanitizer for `ai-template` output widgets (see above). MCP server trust surface called out explicitly: stdio = ambient authority, HTTP = no pinning. Disabled-server gate for imported MCP tools. Executor aborts Claude template generation on client cancel.

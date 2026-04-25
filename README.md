@@ -8,16 +8,18 @@ MIT-licensed. Published to [npm](https://www.npmjs.com/search?q=%40some-useful-a
 
 ## What you get
 
-- **Agents as flows** — each agent is a DAG of nodes. Nodes execute shell commands, Claude Code prompts, or named tools. Flow control (conditional, switch, loop, agent-invoke, branch, end, break) lets agents make decisions and orchestrate sub-agents.
+- **Agents as flows** — each agent is a DAG of nodes. Nodes execute shell commands, Claude Code prompts, or named tools. Flow control (conditional, switch, loop, agent-invoke, branch, end, break) lets agents make decisions and orchestrate sub-agents. Full reference: [docs/flows.md](docs/flows.md).
 - **Multi-provider LLM support** — claude-code nodes can use Claude or Codex via the `provider` field. Stream-json progress tracking shows real-time turn status during execution.
-- **9 built-in tools** — `shell-exec`, `claude-code`, `http-get`, `http-post`, `file-read`, `file-write`, `json-parse`, `json-path`, `template`. User-authored tools sit alongside in `tools/`.
-- **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, and settings. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs.
-- **AI suggest improvements** — one-click agent analysis via the built-in `agent-analyzer`. Reviews your agent's YAML, classifies changes as "no improvements" / "suggestions" / "recommend rewrite", shows a colored diff, and auto-validates + fixes the suggested YAML before presenting it.
+- **10 built-in tools** — `shell-exec`, `claude-code`, `http-get`, `http-post`, `file-read`, `file-write`, `json-parse`, `json-path`, `template`, `csv-to-chart-json`. Plus MCP-imported tools and user-authored tools. Full catalog: [docs/tools.md](docs/tools.md).
+- **MCP servers as first-class** — paste a Claude Desktop / Cursor `mcpServers` config, sua discovers the tools, you pick which to import, and runs can call them like any other tool. Enable/disable/delete whole servers from `/settings/mcp-servers`. Full guide: [docs/mcp.md](docs/mcp.md).
+- **Output widgets** — render run output as structured UI. Four built-in widget types (raw, key-value, diff-apply, dashboard) plus `ai-template`: describe the layout in plain English, Claude generates a sanitized HTML template. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
+- **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, MCP servers, and Pulse tiles. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs, live preview for output widgets. Full tour: [docs/dashboard.md](docs/dashboard.md).
+- **AI suggest improvements** — one-click agent analysis via the built-in `agent-analyzer`. Reviews your agent's YAML, classifies changes, shows a colored diff, and auto-validates + fixes the suggested YAML before presenting it.
 - **Global variables** — plain-text, non-sensitive values available to every agent. CRUD via `/settings/variables` or `sua vars` CLI. Referenced as `$NAME` in shell, `{{vars.NAME}}` in prompts.
-- **MCP server** — expose agents to Claude Desktop and other MCP clients over HTTP/SSE.
-- **Secrets store** — passphrase-encrypted at rest (scrypt N=2^17). Dashboard CRUD with copy-before-save modal and 3-layer redaction (declared secrets + sensitive name patterns + credential value patterns).
+- **MCP server (outbound)** — expose your agents to Claude Desktop and other MCP clients over HTTP/SSE.
+- **Secrets store** — passphrase-encrypted at rest (scrypt N=2^17). Dashboard CRUD with copy-before-save modal and 3-layer redaction.
 - **Scheduling** — cron expressions on any agent. Temporal provider available for durable workflows.
-- **9 bundled examples** — from "hello world" to conditional routing to AI-powered agent analysis. Auto-installed on `sua init`.
+- **15 bundled examples** — from "hello world" to MCP-driven graphics generation. Auto-installed on `sua init`.
 
 ## Quick start
 
@@ -50,6 +52,8 @@ Installed automatically by `sua init`. Manage with `sua examples install/remove/
 | `agent-builder` | Goal-driven wizard, builds agents from plain language |
 | `system-health` | Disk/memory/CPU check with Pulse metric tile |
 | `daily-summary` | Activity summary with Pulse text-headline tile |
+| `graphics-creator-mcp` | Chains 5 modern-graphics MCP tools: theme → render → composite |
+| `chart-creator-mcp` | CSV → `csv-to-chart-json` builtin → chart render via MCP |
 
 ## CLI commands
 
@@ -124,15 +128,16 @@ Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm sto
 
 ![Agent config](docs/images/agent-config.png)
 
-- **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 9 display templates (metric, text-headline, table, status, time-series, image, text-image, media). Container layout with drag-and-drop reorder, edit mode, widget palette with auto-theming. System metric tiles replace the health strip. Markdown rendering, YouTube media player, tile collapse/expand.
+- **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop reorder, widget palette with auto-theming, system metric tiles, markdown rendering, YouTube media player, tile collapse/expand.
 - **Build from goal** — describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block.
-- **Agents** — card grid with filtering (status, source, search), sorting, pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (LLM defaults, variables, secrets, status), Runs (history), YAML (editor).
+- **Agents** — card grid with **User / Examples / Community tabs**, per-tab counts, filtering (status, search), sorting, pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (variables, output widget, signal, secrets), Runs (history), YAML (editor).
+- **Output widget editor** — at `/agents/:id/config`, pick from visual cards (raw / key-value / diff-apply / dashboard / ai-template), load one of 5 starter examples in one click, watch a live preview rerender as you edit. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
+- **Tools** — browse **User / Built-in tabs** with per-tab counts, filtering, pagination. Paste a Claude-Desktop-style config at `/tools/mcp/import` to import MCP servers wholesale.
+- **Settings → MCP Servers** — list of imported MCP servers with tool counts, enable/disable toggle, cascade delete.
 - **Suggest improvements** — AI-powered agent review with "Apply now" one-click save. Auto-fixes shell template mistakes. Available from failed run pages with the error pre-filled.
-- **LLM defaults** — agent-level provider (Claude/Codex) and model selection. Nodes inherit unless they override.
-- **Tools** — browse built-in + user tools with filtering and pagination
-- **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes
-- **Settings** — secrets CRUD with passphrase unlock, global variables, MCP token rotation
-- **Tutorial** — 7-step guided walkthrough that scaffolds agents from the dashboard
+- **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes.
+- **Settings** — secrets CRUD with passphrase unlock, global variables, MCP servers, MCP token rotation.
+- **Tutorial** — 7-step guided walkthrough that scaffolds agents from the dashboard.
 
 ## Flow control
 
@@ -193,7 +198,20 @@ Full model: [docs/SECURITY.md](docs/SECURITY.md)
 
 - Node.js >= 22.5.0
 - macOS or Linux (Windows untested)
-- Docker (optional, for Temporal)
+- Docker (optional, for Temporal or docker-stdio MCP servers)
+
+## Documentation
+
+- [Quickstart](docs/quickstart.md) — 30-minute first-touch guide
+- [Agents](docs/agents.md) — YAML reference: inputs, nodes, schedule, signal, output widget
+- [Flows](docs/flows.md) — conditional, switch, loop, agent-invoke, branch, end, break
+- [Tools](docs/tools.md) — built-in tools, MCP tools, user-authored tools
+- [MCP servers](docs/mcp.md) — import, enable/disable, lifecycle
+- [Output widgets](docs/output-widgets.md) — widget types, field mapping, AI templates
+- [Templating](docs/templating.md) — `{{inputs.X}}`, `{{upstream.X.result}}`, `{{vars.X}}`
+- [Dashboard tour](docs/dashboard.md) — every page, what it's for
+- [Security model](docs/SECURITY.md) — threat model, secrets, sanitizer, MCP trust
+- [Architecture decisions](docs/adr/) — MADR-lite records for load-bearing choices
 
 ## License
 

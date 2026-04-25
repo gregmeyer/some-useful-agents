@@ -4,6 +4,7 @@ import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
+import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { renderSettingsAppearance } from '../views/settings-appearance.js';
 import { getContext, type DashboardContext } from '../context.js';
@@ -227,6 +228,70 @@ settingsRouter.post('/settings/variables/delete', (req: Request, res: Response) 
     const msg = err instanceof Error ? err.message : String(err);
     redirectWith(res, '/settings/variables', 'setError', `Delete failed: ${msg}`);
   }
+});
+
+settingsRouter.get('/settings/mcp-servers', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash, setError } = readQueryBanners(req);
+  if (!ctx.toolStore) {
+    const body = html`
+      <div class="settings-empty">
+        <h3 style="margin-top: 0;">Tool store unavailable</h3>
+        <p class="dim">MCP server management requires a tool store.</p>
+      </div>
+    `;
+    res.type('html').send(renderSettingsShell({ active: 'mcp-servers', body, flash }));
+    return;
+  }
+  const servers = ctx.toolStore.listMcpServers();
+  const rows = servers.map((server) => ({
+    server,
+    toolCount: ctx.toolStore!.listToolsByServer(server.id).length,
+  }));
+  const body = renderSettingsMcpServers({ rows, setError });
+  res.type('html').send(renderSettingsShell({ active: 'mcp-servers', body, flash }));
+});
+
+settingsRouter.post('/settings/mcp-servers/toggle', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  const action = typeof body.action === 'string' ? body.action : '';
+  if (!ctx.toolStore) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', 'Tool store not configured.');
+    return;
+  }
+  if (!id) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', 'Missing server id.');
+    return;
+  }
+  const enabled = action === 'enable';
+  const ok = ctx.toolStore.setMcpServerEnabled(id, enabled);
+  if (!ok) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', `Server "${id}" not found.`);
+    return;
+  }
+  redirectWith(res, '/settings/mcp-servers', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${id}.`);
+});
+
+settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  if (!ctx.toolStore) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', 'Tool store not configured.');
+    return;
+  }
+  if (!id) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', 'Missing server id.');
+    return;
+  }
+  const { serverDeleted, toolsDeleted } = ctx.toolStore.deleteMcpServer(id);
+  if (!serverDeleted) {
+    redirectWith(res, '/settings/mcp-servers', 'setError', `Server "${id}" not found.`);
+    return;
+  }
+  redirectWith(res, '/settings/mcp-servers', 'flash', `Deleted ${id} and ${toolsDeleted} tool${toolsDeleted === 1 ? '' : 's'}.`);
 });
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {

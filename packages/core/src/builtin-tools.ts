@@ -368,7 +368,136 @@ const BUILTINS: BuiltinToolEntry[] = [
       return { result: String(inputs.text ?? '') };
     },
   ),
+
+  def(
+    'csv-to-chart-json',
+    'CSV → chart JSON',
+    'Parse CSV into the shape modern-graphics-generate-graphic expects. "simple" shape → {labels,values}; "series" shape → {labels,series:[{name,values}]}; "cohort" shape → {cohorts:[{date,size,values}]}. First row is the header. Quoted fields and commas inside quotes are supported.',
+    {
+      csv: {
+        type: 'string',
+        description: 'Raw CSV text. Either csv or path is required.',
+      },
+      path: {
+        type: 'string',
+        description: 'Path to a CSV file (read relative to the run cwd). Used if csv is empty.',
+      },
+      shape: {
+        type: 'string',
+        description: '"simple" | "series" | "cohort". Default "simple".',
+        default: 'simple',
+      },
+    },
+    {
+      data_json: { type: 'string', description: 'JSON string ready for generate_graphic.' },
+      labels: { type: 'array', description: 'Parsed labels (simple/series shape).' },
+      values: { type: 'array', description: 'Parsed values (simple shape).' },
+      series: { type: 'array', description: 'Parsed series (series shape).' },
+      cohorts: { type: 'array', description: 'Parsed cohorts (cohort shape).' },
+      result: { type: 'string', description: 'Alias for data_json.' },
+    },
+    async (inputs, ctx) => {
+      const csvRaw = String(inputs.csv ?? '');
+      const path = String(inputs.path ?? '');
+      const shape = String(inputs.shape ?? 'simple');
+
+      let text = csvRaw;
+      if (!text && path) {
+        const { readFileSync } = await import('node:fs');
+        const { resolve, isAbsolute, join } = await import('node:path');
+        const abs = isAbsolute(path) ? path : resolve(join(ctx.workingDirectory ?? process.cwd(), path));
+        text = readFileSync(abs, 'utf-8');
+      }
+      if (!text.trim()) {
+        throw new Error('csv-to-chart-json: provide non-empty `csv` or a readable `path`.');
+      }
+
+      const rows = parseCsv(text);
+      if (rows.length < 2) {
+        throw new Error('csv-to-chart-json: CSV must have a header row plus at least one data row.');
+      }
+      const header = rows[0];
+      const body = rows.slice(1);
+
+      if (shape === 'simple') {
+        // First column → labels, second column → values (numeric).
+        if (header.length < 2) throw new Error('simple shape: need at least 2 columns (label,value).');
+        const labels = body.map((r) => r[0] ?? '');
+        const values = body.map((r) => toNumber(r[1], header[1]));
+        const data = { labels, values };
+        return { ...data, data_json: JSON.stringify(data), result: JSON.stringify(data) };
+      }
+
+      if (shape === 'series') {
+        // First column → labels, remaining columns → series (header row = series names).
+        if (header.length < 2) throw new Error('series shape: need at least 2 columns (label + one series).');
+        const labels = body.map((r) => r[0] ?? '');
+        const series = header.slice(1).map((name, i) => ({
+          name,
+          values: body.map((r) => toNumber(r[i + 1], name)),
+        }));
+        const data = { labels, series };
+        return { ...data, data_json: JSON.stringify(data), result: JSON.stringify(data) };
+      }
+
+      if (shape === 'cohort') {
+        // Columns: date,size,value_0,value_1,...
+        if (header.length < 3) throw new Error('cohort shape: need at least 3 columns (date,size,value0,...).');
+        const cohorts = body.map((r) => ({
+          date: r[0] ?? '',
+          size: toNumber(r[1], header[1]),
+          values: r.slice(2).map((v, i) => toNumber(v, header[i + 2])),
+        }));
+        const data = { cohorts };
+        return { ...data, data_json: JSON.stringify(data), result: JSON.stringify(data) };
+      }
+
+      throw new Error(`csv-to-chart-json: unknown shape "${shape}". Use simple | series | cohort.`);
+    },
+  ),
 ];
+
+function toNumber(raw: string | undefined, column: string): number {
+  const v = Number(String(raw ?? '').trim());
+  if (Number.isNaN(v)) throw new Error(`csv-to-chart-json: "${raw}" in column "${column}" is not a number.`);
+  return v;
+}
+
+/**
+ * Minimal CSV parser. Supports double-quoted fields and escaped quotes ("")
+ * inside quoted fields. Does NOT support multi-line quoted fields.
+ */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    rows.push(parseCsvLine(line));
+  }
+  return rows;
+}
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } // escaped quote
+        else inQuotes = false;
+      } else {
+        cur += c;
+      }
+    } else {
+      if (c === ',') { out.push(cur); cur = ''; }
+      else if (c === '"' && cur === '') { inQuotes = true; }
+      else { cur += c; }
+    }
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
 
 const REGISTRY = new Map<string, BuiltinToolEntry>();
 for (const entry of BUILTINS) {

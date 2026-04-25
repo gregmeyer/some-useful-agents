@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from './builtin-tools.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 9 built-in tools', () => {
+  it('lists all 10 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(10);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
-      'claude-code', 'file-read', 'file-write', 'http-get', 'http-post',
-      'json-parse', 'json-path', 'shell-exec', 'template',
+      'claude-code', 'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
+      'http-post', 'json-parse', 'json-path', 'shell-exec', 'template',
     ]);
   });
 
@@ -113,5 +113,69 @@ describe('assertSafeUrl (SSRF guard)', () => {
 
   it('rejects localhost by name', async () => {
     await expect(assertSafeUrl('http://localhost:3000')).rejects.toThrow('private/reserved');
+  });
+});
+
+describe('csv-to-chart-json', () => {
+  const run = async (inputs: Record<string, unknown>) => {
+    const tool = getBuiltinTool('csv-to-chart-json')!;
+    return tool.execute(inputs, {});
+  };
+
+  it('parses simple shape (labels + values)', async () => {
+    const out = await run({
+      csv: 'month,revenue\nJan,100\nFeb,150\nMar,180',
+      shape: 'simple',
+    });
+    expect(out.labels).toEqual(['Jan', 'Feb', 'Mar']);
+    expect(out.values).toEqual([100, 150, 180]);
+    expect(JSON.parse(String(out.data_json))).toEqual({ labels: ['Jan', 'Feb', 'Mar'], values: [100, 150, 180] });
+  });
+
+  it('parses series shape (labels + named series)', async () => {
+    const out = await run({
+      csv: 'quarter,org,paid\nQ1,10,5\nQ2,20,8\nQ3,35,14',
+      shape: 'series',
+    });
+    expect(out.labels).toEqual(['Q1', 'Q2', 'Q3']);
+    expect(out.series).toEqual([
+      { name: 'org', values: [10, 20, 35] },
+      { name: 'paid', values: [5, 8, 14] },
+    ]);
+  });
+
+  it('parses cohort shape', async () => {
+    const out = await run({
+      csv: 'date,size,m1,m2\nSep 17,7262,95.6,33.5\nOct 17,8100,94.2,31.0',
+      shape: 'cohort',
+    });
+    expect(out.cohorts).toEqual([
+      { date: 'Sep 17', size: 7262, values: [95.6, 33.5] },
+      { date: 'Oct 17', size: 8100, values: [94.2, 31.0] },
+    ]);
+  });
+
+  it('handles quoted fields with commas and escaped quotes', async () => {
+    const out = await run({
+      csv: 'label,value\n"Jones, Inc.",42\n"Smith ""Co""",7',
+      shape: 'simple',
+    });
+    expect(out.labels).toEqual(['Jones, Inc.', 'Smith "Co"']);
+    expect(out.values).toEqual([42, 7]);
+  });
+
+  it('throws on non-numeric values', async () => {
+    await expect(run({
+      csv: 'label,value\nA,not-a-number',
+      shape: 'simple',
+    })).rejects.toThrow(/not a number/);
+  });
+
+  it('throws on empty input', async () => {
+    await expect(run({ csv: '', shape: 'simple' })).rejects.toThrow(/non-empty/);
+  });
+
+  it('throws on unknown shape', async () => {
+    await expect(run({ csv: 'a,b\n1,2', shape: 'bogus' })).rejects.toThrow(/unknown shape/);
   });
 });

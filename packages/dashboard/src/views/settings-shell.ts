@@ -2,7 +2,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 
-export type SettingsTab = 'secrets' | 'variables' | 'integrations' | 'appearance' | 'general';
+export type SettingsTab = 'secrets' | 'variables' | 'mcp-servers' | 'integrations' | 'appearance' | 'general';
 
 export interface SettingsShellArgs {
   active: SettingsTab;
@@ -25,6 +25,7 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
     <nav class="tab-strip">
       ${tab('secrets', 'Secrets')}
       ${tab('variables', 'Variables')}
+      ${tab('mcp-servers', 'MCP Servers')}
       ${tab('integrations', 'Integrations')}
       ${tab('appearance', 'Appearance')}
       ${tab('general', 'General')}

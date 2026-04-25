@@ -30,6 +30,8 @@ import type { VariablesStore } from './variables-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
+import { callMcpTool } from './mcp-client.js';
+import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
@@ -614,31 +616,84 @@ export async function executeAgentDag(
         const stdout = structuredOutput.result ?? '';
         result = { result: stdout, exitCode: (structuredOutput as Record<string, unknown>).exit_code as number ?? 0 };
       } else if (toolId && deps.toolStore) {
-        // User-defined tool from the store — resolve its implementation and
-        // spawn via the same shell/claude-code path the v0.15 nodes use.
-        // The tool's implementation.command/prompt becomes the spawned body.
         const userTool = deps.toolStore.getTool(toolId);
         if (!userTool) {
           throw new Error(`Tool "${toolId}" not found in registry or store.`);
         }
-        const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        // Build a synthetic node shape matching the tool's implementation
-        // so the existing spawner doesn't need to change.
-        // Merge agent-level provider/model defaults (node overrides take precedence).
-        const synthNode: AgentNode = {
-          ...node,
-          type: userTool.implementation.type === 'claude-code' ? 'claude-code' : 'shell',
-          command: userTool.implementation.command,
-          prompt: userTool.implementation.prompt,
-          provider: node.provider ?? agent.provider,
-          model: node.model ?? agent.model,
-        };
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
-        const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, options.signal)
-          : await spawnFn(synthNode, env, spawnOpts);
-        result = spawnResult;
-        structuredOutput = buildToolOutput(spawnResult.result);
+
+        if (userTool.implementation.type === 'mcp') {
+          // Server-level enable gate: if the tool was imported from an MCP
+          // server (has mcp_server_id) and that server is disabled, fail
+          // with a clear message rather than trying to connect.
+          const serverId = deps.toolStore.getToolServerId(toolId);
+          if (serverId) {
+            const server = deps.toolStore.getMcpServer(serverId);
+            if (server && !server.enabled) {
+              throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Settings \u2192 MCP Servers.`);
+            }
+          }
+
+          // MCP tool: resolve templates in impl fields + inputs, then call
+          // the remote server via the pooled client. Output is the MCP
+          // structuredContent (if any) with text blocks joined into `result`.
+          const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
+          const resolveStr = (s: string | undefined): string | undefined =>
+            s === undefined ? undefined : resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars);
+          const resolveValue = (v: unknown): unknown => {
+            if (typeof v === 'string') return resolveStr(v);
+            if (Array.isArray(v)) return v.map(resolveValue);
+            if (v && typeof v === 'object') {
+              const out: Record<string, unknown> = {};
+              for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = resolveValue(val);
+              return out;
+            }
+            return v;
+          };
+
+          const resolvedImpl = {
+            ...userTool.implementation,
+            mcpUrl: resolveStr(userTool.implementation.mcpUrl),
+            mcpCommand: resolveStr(userTool.implementation.mcpCommand),
+            mcpArgs: userTool.implementation.mcpArgs?.map((a) => resolveStr(a) ?? a),
+            mcpEnv: userTool.implementation.mcpEnv
+              ? Object.fromEntries(
+                  Object.entries(userTool.implementation.mcpEnv).map(([k, v]) => [k, resolveStr(v) ?? v]),
+                )
+              : undefined,
+          };
+
+          const rawInputs = {
+            ...(userTool.config ?? {}),
+            ...resolveToolInputs(node, upstreamSnapshot),
+          };
+          const toolInputs = resolveValue(rawInputs) as Record<string, unknown>;
+
+          structuredOutput = await callMcpTool(resolvedImpl, toolInputs, options.signal);
+          const isError = Boolean(structuredOutput.isError);
+          result = {
+            result: structuredOutput.result ?? '',
+            exitCode: isError ? 1 : 0,
+            error: isError ? (structuredOutput.result ?? 'MCP tool reported error') : undefined,
+          };
+        } else {
+          // Shell / claude-code: spawn via the same path v0.15 nodes use.
+          // The tool's implementation.command/prompt becomes the spawned body.
+          const spawnFn = deps.spawnNode ?? spawnNodeReal;
+          const synthNode: AgentNode = {
+            ...node,
+            type: userTool.implementation.type === 'claude-code' ? 'claude-code' : 'shell',
+            command: userTool.implementation.command,
+            prompt: userTool.implementation.prompt,
+            provider: node.provider ?? agent.provider,
+            model: node.model ?? agent.model,
+          };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
+          const spawnResult = spawnFn === spawnNodeReal
+            ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, options.signal)
+            : await spawnFn(synthNode, env, spawnOpts);
+          result = spawnResult;
+          structuredOutput = buildToolOutput(spawnResult.result);
+        }
       } else {
         // v0.15 legacy path: no tool field, dispatch by type directly.
         // Merge agent-level provider/model defaults (node overrides take precedence).

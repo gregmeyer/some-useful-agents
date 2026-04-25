@@ -1,0 +1,131 @@
+# Chart creator — renders data charts via modern-graphics, optionally
+# building the data payload from a CSV file or inline CSV.
+#
+# Two ways to feed data:
+#   1. CSV_TEXT (inline paste) + SHAPE=simple|series|cohort
+#   2. CSV_PATH (file) + SHAPE
+#
+# CSV shapes:
+#   simple : first col = labels, second col = values
+#            e.g.  month,revenue\nJan,100\nFeb,150
+#   series : first col = labels, rest = series (header row names them)
+#            e.g.  quarter,org,paid\nQ1,10,5\nQ2,20,8
+#   cohort : date,size,value_0,value_1,...
+#            e.g.  date,size,m1,m2\nSep 17,7262,95.6,33.5
+#
+# Prereq: at /tools/mcp/import import the modern-graphics server's
+# generate_graphic and set_output_root tools.
+#
+# Run:
+#   sua workflow run chart-creator-mcp \
+#     -i LAYOUT=bar-chart -i TITLE="Q2 revenue" \
+#     -i CSV_TEXT="month,revenue\nJan,100\nFeb,150\nMar,180" \
+#     -i SHAPE=simple
+id: chart-creator-mcp
+name: Chart creator (MCP)
+description: >
+  Renders data charts using modern-graphics. Parses CSV → chart-JSON via the
+  built-in csv-to-chart-json tool, or accepts a pre-built DATA_JSON payload.
+status: active
+source: examples
+
+inputs:
+  LAYOUT:
+    type: enum
+    required: true
+    description: Chart layout. Match the layout to the CSV shape — simple shapes pair with bar/pie/donut; series shapes pair with line/stacked/grouped; cohort pairs with cohort-chart.
+    values:
+      - bar-chart
+      - horizontal-bar-chart
+      - pie-chart
+      - donut-chart
+      - line-chart
+      - grouped-bar-chart
+      - stacked-bar-chart
+      - stacked-area-chart
+      - grouped-stacked-bar-chart
+      - cohort-chart
+      - sankey-chart
+  SHAPE:
+    type: enum
+    required: false
+    default: "simple"
+    description: CSV shape.
+    values:
+      - simple
+      - series
+      - cohort
+  CSV_TEXT:
+    type: string
+    required: false
+    default: ""
+    description: Inline CSV (with header row). Used if CSV_PATH is empty.
+  CSV_PATH:
+    type: string
+    required: false
+    default: ""
+    description: Path to a CSV file. Used if CSV_TEXT is empty.
+  TITLE:
+    type: string
+    required: false
+    default: ""
+    description: Chart title.
+  SUBTITLE:
+    type: string
+    required: false
+    default: ""
+    description: Subtitle below the title.
+  THEME:
+    type: string
+    required: false
+    default: ""
+    description: Saved theme name (create via graphics-creator-mcp). Blank = server default.
+  OUTPUT_DIR:
+    type: string
+    required: false
+    default: ".sua/graphics-output"
+    description: Where the rendered file is written.
+  OUTPUT_FORMAT:
+    type: enum
+    required: false
+    default: "png"
+    description: png or html.
+    values:
+      - png
+      - html
+
+nodes:
+  - id: scope-output
+    type: shell
+    tool: modern-graphics-set-output-root
+    toolInputs:
+      root: "{{inputs.OUTPUT_DIR}}"
+
+  - id: parse-csv
+    type: shell
+    tool: csv-to-chart-json
+    dependsOn: [scope-output]
+    toolInputs:
+      csv: "{{inputs.CSV_TEXT}}"
+      path: "{{inputs.CSV_PATH}}"
+      shape: "{{inputs.SHAPE}}"
+
+  - id: chart
+    type: shell
+    tool: modern-graphics-generate-graphic
+    dependsOn: [parse-csv]
+    toolInputs:
+      layout: "{{inputs.LAYOUT}}"
+      title: "{{inputs.TITLE}}"
+      subtitle: "{{inputs.SUBTITLE}}"
+      theme: "{{inputs.THEME}}"
+      format: "{{inputs.OUTPUT_FORMAT}}"
+      data: "{{upstream.parse-csv.result}}"
+
+  - id: summarise
+    type: shell
+    dependsOn: [chart]
+    command: |
+      echo "=== Chart ready ==="
+      echo "Layout: $LAYOUT"
+      echo "Path:   $UPSTREAM_CHART_RESULT"
