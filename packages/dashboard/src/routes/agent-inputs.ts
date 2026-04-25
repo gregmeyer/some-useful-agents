@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { mergeNewInput } from './agent-nodes.js';
+import { mergeNewInput, parseEnumValues } from './agent-nodes.js';
+import { renderOutputWidget } from '../views/output-widgets.js';
+import { synthPreviewOutput, type FieldType } from '../views/output-widget-help.js';
+import { render } from '../views/html.js';
+import { sanitizeHtml, getTemplateGenerator } from '@some-useful-agents/core';
 
 export const agentInputsRouter: Router = Router();
 
@@ -95,6 +99,22 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
       delete updated.description;
     }
 
+    // Enum values: parse, require non-empty when type is enum, drop otherwise.
+    const rawValues = typeof body[`values_${inputName}`] === 'string'
+      ? (body[`values_${inputName}`] as string)
+      : '';
+    if (updated.type === 'enum') {
+      const values = parseEnumValues(rawValues);
+      if (values.length === 0) {
+        errors.push(`"${inputName}": enum type requires at least one value (comma-separated).`);
+      } else {
+        (updated as AgentInputSpec & { values: string[] }).values = values;
+      }
+    } else {
+      // Non-enum: drop any stale values array.
+      delete (updated as AgentInputSpec & { values?: string[] }).values;
+    }
+
     updatedInputs[inputName] = updated;
   }
 
@@ -105,6 +125,13 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
   if (newInputName && newInputDefault) {
     const err = validateDefault(newInputName, newInputType, newInputDefault);
     if (err) errors.push(err);
+  }
+  // Enum requires values. If user picked enum but left values blank, surface it.
+  if (newInputName && newInputType === 'enum') {
+    const rawValues = typeof body.newInputValues === 'string' ? body.newInputValues : '';
+    if (parseEnumValues(rawValues).length === 0) {
+      errors.push(`"${newInputName}": enum type requires at least one value (comma-separated).`);
+    }
   }
 
   if (errors.length > 0) {
@@ -131,7 +158,7 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
 
 // ── Output widget update ────────────────────────────────────────────────
 
-const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw']);
+const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw', 'ai-template']);
 const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview']);
 
 agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res: Response) => {
@@ -171,7 +198,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   }
 
   // Collect fields from the form (fieldName_0, fieldLabel_0, fieldType_0, etc.).
-  const fields: OutputWidgetSchema['fields'] = [];
+  const fields: NonNullable<OutputWidgetSchema['fields']> = [];
   for (let i = 0; i < 50; i++) {
     const fieldName = body[`fieldName_${i}`];
     const fieldLabel = body[`fieldLabel_${i}`];
@@ -185,10 +212,27 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     });
   }
 
-  const outputWidget: OutputWidgetSchema = {
-    type: widgetType as OutputWidgetType,
-    fields,
-  };
+  let outputWidget: OutputWidgetSchema;
+  if (widgetType === 'ai-template') {
+    const rawTemplate = typeof body.template === 'string' ? body.template : '';
+    const promptText = typeof body.prompt === 'string' ? body.prompt : '';
+    const sanitized = sanitizeHtml(rawTemplate).trim();
+    if (!sanitized) {
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Generate or paste a template before saving.')}`);
+      return;
+    }
+    outputWidget = {
+      type: 'ai-template',
+      template: sanitized,
+      ...(promptText ? { prompt: promptText } : {}),
+      ...(fields.length > 0 ? { fields } : {}),
+    };
+  } else {
+    outputWidget = {
+      type: widgetType as OutputWidgetType,
+      fields,
+    };
+  }
 
   try {
     ctx.agentStore.createNewVersion(
@@ -201,5 +245,137 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
+  }
+});
+
+// ── Output widget live preview ──────────────────────────────────────────
+
+/**
+ * POST /agents/:name/output-widget/preview — accepts the same form body
+ * shape as /update, renders the widget with synthetic sample data, and
+ * returns the inner HTML for the editor's preview card. No DB writes.
+ * Returns 400 if widgetType is missing/invalid; never 500 on render
+ * errors (falls back to an inline "Preview unavailable" note).
+ */
+agentInputsRouter.post('/agents/:name/output-widget/preview', (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const widgetType = typeof body.widgetType === 'string' ? body.widgetType : '';
+  if (!VALID_WIDGET_TYPES.has(widgetType)) {
+    res.status(400).type('html').send('<span class="dim">Pick a widget type to preview.</span>');
+    return;
+  }
+
+  // ai-template branch: render the live template, no fixture fields.
+  if (widgetType === 'ai-template') {
+    const rawTemplate = typeof body.template === 'string' ? body.template : '';
+    if (!rawTemplate.trim()) {
+      res.type('html').send('<span class="dim">Generate or paste a template to preview.</span>');
+      return;
+    }
+    const sanitized = sanitizeHtml(rawTemplate).trim();
+    if (!sanitized) {
+      res.type('html').send('<span class="dim">Template is empty after sanitization. Avoid scripts/iframes; stick to layout HTML.</span>');
+      return;
+    }
+    const schemaAi: OutputWidgetSchema = { type: 'ai-template', template: sanitized };
+    // Build a synthetic run output that supplies values for every {{outputs.NAME}} placeholder.
+    const placeholderNames = new Set<string>();
+    const re = /\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = re.exec(sanitized)) !== null) placeholderNames.add(pm[1]);
+    const sample: Record<string, string> = {};
+    for (const n of placeholderNames) sample[n] = `sample ${n}`;
+    const fixtureAi = JSON.stringify(sample);
+    try {
+      const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+      const html = renderOutputWidget(schemaAi, fixtureAi, name);
+      res.type('html').send(html ? render(html) : '<span class="dim">Preview unavailable.</span>');
+    } catch {
+      res.type('html').send('<span class="dim">Preview unavailable.</span>');
+    }
+    return;
+  }
+
+  const fields: NonNullable<OutputWidgetSchema['fields']> = [];
+  for (let i = 0; i < 50; i++) {
+    const fieldName = body[`fieldName_${i}`];
+    const fieldLabel = body[`fieldLabel_${i}`];
+    const fieldType = body[`fieldType_${i}`];
+    if (typeof fieldName !== 'string' || !fieldName.trim()) continue;
+    const ft = typeof fieldType === 'string' && VALID_FIELD_TYPES.has(fieldType) ? fieldType : 'text';
+    fields.push({
+      name: fieldName.trim(),
+      ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
+      type: ft as WidgetFieldType,
+    });
+  }
+
+  if (fields.length === 0) {
+    res.type('html').send('<span class="dim">Add a field to see the preview.</span>');
+    return;
+  }
+
+  const schema: OutputWidgetSchema = { type: widgetType as OutputWidgetType, fields };
+  const fixture = synthPreviewOutput(fields.map((f) => ({ name: f.name, type: f.type as FieldType })));
+
+  try {
+    const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+    const html = renderOutputWidget(schema, fixture, name);
+    if (!html) {
+      res.type('html').send('<span class="dim">Preview unavailable for this widget type.</span>');
+      return;
+    }
+    res.type('html').send(render(html));
+  } catch {
+    res.type('html').send('<span class="dim">Preview unavailable.</span>');
+  }
+});
+
+// ── ai-template generator ──────────────────────────────────────────────
+
+/**
+ * POST /agents/:name/output-widget/generate — turns a natural-language
+ * prompt into a sanitized HTML template via an LLM. Returns the
+ * sanitized HTML as plain text (the editor stuffs it into a textarea).
+ *
+ * The generator is selected by `provider` (defaults to claude). A new
+ * provider can be registered via core's `registerTemplateGenerator()`
+ * without touching this route.
+ */
+agentInputsRouter.post('/agents/:name/output-widget/generate', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).type('text/plain').send('Agent not found');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+  const sampleOutput = typeof body.sampleOutput === 'string' ? body.sampleOutput : '';
+  const provider = typeof body.provider === 'string' ? body.provider : undefined;
+
+  if (!prompt) {
+    res.status(400).type('text/plain').send('Prompt is required.');
+    return;
+  }
+
+  // Field names declared on the agent's existing widget (so the LLM uses them).
+  const declared = (agent.outputWidget?.fields ?? []).map((f) => f.name);
+  const fieldNames = declared.length > 0 ? declared : undefined;
+
+  try {
+    const gen = getTemplateGenerator(provider);
+    const raw = await gen.generate({ prompt, sampleOutput: sampleOutput || undefined, fieldNames });
+    const sanitized = sanitizeHtml(raw).trim();
+    if (!sanitized) {
+      res.status(502).type('text/plain').send('Generator returned empty output after sanitization. Try a different prompt.');
+      return;
+    }
+    res.type('text/plain').send(sanitized);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(502).type('text/plain').send(`Generation failed: ${msg}`);
   }
 });

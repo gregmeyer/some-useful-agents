@@ -34,6 +34,7 @@ export const PULSE_CONFIGURE_JS = `
       'media': 'Image/video player + caption',
       'text-image': 'Text alongside image',
       'image': 'Full image display',
+      'widget': 'Mirrors the agent output widget\\n(dashboard / key-value / diff / raw)',
     };
 
     function getRegistry() {
@@ -272,6 +273,21 @@ export const PULSE_CONFIGURE_JS = `
       var currentMapping = currentConfig.mapping || {};
 
       if (tpl.slots.length === 0) {
+        if (templateName === 'widget') {
+          container.innerHTML =
+            '<div style="font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.5;">' +
+              '<p style="margin: 0 0 var(--space-2);"><strong>How this tile renders:</strong> the agent outputWidget schema drives layout — the same one shown on the agent detail page.</p>' +
+              '<ul style="margin: 0 0 var(--space-2) var(--space-4); padding: 0;">' +
+                '<li><code>dashboard</code> → grid of fields</li>' +
+                '<li><code>key-value</code> → label/value pairs</li>' +
+                '<li><code>diff-apply</code> → before/after diff</li>' +
+                '<li><code>raw</code> → pretty-printed JSON</li>' +
+              '</ul>' +
+              '<p style="margin: 0 0 var(--space-2);">No slot mapping needed — fields are matched by name to the run final output.</p>' +
+              '<p style="margin: 0;">Configure fields at <a href="/agents/' + esc(currentAgentId || '') + '/config" target="_blank">Agent → Output Widget</a>. If no schema is declared, the tile falls back to raw JSON.</p>' +
+            '</div>';
+          return;
+        }
         container.innerHTML = '<p style="font-size: var(--font-size-xs); color: var(--color-text-muted);">This template has no configurable slots.</p>';
         return;
       }

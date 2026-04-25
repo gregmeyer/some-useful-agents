@@ -30,7 +30,9 @@ export interface ToolOutputField {
   description?: string;
 }
 
-export type ToolImplementationType = 'shell' | 'claude-code' | 'builtin';
+export type ToolImplementationType = 'shell' | 'claude-code' | 'builtin' | 'mcp';
+
+export type McpTransport = 'stdio' | 'http';
 
 export interface ToolImplementation {
   type: ToolImplementationType;
@@ -38,6 +40,23 @@ export interface ToolImplementation {
   prompt?: string;
   /** For builtin tools: the registered function name in the built-in registry. */
   builtinName?: string;
+
+  /**
+   * MCP fields (type: 'mcp'). The executor opens a client to the configured
+   * MCP server (pooled per server) and invokes `mcpToolName` with the node's
+   * resolved inputs. String fields honor `{{secrets.NAME}}` / `{{vars.NAME}}`.
+   */
+  mcpTransport?: McpTransport;
+  /** stdio transport: executable to spawn (e.g. "npx"). */
+  mcpCommand?: string;
+  /** stdio transport: args passed to mcpCommand. */
+  mcpArgs?: string[];
+  /** stdio transport: extra env vars (merged over process.env). */
+  mcpEnv?: Record<string, string>;
+  /** http transport: streamable HTTP endpoint URL. */
+  mcpUrl?: string;
+  /** Remote tool name to invoke on the MCP server. */
+  mcpToolName?: string;
 }
 
 /**

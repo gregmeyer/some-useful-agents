@@ -19,18 +19,29 @@ const toolOutputFieldSchema = z.object({
 });
 
 const toolImplementationSchema = z.object({
-  type: z.enum(['shell', 'claude-code', 'builtin']),
+  type: z.enum(['shell', 'claude-code', 'builtin', 'mcp']),
   command: z.string().optional(),
   prompt: z.string().optional(),
   builtinName: z.string().optional(),
+  mcpTransport: z.enum(['stdio', 'http']).optional(),
+  mcpCommand: z.string().optional(),
+  mcpArgs: z.array(z.string()).optional(),
+  mcpEnv: z.record(z.string(), z.string()).optional(),
+  mcpUrl: z.string().optional(),
+  mcpToolName: z.string().optional(),
 }).refine(
   (data) => {
     if (data.type === 'shell') return !!data.command;
     if (data.type === 'claude-code') return !!data.prompt;
     if (data.type === 'builtin') return !!data.builtinName;
+    if (data.type === 'mcp') {
+      if (!data.mcpToolName) return false;
+      const transport = data.mcpTransport ?? 'stdio';
+      return transport === 'http' ? !!data.mcpUrl : !!data.mcpCommand;
+    }
     return false;
   },
-  { message: 'Shell tools need command, claude-code need prompt, builtin need builtinName' },
+  { message: 'Invalid tool implementation: shell needs command, claude-code needs prompt, builtin needs builtinName, mcp needs mcpToolName and either mcpUrl (http) or mcpCommand (stdio)' },
 );
 
 const toolActionSchema = z.object({

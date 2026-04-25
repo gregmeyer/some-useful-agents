@@ -491,6 +491,7 @@ export function mergeNewInput(
 
   const rawDefault = typeof body.newInputDefault === 'string' ? body.newInputDefault.trim() : '';
   const description = typeof body.newInputDescription === 'string' ? body.newInputDescription.trim() : '';
+  const rawValues = typeof body.newInputValues === 'string' ? body.newInputValues : '';
 
   const spec: AgentInputSpec = { type };
   if (rawDefault) {
@@ -499,6 +500,40 @@ export function mergeNewInput(
     else spec.default = rawDefault;
   }
   if (description) spec.description = description;
+  if (type === 'enum') {
+    const values = parseEnumValues(rawValues);
+    if (values.length === 0) return existing; // enum without values is invalid — skip creation
+    (spec as AgentInputSpec & { values: string[] }).values = values;
+  }
 
   return { ...(existing ?? {}), [name]: spec };
+}
+
+/**
+ * Parse an enum values input (comma-separated, or JSON array).
+ * Trims, drops blanks, dedupes while preserving order.
+ */
+export function parseEnumValues(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  let candidates: string[] = [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) candidates = parsed.map((v) => String(v));
+    } catch {
+      // fall through to comma split
+    }
+  }
+  if (candidates.length === 0) {
+    candidates = trimmed.split(',').map((s) => s.trim());
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of candidates) {
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
 }

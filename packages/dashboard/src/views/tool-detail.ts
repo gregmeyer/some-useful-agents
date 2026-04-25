@@ -5,8 +5,10 @@ import { pageHeader } from './page-header.js';
 
 export function renderToolDetail(args: {
   tool: ToolDefinition;
+  /** When set, link the tool to its source MCP server for navigation. */
+  mcpServerId?: string;
 }): string {
-  const { tool } = args;
+  const { tool, mcpServerId } = args;
 
   const sourceBadge = tool.source === 'builtin'
     ? html`<span class="badge badge--muted">builtin</span>`
@@ -16,7 +18,9 @@ export function renderToolDetail(args: {
     ? html`<span class="badge badge--ok">shell</span>`
     : tool.implementation.type === 'claude-code'
       ? html`<span class="badge badge--info">claude-code</span>`
-      : html`<span class="badge badge--muted">${tool.implementation.type}</span>`;
+      : tool.implementation.type === 'mcp'
+        ? html`<span class="badge badge--info">mcp</span>`
+        : html`<span class="badge badge--muted">${tool.implementation.type}</span>`;
 
   const inputRows = Object.entries(tool.inputs).map(([name, spec]) => html`
     <tr>
@@ -78,6 +82,24 @@ export function renderToolDetail(args: {
           ${tool.implementation.builtinName
             ? html`<dt>Builtin</dt><dd class="mono">${tool.implementation.builtinName}</dd>`
             : unsafeHtml('')}
+          ${mcpServerId
+            ? html`<dt>Server</dt><dd class="mono"><a href="/settings/mcp-servers">${mcpServerId}</a></dd>`
+            : unsafeHtml('')}
+          ${tool.implementation.type === 'mcp' ? html`
+            <dt>Transport</dt><dd class="mono">${tool.implementation.mcpTransport ?? 'stdio'}</dd>
+            ${tool.implementation.mcpToolName
+              ? html`<dt>Remote tool</dt><dd class="mono">${tool.implementation.mcpToolName}</dd>`
+              : unsafeHtml('')}
+            ${tool.implementation.mcpUrl
+              ? html`<dt>URL</dt><dd class="mono">${tool.implementation.mcpUrl}</dd>`
+              : unsafeHtml('')}
+            ${tool.implementation.mcpCommand
+              ? html`<dt>Command</dt><dd class="mono">${tool.implementation.mcpCommand} ${(tool.implementation.mcpArgs ?? []).join(' ')}</dd>`
+              : unsafeHtml('')}
+            ${tool.implementation.mcpEnv && Object.keys(tool.implementation.mcpEnv).length > 0
+              ? html`<dt>Env</dt><dd class="mono">${Object.keys(tool.implementation.mcpEnv).join(', ')}</dd>`
+              : unsafeHtml('')}
+          ` : unsafeHtml('')}
         </dl>
       </div>
     </section>
