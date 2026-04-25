@@ -33,9 +33,10 @@ toolsRouter.get('/tools', (req: Request, res: Response) => {
   }
   const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : undefined;
   const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : undefined;
+  const tab = req.query.tab === 'builtin' ? 'builtin' : 'user';
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
   const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
-  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type }, limit, offset }));
+  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type }, tab, limit, offset }));
 });
 
 toolsRouter.get('/tools/mcp/import', (_req: Request, res: Response) => {
