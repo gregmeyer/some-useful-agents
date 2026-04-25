@@ -3,6 +3,20 @@
 A living document of where `some-useful-agents` is heading. Light on detail, heavy
 on direction.
 
+## Recently shipped (v0.11 – v0.18)
+
+- **DAG agents (v0.15)** — agents are multi-node flows by default. Every node declares `dependsOn`; executor walks the topological order; dashboard renders Cytoscape DAG visualizations with click-to-replay.
+- **Tools + user tool registry (v0.16)** — 10 built-in tools (`shell-exec`, `claude-code`, `http-get/post`, `file-read/write`, `json-parse/path`, `template`, `csv-to-chart-json`). User-authored tools sit alongside. Full catalog at [docs/tools.md](docs/tools.md).
+- **Flow control (v0.16)** — first-class node types: `conditional`, `switch`, `loop`, `agent-invoke`, `branch`, `end`, `break`. `onlyIf` predicate edges. [docs/flows.md](docs/flows.md).
+- **Global variables (v0.16)** — `.sua/variables.json` store + `sua vars` CLI + `/settings/variables`. Referenced as `$NAME` / `{{vars.NAME}}`.
+- **Output widgets (v0.16+)** — declarative renderers for run output: `raw`, `key-value`, `diff-apply`, `dashboard`, and `ai-template` (Claude-generated HTML). [docs/output-widgets.md](docs/output-widgets.md).
+- **MCP servers as first-class (v0.18)** — paste a `mcpServers` config, import tools wholesale, manage the fleet from `/settings/mcp-servers`. [docs/mcp.md](docs/mcp.md).
+- **SSRF protection (v0.17)** — `http-get` / `http-post` validate DNS-resolved IPs, blocking private / loopback / link-local / cloud-metadata.
+- **HTML allowlist sanitizer (v0.18)** — zero-deps sanitizer for AI-generated widget templates. [ADR-0021](docs/adr/0021-html-allowlist-sanitizer.md).
+- **Dashboard tabs on `/tools` + `/agents` (v0.18)** — User / Built-in / Examples / Community per-tab counts and pagination.
+- **Enum input values editor (v0.18)** — full UI support for `type: enum` inputs with per-input values lists.
+- **Suggest improvements (v0.15)** — built-in `agent-analyzer` reviews an agent's YAML, auto-validates suggestions, applies with one click.
+
 ## Now (v0.10.0 shipped)
 
 - **Onboarding walkthrough** — `sua tutorial` walks new users through 5 stages
@@ -61,8 +75,7 @@ on direction.
 - **Notifications** — `notify` field in agent YAML for handlers: Slack webhook,
   email, file append. Secrets infrastructure (encrypted store + env injection) is
   already in place, so handlers just read `SLACK_WEBHOOK` from env and POST.
-- **Dashboard (Phase 3)** — read-only Express + HTML UI at `localhost:3000`. Shows
-  agent list, run history, logs. Reuses the same run store the CLI writes to.
+- ~~**Dashboard (Phase 3)**~~ **— shipped v0.12+.** Full-featured: agent CRUD, DAG viz, per-node editing, run history with replay, settings, tools page, MCP import, Pulse, output widgets. See [docs/dashboard.md](docs/dashboard.md).
 - **Agent registry** — `sua agent install <github-url>` fetches a YAML from a
   remote repo, validates with zod, drops it into `agents/local/`. Turns the
   community catalog into one-command installs.
