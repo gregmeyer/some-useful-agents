@@ -127,21 +127,41 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
 
   // Parse filter/sort query params.
   const qStatus = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
-  const qSource = typeof req.query.source === 'string' && req.query.source ? req.query.source : undefined;
+  const qTabRaw = typeof req.query.tab === 'string' ? req.query.tab : 'user';
+  const qTab: 'user' | 'examples' | 'community' =
+    qTabRaw === 'examples' || qTabRaw === 'community' ? qTabRaw : 'user';
+  const tabToSource: Record<typeof qTab, 'local' | 'examples' | 'community'> = {
+    user: 'local', examples: 'examples', community: 'community',
+  };
+  const qSource = tabToSource[qTab];
   const qSearch = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim().toLowerCase() : undefined;
   const qSort = typeof req.query.sort === 'string' ? req.query.sort : 'name';
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
   const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
 
-  // Use store-level filtering for status and source.
-  const storeFilter: { status?: 'active' | 'paused' | 'archived' | 'draft'; source?: 'local' | 'examples' | 'community' } = {};
+  // Use store-level filtering for status.
+  const storeFilter: { status?: 'active' | 'paused' | 'archived' | 'draft' } = {};
   if (qStatus && ['active', 'paused', 'draft', 'archived'].includes(qStatus)) {
     storeFilter.status = qStatus as 'active' | 'paused' | 'archived' | 'draft';
   }
-  if (qSource && ['local', 'examples', 'community'].includes(qSource)) {
-    storeFilter.source = qSource as 'local' | 'examples' | 'community';
-  }
-  let v2Agents = ctx.agentStore.listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined);
+
+  // Fetch all (status-filtered, search-applied later) agents once for tab counts.
+  const allAgentsForCounts = ctx.agentStore.listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined);
+  const matchesSearch = (a: Agent): boolean => {
+    if (!qSearch) return true;
+    return (
+      a.id.toLowerCase().includes(qSearch) ||
+      (a.description ?? '').toLowerCase().includes(qSearch) ||
+      a.name.toLowerCase().includes(qSearch)
+    );
+  };
+  const tabCounts = {
+    user: allAgentsForCounts.filter((a) => a.source === 'local' && matchesSearch(a)).length,
+    examples: allAgentsForCounts.filter((a) => a.source === 'examples' && matchesSearch(a)).length,
+    community: allAgentsForCounts.filter((a) => a.source === 'community' && matchesSearch(a)).length,
+  };
+
+  let v2Agents = allAgentsForCounts.filter((a) => a.source === qSource);
 
   // Client-side search filter (id or description substring).
   if (qSearch) {
@@ -224,7 +244,9 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
     recentRuns: recent.rows,
     stats,
     invokerCounts,
-    filter: { status: qStatus, source: qSource, q: qSearch, sort: qSort },
+    filter: { status: qStatus, q: qSearch, sort: qSort },
+    tab: qTab,
+    tabCounts,
     limit,
     offset,
     total: totalV2,

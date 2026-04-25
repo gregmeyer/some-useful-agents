@@ -28,6 +28,10 @@ export interface AgentsListInput {
     q?: string;
     sort?: string;
   };
+  /** Active tab — filters the list by source. */
+  tab?: 'user' | 'examples' | 'community';
+  /** Per-tab counts for the tab strip (post-filter, pre-paginate). */
+  tabCounts?: { user: number; examples: number; community: number };
   /** Pagination. */
   limit: number;
   offset: number;
@@ -64,7 +68,8 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${empty ? renderEmptyState() : renderStatStrip(input.stats)}
 
-    ${!empty ? renderFilterBar(input.filter) : html``}
+    ${!empty ? renderTabStrip(input) : html``}
+    ${!empty ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
 
     ${hasV2 ? html`
       <div class="agent-grid">
@@ -115,11 +120,34 @@ export function renderAgentsList(input: AgentsListInput): string {
   return render(layout({ title: 'Agents', activeNav: 'agents' }, body));
 }
 
-function renderFilterBar(filter?: { status?: string; source?: string; q?: string; sort?: string }): SafeHtml {
+function renderTabStrip(input: AgentsListInput): SafeHtml {
+  const active = input.tab ?? 'user';
+  const counts = input.tabCounts ?? { user: 0, examples: 0, community: 0 };
+  const tab = (t: 'user' | 'examples' | 'community', label: string, count: number): SafeHtml => {
+    const isActive = t === active;
+    const url = agentBuildUrl(input.filter, input.limit, 0, t);
+    const style = isActive
+      ? 'border-bottom: 2px solid var(--color-primary); color: var(--color-text); font-weight: var(--weight-bold);'
+      : 'border-bottom: 2px solid transparent; color: var(--color-text-muted);';
+    return html`<a href="${url}" style="padding: var(--space-2) var(--space-1); ${style} text-decoration: none;">${label} <span class="dim">(${String(count)})</span></a>`;
+  };
+  // Hide Community tab unless at least one community agent exists — uncommon in practice.
+  const communityTab = counts.community > 0 ? tab('community', 'Community', counts.community) : html``;
+  return html`
+    <nav style="display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-4);">
+      ${tab('user', 'User', counts.user)}
+      ${tab('examples', 'Examples', counts.examples)}
+      ${communityTab}
+    </nav>
+  `;
+}
+
+function renderFilterBar(filter: { status?: string; source?: string; q?: string; sort?: string } | undefined, tab: 'user' | 'examples' | 'community'): SafeHtml {
   const f = filter ?? {};
   const selIf = (val: string, current?: string) => val === current ? ' selected' : '';
   return html`
     <form method="GET" action="/agents" class="filters" style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4);">
+      <input type="hidden" name="tab" value="${tab}">
       <input type="text" name="q" value="${f.q ?? ''}" placeholder="Search agents..."
         style="padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 16rem;">
       <select name="status" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
@@ -129,12 +157,6 @@ function renderFilterBar(filter?: { status?: string; source?: string; q?: string
         <option value="draft"${selIf('draft', f.status)}>draft</option>
         <option value="archived"${selIf('archived', f.status)}>archived</option>`}
       </select>
-      <select name="source" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
-        ${html`<option value="">All sources</option>
-        <option value="local"${selIf('local', f.source)}>local</option>
-        <option value="examples"${selIf('examples', f.source)}>examples</option>
-        <option value="community"${selIf('community', f.source)}>community</option>`}
-      </select>
       <select name="sort" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
         ${html`<option value="name"${selIf('name', f.sort)}>Sort: name</option>
         <option value="status"${selIf('status', f.sort)}>Sort: status</option>
@@ -142,43 +164,50 @@ function renderFilterBar(filter?: { status?: string; source?: string; q?: string
         <option value="starred"${selIf('starred', f.sort)}>Sort: starred first</option>`}
       </select>
       <button type="submit" class="btn btn--sm">Filter</button>
-      ${(f.q || f.status || f.source || f.sort) ? html`<a href="/agents" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
+      ${(f.q || f.status || f.sort) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
     </form>
   `;
 }
 
 function renderAgentPager(input: AgentsListInput): SafeHtml {
-  const { limit, offset, total, filter: f } = input;
+  const { limit, offset, total, filter: f, tab } = input;
+  const t = tab ?? 'user';
   const showingStart = Math.min(offset + 1, total);
   const showingEnd = Math.min(offset + limit, total);
   const prevOffset = Math.max(0, offset - limit);
   const nextOffset = offset + limit;
   const sizes = [12, 24, 48, 100];
   const sizeLinks = sizes.map((s) => {
-    const url = agentBuildUrl(f, s, 0);
-    const bold = s === limit ? ' style="font-weight: var(--weight-bold); color: var(--color-text);"' : '';
-    return `<a href="${url}"${bold}>${s}</a>`;
-  }).join(' ');
+    const url = agentBuildUrl(f, s, 0, t);
+    return s === limit
+      ? html`<a href="${url}" style="font-weight: var(--weight-bold); color: var(--color-text);">${String(s)}</a>`
+      : html`<a href="${url}">${String(s)}</a>`;
+  });
 
   return html`
     <div class="pager">
       <div>Showing ${String(showingStart)}\u2013${String(showingEnd)} of ${String(total)}</div>
       <div style="display: flex; align-items: center; gap: var(--space-3);">
-        <span style="display: flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted);">
-          Show: ${sizeLinks}
+        <span style="display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted);">
+          Show: ${sizeLinks as unknown as SafeHtml[]}
         </span>
         <span style="color: var(--color-border);">|</span>
-        ${offset > 0 ? html`<a href="${agentBuildUrl(f, limit, prevOffset)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
-        ${nextOffset < total ? html`<a href="${agentBuildUrl(f, limit, nextOffset)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
+        ${offset > 0 ? html`<a href="${agentBuildUrl(f, limit, prevOffset, t)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
+        ${nextOffset < total ? html`<a href="${agentBuildUrl(f, limit, nextOffset, t)}">Next \u2192</a>` : html`<span class="dim">Next \u2192</span>`}
       </div>
     </div>
   `;
 }
 
-function agentBuildUrl(f: AgentsListInput['filter'], limit: number, offset: number): string {
+function agentBuildUrl(
+  f: AgentsListInput['filter'] | undefined,
+  limit: number,
+  offset: number,
+  tab: 'user' | 'examples' | 'community',
+): string {
   const params = new URLSearchParams();
+  if (tab !== 'user') params.set('tab', tab);
   if (f?.status) params.set('status', f.status);
-  if (f?.source) params.set('source', f.source);
   if (f?.q) params.set('q', f.q);
   if (f?.sort && f.sort !== 'name') params.set('sort', f.sort);
   if (limit !== 12) params.set('limit', String(limit));

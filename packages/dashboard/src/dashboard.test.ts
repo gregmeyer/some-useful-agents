@@ -1397,14 +1397,14 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
 describe('Dashboard /tools (v0.16 PR 3)', () => {
   it('GET /tools lists built-in tools', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/tools')
+    const res = await request(app).get('/tools?tab=builtin')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('shell-exec');
     expect(res.text).toContain('http-get');
     expect(res.text).toContain('json-parse');
-    expect(res.text).toContain('Built-in tools');
+    expect(res.text).toContain('Built-in');
   });
 
   it('GET /tools/:id renders a built-in tool detail page', async () => {
