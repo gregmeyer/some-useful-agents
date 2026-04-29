@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { getSchedulerStatus } from '@some-useful-agents/core';
+import { getMcpTokenPath, getSchedulerStatus, readMcpToken } from '@some-useful-agents/core';
 import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
 import {
   ALL_SERVICES,
@@ -187,8 +187,10 @@ daemonCommand
     const dataDir = resolve(config.dataDir);
 
     const table = new Table({
-      head: [chalk.bold('Service'), chalk.bold('State'), chalk.bold('PID'), chalk.bold('URL'), chalk.bold('Detail')],
+      head: [chalk.bold('Service'), chalk.bold('State'), chalk.bold('PID'), chalk.bold('Detail')],
     });
+
+    const links: { name: ServiceName; link: { text: string; href: string } }[] = [];
 
     for (const name of ALL_SERVICES) {
       const status = getServiceStatus(dataDir, name);
@@ -211,17 +213,28 @@ daemonCommand
         }
       }
 
-      // Show a clickable URL only when the service is actually running. Stale
-      // and stopped rows would mislead a user into a dead link.
-      const url = status.state === 'running' ? urlForService(name, config) : '';
-      const urlCell = url ? hyperlink(url, url) : chalk.dim('—');
+      // Collect the URL separately — cli-table3's width calc (via string-width@4)
+      // doesn't strip OSC 8 hyperlink escapes, so embedding them in a table cell
+      // inflates the column width. Print URLs after the table instead.
+      if (status.state === 'running') {
+        const link = urlForService(name, config);
+        if (link) links.push({ name, link });
+      }
 
-      table.push([name, stateLabel, status.pid?.toString() ?? '—', urlCell, detail]);
+      table.push([name, stateLabel, status.pid?.toString() ?? '—', detail]);
     }
 
     ui.section('Daemon services');
     console.log(table.toString());
-    console.log(ui.dim(`Logs: ${daemonPaths(dataDir).logsDir}\n`));
+
+    if (links.length > 0) {
+      console.log('');
+      for (const { name, link } of links) {
+        console.log(`  ${name.padEnd(10)} ${hyperlink(link.href, link.text)}`);
+      }
+    }
+
+    console.log(ui.dim(`\nLogs: ${daemonPaths(dataDir).logsDir}\n`));
   });
 
 // ── helpers ─────────────────────────────────────────────────────────────
@@ -238,12 +251,43 @@ function portArgsForServices(config: SuaConfig): Partial<Record<ServiceName, str
   };
 }
 
-/** Build the canonical URL for a running service, or '' if it has none. */
-function urlForService(name: ServiceName, config: SuaConfig): string {
+/**
+ * Build the visible text + clickable link target for a running service,
+ * or null if it has no URL surface (e.g. the scheduler).
+ *
+ * Dashboard target uses `/auth#token=<token>` so a fresh click in a
+ * browser without a session cookie completes the auth handshake instead
+ * of hitting the "sign-in required" gate. The token is read from
+ * `~/.sua/mcp-token` (the dashboard shares the MCP bearer). Token-bearing
+ * targets are only emitted in TTY contexts — non-TTY (pipes, file
+ * redirects, screenshots) shows the bare `/` to keep secrets out of
+ * captured output. The visible text stays the short URL in both cases.
+ */
+function urlForService(name: ServiceName, config: SuaConfig): { text: string; href: string } | null {
   switch (name) {
-    case 'dashboard': return `http://127.0.0.1:${getDashboardPort(config)}/`;
-    case 'mcp':       return `http://127.0.0.1:${config.mcpPort}/mcp`;
-    default:          return '';
+    case 'dashboard': {
+      const base = `http://127.0.0.1:${getDashboardPort(config)}`;
+      const text = `${base}/`;
+      if (process.stdout.isTTY) {
+        const token = safeReadDashboardToken();
+        if (token) return { text, href: `${base}/auth#token=${token}` };
+      }
+      return { text, href: text };
+    }
+    case 'mcp': {
+      const url = `http://127.0.0.1:${config.mcpPort}/mcp`;
+      return { text: url, href: url };
+    }
+    default:
+      return null;
+  }
+}
+
+function safeReadDashboardToken(): string | null {
+  try {
+    return readMcpToken(getMcpTokenPath()) ?? null;
+  } catch {
+    return null;
   }
 }
 
