@@ -160,6 +160,7 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
       runStore: ctx.runStore,
       secretsStore: ctx.secretsStore,
       allowUntrustedShell: ctx.allowUntrustedShell,
+      dashboardBaseUrl: ctx.dashboardBaseUrl,
     },
   );
 

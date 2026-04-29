@@ -21,6 +21,9 @@ docker-volumes/
 # Local plans
 .plans/
 
+# Claude Code session state (worktrees from subagent isolation, etc.)
+.claude/
+
 # gstack security reports (local-only, not committed)
 .gstack/
 
