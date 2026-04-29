@@ -128,6 +128,15 @@ on direction.
   attribution, and the MCP token model. Plan when there's a concrete
   multi-user use case driving it; until then, single-user is fine and the
   simpler surface is a feature, not a gap.
+- **Outcome-driven flows** — instead of hand-authoring a static DAG, the user
+  declares what they want (goal + success criteria + constraints) and a
+  built-in planner generates the flow at run time. After the run, an
+  evaluator checks the criteria; failures trigger a re-plan. Bridges the gap
+  between "I know what I want" and "I know the exact steps." Depends on tool
+  policies + a shared Claude API integration + dashboard revamp; sequence
+  those first. Plan: [`~/.claude/plans/outcome-driven-flows.md`](.) (local),
+  to be promoted to an in-repo plan or ADR when implementation gets
+  scheduled. ~3 weeks of focused work after dependencies.
 
 ## Explicitly rejected
 
