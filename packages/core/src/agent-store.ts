@@ -163,6 +163,7 @@ export class AgentStore {
         status: agent.status,
         schedule: agent.schedule,
         mcp: agent.mcp,
+        source: agent.source,
       });
       return { ...agent, version: existing.version };
     }
@@ -201,7 +202,7 @@ export class AgentStore {
    */
   updateAgentMeta(
     id: string,
-    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp' | 'starred'>>,
+    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp' | 'starred' | 'source'>>,
   ): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
@@ -211,6 +212,7 @@ export class AgentStore {
     if (patch.schedule !== undefined) { fields.push('schedule = ?'); values.push(patch.schedule ?? null); }
     if (patch.mcp !== undefined) { fields.push('mcp = ?'); values.push(patch.mcp ? 1 : 0); }
     if (patch.starred !== undefined) { fields.push('starred = ?'); values.push(patch.starred ? 1 : 0); }
+    if (patch.source !== undefined) { fields.push('source = ?'); values.push(patch.source); }
     if (fields.length === 0) return;
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -248,6 +250,7 @@ export class AgentStore {
         status: agent.status,
         schedule: agent.schedule,
         mcp: agent.mcp,
+        source: agent.source,
       });
       this.db.prepare(`UPDATE agents SET current_version = ?, updated_at = ? WHERE id = ?`).run(nextVersion, now, id);
       this.db.exec('COMMIT');
