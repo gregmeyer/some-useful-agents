@@ -210,6 +210,35 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
           ${recentRuns.length > 5 ? html`<p style="margin-top: var(--space-2);"><a href="/agents/${agent.id}/runs" style="font-size: var(--font-size-xs);">View all runs &rarr;</a></p>` : html``}
         `}
     </section>
+
+    <!-- Danger zone — hard delete. Hidden behind a disclosure so it
+         can't be hit by an idle scroll-and-click. The form's input
+         pattern requires the operator to type the agent id verbatim
+         before the browser will submit. -->
+    <section style="margin-top: var(--space-6); border-top: 1px solid var(--color-border); padding-top: var(--space-4);">
+      <details>
+        <summary style="cursor: pointer; color: var(--color-err); font-weight: var(--weight-bold);">Danger zone</summary>
+        <div class="card" style="padding: var(--space-4); margin-top: var(--space-3); border-color: var(--color-err);">
+          <p style="margin-top: 0;">
+            <strong>Delete this agent.</strong>
+            All ${String(agent.nodes.length)}-node ${agent.source === 'community' ? 'community ' : ''}DAG and every prior version are removed.
+            <span class="dim">Run history is kept (orphaned — runs reference the agent by id, no FK).</span>
+          </p>
+          <form method="POST" action="/agents/${agent.id}/delete" style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+            <label style="font-size: var(--font-size-xs);">
+              Type <code>${agent.id}</code> to confirm:
+              <input type="text" name="confirm" required
+                pattern="^${agent.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$"
+                placeholder="${agent.id}"
+                style="margin-left: var(--space-2); font-family: var(--font-mono);" />
+            </label>
+            <button type="submit" class="btn btn--sm" style="color: var(--color-err); border-color: var(--color-err);">
+              Delete forever
+            </button>
+          </form>
+        </div>
+      </details>
+    </section>
   `;
 
   return agentPageShell({ ...args, activeTab: 'overview' }, content);
