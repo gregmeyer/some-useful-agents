@@ -123,16 +123,17 @@ export function renderRunsList(opts: RunsListOptions): string {
   const runSizes = [25, 50, 100];
   const runSizeLinks = runSizes.map((s) => {
     const url = buildUrl(filter, s, 0);
-    const bold = s === limit ? ' style="font-weight: var(--weight-bold); color: var(--color-text);"' : '';
-    return `<a href="${url}"${bold}>${s}</a>`;
-  }).join(' ');
+    return s === limit
+      ? html`<a href="${url}" style="font-weight: var(--weight-bold); color: var(--color-text);">${String(s)}</a>`
+      : html`<a href="${url}">${String(s)}</a>`;
+  });
 
   const pager = total > 0 ? html`
     <div class="pager">
       <div>Showing ${String(showingStart)}\u2013${String(showingEnd)} of ${String(total)}</div>
       <div style="display: flex; align-items: center; gap: var(--space-3);">
         <span style="display: flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted);">
-          Show: ${runSizeLinks}
+          Show: ${runSizeLinks as unknown as SafeHtml[]}
         </span>
         <span style="color: var(--color-border);">|</span>
         ${offset > 0 ? html`<a href="${buildUrl(filter, limit, prevOffset)}">\u2190 Prev</a>` : html`<span class="dim">\u2190 Prev</span>`}
