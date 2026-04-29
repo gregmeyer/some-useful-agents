@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1514,5 +1514,84 @@ describe('executeAgentDag — MCP server disabled gate', () => {
     expect(ne.errorCategory).toBe('setup');
     expect(ne.error).toMatch(/disabled-svr.*disabled/);
     toolStore.close();
+  });
+});
+
+describe('executeAgentDag — notify dispatch', () => {
+  it('fires notify handlers after the run row commits, on failure', async () => {
+    const captured: { agentId?: string; runId?: string; status?: string } = {};
+    const fetchMock = async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      captured.agentId = body.agent;
+      captured.runId = body.run_id;
+      captured.status = body.status;
+      return { ok: true, status: 200 } as unknown as Response;
+    };
+    const agent = makeAgent({
+      nodes: [{ id: 'main', type: 'shell', command: 'false' }],
+      notify: {
+        on: ['failure'],
+        handlers: [{ type: 'webhook', url: 'https://example.com/hook' }],
+      },
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({ main: { exitCode: 1, error: 'boom' } }),
+        notifyFetch: fetchMock as unknown as typeof fetch,
+        notifyLogger: { warn: () => {} },
+      },
+    );
+    expect(run.status).toBe('failed');
+    expect(captured.runId).toBe(run.id);
+    expect(captured.agentId).toBe(agent.id);
+    expect(captured.status).toBe('failed');
+  });
+
+  it('does not fire when on: [failure] and run completed', async () => {
+    const fetchMock = vi.fn();
+    const agent = makeAgent({
+      notify: {
+        on: ['failure'],
+        handlers: [{ type: 'webhook', url: 'https://example.com/hook' }],
+      },
+    });
+    await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }),
+        notifyFetch: fetchMock as unknown as typeof fetch,
+        notifyLogger: { warn: () => {} },
+      },
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('handler exception does not affect the run result', async () => {
+    const fetchMock = async () => { throw new Error('network down'); };
+    const warn = vi.fn();
+    const agent = makeAgent({
+      notify: {
+        on: ['failure'],
+        handlers: [{ type: 'webhook', url: 'https://example.com/hook' }],
+      },
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({ main: { exitCode: 1, error: 'boom' } }),
+        notifyFetch: fetchMock as unknown as typeof fetch,
+        notifyLogger: { warn },
+      },
+    );
+    expect(run.status).toBe('failed');
+    expect(run.error).toMatch(/Failed at node/);
+    expect(warn).toHaveBeenCalled();
   });
 });

@@ -16,6 +16,7 @@ import { auditCommand } from './commands/audit.js';
 import { editCommand } from './commands/edit.js';
 import { disableCommand, enableCommand } from './commands/disable.js';
 import { newCommand } from './commands/new.js';
+import { installCommand } from './commands/agent-install.js';
 import { initCommand } from './commands/init.js';
 import { doctorCommand } from './commands/doctor.js';
 import { mcpCommand } from './commands/mcp.js';
@@ -24,6 +25,7 @@ import { workerCommand } from './commands/worker.js';
 import { scheduleCommand } from './commands/schedule.js';
 import { tutorialCommand } from './commands/tutorial.js';
 import { dashboardCommand } from './commands/dashboard.js';
+import { daemonCommand } from './commands/daemon.js';
 import { workflowCommand } from './commands/workflow.js';
 import { toolCommand } from './commands/tool.js';
 import { examplesCommand } from './commands/examples.js';
@@ -52,6 +54,7 @@ Examples:
   $ sua agent run weather --input ZIP=94110      Supply a declared input
   $ sua agent list                               See everything runnable
   $ sua schedule start                           Fire scheduled agents on cron
+  $ sua daemon start                             Run schedule + dashboard as detached background services
   $ sua mcp start                                Start the MCP server on 127.0.0.1:3003
   $ sua doctor --security                        Audit security posture
 
@@ -78,6 +81,7 @@ agent.addCommand(auditCommand);
 agent.addCommand(editCommand);
 agent.addCommand(disableCommand);
 agent.addCommand(enableCommand);
+agent.addCommand(installCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);
@@ -87,6 +91,7 @@ program.addCommand(workerCommand);
 program.addCommand(scheduleCommand);
 program.addCommand(tutorialCommand);
 program.addCommand(dashboardCommand);
+program.addCommand(daemonCommand);
 program.addCommand(workflowCommand);
 program.addCommand(toolCommand);
 program.addCommand(examplesCommand);

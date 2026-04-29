@@ -24,6 +24,7 @@ import { requireAuth } from './auth-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
+import { agentInstallRouter } from './routes/agent-install.js';
 import { agentNodesRouter } from './routes/agent-nodes.js';
 import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
@@ -168,6 +169,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
     });
   });
 
+  app.use(agentInstallRouter);
   app.use(agentsRouter);
   app.use(agentNodesRouter);
   app.use(agentInputsRouter);
@@ -258,8 +260,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     );
   }
 
-  const server = await new Promise<Server>((resolve) => {
-    const s = app.listen(opts.port, host, () => resolve(s));
+  const server = await new Promise<Server>((resolve, reject) => {
+    const s = app.listen(opts.port, host, () => {
+      s.removeListener('error', reject);
+      resolve(s);
+    });
+    // Without this, EADDRINUSE (and other listen failures) emit on the
+    // server but never reach the awaiter — the promise hangs and the
+    // caller prints its banner against a server that didn't actually bind.
+    s.once('error', (err) => reject(err));
   });
 
   const authUrl = `http://${host}:${opts.port}/auth#token=${token}`;

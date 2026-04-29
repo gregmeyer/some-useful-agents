@@ -1,11 +1,11 @@
 import { Router, type Request, type Response } from 'express';
-import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType } from '@some-useful-agents/core';
+import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType, NotifyConfig } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { mergeNewInput, parseEnumValues } from './agent-nodes.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
 import { synthPreviewOutput, type FieldType } from '../views/output-widget-help.js';
 import { render } from '../views/html.js';
-import { sanitizeHtml, getTemplateGenerator } from '@some-useful-agents/core';
+import { sanitizeHtml, getTemplateGenerator, agentV2Schema } from '@some-useful-agents/core';
 
 export const agentInputsRouter: Router = Router();
 
@@ -381,5 +381,85 @@ agentInputsRouter.post('/agents/:name/output-widget/generate', async (req: Reque
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(502).type('text/plain').send(`Generation failed: ${msg}`);
+  }
+});
+
+// ── Notify update ───────────────────────────────────────────────────────
+
+/**
+ * POST /agents/:name/notify/update — save or remove the notify block.
+ * Body: action='save'|'remove', notify=<JSON string of notify config>.
+ * Validates by re-parsing the agent through agentV2Schema (so any zod
+ * issue surfaces as the same kind of error the YAML importer raises).
+ */
+agentInputsRouter.post('/agents/:name/notify/update', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const action = typeof body.action === 'string' ? body.action : 'save';
+  const flashBase = `/agents/${encodeURIComponent(agent.id)}/config`;
+
+  if (action === 'remove') {
+    try {
+      ctx.agentStore.createNewVersion(
+        agent.id,
+        { ...agent, notify: undefined },
+        'dashboard',
+        'Removed notify via dashboard',
+      );
+      res.redirect(303, `${flashBase}?flash=${encodeURIComponent('Notify removed.')}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.redirect(303, `${flashBase}?flash=${encodeURIComponent(`Failed: ${msg}`)}`);
+    }
+    return;
+  }
+
+  const raw = typeof body.notify === 'string' ? body.notify.trim() : '';
+  if (!raw) {
+    res.redirect(303, `${flashBase}?flash=${encodeURIComponent('Notify body is empty.')}`);
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `${flashBase}?flash=${encodeURIComponent(`Invalid JSON: ${msg}`)}`);
+    return;
+  }
+
+  // Reuse the agent-v2 zod schema by re-validating the whole agent — this
+  // ensures notify cross-checks (e.g. handler secrets must be declared)
+  // run identically to the YAML import path.
+  const candidate = { ...agent, notify: parsed };
+  const result = agentV2Schema.safeParse(candidate);
+  if (!result.success) {
+    const summary = result.error.issues
+      .filter((i) => i.path[0] === 'notify')
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .join('; ') || result.error.issues[0]?.message || 'Invalid notify config.';
+    res.redirect(303, `${flashBase}?flash=${encodeURIComponent(`Validation failed: ${summary}`)}`);
+    return;
+  }
+
+  try {
+    ctx.agentStore.createNewVersion(
+      agent.id,
+      { ...agent, notify: parsed as NotifyConfig },
+      'dashboard',
+      'Updated notify via dashboard',
+    );
+    res.redirect(303, `${flashBase}?flash=${encodeURIComponent('Notify saved. New version created.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `${flashBase}?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
   }
 });

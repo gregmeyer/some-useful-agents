@@ -174,6 +174,48 @@ export const agentV2Schema = z.object({
     { message: 'Signal must declare either "format" (v1) or "template" (v2).' },
   ).optional(),
 
+  notify: z.object({
+    on: z.array(z.enum(['failure', 'success', 'always'])).min(1, 'notify.on must list at least one trigger'),
+    secrets: z.array(z.string().regex(SECRET_NAME_RE, 'Secret names must be UPPERCASE_WITH_UNDERSCORES')).optional(),
+    handlers: z.array(z.discriminatedUnion('type', [
+      z.object({
+        type: z.literal('slack'),
+        webhook_secret: z.string().regex(SECRET_NAME_RE, 'webhook_secret must be UPPERCASE_WITH_UNDERSCORES'),
+        channel: z.string().optional(),
+        mention: z.string().optional(),
+      }),
+      z.object({
+        type: z.literal('file'),
+        path: z.string().min(1),
+        append: z.boolean().optional(),
+      }),
+      z.object({
+        type: z.literal('webhook'),
+        url: z.string().url(),
+        method: z.enum(['POST', 'PUT']).optional(),
+        headers_secret: z.string().regex(SECRET_NAME_RE, 'headers_secret must be UPPERCASE_WITH_UNDERSCORES').optional(),
+      }),
+    ])).min(1, 'notify.handlers must list at least one handler'),
+  }).superRefine((data, ctx) => {
+    // Cross-check: every handler that names a secret must declare it in
+    // notify.secrets. Mirrors the node-level rule that secrets must be
+    // declared per consumer; keeps audits simple.
+    const declared = new Set(data.secrets ?? []);
+    for (let i = 0; i < data.handlers.length; i++) {
+      const h = data.handlers[i];
+      const needed = h.type === 'slack' ? h.webhook_secret
+        : h.type === 'webhook' ? h.headers_secret
+        : undefined;
+      if (needed && !declared.has(needed)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['handlers', i],
+          message: `Handler references secret "${needed}" but it isn't listed in notify.secrets.`,
+        });
+      }
+    }
+  }).optional(),
+
   outputWidget: z.object({
     type: z.enum(['diff-apply', 'key-value', 'raw', 'dashboard']),
     fields: z.array(z.object({

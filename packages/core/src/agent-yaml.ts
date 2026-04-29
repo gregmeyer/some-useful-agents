@@ -86,6 +86,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     nodes,
     ...(p.signal && { signal: p.signal }),
     ...(p.outputWidget && { outputWidget: p.outputWidget }),
+    ...(p.notify && { notify: p.notify as Agent['notify'] }),
     ...(p.author !== undefined && { author: p.author }),
     ...(p.tags && { tags: p.tags }),
   };
@@ -105,6 +106,7 @@ const AGENT_KEY_ORDER = [
   'nodes',
   'signal',
   'outputWidget',
+  'notify',
   'author', 'tags',
 ] as const;
 
