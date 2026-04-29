@@ -117,6 +117,17 @@ on direction.
   rate, output size, and (for claude-code agents) token usage.
 - **Agent templates** — `sua agent create --from template/daily-digest` scaffolds
   new agents from curated templates.
+- **Users / groups / RBAC** — today sua is single-user: one local OS account, one
+  bearer token shared between MCP and dashboard, no concept of identity or
+  permissions. For shared / team deployments (single laptop with multiple
+  collaborators, or eventual hosted mode), we'd need: per-user accounts with
+  password or SSO, groups for grouping accounts, role-based permissions on
+  agents (run / edit / delete / manage secrets), an audit log of who did what,
+  and per-user secrets so credentials aren't shared across the team. Big shape
+  change — touches secrets store, dashboard auth middleware, run-store
+  attribution, and the MCP token model. Plan when there's a concrete
+  multi-user use case driving it; until then, single-user is fine and the
+  simpler surface is a feature, not a gap.
 
 ## Explicitly rejected
 
