@@ -1724,3 +1724,81 @@ describe('Output widget editor UI', () => {
     expect(res.text).toContain('Pick a widget type');
   });
 });
+
+describe('Dashboard /agents/install', () => {
+  const SAMPLE_YAML = `id: dash-installed
+name: dash-installed
+status: active
+source: community
+mcp: false
+nodes:
+  - id: hello
+    type: shell
+    command: echo hi
+`;
+
+  it('GET renders the paste form', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/agents/install')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('name="url"');
+    expect(res.text).toContain('Install agent');
+  });
+
+  it('POST step=preview validates the URL and parses the YAML', async () => {
+    const app = await makeApp();
+    // Stub global fetch so the route doesn't hit the network.
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(SAMPLE_YAML, { status: 200 })) as typeof fetch;
+    try {
+      const res = await request(app).post('/agents/install')
+        .type('form').send({ step: 'preview', url: 'https://example.com/dash-installed.yaml' })
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('dash-installed');
+      expect(res.text).toContain('Confirm install');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('POST step=confirm upserts the agent (source overridden to local) and the agent shows in /agents', async () => {
+    const app = await makeApp();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(SAMPLE_YAML, { status: 200 })) as typeof fetch;
+    try {
+      const installRes = await request(app).post('/agents/install')
+        .type('form').send({ step: 'confirm', url: 'https://example.com/dash-installed.yaml' })
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(installRes.status).toBe(200);
+      expect(installRes.text).toMatch(/Installed|installed/);
+
+      // Confirm the agent now appears on /agents.
+      const listRes = await request(app).get('/agents')
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.text).toContain('dash-installed');
+
+      // And source was overridden to 'local'.
+      const stored = agentStore.getAgent('dash-installed');
+      expect(stored?.source).toBe('local');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('POST with empty URL returns 400 with an error banner', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/agents/install')
+      .type('form').send({ step: 'preview', url: '' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('Enter a URL');
+  });
+});

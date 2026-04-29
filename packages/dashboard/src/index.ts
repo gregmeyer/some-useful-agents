@@ -24,6 +24,7 @@ import { requireAuth } from './auth-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
+import { agentInstallRouter } from './routes/agent-install.js';
 import { agentNodesRouter } from './routes/agent-nodes.js';
 import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
@@ -168,6 +169,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
     });
   });
 
+  app.use(agentInstallRouter);
   app.use(agentsRouter);
   app.use(agentNodesRouter);
   app.use(agentInputsRouter);
