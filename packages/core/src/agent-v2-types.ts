@@ -253,6 +253,12 @@ export interface Agent {
    */
   outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;
 
+  /**
+   * Notification handlers fired after a run commits (success / failure /
+   * always). See notify-dispatcher.ts for handler semantics.
+   */
+  notify?: import('./notify-dispatcher.js').NotifyConfig;
+
   // Metadata
   author?: string;
   tags?: string[];
@@ -342,6 +348,7 @@ export interface AgentVersionDag {
   nodes: AgentNode[];
   signal?: AgentSignal;
   outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;
+  notify?: import('./notify-dispatcher.js').NotifyConfig;
   author?: string;
   tags?: string[];
 }

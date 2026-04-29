@@ -20,6 +20,7 @@ import {
   renderRunInputsForm,
   renderVariablesEditor,
   renderOutputWidgetEditor,
+  renderNotifyEditor,
   vStatusBadge,
   statusOption,
   providerOption,
@@ -344,6 +345,12 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     <section class="card" style="margin-bottom: var(--space-6);">
       <h3 style="margin: 0 0 var(--space-3);">Output Widget</h3>
       ${renderOutputWidgetEditor(agent)}
+    </section>
+
+    <!-- Notify -->
+    <section class="card" style="margin-bottom: var(--space-6);">
+      <h3 style="margin: 0 0 var(--space-3);">Notify</h3>
+      ${renderNotifyEditor(agent)}
     </section>
 
     <!-- Secrets -->
