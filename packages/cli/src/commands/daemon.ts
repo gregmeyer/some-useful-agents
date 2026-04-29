@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { getSchedulerStatus } from '@some-useful-agents/core';
-import { loadConfig, getDaemonServices, getDaemonLogRotateBytes } from '../config.js';
+import { getMcpTokenPath, getSchedulerStatus, readMcpToken } from '@some-useful-agents/core';
+import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
 import {
   ALL_SERVICES,
   type ServiceName,
@@ -40,6 +40,7 @@ daemonCommand
           cwd: process.cwd(),
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
+          extraArgs: portArgsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -151,6 +152,7 @@ daemonCommand
           cwd: process.cwd(),
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
+          extraArgs: portArgsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -188,6 +190,8 @@ daemonCommand
       head: [chalk.bold('Service'), chalk.bold('State'), chalk.bold('PID'), chalk.bold('Detail')],
     });
 
+    const links: { name: ServiceName; link: { text: string; href: string } }[] = [];
+
     for (const name of ALL_SERVICES) {
       const status = getServiceStatus(dataDir, name);
       let stateLabel: string;
@@ -209,13 +213,95 @@ daemonCommand
         }
       }
 
+      // Collect the URL separately — cli-table3's width calc (via string-width@4)
+      // doesn't strip OSC 8 hyperlink escapes, so embedding them in a table cell
+      // inflates the column width. Print URLs after the table instead.
+      if (status.state === 'running') {
+        const link = urlForService(name, config);
+        if (link) links.push({ name, link });
+      }
+
       table.push([name, stateLabel, status.pid?.toString() ?? '—', detail]);
     }
 
     ui.section('Daemon services');
     console.log(table.toString());
-    console.log(ui.dim(`Logs: ${daemonPaths(dataDir).logsDir}\n`));
+
+    if (links.length > 0) {
+      console.log('');
+      for (const { name, link } of links) {
+        console.log(`  ${name.padEnd(10)} ${hyperlink(link.href, link.text)}`);
+      }
+    }
+
+    console.log(ui.dim(`\nLogs: ${daemonPaths(dataDir).logsDir}\n`));
   });
+
+// ── helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Per-service `--port <n>` extras passed through `spawnService` so the
+ * spawned `sua dashboard start` / `sua mcp start` bind to the daemon's
+ * configured ports instead of their CLI defaults.
+ */
+function portArgsForServices(config: SuaConfig): Partial<Record<ServiceName, string[]>> {
+  return {
+    dashboard: ['--port', String(getDashboardPort(config))],
+    mcp: ['--port', String(config.mcpPort)],
+  };
+}
+
+/**
+ * Build the visible text + clickable link target for a running service,
+ * or null if it has no URL surface (e.g. the scheduler).
+ *
+ * Dashboard target uses `/auth#token=<token>` so a fresh click in a
+ * browser without a session cookie completes the auth handshake instead
+ * of hitting the "sign-in required" gate. The token is read from
+ * `~/.sua/mcp-token` (the dashboard shares the MCP bearer). Token-bearing
+ * targets are only emitted in TTY contexts — non-TTY (pipes, file
+ * redirects, screenshots) shows the bare `/` to keep secrets out of
+ * captured output. The visible text stays the short URL in both cases.
+ */
+function urlForService(name: ServiceName, config: SuaConfig): { text: string; href: string } | null {
+  switch (name) {
+    case 'dashboard': {
+      const base = `http://127.0.0.1:${getDashboardPort(config)}`;
+      const text = `${base}/`;
+      if (process.stdout.isTTY) {
+        const token = safeReadDashboardToken();
+        if (token) return { text, href: `${base}/auth#token=${token}` };
+      }
+      return { text, href: text };
+    }
+    case 'mcp': {
+      const url = `http://127.0.0.1:${config.mcpPort}/mcp`;
+      return { text: url, href: url };
+    }
+    default:
+      return null;
+  }
+}
+
+function safeReadDashboardToken(): string | null {
+  try {
+    return readMcpToken(getMcpTokenPath()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wrap text in an OSC 8 hyperlink escape so terminals that support it
+ * (iTerm2, vscode, kitty, recent gnome-terminal) render a clickable link.
+ * Skipped when stdout isn't a TTY — pipes / file redirects would otherwise
+ * see literal escape bytes and table layout would be inflated by the
+ * non-printing characters.
+ */
+function hyperlink(url: string, text: string): string {
+  if (!process.stdout.isTTY) return text;
+  return `\x1b]8;;${url}\x07${text}\x1b]8;;\x07`;
+}
 
 daemonCommand
   .command('logs')
