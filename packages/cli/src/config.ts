@@ -16,6 +16,16 @@ export interface SuaConfig {
    * ambient leak surface.
    */
   runRetentionDays?: number;
+  /**
+   * `sua daemon` settings. Controls which services are managed by default
+   * and how aggressively per-service logs are rotated.
+   */
+  daemon?: {
+    /** Services started by `sua daemon start` (with no --service flag). */
+    services?: ('schedule' | 'dashboard' | 'mcp')[];
+    /** Rotate log when it exceeds this many bytes (rotate-on-start). */
+    logRotateBytes?: number;
+  };
 }
 
 const DEFAULT_CONFIG: SuaConfig = {
@@ -27,6 +37,10 @@ const DEFAULT_CONFIG: SuaConfig = {
   temporalNamespace: 'default',
   temporalTaskQueue: 'sua-agents',
   runRetentionDays: 30,
+  daemon: {
+    services: ['schedule', 'dashboard'],
+    logRotateBytes: 10 * 1024 * 1024,
+  },
 };
 
 export function loadConfig(): SuaConfig {
@@ -88,4 +102,12 @@ export function getVariablesPath(config: SuaConfig): string {
 
 export function getRetentionDays(config: SuaConfig): number {
   return config.runRetentionDays ?? 30;
+}
+
+export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' | 'mcp')[] {
+  return config.daemon?.services ?? ['schedule', 'dashboard'];
+}
+
+export function getDaemonLogRotateBytes(config: SuaConfig): number {
+  return config.daemon?.logRotateBytes ?? 10 * 1024 * 1024;
 }
