@@ -5,6 +5,8 @@ export interface SuaConfig {
   provider: 'local' | 'temporal';
   agentsDir: string;
   dataDir: string;
+  /** Default port the dashboard binds to. CLI --port still wins per-invocation. */
+  dashboardPort?: number;
   mcpPort: number;
   temporalAddress?: string;
   temporalNamespace?: string;
@@ -32,6 +34,7 @@ const DEFAULT_CONFIG: SuaConfig = {
   provider: 'local',
   agentsDir: './agents',
   dataDir: './data',
+  dashboardPort: 3000,
   mcpPort: 3003,
   temporalAddress: 'localhost:7233',
   temporalNamespace: 'default',
@@ -110,4 +113,8 @@ export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' 
 
 export function getDaemonLogRotateBytes(config: SuaConfig): number {
   return config.daemon?.logRotateBytes ?? 10 * 1024 * 1024;
+}
+
+export function getDashboardPort(config: SuaConfig): number {
+  return config.dashboardPort ?? 3000;
 }

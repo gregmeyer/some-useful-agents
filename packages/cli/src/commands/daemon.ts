@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import { getSchedulerStatus } from '@some-useful-agents/core';
-import { loadConfig, getDaemonServices, getDaemonLogRotateBytes } from '../config.js';
+import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
 import {
   ALL_SERVICES,
   type ServiceName,
@@ -40,6 +40,7 @@ daemonCommand
           cwd: process.cwd(),
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
+          extraArgs: portArgsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -151,6 +152,7 @@ daemonCommand
           cwd: process.cwd(),
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
+          extraArgs: portArgsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -185,7 +187,7 @@ daemonCommand
     const dataDir = resolve(config.dataDir);
 
     const table = new Table({
-      head: [chalk.bold('Service'), chalk.bold('State'), chalk.bold('PID'), chalk.bold('Detail')],
+      head: [chalk.bold('Service'), chalk.bold('State'), chalk.bold('PID'), chalk.bold('URL'), chalk.bold('Detail')],
     });
 
     for (const name of ALL_SERVICES) {
@@ -209,13 +211,53 @@ daemonCommand
         }
       }
 
-      table.push([name, stateLabel, status.pid?.toString() ?? '—', detail]);
+      // Show a clickable URL only when the service is actually running. Stale
+      // and stopped rows would mislead a user into a dead link.
+      const url = status.state === 'running' ? urlForService(name, config) : '';
+      const urlCell = url ? hyperlink(url, url) : chalk.dim('—');
+
+      table.push([name, stateLabel, status.pid?.toString() ?? '—', urlCell, detail]);
     }
 
     ui.section('Daemon services');
     console.log(table.toString());
     console.log(ui.dim(`Logs: ${daemonPaths(dataDir).logsDir}\n`));
   });
+
+// ── helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Per-service `--port <n>` extras passed through `spawnService` so the
+ * spawned `sua dashboard start` / `sua mcp start` bind to the daemon's
+ * configured ports instead of their CLI defaults.
+ */
+function portArgsForServices(config: SuaConfig): Partial<Record<ServiceName, string[]>> {
+  return {
+    dashboard: ['--port', String(getDashboardPort(config))],
+    mcp: ['--port', String(config.mcpPort)],
+  };
+}
+
+/** Build the canonical URL for a running service, or '' if it has none. */
+function urlForService(name: ServiceName, config: SuaConfig): string {
+  switch (name) {
+    case 'dashboard': return `http://127.0.0.1:${getDashboardPort(config)}/`;
+    case 'mcp':       return `http://127.0.0.1:${config.mcpPort}/mcp`;
+    default:          return '';
+  }
+}
+
+/**
+ * Wrap text in an OSC 8 hyperlink escape so terminals that support it
+ * (iTerm2, vscode, kitty, recent gnome-terminal) render a clickable link.
+ * Skipped when stdout isn't a TTY — pipes / file redirects would otherwise
+ * see literal escape bytes and table layout would be inflated by the
+ * non-printing characters.
+ */
+function hyperlink(url: string, text: string): string {
+  if (!process.stdout.isTTY) return text;
+  return `\x1b]8;;${url}\x07${text}\x1b]8;;\x07`;
+}
 
 daemonCommand
   .command('logs')
