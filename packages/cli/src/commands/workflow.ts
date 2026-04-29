@@ -350,6 +350,81 @@ workflowCommand
     }
   });
 
+// -- rm (hard delete) --
+
+workflowCommand
+  .command('rm')
+  .description('Hard delete an agent and all its versions (runs are kept as orphaned history)')
+  .argument('<id>', 'Agent id')
+  .option('--yes', 'Skip the confirmation prompt')
+  .action(async (id: string, options: { yes?: boolean }) => {
+    const stores = openStores();
+    try {
+      const agent = stores.agents.getAgent(id);
+      if (!agent) {
+        ui.fail(`Agent "${id}" not found.`);
+        process.exit(1);
+      }
+
+      const versions = stores.agents.listVersions(id);
+      const runResult = stores.runs.queryRuns({ agentName: id, limit: 1 });
+      const totalRuns = runResult.total;
+      const lastRun = runResult.rows[0];
+
+      // Show what's about to be deleted so the operator knows what they're
+      // orphaning. Runs are preserved as append-only history.
+      console.log('');
+      console.log(`  ${chalk.bold('Agent:')}     ${ui.agent(agent.id)} ${ui.dim(`(${agent.name})`)}`);
+      console.log(`  ${chalk.bold('Status:')}    ${agent.status}`);
+      console.log(`  ${chalk.bold('Source:')}    ${agent.source}`);
+      console.log(`  ${chalk.bold('Versions:')}  ${versions.length}`);
+      console.log(
+        `  ${chalk.bold('Runs:')}      ${totalRuns}` +
+          (lastRun ? ` ${ui.dim(`(last: ${lastRun.startedAt})`)}` : ''),
+      );
+      if (agent.schedule) {
+        console.log(`  ${chalk.bold('Schedule:')}  ${agent.schedule}`);
+      }
+      console.log('');
+      console.log(
+        ui.dim(
+          'This permanently deletes the agent + all versions. Run history is kept ' +
+            '(orphaned — runs reference the agent by id as text, not by FK).',
+        ),
+      );
+      console.log('');
+
+      if (!options.yes) {
+        const { createInterface } = await import('node:readline/promises');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const raw = (await rl.question(`Proceed? [y/N] `)).trim().toLowerCase();
+          if (raw !== 'y' && raw !== 'yes') {
+            ui.info('Cancelled.');
+            return;
+          }
+        } finally {
+          rl.close();
+        }
+      }
+
+      try {
+        stores.agents.deleteAgent(id);
+      } catch (err) {
+        // Most likely failure: another agent invokes this one.
+        ui.fail((err as Error).message);
+        process.exit(1);
+      }
+
+      ui.ok(
+        `Deleted ${ui.agent(id)} (${versions.length} version${versions.length === 1 ? '' : 's'}, ` +
+          `${totalRuns} run${totalRuns === 1 ? '' : 's'} orphaned).`,
+      );
+    } finally {
+      stores.close();
+    }
+  });
+
 // -- logs --
 
 workflowCommand

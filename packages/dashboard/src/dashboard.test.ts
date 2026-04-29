@@ -978,6 +978,68 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
   });
 });
 
+describe('Dashboard hard-delete (POST /agents/:name/delete)', () => {
+  function seedDoomed() {
+    agentStore.createAgent({
+      id: 'doomed',
+      name: 'Doomed',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+  }
+
+  it('overview renders the danger zone with a delete form for the agent id', async () => {
+    const app = await makeApp();
+    seedDoomed();
+    const res = await request(app).get('/agents/doomed')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Danger zone');
+    expect(res.text).toContain('action="/agents/doomed/delete"');
+    expect(res.text).toContain('name="confirm"');
+  });
+
+  it('refuses when the confirm token does not match the agent id', async () => {
+    const app = await makeApp();
+    seedDoomed();
+    const res = await request(app)
+      .post('/agents/doomed/delete')
+      .type('form').send({ confirm: 'wrong' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Confirmation mismatch/);
+    expect(agentStore.getAgent('doomed')).not.toBeNull();
+  });
+
+  it('deletes the agent and redirects with a flash when confirm matches', async () => {
+    const app = await makeApp();
+    seedDoomed();
+    const res = await request(app)
+      .post('/agents/doomed/delete')
+      .type('form').send({ confirm: 'doomed' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe(`/agents?flash=${encodeURIComponent('Deleted "doomed".')}`);
+    expect(agentStore.getAgent('doomed')).toBeNull();
+  });
+
+  it('returns 303 to /agents when the agent does not exist', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/no-such/delete')
+      .type('form').send({ confirm: 'no-such' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/not found/);
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();
