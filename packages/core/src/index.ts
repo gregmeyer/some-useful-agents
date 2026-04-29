@@ -64,6 +64,14 @@ export {
 } from './mcp-server-types.js';
 export { parseMcpServersBlob, type ParsedMcpBlob } from './mcp-config-parse.js';
 export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';
+export {
+  normalizeAgentUrl,
+  fetchYaml,
+  DEFAULT_MAX_BYTES,
+  DEFAULT_TIMEOUT_MS,
+  type FetchYamlOptions,
+  type FetchYamlResult,
+} from './registry.js';
 
 export {
   executeAgentDag,
