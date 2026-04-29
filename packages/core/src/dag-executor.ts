@@ -36,6 +36,7 @@ import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
+import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
 import {
   executeControlFlowNode,
   executeAgentInvokeNode,
@@ -83,6 +84,19 @@ export interface DagExecutorDeps {
    * Production uses the default (real spawn via `executeNodeReal`).
    */
   spawnNode?: SpawnNodeFn;
+  /**
+   * Optional dashboard URL prefix used by the notify dispatcher to embed
+   * a "view run in dashboard" link in Slack messages. When absent, the
+   * link is omitted; the notify still fires.
+   */
+  dashboardBaseUrl?: string;
+  /**
+   * Optional fetch override used by the notify dispatcher's slack/webhook
+   * handlers. Tests inject a mock; production uses global fetch.
+   */
+  notifyFetch?: typeof fetch;
+  /** Logger for notify handler failures. Defaults to console.warn. */
+  notifyLogger?: NotifyLogger;
 }
 
 export interface DagExecuteOptions {
@@ -778,6 +792,30 @@ export async function executeAgentDag(
 
   const run = deps.runStore.getRun(runId);
   if (!run) throw new Error(`Run ${runId} vanished from store after write`);
+
+  // Notify dispatch fires AFTER the run row is committed. Wrapped so any
+  // dispatcher exception can never bubble into the run path — the run
+  // result is final by this point.
+  if (agent.notify) {
+    try {
+      await dispatchNotify(agent.notify, {
+        agent,
+        run,
+        secretsStore: deps.secretsStore,
+        variablesStore: deps.variablesStore,
+        dashboardBaseUrl: deps.dashboardBaseUrl,
+        fetchImpl: deps.notifyFetch,
+        logger: deps.notifyLogger,
+      });
+    } catch (err) {
+      // Defense-in-depth: dispatchNotify catches handler errors itself.
+      // This catches anything truly unexpected (e.g. secretsStore.getAll
+      // rejecting in a way the dispatcher's try/catch missed).
+      const logger = deps.notifyLogger ?? { warn: (m: string) => console.warn(`[notify] ${m}`) };
+      logger.warn(`dispatch failed: ${(err as Error).message}`);
+    }
+  }
+
   return run;
 }
 

@@ -346,6 +346,7 @@ export class AgentStore {
     if (agent.inputs) dag.inputs = agent.inputs;
     if (agent.signal) dag.signal = agent.signal;
     if (agent.outputWidget) dag.outputWidget = agent.outputWidget;
+    if (agent.notify) dag.notify = agent.notify;
     if (agent.author !== undefined) dag.author = agent.author;
     if (agent.tags) dag.tags = agent.tags;
     return dag;
@@ -383,6 +384,7 @@ export class AgentStore {
       nodes: dag.nodes,
       signal: dag.signal,
       outputWidget: dag.outputWidget,
+      notify: dag.notify,
       author: dag.author,
       tags: dag.tags,
     };

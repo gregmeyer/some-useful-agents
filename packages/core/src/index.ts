@@ -66,6 +66,18 @@ export { parseMcpServersBlob, type ParsedMcpBlob } from './mcp-config-parse.js';
 export { VariablesStore, looksLikeSensitive, type Variable } from './variables-store.js';
 
 export {
+  dispatchNotify,
+  buildSlackBlocks,
+  type NotifyConfig,
+  type NotifyTrigger,
+  type NotifyHandlerConfig,
+  type SlackHandlerConfig,
+  type FileHandlerConfig,
+  type WebhookHandlerConfig,
+  type DispatchNotifyOptions,
+  type NotifyLogger,
+} from './notify-dispatcher.js';
+export {
   executeAgentDag,
   topologicalSort,
   resolveUpstreamTemplate,
