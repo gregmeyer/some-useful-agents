@@ -187,6 +187,27 @@ describe('AgentStore.upsertAgent', () => {
     expect(store.listVersions('hello')).toHaveLength(2);
     expect(store.getAgent('hello')!.nodes[0].command).toBe('echo changed');
   });
+
+  it('updates source on upgrade — installer-takes-ownership semantics', () => {
+    // Initial import as an example agent (e.g. shipped with sua).
+    store.upsertAgent(seed({ source: 'examples' }), 'import');
+    expect(store.getAgent('hello')!.source).toBe('examples');
+
+    // `sua agent install` re-imports the same id with source: 'local'
+    // (the installer takes ownership). The DAG might or might not differ;
+    // either path must propagate the new source.
+    // Path 1: identical DAG (metadata-only update).
+    store.upsertAgent(seed({ source: 'local' }), 'import');
+    expect(store.getAgent('hello')!.source).toBe('local');
+
+    // Path 2: differing DAG (new version row + metadata update).
+    store.upsertAgent(
+      seed({ source: 'community', nodes: [{ id: 'main', type: 'shell', command: 'echo new' }] }),
+      'import',
+    );
+    expect(store.getAgent('hello')!.source).toBe('community');
+    expect(store.getAgent('hello')!.version).toBe(2);
+  });
 });
 
 describe('AgentStore.updateAgentMeta', () => {
