@@ -65,6 +65,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
         variablesStore: ctx.variablesStore,
         toolStore: ctx.toolStore,
         allowUntrustedShell: ctx.allowUntrustedShell,
+        dashboardBaseUrl: ctx.dashboardBaseUrl,
       },
     );
 

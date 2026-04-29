@@ -57,6 +57,12 @@ export interface StartDashboardOptions {
   allowUntrustedShell?: Set<string>;
   /** Run-history retention in days (shown on /settings/general). Defaults to 30. */
   retentionDays?: number;
+  /**
+   * Public base URL the dashboard is reachable at. Used to build clickable
+   * run links inside notify handler payloads (Slack, etc). Falls back to
+   * `http://<host>:<port>` if unset.
+   */
+  dashboardBaseUrl?: string;
   /** Optional SecretsStore override (tests). */
   secretsStore?: SecretsStore;
   /** Optional LocalProvider override (tests). */
@@ -249,6 +255,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),
+    dashboardBaseUrl: (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, ''),
   };
 
   const app = buildDashboardApp(ctx);

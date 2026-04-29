@@ -87,6 +87,7 @@ command: echo from-the-internet
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
     dataDir: dir,
+    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
 
   return { app: buildDashboardApp(ctx), ctx };

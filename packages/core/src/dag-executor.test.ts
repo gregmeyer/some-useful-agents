@@ -1594,4 +1594,38 @@ describe('executeAgentDag — notify dispatch', () => {
     expect(run.error).toMatch(/Failed at node/);
     expect(warn).toHaveBeenCalled();
   });
+
+  it('threads dashboardBaseUrl through to the slack handler payload', async () => {
+    type SlackPayload = { blocks?: { text?: { text: string } }[] };
+    let capturedBody: SlackPayload = {};
+    const fetchMock = async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}')) as SlackPayload;
+      return { ok: true, status: 200 } as unknown as Response;
+    };
+    const secrets = new MemorySecretsStore();
+    secrets.set('SLACK_HOOK', 'https://hooks.slack.com/services/T/B/X');
+    const agent = makeAgent({
+      nodes: [{ id: 'main', type: 'shell', command: 'false' }],
+      notify: {
+        on: ['failure'],
+        secrets: ['SLACK_HOOK'],
+        handlers: [{ type: 'slack', webhook_secret: 'SLACK_HOOK' }],
+      },
+    });
+    await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        secretsStore: secrets,
+        spawnNode: cannedSpawner({ main: { exitCode: 1, error: 'boom' } }),
+        notifyFetch: fetchMock as unknown as typeof fetch,
+        notifyLogger: { warn: () => {} },
+        dashboardBaseUrl: 'https://my-host:3000',
+      },
+    );
+    const text = capturedBody.blocks?.[0]?.text?.text ?? '';
+    expect(text).toContain('https://my-host:3000/runs/');
+    expect(text).toContain('Open run in dashboard');
+  });
 });

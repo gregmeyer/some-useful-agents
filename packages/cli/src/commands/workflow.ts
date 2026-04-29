@@ -20,7 +20,7 @@ import {
 } from '@some-useful-agents/core';
 import { readFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { dirname, join, extname } from 'node:path';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getDashboardBaseUrl } from '../config.js';
 import * as ui from '../ui.js';
 
 /**
@@ -304,6 +304,7 @@ workflowCommand
           runStore: stores.runs,
           secretsStore,
           allowUntrustedShell: new Set(options.allowUntrustedShell),
+          dashboardBaseUrl: getDashboardBaseUrl(config),
         },
       );
       if (run.status === 'completed') {
@@ -458,6 +459,7 @@ workflowCommand
           runStore: stores.runs,
           secretsStore,
           allowUntrustedShell: new Set(options.allowUntrustedShell),
+          dashboardBaseUrl: getDashboardBaseUrl(config),
         },
       );
       if (replay.status === 'completed') {

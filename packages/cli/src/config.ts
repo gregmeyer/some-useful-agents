@@ -7,6 +7,14 @@ export interface SuaConfig {
   dataDir: string;
   /** Default port the dashboard binds to. CLI --port still wins per-invocation. */
   dashboardPort?: number;
+  /**
+   * Base URL the dashboard is reachable at, used to build clickable run
+   * links inside notify handler payloads (Slack, etc). Defaults to
+   * `http://127.0.0.1:<dashboardPort>`. Override when the dashboard is
+   * behind a reverse proxy or bound to a non-loopback host that the
+   * notify destination needs to reach.
+   */
+  dashboardBaseUrl?: string;
   mcpPort: number;
   temporalAddress?: string;
   temporalNamespace?: string;
@@ -117,4 +125,9 @@ export function getDaemonLogRotateBytes(config: SuaConfig): number {
 
 export function getDashboardPort(config: SuaConfig): number {
   return config.dashboardPort ?? 3000;
+}
+
+export function getDashboardBaseUrl(config: SuaConfig): string {
+  if (config.dashboardBaseUrl) return config.dashboardBaseUrl.replace(/\/$/, '');
+  return `http://127.0.0.1:${getDashboardPort(config)}`;
 }

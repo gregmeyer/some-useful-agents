@@ -84,6 +84,13 @@ export interface DashboardContext {
    * heartbeat file and report scheduler status.
    */
   dataDir: string;
+  /**
+   * Public base URL the dashboard is reachable at, e.g. `http://127.0.0.1:3000`.
+   * Used to build clickable run links inside notify handler payloads. Built
+   * once at startup from `dashboardBaseUrl` opts (or `http://<host>:<port>`
+   * fallback) and threaded into the DAG executor on run-now / replay.
+   */
+  dashboardBaseUrl: string;
 }
 
 /**
