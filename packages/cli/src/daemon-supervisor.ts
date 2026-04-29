@@ -204,3 +204,18 @@ export function getServiceStatus(dataDir: string, name: ServiceName): ServiceSta
   // PID file points at a dead process.
   return { name, state: 'stale', pid, logPath: paths.logPath(name) };
 }
+
+/**
+ * After spawnService returns, the child may still die on startup (port
+ * conflict, missing config, secrets preflight failure). Wait briefly and
+ * report whether the recorded pid is still alive. Returns the final
+ * ServiceStatus so callers can surface the log path on crash.
+ */
+export async function waitForServiceSettle(
+  dataDir: string,
+  name: ServiceName,
+  settleMs = 750,
+): Promise<ServiceStatus> {
+  await new Promise((r) => setTimeout(r, settleMs));
+  return getServiceStatus(dataDir, name);
+}

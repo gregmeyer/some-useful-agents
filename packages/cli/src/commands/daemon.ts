@@ -12,6 +12,7 @@ import {
   getServiceStatus,
   spawnService,
   stopService,
+  waitForServiceSettle,
 } from '../daemon-supervisor.js';
 import * as ui from '../ui.js';
 
@@ -22,13 +23,13 @@ daemonCommand
   .command('start')
   .description('Start configured services as detached subprocesses')
   .option('--service <name>', 'Start only this service (repeatable)', collectService, [] as ServiceName[])
-  .action((opts: { service: ServiceName[] }) => {
+  .action(async (opts: { service: ServiceName[] }) => {
     const config = loadConfig();
     const dataDir = resolve(config.dataDir);
     const services = opts.service.length > 0 ? opts.service : getDaemonServices(config);
     const suaBin = process.argv[1];
 
-    const started: string[] = [];
+    const spawned: { name: ServiceName; pid: number; logPath: string }[] = [];
     const skipped: string[] = [];
     const failed: { name: string; reason: string }[] = [];
 
@@ -40,7 +41,7 @@ daemonCommand
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
         });
-        started.push(`${name} (pid ${result.pid}) → ${result.logPath}`);
+        spawned.push(result);
       } catch (err) {
         const msg = (err as Error).message;
         if (/already running/.test(msg)) {
@@ -48,6 +49,25 @@ daemonCommand
         } else {
           failed.push({ name, reason: msg });
         }
+      }
+    }
+
+    // Settle: wait long enough for the children to either bind their port,
+    // hit their preflight, or crash. Then re-check liveness so users see
+    // "crashed → check log" instead of a misleading "started" line.
+    const settled = await Promise.all(
+      spawned.map((s) => waitForServiceSettle(dataDir, s.name).then((status) => ({ ...s, status }))),
+    );
+    const started: string[] = [];
+    const crashed: { name: ServiceName; logPath: string }[] = [];
+    for (const { name, pid, logPath, status } of settled) {
+      if (status.state === 'running') {
+        started.push(`${name} (pid ${pid}) → ${logPath}`);
+      } else {
+        crashed.push({ name, logPath });
+        // Clear the stale pid so the next `daemon start` doesn't think it's
+        // an "already running" instance.
+        stopService(dataDir, name);
       }
     }
 
@@ -59,11 +79,18 @@ daemonCommand
       ui.section('Already running');
       for (const line of skipped) console.log(`  ${chalk.yellow('•')} ${line}`);
     }
-    if (failed.length > 0) {
-      ui.section('Failed');
-      for (const { name, reason } of failed) console.log(`  ${chalk.red('✖')} ${name}: ${reason}`);
-      process.exit(1);
+    if (crashed.length > 0) {
+      ui.section('Crashed on startup');
+      for (const { name, logPath } of crashed) {
+        console.log(`  ${chalk.red('✖')} ${name} — see ${logPath}`);
+      }
     }
+    if (failed.length > 0) {
+      ui.section('Failed to spawn');
+      for (const { name, reason } of failed) console.log(`  ${chalk.red('✖')} ${name}: ${reason}`);
+    }
+
+    if (failed.length > 0 || crashed.length > 0) process.exit(1);
 
     if (started.length === 0 && skipped.length === 0) {
       ui.warn('No services configured. Set `daemon.services` in sua.config.json or pass --service.');
@@ -115,6 +142,7 @@ daemonCommand
     await new Promise((r) => setTimeout(r, 250));
 
     const suaBin = process.argv[1];
+    const spawned: { name: ServiceName; pid: number; logPath: string }[] = [];
     const failures: { name: string; reason: string }[] = [];
     for (const name of services) {
       try {
@@ -124,11 +152,24 @@ daemonCommand
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
         });
-        ui.ok(`${name} restarted (pid ${result.pid})`);
+        spawned.push(result);
       } catch (err) {
         failures.push({ name, reason: (err as Error).message });
       }
     }
+
+    const settled = await Promise.all(
+      spawned.map((s) => waitForServiceSettle(dataDir, s.name).then((status) => ({ ...s, status }))),
+    );
+    for (const { name, pid, logPath, status } of settled) {
+      if (status.state === 'running') {
+        ui.ok(`${name} restarted (pid ${pid})`);
+      } else {
+        failures.push({ name, reason: `crashed on startup — see ${logPath}` });
+        stopService(dataDir, name);
+      }
+    }
+
     if (failures.length > 0) {
       ui.section('Failed');
       for (const { name, reason } of failures) ui.fail(`${name}: ${reason}`);

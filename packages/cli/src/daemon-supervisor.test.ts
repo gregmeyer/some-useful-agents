@@ -12,6 +12,7 @@ import {
   rotateLog,
   spawnService,
   stopService,
+  waitForServiceSettle,
 } from './daemon-supervisor.js';
 
 let dataDir: string;
@@ -164,6 +165,30 @@ describe('spawnService + stopService', () => {
     // Wait briefly for the SIGTERM to take effect.
     await new Promise((r) => setTimeout(r, 100));
     expect(isProcessAlive(child.pid!)).toBe(false);
+  });
+
+  it('waitForServiceSettle returns running when the recorded pid stays alive', async () => {
+    const paths = ensureDaemonDirs(dataDir);
+    writeFileSync(paths.pidPath('schedule'), `${process.pid}\n`);
+    const status = await waitForServiceSettle(dataDir, 'schedule', 50);
+    expect(status.state).toBe('running');
+  });
+
+  it('waitForServiceSettle reports stale when the child dies during the settle window', async () => {
+    const { spawn } = await import('node:child_process');
+    // Spawn a child that exits after 20ms — we settle for 100ms, so it's
+    // dead by the time we check.
+    const child = spawn('node', ['-e', 'setTimeout(() => process.exit(0), 20)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    const paths = ensureDaemonDirs(dataDir);
+    writeFileSync(paths.pidPath('mcp'), `${child.pid}\n`);
+
+    const status = await waitForServiceSettle(dataDir, 'mcp', 100);
+    expect(status.state).toBe('stale');
+    expect(status.pid).toBe(child.pid);
   });
 
   it('refuses to spawn when a live pid is already recorded', () => {
