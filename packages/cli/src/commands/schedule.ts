@@ -241,20 +241,27 @@ scheduleCommand
     }
 
     if (entries.length === 0) {
-      ui.warn('No agents have a schedule. Add `schedule: "<cron>"` to an agent YAML and restart.');
-      runStore.close();
-      await provider.shutdown();
-      return;
+      ui.warn(
+        'No agents have a schedule. Idling — restart the scheduler after adding ' +
+          '`schedule: "<cron>"` to an agent YAML.',
+      );
     }
 
-    const bannerLines = entries.map(
-      ({ agent, schedule }) => `${agent.name.padEnd(24)} ${cronToHuman(schedule)}`,
-    );
+    const bannerLines = entries.length > 0
+      ? entries.map(({ agent, schedule }) => `${agent.name.padEnd(24)} ${cronToHuman(schedule)}`)
+      : ['idle — no scheduled agents'];
     ui.banner(`Scheduler running (${entries.length} agent${entries.length === 1 ? '' : 's'})`, bannerLines);
     console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
+    // When there are no scheduled entries the scheduler holds no internal
+    // timers, so the event loop would exit immediately. Keep a low-frequency
+    // tick so the supervised process stays alive (and keeps writing the
+    // heartbeat) until the user adds a schedule and restarts it.
+    const idleKeepAlive = entries.length === 0 ? setInterval(() => {}, 60_000) : null;
+
     const shutdown = async () => {
       console.log('\nShutting down scheduler...');
+      if (idleKeepAlive) clearInterval(idleKeepAlive);
       scheduler.stop();
       runStore.close();
       await provider.shutdown();

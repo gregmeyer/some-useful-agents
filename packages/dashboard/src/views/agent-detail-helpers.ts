@@ -529,6 +529,47 @@ function fieldTypeSelectWithTooltip(name: string, current: string, _widgetType: 
   return `<select name="${name}" title="${tip}" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">${opts}</select>`;
 }
 
+// ── Notify editor ────────────────────────────────────────────────────────
+
+/**
+ * Renders the notify-handlers editor on the agent's Config tab.
+ *
+ * UX is intentionally simple — a single textarea with the JSON for the
+ * `notify:` block. The schema is small enough that a structured form
+ * would be more clicks than typing it. Save round-trips through the
+ * agent-v2 schema, so any error surfaces inline as a flash.
+ */
+export function renderNotifyEditor(agent: Agent): SafeHtml {
+  const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 100%;';
+  const current = agent.notify ? JSON.stringify(agent.notify, null, 2) : '';
+  const placeholder = JSON.stringify({
+    on: ['failure'],
+    secrets: ['SLACK_WEBHOOK'],
+    handlers: [
+      { type: 'slack', webhook_secret: 'SLACK_WEBHOOK', channel: '#alerts' },
+      { type: 'file', path: 'logs/failures.jsonl' },
+    ],
+  }, null, 2);
+
+  return html`
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      Fires after every run commits. Handlers run in parallel; a broken handler
+      logs and is skipped — it never fails the run.
+    </p>
+    <form method="POST" action="/agents/${agent.id}/notify/update">
+      <textarea name="notify" rows="14" placeholder="${placeholder}" style="${FIELD}">${current}</textarea>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0;">
+        JSON shape mirrors the YAML <code>notify:</code> block. Trigger: <code>failure</code>, <code>success</code>, or <code>always</code>.
+        Secrets must be declared in <code>secrets:</code> and set via <a href="/settings/secrets">Settings → Secrets</a>.
+      </p>
+      <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
+        ${agent.notify ? html`<button type="submit" name="action" value="remove" class="btn btn--ghost btn--sm" style="color: var(--color-err);">Remove notify</button>` : html``}
+        <button type="submit" name="action" value="save" class="btn btn--primary btn--sm">Save notify</button>
+      </div>
+    </form>
+  `;
+}
+
 // ── Small helpers ────────────────────────────────────────────────────────
 
 export function typeSelect(namePrefix: string, current: string): SafeHtml {

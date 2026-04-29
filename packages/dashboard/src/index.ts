@@ -260,8 +260,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     );
   }
 
-  const server = await new Promise<Server>((resolve) => {
-    const s = app.listen(opts.port, host, () => resolve(s));
+  const server = await new Promise<Server>((resolve, reject) => {
+    const s = app.listen(opts.port, host, () => {
+      s.removeListener('error', reject);
+      resolve(s);
+    });
+    // Without this, EADDRINUSE (and other listen failures) emit on the
+    // server but never reach the awaiter — the promise hangs and the
+    // caller prints its banner against a server that didn't actually bind.
+    s.once('error', (err) => reject(err));
   });
 
   const authUrl = `http://${host}:${opts.port}/auth#token=${token}`;
