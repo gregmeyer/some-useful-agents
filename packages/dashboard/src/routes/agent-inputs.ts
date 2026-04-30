@@ -421,7 +421,11 @@ agentInputsRouter.post('/agents/:name/notify/update', (req: Request, res: Respon
     return;
   }
 
-  const raw = typeof body.notify === 'string' ? body.notify.trim() : '';
+  // Accept either `notify_json` (structured form, preferred) or the legacy
+  // `notify` JSON blob (back-compat with old textarea + ad-hoc API calls).
+  const fromForm = typeof body.notify_json === 'string' ? body.notify_json.trim() : '';
+  const fromBlob = typeof body.notify === 'string' ? body.notify.trim() : '';
+  const raw = fromForm || fromBlob;
   if (!raw) {
     res.redirect(303, `${flashBase}?flash=${encodeURIComponent('Notify body is empty.')}`);
     return;
