@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { executeAgentDag, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { renderOutputWidget } from '../views/output-widgets.js';
+import { render } from '../views/html.js';
 
 export const widgetRunRouter: Router = Router();
 
@@ -97,6 +99,21 @@ widgetRunRouter.get('/runs/:id/widget-status', (req: Request, res: Response) => 
     res.status(404).json({ error: 'Run not found.' });
     return;
   }
+
+  // On terminal success, render the agent's outputWidget against the run
+  // result and ship the HTML to the tile. Saves the JS from re-implementing
+  // the widget renderer just to swap a pretty-printed JSON blob into the
+  // result box; the same renderer that runs on the server-side pulse render
+  // also runs here.
+  let widgetHtml: string | undefined;
+  if (run.status === 'completed' && typeof run.result === 'string') {
+    const agent = ctx.agentStore.getAgent(run.agentName);
+    if (agent?.outputWidget) {
+      const safe = renderOutputWidget(agent.outputWidget, run.result, agent.id);
+      if (safe) widgetHtml = render(safe);
+    }
+  }
+
   res.json({
     runId: run.id,
     status: run.status,
@@ -104,5 +121,6 @@ widgetRunRouter.get('/runs/:id/widget-status', (req: Request, res: Response) => 
     completedAt: run.completedAt,
     result: run.result,
     error: run.error,
+    ...(widgetHtml ? { widgetHtml } : {}),
   });
 });
