@@ -1038,6 +1038,17 @@ describe('Dashboard hard-delete (POST /agents/:name/delete)', () => {
     expect(res.status).toBe(303);
     expect(decodeURIComponent(res.headers.location)).toMatch(/not found/);
   });
+
+  it('GET /agents renders the flash banner when ?flash= is present', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .get('/agents?flash=Deleted%20%22something%22.')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('flash--ok');
+    expect(res.text).toContain('Deleted &quot;something&quot;.');
+  });
 });
 
 describe('Dashboard run-now gate', () => {
