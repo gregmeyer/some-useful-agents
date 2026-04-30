@@ -249,6 +249,34 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
         </p>
       </div>
 
+      <div id="ow-interactive-block" style="margin-bottom: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+        <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+          <input type="checkbox" name="widget_interactive" id="ow-interactive" ${widget?.interactive ? 'checked' : ''}>
+          <strong style="font-size: var(--font-size-xs);">Interactive mode</strong>
+          <span class="dim" style="font-size: var(--font-size-xs);">tile shows inputs form + Run button; runs in place</span>
+        </label>
+        <div id="ow-interactive-fields" style="display: ${widget?.interactive ? 'block' : 'none'}; margin-left: var(--space-4);">
+          ${(() => {
+            const declared = Object.keys(agent.inputs ?? {});
+            const allow = new Set(widget?.runInputs ?? declared);
+            const checks = declared.length === 0
+              ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Agent declares no inputs — interactive mode will run with no parameters.</p>`
+              : html`<div style="display: flex; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2);">${declared.map((n) => html`<label style="font-size: var(--font-size-xs); display: inline-flex; align-items: center; gap: var(--space-1);"><input type="checkbox" name="widget_run_inputs" value="${n}" ${allow.has(n) ? 'checked' : ''}> ${n}</label>`) as unknown as SafeHtml[]}</div>`;
+            return checks;
+          })()}
+          <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+            <label style="font-size: var(--font-size-xs); display: flex; flex-direction: column; gap: 2px;">
+              Run button label
+              <input type="text" name="widget_ask_label" placeholder="Run" value="${widget?.askLabel ?? ''}" style="${FIELD} width: 14rem;">
+            </label>
+            <label style="font-size: var(--font-size-xs); display: flex; flex-direction: column; gap: 2px;">
+              Replay button label
+              <input type="text" name="widget_replay_label" placeholder="Run again" value="${widget?.replayLabel ?? ''}" style="${FIELD} width: 14rem;">
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div style="display: flex; gap: var(--space-2); justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: var(--space-3);">
         <div style="display: flex; gap: var(--space-2); align-items: center;">
           <button type="button" class="btn btn--ghost btn--sm" id="add-widget-field-btn">+ Add field</button>
@@ -291,6 +319,16 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       var addBtn = document.getElementById('add-widget-field-btn');
       var exampleSel = document.getElementById('ow-example');
       var preview = document.getElementById('ow-preview');
+
+      // Interactive-mode toggle: show/hide the runInputs + label fields when
+      // the checkbox flips. No-op when the block is missing (defensive).
+      var interactiveToggle = document.getElementById('ow-interactive');
+      var interactiveFields = document.getElementById('ow-interactive-fields');
+      if (interactiveToggle && interactiveFields) {
+        interactiveToggle.addEventListener('change', function () {
+          interactiveFields.style.display = interactiveToggle.checked ? 'block' : 'none';
+        });
+      }
 
       function currentWidget() { return hidden.value; }
       function activeCard() { return cards.querySelector('.ow-card.is-active'); }

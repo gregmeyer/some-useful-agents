@@ -3,7 +3,9 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, loadAgents } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { renderInteractiveWidget } from './views/interactive-widget.js';
+import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
@@ -1918,6 +1920,147 @@ describe('Output widget editor UI', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(400);
     expect(res.text).toContain('Pick a widget type');
+  });
+});
+
+describe('Interactive widget tile + widget-run/widget-status', () => {
+  function seedInteractiveAgent(opts: { withResult?: boolean } = {}) {
+    agentStore.createAgent({
+      id: 'eight-ball',
+      name: '8-Ball',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      inputs: { question: { type: 'string', description: 'Ask the ball.' } },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo "{\\"answer\\":\\"yes\\"}"' }],
+      outputWidget: {
+        type: 'key-value',
+        fields: [{ name: 'answer', type: 'text' }],
+        interactive: true,
+        runInputs: ['question'],
+        askLabel: 'Ask',
+        replayLabel: 'Ask again',
+      },
+    }, 'cli');
+    if (opts.withResult) {
+      runStore.createRun({ id: 'r-prior', agentName: 'eight-ball', status: 'completed', triggeredBy: 'cli', startedAt: new Date().toISOString() });
+      runStore.updateRun('r-prior', {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        result: '{"answer":"signs point to yes"}',
+      });
+    }
+  }
+
+  function makeIWAgent(extra: Partial<Agent> = {}): Agent {
+    return {
+      id: 'eight-ball',
+      name: '8-Ball',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      version: 1,
+      inputs: { question: { type: 'string', description: 'Ask the ball.' } },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'key-value',
+        fields: [{ name: 'answer', type: 'text' }],
+        interactive: true,
+        runInputs: ['question'],
+        askLabel: 'Ask',
+        replayLabel: 'Ask again',
+      },
+      ...extra,
+    } as Agent;
+  }
+
+  it('renders asking state for an agent without a prior run', async () => {
+    await makeApp();   // initialize fixture so afterEach cleans up cleanly
+    const agent = makeIWAgent();
+    const widget = agent.outputWidget as OutputWidgetSchema;
+    const out = render(renderInteractiveWidget({ agent, widget }));
+    expect(out).toContain('data-iw');
+    expect(out).toContain('data-iw-state="asking"');
+    expect(out).toContain('input_question');
+    expect(out).toContain('Ask');
+  });
+
+  it('hydrates idle state when given a prior completed run', async () => {
+    await makeApp();
+    const agent = makeIWAgent();
+    const widget = agent.outputWidget as OutputWidgetSchema;
+    const out = render(renderInteractiveWidget({
+      agent,
+      widget,
+      lastRun: { id: 'r-prior', result: '{"answer":"yes"}', status: 'completed' },
+    }));
+    expect(out).toContain('data-iw-state="idle"');
+    expect(out).toContain('Ask again');
+  });
+
+  it('POST /agents/:id/widget-run accepts inputs and returns a runId', async () => {
+    const app = await makeApp();
+    seedInteractiveAgent();
+    const res = await request(app)
+      .post('/agents/eight-ball/widget-run')
+      .type('form').send({ input_question: 'Will today be good?' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(202);
+    expect(res.body.runId).toMatch(/^[0-9a-f-]+$/);
+  });
+
+  it('GET /runs/:id/widget-status returns lightweight JSON for polling', async () => {
+    const app = await makeApp();
+    seedInteractiveAgent();
+    runStore.createRun({ id: 'r-poll', agentName: 'eight-ball', status: 'completed', triggeredBy: 'cli', startedAt: new Date().toISOString() });
+    runStore.updateRun('r-poll', {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      result: 'ok',
+    });
+    const res = await request(app).get('/runs/r-poll/widget-status')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ runId: 'r-poll', status: 'completed', result: 'ok' });
+  });
+
+  it('GET /runs/:unknown/widget-status returns 404 JSON', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/runs/nope/widget-status')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it('runInputs subset hides inputs not listed', async () => {
+    await makeApp();
+    const agent = makeIWAgent({
+      inputs: {
+        question: { type: 'string' },
+        secret_internal: { type: 'string' },
+      },
+    });
+    const widget = agent.outputWidget as OutputWidgetSchema;
+    const out = render(renderInteractiveWidget({ agent, widget }));
+    expect(out).toContain('input_question');
+    expect(out).not.toContain('input_secret_internal');
+  });
+
+  it('omits runInputs filter when not declared (every input shown)', async () => {
+    await makeApp();
+    const agent = makeIWAgent({
+      inputs: {
+        a: { type: 'string' },
+        b: { type: 'string' },
+      },
+    });
+    const widget = { ...(agent.outputWidget as OutputWidgetSchema), runInputs: undefined };
+    const out = render(renderInteractiveWidget({ agent, widget }));
+    expect(out).toContain('input_a');
+    expect(out).toContain('input_b');
   });
 });
 

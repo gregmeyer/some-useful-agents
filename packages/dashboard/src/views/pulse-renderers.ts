@@ -9,6 +9,7 @@ import { normalizeSignal } from './pulse-templates.js';
 import { esc, stringify, renderMarkdown, looksLikeJson, prettyJson } from './pulse-helpers.js';
 import type { PulseTile, TileWrapFn } from './pulse-types.js';
 import { renderOutputWidget } from './output-widgets.js';
+import { renderInteractiveWidget } from './interactive-widget.js';
 
 // ── Renderers ────────────────────────────────────────────────────────────
 
@@ -345,6 +346,15 @@ export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 
 function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   const agent = tile.agent;
+  // Interactive mode: tile becomes a self-contained mini-app with inputs
+  // form + Run button + status polling. Doesn't require a prior run.
+  if (agent.outputWidget?.interactive) {
+    return wrap(tile, renderInteractiveWidget({
+      agent,
+      widget: agent.outputWidget,
+      lastRun: tile.lastRun ?? undefined,
+    }));
+  }
   if (!agent.outputWidget || !tile.lastRun?.result) {
     return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No widget output yet.</p>`);
   }

@@ -31,6 +31,7 @@ import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
+import { widgetRunRouter } from './routes/widget-run.js';
 import { toolsRouter } from './routes/tools.js';
 import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
@@ -183,6 +184,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(runNowRouter);
   app.use(buildRouter);
   app.use(runMutationsRouter);
+  app.use(widgetRunRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
