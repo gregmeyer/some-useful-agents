@@ -49,4 +49,20 @@ export interface OutputWidgetSchema {
    * verbatim. Re-rendered at run time by substituting + sanitizing.
    */
   template?: string;
+  /**
+   * Interactive widget mode. When true, the dashboard renders the widget with
+   * an inline inputs form + Run button so users can trigger fresh runs from
+   * the tile without navigating away. Result polls in via the widget-status
+   * endpoint. Default false; existing widgets render in static mode.
+   */
+  interactive?: boolean;
+  /**
+   * Subset of `agent.inputs` names to expose in the interactive tile. If
+   * absent (and `interactive` is true), every declared input is shown.
+   */
+  runInputs?: string[];
+  /** Override label for the initial run button. Default "Run". */
+  askLabel?: string;
+  /** Override label for the post-result replay button. Default "Run again". */
+  replayLabel?: string;
 }

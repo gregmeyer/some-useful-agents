@@ -212,6 +212,21 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     });
   }
 
+  // Interactive-mode fields. Checkbox values arrive as 'on' (or absent).
+  // The runInputs checkbox group posts as either a string or an array.
+  const interactive = body.widget_interactive === 'on' || body.widget_interactive === 'true';
+  const rawRunInputs = body.widget_run_inputs;
+  let runInputs: string[] | undefined;
+  if (Array.isArray(rawRunInputs)) {
+    runInputs = rawRunInputs.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  } else if (typeof rawRunInputs === 'string' && rawRunInputs.length > 0) {
+    runInputs = [rawRunInputs];
+  }
+  const askLabel = typeof body.widget_ask_label === 'string' && body.widget_ask_label.trim()
+    ? body.widget_ask_label.trim() : undefined;
+  const replayLabel = typeof body.widget_replay_label === 'string' && body.widget_replay_label.trim()
+    ? body.widget_replay_label.trim() : undefined;
+
   let outputWidget: OutputWidgetSchema;
   if (widgetType === 'ai-template') {
     const rawTemplate = typeof body.template === 'string' ? body.template : '';
@@ -226,11 +241,19 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       template: sanitized,
       ...(promptText ? { prompt: promptText } : {}),
       ...(fields.length > 0 ? { fields } : {}),
+      ...(interactive ? { interactive: true } : {}),
+      ...(interactive && runInputs ? { runInputs } : {}),
+      ...(interactive && askLabel ? { askLabel } : {}),
+      ...(interactive && replayLabel ? { replayLabel } : {}),
     };
   } else {
     outputWidget = {
       type: widgetType as OutputWidgetType,
       fields,
+      ...(interactive ? { interactive: true } : {}),
+      ...(interactive && runInputs ? { runInputs } : {}),
+      ...(interactive && askLabel ? { askLabel } : {}),
+      ...(interactive && replayLabel ? { replayLabel } : {}),
     };
   }
 
