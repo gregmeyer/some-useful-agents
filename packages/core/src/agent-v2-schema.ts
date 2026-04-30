@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
 import { inputSpecSchema } from './schema.js';
+import { outputWidgetSchema } from './output-widget-schema.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const NODE_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -216,21 +217,11 @@ export const agentV2Schema = z.object({
     }
   }).optional(),
 
-  outputWidget: z.object({
-    type: z.enum(['diff-apply', 'key-value', 'raw', 'dashboard']),
-    fields: z.array(z.object({
-      name: z.string().min(1),
-      label: z.string().optional(),
-      type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat']),
-    })).min(1),
-    actions: z.array(z.object({
-      id: z.string().min(1),
-      label: z.string().min(1),
-      method: z.literal('POST'),
-      endpoint: z.string().min(1),
-      payloadField: z.string().optional(),
-    })).optional(),
-  }).optional(),
+  // Reuse the canonical outputWidgetSchema instead of an inline duplicate.
+  // The inline version had drifted: missing ai-template type, preview field
+  // type, prompt/template fields, and (most recently) the interactive-mode
+  // fields — all of which YAML import would silently strip.
+  outputWidget: outputWidgetSchema.optional(),
 
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
