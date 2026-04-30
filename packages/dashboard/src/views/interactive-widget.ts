@@ -250,20 +250,22 @@ export function renderInteractiveWidget(args: {
             .then(function (data) {
               if (data.status === 'completed') {
                 clearPoll();
-                // Re-fetch the widget rendering by asking the agent detail
-                // page for it. Cheaper: just put the raw result in a <pre>.
-                // But we want the actual widget — fetch the agent overview
-                // fragment we already render server-side. For now, reload
-                // the parent tile via re-render endpoint OR just show the
-                // raw result. Take the simpler path: show the raw result
-                // text and let the next pulse refresh swap in the widget.
-                var resultText = (data.result == null ? '' : String(data.result));
-                if (resultBox) {
-                  resultBox.innerHTML = '<pre style="margin: 0; white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-xs);">' +
+                // Server-side rendered widget HTML when the agent has an
+                // outputWidget — keeps the rendering identical to the static
+                // pulse tile path. Falls back to a JSON-pretty <pre> only
+                // when no widget can be rendered (no outputWidget, or the
+                // schema rejected the result).
+                var html = '';
+                if (typeof data.widgetHtml === 'string' && data.widgetHtml.length > 0) {
+                  html = data.widgetHtml;
+                } else {
+                  var resultText = (data.result == null ? '' : String(data.result));
+                  html = '<pre style="margin: 0; white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--font-size-xs);">' +
                     resultText.replace(/[<>&]/g, function (c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'; }) +
                     '</pre>';
                 }
-                showSuccess(resultBox ? resultBox.innerHTML : '');
+                if (resultBox) resultBox.innerHTML = html;
+                showSuccess(html);
                 return;
               }
               if (data.status === 'failed') {

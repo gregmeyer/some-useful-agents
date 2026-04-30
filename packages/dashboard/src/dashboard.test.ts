@@ -2026,6 +2026,23 @@ describe('Interactive widget tile + widget-run/widget-status', () => {
     expect(res.body).toMatchObject({ runId: 'r-poll', status: 'completed', result: 'ok' });
   });
 
+  it('widget-status returns server-rendered widgetHtml on completion when the agent has an outputWidget', async () => {
+    const app = await makeApp();
+    seedInteractiveAgent();
+    runStore.createRun({ id: 'r-html', agentName: 'eight-ball', status: 'completed', triggeredBy: 'cli', startedAt: new Date().toISOString() });
+    runStore.updateRun('r-html', {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      result: '{"answer":"yes"}',
+    });
+    const res = await request(app).get('/runs/r-html/widget-status')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.widgetHtml).toBe('string');
+    expect(res.body.widgetHtml).toContain('yes');
+  });
+
   it('GET /runs/:unknown/widget-status returns 404 JSON', async () => {
     const app = await makeApp();
     const res = await request(app).get('/runs/nope/widget-status')
