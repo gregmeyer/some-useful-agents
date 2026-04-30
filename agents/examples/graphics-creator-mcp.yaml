@@ -1,40 +1,38 @@
-# Graphics creator — turns a topic + audience brief into a rendered hero graphic.
+# Graphics creator (MCP) — single claude-code node that calls the
+# modern-graphics MCP server to render a hero graphic from a topic.
 #
-# Chains MCP-backed tools imported from the modern-graphics server:
-#   modern-graphics-set-output-root   (scope writes to a run-specific dir)
-#   modern-graphics-create-theme      (optional: brand tokens from a brief)
-#   modern-graphics-save-theme        (persist so later runs can reuse)
-#   modern-graphics-generate-graphic  (render the hero)
-#   modern-graphics-composite-image   (overlay a title / watermark)
+# Earlier versions tried a 6-node theme-then-render-then-composite pipeline
+# and accumulated bugs (missing prompts, broken upstream wiring, theme
+# steps that never produced reusable output). This version trusts the LLM
+# to pick a theme + write a punchy headline + call generate_graphic in one
+# round-trip. Simpler, faster, and actually works.
 #
-# Prereq (one-time): open /tools/mcp/import, connect the modern-graphics
-# MCP server with prefix "modern-graphics", select the five tools above.
+# Prereq (one-time): import the modern-graphics MCP server via
+# /tools/mcp/import. The agent uses these MCP tools:
+#   modern-graphics-list-themes       (browse themes when the user didn't pin one)
+#   modern-graphics-generate-graphic  (render the actual file)
 #
-# Run: sua workflow run graphics-creator-mcp -i TOPIC="Q2 growth wins" -i AUDIENCE="investors"
+# Run: sua workflow run graphics-creator-mcp -i TOPIC="Q2 growth wins"
 id: graphics-creator-mcp
 name: Graphics creator (MCP)
-description: >
-  Generate a themed hero graphic + composited variant from a topic and audience
-  using the modern-graphics MCP server. Demonstrates MCP tool chaining:
-  theme setup → graphic render → composite overlay.
+description: |
+  Generate a polished hero graphic from a topic using the modern-graphics
+  MCP server. One claude-code node: pick a theme, write a punchy title,
+  call generate_graphic, return a structured JSON pointer to the file.
 status: active
 source: examples
+mcp: false
 
 inputs:
   TOPIC:
     type: string
     required: true
     description: What the graphic is about, e.g. "Q2 growth wins".
-  AUDIENCE:
-    type: string
-    required: false
-    default: "general"
-    description: Target reader — shapes tone and palette (e.g. "investors", "devs", "executives").
   LAYOUT:
     type: enum
     required: false
-    default: "hero"
-    description: modern-graphics layout. Text layouts work with title/subtitle; chart layouts need a separate data payload (use chart-creator-mcp instead).
+    default: hero
+    description: modern-graphics layout. Stick to text-driven layouts here; chart layouts need data, use chart-creator-mcp instead.
     values:
       - hero
       - hero-triptych
@@ -42,7 +40,6 @@ inputs:
       - insight-story
       - key-insight
       - story
-      - equation
       - comparison
       - timeline
       - funnel
@@ -51,87 +48,85 @@ inputs:
     type: string
     required: false
     default: ""
-    description: Optional subtitle. Leave blank to auto-derive from AUDIENCE.
-  TONE:
-    type: string
-    required: false
-    default: "confident, modern, high-contrast"
-    description: Style direction fed into theme creation.
-  THEME_NAME:
+    description: Optional one-line subtitle. Leave blank for the LLM to derive one from TOPIC.
+  THEME:
     type: string
     required: false
     default: ""
-    description: Reuse an existing saved theme by name. Leave blank to create a fresh one per run.
+    description: Specific theme name to use (e.g. "operator", "warm"). Leave blank to let the LLM pick one that fits the topic.
+  AUDIENCE:
+    type: string
+    required: false
+    default: general
+    description: Target reader — guides tone (e.g. "investors", "developers", "executives").
   OUTPUT_DIR:
     type: string
     required: false
-    default: ".sua/graphics-output"
-    description: Where rendered assets are written (relative to project root).
-  OVERLAY_TEXT:
-    type: string
-    required: false
-    default: ""
-    description: Text overlaid on the composite. Blank = reuse TOPIC.
-  OVERLAY_POSITION:
-    type: enum
-    required: false
-    default: "bottom-right"
-    description: Overlay anchor.
-    values:
-      - top-left
-      - top-right
-      - bottom-left
-      - bottom-right
-      - center
+    default: .sua/graphics-output
+    description: Where the rendered file is written, relative to the project root.
 
 nodes:
-  - id: scope-output
+  - id: render
     type: claude-code
-    tool: modern-graphics-set-output-root
-    toolInputs:
-      root: "{{inputs.OUTPUT_DIR}}"
+    timeout: 120
+    maxTurns: 6
+    prompt: |
+      You are rendering a single graphic for: **{{inputs.TOPIC}}**
+      Audience: {{inputs.AUDIENCE}}
+      Layout: {{inputs.LAYOUT}}
+      Theme preference: {{inputs.THEME}} (blank = pick one from the list)
+      Subtitle preference: {{inputs.SUBTITLE}} (blank = derive from TOPIC)
 
-  - id: theme
-    type: claude-code
-    tool: modern-graphics-create-theme
-    dependsOn: [scope-output]
-    toolInputs:
-      name: "graphics-creator-{{inputs.AUDIENCE}}"
-      brief: |
-        Audience: {{inputs.AUDIENCE}}
-        Topic: {{inputs.TOPIC}}
-        Goals: {{inputs.TONE}}. Avoid stock-slop aesthetics.
+      Steps:
 
-  - id: persist-theme
-    type: claude-code
-    tool: modern-graphics-save-theme
-    dependsOn: [theme]
-    toolInputs:
-      theme: "{{upstream.theme.result}}"
+      1. THEME — if THEME is blank, call `list_themes` and pick the one that
+         best fits the topic + audience. Note the theme's name.
 
-  - id: hero
-    type: claude-code
-    tool: modern-graphics-generate-graphic
-    dependsOn: [persist-theme]
-    toolInputs:
-      layout: "{{inputs.LAYOUT}}"
-      theme: "graphics-creator-{{inputs.AUDIENCE}}"
-      title: "{{inputs.TOPIC}}"
-      subtitle: "{{inputs.SUBTITLE}}"
+      2. TITLE — write a punchy 4–8 word title from TOPIC. No trailing
+         punctuation. If SUBTITLE is blank, write a one-line supporting
+         sentence (≤ 12 words) yourself; otherwise use SUBTITLE verbatim.
 
-  - id: composite
-    type: claude-code
-    tool: modern-graphics-composite-image
-    dependsOn: [hero]
-    toolInputs:
-      base: "{{upstream.hero.result}}"
-      overlay_text: "{{inputs.OVERLAY_TEXT}}"
-      position: "{{inputs.OVERLAY_POSITION}}"
+      3. RENDER — call `generate_graphic` exactly once with:
+            layout: {{inputs.LAYOUT}}
+            title: <your title>
+            subtitle: <subtitle from step 2>
+            theme: <theme name from step 1>
+            output_path: {{inputs.OUTPUT_DIR}}/{{inputs.LAYOUT}}-<unix-timestamp>.png
 
-  - id: summarise
-    type: shell
-    dependsOn: [hero, composite]
-    command: |
-      echo "=== Graphics ready ==="
-      echo "Hero:      $UPSTREAM_HERO_RESULT"
-      echo "Composite: $UPSTREAM_COMPOSITE_RESULT"
+         If the call fails, inspect the error and retry ONCE with corrected
+         arguments. Do not retry more than once.
+
+      4. RETURN — output ONLY a raw JSON object — no markdown fences, no
+         prose, no surrounding text:
+
+         {
+           "title": "<title you used>",
+           "subtitle": "<subtitle you used>",
+           "layout": "{{inputs.LAYOUT}}",
+           "theme": "<theme name you used>",
+           "graphic_path": "<absolute path returned by generate_graphic>",
+           "topic": "{{inputs.TOPIC}}"
+         }
+
+      Constraints:
+      - Make exactly ONE generate_graphic call (plus at most one retry on error).
+      - Do NOT call any other tools beyond list_themes and generate_graphic.
+      - Output must be valid JSON; the agent's output widget parses it.
+
+signal:
+  title: Graphic
+  template: text-image
+  size: 2x2
+
+outputWidget:
+  type: dashboard
+  interactive: true
+  runInputs: [TOPIC, LAYOUT, THEME]
+  askLabel: Generate graphic
+  replayLabel: Generate another
+  fields:
+    - { name: title,        type: text,   label: Title }
+    - { name: subtitle,     type: text,   label: Subtitle }
+    - { name: layout,       type: badge,  label: Layout }
+    - { name: theme,        type: badge,  label: Theme }
+    - { name: graphic_path, type: preview, label: Output }
