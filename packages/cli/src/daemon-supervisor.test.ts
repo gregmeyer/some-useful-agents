@@ -176,17 +176,16 @@ describe('spawnService + stopService', () => {
 
   it('waitForServiceSettle reports stale when the child dies during the settle window', async () => {
     const { spawn } = await import('node:child_process');
-    // Spawn a child that exits after 20ms — we settle for 100ms, so it's
-    // dead by the time we check.
-    const child = spawn('node', ['-e', 'setTimeout(() => process.exit(0), 20)'], {
-      detached: true,
-      stdio: 'ignore',
-    });
-    child.unref();
+    // Spawn a child that exits immediately. Wait for the actual `exit`
+    // event before calling settle so the timeline is deterministic — the
+    // previous "exit after 20ms, settle for 100ms" pattern was flaky on
+    // slow CI nodes where node startup + scheduling exceeded 100ms.
+    const child = spawn('node', ['-e', 'process.exit(0)'], { stdio: 'ignore' });
     const paths = ensureDaemonDirs(dataDir);
     writeFileSync(paths.pidPath('mcp'), `${child.pid}\n`);
+    await new Promise<void>((resolve) => child.once('exit', () => resolve()));
 
-    const status = await waitForServiceSettle(dataDir, 'mcp', 100);
+    const status = await waitForServiceSettle(dataDir, 'mcp', 10);
     expect(status.state).toBe('stale');
     expect(status.pid).toBe(child.pid);
   });

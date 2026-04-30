@@ -1053,6 +1053,128 @@ describe('Dashboard hard-delete (POST /agents/:name/delete)', () => {
   });
 });
 
+describe('Dashboard notify editor (form-based)', () => {
+  function seedAgent(notify?: unknown) {
+    agentStore.createAgent({
+      id: 'notif',
+      name: 'Notif',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...(notify ? { notify: notify as any } : {}),
+    }, 'cli');
+  }
+
+  it('renders the structured form with the three add-handler buttons for an agent without notify', async () => {
+    const app = await makeApp();
+    seedAgent();
+    const res = await request(app).get('/agents/notif/config')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('id="notify-form"');
+    expect(res.text).toContain('data-add-handler="slack"');
+    expect(res.text).toContain('data-add-handler="file"');
+    expect(res.text).toContain('data-add-handler="webhook"');
+    // Hydration payload reflects the empty defaults.
+    expect(res.text).toContain('"on":["failure"]');
+    expect(res.text).toContain('"handlers":[]');
+  });
+
+  it('hydrates the form from an existing notify config', async () => {
+    const app = await makeApp();
+    seedAgent({
+      on: ['failure'],
+      secrets: ['SLACK_HOOK'],
+      handlers: [{ type: 'slack', webhook_secret: 'SLACK_HOOK', channel: '#alerts' }],
+    });
+    const res = await request(app).get('/agents/notif/config')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('"secrets":["SLACK_HOOK"]');
+    expect(res.text).toContain('"webhook_secret":"SLACK_HOOK"');
+    expect(res.text).toContain('"channel":"#alerts"');
+  });
+
+  it('saves a valid notify_json payload and creates a new version', async () => {
+    const app = await makeApp();
+    seedAgent();
+    const before = agentStore.getAgent('notif')!.version;
+    const payload = JSON.stringify({
+      on: ['failure'],
+      secrets: ['SLACK_HOOK'],
+      handlers: [{ type: 'slack', webhook_secret: 'SLACK_HOOK', channel: '#alerts' }],
+    });
+    const res = await request(app)
+      .post('/agents/notif/notify/update')
+      .type('form').send({ action: 'save', notify_json: payload })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Notify saved/);
+    const after = agentStore.getAgent('notif')!;
+    expect(after.version).toBe(before + 1);
+    expect(after.notify?.handlers[0]).toMatchObject({ type: 'slack', webhook_secret: 'SLACK_HOOK', channel: '#alerts' });
+  });
+
+  it('flashes a validation error when a handler references an undeclared secret', async () => {
+    const app = await makeApp();
+    seedAgent();
+    const payload = JSON.stringify({
+      on: ['failure'],
+      secrets: [],   // empty — but slack handler references SLACK_HOOK
+      handlers: [{ type: 'slack', webhook_secret: 'SLACK_HOOK', channel: '#alerts' }],
+    });
+    const res = await request(app)
+      .post('/agents/notif/notify/update')
+      .type('form').send({ action: 'save', notify_json: payload })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Validation failed/);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/SLACK_HOOK/);
+    // Agent unchanged.
+    expect(agentStore.getAgent('notif')!.notify).toBeUndefined();
+  });
+
+  it('still accepts the legacy `notify` JSON blob field (back-compat)', async () => {
+    const app = await makeApp();
+    seedAgent();
+    const blob = JSON.stringify({
+      on: ['always'],
+      handlers: [{ type: 'file', path: 'logs/all.log', append: true }],
+    });
+    const res = await request(app)
+      .post('/agents/notif/notify/update')
+      .type('form').send({ action: 'save', notify: blob })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Notify saved/);
+    expect(agentStore.getAgent('notif')!.notify?.handlers[0]).toMatchObject({ type: 'file', path: 'logs/all.log' });
+  });
+
+  it('removes notify when action=remove', async () => {
+    const app = await makeApp();
+    seedAgent({
+      on: ['failure'],
+      handlers: [{ type: 'file', path: 'logs/x.log' }],
+    });
+    expect(agentStore.getAgent('notif')!.notify).toBeDefined();
+    const res = await request(app)
+      .post('/agents/notif/notify/update')
+      .type('form').send({ action: 'remove' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Notify removed/);
+    expect(agentStore.getAgent('notif')!.notify).toBeUndefined();
+  });
+});
+
 describe('Dashboard run-now gate', () => {
   it('POST /agents/hello/run submits and redirects to /runs/:id', async () => {
     const app = await makeApp();

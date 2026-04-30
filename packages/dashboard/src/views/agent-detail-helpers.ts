@@ -578,33 +578,203 @@ function fieldTypeSelectWithTooltip(name: string, current: string, _widgetType: 
  * agent-v2 schema, so any error surfaces inline as a flash.
  */
 export function renderNotifyEditor(agent: Agent): SafeHtml {
-  const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); width: 100%;';
-  const current = agent.notify ? JSON.stringify(agent.notify, null, 2) : '';
-  const placeholder = JSON.stringify({
-    on: ['failure'],
-    secrets: ['SLACK_WEBHOOK'],
-    handlers: [
-      { type: 'slack', webhook_secret: 'SLACK_WEBHOOK', channel: '#alerts' },
-      { type: 'file', path: 'logs/failures.jsonl' },
-    ],
-  }, null, 2);
+  const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
+  const FIELD_MONO = `${FIELD} font-family: var(--font-mono);`;
+
+  // Existing config (or empty defaults) — JS hydrates the form from this
+  // payload on load so the server-rendered HTML matches the JS state.
+  const initialJson = JSON.stringify(
+    agent.notify ?? { on: ['failure'], secrets: [], handlers: [] },
+  );
 
   return html`
     <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
       Fires after every run commits. Handlers run in parallel; a broken handler
       logs and is skipped — it never fails the run.
     </p>
-    <form method="POST" action="/agents/${agent.id}/notify/update">
-      <textarea name="notify" rows="14" placeholder="${placeholder}" style="${FIELD}">${current}</textarea>
-      <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0;">
-        JSON shape mirrors the YAML <code>notify:</code> block. Trigger: <code>failure</code>, <code>success</code>, or <code>always</code>.
-        Secrets must be declared in <code>secrets:</code> and set via <a href="/settings/secrets">Settings → Secrets</a>.
-      </p>
+
+    <form id="notify-form" method="POST" action="/agents/${agent.id}/notify/update">
+      <!-- Hidden serialized state — populated by JS on submit. The server
+           accepts either this notify_json field (preferred, shape matches
+           agent.notify exactly) or a legacy notify JSON blob (back-compat). -->
+      <input type="hidden" name="notify_json" id="notify-json-out">
+
+      <fieldset style="border: 1px solid var(--color-border); padding: var(--space-3); margin: 0 0 var(--space-3);">
+        <legend style="font-size: var(--font-size-xs); padding: 0 var(--space-2);">Trigger</legend>
+        <label style="margin-right: var(--space-3);"><input type="checkbox" data-on value="failure"> failure</label>
+        <label style="margin-right: var(--space-3);"><input type="checkbox" data-on value="success"> success</label>
+        <label><input type="checkbox" data-on value="always"> always</label>
+      </fieldset>
+
+      <fieldset style="border: 1px solid var(--color-border); padding: var(--space-3); margin: 0 0 var(--space-3);">
+        <legend style="font-size: var(--font-size-xs); padding: 0 var(--space-2);">Declared secrets</legend>
+        <input type="text" id="notify-secrets" placeholder="SLACK_WEBHOOK, WEBHOOK_TOKEN" style="${FIELD_MONO} width: 100%;">
+        <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">
+          Comma-separated, <code>UPPERCASE_WITH_UNDERSCORES</code>. Each name resolved from <a href="/settings/secrets">Settings → Secrets</a> at fire time.
+        </p>
+      </fieldset>
+
+      <fieldset style="border: 1px solid var(--color-border); padding: var(--space-3); margin: 0 0 var(--space-3);">
+        <legend style="font-size: var(--font-size-xs); padding: 0 var(--space-2);">Handlers</legend>
+        <div id="notify-handlers" style="display: flex; flex-direction: column; gap: var(--space-3);"></div>
+        <div id="notify-handlers-empty" class="dim" style="font-size: var(--font-size-xs); padding: var(--space-2); display: none;">
+          No handlers yet. Add one below.
+        </div>
+        <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3); flex-wrap: wrap;">
+          <button type="button" class="btn btn--ghost btn--sm" data-add-handler="slack">+ Add slack</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-add-handler="file">+ Add file</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-add-handler="webhook">+ Add webhook</button>
+        </div>
+      </fieldset>
+
       <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
         ${agent.notify ? html`<button type="submit" name="action" value="remove" class="btn btn--ghost btn--sm" style="color: var(--color-err);">Remove notify</button>` : html``}
         <button type="submit" name="action" value="save" class="btn btn--primary btn--sm">Save notify</button>
       </div>
     </form>
+
+    ${unsafeHtml(`<script>
+    (function () {
+      var INITIAL = ${initialJson};
+      var FIELD = ${JSON.stringify(FIELD)};
+      var FIELD_MONO = ${JSON.stringify(FIELD_MONO)};
+
+      var form = document.getElementById('notify-form');
+      var jsonOut = document.getElementById('notify-json-out');
+      var secretsInput = document.getElementById('notify-secrets');
+      var handlersWrap = document.getElementById('notify-handlers');
+      var handlersEmpty = document.getElementById('notify-handlers-empty');
+      var onChecks = form.querySelectorAll('input[data-on]');
+
+      function declaredSecrets() {
+        return (secretsInput.value || '')
+          .split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      }
+
+      function refreshSecretSelects() {
+        var names = declaredSecrets();
+        var selects = handlersWrap.querySelectorAll('select[data-secret-picker]');
+        selects.forEach(function (sel) {
+          var current = sel.value;
+          // Clear + repopulate (keeps the empty placeholder option)
+          while (sel.options.length > 0) sel.remove(0);
+          var optional = sel.getAttribute('data-secret-picker') === 'optional';
+          if (optional) {
+            sel.add(new Option('(none)', ''));
+          } else if (names.length === 0) {
+            sel.add(new Option('(declare a secret first)', ''));
+          }
+          names.forEach(function (n) { sel.add(new Option(n, n)); });
+          if (current && Array.from(sel.options).some(function (o) { return o.value === current; })) {
+            sel.value = current;
+          }
+        });
+      }
+
+      function updateEmptyState() {
+        handlersEmpty.style.display = handlersWrap.children.length === 0 ? '' : 'none';
+      }
+
+      function addHandlerRow(type, prefill) {
+        var row = document.createElement('div');
+        row.className = 'card';
+        row.setAttribute('data-handler-row', type);
+        row.style.cssText = 'padding: var(--space-3);';
+        var inner = '';
+        var header = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">' +
+          '<strong style="font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.05em;">' + type + '</strong>' +
+          '<button type="button" class="btn btn--ghost btn--sm" data-remove-handler style="color: var(--color-err);">Remove</button>' +
+          '</div>';
+        if (type === 'slack') {
+          inner = header +
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">Webhook secret <select data-field="webhook_secret" data-secret-picker="required" style="' + FIELD + ' margin-left: var(--space-2);"></select></label>' +
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">Channel <input type="text" data-field="channel" placeholder="#alerts" style="' + FIELD + ' margin-left: var(--space-2); width: 14rem;"></label>' +
+            '<label style="display: block; font-size: var(--font-size-xs);">Mention <input type="text" data-field="mention" placeholder="@oncall" style="' + FIELD + ' margin-left: var(--space-2); width: 14rem;"></label>';
+        } else if (type === 'file') {
+          inner = header +
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">Path <input type="text" data-field="path" placeholder="logs/failures.jsonl" style="' + FIELD_MONO + ' margin-left: var(--space-2); width: 22rem;"></label>' +
+            '<label style="display: block; font-size: var(--font-size-xs);"><input type="checkbox" data-field="append" checked> Append (else overwrite)</label>';
+        } else if (type === 'webhook') {
+          inner = header +
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">URL <input type="text" data-field="url" placeholder="https://hooks.example.com/..." style="' + FIELD_MONO + ' margin-left: var(--space-2); width: 24rem;"></label>' +
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">Method <select data-field="method" style="' + FIELD + ' margin-left: var(--space-2);"><option value="POST">POST</option><option value="PUT">PUT</option></select></label>' +
+            '<label style="display: block; font-size: var(--font-size-xs);">Headers secret <select data-field="headers_secret" data-secret-picker="optional" style="' + FIELD + ' margin-left: var(--space-2);"></select></label>';
+        }
+        row.innerHTML = inner;
+        handlersWrap.appendChild(row);
+        refreshSecretSelects();
+
+        if (prefill) {
+          Object.keys(prefill).forEach(function (k) {
+            if (k === 'type') return;
+            var el = row.querySelector('[data-field="' + k + '"]');
+            if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!prefill[k];
+            else el.value = prefill[k] == null ? '' : String(prefill[k]);
+          });
+        }
+        row.querySelector('[data-remove-handler]').addEventListener('click', function () {
+          row.remove();
+          updateEmptyState();
+        });
+        updateEmptyState();
+      }
+
+      function serializeHandlers() {
+        var rows = handlersWrap.querySelectorAll('[data-handler-row]');
+        var out = [];
+        rows.forEach(function (row) {
+          var type = row.getAttribute('data-handler-row');
+          var obj = { type: type };
+          row.querySelectorAll('[data-field]').forEach(function (el) {
+            var key = el.getAttribute('data-field');
+            if (el.type === 'checkbox') {
+              obj[key] = el.checked;
+            } else {
+              var v = el.value;
+              if (v !== '' && v != null) obj[key] = v;
+            }
+          });
+          out.push(obj);
+        });
+        return out;
+      }
+
+      // Hydrate from initial state.
+      onChecks.forEach(function (c) {
+        c.checked = (INITIAL.on || []).indexOf(c.value) !== -1;
+      });
+      secretsInput.value = (INITIAL.secrets || []).join(', ');
+      (INITIAL.handlers || []).forEach(function (h) { addHandlerRow(h.type, h); });
+      updateEmptyState();
+      refreshSecretSelects();
+
+      // Wire the Add buttons.
+      form.querySelectorAll('[data-add-handler]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          addHandlerRow(btn.getAttribute('data-add-handler'), null);
+        });
+      });
+
+      // Live refresh of secret selects when the secrets list changes.
+      secretsInput.addEventListener('input', refreshSecretSelects);
+
+      // Serialize on submit (skip for the Remove button so the server can
+      // see action=remove without a payload).
+      form.addEventListener('submit', function (ev) {
+        var btn = ev.submitter;
+        if (btn && btn.value === 'remove') return;
+        var on = [];
+        onChecks.forEach(function (c) { if (c.checked) on.push(c.value); });
+        var payload = {
+          on: on,
+          secrets: declaredSecrets(),
+          handlers: serializeHandlers(),
+        };
+        jsonOut.value = JSON.stringify(payload);
+      });
+    })();
+    </script>`)}
   `;
 }
 
