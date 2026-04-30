@@ -94,12 +94,37 @@ export function renderInteractiveWidget(args: {
   return html`
     <div class="iw" data-iw data-iw-agent="${agent.id}" data-iw-state="${startState}">
       <style>
-        .iw { position: relative; }
-        .iw-pane { transition: opacity 220ms ease, transform 220ms ease; }
-        .iw-pane[hidden] { display: none; }
+        /* Grid stack: every pane sits in the same cell, so the tile's
+           height is the tallest pane in the DOM, not the active one. No
+           jumpy resize when transitioning between asking, running, and
+           result states. */
+        .iw {
+          display: grid;
+          grid-template-areas: 'stack';
+          position: relative;
+          min-height: 8rem;
+        }
+        .iw-pane {
+          grid-area: stack;
+          display: flex;
+          flex-direction: column;
+          transition: opacity 220ms ease, transform 220ms ease;
+        }
+        /* Hidden panes still contribute to grid sizing — that's the point.
+           Use opacity + visibility instead of display:none so the cell
+           stays at max(child heights). pointer-events disabled so clicks
+           pass through to whatever is on top. */
+        .iw-pane.iw-pane-inactive {
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+        }
         .iw-pane.iw-leaving { opacity: 0; transform: translateY(-4px); }
         .iw-pane.iw-entering { opacity: 0; transform: translateY(4px); }
         .iw-pane.iw-entered { opacity: 1; transform: translateY(0); }
+        /* Short panes (spinner-only, error card) center vertically in the
+           cell so they don't anchor to the top of an over-sized container. */
+        .iw-pane-running, .iw-pane-stuck, .iw-pane-error { justify-content: center; }
         .iw[data-iw-state="running"] { box-shadow: 0 0 0 1px var(--color-primary, #2563eb); animation: iw-pulse 1.6s ease-in-out infinite; border-radius: var(--radius-md); }
         @keyframes iw-pulse {
           0%, 100% { box-shadow: 0 0 0 1px var(--color-primary, #2563eb); }
@@ -109,7 +134,9 @@ export function renderInteractiveWidget(args: {
           .iw-pane { transition: none; }
           .iw[data-iw-state="running"] { animation: none; }
         }
-        .iw-cta-row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-3); }
+        /* Push CTA rows to the bottom so the form's button stays anchored
+           regardless of how tall the cell is. */
+        .iw-cta-row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: auto; padding-top: var(--space-3); }
         .iw-status { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); }
         .iw-spinner { width: 14px; height: 14px; border: 2px solid var(--color-border); border-top-color: var(--color-primary, #2563eb); border-radius: 50%; animation: iw-spin 700ms linear infinite; }
         @keyframes iw-spin { to { transform: rotate(360deg); } }
@@ -117,14 +144,14 @@ export function renderInteractiveWidget(args: {
         .iw-error { padding: var(--space-3); border: 1px solid var(--color-err); border-radius: var(--radius-sm); background: rgba(220, 38, 38, 0.04); }
       </style>
 
-      <div class="iw-pane iw-pane-idle" ${startState === 'idle' ? '' : 'hidden'}>
+      <div class="iw-pane iw-pane-idle ${startState === 'idle' ? '' : 'iw-pane-inactive'}">
         <div class="iw-result">${idleBody}</div>
         <div class="iw-cta-row">
           <button type="button" class="btn btn--primary btn--sm" data-iw-replay>${replayLabel}</button>
         </div>
       </div>
 
-      <div class="iw-pane iw-pane-asking" ${startState === 'asking' ? '' : 'hidden'}>
+      <div class="iw-pane iw-pane-asking ${startState === 'asking' ? '' : 'iw-pane-inactive'}">
         <form data-iw-form>
           ${inputs.length > 0 ? fieldRows as unknown as SafeHtml[] : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">No inputs declared. Click ${askLabel} to run.</p>`}
           <div class="iw-cta-row">
@@ -134,7 +161,7 @@ export function renderInteractiveWidget(args: {
         </form>
       </div>
 
-      <div class="iw-pane iw-pane-running" hidden>
+      <div class="iw-pane iw-pane-running iw-pane-inactive">
         <div class="iw-status">
           <div class="iw-spinner" aria-hidden="true"></div>
           <span>Running… <span data-iw-elapsed>0</span>s</span>
@@ -142,13 +169,13 @@ export function renderInteractiveWidget(args: {
         </div>
       </div>
 
-      <div class="iw-pane iw-pane-stuck" hidden>
+      <div class="iw-pane iw-pane-stuck iw-pane-inactive">
         <div class="iw-status">
           <span>Still running. <a data-iw-stuck-link href="#">View run details</a></span>
         </div>
       </div>
 
-      <div class="iw-pane iw-pane-error" hidden>
+      <div class="iw-pane iw-pane-error iw-pane-inactive">
         <div class="iw-error">
           <p style="margin: 0 0 var(--space-2); font-weight: var(--weight-bold); color: var(--color-err);">Run failed</p>
           <p data-iw-error-msg style="margin: 0 0 var(--space-2); font-size: var(--font-size-xs); font-family: var(--font-mono); white-space: pre-wrap;"></p>
@@ -195,12 +222,12 @@ export function renderInteractiveWidget(args: {
           if (leaving) {
             leaving.classList.add('iw-leaving');
             setTimeout(function () {
-              leaving.hidden = true;
+              leaving.classList.add('iw-pane-inactive');
               leaving.classList.remove('iw-leaving');
             }, 220);
           }
           if (entering) {
-            entering.hidden = false;
+            entering.classList.remove('iw-pane-inactive');
             entering.classList.add('iw-entering');
             requestAnimationFrame(function () {
               entering.classList.remove('iw-entering');
@@ -275,7 +302,11 @@ export function renderInteractiveWidget(args: {
               }
               if (data.status === 'cancelled') {
                 clearPoll();
-                transition(panes.idle && !panes.idle.hidden ? 'idle' : 'asking');
+                // After a cancel, return to whichever pane was visible
+                // before submit. The "idle" pane has rendered content
+                // when the agent had a prior run; use that as the cue.
+                var hadPrior = panes.idle && panes.idle.querySelector('.iw-result *');
+                transition(hadPrior ? 'idle' : 'asking');
                 return;
               }
               // running / pending: keep polling
