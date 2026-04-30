@@ -281,6 +281,16 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
   const totalV2 = v2Agents.length;
   const paginatedV2 = v2Agents.slice(offset, offset + limit);
 
+  // Flash from mutation redirects (e.g. delete success). `?error=` is
+  // reserved for mutation failures so the banner kind matches user intent.
+  const flashOk = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const flashErr = typeof req.query.error === 'string' ? req.query.error : undefined;
+  const flash = flashErr
+    ? { kind: 'error' as const, message: flashErr }
+    : flashOk
+    ? { kind: 'ok' as const, message: flashOk }
+    : undefined;
+
   res.type('html').send(renderAgentsList({
     v1: mergedV1,
     v2: paginatedV2,
@@ -293,6 +303,7 @@ agentsRouter.get('/agents', (req: Request, res: Response) => {
     limit,
     offset,
     total: totalV2,
+    flash,
   }));
 });
 

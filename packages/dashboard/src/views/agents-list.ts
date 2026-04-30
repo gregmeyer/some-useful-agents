@@ -37,6 +37,8 @@ export interface AgentsListInput {
   offset: number;
   /** Total v2 count before pagination (after filtering). */
   total: number;
+  /** Banner shown above the page (redirected from a mutation route). */
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -117,7 +119,7 @@ export function renderAgentsList(input: AgentsListInput): string {
     </div>
   `;
 
-  return render(layout({ title: 'Agents', activeNav: 'agents' }, body));
+  return render(layout({ title: 'Agents', activeNav: 'agents', flash: input.flash }, body));
 }
 
 function renderTabStrip(input: AgentsListInput): SafeHtml {
