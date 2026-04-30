@@ -433,8 +433,8 @@ Rules:
 - Keep the same agent id ("${name}")
 
 Output ONLY the complete fixed YAML. Nothing else.`,
-      maxTurns: 1,
-      timeout: 60,
+      maxTurns: 3,
+      timeout: 180,
     }],
   };
 
@@ -449,8 +449,10 @@ Output ONLY the complete fixed YAML. Nothing else.`,
       },
     );
 
-    // Wait for completion.
-    const maxWait = 65_000;
+    // Wait for completion. Window slightly exceeds the agent's timeout
+    // so a slow Claude response surfaces as an LLM-level error rather
+    // than a router-level timeout.
+    const maxWait = 200_000;
     const pollInterval = 1_000;
     const startTime = Date.now();
     let result = ctx.runStore.getRun(run.id);
@@ -461,7 +463,13 @@ Output ONLY the complete fixed YAML. Nothing else.`,
     }
 
     if (!result?.result) {
-      res.json({ ok: false, error: 'Fix attempt timed out or produced no output.' });
+      res.json({
+        ok: false,
+        error:
+          "Auto-fix didn't return a corrected YAML in time. The suggested rewrite is still " +
+          "available — click Edit manually to apply it as a starting point and resolve the " +
+          "validation error yourself.",
+      });
       return;
     }
 

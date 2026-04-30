@@ -211,4 +211,85 @@ nodes:
     const a2 = parseAgent(exportAgent(a1));
     expect(a2.nodes[0].prompt).toBe('Line one\nLine two\nLine three\n');
   });
+
+  it('round-trips tool-driven nodes (tool + toolInputs + action)', () => {
+    const yaml = `
+id: tooled
+name: Tooled
+status: active
+source: local
+mcp: false
+version: 1
+nodes:
+  - id: render
+    type: claude-code
+    tool: modern-graphics-generate-graphic
+    action: render
+    toolInputs:
+      layout: hero
+      title: Hello
+`;
+    const a1 = parseAgent(yaml);
+    expect(a1.nodes[0].tool).toBe('modern-graphics-generate-graphic');
+    expect(a1.nodes[0].action).toBe('render');
+    expect(a1.nodes[0].toolInputs).toEqual({ layout: 'hero', title: 'Hello' });
+    // Round-trip preserves all three.
+    const a2 = parseAgent(exportAgent(a1));
+    expect(a2).toEqual(a1);
+  });
+
+  it('round-trips control-flow nodes (conditional + switch + loop + agent-invoke + end)', () => {
+    const yaml = `
+id: ctrl
+name: Ctrl
+status: active
+source: local
+mcp: false
+version: 1
+nodes:
+  - id: gate
+    type: conditional
+    conditionalConfig:
+      predicate: { field: outputs.x, equals: ok }
+  - id: gated
+    type: shell
+    command: 'echo ran'
+    dependsOn: [gate]
+    onlyIf: { upstream: gate, field: result.matched, equals: true }
+  - id: pick
+    type: switch
+    dependsOn: [gated]
+    switchConfig:
+      field: outputs.kind
+      cases: { a: gated, b: gated }
+  - id: each
+    type: loop
+    dependsOn: [pick]
+    loopConfig:
+      over: outputs.items
+      agentId: child-agent
+      maxIterations: 5
+  - id: child
+    type: agent-invoke
+    dependsOn: [each]
+    agentInvokeConfig:
+      agentId: another-agent
+      inputMapping: { TOPIC: outputs.topic }
+  - id: stop
+    type: end
+    dependsOn: [child]
+    endMessage: All done.
+`;
+    const a1 = parseAgent(yaml);
+    // All control-flow configs survive parse.
+    expect(a1.nodes[0].conditionalConfig?.predicate.field).toBe('outputs.x');
+    expect(a1.nodes[1].onlyIf?.upstream).toBe('gate');
+    expect(a1.nodes[2].switchConfig?.field).toBe('outputs.kind');
+    expect(a1.nodes[3].loopConfig?.agentId).toBe('child-agent');
+    expect(a1.nodes[4].agentInvokeConfig?.agentId).toBe('another-agent');
+    expect(a1.nodes[5].endMessage).toBe('All done.');
+    // Round-trip preserves them.
+    const a2 = parseAgent(exportAgent(a1));
+    expect(a2).toEqual(a1);
+  });
 });

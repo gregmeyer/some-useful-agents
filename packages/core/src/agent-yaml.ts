@@ -51,9 +51,20 @@ export function parseAgent(yamlText: string): Agent {
 }
 
 function parsedToAgent(p: AgentV2Parsed): Agent {
+  // Pass-through for every field the agentNodeSchema accepts. Any time a
+  // new schema field is added, append it here AND to NODE_KEY_ORDER so the
+  // YAML round-trip stays lossless. Forgetting to do so silently strips
+  // the field on import — that's how graphics-creator-mcp and
+  // conditional-router agents lost their `tool` / `conditionalConfig`
+  // fields and started failing in production.
   const nodes: AgentNode[] = p.nodes.map((n) => ({
     id: n.id,
     type: n.type,
+    // tool-driven nodes (v0.16+)
+    ...(n.tool !== undefined && { tool: n.tool }),
+    ...(n.action !== undefined && { action: n.action }),
+    ...(n.toolInputs && { toolInputs: n.toolInputs }),
+    // execution
     ...(n.command !== undefined && { command: n.command }),
     ...(n.prompt !== undefined && { prompt: n.prompt }),
     ...(n.model !== undefined && { model: n.model }),
@@ -67,6 +78,13 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(n.redactSecrets !== undefined && { redactSecrets: n.redactSecrets }),
     ...(n.workingDirectory !== undefined && { workingDirectory: n.workingDirectory }),
     ...(n.dependsOn && { dependsOn: n.dependsOn }),
+    // control flow (v0.17+)
+    ...(n.onlyIf && { onlyIf: n.onlyIf }),
+    ...(n.conditionalConfig && { conditionalConfig: n.conditionalConfig }),
+    ...(n.switchConfig && { switchConfig: n.switchConfig }),
+    ...(n.loopConfig && { loopConfig: n.loopConfig }),
+    ...(n.agentInvokeConfig && { agentInvokeConfig: n.agentInvokeConfig }),
+    ...(n.endMessage !== undefined && { endMessage: n.endMessage }),
     ...(n.position && { position: n.position }),
   }));
 
@@ -112,9 +130,15 @@ const AGENT_KEY_ORDER = [
 
 const NODE_KEY_ORDER = [
   'id', 'type',
+  // tool-driven nodes
+  'tool', 'action', 'toolInputs',
+  // execution
   'command', 'prompt', 'model', 'maxTurns', 'allowedTools', 'provider',
   'timeout', 'env', 'envAllowlist', 'secrets', 'redactSecrets', 'workingDirectory',
   'dependsOn',
+  // control flow
+  'onlyIf', 'conditionalConfig', 'switchConfig', 'loopConfig', 'agentInvokeConfig',
+  'endMessage',
   'position',
 ] as const;
 

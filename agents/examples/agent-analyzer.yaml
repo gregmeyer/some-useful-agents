@@ -155,39 +155,56 @@ nodes:
     dependsOn:
       - analyze
       - validate
+    # Skip the fix call entirely when the analyzer's suggested YAML already
+    # passes schema validation. Saves a Claude round-trip on the happy path.
     onlyIf:
       upstream: validate
       field: valid
       equals: false
     prompt: |
-      IMPORTANT: Respond directly with the fixed YAML. Do NOT use any tools.
-      Everything you need is provided below.
+      IMPORTANT: Respond directly with the corrected response. Do NOT use any
+      tools. Everything you need is in this prompt.
 
-      The agent analyzer suggested improvements but the suggested YAML has
-      validation errors. Fix the YAML so it passes schema validation.
+      The analyzer's suggested YAML failed schema validation. Your ONLY job is
+      to produce a corrected response with the validation issue resolved —
+      not to redesign the agent, not to add improvements, not to revisit the
+      classification.
 
-      VALIDATION ERROR:
+      ── VALIDATION ERROR (this is what you must fix) ─────────────
       {{upstream.validate.result}}
+      ─────────────────────────────────────────────────────────────
 
-      ORIGINAL ANALYSIS (with the broken YAML):
+      Strategy:
+      1. Locate the exact node / field / line referenced in the error.
+      2. Apply the smallest possible change that resolves the named issue.
+         If the error says "replace X with Y", do exactly that.
+      3. Leave every other part of the YAML untouched.
+
+      Common fix recipes:
+      - "Shell nodes access upstream outputs via environment variables, not
+        templates" → replace upstream-result template refs with the
+        equivalent $UPSTREAM_<NAME>_RESULT env var in the shell command
+        (capitalised, dashes → underscores).
+      - "Input names must be UPPERCASE_WITH_UNDERSCORES" → uppercase the
+        input names AND update every input template ref in prompts to match.
+      - "enum type requires a non-empty values array" → add `values: [a, b, c]`.
+      - "conditional nodes must have conditionalConfig" → add a predicate block.
+      - "switch nodes must have switchConfig" → add field + cases.
+
+      Output the COMPLETE response in the same XML format the analyzer used.
+      Copy the analyzer's classification / summary / details VERBATIM — the
+      diff in the dashboard depends on those staying stable.
+
+      ANALYZER'S ORIGINAL RESPONSE (with the broken YAML):
       {{upstream.analyze.result}}
 
-      Fix ONLY the YAML errors identified above. Keep all the analysis text
-      (classification, summary, details) exactly as-is. Output the complete
-      corrected response in the same XML format:
+      Now respond with:
 
-      <classification>same as original</classification>
-      <summary>same as original</summary>
-      <details>same as original</details>
+      <classification>(verbatim from analyzer)</classification>
+      <summary>(verbatim from analyzer)</summary>
+      <details>(verbatim from analyzer)</details>
       <yaml>
-      The FIXED YAML that passes validation. Apply these rules:
-      - Input names: UPPERCASE_WITH_UNDERSCORES
-      - inputs: must be an object/map, not an array
-      - enum inputs: must have a non-empty `values` array
-      - Template refs: use double-brace inputs.NAME syntax, not bare NAME
-      - conditional nodes: must have conditionalConfig
-      - switch nodes: must have switchConfig
-      - Keep the same agent id as the original
+      (the analyzer's YAML with ONLY the validation issue resolved)
       </yaml>
-    maxTurns: 2
-    timeout: 90
+    maxTurns: 4
+    timeout: 240
