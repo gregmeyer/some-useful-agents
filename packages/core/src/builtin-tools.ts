@@ -39,7 +39,7 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
   if (isPrivateIp(ip)) {
     throw new Error(
       `Blocked request to private/reserved IP ${ip} (resolved from ${hostname}). ` +
-      `http-get and http-post only allow requests to public addresses.`,
+      `SSRF protection: only public addresses are allowed.`,
     );
   }
 }

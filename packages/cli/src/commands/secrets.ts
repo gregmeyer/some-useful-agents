@@ -155,7 +155,9 @@ secretsCommand
 
 secretsCommand
   .command('delete')
-  .description('Delete a secret')
+  .alias('rm')
+  .alias('remove')
+  .description('Delete a secret (aliases: rm, remove)')
   .argument('<name>', 'Secret name')
   .action(async (name: string) => {
     const { store } = await openStore({ promptForPassphrase: true });
