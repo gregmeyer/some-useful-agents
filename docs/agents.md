@@ -201,6 +201,19 @@ Secrets come from the secrets store (`sua secrets set`). Global variables (plain
 
 Opt the agent into MCP exposure. With `sua mcp start` running, Claude Desktop (or any MCP client with the bearer token) can invoke this agent via `run-agent`.
 
+The `run-agent` tool accepts an optional `inputs` map for agents that declare an `inputs:` block:
+
+```json
+{
+  "name": "graphics-creator-mcp",
+  "inputs": { "TOPIC": "Q2 wins", "LAYOUT": "hero" }
+}
+```
+
+Values are validated against each input's declared `type`, `required`, default, and (for enums) `values`. Undeclared keys are rejected. Per-value payloads are capped at 8 KB (64 KB total across all inputs) — the cap applies only to the MCP boundary, not to dashboard or CLI runs. Call `list-agents` to introspect each agent's `inputs` schema.
+
+> **Trust:** MCP callers carry the same authority as the bearer-token holder. A shell agent that interpolates raw inputs into its command string with `{{inputs.X}}` (or env-var expansion without quoting) is exposing a code-execution path to anyone with the token. Quote inputs at substitution time, prefer `claude-code` agents over `shell` for free-form text inputs, and rotate the token under [Settings → General](http://127.0.0.1:3000/settings/general) if you suspect compromise.
+
 See [MCP server (outbound)](../packages/mcp-server/README.md) for the connection details.
 
 ## Full worked example
