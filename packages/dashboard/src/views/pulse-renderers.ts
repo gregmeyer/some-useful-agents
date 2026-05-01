@@ -353,6 +353,7 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
       agent,
       widget: agent.outputWidget,
       lastRun: tile.lastRun ?? undefined,
+      previousInputs: tile.previousInputs,
     }));
   }
   if (!agent.outputWidget || !tile.lastRun?.result) {

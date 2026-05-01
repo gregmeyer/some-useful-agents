@@ -35,6 +35,7 @@ function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeo
   const signal = agent.signal;
   let lastRun: Run | undefined;
   let outputsJson: string | undefined;
+  let previousInputs: Record<string, string> | undefined;
   try {
     const runs = ctx.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
     if (runs.length > 0) {
@@ -42,6 +43,21 @@ function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeo
       const execs = ctx.runStore.listNodeExecutions(lastRun.id);
       const lastExec = execs.filter((e) => e.status === 'completed').pop();
       if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;
+
+      // Pre-fill the interactive widget form with the most recent run's
+      // input values so re-running with a tweaked prompt is one edit, not
+      // a full retype. Mirrors buildTabArgs in routes/agents/tabs.ts.
+      if (agent.outputWidget?.interactive && agent.inputs && execs.length > 0 && execs[0].inputsJson) {
+        try {
+          const allEnv = JSON.parse(execs[0].inputsJson) as Record<string, string>;
+          const inputNames = new Set(Object.keys(agent.inputs));
+          const picked: Record<string, string> = {};
+          for (const [k, v] of Object.entries(allEnv)) {
+            if (inputNames.has(k) && v !== '') picked[k] = v;
+          }
+          if (Object.keys(picked).length > 0) previousInputs = picked;
+        } catch { /* malformed inputsJson */ }
+      }
     }
   } catch { /* no runs */ }
 
@@ -69,7 +85,7 @@ function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeo
   }
   outputFields.push(...Array.from(fieldSet).sort());
 
-  return { agent, signal, lastRun, slots, outputFields };
+  return { agent, signal, lastRun, slots, outputFields, previousInputs };
 }
 
 // ── Virtual system tiles ─────────────────────────────────────────────────

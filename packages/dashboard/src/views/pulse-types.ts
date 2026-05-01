@@ -13,6 +13,11 @@ export interface PulseTile {
   slots: Record<string, unknown>;
   /** Keys available in the last run's output (for configure modal field picker). */
   outputFields?: string[];
+  /**
+   * Input values from the most recent run, scoped to keys declared in
+   * agent.inputs. Used by interactive widgets to pre-fill the form.
+   */
+  previousInputs?: Record<string, string>;
 }
 
 export interface PulsePageInput {

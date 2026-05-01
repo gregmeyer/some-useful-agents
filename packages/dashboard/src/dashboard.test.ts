@@ -2075,18 +2075,19 @@ describe('Interactive widget tile + widget-run/widget-status', () => {
     } as Agent;
   }
 
-  it('renders asking state for an agent without a prior run', async () => {
+  it('renders the form in idle state with askLabel when there is no prior run', async () => {
     await makeApp();   // initialize fixture so afterEach cleans up cleanly
     const agent = makeIWAgent();
     const widget = agent.outputWidget as OutputWidgetSchema;
     const out = render(renderInteractiveWidget({ agent, widget }));
     expect(out).toContain('data-iw');
-    expect(out).toContain('data-iw-state="asking"');
+    expect(out).toContain('data-iw-state="idle"');
     expect(out).toContain('input_question');
-    expect(out).toContain('Ask');
+    expect(out).toContain('data-iw-submit');
+    expect(out).toContain('>Ask</button>');
   });
 
-  it('hydrates idle state when given a prior completed run', async () => {
+  it('hydrates idle state with replayLabel and result when given a prior completed run', async () => {
     await makeApp();
     const agent = makeIWAgent();
     const widget = agent.outputWidget as OutputWidgetSchema;
@@ -2096,7 +2097,34 @@ describe('Interactive widget tile + widget-run/widget-status', () => {
       lastRun: { id: 'r-prior', result: '{"answer":"yes"}', status: 'completed' },
     }));
     expect(out).toContain('data-iw-state="idle"');
-    expect(out).toContain('Ask again');
+    expect(out).toContain('>Ask again</button>');
+    // Form is rendered alongside the result in idle state.
+    expect(out).toContain('input_question');
+    // No separate asking pane any more.
+    expect(out).not.toContain('iw-pane-asking');
+    expect(out).not.toContain('data-iw-replay>');
+    expect(out).not.toContain('data-iw-cancel-asking');
+  });
+
+  it('pre-fills form inputs from previousInputs', async () => {
+    await makeApp();
+    const agent = makeIWAgent({
+      inputs: {
+        question: { type: 'string', default: 'will it rain?' },
+        mood: { type: 'enum', values: ['curious', 'doom'], default: 'curious' },
+      },
+    });
+    const widget = { ...(agent.outputWidget as OutputWidgetSchema), runInputs: undefined };
+    const out = render(renderInteractiveWidget({
+      agent,
+      widget,
+      previousInputs: { question: 'is the build green?', mood: 'doom' },
+    }));
+    // Text input value reflects previousInputs, not the declared default.
+    expect(out).toMatch(/name="input_question"[^>]*value="is the build green\?"/);
+    expect(out).not.toMatch(/name="input_question"[^>]*value="will it rain\?"/);
+    // Enum input has the previous value selected.
+    expect(out).toMatch(/<option value="doom" selected>doom<\/option>/);
   });
 
   it('POST /agents/:id/widget-run accepts inputs and returns a runId', async () => {
