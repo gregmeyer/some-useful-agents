@@ -1750,6 +1750,36 @@ describe('Dashboard /settings/mcp-servers', () => {
   });
 });
 
+describe('Dashboard /settings/mcp (outbound MCP server control)', () => {
+  it('GET renders status, endpoint, and Claude Desktop config snippet', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/mcp')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Status');
+    expect(res.text).toContain('Endpoint');
+    expect(res.text).toContain('Claude Desktop config');
+    // The snippet keys off of the canonical mcpServers map shape.
+    expect(res.text).toContain('mcpServers');
+    expect(res.text).toContain('some-useful-agents');
+    // Token fingerprint (first 8 chars) is shown separately above the snippet.
+    expect(res.text).toContain(`${TOKEN.slice(0, 8)}…`);
+    // Start button when not running (no PID file in the test data dir).
+    expect(res.text).toContain('Start server');
+  });
+
+  it('POST /stop redirects with a "not running" flash when no PID file exists', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/settings/mcp/stop')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/\/settings\/mcp\?flash=/);
+    expect(decodeURIComponent(res.headers.location)).toContain('was not running');
+  });
+});
+
 describe('Dashboard /tools/mcp/import form validation', () => {
   it('GET renders the paste form', async () => {
     const toolStore = new ToolStore(':memory:');
