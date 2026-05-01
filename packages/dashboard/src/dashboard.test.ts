@@ -892,17 +892,25 @@ describe('Dashboard version history + status toggle (PR 2)', () => {
       id: 'detail-ver', name: 'X', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
     }, 'cli');
-    // Status dropdown is now on the Config tab.
+    // Status dropdown lives in the page header (rendered on every tab via
+    // agentPageShell), and is no longer a card on the Config tab.
     const res = await request(app).get('/agents/detail-ver/config')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('action="/agents/detail-ver/status"');
+    expect(res.text).toContain('class="status-select');
+    // No "Status" h3 — that section was removed from Config.
+    expect(res.text).not.toMatch(/<h3[^>]*>\s*Status\s*<\/h3>/);
+    // Two-column layout wraps the remaining cards.
+    expect(res.text).toContain('class="config-grid"');
     // Version history link is on the Overview tab.
     const overviewRes = await request(app).get('/agents/detail-ver')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(overviewRes.text).toContain('/agents/detail-ver/versions');
+    // Status dropdown also surfaces on the Overview tab via the page header.
+    expect(overviewRes.text).toContain('action="/agents/detail-ver/status"');
   });
 });
 
