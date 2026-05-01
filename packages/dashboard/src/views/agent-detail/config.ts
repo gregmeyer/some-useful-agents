@@ -63,6 +63,21 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       </form>
     </section>
 
+    <!-- MCP exposure -->
+    <section class="card" style="margin-bottom: var(--space-6);">
+      <h3 style="margin: 0 0 var(--space-3);">MCP exposure</h3>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+        When on, this agent appears in <code>list-agents</code> and is runnable via <code>run-agent</code> from MCP clients (Claude Desktop, Claude Code, Cursor) connected to <a href="/settings/mcp">sua's MCP server</a>.
+        Toggling rewrites the agent record but does not restart the running MCP server — restart it from <a href="/settings/mcp">Settings → MCP</a> so the new agent list is loaded.
+      </p>
+      <form method="POST" action="/agents/${agent.id}/mcp" style="display: flex; gap: var(--space-2); align-items: center;">
+        <input type="hidden" name="enabled" value="${agent.mcp ? 'false' : 'true'}">
+        ${agent.mcp
+          ? html`<span class="badge badge--ok">exposed</span><button type="submit" class="btn btn--sm btn--warn">Stop exposing</button>`
+          : html`<span class="badge badge--muted">not exposed</span><button type="submit" class="btn btn--sm btn--primary">Expose via MCP</button>`}
+      </form>
+    </section>
+
     <!-- Variables -->
     <section class="card" style="margin-bottom: var(--space-6);">
       <h3 style="margin: 0 0 var(--space-3);">Variables</h3>

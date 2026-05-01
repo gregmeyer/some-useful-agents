@@ -135,6 +135,47 @@ versionsRouter.post('/agents/:id/status', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /agents/:id/mcp — toggle MCP exposure on/off.
+ *
+ * Body: { enabled: 'true' | 'false' }. The form on the Config tab posts
+ * the new state explicitly (rather than a "toggle" verb) so a stale tab
+ * reload doesn't accidentally flip the flag the wrong way.
+ */
+versionsRouter.post('/agents/:id/mcp', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = typeof body.enabled === 'string' ? body.enabled : '';
+  if (raw !== 'true' && raw !== 'false') {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Invalid MCP toggle value.')}`);
+    return;
+  }
+  const next = raw === 'true';
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  if (!!agent.mcp === next) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(next ? 'Already exposed via MCP.' : 'Already not exposed.')}`);
+    return;
+  }
+
+  try {
+    ctx.agentStore.updateAgentMeta(id, { mcp: next });
+    const msg = next
+      ? 'MCP exposure on. Restart `sua mcp start` (or use Settings → MCP) so the server reloads its agent list.'
+      : 'MCP exposure off.';
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(msg)}`);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`MCP toggle failed: ${m}`)}`);
+  }
+});
+
 const VALID_PROVIDERS = new Set(['claude', 'codex']);
 
 /**
