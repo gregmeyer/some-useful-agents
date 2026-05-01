@@ -36,6 +36,7 @@ import { toolsRouter } from './routes/tools.js';
 import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
 import { settingsRouter } from './routes/settings.js';
+import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { pulseRouter } from './routes/pulse.js';
@@ -185,6 +186,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(buildRouter);
   app.use(runMutationsRouter);
   app.use(widgetRunRouter);
+  app.use(settingsMcpRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);

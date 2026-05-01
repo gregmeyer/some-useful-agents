@@ -3,9 +3,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { getMcpTokenPath, getSchedulerStatus, readMcpToken } from '@some-useful-agents/core';
-import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
 import {
+  getMcpTokenPath,
+  getSchedulerStatus,
+  readMcpToken,
   ALL_SERVICES,
   type ServiceName,
   daemonPaths,
@@ -13,7 +14,8 @@ import {
   spawnService,
   stopService,
   waitForServiceSettle,
-} from '../daemon-supervisor.js';
+} from '@some-useful-agents/core';
+import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
 import * as ui from '../ui.js';
 
 export const daemonCommand = new Command('daemon')
