@@ -344,6 +344,78 @@ main.main--wide {
 .config-empty-cta > summary::-webkit-details-marker { display: none; }
 .config-empty-cta > summary::marker { content: ''; }
 
+/* ---------- Output Widget editor page ----------
+ * `/agents/:id/output-widget` hosts the existing editor (one big <form>)
+ * but groups its sections into 4 sub-tabs. The editor's element IDs
+ * stay identical — these rules just hide whichever sections aren't
+ * the active tab. The editor's own JS still toggles between
+ * #ow-fields-block and #ow-ai-block based on widget type, and that
+ * toggle nests inside the Fields tab without conflict.
+ */
+.ow-tab-strip {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
+}
+
+.ow-tab-strip a {
+  padding: var(--space-2) var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.ow-tab-strip a:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.ow-tab-strip a.is-active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+}
+
+/* Per-tab visibility — the editor's existing element IDs are the
+ * source of truth. Action bar (Save/Remove/Add field/Load example)
+ * has no `data-section` and no matching ID below, so it stays
+ * visible across all tabs. The intro `<p>` at the top of the
+ * editor also stays visible — it's short and orienting. */
+/* `!important` is needed because the editor's section divs (#ow-cards
+ * etc.) carry inline `style="display: ..."` set by the original
+ * inline-editor renderer — external rules would otherwise lose. */
+.ow-page[data-active-tab="type"] #ow-fields-block,
+.ow-page[data-active-tab="type"] #ow-ai-block,
+.ow-page[data-active-tab="type"] #ow-interactive-block,
+.ow-page[data-active-tab="type"] #ow-preview-card { display: none !important; }
+
+.ow-page[data-active-tab="fields"] #ow-cards,
+.ow-page[data-active-tab="fields"] #ow-helper,
+.ow-page[data-active-tab="fields"] #ow-interactive-block,
+.ow-page[data-active-tab="fields"] #ow-preview-card { display: none !important; }
+
+.ow-page[data-active-tab="interactive"] #ow-cards,
+.ow-page[data-active-tab="interactive"] #ow-helper,
+.ow-page[data-active-tab="interactive"] #ow-fields-block,
+.ow-page[data-active-tab="interactive"] #ow-ai-block,
+.ow-page[data-active-tab="interactive"] #ow-preview-card { display: none !important; }
+
+.ow-page[data-active-tab="preview"] #ow-cards,
+.ow-page[data-active-tab="preview"] #ow-helper,
+.ow-page[data-active-tab="preview"] #ow-fields-block,
+.ow-page[data-active-tab="preview"] #ow-ai-block,
+.ow-page[data-active-tab="preview"] #ow-interactive-block { display: none !important; }
+
+/* "+ Add field" and "Load example" only make sense on the Fields tab.
+ * Save / Remove stay visible across tabs (they live in their own
+ * action-bar div). */
+.ow-page:not([data-active-tab="fields"]) #add-widget-field-btn,
+.ow-page:not([data-active-tab="fields"]) #ow-example { display: none; }
+
 /* ---------- Settings shell ---------- */
 .settings-shell {
   display: flex;

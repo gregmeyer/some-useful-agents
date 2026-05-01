@@ -68,8 +68,15 @@ export function renderInteractiveWidget(args: {
   agent: Agent;
   widget: OutputWidgetSchema;
   lastRun?: Pick<Run, 'id' | 'result' | 'status' | 'error'>;
+  /**
+   * When true, omit the inline <script> that wires the run state machine.
+   * Used by the Output Widget editor's Preview tab so users see the same
+   * inputs form + button labels Pulse will render, without the preview
+   * accidentally submitting a real run when they click around.
+   */
+  staticPreview?: boolean;
 }): SafeHtml {
-  const { agent, widget, lastRun } = args;
+  const { agent, widget, lastRun, staticPreview } = args;
   const inputs = pickInputs(agent, widget);
   const askLabel = widget.askLabel ?? 'Run';
   const replayLabel = widget.replayLabel ?? 'Run again';
@@ -186,7 +193,7 @@ export function renderInteractiveWidget(args: {
         </div>
       </div>
 
-      ${unsafeHtml(`<script>
+      ${staticPreview ? html`` : unsafeHtml(`<script>
       (function () {
         var root = document.currentScript.parentElement;
         if (!root || !root.matches('[data-iw]')) return;
@@ -369,6 +376,7 @@ export function renderInteractiveWidget(args: {
         });
       })();
       </script>`)}
+      ${staticPreview ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0; padding: var(--space-2) var(--space-3); background: var(--color-surface); border-radius: var(--radius-sm); border-left: 3px solid var(--color-info);">Preview only — clicking the form here doesn't run the agent. Save and visit the Pulse tile to interact for real.</p>` : html``}
     </div>
   `;
 }

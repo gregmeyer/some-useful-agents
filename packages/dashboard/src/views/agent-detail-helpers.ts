@@ -292,7 +292,7 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       </div>
     </form>
 
-    <div class="card" style="margin-top: var(--space-3);">
+    <div id="ow-preview-card" class="card" style="margin-top: var(--space-3);">
       <p class="card__title" style="display: flex; align-items: center; justify-content: space-between;">
         Preview
         <span class="dim" style="font-size: var(--font-size-xs); font-weight: var(--weight-regular);">rendered with sample data</span>
