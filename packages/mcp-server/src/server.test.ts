@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { startMcpServer } from './index.js';
 
 /**
@@ -90,5 +92,162 @@ describe('MCP server multi-session', () => {
     const body = (await health.json()) as { status: string; sessions: number };
     expect(body.status).toBe('ok');
     expect(body.sessions).toBe(2);
+  });
+});
+
+/**
+ * End-to-end exercise of `run-agent` with inputs. Uses the official MCP
+ * client + StreamableHTTP transport to drive the protocol so the test is
+ * close to what Claude Desktop / Cursor / claude mcp does at runtime.
+ */
+describe('MCP run-agent with inputs', () => {
+  let dataDir: string;
+  let agentDir: string;
+  let tokenPath: string;
+  let secretsPath: string;
+  let port: number;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'sua-mcp-run-'));
+    agentDir = join(dataDir, 'agents');
+    require('node:fs').mkdirSync(agentDir);
+    tokenPath = join(dataDir, 'mcp-token');
+    writeFileSync(tokenPath, 't'.repeat(64));
+    chmodSync(tokenPath, 0o600);
+    secretsPath = join(dataDir, 'secrets.enc');
+    port = 19000 + Math.floor(Math.random() * 500);
+
+    // A simple shell agent that echoes the TOPIC input. The shell command
+    // template-substitutes inputs.TOPIC at execute time. Single-quoted so
+    // the shell doesn't try to interpret the value.
+    writeFileSync(
+      join(agentDir, 'echoer.yaml'),
+      [
+        'name: echoer',
+        'type: shell',
+        "command: \"printf '%s' \\\"$TOPIC\\\"\"",
+        'mcp: true',
+        'inputs:',
+        '  TOPIC:',
+        '    type: string',
+        '    required: true',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function connectClient(): Promise<Client> {
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+      {
+        requestInit: {
+          headers: { Authorization: `Bearer ${'t'.repeat(64)}` },
+        },
+      },
+    );
+    const client = new Client({ name: 'test', version: '0' });
+    await client.connect(transport);
+    return client;
+  }
+
+  it('list-agents returns the declared input schema', async () => {
+    await startMcpServer({
+      port,
+      host: '127.0.0.1',
+      agentDirs: [agentDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({ name: 'list-agents', arguments: {} });
+      const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+      expect(payload).toHaveLength(1);
+      expect(payload[0]).toMatchObject({
+        name: 'echoer',
+        inputs: { TOPIC: { type: 'string', required: true } },
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('run-agent threads inputs through to the run', async () => {
+    await startMcpServer({
+      port,
+      host: '127.0.0.1',
+      agentDirs: [agentDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({
+        name: 'run-agent',
+        arguments: { name: 'echoer', inputs: { TOPIC: 'Q2 wins' } },
+      });
+      expect(res.isError).toBeFalsy();
+      const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+      expect(payload.status).toBe('completed');
+      expect(payload.result).toBe('Q2 wins');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('run-agent returns an MCP error when a required input is missing', async () => {
+    await startMcpServer({
+      port,
+      host: '127.0.0.1',
+      agentDirs: [agentDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({
+        name: 'run-agent',
+        arguments: { name: 'echoer', inputs: {} },
+      });
+      expect(res.isError).toBe(true);
+      const text = (res.content as Array<{ text: string }>)[0].text;
+      expect(text).toMatch(/TOPIC/);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('run-agent rejects oversize input values before submitting', async () => {
+    await startMcpServer({
+      port,
+      host: '127.0.0.1',
+      agentDirs: [agentDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+
+    const client = await connectClient();
+    try {
+      const res = await client.callTool({
+        name: 'run-agent',
+        arguments: { name: 'echoer', inputs: { TOPIC: 'x'.repeat(10_000) } },
+      });
+      expect(res.isError).toBe(true);
+      const text = (res.content as Array<{ text: string }>)[0].text;
+      expect(text).toMatch(/per-value cap/);
+    } finally {
+      await client.close();
+    }
   });
 });
