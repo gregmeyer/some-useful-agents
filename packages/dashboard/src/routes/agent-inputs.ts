@@ -3,6 +3,8 @@ import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldT
 import { getContext } from '../context.js';
 import { mergeNewInput, parseEnumValues } from './agent-nodes.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
+import { renderInteractiveWidget } from '../views/interactive-widget.js';
+import { renderOutputWidgetPage, type OutputWidgetTab } from '../views/agent-output-widget.js';
 import { synthPreviewOutput, type FieldType } from '../views/output-widget-help.js';
 import { render } from '../views/html.js';
 import { sanitizeHtml, getTemplateGenerator, agentV2Schema } from '@some-useful-agents/core';
@@ -156,6 +158,34 @@ agentInputsRouter.post('/agents/:name/inputs/update', (req: Request, res: Respon
   }
 });
 
+// ── Output widget editor page ───────────────────────────────────────────
+
+const OUTPUT_WIDGET_TABS = new Set<OutputWidgetTab>(['type', 'fields', 'interactive', 'preview']);
+
+/**
+ * GET /agents/:name/output-widget — focused page for the Output Widget
+ * editor with sub-tabs (Type / Fields / Interactive / Preview). The
+ * editor itself is reused unchanged — the page just adds tab nav.
+ *
+ * Replaces the inline editor that used to live on the Config tab.
+ */
+agentInputsRouter.get('/agents/:name/output-widget', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  const tabRaw = typeof req.query.tab === 'string' ? req.query.tab : 'type';
+  const activeTab: OutputWidgetTab = OUTPUT_WIDGET_TABS.has(tabRaw as OutputWidgetTab)
+    ? (tabRaw as OutputWidgetTab)
+    : 'type';
+  const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const flash = flashParam ? { kind: 'ok' as const, message: flashParam } : undefined;
+  res.type('html').send(renderOutputWidgetPage({ agent, activeTab, flash }));
+});
+
 // ── Output widget update ────────────────────────────────────────────────
 
 const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw', 'ai-template']);
@@ -182,10 +212,11 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
         'dashboard',
         'Removed output widget via dashboard',
       );
+      // Widget gone — return to Config since there's nothing left to edit here.
       res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Output widget removed.')}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Failed: ${msg}`)}`);
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?flash=${encodeURIComponent(`Failed: ${msg}`)}`);
     }
     return;
   }
@@ -193,7 +224,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   // Save widget.
   const widgetType = typeof body.widgetType === 'string' ? body.widgetType : 'raw';
   if (!VALID_WIDGET_TYPES.has(widgetType)) {
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Invalid widget type.')}`);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?flash=${encodeURIComponent('Invalid widget type.')}`);
     return;
   }
 
@@ -233,7 +264,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     const promptText = typeof body.prompt === 'string' ? body.prompt : '';
     const sanitized = sanitizeHtml(rawTemplate).trim();
     if (!sanitized) {
-      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Generate or paste a template before saving.')}`);
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?tab=fields&flash=${encodeURIComponent('Generate or paste a template before saving.')}`);
       return;
     }
     outputWidget = {
@@ -264,10 +295,11 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       'dashboard',
       'Updated output widget via dashboard',
     );
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent('Output widget saved. New version created.')}`);
+    // Stay on the editor so iteration is one click, not a back-and-forth.
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?flash=${encodeURIComponent('Output widget saved. New version created.')}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/config?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
   }
 });
 
@@ -331,6 +363,48 @@ agentInputsRouter.post('/agents/:name/output-widget/preview', (req: Request, res
       ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
       type: ft as WidgetFieldType,
     });
+  }
+
+  // Interactive-mode preview: render the same `renderInteractiveWidget`
+  // Pulse renders, in `staticPreview` mode (no inline state-machine JS,
+  // so clicking the form doesn't accidentally submit a real run). This
+  // is the only way the editor's labels + runInputs picker can be
+  // visually verified before saving.
+  const interactive = body.widget_interactive === 'on' || body.widget_interactive === 'true';
+  if (interactive) {
+    const ctx = getContext(req.app.locals);
+    const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+    const agent = ctx.agentStore.getAgent(name);
+    if (!agent) {
+      res.type('html').send('<span class="dim">Agent not found.</span>');
+      return;
+    }
+    const rawRunInputs = body.widget_run_inputs;
+    let runInputs: string[] | undefined;
+    if (Array.isArray(rawRunInputs)) {
+      runInputs = rawRunInputs.filter((v): v is string => typeof v === 'string' && v.length > 0);
+    } else if (typeof rawRunInputs === 'string' && rawRunInputs.length > 0) {
+      runInputs = [rawRunInputs];
+    }
+    const askLabel = typeof body.widget_ask_label === 'string' && body.widget_ask_label.trim()
+      ? body.widget_ask_label.trim() : undefined;
+    const replayLabel = typeof body.widget_replay_label === 'string' && body.widget_replay_label.trim()
+      ? body.widget_replay_label.trim() : undefined;
+    const schema: OutputWidgetSchema = {
+      type: widgetType as OutputWidgetType,
+      fields,
+      interactive: true,
+      ...(runInputs ? { runInputs } : {}),
+      ...(askLabel ? { askLabel } : {}),
+      ...(replayLabel ? { replayLabel } : {}),
+    };
+    try {
+      const html = renderInteractiveWidget({ agent, widget: schema, staticPreview: true });
+      res.type('html').send(render(html));
+    } catch {
+      res.type('html').send('<span class="dim">Preview unavailable.</span>');
+    }
+    return;
   }
 
   if (fields.length === 0) {

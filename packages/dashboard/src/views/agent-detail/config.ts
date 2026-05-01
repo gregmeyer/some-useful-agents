@@ -1,7 +1,6 @@
 import { html, type SafeHtml } from '../html.js';
 import {
   renderVariablesEditor,
-  renderOutputWidgetEditor,
   renderNotifyEditor,
   providerOption,
   renderModelOptions,
@@ -115,22 +114,32 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   `);
 
   // ── Right column: heavyweight collapsibles ─────────────────────────
-  const outputWidgetSection = collapsibleSection({
-    title: 'Output Widget',
-    configured: !!agent.outputWidget,
-    emptyCta: html`
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-        Render run output as a widget on the agent overview and the Pulse tile.
-      </p>
-      <details class="config-empty-cta">
-        <summary><span class="btn btn--sm">Set up output widget</span></summary>
-        <div style="margin-top: var(--space-3);">
-          ${renderOutputWidgetEditor(agent)}
-        </div>
-      </details>
-    `,
-    editor: renderOutputWidgetEditor(agent),
-  });
+  // Output Widget editor lives on its own page — `/agents/<id>/output-widget`
+  // — because the editor is large enough to deserve a focused surface
+  // with sub-tabs (Type / Fields / Interactive / Preview). On the Config
+  // tab we just summarise + link.
+  const outputWidgetSection = (() => {
+    if (!agent.outputWidget) {
+      return configCard('Output Widget', html`
+        <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+          Render run output as a widget on the agent overview and the Pulse tile.
+        </p>
+        <a class="btn btn--sm" href="/agents/${agent.id}/output-widget">Set up output widget</a>
+      `);
+    }
+    const fieldCount = agent.outputWidget.fields?.length ?? 0;
+    const summary = agent.outputWidget.type === 'ai-template'
+      ? 'AI-generated HTML template'
+      : `${String(fieldCount)} field${fieldCount === 1 ? '' : 's'}`;
+    return configCard('Output Widget', html`
+      <dl class="kv" style="margin: 0 0 var(--space-3); font-size: var(--font-size-xs);">
+        <dt>Type</dt><dd class="mono">${agent.outputWidget.type}</dd>
+        <dt>Layout</dt><dd>${summary}</dd>
+        ${agent.outputWidget.interactive ? html`<dt>Interactive</dt><dd>yes — runs in place</dd>` : html``}
+      </dl>
+      <a class="btn btn--sm" href="/agents/${agent.id}/output-widget">Edit output widget</a>
+    `);
+  })();
 
   const notifySection = collapsibleSection({
     title: 'Notify',

@@ -1880,13 +1880,13 @@ describe('Dashboard /tools/mcp/import form validation', () => {
 });
 
 describe('Output widget editor UI', () => {
-  it('renders all 4 widget-type cards on the config page', async () => {
+  it('renders all 4 widget-type cards on the dedicated editor page', async () => {
     const app = await makeApp();
     agentStore.createAgent({
       id: 'ow-cards', name: 'ow-cards', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
     }, 'cli');
-    const res = await request(app).get('/agents/ow-cards/config')
+    const res = await request(app).get('/agents/ow-cards/output-widget')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
@@ -1898,6 +1898,26 @@ describe('Output widget editor UI', () => {
     // Load-example dropdown + preview container.
     expect(res.text).toContain('id="ow-example"');
     expect(res.text).toContain('id="ow-preview"');
+    // Sub-tab nav is present and defaults to "type".
+    expect(res.text).toContain('class="ow-tab-strip"');
+    expect(res.text).toContain('data-active-tab="type"');
+  });
+
+  it('Config tab links to the dedicated editor instead of inlining it', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-link', name: 'ow-link', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    const res = await request(app).get('/agents/ow-link/config')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Link to the new page is present.
+    expect(res.text).toContain('/agents/ow-link/output-widget');
+    // The full editor's IDs are NOT inlined on Config any more.
+    expect(res.text).not.toContain('id="ow-cards"');
+    expect(res.text).not.toContain('id="ow-preview"');
   });
 
   it('POST /output-widget/preview renders HTML for a valid body', async () => {
@@ -1925,7 +1945,7 @@ describe('Output widget editor UI', () => {
       id: 'ow-ai-cards', name: 'ow-ai-cards', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
     }, 'cli');
-    const res = await request(app).get('/agents/ow-ai-cards/config')
+    const res = await request(app).get('/agents/ow-ai-cards/output-widget')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
