@@ -3,16 +3,22 @@
  * an inline inputs form + Run button + state machine that polls
  * /runs/:id/widget-status until the run completes.
  *
- * State machine (see ~/.claude/plans/interactive-widgets.md):
+ * State machine:
  *
- *   idle ──askAgain──▶ asking ──submit──▶ running ──poll──▶ success | error
- *    ▲                  │                      │                │      │
- *    │ replay            │ cancel(empty)        │ cancel         │      │
- *    └───────────────────┴──────────────────────┴────────────────┴──────┘
+ *   idle ──submit──▶ running ──poll──▶ idle (with new result)
+ *                       │                │
+ *                       │                └──▶ error ──retry──▶ idle
+ *                       │
+ *                       └──cancel──▶ idle
  *
- * Hydration: when `lastRun` is set, the shell starts in `idle` rendering
- * the widget against the last result. When there's no prior run, it
- * starts in `asking` so the user lands on the form.
+ * The form is always visible in idle. When a prior run exists, its result
+ * is rendered above the form and the submit button uses `replayLabel`.
+ * When no prior run exists, the result block is empty and the button uses
+ * `askLabel`. After a run completes, the button switches to `replayLabel`.
+ *
+ * Form inputs are pre-filled with the most recent run's input values
+ * (`previousInputs`) when available, falling back to each input's
+ * declared default.
  */
 
 import type { Agent, AgentInputSpec, OutputWidgetSchema, Run } from '@some-useful-agents/core';
@@ -36,28 +42,29 @@ function pickInputs(
   return all.filter(([name]) => allow.has(name));
 }
 
-function renderInputControl(name: string, spec: AgentInputSpec): SafeHtml {
+function renderInputControl(name: string, spec: AgentInputSpec, lastValue?: string): SafeHtml {
   const def = spec.default !== undefined ? String(spec.default) : '';
+  const val = lastValue !== undefined ? lastValue : def;
   if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.length > 0) {
     const opts = spec.values.map((v) => {
-      const val = String(v);
-      const selected = val === def ? ' selected' : '';
-      return `<option value="${val}"${selected}>${val}</option>`;
+      const optVal = String(v);
+      const selected = optVal === val ? ' selected' : '';
+      return `<option value="${optVal}"${selected}>${optVal}</option>`;
     }).join('');
     return unsafeHtml(`<select name="input_${name}" data-input style="${FIELD}">${opts}</select>`);
   }
   if (spec.type === 'boolean') {
     return unsafeHtml(
       `<select name="input_${name}" data-input style="${FIELD}">` +
-      `<option value="true"${def === 'true' ? ' selected' : ''}>true</option>` +
-      `<option value="false"${def !== 'true' ? ' selected' : ''}>false</option>` +
+      `<option value="true"${val === 'true' ? ' selected' : ''}>true</option>` +
+      `<option value="false"${val !== 'true' ? ' selected' : ''}>false</option>` +
       `</select>`,
     );
   }
   if (spec.type === 'number') {
-    return html`<input type="number" name="input_${name}" data-input value="${def}" placeholder="${def || '(empty)'}" style="${FIELD}">`;
+    return html`<input type="number" name="input_${name}" data-input value="${val}" placeholder="${def || '(empty)'}" style="${FIELD}">`;
   }
-  return html`<input type="text" name="input_${name}" data-input value="${def}" placeholder="${def || '(empty)'}" style="${FIELD}">`;
+  return html`<input type="text" name="input_${name}" data-input value="${val}" placeholder="${def || '(empty)'}" style="${FIELD}">`;
 }
 
 /**
@@ -69,6 +76,13 @@ export function renderInteractiveWidget(args: {
   widget: OutputWidgetSchema;
   lastRun?: Pick<Run, 'id' | 'result' | 'status' | 'error'>;
   /**
+   * Input values from the most recent run (any status). When provided, the
+   * form pre-fills with these instead of each input's declared default —
+   * so re-running a magic-8-ball-style agent with a tweaked prompt is one
+   * edit + one click, not "find the field, retype the whole thing".
+   */
+  previousInputs?: Record<string, string>;
+  /**
    * When true, omit the inline <script> that wires the run state machine.
    * Used by the Output Widget editor's Preview tab so users see the same
    * inputs form + button labels Pulse will render, without the preview
@@ -76,12 +90,12 @@ export function renderInteractiveWidget(args: {
    */
   staticPreview?: boolean;
 }): SafeHtml {
-  const { agent, widget, lastRun, staticPreview } = args;
+  const { agent, widget, lastRun, previousInputs, staticPreview } = args;
   const inputs = pickInputs(agent, widget);
   const askLabel = widget.askLabel ?? 'Run';
   const replayLabel = widget.replayLabel ?? 'Run again';
-  const hasResult = lastRun && lastRun.status === 'completed' && typeof lastRun.result === 'string';
-  const startState: 'idle' | 'asking' = hasResult ? 'idle' : 'asking';
+  const hasResult = !!(lastRun && lastRun.status === 'completed' && typeof lastRun.result === 'string');
+  const submitLabel = hasResult ? replayLabel : askLabel;
 
   const fieldRows = inputs.map(([name, spec]) => html`
     <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-2);">
@@ -89,22 +103,23 @@ export function renderInteractiveWidget(args: {
         <strong>${name}</strong>
         ${spec.description ? html`<span class="dim">${spec.description}</span>` : html``}
       </span>
-      ${renderInputControl(name, spec)}
+      ${renderInputControl(name, spec, previousInputs?.[name])}
     </label>
   `);
 
   // Initial idle body — render the widget against the last result.
   const idleBody = hasResult
-    ? renderOutputWidget(widget, String(lastRun.result), agent.id) ?? html`<p class="dim">Widget render failed.</p>`
+    ? renderOutputWidget(widget, String(lastRun!.result), agent.id) ?? html`<p class="dim">Widget render failed.</p>`
     : html``;
 
   return html`
-    <div class="iw" data-iw data-iw-agent="${agent.id}" data-iw-state="${startState}">
+    <div class="iw" data-iw data-iw-agent="${agent.id}" data-iw-state="idle"
+         data-iw-ask-label="${askLabel}" data-iw-replay-label="${replayLabel}">
       <style>
         /* Grid stack: every pane sits in the same cell, so the tile's
            height is the tallest pane in the DOM, not the active one. No
-           jumpy resize when transitioning between asking, running, and
-           result states. */
+           jumpy resize when transitioning between idle, running, and
+           error states. */
         .iw {
           display: grid;
           grid-template-areas: 'stack';
@@ -141,9 +156,9 @@ export function renderInteractiveWidget(args: {
           .iw-pane { transition: none; }
           .iw[data-iw-state="running"] { animation: none; }
         }
-        /* Push CTA rows to the bottom so the form's button stays anchored
-           regardless of how tall the cell is. */
-        .iw-cta-row { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: auto; padding-top: var(--space-3); }
+        .iw-result:empty { display: none; }
+        .iw-result { margin-bottom: var(--space-3); }
+        .iw-cta-row { display: flex; justify-content: flex-end; gap: var(--space-2); padding-top: var(--space-3); }
         .iw-status { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3); }
         .iw-spinner { width: 14px; height: 14px; border: 2px solid var(--color-border); border-top-color: var(--color-primary, #2563eb); border-radius: 50%; animation: iw-spin 700ms linear infinite; }
         @keyframes iw-spin { to { transform: rotate(360deg); } }
@@ -151,19 +166,12 @@ export function renderInteractiveWidget(args: {
         .iw-error { padding: var(--space-3); border: 1px solid var(--color-err); border-radius: var(--radius-sm); background: rgba(220, 38, 38, 0.04); }
       </style>
 
-      <div class="iw-pane iw-pane-idle ${startState === 'idle' ? '' : 'iw-pane-inactive'}">
-        <div class="iw-result">${idleBody}</div>
-        <div class="iw-cta-row">
-          <button type="button" class="btn btn--primary btn--sm" data-iw-replay>${replayLabel}</button>
-        </div>
-      </div>
-
-      <div class="iw-pane iw-pane-asking ${startState === 'asking' ? '' : 'iw-pane-inactive'}">
+      <div class="iw-pane iw-pane-idle">
+        <div class="iw-result" data-iw-result>${idleBody}</div>
         <form data-iw-form>
-          ${inputs.length > 0 ? fieldRows as unknown as SafeHtml[] : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">No inputs declared. Click ${askLabel} to run.</p>`}
+          ${inputs.length > 0 ? fieldRows as unknown as SafeHtml[] : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">No inputs declared. Click ${submitLabel} to run.</p>`}
           <div class="iw-cta-row">
-            ${hasResult ? html`<button type="button" class="btn btn--ghost btn--sm" data-iw-cancel-asking>Cancel</button>` : html``}
-            <button type="submit" class="btn btn--primary btn--sm">${askLabel}</button>
+            <button type="submit" class="btn btn--primary btn--sm" data-iw-submit>${submitLabel}</button>
           </div>
         </form>
       </div>
@@ -198,23 +206,24 @@ export function renderInteractiveWidget(args: {
         var root = document.currentScript.parentElement;
         if (!root || !root.matches('[data-iw]')) return;
         var AGENT_ID = ${JSON.stringify(agent.id)};
+        var REPLAY_LABEL = ${JSON.stringify(replayLabel)};
         var POLL_MS = 500;
         var POLL_CAP = 120; // 60 s
 
         var panes = {
           idle: root.querySelector('.iw-pane-idle'),
-          asking: root.querySelector('.iw-pane-asking'),
           running: root.querySelector('.iw-pane-running'),
           stuck: root.querySelector('.iw-pane-stuck'),
           error: root.querySelector('.iw-pane-error'),
         };
-        var resultBox = root.querySelector('.iw-result');
+        var resultBox = root.querySelector('[data-iw-result]');
+        var submitBtn = root.querySelector('[data-iw-submit]');
         var elapsedEl = root.querySelector('[data-iw-elapsed]');
         var errMsgEl = root.querySelector('[data-iw-error-msg]');
         var errLink = root.querySelector('[data-iw-error-link]');
         var stuckLink = root.querySelector('[data-iw-stuck-link]');
 
-        var current = root.getAttribute('data-iw-state') || 'asking';
+        var current = root.getAttribute('data-iw-state') || 'idle';
         var pollTimer = null;
         var elapsedTimer = null;
         var startMs = 0;
@@ -267,6 +276,11 @@ export function renderInteractiveWidget(args: {
 
         function showSuccess(html) {
           if (resultBox) resultBox.innerHTML = html;
+          // Flip the submit button label to replayLabel so first-run tiles
+          // stop saying "Ask" once they have a result to show.
+          if (submitBtn && submitBtn.textContent !== REPLAY_LABEL) {
+            submitBtn.textContent = REPLAY_LABEL;
+          }
           transition('idle');
         }
 
@@ -298,7 +312,6 @@ export function renderInteractiveWidget(args: {
                     resultText.replace(/[<>&]/g, function (c) { return c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'; }) +
                     '</pre>';
                 }
-                if (resultBox) resultBox.innerHTML = html;
                 showSuccess(html);
                 return;
               }
@@ -309,11 +322,7 @@ export function renderInteractiveWidget(args: {
               }
               if (data.status === 'cancelled') {
                 clearPoll();
-                // After a cancel, return to whichever pane was visible
-                // before submit. The "idle" pane has rendered content
-                // when the agent had a prior run; use that as the cue.
-                var hadPrior = panes.idle && panes.idle.querySelector('.iw-result *');
-                transition(hadPrior ? 'idle' : 'asking');
+                transition('idle');
                 return;
               }
               // running / pending: keep polling
@@ -360,12 +369,8 @@ export function renderInteractiveWidget(args: {
             submitForm(form);
           });
         }
-        var replay = root.querySelector('[data-iw-replay]');
-        if (replay) replay.addEventListener('click', function () { transition('asking'); });
-        var cancelAsking = root.querySelector('[data-iw-cancel-asking]');
-        if (cancelAsking) cancelAsking.addEventListener('click', function () { transition('idle'); });
         var retry = root.querySelector('[data-iw-retry]');
-        if (retry) retry.addEventListener('click', function () { transition('asking'); });
+        if (retry) retry.addEventListener('click', function () { transition('idle'); });
         var cancelRun = root.querySelector('[data-iw-cancel-run]');
         if (cancelRun) cancelRun.addEventListener('click', function () {
           if (!currentRunId) return;
