@@ -824,6 +824,49 @@ describe('Dashboard version history + status toggle (PR 2)', () => {
     expect(agentStore.getAgent('status-test')!.status).toBe('paused');
   });
 
+  it('POST /agents/:id/mcp toggles MCP exposure on and off', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'mcp-toggle', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    // Off → on.
+    let res = await request(app)
+      .post('/agents/mcp-toggle/mcp')
+      .type('form').send({ enabled: 'true' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('mcp-toggle')!.mcp).toBe(true);
+
+    // On → off.
+    res = await request(app)
+      .post('/agents/mcp-toggle/mcp')
+      .type('form').send({ enabled: 'false' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('mcp-toggle')!.mcp).toBe(false);
+  });
+
+  it('POST /agents/:id/mcp rejects an invalid enabled value', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'mcp-bad', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app)
+      .post('/agents/mcp-bad/mcp')
+      .type('form').send({ enabled: 'yes-please' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Invalid MCP toggle/);
+    expect(agentStore.getAgent('mcp-bad')!.mcp).toBe(false);
+  });
+
   it('POST /agents/:id/status rejects an invalid status enum', async () => {
     const app = await makeApp();
     agentStore.createAgent({
