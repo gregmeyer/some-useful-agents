@@ -3,7 +3,7 @@ import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
 import { sourceBadge } from '../components.js';
-import { renderRunInputsForm, vStatusBadge } from '../agent-detail-helpers.js';
+import { renderRunInputsForm, statusOption } from '../agent-detail-helpers.js';
 
 export type AgentTab = 'overview' | 'nodes' | 'config' | 'runs' | 'yaml';
 
@@ -60,7 +60,18 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
         html`<form method="POST" action="/agents/${agent.id}/star" style="display:inline;margin:0;">
           <button type="submit" class="btn-star${agent.starred ? ' is-starred' : ''}" title="${agent.starred ? 'Unstar' : 'Star'}" aria-label="${agent.starred ? 'Unstar' : 'Star'}">${agent.starred ? '★' : '☆'}</button>
         </form>`,
-        vStatusBadge(agent.status),
+        // Status is a control, not a badge — change it from here so lifecycle
+        // decisions live next to "Run now" instead of buried inside Config.
+        // The auto-submit on change keeps it one click; the existing
+        // POST /agents/:id/status handler is unchanged.
+        html`<form method="POST" action="/agents/${agent.id}/status" class="status-select-form" style="display:inline;margin:0;">
+          <select name="newStatus" class="status-select status-select--${agent.status}" onchange="this.form.submit()" aria-label="Agent status">
+            ${statusOption('active', agent.status)}
+            ${statusOption('paused', agent.status)}
+            ${statusOption('draft', agent.status)}
+            ${statusOption('archived', agent.status)}
+          </select>
+        </form>`,
         sourceBadge(source),
       ],
       cta: html`<span style="display: inline-flex; gap: var(--space-2);">

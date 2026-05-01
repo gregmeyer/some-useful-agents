@@ -250,6 +250,100 @@ main.main--wide {
   padding-right: var(--space-2);
 }
 
+/* ---------- Agent Config tab ----------
+ * Two-column grid for the per-agent Config page. Lightweight controls
+ * (LLM, Variables, MCP, Secrets) live in the left column; heavyweight
+ * collapsibles (Output Widget, Notify) live in the right. Stacks at
+ * narrow widths so phones / split-screens don't get a horizontal squish.
+ */
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.config-grid__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* Inline status dropdown that lives in the agent page header. Looks like
+ * a chip when idle (matches the badges around it) but acts like a select.
+ * Color is keyed off the chosen status so the read affordance survives. */
+.status-select {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* Tiny chevron — keeps the dropdown affordance without bulking the chip. */
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 9px) 50%, calc(100% - 5px) 50%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  padding-right: var(--space-4);
+}
+
+.status-select--active   { border-color: var(--color-ok);   color: var(--color-ok); }
+.status-select--paused   { border-color: var(--color-warn); color: var(--color-warn); }
+.status-select--draft    { border-color: var(--color-info); color: var(--color-info); }
+.status-select--archived { border-color: var(--color-text-muted); color: var(--color-text-muted); }
+
+/* Output Widget / Notify collapsible — `<details>` styled as a card with
+ * a chevron that flips on open. Native marker is hidden in both Chrome
+ * (::-webkit-details-marker) and Firefox/Safari (list-style). */
+.config-collapsible > summary {
+  cursor: pointer;
+  padding: var(--space-4) var(--space-6);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.config-collapsible > summary::-webkit-details-marker { display: none; }
+.config-collapsible > summary::marker { content: ''; }
+.config-collapsible > summary::before {
+  content: '▸';
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  transition: transform 120ms ease;
+  display: inline-block;
+}
+.config-collapsible[open] > summary::before { transform: rotate(90deg); }
+.config-collapsible[open] > summary {
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-3);
+}
+.config-collapsible > div {
+  padding: 0 var(--space-6) var(--space-4);
+}
+
+/* Empty-state CTA: a `<details>` wrapping a button-shaped <summary>.
+ * No marker, no chevron — looks identical to a plain button until clicked. */
+.config-empty-cta > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-block;
+}
+.config-empty-cta > summary::-webkit-details-marker { display: none; }
+.config-empty-cta > summary::marker { content: ''; }
+
 /* ---------- Settings shell ---------- */
 .settings-shell {
   display: flex;
