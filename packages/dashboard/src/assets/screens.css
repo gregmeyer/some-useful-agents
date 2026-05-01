@@ -204,6 +204,45 @@ main.main--wide {
   padding-right: var(--space-2);
 }
 
+/* Sticky variant — used on /runs/:id so DAG + result stay visible while
+ * scrolling the node-execution panel below. The whole grid sticks as one
+ * bar (sticky-in-grid only sticks within its own row, which doesn't help
+ * once the user scrolls past into the node section). Each column is
+ * bounded so a tall DAG or wide widget can't push the bar past the
+ * viewport. */
+.run-detail-grid--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--color-bg);
+  max-height: 60vh;
+  padding: var(--space-2) 0;
+  margin-bottom: var(--space-4);
+}
+
+.run-detail-grid--sticky .run-detail-grid__dag,
+.run-detail-grid--sticky .run-detail-grid__result {
+  position: static;
+  top: auto;
+  max-height: calc(60vh - var(--space-4));
+  overflow: auto;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  /* Sticky bar would eat half the screen on narrow viewports — disable. */
+  .run-detail-grid--sticky {
+    position: static;
+    max-height: none;
+  }
+
+  .run-detail-grid--sticky .run-detail-grid__dag,
+  .run-detail-grid--sticky .run-detail-grid__result {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 /* Legacy: kept for backward compat with agent detail split-screen */
 .run-detail-grid__inspector {
   max-height: 80vh;

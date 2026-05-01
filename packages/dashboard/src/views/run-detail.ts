@@ -131,8 +131,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ` : html``}
 
       ${isDagRun ? html`
-        <!-- Top: DAG + Result side-by-side -->
-        <div class="run-detail-grid">
+        <!-- Top: DAG + Result side-by-side, sticky while node logs scroll. -->
+        <div class="run-detail-grid run-detail-grid--sticky">
           <div class="run-detail-grid__dag">
             ${dagSection}
             ${canReplay ? renderReplayFallback(run, agent!) : html``}
