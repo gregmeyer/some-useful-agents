@@ -39,6 +39,13 @@ export interface McpServerOptions {
 
 interface SessionEntry {
   transport: StreamableHTTPServerTransport;
+  /**
+   * The McpServer this transport is connected to. The MCP SDK requires a
+   * fresh `McpServer` per transport — calling `connect()` twice on the same
+   * server throws "Already connected to a transport". Each session gets its
+   * own; on session DELETE we close it to release the listener handlers.
+   */
+  server: McpServer;
   /** sha256(token) at the time the session was created. Pins this session to that token. */
   tokenHash: string;
 }
@@ -79,12 +86,15 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
   const provider = new LocalProvider(options.dbPath, secretsStore);
   await provider.initialize();
 
-  const server = new McpServer({
-    name: 'some-useful-agents',
-    version: '0.3.2',
-  });
-
-  registerTools(server, provider, options.agentDirs);
+  // Each MCP session gets its own McpServer instance. The SDK couples a
+  // server 1:1 with a transport — calling `server.connect()` twice on the
+  // same instance throws. Provider + agentDirs are safe to share across
+  // sessions (provider has its own concurrency; agentDirs is read-only).
+  const buildSessionServer = (): McpServer => {
+    const s = new McpServer({ name: 'some-useful-agents', version: '0.3.2' });
+    registerTools(s, provider, options.agentDirs);
+    return s;
+  };
 
   const sessions = new Map<string, SessionEntry>();
   const allowlist = buildLoopbackAllowlist(options.port);
@@ -141,9 +151,10 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => newSessionId,
         });
-        entry = { transport, tokenHash: requestTokenHash };
+        const sessionServer = buildSessionServer();
+        entry = { transport, server: sessionServer, tokenHash: requestTokenHash };
         sessions.set(newSessionId, entry);
-        await server.connect(transport);
+        await sessionServer.connect(transport);
       }
 
       await entry.transport.handleRequest(req, res);
@@ -176,6 +187,9 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
         return;
       }
       await entry.transport.handleRequest(req, res);
+      // Release the per-session McpServer's listener handlers. Best effort —
+      // McpServer.close() may or may not exist depending on SDK version.
+      try { await entry.server.close?.(); } catch { /* ignore */ }
       sessions.delete(sessionId);
       return;
     }
