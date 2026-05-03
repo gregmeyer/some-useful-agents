@@ -155,12 +155,22 @@ function renderAiTemplate(
     return html`<p class="dim">No template stored. Click "Generate" in the agent's Output Widget settings to build one.</p>`;
   }
 
-  // Pull every {{outputs.NAME}} reference from the template so we can
-  // extract values for placeholders the user didn't declare in `fields`.
-  const outputsForSub: Record<string, string> = {};
+  // Build a unified outputs map. Start with the parsed JSON's top-level
+  // keys (so arrays/objects are accessible to {{#each}} and {{{var}}}),
+  // then layer declared scalar fields on top so explicit field config wins.
+  const outputsForSub: Record<string, unknown> = {};
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(output); } catch { /* output isn't JSON; that's fine */ }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    for (const [k, v] of Object.entries(parsed)) outputsForSub[k] = v;
+  }
   for (const [k, v] of Object.entries(fields)) {
     if (typeof v === 'string') outputsForSub[k] = v;
   }
+
+  // Backfill any {{outputs.NAME}} the template references but isn't in the
+  // map yet — only matters for non-JSON outputs where extractField has a
+  // fallback path.
   const re = /\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(schema.template)) !== null) {

@@ -207,24 +207,77 @@ export function sanitizeHtml(input: string): string {
 }
 
 /**
- * Substitute `{{outputs.NAME}}` and `{{result}}` placeholders with the
- * given values. Values are HTML-escaped before substitution so a hostile
- * agent output can't inject script. Run BEFORE sanitizeHtml so that any
- * accidental tag-like content in values gets caught by the sanitizer
- * defense-in-depth pass.
+ * Substitute placeholders against agent output values. Always run BEFORE
+ * `sanitizeHtml` so the allowlist catches any HTML that slipped through —
+ * including the unescaped `{{{var}}}` form below.
+ *
+ * Supported syntax:
+ *   {{outputs.NAME}}                            scalar, HTML-escaped
+ *   {{{outputs.NAME}}}                          scalar, unescaped (sanitizer still runs after)
+ *   {{result}} / {{{result}}}                   the raw run output
+ *   {{#each outputs.NAME as item}} … {{/each}}  iterate an array
+ *     inside the block: {{item.field}} (escaped), {{{item.field}}} (unescaped),
+ *     {{@index}} (zero-based)
+ *
+ * Deliberately tiny grammar: no nested loops, no conditionals, no helpers.
+ * Iteration substitutes inside-out — outer-scope `{{outputs.X}}` references
+ * inside an each body are resolved AFTER the loop expands them.
  */
 export function substitutePlaceholders(
   template: string,
-  values: { outputs?: Record<string, string>; result?: string },
+  values: { outputs?: Record<string, unknown>; result?: string },
 ): string {
   const escape = (s: string): string =>
     String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-  return template
-    .replace(/\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, name: string) => {
-      const v = values.outputs?.[name];
-      return v === undefined ? '' : escape(v);
-    })
-    .replace(/\{\{\s*result\s*\}\}/g, () => escape(values.result ?? ''));
+  const stringify = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
+
+  // 1. Each blocks first — non-greedy body match means an inner #each would
+  //    confuse the parser; that's by design (no nested loops).
+  let out = template.replace(
+    /\{\{\s*#each\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/g,
+    (_, name: string, itemName: string, body: string) => {
+      const arr = values.outputs?.[name];
+      if (!Array.isArray(arr)) return '';
+      const itemRe = new RegExp(`([a-zA-Z_][a-zA-Z0-9_]*)`); // unused, just for symmetry
+      void itemRe;
+      const tripleRe = new RegExp(`\\{\\{\\{\\s*${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}\\}`, 'g');
+      const doubleRe = new RegExp(`\\{\\{\\s*${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}`, 'g');
+      return arr.map((item, index) => {
+        let line = body;
+        line = line.replace(tripleRe, (_match, field?: string) => {
+          if (!field) return stringify(item);
+          return stringify((item as Record<string, unknown> | null)?.[field]);
+        });
+        line = line.replace(doubleRe, (_match, field?: string) => {
+          if (!field) return escape(stringify(item));
+          return escape(stringify((item as Record<string, unknown> | null)?.[field]));
+        });
+        line = line.replace(/\{\{\s*@index\s*\}\}/g, String(index));
+        return line;
+      }).join('');
+    },
+  );
+
+  // 2. Triple-brace unescaped — must run before double-brace so the regex
+  //    doesn't match the inner double braces of `{{{x}}}`.
+  out = out.replace(
+    /\{\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}\}/g,
+    (_, name: string) => stringify(values.outputs?.[name]),
+  );
+  out = out.replace(/\{\{\{\s*result\s*\}\}\}/g, () => values.result ?? '');
+
+  // 3. Double-brace escaped — original behaviour.
+  out = out.replace(
+    /\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g,
+    (_, name: string) => escape(stringify(values.outputs?.[name])),
+  );
+  out = out.replace(/\{\{\s*result\s*\}\}/g, () => escape(values.result ?? ''));
+
+  return out;
 }

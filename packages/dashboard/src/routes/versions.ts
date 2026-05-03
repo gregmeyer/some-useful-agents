@@ -176,6 +176,43 @@ versionsRouter.post('/agents/:id/mcp', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /agents/:id/visibility — toggle pulseVisible or dashboardVisible.
+ *
+ * Body: { field: 'pulse' | 'dashboard', enabled: 'true' | 'false' }.
+ * Like the MCP toggle, the form posts the explicit next state (not a verb)
+ * so a stale tab reload doesn't flip the wrong way.
+ */
+versionsRouter.post('/agents/:id/visibility', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const field = typeof body.field === 'string' ? body.field : '';
+  const raw = typeof body.enabled === 'string' ? body.enabled : '';
+  if ((field !== 'pulse' && field !== 'dashboard') || (raw !== 'true' && raw !== 'false')) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Invalid visibility toggle.')}`);
+    return;
+  }
+  const next = raw === 'true';
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  try {
+    const patch = field === 'pulse' ? { pulseVisible: next } : { dashboardVisible: next };
+    ctx.agentStore.updateAgentMeta(id, patch);
+    const surface = field === 'pulse' ? 'Pulse' : 'Dashboard';
+    const msg = next ? `${surface} visibility on.` : `${surface} visibility off.`;
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(msg)}`);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Visibility toggle failed: ${m}`)}`);
+  }
+});
+
 const VALID_PROVIDERS = new Set(['claude', 'codex']);
 
 /**
