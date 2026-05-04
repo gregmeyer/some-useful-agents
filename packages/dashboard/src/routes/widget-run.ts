@@ -40,8 +40,10 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
       toolStore: ctx.toolStore,
+      agentStore: ctx.agentStore,
       allowUntrustedShell: ctx.allowUntrustedShell,
       dashboardBaseUrl: ctx.dashboardBaseUrl,
+      dataRoot: ctx.agentStore.dataRoot,
     },
   );
 

@@ -178,6 +178,38 @@ You are on the hook for:
 5. **Lock down the repo.** Enable "Require review from Code Owners" on your `main` branch ruleset if you are running a multi-contributor fork. `.github/CODEOWNERS` is inert until you do.
 6. **Keep secrets out of agent output.** Don't `echo $SECRET`. Set `redactSecrets: true` on agents that call third-party APIs whose responses might contain tokens.
 
+## Future security work
+
+Items below are known gaps with explicit threat-model framing. Each says what it would defend against and why it's not in scope today. Tracked here so security planning is honest about what we have vs what we'd want.
+
+### Subprocess filesystem sandbox
+
+**What it would defend against**: a community-shell agent (or an LLM-generated agent saved without close inspection) reading or writing arbitrary paths outside its declared inputs. Today, shell nodes inherit the working directory and can `cat /etc/passwd`, `rm -rf $HOME/anything`, etc. — anything the OS user running sua can do.
+
+**Why not now**: requires platform-specific subprocess sandboxing — `chroot` (Linux, root needed) or `firejail` / `bubblewrap` (Linux, package install) or `sandbox-exec` (macOS, deprecated by Apple, no Windows equivalent). Each has different failure modes and capability surfaces. Multi-day cross-platform effort. Stays on the long list until we either (a) have a concrete attack we're trying to prevent or (b) ship a v1 hosted offering where the trust boundary changes.
+
+### State directory encryption at rest
+
+**What it would defend against**: an attacker with read access to `data/agent-state/<id>/` (e.g. via a separate compromise that landed disk-read-only) recovering plaintext intermediate artifacts an agent persisted across runs (cached API responses, diff snapshots, last-fired timestamps). Today, state is plain files chmod 0o700.
+
+**Why not now**: the existing secrets KEK (PR v0.10) is the obvious candidate to reuse — wrap state writes through the same `data/secrets.enc`-style envelope. The complication is that agents read state via raw filesystem APIs (`cat`, `jq`, `read -r`), not through a sua API. Encrypting state means either (a) injecting a decrypt shim into every shell node — fragile — or (b) FUSE-mounting an encrypted volume — heavyweight, platform-specific. Neither lands in a single PR. **Today's mitigation**: docs warn against putting secrets in state.
+
+### Sibling state-dir prevention
+
+**What it would defend against**: an agent reading another agent's state via `$STATE_DIR/../other-agent/`. Today the regex on agent ids prevents `..` *injection*, but `$STATE_DIR/../` is a literal valid path the agent can compose itself.
+
+**Why not now**: cheap defense-in-depth (symlink `$STATE_DIR` to a randomized location inside `data/agent-state/`, breaking `..` traversal) but it breaks any agent that hardcodes the path elsewhere or shares state intentionally between two agents owned by the same operator. Trade-off worth thinking about before shipping. Also: the same OS user can already read everything under `data/` directly, so this only buys defense against accidental cross-agent reads, not malicious ones.
+
+### Read-only state for community agents
+
+**What it would defend against**: an installed community agent filling your disk by appending to a state file forever, or persisting telemetry / fingerprints across runs. Today community agents get full read-write state access, same as local agents.
+
+**Why not now**: requires a per-agent capability flag in the executor and a clean error when the cap is hit. Useful but the simpler mitigation (the per-agent size cap planned in PR D.1) covers the disk-fill case. Telemetry persistence is a real privacy concern with no good answer except "don't install community agents you don't trust" — same posture as the existing community-shell gate.
+
+### Tracking
+
+These items live on [ROADMAP.md](../ROADMAP.md) under "Security audit follow-through" but the threat-model framing here is the source of truth. Promote out as concrete PRs are scheduled.
+
 ## Reporting vulnerabilities
 
 Do not open a public GitHub issue for a security report.

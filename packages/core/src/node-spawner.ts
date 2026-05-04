@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import type { Agent, AgentNode, NodeErrorCategory } from './agent-v2-types.js';
 import type { ExecutionResult } from './agent-executor.js';
 import { substituteInputs } from './input-resolver.js';
-import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
+import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -224,6 +224,9 @@ export async function spawnNodeReal(
   }
   resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, upstreamMap);
   resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
+  // {{state}} resolves to $STATE_DIR (set by node-env when dataRoot is
+  // configured). Falls through to empty string when unset.
+  resolvedPrompt = resolveStateTemplate(resolvedPrompt, env.STATE_DIR);
   resolvedPrompt = substituteInputs(resolvedPrompt, env);
 
   const spawner = getSpawner(node.provider ?? 'claude');

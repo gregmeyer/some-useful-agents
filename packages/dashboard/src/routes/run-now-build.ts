@@ -324,6 +324,7 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
       runStore: ctx.runStore,
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
+      dataRoot: ctx.agentStore.dataRoot,
     },
   );
 
@@ -522,6 +523,7 @@ Output ONLY the complete fixed YAML. Nothing else.`,
         runStore: ctx.runStore,
         secretsStore: ctx.secretsStore,
         variablesStore: ctx.variablesStore,
+        dataRoot: ctx.agentStore.dataRoot,
       },
     );
 
@@ -635,6 +637,7 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
       runStore: ctx.runStore,
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
+      dataRoot: ctx.agentStore.dataRoot,
     },
   );
 

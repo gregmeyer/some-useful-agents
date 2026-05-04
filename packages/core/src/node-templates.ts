@@ -66,3 +66,15 @@ export function resolveVarsTemplate(text: string, vars: Record<string, string>):
   }
   return out;
 }
+
+/**
+ * Substitute `{{state}}` with the per-agent state-dir path. When stateDir
+ * is undefined (executor running without dataRoot) the token resolves to
+ * empty string — agents that reference `{{state}}` in those contexts
+ * effectively become broken, but no template error fires; that's the
+ * intended graceful degradation for tests + one-shot CLI runs.
+ */
+export function resolveStateTemplate(text: string, stateDir: string | undefined): string {
+  if (!text.includes('{{state}}')) return text;
+  return text.split('{{state}}').join(stateDir ?? '');
+}

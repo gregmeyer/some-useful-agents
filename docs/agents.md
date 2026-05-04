@@ -64,6 +64,46 @@ inputs:
 
 Names must match `[A-Z_][A-Z0-9_]*` (uppercase letters, digits, underscores). The dashboard renders inputs in its Run modal: text fields for string/number, toggles for boolean, dropdowns for enum.
 
+## Persistent state — `$STATE_DIR` and `{{state}}`
+
+Agents that need to persist data across runs (diff-over-time, caches, last-fired markers) get a per-agent directory at `data/agent-state/<agent-id>/`. Created lazily on first use, chmod 0o700, removed automatically when the agent is deleted.
+
+Available as:
+- **`$STATE_DIR`** env var in shell nodes (and as a top-level template variable in built-in tool inputs)
+- **`{{state}}`** template token in claude-code prompts and built-in tool inputs (e.g. `file-write`'s `path:`)
+
+Example — README change watcher:
+
+```yaml
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      curl -sf "https://api.github.com/repos/$REPO/readme" | jq -r '.content' | base64 -d
+  - id: diff
+    type: shell
+    dependsOn: [fetch]
+    command: |
+      mkdir -p "$STATE_DIR"
+      PREV="$STATE_DIR/last-readme.md"
+      NEW="$STATE_DIR/current-readme.md"
+      echo "$UPSTREAM_FETCH_RESULT" > "$NEW"
+      if [ -f "$PREV" ]; then
+        if ! diff -q "$PREV" "$NEW" > /dev/null; then
+          echo '{"changed":true,"diff":"'"$(diff "$PREV" "$NEW" | head -20 | base64)"'"}'
+        else
+          echo '{"changed":false}'
+        fi
+      else
+        echo '{"changed":false,"first_run":true}'
+      fi
+      cp "$NEW" "$PREV"
+```
+
+State is **not** swept by run retention — it persists until the agent is deleted. Don't put secrets in there; the dir lives on disk in plain text.
+
+Currently available to: dashboard runs, `sua workflow run`, `sua workflow replay`. **Not yet available** to scheduled agents going through `sua schedule start` (uses the v1 chain executor; will be wired in a follow-up).
+
 ## `outputs`
 
 Author-declared shape of the agent's final-node JSON result. Optional but recommended — used by the planner for cross-agent composition (`agent-invoke` chaining) and by the widget editor for field-name suggestions.
