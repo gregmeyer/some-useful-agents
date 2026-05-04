@@ -103,6 +103,16 @@ nodes:
           label: Stories
           type: metric
 
+      WIDGET INTERACTION (outputWidget.controls — make widgets feel alive):
+      Add a controls: array on outputWidget when the user might interact with the result. Three control types — replay, field-toggle, view-switch — render as a row above the widget body. State is URL-driven (no client JS). field-toggle and view-switch are NOT supported on ai-template widgets.
+      Per archetype:
+      - Weather / forecast: include all three. replay with inputs:[CITY] for tweaking. view-switch metric ↔ imperial. field-toggle (default: hidden) for optional metrics like uv / sunrise / precip.
+      - Lookup tool / search agent: replay with inputs:[QUERY] so the user can refine the query inline.
+      - Daily digest / news fetcher: replay with no inputs (same-inputs refresh — "fetch latest").
+      - Status dashboard / monitoring: field-toggle (default: hidden) to hide non-critical metrics; consider view-switch if there's a clear "summary" vs "detail" mode.
+      - Build / CI agent: replay only (re-run with the same target).
+      Avoid controls on agents that are purely scheduled and never user-driven. Always reference declared field names — every name in field-toggle.fields[] and view-switch.views[].fields[] must match an outputWidget.fields[].name.
+
       SIGNAL TEMPLATE RULES:
       - signal.template MUST be one of the names listed above (metric, time-series, text-headline, text-image, image, table, status, media, comparison, key-value, story, funnel).
       - signal.title is a literal string. Do NOT use expression syntax like "'Weather: ' + output.city".

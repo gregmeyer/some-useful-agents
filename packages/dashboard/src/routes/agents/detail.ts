@@ -5,6 +5,7 @@ import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../../views/agent-detail-v2.js';
 import { deriveBack } from '../../views/page-header.js';
+import { parseHiddenFieldsParam } from '../../views/output-widgets.js';
 
 export const agentDetailRouter: Router = Router();
 
@@ -28,6 +29,9 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
     const flash = flashParam ? { kind: 'ok' as const, message: flashParam } : undefined;
     const referer = typeof req.headers.referer === 'string' ? req.headers.referer : undefined;
     const back = deriveBack(referer, `127.0.0.1:${ctx.port}`, fromParam);
+    const wv = typeof req.query.wv === 'string' ? req.query.wv : undefined;
+    const wh = typeof req.query.wh === 'string' ? req.query.wh : undefined;
+    const widgetControls = { view: wv, hiddenFields: parseHiddenFieldsParam(wh) };
     const html = await renderAgentDetailV2({
       agent: v2Agent,
       recentRuns: rows,
@@ -35,6 +39,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       flash,
       back,
       from: fromParam,
+      widgetControls,
     });
     res.type('html').send(html);
     return;

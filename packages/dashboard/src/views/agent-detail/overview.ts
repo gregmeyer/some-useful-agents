@@ -5,7 +5,7 @@ import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
-  const { agent, recentRuns } = args;
+  const { agent, recentRuns, widgetControls } = args;
   const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
   const hasCommunityShellNode = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
 
@@ -44,7 +44,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
           </div>
           ${latestCompletedRun?.result
             ? html`
-              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
+              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id, widgetControls) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
               <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0;">From run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
             `
             : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Run the agent to see a preview.</p>`}

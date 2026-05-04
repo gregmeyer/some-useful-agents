@@ -161,13 +161,25 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('from:');
   });
 
-  it('stays under 8000 chars with typical data (was 4000 before adding manifest detail)', () => {
+  it('describes WIDGET CONTROLS with all three control types and use-when guidance', () => {
+    const catalog = buildDiscoveryCatalog({ agents: [], tools: [], templateRegistry: {} });
+    expect(catalog).toContain('WIDGET CONTROLS');
+    expect(catalog).toContain('replay');
+    expect(catalog).toContain('field-toggle');
+    expect(catalog).toContain('view-switch');
+    // "Use when" guidance must appear so the planner picks the right control.
+    expect(catalog).toMatch(/USE WHEN.*replay|replay.*USE WHEN/is);
+    expect(catalog).toMatch(/USE WHEN.*field-toggle|field-toggle.*USE WHEN/is);
+    expect(catalog).toMatch(/USE WHEN.*view-switch|view-switch.*USE WHEN/is);
+  });
+
+  it('stays under 10000 chars with typical data (was 4000 before manifest detail; +1000 for widget controls)', () => {
     const catalog = buildDiscoveryCatalog({
       agents: MOCK_AGENTS,
       tools: [],
       templateRegistry: MOCK_REGISTRY,
     });
-    expect(catalog.length).toBeLessThan(8000);
+    expect(catalog.length).toBeLessThan(10000);
   });
 
   it('handles empty agents gracefully', () => {

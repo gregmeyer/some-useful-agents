@@ -66,7 +66,34 @@ Example for a final node that emits {"file":"x.md","count":5}:
       label: Saved to
     - name: count      # reads outputs.count → renders "5"
       type: metric
-      label: Stories`.trim();
+      label: Stories
+
+## WIDGET CONTROLS (outputWidget.controls — interactive UI on the rendered widget)
+Make widgets feel alive. Three control types render as a row above the widget body. State lives in URL query params (no client JS); refresh = default state. NOT supported on ai-template widgets except for "replay".
+- replay: Re-run the agent inline. inputs:[] (or omitted) = same-inputs replay. inputs:[NAME, ...] exposes those agent.inputs as inline form fields so the user can tweak before re-running.
+  USE WHEN: the user might run the agent multiple times — daily reports, lookup tools, on-demand fetchers, weather. Always include unless the agent is purely scheduled and never user-driven.
+- field-toggle: Hide/show optional fields via chip toggles. fields:[NAMES] must reference declared widget fields; default: shown | hidden.
+  USE WHEN: some fields are nice-to-have rather than essential (precipitation, UV, sun times, secondary stats). Default-hidden fields keep the widget compact; the user reveals them with one click.
+- view-switch: Tab-style switch between named subsets of fields. views:[{id, fields:[...]}]; default: <view-id>.
+  USE WHEN: the goal implies multiple modes — today vs week, summary vs detail, metric vs imperial, basic vs advanced. Each view names which declared fields belong to it.
+
+Example controls block (weather agent with all three):
+  controls:
+    - type: replay
+      label: Refresh
+      inputs: [CITY]
+    - type: view-switch
+      label: Units
+      views:
+        - id: metric
+          fields: [temp_c, wind_kph, precip_mm]
+        - id: imperial
+          fields: [temp_f, wind_mph, precip_in]
+      default: metric
+    - type: field-toggle
+      label: Show
+      fields: [uv, sunrise, sunset]
+      default: hidden`.trim();
 
 const PATTERNS = `
 ## ARCHITECTURE PATTERNS
