@@ -14,6 +14,7 @@
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { Agent, AgentNode, AgentStatus, AgentSource } from './agent-v2-types.js';
 import { agentV2Schema, type AgentV2Parsed } from './agent-v2-schema.js';
+import { deriveCapabilities } from './agent-capabilities.js';
 
 export class AgentYamlParseError extends Error {
   constructor(message: string, public readonly issues?: unknown[]) {
@@ -47,7 +48,9 @@ export function parseAgent(yamlText: string): Agent {
     throw new AgentYamlParseError(`Agent schema validation failed: ${summary}`, result.error.issues);
   }
 
-  return parsedToAgent(result.data);
+  const agent = parsedToAgent(result.data);
+  agent.capabilities = deriveCapabilities(agent);
+  return agent;
 }
 
 function parsedToAgent(p: AgentV2Parsed): Agent {

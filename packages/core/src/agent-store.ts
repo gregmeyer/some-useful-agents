@@ -10,6 +10,7 @@ import type {
   AgentVersion,
   AgentVersionDag,
 } from './agent-v2-types.js';
+import { deriveCapabilities } from './agent-capabilities.js';
 
 type SqlValue = string | number | null | bigint | Uint8Array;
 
@@ -378,7 +379,7 @@ export class AgentStore {
     version: AgentVersion,
   ): Agent {
     const dag = version.dag;
-    return {
+    const agent: Agent = {
       id: row.id as string,
       name: row.name as string,
       description: ((row.description as string | null) ?? undefined) as string | undefined,
@@ -401,6 +402,8 @@ export class AgentStore {
       author: dag.author,
       tags: dag.tags,
     };
+    agent.capabilities = deriveCapabilities(agent);
+    return agent;
   }
 }
 
