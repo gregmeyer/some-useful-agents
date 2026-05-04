@@ -84,7 +84,7 @@ const agentInvokeConfigSchema = z.object({
 export const agentNodeSchema = z.object({
   id: z.string().regex(NODE_ID_RE, 'Node ids must be lowercase with hyphens/underscores only'),
   type: z.enum([
-    'shell', 'claude-code',
+    'shell', 'claude-code', 'file-write',
     'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
   ]),
 
@@ -98,6 +98,11 @@ export const agentNodeSchema = z.object({
   maxTurns: z.number().int().positive().optional(),
   allowedTools: z.array(z.string()).optional(),
   provider: z.enum(['claude', 'codex']).optional(),
+
+  // file-write node fields (top-level for ergonomics; desugar to toolInputs at dispatch).
+  path: z.string().optional(),
+  content: z.string().optional(),
+  append: z.boolean().optional(),
 
   timeout: z.number().positive().optional(),
   env: z.record(z.string()).optional(),
@@ -126,9 +131,11 @@ export const agentNodeSchema = z.object({
     // v0.15 compat: shell needs command, claude-code needs prompt.
     if (data.type === 'shell') return !!data.command;
     if (data.type === 'claude-code') return !!data.prompt;
+    // file-write needs path + content (or toolInputs if author preferred that form).
+    if (data.type === 'file-write') return !!data.path && !!data.content;
     return false;
   },
-  { message: 'Execution nodes without a tool require command (shell) or prompt (claude-code)' },
+  { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), or path+content (file-write)' },
 );
 
 export const agentV2Schema = z.object({
@@ -418,6 +425,13 @@ export const agentV2Schema = z.object({
 
     if (node.type === 'claude-code') {
       checkText(node.prompt, ['prompt']);
+    }
+
+    if (node.type === 'file-write') {
+      // file-write content may reference upstream outputs and inputs via
+      // template syntax — the dispatch path resolves these before writing.
+      checkText(node.content, ['content']);
+      checkText(node.path, ['path']);
     }
 
     // env values (both shell and claude-code) may reference inputs + upstream

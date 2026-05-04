@@ -28,6 +28,7 @@ export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 export type NodeType =
   | 'shell'
   | 'claude-code'
+  | 'file-write'
   | 'conditional'
   | 'switch'
   | 'loop'
@@ -156,6 +157,14 @@ export interface AgentNode {
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
+
+  // file-write (first-class node type — desugars to tool: 'file-write')
+  /** Path to write (relative to working directory). Required when type is file-write. */
+  path?: string;
+  /** Content to write. Required when type is file-write. May template {{upstream.X.result}} / {{inputs.X}}. */
+  content?: string;
+  /** When true, append instead of overwrite. Defaults to false. file-write only. */
+  append?: boolean;
 
   /**
    * v0.17+: LLM provider for claude-code nodes. Defaults to 'claude'.

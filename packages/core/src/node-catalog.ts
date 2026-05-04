@@ -111,6 +111,36 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
   timeout: 60`,
   },
 
+  'file-write': {
+    type: 'file-write',
+    description: 'Write content to a file in the working directory. Optionally append. Sandbox: paths cannot escape via "..".',
+    inputs: [
+      { name: 'path', type: 'string', required: true, description: 'Relative path within the working directory. May template {{inputs.X}}.' },
+      { name: 'content', type: 'string', required: true, description: 'Content to write. May template {{upstream.<id>.result}} / {{upstream.<id>.<field>}} / {{inputs.X}}.' },
+      { name: 'append', type: 'boolean', description: 'When true, append to the file instead of overwriting. Default false.' },
+      { name: 'workingDirectory', type: 'string', description: 'Override the working directory the path resolves against (defaults to project root).' },
+      { name: 'dependsOn', type: 'string[]', description: 'Upstream node ids this node waits on.' },
+      { name: 'onlyIf', type: 'OnlyIfCondition', description: 'Per-edge predicate.' },
+    ],
+    outputs: [
+      { name: 'path', type: 'string', description: 'Resolved file path.' },
+      { name: 'bytes', type: 'number', description: 'Bytes written.' },
+      { name: 'append', type: 'boolean', description: 'Whether the write was an append.' },
+      { name: 'result', type: 'string', description: 'Resolved file path (alias of `path`).' },
+    ],
+    use_when: [
+      'You need to write a file as part of the DAG. Cleaner than `type: shell` with a heredoc + redirect.',
+      'The content comes from an upstream output you want to template directly into the file.',
+      'You want the executor to handle path safety (the sandbox prevents `../` escape) instead of trusting shell quoting.',
+      'For appending across runs (e.g. a daily log), set append: true.',
+    ],
+    example: `- id: save
+  type: file-write
+  dependsOn: [build-summary]
+  path: "output/digest-{{inputs.DATE}}.md"
+  content: "{{upstream.build-summary.result}}"`,
+  },
+
   conditional: {
     type: 'conditional',
     description: 'Evaluate a predicate against an upstream output. Emits `matched: true | false` for downstream nodes to branch on via onlyIf.',

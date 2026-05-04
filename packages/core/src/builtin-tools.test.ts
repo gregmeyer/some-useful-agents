@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from './builtin-tools.js';
 
 describe('Builtin tool registry', () => {
@@ -65,6 +68,48 @@ describe('Builtin tool registry', () => {
     const result = await entry.execute({ path: 'package.json' }, {});
     expect(result.content).toContain('some-useful-agents');
     expect(result.bytes).toBeGreaterThan(0);
+  });
+
+  describe('file-write', () => {
+    let tmp: string;
+    beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'sua-fw-')); });
+    afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+    it('writes content to a file (overwrite default)', async () => {
+      const entry = getBuiltinTool('file-write')!;
+      const result = await entry.execute(
+        { path: 'out.txt', content: 'hello' },
+        { workingDirectory: tmp },
+      );
+      expect(result.bytes).toBe(5);
+      expect(result.append).toBe(false);
+      expect(readFileSync(join(tmp, 'out.txt'), 'utf-8')).toBe('hello');
+    });
+
+    it('overwrites by default on second write', async () => {
+      const entry = getBuiltinTool('file-write')!;
+      await entry.execute({ path: 'out.txt', content: 'first' }, { workingDirectory: tmp });
+      await entry.execute({ path: 'out.txt', content: 'second' }, { workingDirectory: tmp });
+      expect(readFileSync(join(tmp, 'out.txt'), 'utf-8')).toBe('second');
+    });
+
+    it('appends when append: true', async () => {
+      const entry = getBuiltinTool('file-write')!;
+      await entry.execute({ path: 'log.txt', content: 'one\n' }, { workingDirectory: tmp });
+      const result = await entry.execute(
+        { path: 'log.txt', content: 'two\n', append: true },
+        { workingDirectory: tmp },
+      );
+      expect(result.append).toBe(true);
+      expect(readFileSync(join(tmp, 'log.txt'), 'utf-8')).toBe('one\ntwo\n');
+    });
+
+    it('refuses paths that escape the working directory', async () => {
+      const entry = getBuiltinTool('file-write')!;
+      await expect(
+        entry.execute({ path: '../escape.txt', content: 'x' }, { workingDirectory: tmp }),
+      ).rejects.toThrow(/escapes the working directory/);
+    });
   });
 
   it('http-get fetches a URL (skipped without network)', async () => {

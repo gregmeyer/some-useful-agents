@@ -285,14 +285,16 @@ const BUILTINS: BuiltinToolEntry[] = [
   def(
     'file-write',
     'File write',
-    'Write content to a file in the project directory.',
+    'Write content to a file in the project directory. Optionally append.',
     {
       path: { type: 'string', description: 'Relative path within the project.', required: true },
       content: { type: 'string', description: 'Content to write.', required: true },
+      append: { type: 'boolean', description: 'When true, append to the file instead of overwriting. Default false.' },
     },
     {
       bytes: { type: 'number', description: 'Bytes written.' },
       path: { type: 'string', description: 'Resolved file path.' },
+      append: { type: 'boolean', description: 'Whether the write was an append.' },
       result: { type: 'string', description: 'Resolved file path.' },
     },
     async (inputs, ctx) => {
@@ -302,8 +304,9 @@ const BUILTINS: BuiltinToolEntry[] = [
         throw new Error(`Path "${String(inputs.path)}" escapes the working directory.`);
       }
       const content = String(inputs.content);
-      writeFileSync(filePath, content, 'utf-8');
-      return { bytes: Buffer.byteLength(content), path: filePath, result: filePath };
+      const append = inputs.append === true;
+      writeFileSync(filePath, content, { encoding: 'utf-8', flag: append ? 'a' : 'w' });
+      return { bytes: Buffer.byteLength(content), path: filePath, append, result: filePath };
     },
   ),
 

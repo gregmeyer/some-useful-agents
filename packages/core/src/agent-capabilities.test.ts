@@ -58,6 +58,14 @@ describe('deriveCapabilities — tools_used', () => {
     expect(c.tools_used).toEqual(['shell-exec']);
   });
 
+  it('detects file-write node type as the file-write tool', () => {
+    const c = deriveCapabilities(makeAgent({
+      nodes: [{ id: 'save', type: 'file-write', path: 'out.md', content: 'x' }],
+    }));
+    expect(c.tools_used).toContain('file-write');
+    expect(c.side_effects).toContain('writes_files');
+  });
+
   it('returns empty for flow-control-only DAGs', () => {
     const c = deriveCapabilities(makeAgent({
       nodes: [{ id: 'end', type: 'end', endMessage: 'done' }],

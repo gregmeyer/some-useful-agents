@@ -32,6 +32,7 @@ import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
+import { substituteInputs } from './input-resolver.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
@@ -616,11 +617,25 @@ export async function executeAgentDag(
         // Built-in tool: call execute() directly, no child process.
         // Merge tool-level config (project defaults) with per-invocation
         // inputs so the user doesn't repeat common values every node.
-        const toolInputs = {
+        // Resolve {{upstream.X.field}}, {{vars.X}}, and {{inputs.X}} in
+        // string-typed inputs so first-class node types like file-write
+        // can template path/content from upstream output and inputs.
+        const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
+        const resolvedInputs = options.inputs ?? {};
+        const resolveStr = (s: string): string =>
+          substituteInputs(
+            resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
+            resolvedInputs,
+          );
+        const rawInputs = {
           ...(builtinEntry.definition.config ?? {}),
           ...resolveToolInputs(node, upstreamSnapshot),
           ...(node.action ? { _action: node.action } : {}),
         };
+        const toolInputs: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(rawInputs)) {
+          toolInputs[k] = typeof v === 'string' ? resolveStr(v) : v;
+        }
         const ctx: BuiltinToolContext = {
           workingDirectory: node.workingDirectory,
           env,

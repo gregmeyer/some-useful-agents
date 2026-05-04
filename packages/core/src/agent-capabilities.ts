@@ -116,6 +116,7 @@ function collectFromNode(
   const explicitTool = typeof node.tool === 'string' && node.tool ? node.tool : undefined;
   const desugaredTool = node.type === 'shell' ? 'shell-exec'
     : node.type === 'claude-code' ? 'claude-code'
+    : node.type === 'file-write' ? 'file-write'
     : undefined;
   const primaryTool = explicitTool ?? desugaredTool;
   if (primaryTool) {
