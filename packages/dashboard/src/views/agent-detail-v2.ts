@@ -16,6 +16,7 @@ export { renderAgentYaml } from './agent-detail/yaml.js';
 
 import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
 import type { PageHeaderBack } from './page-header.js';
+import type { WidgetControlState } from './output-widgets.js';
 import { renderAgentOverview } from './agent-detail/overview.js';
 
 /** @deprecated Use renderAgentOverview directly */
@@ -26,6 +27,7 @@ export async function renderAgentDetailV2(args: {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   back?: PageHeaderBack;
   from?: string;
+  widgetControls?: WidgetControlState;
 }): Promise<string> {
   return renderAgentOverview({ ...args, activeTab: 'overview' });
 }

@@ -26,7 +26,7 @@ export * from './agent-capabilities.js';
 export * from './node-catalog.js';
 export * from './agent-state.js';
 export * from './output-widget-types.js';
-export { outputWidgetSchema } from './output-widget-schema.js';
+export { outputWidgetSchema, widgetControlSchema, widgetViewSchema } from './output-widget-schema.js';
 export {
   agentV2Schema,
   agentNodeSchema,

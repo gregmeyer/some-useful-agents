@@ -4,6 +4,7 @@ import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
 import { sourceBadge } from '../components.js';
 import { renderRunInputsForm, statusOption } from '../agent-detail-helpers.js';
+import type { WidgetControlState } from '../output-widgets.js';
 
 export type AgentTab = 'overview' | 'nodes' | 'config' | 'runs' | 'yaml';
 
@@ -17,6 +18,8 @@ export interface AgentDetailArgs {
   activeTab: AgentTab;
   /** Previous run's agent-level inputs, for pre-filling the Run Now modal. */
   previousInputs?: Record<string, string>;
+  /** URL-driven state for the latest-run output-widget preview's controls. */
+  widgetControls?: WidgetControlState;
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

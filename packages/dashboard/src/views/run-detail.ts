@@ -4,7 +4,7 @@ import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { statusBadge, outputFrame, formatDuration, formatExitCode, formatErrorCategory } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
-import { renderOutputWidget } from './output-widgets.js';
+import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 
 export interface RunDetailOptions {
   run: Run;
@@ -18,10 +18,12 @@ export interface RunDetailOptions {
   back?: PageHeaderBack;
   /** Success/error banner surfaced on the detail page. */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** URL-driven state for the output widget's interactive controls. */
+  widgetControls?: WidgetControlState;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -141,7 +143,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             <h2 style="margin-top: 0;">Result</h2>
             ${!inProgress && run.result
               ? (agent?.outputWidget
-                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result)
+                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls) ?? outputFrame(run.result)
                   : outputFrame(run.result))
               : inProgress
                 ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
@@ -169,7 +171,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ` : html`
         <h2>Output</h2>
         ${run.result
-          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id) ?? outputFrame(run.result) : outputFrame(run.result))
+          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls) ?? outputFrame(run.result) : outputFrame(run.result))
           : html`<p class="dim">No output yet.</p>`}
       `}
       ${cancelModal}

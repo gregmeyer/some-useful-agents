@@ -186,6 +186,53 @@ The editor ships with 5 one-click starter widgets under the **Load example** dro
 
 Pick one, tweak the field names to match your agent, save.
 
+## Interactive controls
+
+Add a `controls:` array on `outputWidget` to render an interactive controls row above the widget body on the agent detail and run detail pages. State lives entirely in URL query params (no client JS), so refresh resets to defaults and links can be shared.
+
+Three control types:
+
+| Type | Purpose | Notes |
+|---|---|---|
+| `replay` | Re-run the agent inline | `inputs: []` (or omitted) = same-inputs replay; `inputs: [NAME]` exposes those agent inputs as inline form fields the user can tweak before re-running |
+| `field-toggle` | Hide/show optional fields via chip toggles | `fields: [NAMES]` must reference declared widget fields; `default: shown` or `hidden` |
+| `view-switch` | Tab-style switch between named subsets of fields | `views: [{id, fields: [...]}]`; `default:` names the active view's id |
+
+Example — weather agent with all three controls:
+
+```yaml
+outputWidget:
+  type: dashboard
+  fields:
+    - { name: temp_c, type: metric }
+    - { name: temp_f, type: metric }
+    - { name: wind, type: stat }
+    - { name: uv, type: text }
+  controls:
+    - type: replay
+      label: Refresh
+      inputs: [CITY]
+    - type: view-switch
+      label: Units
+      default: metric
+      views:
+        - { id: metric, fields: [temp_c, wind] }
+        - { id: imperial, fields: [temp_f, wind] }
+    - type: field-toggle
+      label: Show
+      fields: [uv]
+      default: hidden
+```
+
+URL grammar:
+
+- `?wv=<view-id>` — active view for the `view-switch`. Omitted = default view.
+- `?wh=<csv-of-field-names>` — fields hidden via `field-toggle`. When `?wh=` mentions any toggle field, it's the authoritative hidden set; otherwise per-control `default:` applies.
+
+`field-toggle` and `view-switch` are not supported on `ai-template` widgets — the template author controls layout directly. `replay` works on any widget type.
+
+Controls render only on the agent detail and run detail pages. Pulse tiles render the widget statically — they're too small for inline controls in v1.
+
 ## Pulse integration
 
 To show an agent's widget as a Pulse tile, set the agent's signal to use the `widget` template:

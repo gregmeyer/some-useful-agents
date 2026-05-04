@@ -8,9 +8,22 @@
  *   - raw: pre-formatted output with field extraction
  */
 
-import type { OutputWidgetSchema } from '@some-useful-agents/core';
+import type { OutputWidgetSchema, WidgetControl, WidgetField } from '@some-useful-agents/core';
 import { sanitizeHtml, substitutePlaceholders } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
+
+/**
+ * URL-driven state for a widget's interactive controls. Threaded from the
+ * route handlers (run-detail, agent overview) which read query params and
+ * pass them through. Pulse tiles + home widgets don't pass this — they
+ * render in static mode (no controls row, all fields visible).
+ */
+export interface WidgetControlState {
+  /** Active `view-switch` view id (from ?wv=); when absent, the control's `default` is used. */
+  view?: string;
+  /** Field names hidden via `?wh=csv`. Already-parsed by the caller. */
+  hiddenFields?: ReadonlySet<string>;
+}
 
 /**
  * Extract a field value from run output text. Supports two extraction modes:
@@ -112,30 +125,205 @@ function renderPreview(label: string, filePath: string): SafeHtml {
 }
 
 /**
+ * Resolve which fields should be visible given the widget's controls and the
+ * URL-driven state. Order: start with declared fields → if a view-switch is
+ * active, intersect with that view's `fields[]` → drop any field hidden via
+ * `field-toggle`. Returns a (possibly narrower) clone of the schema; never
+ * mutates the input.
+ */
+function applyControlsToFields(
+  schema: OutputWidgetSchema,
+  state?: WidgetControlState,
+): OutputWidgetSchema {
+  if (!schema.controls?.length || !schema.fields) return schema;
+
+  const allFieldNames = new Set(schema.fields.map((f) => f.name));
+  let visible: Set<string> = new Set(allFieldNames);
+
+  for (const c of schema.controls) {
+    if (c.type === 'view-switch') {
+      const activeId = state?.view ?? c.default;
+      const activeView = c.views.find((v) => v.id === activeId) ?? c.views.find((v) => v.id === c.default);
+      if (activeView) {
+        visible = new Set([...visible].filter((n) => activeView.fields.includes(n)));
+      }
+    }
+  }
+
+  // field-toggle: when ?wh is present in the URL (even as ?wh=), it is
+  // authoritative — exactly the listed fields are hidden, all others shown.
+  // Absent ?wh = per-control defaults apply.
+  const hiddenFromDefaults = new Set<string>();
+  for (const c of schema.controls) {
+    if (c.type === 'field-toggle' && c.default === 'hidden') {
+      for (const n of c.fields) hiddenFromDefaults.add(n);
+    }
+  }
+  const hidden = state?.hiddenFields !== undefined ? state.hiddenFields : hiddenFromDefaults;
+  for (const n of hidden) visible.delete(n);
+
+  const filteredFields: WidgetField[] = schema.fields.filter((f) => visible.has(f.name));
+  return { ...schema, fields: filteredFields };
+}
+
+/**
  * Render a widget from an agent's outputWidget schema and run output.
  * Returns undefined if the schema type is unknown.
+ *
+ * `controlState` (4th arg) is opt-in: when provided, the widget renders an
+ * interactive controls row above the body and applies URL-driven view /
+ * field-toggle filtering. Callers that pass nothing get the static render.
  */
 export function renderOutputWidget(
   schema: OutputWidgetSchema,
   output: string,
   agentId: string,
+  controlState?: WidgetControlState,
 ): SafeHtml | undefined {
-  const fields = extractFields(output, schema);
+  // ai-template widgets render their own layout via the stored template;
+  // field-toggle / view-switch don't apply (rejected at schema time). Only
+  // the body+optional replay control row are emitted.
+  const filtered = schema.type === 'ai-template' ? schema : applyControlsToFields(schema, controlState);
+  const fields = extractFields(output, filtered);
 
-  switch (schema.type) {
+  let body: SafeHtml | undefined;
+  switch (filtered.type) {
     case 'diff-apply':
-      return renderDiffApply(schema, fields, agentId);
+      body = renderDiffApply(filtered, fields, agentId);
+      break;
     case 'key-value':
-      return renderKeyValue(schema, fields);
+      body = renderKeyValue(filtered, fields);
+      break;
     case 'raw':
-      return renderRaw(schema, fields);
+      body = renderRaw(filtered, fields);
+      break;
     case 'dashboard':
-      return renderDashboard(schema, fields);
+      body = renderDashboard(filtered, fields);
+      break;
     case 'ai-template':
-      return renderAiTemplate(schema, output, fields);
+      body = renderAiTemplate(filtered, output, fields);
+      break;
     default:
       return undefined;
   }
+
+  if (!controlState || !schema.controls?.length) return body;
+  const controlsRow = renderControlsRow(schema, agentId, controlState);
+  return html`${controlsRow}${body}`;
+}
+
+/**
+ * Render the controls row above a widget body. URL-param-driven; every
+ * interaction is a full page reload via <a> or a POST <form>. No client JS.
+ */
+function renderControlsRow(
+  schema: OutputWidgetSchema,
+  agentId: string,
+  state: WidgetControlState,
+): SafeHtml {
+  const controls = schema.controls ?? [];
+  const groups = controls.map((c) => {
+    if (c.type === 'replay') return renderReplayControl(c, agentId);
+    if (c.type === 'view-switch') return renderViewSwitchControl(c, state);
+    if (c.type === 'field-toggle') return renderFieldToggleControl(c, schema, state);
+    return html``;
+  });
+  return html`
+    <div class="output-widget__controls" style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border);">
+      ${groups as unknown as SafeHtml[]}
+    </div>
+  `;
+}
+
+function renderReplayControl(c: Extract<WidgetControl, { type: 'replay' }>, agentId: string): SafeHtml {
+  const label = c.label ?? 'Run again';
+  const inlineInputs = (c.inputs ?? []).map((name) => html`
+    <label style="display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs);">
+      <span class="dim">${name}</span>
+      <input type="text" name="input_${name}" style="padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 8em;">
+    </label>
+  `);
+  return html`
+    <form method="POST" action="/agents/${encodeURIComponent(agentId)}/run" style="display: inline-flex; gap: var(--space-2); align-items: center; margin: 0;">
+      ${inlineInputs as unknown as SafeHtml[]}
+      <button type="submit" class="btn btn--sm btn--primary" data-widget-control="replay">${label}</button>
+    </form>
+  `;
+}
+
+function renderViewSwitchControl(
+  c: Extract<WidgetControl, { type: 'view-switch' }>,
+  state: WidgetControlState,
+): SafeHtml {
+  const activeId = state.view ?? c.default;
+  const chips = c.views.map((v) => {
+    const isActive = v.id === activeId;
+    const cls = isActive ? 'badge' : 'badge badge--muted';
+    const style = isActive
+      ? 'cursor: default; text-decoration: none;'
+      : 'cursor: pointer; text-decoration: none;';
+    // The default view's URL omits `?wv=` (cleaner share links). All other
+    // views set it explicitly. `wh` is preserved by the caller via the form/
+    // link grammar — controls share state through query string only, so
+    // clicking a view-switch resets the hidden-fields list. Acceptable for v1.
+    const href = v.id === c.default ? '?' : `?wv=${encodeURIComponent(v.id)}`;
+    return html`<a href="${href}" class="${cls}" style="${style}" data-widget-control="view-switch" data-view-id="${v.id}">${v.id}</a>`;
+  });
+  return html`
+    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
+      <span class="dim" style="font-size: var(--font-size-xs);">${c.label}:</span>
+      ${chips as unknown as SafeHtml[]}
+    </div>
+  `;
+}
+
+function renderFieldToggleControl(
+  c: Extract<WidgetControl, { type: 'field-toggle' }>,
+  schema: OutputWidgetSchema,
+  state: WidgetControlState,
+): SafeHtml {
+  const labelByName = new Map<string, string>();
+  for (const f of schema.fields ?? []) labelByName.set(f.name, f.label ?? f.name);
+
+  // Reconstruct the effective hidden set so each chip can render its
+  // current state and link to the toggled URL. ?wh present (even empty) =
+  // authoritative; absent = per-control defaults.
+  const effectiveHidden = state.hiddenFields !== undefined
+    ? new Set(state.hiddenFields)
+    : new Set(c.default === 'hidden' ? c.fields : []);
+
+  const chips = c.fields.map((name) => {
+    const isHidden = effectiveHidden.has(name);
+    // Build the toggled hidden set for this chip's link.
+    const next = new Set(effectiveHidden);
+    if (isHidden) next.delete(name); else next.add(name);
+    const wh = [...next].join(',');
+    // Always emit ?wh=... (even empty) so the URL is authoritative — without
+    // this, revealing the only default-hidden field would produce a bare ?
+    // that falls back to defaults, locking the field hidden forever.
+    const href = `?wh=${encodeURIComponent(wh)}`;
+    const cls = isHidden ? 'badge badge--muted' : 'badge';
+    const symbol = isHidden ? '○' : '●';
+    return html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="field-toggle" data-field="${name}" data-hidden="${isHidden ? '1' : '0'}">${symbol} ${labelByName.get(name) ?? name}</a>`;
+  });
+  return html`
+    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
+      <span class="dim" style="font-size: var(--font-size-xs);">${c.label}:</span>
+      ${chips as unknown as SafeHtml[]}
+    </div>
+  `;
+}
+
+/**
+ * Parse `?wh=foo,bar` from a query string into a Set of field names.
+ * Returns `undefined` when the param is absent (so per-control defaults
+ * apply); returns an empty Set for `?wh=` (so the URL becomes authoritative
+ * and reveals every default-hidden field). Exported so route handlers can
+ * build a {@link WidgetControlState} without duplicating the CSV grammar.
+ */
+export function parseHiddenFieldsParam(value: string | undefined): Set<string> | undefined {
+  if (value === undefined) return undefined;
+  return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
 // ── ai-template ────────────────────────────────────────────────────────

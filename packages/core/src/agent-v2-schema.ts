@@ -361,6 +361,28 @@ export const agentV2Schema = z.object({
     }
   }
 
+  // outputWidget.controls cross-checks that need agent-level data:
+  //   - replay.inputs[] entries must match a declared agent.inputs key
+  //     (intra-widget structural checks live in outputWidgetSchema's
+  //      superRefine).
+  if (data.outputWidget?.controls?.length) {
+    const declaredInputKeys = new Set(Object.keys(data.inputs ?? {}));
+    for (let i = 0; i < data.outputWidget.controls.length; i++) {
+      const c = data.outputWidget.controls[i];
+      if (c.type !== 'replay') continue;
+      for (let j = 0; j < (c.inputs ?? []).length; j++) {
+        const name = c.inputs![j];
+        if (!declaredInputKeys.has(name)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['outputWidget', 'controls', i, 'inputs', j],
+            message: `replay control references input "${name}" which isn't declared in agent.inputs.`,
+          });
+        }
+      }
+    }
+  }
+
   // Per-node template checks:
   //   - {{inputs.X}} refs must map to a declared agent-level input
   //   - {{upstream.Y.result}} refs must be declared in this node's dependsOn

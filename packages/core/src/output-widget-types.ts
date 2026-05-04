@@ -65,4 +65,36 @@ export interface OutputWidgetSchema {
   askLabel?: string;
   /** Override label for the post-result replay button. Default "Run again". */
   replayLabel?: string;
+  /**
+   * Inline interactive controls rendered above the widget body. Allow the
+   * viewer to re-run the agent, hide/show optional fields, or switch between
+   * named views. State is URL-driven (no client JS).
+   */
+  controls?: WidgetControl[];
 }
+
+/** A named subset of widget fields used by `view-switch` controls. */
+export interface WidgetView {
+  id: string;
+  fields: string[];
+}
+
+export type WidgetControl =
+  | {
+      type: 'replay';
+      label?: string;
+      /** Subset of agent.inputs to expose for tweaking on replay. */
+      inputs?: string[];
+    }
+  | {
+      type: 'field-toggle';
+      label: string;
+      fields: string[];
+      default: 'shown' | 'hidden';
+    }
+  | {
+      type: 'view-switch';
+      label: string;
+      views: WidgetView[];
+      default: string;
+    };
