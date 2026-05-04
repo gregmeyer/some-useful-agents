@@ -33,6 +33,7 @@ import { buildRouter } from './routes/run-now-build.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
 import { widgetRunRouter } from './routes/widget-run.js';
 import { toolsRouter } from './routes/tools.js';
+import { nodesRouter } from './routes/nodes.js';
 import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
 import { settingsRouter } from './routes/settings.js';
@@ -191,6 +192,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(helpRouter);
   app.use(versionsRouter);
   app.use(toolsRouter);
+  app.use(nodesRouter);
   app.use(pulseRouter);
 
   // Catch-all 404 for authenticated routes.
