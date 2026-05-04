@@ -17,6 +17,20 @@ export const inputSpecSchema = z.object({
   { message: 'Enum inputs must declare a non-empty "values" array.', path: ['values'] },
 );
 
+/**
+ * Per-output declaration. Author-declared shape the agent reliably emits in
+ * its final-node JSON result. Optional but recommended — the planner uses
+ * this for cross-agent composition (`agent-invoke` chaining), and the
+ * widget editor uses it to suggest field names. There is no runtime
+ * enforcement: declaring `outputs.foo` doesn't make the executor verify
+ * the JSON contains `foo`. Treat it as documentation + planner-readable
+ * metadata, not a contract.
+ */
+export const outputSpecSchema = z.object({
+  type: z.enum(['string', 'number', 'boolean', 'object', 'array']),
+  description: z.string().optional(),
+});
+
 export const agentDefinitionSchema = z.object({
   name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Must be lowercase with hyphens only'),
   description: z.string().optional(),
@@ -75,6 +89,19 @@ export const agentDefinitionSchema = z.object({
   inputs: z.record(
     z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
     inputSpecSchema,
+  ).optional(),
+
+  /**
+   * Author-declared output shape — what the agent's final-node JSON
+   * result reliably contains. Used by the planner for cross-agent
+   * composition and by the widget editor for field name suggestions.
+   * Documentation, not a contract: the executor doesn't enforce it.
+   * Output names use lowercase_snake_case (matches the JSON convention,
+   * unlike inputs which are UPPERCASE because they become env vars).
+   */
+  outputs: z.record(
+    z.string().regex(/^[a-z_][a-z0-9_]*$/, 'Output names must be lowercase_snake_case'),
+    outputSpecSchema,
   ).optional(),
 
   // Metadata

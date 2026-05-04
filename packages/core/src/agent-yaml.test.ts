@@ -165,7 +165,58 @@ describe('exportAgent + round-trip', () => {
     // Minimal agent has no schedule, no inputs, no tags — none should appear.
     expect(yaml).not.toMatch(/^schedule:/m);
     expect(yaml).not.toMatch(/^inputs:/m);
+    expect(yaml).not.toMatch(/^outputs:/m);
     expect(yaml).not.toMatch(/^tags:/m);
+  });
+
+  it('round-trips an agent with declared outputs', () => {
+    const yaml = `
+id: hn
+name: HN
+status: active
+source: local
+mcp: false
+version: 1
+inputs:
+  STORY_COUNT:
+    type: number
+    default: 5
+outputs:
+  articles:
+    type: array
+    description: List of stories with title, url, score
+  count:
+    type: number
+  date:
+    type: string
+nodes:
+  - id: main
+    type: shell
+    command: echo '{"articles":[],"count":0,"date":"2026-01-01"}'
+`.trim();
+    const a1 = parseAgent(yaml);
+    expect(a1.outputs?.articles?.type).toBe('array');
+    expect(a1.outputs?.articles?.description).toBe('List of stories with title, url, score');
+    expect(a1.outputs?.count?.type).toBe('number');
+    const a2 = parseAgent(exportAgent(a1));
+    expect(a2.outputs).toEqual(a1.outputs);
+  });
+
+  it('emits outputs after inputs and before nodes', () => {
+    const a: Agent = {
+      id: 'x', name: 'X', status: 'active', source: 'local', mcp: false, version: 1,
+      inputs: { TOPIC: { type: 'string' } },
+      outputs: { result: { type: 'string', description: 'final summary' } },
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    };
+    const yaml = exportAgent(a);
+    const lines = yaml.split('\n');
+    const inputsIdx = lines.findIndex((l) => l.startsWith('inputs:'));
+    const outputsIdx = lines.findIndex((l) => l.startsWith('outputs:'));
+    const nodesIdx = lines.findIndex((l) => l.startsWith('nodes:'));
+    expect(inputsIdx).toBeGreaterThan(-1);
+    expect(outputsIdx).toBeGreaterThan(inputsIdx);
+    expect(nodesIdx).toBeGreaterThan(outputsIdx);
   });
 
   it('preserves node-level position hint for the v0.14 editor', () => {

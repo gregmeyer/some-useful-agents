@@ -6,6 +6,10 @@ name: Two-step digest
 description: Reads local headlines and formats a summary. Teaches dependsOn + upstream passing.
 status: active
 source: examples
+outputs:
+  result:
+    type: string
+    description: Formatted digest text — first 5 headlines plus a count line.
 signal:
   title: Daily Digest
   icon: "\U0001F4F0"

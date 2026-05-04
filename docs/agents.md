@@ -64,6 +64,26 @@ inputs:
 
 Names must match `[A-Z_][A-Z0-9_]*` (uppercase letters, digits, underscores). The dashboard renders inputs in its Run modal: text fields for string/number, toggles for boolean, dropdowns for enum.
 
+## `outputs`
+
+Author-declared shape of the agent's final-node JSON result. Optional but recommended — used by the planner for cross-agent composition (`agent-invoke` chaining) and by the widget editor for field-name suggestions.
+
+```yaml
+outputs:
+  articles:
+    type: array
+    description: List of stories with title, url, score
+  count:
+    type: number
+  date:
+    type: string
+    description: ISO date the digest was built
+```
+
+Names use `lowercase_snake_case` (matches the JSON convention; unlike `inputs:` which are UPPERCASE because they become env vars). Types: `string`, `number`, `boolean`, `object`, `array`.
+
+**Documentation, not a contract.** Declaring `outputs.foo` doesn't make the executor verify the JSON contains `foo`. Treat it as machine-readable docs: the planner reads it when chaining your agent into another agent's `agent-invoke` node, and the Output Widget editor uses it to suggest `name:` field values.
+
 ## `nodes`
 
 Every agent has at least one node. Each node declares:

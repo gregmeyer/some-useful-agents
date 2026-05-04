@@ -353,6 +353,7 @@ export class AgentStore {
     if (agent.provider) dag.provider = agent.provider;
     if (agent.model) dag.model = agent.model;
     if (agent.inputs) dag.inputs = agent.inputs;
+    if (agent.outputs) dag.outputs = agent.outputs;
     if (agent.signal) dag.signal = agent.signal;
     if (agent.outputWidget) dag.outputWidget = agent.outputWidget;
     if (agent.notify) dag.notify = agent.notify;
@@ -392,6 +393,7 @@ export class AgentStore {
       provider: dag.provider,
       model: dag.model,
       inputs: dag.inputs,
+      outputs: dag.outputs,
       nodes: dag.nodes,
       signal: dag.signal,
       outputWidget: dag.outputWidget,
