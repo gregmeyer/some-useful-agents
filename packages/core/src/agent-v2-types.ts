@@ -14,6 +14,7 @@
  */
 
 import type { AgentInputSpec, AgentOutputSpec } from './types.js';
+import type { AgentCapabilities } from './agent-capabilities.js';
 import type { AgentSource } from './agent-loader.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
@@ -255,6 +256,16 @@ export interface Agent {
    * a runtime contract.
    */
   outputs?: Record<string, AgentOutputSpec>;
+
+  /**
+   * Static analysis of what this agent uses and does. Computed at the
+   * parse boundary (parseAgent + agent-store rowToAgent) — never persisted.
+   * See `agent-capabilities.ts` for the derivation rules; the field is a
+   * heuristic (an empty array is "couldn't statically prove," not "doesn't
+   * do X") and must not be treated as a security boundary. Optional only
+   * because tests sometimes construct Agent objects by hand.
+   */
+  capabilities?: AgentCapabilities;
 
   nodes: AgentNode[];
 
