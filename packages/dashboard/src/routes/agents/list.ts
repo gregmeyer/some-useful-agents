@@ -30,7 +30,12 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
   }
 
   // Fetch all (status-filtered, search-applied later) agents once for tab counts.
-  const allAgentsForCounts = ctx.agentStore.listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined);
+  // Honor dashboardVisible:false at the source so counts stay consistent with
+  // what the list actually shows. Hidden agents are still reachable by direct
+  // URL, MCP, scheduler, and the runs page.
+  const allAgentsForCounts = ctx.agentStore
+    .listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined)
+    .filter((a) => a.dashboardVisible !== false);
   const matchesSearch = (a: Agent): boolean => {
     if (!qSearch) return true;
     return (

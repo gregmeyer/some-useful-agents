@@ -142,6 +142,17 @@ export const agentV2Schema = z.object({
   mcp: z.boolean().default(false),
   version: z.number().int().positive().default(1),
 
+  /**
+   * Visibility toggles. Both default to true (visible).
+   *   pulseVisible:false    → hide from /pulse even if a signal is declared
+   *   dashboardVisible:false → hide from the /agents list view (still
+   *                            reachable by direct URL, MCP, scheduler, runs)
+   * The legacy `signal.hidden` field is still honored for back-compat;
+   * pulseVisible takes precedence when set.
+   */
+  pulseVisible: z.boolean().optional(),
+  dashboardVisible: z.boolean().optional(),
+
   provider: z.enum(['claude', 'codex']).optional(),
   model: z.string().optional(),
 

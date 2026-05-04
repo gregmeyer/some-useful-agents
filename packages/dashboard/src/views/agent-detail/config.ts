@@ -69,6 +69,40 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   }
 
   // ── Left column: lightweight controls ──────────────────────────────
+
+  // Visibility: two independent toggles. Both default to true (visible).
+  // `pulseVisible` = master switch for the Pulse tile. Hides the tile
+  // even if a signal is declared. `dashboardVisible` = hide from /agents
+  // list (still reachable by direct URL, MCP, scheduler, runs page).
+  const pulseOn = agent.pulseVisible !== false;
+  const dashOn = agent.dashboardVisible !== false;
+  const visibilityCard = configCard('Visibility', html`
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      Where this agent shows up in the dashboard.
+    </p>
+    <div style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <form method="POST" action="/agents/${agent.id}/visibility" style="display: flex; gap: var(--space-2); align-items: center;">
+        <input type="hidden" name="field" value="pulse">
+        <input type="hidden" name="enabled" value="${pulseOn ? 'false' : 'true'}">
+        <span style="flex: 1; font-size: var(--font-size-sm);">Show on Pulse</span>
+        ${pulseOn
+          ? html`<span class="badge badge--ok">on</span><button type="submit" class="btn btn--sm">Hide</button>`
+          : html`<span class="badge badge--muted">off</span><button type="submit" class="btn btn--sm">Show</button>`}
+      </form>
+      <form method="POST" action="/agents/${agent.id}/visibility" style="display: flex; gap: var(--space-2); align-items: center;">
+        <input type="hidden" name="field" value="dashboard">
+        <input type="hidden" name="enabled" value="${dashOn ? 'false' : 'true'}">
+        <span style="flex: 1; font-size: var(--font-size-sm);">Show in /agents list</span>
+        ${dashOn
+          ? html`<span class="badge badge--ok">on</span><button type="submit" class="btn btn--sm">Hide</button>`
+          : html`<span class="badge badge--muted">off</span><button type="submit" class="btn btn--sm">Show</button>`}
+      </form>
+    </div>
+    ${agent.pulseVisible === false || agent.dashboardVisible === false
+      ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">Hidden agents are still reachable by direct URL, MCP, scheduler, and the runs page.</p>`
+      : html``}
+  `);
+
   const mcpCard = configCard('MCP exposure', html`
     <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
       Lets MCP clients (Claude Desktop, Claude Code, Cursor) call this agent via <a href="/settings/mcp">sua's MCP server</a>.
@@ -167,6 +201,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     <div class="config-grid" style="margin-top: var(--space-4);">
       <div class="config-grid__col">
         ${llmCard}
+        ${visibilityCard}
         ${mcpCard}
         ${secretsCard}
       </div>

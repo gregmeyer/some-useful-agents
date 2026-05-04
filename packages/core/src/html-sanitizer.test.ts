@@ -105,4 +105,115 @@ describe('substitutePlaceholders', () => {
     expect(out).not.toContain('<script>');
     expect(out).toContain('&lt;script&gt;');
   });
+
+  // ── D.5: triple-brace unescaped substitution ──────────────────────────
+
+  it('triple-brace {{{outputs.X}}} substitutes without HTML-escaping', () => {
+    const out = substitutePlaceholders(
+      '<div>{{{outputs.html}}}</div>',
+      { outputs: { html: '<strong>bold</strong>' } },
+    );
+    expect(out).toBe('<div><strong>bold</strong></div>');
+  });
+
+  it('triple-brace {{{result}}} substitutes raw result', () => {
+    const out = substitutePlaceholders('<div>{{{result}}}</div>', { result: '<em>hi</em>' });
+    expect(out).toBe('<div><em>hi</em></div>');
+  });
+
+  it('triple-brace and double-brace can coexist in the same template', () => {
+    const out = substitutePlaceholders(
+      '{{{outputs.html}}} | {{outputs.text}}',
+      { outputs: { html: '<b>x</b>', text: '<b>y</b>' } },
+    );
+    expect(out).toBe('<b>x</b> | &lt;b&gt;y&lt;/b&gt;');
+  });
+
+  it('sanitizer still catches script when run after triple-brace substitution', () => {
+    // Caller is required to run sanitizeHtml after substitutePlaceholders;
+    // verify the defense-in-depth pass works.
+    const subbed = substitutePlaceholders(
+      '<div>{{{outputs.x}}}</div>',
+      { outputs: { x: '<p>ok</p><script>bad</script>' } },
+    );
+    const safe = sanitizeHtml(subbed);
+    expect(safe).toContain('<p>ok</p>');
+    expect(safe).not.toContain('<script>');
+  });
+
+  it('triple-brace handles non-string values by JSON-stringifying', () => {
+    const out = substitutePlaceholders(
+      '{{{outputs.obj}}}',
+      { outputs: { obj: { a: 1 } } },
+    );
+    expect(out).toBe('{"a":1}');
+  });
+
+  // ── D.5: {{#each}} iteration ──────────────────────────────────────────
+
+  it('iterates an array with {{#each X as item}} and {{item.field}}', () => {
+    const t = '<ul>{{#each outputs.items as item}}<li>{{item.title}}</li>{{/each}}</ul>';
+    const out = substitutePlaceholders(t, {
+      outputs: { items: [{ title: 'a' }, { title: 'b' }, { title: 'c' }] },
+    });
+    expect(out).toBe('<ul><li>a</li><li>b</li><li>c</li></ul>');
+  });
+
+  it('iteration escapes {{item.field}} but not {{{item.field}}}', () => {
+    const t = '{{#each outputs.x as item}}E:{{item.v}}|U:{{{item.v}}}|{{/each}}';
+    const out = substitutePlaceholders(t, {
+      outputs: { x: [{ v: '<b>' }] },
+    });
+    expect(out).toBe('E:&lt;b&gt;|U:<b>|');
+  });
+
+  it('iteration exposes {{@index}}', () => {
+    const t = '{{#each outputs.x as item}}[{{@index}}:{{item.n}}]{{/each}}';
+    const out = substitutePlaceholders(t, {
+      outputs: { x: [{ n: 'a' }, { n: 'b' }] },
+    });
+    expect(out).toBe('[0:a][1:b]');
+  });
+
+  it('iteration on non-array renders empty', () => {
+    const t = 'before:{{#each outputs.x as item}}{{item.y}}{{/each}}:after';
+    expect(substitutePlaceholders(t, { outputs: { x: 'not an array' } })).toBe('before::after');
+    expect(substitutePlaceholders(t, { outputs: {} })).toBe('before::after');
+    expect(substitutePlaceholders(t, { outputs: { x: null } })).toBe('before::after');
+  });
+
+  it('iteration on empty array renders empty body', () => {
+    const t = 'before:{{#each outputs.x as item}}{{item.y}}{{/each}}:after';
+    expect(substitutePlaceholders(t, { outputs: { x: [] } })).toBe('before::after');
+  });
+
+  it('iteration body can also reference outer-scope outputs', () => {
+    const t = '{{#each outputs.items as item}}<p>{{outputs.title}}: {{item.v}}</p>{{/each}}';
+    const out = substitutePlaceholders(t, {
+      outputs: { title: 'Hi', items: [{ v: 'a' }, { v: 'b' }] },
+    });
+    expect(out).toBe('<p>Hi: a</p><p>Hi: b</p>');
+  });
+
+  it('item alias scopes correctly — {{outer.field}} is not confused with item alias', () => {
+    const t = '{{#each outputs.items as outer}}{{outer.x}}{{/each}}';
+    const out = substitutePlaceholders(t, {
+      outputs: { items: [{ x: 'A' }, { x: 'B' }] },
+    });
+    expect(out).toBe('AB');
+  });
+
+  it('{{item}} (no field) renders the item as JSON when iterating primitives', () => {
+    const t = '{{#each outputs.x as item}}[{{item}}]{{/each}}';
+    expect(substitutePlaceholders(t, { outputs: { x: ['a', 'b'] } })).toBe('[a][b]');
+    expect(substitutePlaceholders(t, { outputs: { x: [1, 2] } })).toBe('[1][2]');
+  });
+
+  it('multiple each blocks render independently', () => {
+    const t = 'A:{{#each outputs.a as i}}{{i.v}}{{/each}}|B:{{#each outputs.b as j}}{{j.v}}{{/each}}';
+    const out = substitutePlaceholders(t, {
+      outputs: { a: [{ v: 'x' }, { v: 'y' }], b: [{ v: '1' }, { v: '2' }] },
+    });
+    expect(out).toBe('A:xy|B:12');
+  });
 });

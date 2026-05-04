@@ -175,11 +175,16 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   // System tiles (virtual, not from the agent store).
   const systemTiles = buildSystemTiles(ctx);
 
-  // Agent tiles.
+  // Agent tiles. Two visibility gates:
+  //  - `pulseVisible: false` is the explicit master switch (top-level).
+  //  - `signal.hidden: true` is the legacy per-tile toggle (kept for back-compat).
+  // pulseVisible takes precedence when set.
   for (const agent of agents) {
     if (!agent.signal) continue;
     const tile = buildTile(agent as Agent & { signal: AgentSignal }, ctx);
-    if (agent.signal.hidden) {
+    const pulseHidden = agent.pulseVisible === false
+      || (agent.pulseVisible === undefined && agent.signal.hidden === true);
+    if (pulseHidden) {
       hiddenTiles.push(tile);
     } else {
       tiles.push(tile);

@@ -225,6 +225,16 @@ export interface Agent {
   /** User-pinned favorite. Starred agents sort to the top of the list. */
   starred?: boolean;
   /**
+   * Visibility toggles. Both default to true (visible).
+   *   pulseVisible:false     → hide from /pulse even if a signal is declared
+   *   dashboardVisible:false → hide from the /agents list view (still
+   *                            reachable by direct URL, MCP, scheduler, runs)
+   * The legacy `signal.hidden` field is still honored for back-compat;
+   * pulseVisible takes precedence when set.
+   */
+  pulseVisible?: boolean;
+  dashboardVisible?: boolean;
+  /**
    * The agent_versions row number. On parse from YAML this is the author's
    * hint; on read from DB it's the `current_version` pointer's target.
    */
