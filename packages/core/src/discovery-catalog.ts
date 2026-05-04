@@ -138,7 +138,8 @@ const DESIGN_DISCIPLINE = `
 2. DECLARE OUTPUTS. If your final node emits structured JSON (anything beyond a single string), add a top-level outputs: block declaring the shape (lowercase_snake_case names). It's documentation for the planner, not enforcement.
 3. TEMPLATE SYNTAX. Use {{var}} with NO SPACES inside the braces. Never \`{ {var}}\`. Same for upstream.X.field, inputs.X, item.X.
 4. SHELL FOR DETERMINISM. If the work fits in jq/curl/sed, use shell — it's faster, cheaper, reproducible. Reach for claude-code only for free-form judgment (analysis, summarization, classification).
-5. SOURCE FIELD. Always set source: local on new agents (the importer overrides anyway, but it's the convention).`.trim();
+5. SOURCE FIELD. Always set source: local on new agents (the importer overrides anyway, but it's the convention).
+6. FAIL FAST. When a step's primary purpose returns no data (HTTP non-200, empty array, null lookup, missing required field), exit with a non-zero status so downstream nodes skip cleanly via the executor's upstream_failed cascade. Don't return {x: null, y: null} and trust downstream to notice — they won't, and you'll get cryptic jq parse errors three nodes later. Pattern for shell: \`if [ "$LAT" = "null" ] || [ -z "$LAT" ]; then echo '{"error":"city not found"}' >&2; exit 1; fi\`. Pattern for tool calls: check the exit code and bail.`.trim();
 
 export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   const sections = [

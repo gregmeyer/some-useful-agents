@@ -148,6 +148,7 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('DECOMPOSE');
     expect(catalog).toContain('DECLARE OUTPUTS');
     expect(catalog).toContain('TEMPLATE SYNTAX');
+    expect(catalog).toContain('FAIL FAST');
   });
 
   it('warns about widget field name semantics in OUTPUT WIDGET TYPES', () => {

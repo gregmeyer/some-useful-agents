@@ -59,6 +59,7 @@ nodes:
 
       DESIGN GUIDELINES:
       - DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. The dashboard shows each stage's output independently and lets users replay individual stages with tweaked code. Collapsing into one node throws that away.
+      - FAIL FAST on missing data. When a step calls an external API and gets no useful result (empty array, null lookup, HTTP non-200), `exit 1` so the executor skips downstream nodes via its upstream_failed cascade. Don't return null fields and trust downstream to notice — they won't, and downstream jq/parsers crash with cryptic errors. Bash pattern: `if [ "$VAR" = "null" ] || [ -z "$VAR" ]; then echo '{"error":"..."}' >&2; exit 1; fi`.
       - Use shell nodes for deterministic work (curl, jq, file ops).
       - Use claude-code nodes for judgment calls (analysis, summarization, decisions).
       - Wire nodes with dependsOn. Downstream nodes access upstream output via:
