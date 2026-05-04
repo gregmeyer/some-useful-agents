@@ -33,7 +33,7 @@ import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
 import { substituteInputs } from './input-resolver.js';
-import { stateDirFor } from './agent-state.js';
+import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
@@ -573,6 +573,35 @@ export async function executeAgentDag(
       continue;
     }
 
+    // PR D.1: pre-node state-dir size cap. Refuses to run when the agent's
+    // state dir already exceeds its cap from a prior run (or from this
+    // node's predecessors in the same DAG). The node that *exceeded* the
+    // cap completes; the *next* node sees the over-size and fails. This
+    // attributes the error to a fresh node rather than retroactively
+    // failing a node that already finished.
+    let stateBytesBefore: number | undefined;
+    if (deps.dataRoot) {
+      stateBytesBefore = stateDirSize(agent.id, deps.dataRoot);
+      const cap = agent.stateMaxBytes ?? DEFAULT_STATE_MAX_BYTES;
+      if (cap > 0 && stateBytesBefore > cap) {
+        const msg = `State dir for "${agent.id}" is ${formatBytes(stateBytesBefore)}, cap is ${formatBytes(cap)}. ` +
+          `Run \`sua state prune ${agent.id}\` to clean up or raise the cap with \`stateMaxBytes:\`.`;
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'failed',
+          errorCategory: 'setup',
+          startedAt: nodeStartedAt,
+          completedAt: new Date().toISOString(),
+          error: msg,
+          stateBytesBefore,
+        });
+        firstFailure = { nodeId: node.id, category: 'setup' };
+        continue;
+      }
+    }
+
     // Pre-audit the community-shell gate. Failing here is 'setup', not a
     // spawn_failure, because we refused before ever reaching spawn().
     if (node.type === 'shell' && agent.source === 'community' && !(deps.allowUntrustedShell?.has(agent.id))) {
@@ -600,6 +629,7 @@ export async function executeAgentDag(
       startedAt: nodeStartedAt,
       inputsJson: JSON.stringify(filterEnvForLog(env, node)),
       upstreamInputsJson: JSON.stringify(upstreamSnapshot),
+      stateBytesBefore,
     });
 
     // Progress collector: accumulates SpawnProgress events and writes
@@ -761,11 +791,13 @@ export async function executeAgentDag(
       }
     } catch (err) {
       const message = (err as Error).message;
+      const stateBytesAfter = deps.dataRoot ? stateDirSize(agent.id, deps.dataRoot) : undefined;
       deps.runStore.updateNodeExecution(runId, node.id, {
         status: 'failed',
         errorCategory: 'setup',
         completedAt: new Date().toISOString(),
         error: message,
+        stateBytesAfter,
       });
       firstFailure = { nodeId: node.id, category: 'setup' };
       continue;
@@ -773,6 +805,7 @@ export async function executeAgentDag(
 
     const completedAt = new Date().toISOString();
     const outputsJson = structuredOutput ? JSON.stringify(structuredOutput) : undefined;
+    const stateBytesAfter = deps.dataRoot ? stateDirSize(agent.id, deps.dataRoot) : undefined;
 
     if (result.exitCode === 0) {
       outputs.set(node.id, {
@@ -787,6 +820,7 @@ export async function executeAgentDag(
         result: result.result,
         exitCode: 0,
         outputsJson,
+        stateBytesAfter,
       });
     } else {
       const category: NodeErrorCategory =
@@ -802,6 +836,7 @@ export async function executeAgentDag(
         exitCode: result.exitCode,
         error: result.error ?? `Process exited with code ${result.exitCode}`,
         outputsJson,
+        stateBytesAfter,
       });
       firstFailure = { nodeId: node.id, category };
     }

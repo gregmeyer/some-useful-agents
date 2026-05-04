@@ -1629,3 +1629,80 @@ describe('executeAgentDag — notify dispatch', () => {
     expect(text).toContain('Open run in dashboard');
   });
 });
+
+describe('executeAgentDag — state-dir size cap (PR D.1)', () => {
+  it('captures stateBytesBefore/After when dataRoot is set', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const { ensureStateDir } = await import('./agent-state.js');
+    // Pre-seed a 100-byte state file so before > 0.
+    const stateDir = ensureStateDir('test-agent', dir);
+    writeFileSync(join(stateDir, 'seed.txt'), 'x'.repeat(100));
+
+    const run = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        dataRoot: dir,
+        spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }),
+      },
+    );
+    expect(run.status).toBe('completed');
+    const [ne] = runStore.listNodeExecutions(run.id);
+    expect(ne.stateBytesBefore).toBe(100);
+    expect(ne.stateBytesAfter).toBe(100); // canned spawner doesn't actually write
+  });
+
+  it('refuses to run a node when state exceeds stateMaxBytes', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const { ensureStateDir } = await import('./agent-state.js');
+    const stateDir = ensureStateDir('test-agent', dir);
+    writeFileSync(join(stateDir, 'big.txt'), 'x'.repeat(2000)); // 2 KB
+
+    const run = await executeAgentDag(
+      makeAgent({ stateMaxBytes: 1000 }), // 1 KB cap, way over
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        dataRoot: dir,
+        spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }),
+      },
+    );
+    expect(run.status).toBe('failed');
+    const [ne] = runStore.listNodeExecutions(run.id);
+    expect(ne.status).toBe('failed');
+    expect(ne.errorCategory).toBe('setup');
+    expect(ne.error).toContain('State dir');
+    expect(ne.error).toContain('2.0 KB'); // formatted current size
+    expect(ne.error).toContain('sua state prune');
+  });
+
+  it('disables the cap when stateMaxBytes is 0', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const { ensureStateDir } = await import('./agent-state.js');
+    const stateDir = ensureStateDir('test-agent', dir);
+    writeFileSync(join(stateDir, 'big.txt'), 'x'.repeat(10_000));
+
+    const run = await executeAgentDag(
+      makeAgent({ stateMaxBytes: 0 }),
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        dataRoot: dir,
+        spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }),
+      },
+    );
+    expect(run.status).toBe('completed');
+  });
+
+  it('omits stateBytes fields when dataRoot is not configured', async () => {
+    const run = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }) },
+    );
+    const [ne] = runStore.listNodeExecutions(run.id);
+    expect(ne.stateBytesBefore).toBeUndefined();
+    expect(ne.stateBytesAfter).toBeUndefined();
+  });
+});

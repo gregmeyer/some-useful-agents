@@ -353,6 +353,24 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
       ? html` <span class="badge badge--err">${formatErrorCategory(e.errorCategory)}</span>`
       : html``;
 
+    // PR D.1: render the state-bytes delta as a small badge when the agent
+    // actually has a state dir AND the delta is non-zero. Skipped silently
+    // when both fields are unset (tests, one-shot CLI, agents that don't
+    // touch $STATE_DIR).
+    let stateDelta: SafeHtml = html``;
+    if (e.stateBytesBefore !== undefined && e.stateBytesAfter !== undefined) {
+      const delta = e.stateBytesAfter - e.stateBytesBefore;
+      if (delta !== 0) {
+        const sign = delta > 0 ? '+' : '−';
+        const abs = Math.abs(delta);
+        const formatted = abs < 1024 ? `${abs} B`
+          : abs < 1024 * 1024 ? `${(abs / 1024).toFixed(1)} KB`
+          : abs < 1024 * 1024 * 1024 ? `${(abs / 1024 / 1024).toFixed(1)} MB`
+          : `${(abs / 1024 / 1024 / 1024).toFixed(2)} GB`;
+        stateDelta = html`<span class="badge badge--muted" title="State dir change">state ${sign}${formatted}</span>`;
+      }
+    }
+
     // Parse progress events for turn indicator.
     const progressIndicator = renderProgressIndicator(e);
 
@@ -377,6 +395,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
           <span class="run-node__id">${e.nodeId}</span>
           ${statusBadge(e.status)}
           ${category}
+          ${stateDelta}
           ${progressIndicator}
           <span class="run-node__meta">
             <span>${duration}</span>

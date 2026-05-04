@@ -96,6 +96,7 @@ export class AgentStore {
     try { this.db.exec(`ALTER TABLE agents ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`); } catch { /* exists */ }
     try { this.db.exec(`ALTER TABLE agents ADD COLUMN pulse_visible INTEGER`); } catch { /* exists */ }
     try { this.db.exec(`ALTER TABLE agents ADD COLUMN dashboard_visible INTEGER`); } catch { /* exists */ }
+    try { this.db.exec(`ALTER TABLE agents ADD COLUMN state_max_bytes INTEGER`); } catch { /* exists */ }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
       CREATE INDEX IF NOT EXISTS idx_agents_schedule ON agents(schedule) WHERE schedule IS NOT NULL;
@@ -121,14 +122,15 @@ export class AgentStore {
       this.db.prepare(`
         INSERT INTO agents (id, name, description, status, schedule, source, mcp,
                             current_version, created_at, updated_at,
-                            pulse_visible, dashboard_visible)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                            pulse_visible, dashboard_visible, state_max_bytes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
       `).run(
         agent.id, agent.name, agent.description ?? null,
         agent.status, agent.schedule ?? null, agent.source,
         agent.mcp ? 1 : 0, now, now,
         agent.pulseVisible === undefined ? null : (agent.pulseVisible ? 1 : 0),
         agent.dashboardVisible === undefined ? null : (agent.dashboardVisible ? 1 : 0),
+        agent.stateMaxBytes ?? null,
       );
       this.db.prepare(`
         INSERT INTO agent_versions (agent_id, version, dag_json, created_at, created_by, commit_message)
@@ -173,6 +175,7 @@ export class AgentStore {
         source: agent.source,
         pulseVisible: agent.pulseVisible,
         dashboardVisible: agent.dashboardVisible,
+        stateMaxBytes: agent.stateMaxBytes,
       });
       return { ...agent, version: existing.version };
     }
@@ -211,7 +214,7 @@ export class AgentStore {
    */
   updateAgentMeta(
     id: string,
-    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp' | 'starred' | 'source' | 'pulseVisible' | 'dashboardVisible'>>,
+    patch: Partial<Pick<Agent, 'name' | 'description' | 'status' | 'schedule' | 'mcp' | 'starred' | 'source' | 'pulseVisible' | 'dashboardVisible' | 'stateMaxBytes'>>,
   ): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
@@ -224,6 +227,7 @@ export class AgentStore {
     if (patch.source !== undefined) { fields.push('source = ?'); values.push(patch.source); }
     if (patch.pulseVisible !== undefined) { fields.push('pulse_visible = ?'); values.push(patch.pulseVisible ? 1 : 0); }
     if (patch.dashboardVisible !== undefined) { fields.push('dashboard_visible = ?'); values.push(patch.dashboardVisible ? 1 : 0); }
+    if (patch.stateMaxBytes !== undefined) { fields.push('state_max_bytes = ?'); values.push(patch.stateMaxBytes); }
     if (fields.length === 0) return;
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -403,6 +407,7 @@ export class AgentStore {
       starred: (row.starred as number) === 1,
       pulseVisible: row.pulse_visible == null ? undefined : (row.pulse_visible as number) === 1,
       dashboardVisible: row.dashboard_visible == null ? undefined : (row.dashboard_visible as number) === 1,
+      stateMaxBytes: row.state_max_bytes == null ? undefined : (row.state_max_bytes as number),
       version: row.current_version as number,
       provider: dag.provider,
       model: dag.model,
