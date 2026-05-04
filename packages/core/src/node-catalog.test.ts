@@ -8,6 +8,7 @@ import type { NodeType } from './agent-v2-types.js';
 const ALL_NODE_TYPES: NodeType[] = [
   'shell',
   'claude-code',
+  'file-write',
   'conditional',
   'switch',
   'loop',

@@ -6,18 +6,23 @@
 import type { AgentNode } from './agent-v2-types.js';
 
 /**
- * Derive the tool id for a node. Only nodes that explicitly set `tool:`
- * go through the tool dispatch path. v0.15 nodes without `tool:` use
- * the existing spawn path directly.
+ * Derive the tool id for a node. Nodes that explicitly set `tool:` use
+ * that. Nodes with first-class types that have a built-in tool counterpart
+ * (currently only `file-write`) auto-resolve. v0.15 nodes (`shell` /
+ * `claude-code`) without `tool:` use the existing spawn path directly.
  */
 export function resolveToolId(node: AgentNode): string | undefined {
-  return node.tool;
+  if (node.tool) return node.tool;
+  if (node.type === 'file-write') return 'file-write';
+  return undefined;
 }
 
 /**
  * Build the inputs map for a tool invocation. For v0.16 nodes with
- * `toolInputs:`, use those directly. For v0.15 nodes, fold the inline
- * `command` / `prompt` into the shape the built-in tool expects.
+ * `toolInputs:`, use those directly. For first-class nodes with their own
+ * top-level fields (file-write's path/content/append), desugar those.
+ * For v0.15 nodes, fold the inline `command` / `prompt` into the shape the
+ * built-in tool expects.
  */
 export function resolveToolInputs(
   node: AgentNode,
@@ -33,6 +38,13 @@ export function resolveToolInputs(
       model: node.model,
       maxTurns: node.maxTurns,
       allowedTools: node.allowedTools,
+    };
+  }
+  if (node.type === 'file-write') {
+    return {
+      path: node.path,
+      content: node.content,
+      ...(node.append !== undefined ? { append: node.append } : {}),
     };
   }
   return {};

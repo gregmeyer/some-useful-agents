@@ -28,6 +28,54 @@ describe('agentV2Schema — happy paths', () => {
     }
   });
 
+  it('accepts a file-write node with path + content', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'curl https://example.com' },
+        { id: 'save', type: 'file-write', path: 'out.md', content: 'static text', dependsOn: ['fetch'] },
+      ],
+    }));
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts file-write with append: true', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'log', type: 'file-write', path: 'log.txt', content: 'entry\n', append: true }],
+    }));
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts file-write content templating an upstream', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [
+        { id: 'fetch', type: 'shell', command: 'curl https://example.com' },
+        { id: 'save', type: 'file-write', path: 'out.md', content: '{{upstream.fetch.result}}', dependsOn: ['fetch'] },
+      ],
+    }));
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects file-write missing path', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'save', type: 'file-write', content: 'hi' }],
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects file-write missing content', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'save', type: 'file-write', path: 'out.md' }],
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects file-write referencing an upstream not in dependsOn', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'save', type: 'file-write', path: 'out.md', content: '{{upstream.phantom.result}}' }],
+    }));
+    expect(r.success).toBe(false);
+  });
+
   it('accepts a three-node DAG with declared dependencies', () => {
     const r = agentV2Schema.safeParse({
       id: 'news-digest',
