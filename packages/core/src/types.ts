@@ -6,6 +6,15 @@ export interface AgentInputSpec {
   description?: string;
 }
 
+/**
+ * Per-output declaration. Documentation + planner-readable metadata for
+ * the shape of the agent's final-node JSON result. Not enforced at runtime.
+ */
+export interface AgentOutputSpec {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description?: string;
+}
+
 export interface AgentDefinition {
   name: string;
   description?: string;

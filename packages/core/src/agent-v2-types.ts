@@ -13,7 +13,7 @@
  *     via env injection, matching how shell agents already consume inputs).
  */
 
-import type { AgentInputSpec } from './types.js';
+import type { AgentInputSpec, AgentOutputSpec } from './types.js';
 import type { AgentSource } from './agent-loader.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
@@ -248,6 +248,14 @@ export interface Agent {
   /** Agent-level runtime inputs. Nodes reference these as `{{inputs.X}}`. */
   inputs?: Record<string, AgentInputSpec>;
 
+  /**
+   * Author-declared output shape — what the final-node JSON reliably
+   * contains. Used by the planner for cross-agent composition and by
+   * the widget editor for field-name suggestions. Documentation, not
+   * a runtime contract.
+   */
+  outputs?: Record<string, AgentOutputSpec>;
+
   nodes: AgentNode[];
 
   /**
@@ -355,6 +363,7 @@ export interface AgentVersionDag {
   provider?: 'claude' | 'codex';
   model?: string;
   inputs?: Record<string, AgentInputSpec>;
+  outputs?: Record<string, AgentOutputSpec>;
   nodes: AgentNode[];
   signal?: AgentSignal;
   outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;

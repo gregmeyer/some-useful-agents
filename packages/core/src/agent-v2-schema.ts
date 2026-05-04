@@ -17,7 +17,7 @@
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
-import { inputSpecSchema } from './schema.js';
+import { inputSpecSchema, outputSpecSchema } from './schema.js';
 import { outputWidgetSchema } from './output-widget-schema.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -159,6 +159,17 @@ export const agentV2Schema = z.object({
   inputs: z.record(
     z.string().regex(INPUT_NAME_RE, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
     inputSpecSchema,
+  ).optional(),
+
+  /**
+   * Author-declared output shape — what the agent's final-node JSON
+   * result reliably contains. Used by the planner for cross-agent
+   * composition and by the widget editor for field name suggestions.
+   * Documentation, not a contract: the executor doesn't enforce it.
+   */
+  outputs: z.record(
+    z.string().regex(/^[a-z_][a-z0-9_]*$/, 'Output names must be lowercase_snake_case'),
+    outputSpecSchema,
   ).optional(),
 
   nodes: z.array(agentNodeSchema).min(1, 'An agent must have at least one node'),

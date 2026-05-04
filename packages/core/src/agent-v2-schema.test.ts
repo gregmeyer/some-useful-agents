@@ -56,6 +56,24 @@ describe('agentV2Schema — happy paths', () => {
     });
     expect(r.success).toBe(true);
   });
+
+  it('accepts declared outputs in lowercase_snake_case', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: {
+        articles: { type: 'array', description: 'List of stories with title, url, score' },
+        count: { type: 'number' },
+        date: { type: 'string', description: 'ISO date the digest was built' },
+      },
+    }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.outputs?.articles?.type).toBe('array');
+  });
+
+  it('omits the outputs key when not declared', () => {
+    const r = agentV2Schema.safeParse(validSingleNode());
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.outputs).toBeUndefined();
+  });
 });
 
 describe('agentV2Schema — rejections', () => {
@@ -82,6 +100,20 @@ describe('agentV2Schema — rejections', () => {
       id: 'x', name: 'X',
       nodes: [{ id: 'main', type: 'claude-code' }],
     });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects UPPERCASE output names (must be lowercase_snake_case)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: { ARTICLES: { type: 'array' } },
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects unknown output type', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: { x: { type: 'date' } as unknown },
+    }));
     expect(r.success).toBe(false);
   });
 

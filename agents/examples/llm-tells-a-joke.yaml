@@ -11,6 +11,11 @@ inputs:
     required: false
     description: Optional topic for the joke (e.g. programming, animals, coffee)
 
+outputs:
+  result:
+    type: string
+    description: The joke text (one or two lines, plain text).
+
 signal:
   title: Dad Joke
   icon: "\U0001F604"

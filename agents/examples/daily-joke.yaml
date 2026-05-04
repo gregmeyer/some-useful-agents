@@ -7,6 +7,10 @@ name: Daily joke
 description: Fetches a real joke from the internet using the http-get tool.
 status: active
 source: examples
+outputs:
+  result:
+    type: string
+    description: The plain-text joke (one or two lines).
 signal:
   title: Joke of the Day
   icon: "\U0001F3AD"
