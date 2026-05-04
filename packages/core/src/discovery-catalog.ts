@@ -9,6 +9,7 @@
 
 import type { Agent } from './agent-v2-types.js';
 import type { ToolDefinition } from './tool-types.js';
+import { NODE_CATALOG } from './node-catalog.js';
 
 export interface TemplateDef {
   name: string;
@@ -27,22 +28,21 @@ const EXCLUDED_AGENT_IDS = new Set(['agent-builder', 'agent-analyzer']);
 
 // ── Static content ──────────────────────────────────────────────────────
 
-const NODE_TYPES = `
-## NODE TYPES
-- shell: Run a shell command. Fields: command (required).
-- claude-code: Multi-turn LLM. Fields: prompt (required), maxTurns (optional).
-- conditional: Gate on upstream field. Needs conditionalConfig: { predicate: { field, equals/notEquals/exists } }. Outputs { matched, value }.
-- switch: Multi-way branch on field value. Needs switchConfig: { field, cases: { caseName: matchValue } }. Outputs { case, value }.
-- loop: Iterate over array, invoke sub-agent per item. Needs loopConfig: { over: "fieldName", agentId: "agent-id", maxIterations? }. Injects ITEM + ITEM_INDEX.
-- agent-invoke: Call another agent as a node. Needs agentInvokeConfig: { agentId, inputMapping?: { INPUT_NAME: "upstream.nodeId.field" } }.
-- branch: Merge node. Collects outputs from multiple dependsOn upstreams into { merged, count }.
-- end: Terminate flow cleanly. Optional endMessage.
-- break: Exit loop iteration early. Optional endMessage.
-- Edge conditions: Any node can have onlyIf: { upstream, field, equals/notEquals/exists } to conditionally skip.
+/** Build node-types section from the canonical NODE_CATALOG (PR A.7). */
+function buildNodeTypesSection(): string {
+  const lines = Object.values(NODE_CATALOG).map((c) => {
+    const required = c.inputs.filter((f) => f.required).map((f) => f.name).join(', ') || '(none)';
+    const outputs = c.outputs.map((f) => f.name).join(', ') || '(none)';
+    return `- ${c.type}: ${c.description}\n    required: ${required}\n    outputs: ${outputs}`;
+  });
+  return `## NODE TYPES (canonical, from /api/nodes)
+${lines.join('\n')}
+- Edge conditions: Any node can have onlyIf: { upstream, field, equals/notEquals/contains/greaterThan/lessThan } to conditionally skip.
 UPSTREAM DATA FLOW:
 - Shell nodes: $UPSTREAM_<NODEID>_RESULT env var (full output). Field extraction: pipe through jq.
-- Claude-code nodes: {{upstream.<nodeId>.result}} (full output) OR {{upstream.<nodeId>.<field>}} (JSON dot-path extraction).
-  Example: {{upstream.fetch.headline}} extracts the "headline" field from fetch's JSON output.`.trim();
+- Claude-code nodes: {{upstream.<nodeId>.result}} (full output) OR {{upstream.<nodeId>.<field>}} (JSON dot-path extraction). Example: {{upstream.fetch.headline}} extracts the "headline" field from fetch's JSON output.
+- Browse the full per-type contract at /nodes (or GET /api/nodes for JSON).`;
+}
 
 const OUTPUT_WIDGETS = `
 ## OUTPUT WIDGET TYPES (outputWidget: in agent YAML)
@@ -51,7 +51,22 @@ Use when the agent produces structured JSON. The widget renders on the agent det
 - key-value: Labeled pairs as definition list. Field types: text, code, badge.
 - diff-apply: Review/analysis with actions. Field types: text, code, badge. Supports actions (buttons that POST).
 - raw: Sectioned fallback for mixed content. Field types: text, code, preview.
-Field type tips: Use metric for the single most important number. Use stat for supporting numbers. Use badge for status/category. Use preview for file paths (renders HTML/images in a sandboxed iframe).`.trim();
+- ai-template: AI-rendered HTML template. Supports {{outputs.X}} (escaped), {{{outputs.X}}} (unescaped), and {{#each outputs.X as item}}...{{/each}} iteration with {{item.field}} / {{@index}}. Use for list/card layouts.
+
+CRITICAL — OUTPUT WIDGET FIELD SCHEMA:
+Each entry in outputWidget.fields has EXACTLY these keys:
+  name: string    ← THE JSON KEY TO LOOK UP in the agent's final-node JSON output
+  type: string    ← one of: text | code | badge | action | metric | stat | preview
+  label: string   ← OPTIONAL human-readable display label (defaults to name)
+DO NOT use \`source:\`, \`path:\`, \`from:\`, or \`key:\` — these are silently dropped and the widget renders empty.
+Example for a final node that emits {"file":"x.md","count":5}:
+  fields:
+    - name: file       # reads outputs.file → renders "x.md"
+      type: code
+      label: Saved to
+    - name: count      # reads outputs.count → renders "5"
+      type: metric
+      label: Stories`.trim();
 
 const PATTERNS = `
 ## ARCHITECTURE PATTERNS
@@ -97,24 +112,44 @@ function buildAgentsSection(agents: Agent[]): string {
   }
 
   const lines = eligible.map((a) => {
+    const desc = a.description ?? a.name;
     const inputNames = a.inputs ? Object.keys(a.inputs).join(', ') : '';
-    const inputStr = inputNames ? ` Inputs: ${inputNames}.` : '';
-    return `- ${a.id}: ${a.description ?? a.name}.${inputStr}`;
+    const outputNames = a.outputs ? Object.keys(a.outputs).join(', ') : '';
+    const tools = a.capabilities?.tools_used?.join(', ') ?? '';
+    const sideEffects = a.capabilities?.side_effects?.join(', ') ?? '';
+    const parts: string[] = [`- ${a.id}: ${desc}`];
+    if (inputNames) parts.push(`    inputs: ${inputNames}`);
+    if (outputNames) parts.push(`    outputs: ${outputNames}`);
+    if (tools) parts.push(`    tools: ${tools}`);
+    if (sideEffects) parts.push(`    side effects: ${sideEffects}`);
+    return parts.join('\n');
   });
 
-  return `## AVAILABLE AGENTS (for agent-invoke / loop nodes)\n${lines.join('\n')}`;
+  return `## AVAILABLE AGENTS (for agent-invoke / loop nodes)
+Each agent's outputs are what its final-node JSON produces — use these field names when referencing the result via {{upstream.<id>.<field>}} or "$upstream.<id>.<field>" in inputMapping.
+${lines.join('\n')}`;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
 
+const DESIGN_DISCIPLINE = `
+## DESIGN DISCIPLINE
+1. DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. Don't pack everything into one giant shell or claude-code prompt. The dashboard's value is per-stage inspection and replay; collapsing into one node throws that away.
+2. DECLARE OUTPUTS. If your final node emits structured JSON (anything beyond a single string), add a top-level outputs: block declaring the shape (lowercase_snake_case names). It's documentation for the planner, not enforcement.
+3. TEMPLATE SYNTAX. Use {{var}} with NO SPACES inside the braces. Never \`{ {var}}\`. Same for upstream.X.field, inputs.X, item.X.
+4. SHELL FOR DETERMINISM. If the work fits in jq/curl/sed, use shell — it's faster, cheaper, reproducible. Reach for claude-code only for free-form judgment (analysis, summarization, classification).
+5. SOURCE FIELD. Always set source: local on new agents (the importer overrides anyway, but it's the convention).
+6. FAIL FAST. When a step's primary purpose returns no data (HTTP non-200, empty array, null lookup, missing required field), exit with a non-zero status so downstream nodes skip cleanly via the executor's upstream_failed cascade. Don't return {x: null, y: null} and trust downstream to notice — they won't, and you'll get cryptic jq parse errors three nodes later. Pattern for shell: \`if [ "$LAT" = "null" ] || [ -z "$LAT" ]; then echo '{"error":"city not found"}' >&2; exit 1; fi\`. Pattern for tool calls: check the exit code and bail.`.trim();
+
 export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   const sections = [
-    NODE_TYPES,
+    buildNodeTypesSection(),
     buildTemplateSection(opts.templateRegistry),
     OUTPUT_WIDGETS,
     buildAgentsSection(opts.agents),
     PATTERNS,
     WIDGET_GUIDANCE,
+    DESIGN_DISCIPLINE,
   ];
 
   return sections.join('\n\n');

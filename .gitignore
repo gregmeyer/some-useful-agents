@@ -36,3 +36,6 @@ Thumbs.db
 .vscode/
 *.swp
 .sua/
+
+# Runtime agent output
+/output/
