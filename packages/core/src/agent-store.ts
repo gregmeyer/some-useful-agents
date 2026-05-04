@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { chmod600Safe } from './fs-utils.js';
+import { removeStateDir } from './agent-state.js';
 import type {
   Agent,
   AgentNode,
@@ -36,6 +37,8 @@ type SqlValue = string | number | null | bigint | Uint8Array;
 export class AgentStore {
   private db: DatabaseSync;
   private readonly ownsConnection: boolean;
+  /** Base data dir (parent of the sqlite file). Used for cascading state-dir cleanup on delete. */
+  public readonly dataRoot: string;
 
   constructor(dbPath: string) {
     const dir = dirname(dbPath);
@@ -45,6 +48,7 @@ export class AgentStore {
     this.db = new DatabaseSync(dbPath);
     this.ownsConnection = true;
     chmod600Safe(dbPath);
+    this.dataRoot = dir;
     this.ensureSchema();
   }
 
@@ -333,6 +337,15 @@ export class AgentStore {
       );
     }
     this.db.prepare(`DELETE FROM agents WHERE id = ?`).run(id);
+    // Cascade: remove the agent's persistent state directory if it exists.
+    // Idempotent — no-op when the dir was never created.
+    try {
+      removeStateDir(id, this.dataRoot);
+    } catch {
+      // Defense-in-depth: a malformed id would have failed the DELETE above,
+      // and removeStateDir's regex check would also reject it. Swallow any
+      // residual failure here so a successful delete doesn't roll back.
+    }
   }
 
   close(): void {

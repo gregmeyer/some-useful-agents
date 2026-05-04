@@ -31,8 +31,9 @@ import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
-import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
+import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
 import { substituteInputs } from './input-resolver.js';
+import { stateDirFor } from './agent-state.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
@@ -98,6 +99,17 @@ export interface DagExecutorDeps {
   notifyFetch?: typeof fetch;
   /** Logger for notify handler failures. Defaults to console.warn. */
   notifyLogger?: NotifyLogger;
+  /**
+   * Base directory for sua's persistent data (usually `dirname(dbPath)`).
+   * When set, the executor:
+   *   - creates `<dataRoot>/agent-state/<agent-id>/` lazily on first use
+   *   - exposes its path as `$STATE_DIR` (shell) and `{{state}}` (templates)
+   *     so agents can persist data across runs (e.g. diff-over-time, caches).
+   * When absent, the state-dir features are simply unavailable —
+   * `$STATE_DIR` is unset and `{{state}}` resolves to empty string. Tests
+   * and one-shot CLI runs typically omit it.
+   */
+  dataRoot?: string;
 }
 
 export interface DagExecuteOptions {
@@ -617,14 +629,19 @@ export async function executeAgentDag(
         // Built-in tool: call execute() directly, no child process.
         // Merge tool-level config (project defaults) with per-invocation
         // inputs so the user doesn't repeat common values every node.
-        // Resolve {{upstream.X.field}}, {{vars.X}}, and {{inputs.X}} in
-        // string-typed inputs so first-class node types like file-write
-        // can template path/content from upstream output and inputs.
+        // Resolve {{upstream.X.field}}, {{vars.X}}, {{state}}, and
+        // {{inputs.X}} in string-typed inputs so first-class node types
+        // like file-write can template path/content from upstream
+        // output, inputs, and the per-agent state directory.
         const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
         const resolvedInputs = options.inputs ?? {};
+        const stateDir = deps.dataRoot ? stateDirFor(agent.id, deps.dataRoot) : undefined;
         const resolveStr = (s: string): string =>
           substituteInputs(
-            resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
+            resolveStateTemplate(
+              resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
+              stateDir,
+            ),
             resolvedInputs,
           );
         const rawInputs = {

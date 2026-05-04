@@ -303,8 +303,10 @@ workflowCommand
         {
           runStore: stores.runs,
           secretsStore,
+          agentStore: stores.agents,
           allowUntrustedShell: new Set(options.allowUntrustedShell),
           dashboardBaseUrl: getDashboardBaseUrl(config),
+          dataRoot: stores.agents.dataRoot,
         },
       );
       if (run.status === 'completed') {
@@ -533,8 +535,10 @@ workflowCommand
         {
           runStore: stores.runs,
           secretsStore,
+          agentStore: stores.agents,
           allowUntrustedShell: new Set(options.allowUntrustedShell),
           dashboardBaseUrl: getDashboardBaseUrl(config),
+          dataRoot: stores.agents.dataRoot,
         },
       );
       if (replay.status === 'completed') {

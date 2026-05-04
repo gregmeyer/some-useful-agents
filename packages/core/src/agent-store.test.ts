@@ -245,6 +245,26 @@ describe('AgentStore.deleteAgent', () => {
     expect(store.getAgent('hello')).toBeNull();
     expect(store.listVersions('hello')).toHaveLength(0);
   });
+
+  it('cascades to remove the agent state directory', async () => {
+    const { ensureStateDir, stateDirFor } = await import('./agent-state.js');
+    const { writeFileSync, existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+
+    store.createAgent(seed(), 'cli');
+    const stateDir = ensureStateDir('hello', store.dataRoot);
+    writeFileSync(join(stateDir, 'state.json'), '{"x":1}');
+    expect(existsSync(stateDir)).toBe(true);
+
+    store.deleteAgent('hello');
+
+    expect(existsSync(stateDirFor('hello', store.dataRoot))).toBe(false);
+  });
+
+  it('does not throw when no state dir exists', () => {
+    store.createAgent(seed(), 'cli');
+    expect(() => store.deleteAgent('hello')).not.toThrow();
+  });
 });
 
 describe('AgentStore.fromHandle — shared connection with RunStore', () => {

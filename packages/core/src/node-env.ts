@@ -9,6 +9,7 @@ import type { DagExecutorDeps } from './dag-executor.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
 import { substituteInputs, SENSITIVE_ENV_NAMES } from './input-resolver.js';
 import { looksLikeSensitive } from './variables-store.js';
+import { ensureStateDir } from './agent-state.js';
 
 // ── Allowlists ─────────────────────────────────────────────────────────
 
@@ -60,6 +61,13 @@ export async function buildNodeEnv(
       if (deps.variablesStore) resolved = resolveVarsTemplate(resolved, deps.variablesStore.getAll());
       env[k] = substituteInputs(resolved, mergedInputs(agent, callerInputs));
     }
+  }
+
+  // 3.5: STATE_DIR. Lazy-created per-agent dir for persistent state across
+  // runs (diff-over-time, caches, last-fired markers). Available to shell as
+  // $STATE_DIR; claude-code prompts and built-in tool inputs use {{state}}.
+  if (deps.dataRoot) {
+    env.STATE_DIR = ensureStateDir(agent.id, deps.dataRoot);
   }
 
   // 4: secrets. Each node only gets what it declares; never shares across nodes.

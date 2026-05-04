@@ -22,3 +22,24 @@ export function ensureParentDir(path: string): void {
     mkdirSync(dir, { recursive: true });
   }
 }
+
+/**
+ * Best-effort chmod 0o700 (rwx-only-for-owner) on a directory. Same
+ * silent-no-op posture as `chmod600Safe` for filesystems without POSIX
+ * permission support (Windows, some network mounts). Used for per-agent
+ * state directories that may hold sensitive intermediate artifacts.
+ */
+export function chmod0700Safe(path: string): void {
+  try {
+    chmodSync(path, 0o700);
+  } catch {
+    // Intentional: filesystem doesn't support POSIX perms.
+  }
+}
+
+/** Ensure a directory exists (mkdir -p). */
+export function ensureDir(path: string): void {
+  if (!existsSync(path)) {
+    mkdirSync(path, { recursive: true });
+  }
+}
