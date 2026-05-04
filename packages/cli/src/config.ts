@@ -107,6 +107,11 @@ export function getSecretsPath(config: SuaConfig): string {
   return join(resolve(config.dataDir), 'secrets.enc');
 }
 
+/** Resolved data root (where runs.db, secrets.enc, agent-state/ all live). */
+export function getDataRoot(config: SuaConfig): string {
+  return resolve(config.dataDir);
+}
+
 export function getVariablesPath(config: SuaConfig): string {
   return join(resolve(config.dataDir), '.sua', 'variables.json');
 }

@@ -180,6 +180,16 @@ export class RunStore {
     if (!execCols.has('progressjson')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN progressJson TEXT`);
     }
+
+    // PR D.1: state-dir audit trail. Bytes-on-disk before/after each node,
+    // captured only when the agent actually has a state dir. Nullable —
+    // existing rows + tests/CLI runs that omit dataRoot leave them NULL.
+    if (!execCols.has('statebytesbefore')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN stateBytesBefore INTEGER`);
+    }
+    if (!execCols.has('statebytesafter')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN stateBytesAfter INTEGER`);
+    }
   }
 
   /**
@@ -343,8 +353,9 @@ export class RunStore {
       INSERT INTO node_executions (
         runId, nodeId, workflowVersion, status, errorCategory,
         startedAt, completedAt, result, exitCode, error,
-        inputsJson, upstreamInputsJson, outputsJson, progressJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        inputsJson, upstreamInputsJson, outputsJson, progressJson,
+        stateBytesBefore, stateBytesAfter
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       record.runId, record.nodeId, record.workflowVersion, record.status,
@@ -353,6 +364,7 @@ export class RunStore {
       record.result ?? null, record.exitCode ?? null, record.error ?? null,
       record.inputsJson ?? null, record.upstreamInputsJson ?? null,
       record.outputsJson ?? null, record.progressJson ?? null,
+      record.stateBytesBefore ?? null, record.stateBytesAfter ?? null,
     );
   }
 
@@ -360,7 +372,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter'
     >>,
   ): void {
     const fields: string[] = [];
@@ -375,6 +387,8 @@ export class RunStore {
     if (updates.upstreamInputsJson !== undefined) { fields.push('upstreamInputsJson = ?'); values.push(updates.upstreamInputsJson); }
     if (updates.outputsJson !== undefined) { fields.push('outputsJson = ?'); values.push(updates.outputsJson); }
     if (updates.progressJson !== undefined) { fields.push('progressJson = ?'); values.push(updates.progressJson); }
+    if (updates.stateBytesBefore !== undefined) { fields.push('stateBytesBefore = ?'); values.push(updates.stateBytesBefore); }
+    if (updates.stateBytesAfter !== undefined) { fields.push('stateBytesAfter = ?'); values.push(updates.stateBytesAfter); }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -463,6 +477,8 @@ export class RunStore {
       upstreamInputsJson: (row.upstreamInputsJson as string | null) ?? undefined,
       outputsJson: (row.outputsJson as string | null) ?? undefined,
       progressJson: (row.progressJson as string | null) ?? undefined,
+      stateBytesBefore: (row.stateBytesBefore as number | null) ?? undefined,
+      stateBytesAfter: (row.stateBytesAfter as number | null) ?? undefined,
     };
   }
 }

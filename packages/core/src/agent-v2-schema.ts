@@ -160,6 +160,14 @@ export const agentV2Schema = z.object({
   pulseVisible: z.boolean().optional(),
   dashboardVisible: z.boolean().optional(),
 
+  /**
+   * PR D.1: per-agent cap on `data/agent-state/<id>/` total bytes-on-disk.
+   * The executor checks this before each node and refuses to run when
+   * exceeded (so the cap is enforced at the next node, not retroactively
+   * on the node that overflowed). Defaults to 100 MB. Set to 0 to disable.
+   */
+  stateMaxBytes: z.number().int().nonnegative().optional(),
+
   provider: z.enum(['claude', 'codex']).optional(),
   model: z.string().optional(),
 

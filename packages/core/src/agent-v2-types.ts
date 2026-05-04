@@ -245,6 +245,12 @@ export interface Agent {
   pulseVisible?: boolean;
   dashboardVisible?: boolean;
   /**
+   * Per-agent cap on `data/agent-state/<id>/` total bytes-on-disk. Enforced
+   * pre-node by the executor (over-cap → next node fails with category
+   * `setup`). Defaults to 100 MB when undefined; set to 0 to disable.
+   */
+  stateMaxBytes?: number;
+  /**
    * The agent_versions row number. On parse from YAML this is the author's
    * hint; on read from DB it's the `current_version` pointer's target.
    */
@@ -431,6 +437,20 @@ export interface NodeExecutionRecord {
    * in-flight by the executor so the dashboard can poll for turn status.
    */
   progressJson?: string;
+  /**
+   * PR D.1: bytes-on-disk in `data/agent-state/<agent-id>/` immediately
+   * before this node started. Captured only when the executor's
+   * `dataRoot` is configured AND the state dir exists at that point.
+   * `null` (undefined) for tests + one-shot CLI runs that omit dataRoot.
+   */
+  stateBytesBefore?: number;
+  /**
+   * PR D.1: bytes-on-disk in the state dir immediately after this node
+   * completed. Same conditions as `stateBytesBefore`. The delta
+   * (`after - before`) is what the dashboard surfaces as "this node grew
+   * state by X bytes."
+   */
+  stateBytesAfter?: number;
 }
 
 /**

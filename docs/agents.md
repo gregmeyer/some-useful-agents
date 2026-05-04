@@ -104,6 +104,34 @@ State is **not** swept by run retention — it persists until the agent is delet
 
 Currently available to: dashboard runs, `sua workflow run`, `sua workflow replay`. **Not yet available** to scheduled agents going through `sua schedule start` (uses the v1 chain executor; will be wired in a follow-up).
 
+### Per-agent size cap
+
+To prevent a runaway agent from filling your disk (e.g. an agent that appends to a log file every run, forever), the executor enforces a per-agent cap on state-dir bytes-on-disk. Default is **100 MB**. Override per-agent:
+
+```yaml
+id: my-cache-agent
+stateMaxBytes: 1073741824   # 1 GB cap for an agent that legitimately stores a lot
+```
+
+Set to `0` to disable the cap entirely (use sparingly).
+
+The cap is checked **before each node runs**. If the dir already exceeds the cap (typically because a previous run grew it), the next node fails with category `setup` and a clear error pointing to `sua state prune <agent>`. The node that *exceeded* the cap completes; the *next* node is the one that fails. This attributes the error cleanly to a fresh node rather than retroactively failing a node that already finished.
+
+### `sua state` CLI
+
+Operational hygiene for state directories:
+
+| Command | What it does |
+|---|---|
+| `sua state list` | Every agent with a state dir, sorted by size, with a total |
+| `sua state du <agent>` | Per-file/dir breakdown inside one agent's state |
+| `sua state prune <agent>` | Clear the contents (keeps the empty dir). Add `--remove` to delete the dir entirely. Add `-y` to skip the confirmation. |
+| `sua state export <agent> [path]` | `tar.gz` the dir to a path (or stdout when omitted). For backup or migration. |
+
+### Audit trail
+
+Each node execution captures `stateBytesBefore` and `stateBytesAfter` when the agent has a state dir configured. The dashboard run-detail page surfaces the delta as a small badge (`state +12 KB` / `state −500 KB`) on each node, only when the value changed. Useful for spotting the node that's growing your state unexpectedly.
+
 ## `outputs`
 
 Author-declared shape of the agent's final-node JSON result. Optional but recommended — used by the planner for cross-agent composition (`agent-invoke` chaining) and by the widget editor for field-name suggestions.

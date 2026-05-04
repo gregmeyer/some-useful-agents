@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, statSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stateDirFor, ensureStateDir, removeStateDir } from './agent-state.js';
+import { stateDirFor, ensureStateDir, removeStateDir, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
 
 describe('agent-state', () => {
   let dataRoot: string;
@@ -130,6 +130,67 @@ describe('STATE_DIR env-var integration via buildNodeEnv', () => {
       { runStore: { } as never },
     );
     expect(env.STATE_DIR).toBeUndefined();
+  });
+});
+
+describe('stateDirSize (PR D.1)', () => {
+  let dataRoot: string;
+  beforeEach(() => { dataRoot = mkdtempSync(join(tmpdir(), 'sua-state-size-')); });
+  afterEach(() => { rmSync(dataRoot, { recursive: true, force: true }); });
+
+  it('returns 0 when the dir doesn\'t exist (no pre-check needed at call site)', () => {
+    expect(stateDirSize('never-touched', dataRoot)).toBe(0);
+  });
+
+  it('returns 0 for an empty dir', () => {
+    ensureStateDir('empty', dataRoot);
+    expect(stateDirSize('empty', dataRoot)).toBe(0);
+  });
+
+  it('sums file sizes', () => {
+    const dir = ensureStateDir('with-files', dataRoot);
+    writeFileSync(join(dir, 'a.txt'), 'hello'); // 5 bytes
+    writeFileSync(join(dir, 'b.txt'), 'world!'); // 6 bytes
+    expect(stateDirSize('with-files', dataRoot)).toBe(11);
+  });
+
+  it('walks subdirectories recursively', async () => {
+    const { mkdirSync } = await import('node:fs');
+    const dir = ensureStateDir('nested', dataRoot);
+    mkdirSync(join(dir, 'sub'));
+    writeFileSync(join(dir, 'top.txt'), 'top'); // 3 bytes
+    writeFileSync(join(dir, 'sub', 'nested.txt'), 'nested!'); // 7 bytes
+    expect(stateDirSize('nested', dataRoot)).toBe(10);
+  });
+
+  it('rejects unsafe agent ids before measuring', () => {
+    expect(() => stateDirSize('../escape', dataRoot)).toThrow(/unsafe agent id/);
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats bytes', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(800)).toBe('800 B');
+    expect(formatBytes(1023)).toBe('1023 B');
+  });
+  it('formats KB at the boundary', () => {
+    expect(formatBytes(1024)).toBe('1.0 KB');
+    expect(formatBytes(2048)).toBe('2.0 KB');
+    expect(formatBytes(1024 * 100)).toBe('100.0 KB');
+  });
+  it('formats MB', () => {
+    expect(formatBytes(1024 * 1024)).toBe('1.0 MB');
+    expect(formatBytes(1024 * 1024 * 105)).toBe('105.0 MB');
+  });
+  it('formats GB', () => {
+    expect(formatBytes(1024 * 1024 * 1024)).toBe('1.00 GB');
+  });
+});
+
+describe('DEFAULT_STATE_MAX_BYTES', () => {
+  it('is 100 MB', () => {
+    expect(DEFAULT_STATE_MAX_BYTES).toBe(100 * 1024 * 1024);
   });
 });
 
