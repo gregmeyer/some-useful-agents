@@ -58,7 +58,7 @@ nodes:
       For agent-invoke and loop nodes, use agents listed in AVAILABLE AGENTS above.
 
       DESIGN GUIDELINES:
-      - Start simple. Prefer fewer nodes that do more over many tiny nodes.
+      - DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. The dashboard shows each stage's output independently and lets users replay individual stages with tweaked code. Collapsing into one node throws that away.
       - Use shell nodes for deterministic work (curl, jq, file ops).
       - Use claude-code nodes for judgment calls (analysis, summarization, decisions).
       - Wire nodes with dependsOn. Downstream nodes access upstream output via:
@@ -66,6 +66,7 @@ nodes:
         Claude: upstream.<nodeId>.result wrapped in double-braces (template ref)
       - Declare inputs for any value the user might want to change at run time:
         URLs, API keys (mark as secrets instead), thresholds, output paths.
+      - DECLARE outputs. If your final node emits structured JSON, add a top-level `outputs:` block listing the field names with types. Names use lowercase_snake_case. This is documentation for cross-agent composition, not runtime enforcement.
       - Set reasonable timeouts (shell: 30-60s, claude-code: 60-120s).
       - Add a description that explains what the agent does.
       - Shape output as JSON when using metric/table/status templates so field extraction works.
@@ -74,15 +75,37 @@ nodes:
       - Agent id: lowercase with hyphens only (e.g. job-scraper, daily-report).
       - Node ids: lowercase with hyphens/underscores only.
       - Input names: UPPERCASE_WITH_UNDERSCORES (e.g. TARGET_URL, MAX_RESULTS).
+      - Output names (in top-level outputs:): lowercase_snake_case.
       - inputs must be an OBJECT/map, not an array.
       - Enum inputs must have a non-empty `values` array.
       - Shell nodes access inputs via $ENV_VARS (e.g. $TARGET_URL), NEVER double-brace templates.
-      - Claude-code nodes access inputs via double-brace syntax in prompts (e.g. the string inputs.NAME wrapped in double braces).
+      - Claude-code nodes access inputs via DOUBLE-BRACE syntax with NO SPACES inside the braces.
+        Format: open-brace open-brace inputs.NAME close-brace close-brace.
+        WRONG and broken: a literal space between the two opening braces — the parser doesn't trim and the lookup silently returns empty string. Always emit the braces with no spaces.
       - Shell nodes access upstream output via $UPSTREAM_<NODEID>_RESULT env vars.
-      - Claude-code nodes access upstream output via double-brace upstream.<nodeId>.result syntax.
+      - Claude-code nodes access upstream output via double-brace syntax with the form upstream.<nodeId>.result (or upstream.<nodeId>.<jsonField> for dot-path extraction).
       - conditional nodes must have conditionalConfig with a predicate.
       - switch nodes must have switchConfig with field + cases.
       - source: must be "local" (not "examples" or "community").
+
+      OUTPUT WIDGET FIELD RULES (most common bug):
+      Each entry in outputWidget.fields has EXACTLY these keys:
+        name:  string  — THE JSON KEY in the agent's final-node result. NOT a label.
+        type:  string  — one of text | code | badge | action | metric | stat | preview
+        label: string  — OPTIONAL human-readable label (defaults to name)
+      DO NOT use `source:`, `path:`, `from:`, or `key:` — these are silently dropped and the widget renders empty.
+      If the final node emits {"file": "x.md", "count": 5}, the widget fields are:
+        - name: file       (NOT name: "Saved to" with source: file)
+          label: Saved to
+          type: code
+        - name: count
+          label: Stories
+          type: metric
+
+      SIGNAL TEMPLATE RULES:
+      - signal.template MUST be one of the names listed above (metric, time-series, text-headline, text-image, image, table, status, media, comparison, key-value, story, funnel).
+      - signal.title is a literal string. Do NOT use expression syntax like "'Weather: ' + output.city".
+      - signal.mapping values are field names or "result" — not expressions.
 
       ARCHITECTURE PATTERNS:
       Use the patterns from the discovery catalog above. Key tips:

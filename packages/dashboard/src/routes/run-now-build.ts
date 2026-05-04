@@ -20,7 +20,7 @@ const BUILDER_AGENT_ID = 'agent-builder';
 
 // ── Auto-fix common LLM YAML mistakes ──────────────────────────────────
 
-function autoFixYaml(yaml: string): string {
+export function autoFixYaml(yaml: string): string {
   try {
     const raw = parseRawYaml(yaml);
     if (!raw || typeof raw !== 'object') return yaml;
@@ -115,6 +115,82 @@ function autoFixYaml(yaml: string): string {
           n.switchConfig = { field: 'status', cases: { success: 'success', failed: 'failed' } };
           changed = true;
         }
+      }
+    }
+
+    // Fix 8: outputWidget.fields[] with `source:` / `path:` / `from:` / `key:`.
+    // The widget schema only has `name:` (the JSON key) and `label:` (display).
+    // The LLM consistently invents one of these aliases. If the field has a
+    // `name:` that looks like a label (capitalized words) AND a `path:` /
+    // `source:` / `from:` / `key:` value that looks like a JSON key
+    // (snake_case or single word), swap them: name=path, label=name.
+    // Otherwise just rename path/source/from/key → name.
+    if (raw.outputWidget && Array.isArray(raw.outputWidget.fields)) {
+      for (const f of raw.outputWidget.fields) {
+        if (typeof f !== 'object' || f === null) continue;
+        const aliasKey = ['source', 'path', 'from', 'key'].find(
+          (k) => typeof f[k] === 'string' && f[k],
+        );
+        if (!aliasKey) continue;
+        const aliasVal = String(f[aliasKey]);
+        const looksLikeLabel = typeof f.name === 'string' && /[A-Z\s]/.test(f.name);
+        if (looksLikeLabel) {
+          // name is really a label — swap.
+          if (!f.label) f.label = f.name;
+          f.name = aliasVal.split('.').pop() ?? aliasVal; // strip output. prefix if present
+        } else if (!f.name) {
+          f.name = aliasVal.split('.').pop() ?? aliasVal;
+        }
+        delete f[aliasKey];
+        changed = true;
+      }
+    }
+
+    // Fix 9: signal.template not in the registry. Fall back to text-headline
+    // (the safest default — accepts a headline + body mapping).
+    const VALID_SIGNAL_TEMPLATES = new Set([
+      'metric', 'time-series', 'text-headline', 'text-image', 'image',
+      'table', 'status', 'media', 'widget', 'comparison', 'key-value',
+      'story', 'funnel',
+    ]);
+    if (raw.signal && typeof raw.signal === 'object'
+        && typeof raw.signal.template === 'string'
+        && !VALID_SIGNAL_TEMPLATES.has(raw.signal.template)) {
+      raw.signal.template = 'text-headline';
+      changed = true;
+    }
+
+    // Fix 10a: signal.mapping values must be strings (field names), but
+    // LLMs sometimes inline structured data (arrays of {label,value} or
+    // nested objects). Replace any non-string mapping value with "result"
+    // — a safe default that maps to the full output.
+    if (raw.signal && typeof raw.signal === 'object' && raw.signal.mapping
+        && typeof raw.signal.mapping === 'object') {
+      for (const [k, v] of Object.entries(raw.signal.mapping)) {
+        if (typeof v !== 'string') {
+          raw.signal.mapping[k] = 'result';
+          changed = true;
+        }
+      }
+    }
+
+    // Fix 10b: outputWidget.title is invented — schema has no such field.
+    // Silently strip; the agent's `name:` is the user-facing label.
+    if (raw.outputWidget && typeof raw.outputWidget === 'object'
+        && 'title' in raw.outputWidget) {
+      delete raw.outputWidget.title;
+      changed = true;
+    }
+
+    // Fix 10c: signal.title with JSEP-style expression syntax. Strip the
+    // expression and use the agent name as a fallback.
+    if (raw.signal && typeof raw.signal === 'object' && typeof raw.signal.title === 'string') {
+      // A title like "'Weather: ' + output.city" — quoted literal followed by
+      // operators. Extract the first quoted segment as the title.
+      const exprMatch = raw.signal.title.match(/^\s*['"]([^'"]+)['"]\s*[+&]/);
+      if (exprMatch) {
+        raw.signal.title = exprMatch[1].trim().replace(/[\s:]+$/, '');
+        changed = true;
       }
     }
 
