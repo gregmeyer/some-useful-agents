@@ -2287,3 +2287,53 @@ nodes:
     expect(res.text).toContain('Enter a URL');
   });
 });
+
+describe('Dashboard /nodes catalog', () => {
+  it('GET /api/nodes returns the full catalog as JSON', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/api/nodes')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.nodes)).toBe(true);
+    const types = res.body.nodes.map((n: { type: string }) => n.type);
+    expect(types).toContain('shell');
+    expect(types).toContain('claude-code');
+    expect(types).toContain('agent-invoke');
+  });
+
+  it('GET /api/nodes/:type returns one entry', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/api/nodes/conditional')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.type).toBe('conditional');
+    expect(res.body.inputs.length).toBeGreaterThan(0);
+    expect(res.body.outputs.length).toBeGreaterThan(0);
+  });
+
+  it('GET /api/nodes/:unknown returns 404 JSON', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/api/nodes/not-a-real-type')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/unknown node type/i);
+  });
+
+  it('GET /nodes renders an HTML page with every node type', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/nodes')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Page header text + each node-type id anchor.
+    expect(res.text).toContain('Nodes');
+    expect(res.text).toContain('id="shell"');
+    expect(res.text).toContain('id="claude-code"');
+    expect(res.text).toContain('id="agent-invoke"');
+    expect(res.text).toContain('id="loop"');
+    expect(res.text).toContain('href="/api/nodes"');
+  });
+});
