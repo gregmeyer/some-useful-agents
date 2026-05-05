@@ -96,10 +96,13 @@ const SVG_CASED_ATTRS: Record<string, string> = {
 /**
  * Hosts approved for `<iframe src>`. HTTPS-only, exact-match.
  *
- * Tight allowlist on purpose: anything we add here can frame-bust into the
- * dashboard or render arbitrary content under a trusted origin. Start with
- * the embed providers users actually reach for in agent templates
- * (YouTube + Vimeo). Add others case-by-case, never wildcard a domain.
+ * INVARIANT: every host here must be a third-party origin, never our own.
+ * The sandbox below grants `allow-same-origin` so embeds work; with that
+ * flag, the framed page can read its own origin's cookies/storage. Safe
+ * for youtube.com (their cookies, not ours) — would be a credential leak
+ * if we ever added a host on our dashboard's origin.
+ *
+ * Tight allowlist on purpose. Add hosts case-by-case, never wildcard.
  */
 const IFRAME_ALLOWED_HOSTS = new Set<string>([
   'www.youtube.com',
@@ -110,13 +113,16 @@ const IFRAME_ALLOWED_HOSTS = new Set<string>([
 ]);
 
 /**
- * Sandbox flags injected on every accepted iframe. Deliberately omits
- * `allow-same-origin` (would let the framed page reach back into our
- * cookies/storage if served from a future allowlisted host on our origin),
- * and `allow-top-navigation` (frame-busting). YouTube + Vimeo embeds
- * function with just allow-scripts + allow-presentation.
+ * Sandbox flags injected on every accepted iframe. Includes:
+ *  - allow-scripts: required by every modern embed
+ *  - allow-same-origin: required for YouTube/Vimeo to load posters,
+ *    play-button overlays, and player chrome (they hit their own origin's
+ *    storage on init). Safe under the allowlist invariant above.
+ *  - allow-presentation: enables the picture-in-picture / fullscreen UX.
+ * Deliberately omits allow-top-navigation (frame-busting), allow-popups,
+ * allow-forms (no embed needs them), and allow-modals.
  */
-const SAFE_IFRAME_SANDBOX = 'allow-scripts allow-presentation';
+const SAFE_IFRAME_SANDBOX = 'allow-scripts allow-same-origin allow-presentation';
 
 function isIframeSrcAllowed(src: string): boolean {
   let u: URL;
