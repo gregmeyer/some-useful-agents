@@ -73,6 +73,56 @@ describe('sanitizeHtml', () => {
     expect(out).not.toContain('<!--');
     expect(out).toContain('<p');
   });
+
+  describe('iframe allowlist', () => {
+    it('keeps a YouTube embed and forces a safe sandbox', () => {
+      const out = sanitizeHtml(
+        '<iframe src="https://www.youtube.com/embed/abc123" width="560" height="315" allowfullscreen></iframe>',
+      );
+      expect(out).toContain('<iframe');
+      expect(out).toContain('src="https://www.youtube.com/embed/abc123"');
+      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
+      expect(out).toContain('</iframe>');
+    });
+
+    it('keeps Vimeo embeds', () => {
+      const out = sanitizeHtml('<iframe src="https://player.vimeo.com/video/1234"></iframe>');
+      expect(out).toContain('player.vimeo.com');
+    });
+
+    it('drops the entire tag when src host is not on the allowlist', () => {
+      const out = sanitizeHtml('<iframe src="https://evil.example.com/p"></iframe>between<p>after</p>');
+      expect(out).not.toContain('<iframe');
+      expect(out).not.toContain('evil.example.com');
+      // surrounding content survives
+      expect(out).toContain('between');
+      expect(out).toContain('<p');
+    });
+
+    it('drops http:// (non-HTTPS) iframes even on allowlisted hosts', () => {
+      const out = sanitizeHtml('<iframe src="http://www.youtube.com/embed/x"></iframe>');
+      expect(out).not.toContain('<iframe');
+    });
+
+    it('drops javascript:/data: iframe srcs', () => {
+      expect(sanitizeHtml('<iframe src="javascript:alert(1)"></iframe>')).not.toContain('<iframe');
+      expect(sanitizeHtml('<iframe src="data:text/html,<script>x</script>"></iframe>')).not.toContain('<iframe');
+    });
+
+    it('overrides an author-supplied sandbox with the safe one', () => {
+      const out = sanitizeHtml(
+        '<iframe src="https://www.youtube.com/embed/x" sandbox="allow-same-origin allow-top-navigation"></iframe>',
+      );
+      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
+      expect(out).not.toContain('allow-same-origin');
+      expect(out).not.toContain('allow-top-navigation');
+    });
+
+    it('drops iframe with no src', () => {
+      const out = sanitizeHtml('<iframe></iframe>');
+      expect(out).not.toContain('<iframe');
+    });
+  });
 });
 
 describe('substitutePlaceholders', () => {
@@ -215,5 +265,59 @@ describe('substitutePlaceholders', () => {
       outputs: { a: [{ v: 'x' }, { v: 'y' }], b: [{ v: '1' }, { v: '2' }] },
     });
     expect(out).toBe('A:xy|B:12');
+  });
+
+  describe('#if blocks', () => {
+    it('keeps the body when the output is a non-empty string', () => {
+      const out = substitutePlaceholders(
+        '{{#if outputs.title}}<h1>{{outputs.title}}</h1>{{/if}}',
+        { outputs: { title: 'hi' } },
+      );
+      expect(out).toBe('<h1>hi</h1>');
+    });
+
+    it('drops the body for null, undefined, empty string, false, 0, empty array', () => {
+      const t = '<p>before</p>{{#if outputs.x}}<p>shown</p>{{/if}}<p>after</p>';
+      for (const falsy of [null, undefined, '', false, 0, []] as const) {
+        const out = substitutePlaceholders(t, { outputs: { x: falsy as unknown } });
+        expect(out).toBe('<p>before</p><p>after</p>');
+      }
+    });
+
+    it('keeps the body for truthy values: numbers, objects, non-empty arrays', () => {
+      for (const truthy of [1, { a: 1 }, ['x'], 'text'] as const) {
+        const out = substitutePlaceholders(
+          '{{#if outputs.x}}YES{{/if}}',
+          { outputs: { x: truthy as unknown } },
+        );
+        expect(out).toBe('YES');
+      }
+    });
+
+    it('lets inner placeholders render after the if-body is kept', () => {
+      const out = substitutePlaceholders(
+        '{{#if outputs.found}}<a href="{{outputs.url}}">{{outputs.title}}</a>{{/if}}',
+        { outputs: { found: true, url: 'https://x', title: 'cat' } },
+      );
+      expect(out).toBe('<a href="https://x">cat</a>');
+    });
+
+    it('#unless is the complement of #if', () => {
+      // Falsy: keep body. Truthy: drop body. Together with #if these give
+      // single-branch if/else without dragging in {{else}} parsing.
+      const t = '{{#if outputs.url}}A{{/if}}{{#unless outputs.url}}B{{/unless}}';
+      expect(substitutePlaceholders(t, { outputs: { url: 'x' } })).toBe('A');
+      expect(substitutePlaceholders(t, { outputs: { url: '' } })).toBe('B');
+      expect(substitutePlaceholders(t, { outputs: {} })).toBe('B');
+    });
+
+    it('does not match Handlebars helpers like (eq …) — renders as literal', () => {
+      // Documents the deliberate non-feature: only {{#if outputs.NAME}} is
+      // supported. Helpers must be caught by catalog guidance, not silently
+      // partially-evaluated.
+      const t = '{{#if (eq outputs.status "found")}}A{{/if}}';
+      const out = substitutePlaceholders(t, { outputs: { status: 'found' } });
+      expect(out).toBe(t);
+    });
   });
 });

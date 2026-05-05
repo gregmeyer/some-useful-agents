@@ -25,7 +25,7 @@ const ALLOWED_TAGS = new Set<string>([
   // Quote / details
   'blockquote', 'q', 'details', 'summary',
   // Media
-  'img', 'a',
+  'img', 'a', 'iframe',
   // SVG (whitelist of common shapes + text)
   'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon',
   'text', 'tspan', 'defs', 'use', 'symbol', 'title', 'desc', 'lineargradient',
@@ -47,6 +47,7 @@ const COMMON_ATTRS = new Set<string>([
 const TAG_SPECIFIC_ATTRS: Record<string, Set<string>> = {
   a: new Set(['href', 'rel', 'target']),
   img: new Set(['src', 'alt', 'width', 'height', 'loading']),
+  iframe: new Set(['src', 'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'sandbox', 'loading', 'referrerpolicy']),
   td: new Set(['colspan', 'rowspan', 'headers', 'scope']),
   th: new Set(['colspan', 'rowspan', 'headers', 'scope', 'abbr']),
   col: new Set(['span']),
@@ -91,6 +92,38 @@ const SVG_CASED_ATTRS: Record<string, string> = {
   maskunits: 'maskUnits',
   textanchor: 'text-anchor', // already kebab in spec
 };
+
+/**
+ * Hosts approved for `<iframe src>`. HTTPS-only, exact-match.
+ *
+ * Tight allowlist on purpose: anything we add here can frame-bust into the
+ * dashboard or render arbitrary content under a trusted origin. Start with
+ * the embed providers users actually reach for in agent templates
+ * (YouTube + Vimeo). Add others case-by-case, never wildcard a domain.
+ */
+const IFRAME_ALLOWED_HOSTS = new Set<string>([
+  'www.youtube.com',
+  'youtube.com',
+  'www.youtube-nocookie.com',
+  'youtube-nocookie.com',
+  'player.vimeo.com',
+]);
+
+/**
+ * Sandbox flags injected on every accepted iframe. Deliberately omits
+ * `allow-same-origin` (would let the framed page reach back into our
+ * cookies/storage if served from a future allowlisted host on our origin),
+ * and `allow-top-navigation` (frame-busting). YouTube + Vimeo embeds
+ * function with just allow-scripts + allow-presentation.
+ */
+const SAFE_IFRAME_SANDBOX = 'allow-scripts allow-presentation';
+
+function isIframeSrcAllowed(src: string): boolean {
+  let u: URL;
+  try { u = new URL(src); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  return IFRAME_ALLOWED_HOSTS.has(u.host.toLowerCase());
+}
 
 function isAttrAllowed(tag: string, attr: string): boolean {
   if (attr.startsWith('aria-') || attr.startsWith('data-')) return true;
@@ -170,19 +203,23 @@ function buildAttrString(tag: string, attrs: Record<string, string>): string {
 
 /**
  * Sanitize untrusted HTML to a tag/attr allowlist. Strips:
- *  - all <script>, <style>, <iframe>, <object>, <embed>, <link>, <form>, <input>...
+ *  - all <script>, <style>, <object>, <embed>, <link>, <form>, <input>...
  *  - any tag not in ALLOWED_TAGS (preserving inner text)
  *  - any attribute not in the per-tag allowlist
  *  - on*, javascript:, vbscript:, data: (except data:image/*)
  *  - HTML comments (which can hide IE-conditional script)
+ *  - <iframe> whose src isn't HTTPS + on the IFRAME_ALLOWED_HOSTS allowlist;
+ *    accepted iframes get a forced `sandbox` attribute regardless of input.
  */
 export function sanitizeHtml(input: string): string {
-  // Strip dangerous block constructs entirely first.
+  // Strip dangerous block constructs entirely first. Note: iframe is NOT in
+  // this list — it's allowed conditionally (HTTPS + host allowlist) and
+  // gets a forced sandbox in the walker below.
   let s = input;
   s = s.replace(/<!--[\s\S]*?-->/g, '');
-  s = s.replace(/<(script|style|iframe|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  s = s.replace(/<(script|style|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
   // And any orphan opening of those that lacks a closing tag.
-  s = s.replace(/<(script|style|iframe|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*\/?>/gi, '');
+  s = s.replace(/<(script|style|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*\/?>/gi, '');
 
   // Walk all remaining tags.
   return s.replace(/<\/?([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, rawTag, body) => {
@@ -200,6 +237,19 @@ export function sanitizeHtml(input: string): string {
     }
 
     const { attrs } = parseAttrs(`${tag} ${body}`);
+
+    // iframe: require HTTPS src on the host allowlist, else drop the tag
+    // entirely (returning '' here strips the open tag; the matching </iframe>
+    // becomes an orphan and gets dropped by the not-in-ALLOWED-TAGS branch
+    // — wait, iframe IS allowed; the close tag will emit. That's OK, an
+    // orphan </iframe> renders as nothing.) Force the sandbox attribute
+    // even if the author tried to set their own.
+    if (tag === 'iframe') {
+      const src = attrs.src ?? '';
+      if (!isIframeSrcAllowed(src)) return '';
+      attrs.sandbox = SAFE_IFRAME_SANDBOX;
+    }
+
     const attrStr = buildAttrString(tag, attrs);
     const selfClose = SELF_CLOSING.has(tag) || /\/\s*$/.test(body);
     return `<${emitTag}${attrStr}${selfClose ? ' />' : '>'}`;
@@ -218,10 +268,16 @@ export function sanitizeHtml(input: string): string {
  *   {{#each outputs.NAME as item}} … {{/each}}  iterate an array
  *     inside the block: {{item.field}} (escaped), {{{item.field}}} (unescaped),
  *     {{@index}} (zero-based)
+ *   {{#if outputs.NAME}} … {{/if}}              keep block when output is truthy
+ *     (truthy = not null/undefined, not empty string, not false, not 0, not empty array)
+ *   {{#unless outputs.NAME}} … {{/unless}}       keep block when output is falsy
+ *     (the complement of #if — together they replace `if/else` for one branch)
  *
- * Deliberately tiny grammar: no nested loops, no conditionals, no helpers.
- * Iteration substitutes inside-out — outer-scope `{{outputs.X}}` references
- * inside an each body are resolved AFTER the loop expands them.
+ * Deliberately tiny grammar: no nested blocks, no `{{else}}`, no helpers like
+ * `(eq …)`. #if/#unless added because LLMs reach for them constantly when
+ * describing "show the success card if found, otherwise show the empty state".
+ * Together they cover the if/else case via two adjacent blocks — single-level
+ * only, no nesting.
  */
 export function substitutePlaceholders(
   template: string,
@@ -237,9 +293,29 @@ export function substitutePlaceholders(
     return String(v);
   };
 
-  // 1. Each blocks first — non-greedy body match means an inner #each would
-  //    confuse the parser; that's by design (no nested loops).
+  const isTruthy = (v: unknown): boolean => {
+    if (v === null || v === undefined) return false;
+    if (v === false || v === 0) return false;
+    if (typeof v === 'string') return v.length > 0;
+    if (Array.isArray(v)) return v.length > 0;
+    return true;
+  };
+
+  // 0. #if / #unless blocks first — drop or keep the body based on
+  //    truthiness, before any inner #each / placeholder substitution so we
+  //    don't waste work on a branch we're going to discard.
   let out = template.replace(
+    /\{\{\s*#if\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/if\s*\}\}/g,
+    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? body : ''),
+  );
+  out = out.replace(
+    /\{\{\s*#unless\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/unless\s*\}\}/g,
+    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? '' : body),
+  );
+
+  // 1. Each blocks — non-greedy body match means an inner #each would
+  //    confuse the parser; that's by design (no nested loops).
+  out = out.replace(
     /\{\{\s*#each\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/g,
     (_, name: string, itemName: string, body: string) => {
       const arr = values.outputs?.[name];

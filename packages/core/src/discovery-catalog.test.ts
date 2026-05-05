@@ -173,13 +173,13 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toMatch(/USE WHEN.*view-switch|view-switch.*USE WHEN/is);
   });
 
-  it('stays under 10000 chars with typical data (was 4000 before manifest detail; +1000 for widget controls)', () => {
+  it('stays under 11000 chars with typical data (was 4000 before manifest detail; +1000 for widget controls; +500 for outputs syntax + ai-template grammar)', () => {
     const catalog = buildDiscoveryCatalog({
       agents: MOCK_AGENTS,
       tools: [],
       templateRegistry: MOCK_REGISTRY,
     });
-    expect(catalog.length).toBeLessThan(10000);
+    expect(catalog.length).toBeLessThan(11000);
   });
 
   it('handles empty agents gracefully', () => {

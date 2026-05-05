@@ -9,6 +9,7 @@ import { renderAgentYaml } from '../views/agent-detail-v2.js';
 import { getContext } from '../context.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
 import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
+import { autoFixYaml } from './run-now-build.js';
 
 export const agentNodesRouter: Router = Router();
 
@@ -375,9 +376,16 @@ agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
 
   let yamlText = typeof body.yaml === 'string' ? body.yaml : '';
 
-  // Auto-fix common analyzer mistake: {{inputs.X}} in shell commands → $X.
-  // The schema validator rejects double-brace templates in shell nodes,
-  // but the analyzer LLM sometimes generates them. Fix before parsing.
+  // Run the full autoFixYaml pipeline so hand-edits and pasted YAML get
+  // the same rescues that AI-suggested YAML gets (un-escape `{ {`,
+  // shorthand outputs, signal/template normalisation, etc.). Keeps a
+  // single source of truth for "what we silently fix on save".
+  yamlText = autoFixYaml(yamlText);
+
+  // Additional save-path-only fix: {{inputs.X}} in shell commands → $X.
+  // Shell nodes use env vars, not template syntax. The autoFixYaml
+  // pipeline doesn't include this because it'd break legitimate
+  // {{inputs.X}} usage in claude-code prompts.
   try {
     const raw = parseRawYaml(yamlText);
     if (raw?.nodes && Array.isArray(raw.nodes)) {
