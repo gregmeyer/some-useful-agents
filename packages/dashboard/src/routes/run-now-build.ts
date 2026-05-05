@@ -81,6 +81,20 @@ export function autoFixYaml(yaml: string): string {
       }
     }
 
+    // Fix 4b: outputs in shorthand form (`name: string`) → object form.
+    // Mirrors the inputs shorthand; the schema also accepts shorthand at
+    // parse time, but normalising here keeps the canonical stored form
+    // verbose so git diffs are stable.
+    if (raw.outputs && typeof raw.outputs === 'object' && !Array.isArray(raw.outputs)) {
+      const validTypes = new Set(['string', 'number', 'boolean', 'object', 'array']);
+      for (const [key, val] of Object.entries(raw.outputs as Record<string, unknown>)) {
+        if (typeof val === 'string' && validTypes.has(val)) {
+          (raw.outputs as Record<string, unknown>)[key] = { type: val };
+          changed = true;
+        }
+      }
+    }
+
     // Fix 5: source: "examples" or "community" → "local".
     if (raw.source && raw.source !== 'local') {
       raw.source = 'local';

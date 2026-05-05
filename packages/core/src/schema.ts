@@ -25,11 +25,31 @@ export const inputSpecSchema = z.object({
  * enforcement: declaring `outputs.foo` doesn't make the executor verify
  * the JSON contains `foo`. Treat it as documentation + planner-readable
  * metadata, not a contract.
+ *
+ * Two forms accepted (parser normalises to the object form):
+ *
+ *   outputs:
+ *     count:
+ *       type: number
+ *       description: Stories returned.
+ *
+ *   outputs:
+ *     count: number    # shorthand — promotes to { type: number }
+ *
+ * The shorthand exists because LLMs naturally write it that way; rejecting
+ * the bare-string form caused painful "fix with AI" loops where every
+ * suggested YAML hit the same validation wall.
  */
-export const outputSpecSchema = z.object({
-  type: z.enum(['string', 'number', 'boolean', 'object', 'array']),
-  description: z.string().optional(),
-});
+const VALID_OUTPUT_TYPES = ['string', 'number', 'boolean', 'object', 'array'] as const;
+export const outputSpecSchema = z.preprocess(
+  (v) => (typeof v === 'string' && (VALID_OUTPUT_TYPES as readonly string[]).includes(v))
+    ? { type: v }
+    : v,
+  z.object({
+    type: z.enum(VALID_OUTPUT_TYPES),
+    description: z.string().optional(),
+  }),
+);
 
 export const agentDefinitionSchema = z.object({
   name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Must be lowercase with hyphens only'),
