@@ -162,7 +162,17 @@ ${lines.join('\n')}`;
 const DESIGN_DISCIPLINE = `
 ## DESIGN DISCIPLINE
 1. DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. Don't pack everything into one giant shell or claude-code prompt. The dashboard's value is per-stage inspection and replay; collapsing into one node throws that away.
-2. DECLARE OUTPUTS. If your final node emits structured JSON (anything beyond a single string), add a top-level outputs: block declaring the shape (lowercase_snake_case names). It's documentation for the planner, not enforcement.
+2. DECLARE OUTPUTS. If your final node emits structured JSON (anything beyond a single string), add a top-level outputs: block declaring the shape. Documentation for the planner, not enforcement. Each entry is keyed by the JSON field name and gives its TYPE (not a free-text description in the value slot). Valid types: string, number, boolean, object, array. Names must be lowercase_snake_case — no camelCase, no UPPERCASE. Two accepted forms:
+\`\`\`yaml
+outputs:
+  count: number              # shorthand: value is one of the 5 valid types
+  city:                      # full form when you want a description
+    type: string
+    description: Resolved location label
+  media_type:                # camelCase NOT allowed — use snake_case
+    type: string
+\`\`\`
+WRONG: \`url: YouTube watch URL\` (description in the type slot — schema rejects). WRONG: \`mediaType: string\` (camelCase key — schema rejects).
 3. TEMPLATE SYNTAX. Use {{var}} with NO SPACES inside the braces. Never \`{ {var}}\`. Same for upstream.X.field, inputs.X, item.X.
 4. SHELL FOR DETERMINISM. If the work fits in jq/curl/sed, use shell — it's faster, cheaper, reproducible. Reach for claude-code only for free-form judgment (analysis, summarization, classification).
 5. SOURCE FIELD. Always set source: local on new agents (the importer overrides anyway, but it's the convention).

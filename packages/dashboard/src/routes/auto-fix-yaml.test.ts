@@ -303,9 +303,11 @@ outputs:
     });
   });
 
-  it('only promotes shorthands that name a valid type', () => {
-    // 'date' is not a valid output type — leave the value alone so the
-    // schema can surface a clear error rather than silently coercing.
+  it('rescues description-strings the LLM put in the type slot', () => {
+    // The analyzer/builder LLM frequently emits free-text descriptions in
+    // the value slot ("YouTube watch URL") because the catalog says
+    // "documentation for the planner". Coerce to a string-typed entry
+    // with the description preserved, instead of failing validation.
     const fixed = fix(`
 id: x
 name: X
@@ -315,8 +317,31 @@ nodes:
     type: shell
     command: echo hi
 outputs:
-  birthday: date
+  url: YouTube watch URL
+  birthday: ISO date
 `.trim());
-    expect(fixed.outputs).toEqual({ birthday: 'date' });
+    expect(fixed.outputs).toEqual({
+      url: { type: 'string', description: 'YouTube watch URL' },
+      birthday: { type: 'string', description: 'ISO date' },
+    });
+  });
+
+  it('snake_cases camelCase output keys', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: main
+    type: shell
+    command: echo hi
+outputs:
+  mediaType: string
+  embedUrl: Embeddable iframe URL
+`.trim());
+    expect(fixed.outputs).toEqual({
+      media_type: { type: 'string' },
+      embed_url: { type: 'string', description: 'Embeddable iframe URL' },
+    });
   });
 });

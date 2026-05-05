@@ -81,18 +81,35 @@ export function autoFixYaml(yaml: string): string {
       }
     }
 
-    // Fix 4b: outputs in shorthand form (`name: string`) → object form.
-    // Mirrors the inputs shorthand; the schema also accepts shorthand at
-    // parse time, but normalising here keeps the canonical stored form
-    // verbose so git diffs are stable.
+    // Fix 4b: outputs in shorthand form → object form, plus rescue the
+    // common LLM mistake of putting a free-text description in the value
+    // slot (e.g. `url: YouTube watch URL`). Valid type strings get the
+    // canonical { type } expansion; everything else gets coerced to
+    // { type: 'string', description: val } since strings are the most
+    // permissive output type. Also snake_case any camelCase keys, since
+    // the schema rejects them.
     if (raw.outputs && typeof raw.outputs === 'object' && !Array.isArray(raw.outputs)) {
       const validTypes = new Set(['string', 'number', 'boolean', 'object', 'array']);
+      const next: Record<string, unknown> = {};
       for (const [key, val] of Object.entries(raw.outputs as Record<string, unknown>)) {
-        if (typeof val === 'string' && validTypes.has(val)) {
-          (raw.outputs as Record<string, unknown>)[key] = { type: val };
+        const snakeKey = key
+          .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+          .replace(/[-\s]+/g, '_')
+          .toLowerCase();
+        if (snakeKey !== key) changed = true;
+
+        let normalised: unknown = val;
+        if (typeof val === 'string') {
+          if (validTypes.has(val)) {
+            normalised = { type: val };
+          } else {
+            normalised = { type: 'string', description: val };
+          }
           changed = true;
         }
+        next[snakeKey] = normalised;
       }
+      raw.outputs = next;
     }
 
     // Fix 5: source: "examples" or "community" → "local".
@@ -512,6 +529,7 @@ ${brokenYaml}
 
 Rules:
 - Input names: UPPERCASE_WITH_UNDERSCORES
+- Output names: lowercase_snake_case (NOT camelCase). outputs: values must be a type (string|number|boolean|object|array) OR an object {type, description}. NEVER a bare description string in the value slot.
 - inputs: must be an object/map, not an array
 - enum inputs: must have a non-empty values array
 - Shell nodes: use $ENV_VARS for inputs, never double-brace templates
