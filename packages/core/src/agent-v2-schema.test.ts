@@ -158,6 +158,45 @@ describe('agentV2Schema — happy paths', () => {
     expect(r.success).toBe(false);
   });
 
+  it('accepts a retry policy with all fields', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      retry: { attempts: 3, backoff: 'exponential', delaySeconds: 30, categories: ['timeout', 'spawn_failure'] },
+    }));
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.retry?.attempts).toBe(3);
+      expect(r.data.retry?.backoff).toBe('exponential');
+    }
+  });
+
+  it('accepts a retry policy with only attempts (defaults applied at runtime)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      retry: { attempts: 2 },
+    }));
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects retry.attempts > 10 (sanity cap)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      retry: { attempts: 100 },
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects retry.delaySeconds > 3600 (1 hour cap)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      retry: { attempts: 3, delaySeconds: 99999 },
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects unknown retry.backoff mode', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      retry: { attempts: 3, backoff: 'jittered' as unknown },
+    }));
+    expect(r.success).toBe(false);
+  });
+
   it('omits the outputs key when not declared', () => {
     const r = agentV2Schema.safeParse(validSingleNode());
     expect(r.success).toBe(true);

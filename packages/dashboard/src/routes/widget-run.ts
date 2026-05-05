@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
 import { render } from '../views/html.js';
@@ -32,7 +32,7 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
   }
 
   const abortController = new AbortController();
-  const runPromise = executeAgentDag(
+  const runPromise = executeAgentWithRetry(
     v2Agent,
     { triggeredBy: 'dashboard', inputs, signal: abortController.signal },
     {

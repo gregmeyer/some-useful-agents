@@ -59,9 +59,46 @@ Form body: `confirm_community_shell=yes` if the agent has community shell nodes 
 
 Returns `303` redirect to the new run on success, or back to the prior run with a `?flash=` error message on failure (e.g. "Only failed runs can be retried").
 
+## Auto-retry (agent-declared policy)
+
+Agents can declare a `retry:` block to recover from transient failures without manual intervention:
+
+```yaml
+retry:
+  attempts: 3              # total tries including the first; 1 = no retry
+  backoff: exponential     # exponential | linear | fixed; default exponential
+  delaySeconds: 30         # base delay; 30s → 60s → 120s for exponential
+  categories:              # which errorCategory values trigger a retry
+    - timeout
+    - spawn_failure
+```
+
+When a run fails with a category in the policy's `categories:` list, the orchestrator sleeps with backoff and spawns a fresh attempt. Each attempt is its own `runs` row, linked back to the head via `retryOfRunId` — the same flat-chain shape as one-click manual retry. You'll see attempt 1, 2, 3 as siblings in the dashboard.
+
+### Default categories
+
+When `categories:` is omitted, the policy defaults to `[timeout, spawn_failure]` — flake-shaped failures only. Authors broaden by listing additional categories explicitly (e.g. `[timeout, spawn_failure, exit_nonzero]` for a flaky CLI).
+
+### Categories that NEVER retry
+
+These are deterministic (`setup`, `input_resolution`) or user-driven (`cancelled`) or already-skipped states (`condition_not_met`, `flow_ended`). Retrying changes nothing, so the orchestrator skips them regardless of policy.
+
+### Backoff modes
+
+| Mode | Formula | Example with `delaySeconds: 30` |
+|---|---|---|
+| `exponential` (default) | `delaySeconds × 2^(attempt-1)` | 30s → 60s → 120s → 240s |
+| `linear` | `delaySeconds × attempt` | 30s → 60s → 90s → 120s |
+| `fixed` | `delaySeconds` always | 30s → 30s → 30s |
+
+All sleeps are capped at 1 hour.
+
+### Auto-retry + manual retry interplay
+
+Manual retry and auto-retry share the same chain. If a user clicks Retry on a run that's already part of an auto-retry chain, the new attempt picks up where the chain left off and counts further auto-retries against the policy's `attempts` budget. Manual retries can take you over the policy budget — they're explicit user overrides — but no further auto-retries fire after that point.
+
 ## What's coming next
 
-- **Auto-retry** ([plan](https://github.com/anthropics/some-useful-agents/issues)) — agents declare `retry: { attempts, backoff, delaySeconds, categories }` and the executor re-fires transient failures (timeouts, spawn failures) without paging anyone.
-- **Notify deferral** — when auto-retry is in play, `failure` notifications wait until the final attempt fails.
-- **Triage surface** — per-agent consecutive-failure tracking and a "now broken" view.
-- **Scheduler backoff** — after N consecutive failed terminal attempts, the cron tick is skipped to stop spamming.
+- **Notify deferral** (R3) — when auto-retry is in play, `failure` notifications wait until the final attempt fails.
+- **Triage surface** (R4) — per-agent consecutive-failure tracking and a "now broken" view.
+- **Scheduler backoff** (R5) — after N consecutive failed terminal attempts, the cron tick is skipped to stop spamming.

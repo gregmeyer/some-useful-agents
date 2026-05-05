@@ -416,19 +416,9 @@ agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
     ctx.agentStore.createNewVersion(
       agent.id,
       {
-        id: parsed.id,
-        name: parsed.name,
-        description: parsed.description,
-        status: parsed.status,
-        schedule: parsed.schedule,
-        source: agent.source, // preserve source — don't let YAML override trust level
-        mcp: parsed.mcp,
-        nodes: parsed.nodes,
-        inputs: parsed.inputs,
-        signal: parsed.signal,
-        outputWidget: parsed.outputWidget,
-        author: parsed.author,
-        tags: parsed.tags,
+        ...parsed,
+        // Preserve source — don't let YAML override trust level.
+        source: agent.source,
       },
       'dashboard',
       'Updated via YAML editor',

@@ -29,6 +29,13 @@ export * from './output-widget-types.js';
 export { outputWidgetSchema, widgetControlSchema, widgetViewSchema } from './output-widget-schema.js';
 export { extractPriorAgentInputs } from './run-inputs.js';
 export {
+  executeAgentWithRetry,
+  isRetryableCategory,
+  computeBackoffDelay,
+  DEFAULT_RETRY_CATEGORIES,
+  type ExecuteAgentWithRetryHooks,
+} from './retry.js';
+export {
   agentV2Schema,
   agentNodeSchema,
   extractUpstreamReferences,
