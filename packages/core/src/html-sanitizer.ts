@@ -220,12 +220,14 @@ export function sanitizeHtml(input: string): string {
  *     {{@index}} (zero-based)
  *   {{#if outputs.NAME}} … {{/if}}              keep block when output is truthy
  *     (truthy = not null/undefined, not empty string, not false, not 0, not empty array)
+ *   {{#unless outputs.NAME}} … {{/unless}}       keep block when output is falsy
+ *     (the complement of #if — together they replace `if/else` for one branch)
  *
- * Deliberately tiny grammar: no nested ifs, no else, no helpers (no `eq`, no
- * `unless`). #if added because LLMs reach for it constantly when describing
- * "show the success card if found, otherwise show the empty state" — the
- * workaround was always-render which produced broken UIs. Single-level only;
- * for branching, render two templates and pick via a field-toggle control.
+ * Deliberately tiny grammar: no nested blocks, no `{{else}}`, no helpers like
+ * `(eq …)`. #if/#unless added because LLMs reach for them constantly when
+ * describing "show the success card if found, otherwise show the empty state".
+ * Together they cover the if/else case via two adjacent blocks — single-level
+ * only, no nesting.
  */
 export function substitutePlaceholders(
   template: string,
@@ -249,12 +251,16 @@ export function substitutePlaceholders(
     return true;
   };
 
-  // 0. #if blocks first — drop or keep the body based on truthiness, before
-  //    any inner #each / placeholder substitution so we don't waste work on
-  //    a branch we're going to discard.
+  // 0. #if / #unless blocks first — drop or keep the body based on
+  //    truthiness, before any inner #each / placeholder substitution so we
+  //    don't waste work on a branch we're going to discard.
   let out = template.replace(
     /\{\{\s*#if\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/if\s*\}\}/g,
     (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? body : ''),
+  );
+  out = out.replace(
+    /\{\{\s*#unless\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/unless\s*\}\}/g,
+    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? '' : body),
   );
 
   // 1. Each blocks — non-greedy body match means an inner #each would

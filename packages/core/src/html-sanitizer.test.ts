@@ -252,6 +252,15 @@ describe('substitutePlaceholders', () => {
       expect(out).toBe('<a href="https://x">cat</a>');
     });
 
+    it('#unless is the complement of #if', () => {
+      // Falsy: keep body. Truthy: drop body. Together with #if these give
+      // single-branch if/else without dragging in {{else}} parsing.
+      const t = '{{#if outputs.url}}A{{/if}}{{#unless outputs.url}}B{{/unless}}';
+      expect(substitutePlaceholders(t, { outputs: { url: 'x' } })).toBe('A');
+      expect(substitutePlaceholders(t, { outputs: { url: '' } })).toBe('B');
+      expect(substitutePlaceholders(t, { outputs: {} })).toBe('B');
+    });
+
     it('does not match Handlebars helpers like (eq …) — renders as literal', () => {
       // Documents the deliberate non-feature: only {{#if outputs.NAME}} is
       // supported. Helpers must be caught by catalog guidance, not silently
