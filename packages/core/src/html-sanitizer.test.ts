@@ -81,7 +81,7 @@ describe('sanitizeHtml', () => {
       );
       expect(out).toContain('<iframe');
       expect(out).toContain('src="https://www.youtube.com/embed/abc123"');
-      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
+      expect(out).toContain('sandbox="allow-scripts allow-same-origin allow-presentation"');
       expect(out).toContain('</iframe>');
     });
 
@@ -111,11 +111,12 @@ describe('sanitizeHtml', () => {
 
     it('overrides an author-supplied sandbox with the safe one', () => {
       const out = sanitizeHtml(
-        '<iframe src="https://www.youtube.com/embed/x" sandbox="allow-same-origin allow-top-navigation"></iframe>',
+        '<iframe src="https://www.youtube.com/embed/x" sandbox="allow-top-navigation allow-popups allow-forms"></iframe>',
       );
-      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
-      expect(out).not.toContain('allow-same-origin');
+      expect(out).toContain('sandbox="allow-scripts allow-same-origin allow-presentation"');
       expect(out).not.toContain('allow-top-navigation');
+      expect(out).not.toContain('allow-popups');
+      expect(out).not.toContain('allow-forms');
     });
 
     it('drops iframe with no src', () => {
