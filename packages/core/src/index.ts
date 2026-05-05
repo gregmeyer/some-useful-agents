@@ -27,6 +27,7 @@ export * from './node-catalog.js';
 export * from './agent-state.js';
 export * from './output-widget-types.js';
 export { outputWidgetSchema, widgetControlSchema, widgetViewSchema } from './output-widget-schema.js';
+export { extractPriorAgentInputs } from './run-inputs.js';
 export {
   agentV2Schema,
   agentNodeSchema,

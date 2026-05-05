@@ -1643,6 +1643,132 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
   });
 });
 
+describe('Dashboard /runs/:id/retry (R1)', () => {
+  function seedFailedRun(opts: { agentId?: string; runId?: string } = {}) {
+    const agentId = opts.agentId ?? 'retry-test';
+    const runId = opts.runId ?? 'failed-run-1';
+    agentStore.createAgent({
+      id: agentId, name: 'Retry Test', status: 'active', source: 'local', mcp: false,
+      inputs: { CITY: { type: 'string', default: 'sf' } },
+      nodes: [{ id: 'fetch', type: 'shell', command: 'echo {"temp":20}' }],
+    }, 'cli', 'seed');
+    runStore.createRun({
+      id: runId, agentName: agentId, status: 'failed',
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      completedAt: new Date().toISOString(),
+      triggeredBy: 'cli',
+      workflowId: agentId, workflowVersion: 1,
+      error: 'Simulated failure',
+    });
+    runStore.createNodeExecution({
+      runId, nodeId: 'fetch', workflowVersion: 1,
+      status: 'failed', startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(), exitCode: 1,
+      inputsJson: JSON.stringify({ CITY: 'tokyo' }),
+    });
+    return { agentId, runId };
+  }
+
+  it('renders Retry button on the error block of a failed run', async () => {
+    const app = await makeApp();
+    const { runId } = seedFailedRun();
+    const res = await request(app).get(`/runs/${runId}`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(`action="/runs/${runId}/retry"`);
+    expect(res.text).toContain('Retry run');
+  });
+
+  it('does NOT render Retry button on a completed run', async () => {
+    const app = await makeApp();
+    const { agentId } = seedFailedRun({ agentId: 'retry-ok', runId: 'ok-run' });
+    runStore.updateRun('ok-run', { status: 'completed', error: undefined });
+    // Completed runs without an error block don't show retry — re-fetch.
+    const res = await request(app).get(`/runs/ok-run`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain(`/runs/ok-run/retry"`);
+    expect(agentId).toBe('retry-ok');
+  });
+
+  it('POST /runs/:id/retry on a failed run creates a new attempt and redirects', async () => {
+    const app = await makeApp();
+    const { agentId, runId } = seedFailedRun();
+    const res = await request(app).post(`/runs/${runId}/retry`)
+      .type('form').send({})
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/runs\/[^/?]+\?flash=/);
+    expect(res.headers.location).not.toContain(runId);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/Retry attempt 2/);
+
+    // Wait briefly for the executor to settle, then inspect the chain.
+    await new Promise((r) => setTimeout(r, 700));
+    const chain = runStore.getRetryChain(runId);
+    expect(chain.length).toBeGreaterThanOrEqual(2);
+    const newRun = chain.find((r) => r.attempt === 2);
+    expect(newRun).toBeDefined();
+    expect(newRun!.retryOfRunId).toBe(runId);
+    expect(newRun!.agentName).toBe(agentId);
+  });
+
+  it('POST /runs/:id/retry on a completed run is rejected', async () => {
+    const app = await makeApp();
+    const { runId } = seedFailedRun({ runId: 'completed-run' });
+    runStore.updateRun(runId, { status: 'completed' });
+    const res = await request(app).post(`/runs/${runId}/retry`)
+      .type('form').send({})
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe(`/runs/${runId}?flash=${encodeURIComponent('Only failed runs can be retried (this one is completed).')}`);
+  });
+
+  it('POST /runs/:id/retry recovers prior agent inputs', async () => {
+    const app = await makeApp();
+    const { agentId, runId } = seedFailedRun({ agentId: 'retry-inputs', runId: 'inputs-run' });
+    await request(app).post(`/runs/${runId}/retry`)
+      .type('form').send({})
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    await new Promise((r) => setTimeout(r, 700));
+    // The new run's first node-execution should have CITY=tokyo (from the
+    // prior run's inputsJson), not the agent's default of 'sf'.
+    const chain = runStore.getRetryChain(runId);
+    const newRun = chain.find((r) => r.attempt === 2);
+    expect(newRun).toBeDefined();
+    const execs = runStore.listNodeExecutions(newRun!.id);
+    expect(execs.length).toBeGreaterThan(0);
+    const env = JSON.parse(execs[0].inputsJson ?? '{}');
+    expect(env.CITY).toBe('tokyo');
+    expect(agentId).toBe('retry-inputs');
+  });
+
+  it('renders attempt badge in run-detail header when run is a retry', async () => {
+    const app = await makeApp();
+    const { agentId } = seedFailedRun({ agentId: 'attempt-badge', runId: 'orig-run' });
+    runStore.createRun({
+      id: 'retry-run-2', agentName: agentId, status: 'completed',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      triggeredBy: 'dashboard',
+      workflowId: agentId, workflowVersion: 1,
+      retryOfRunId: 'orig-run',
+      attempt: 2,
+    });
+    const res = await request(app).get('/runs/retry-run-2')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('attempt 2');
+    expect(res.text).toContain('Retry of');
+    expect(res.text).toContain('/runs/orig-run');
+  });
+});
+
 describe('Dashboard /tools (v0.16 PR 3)', () => {
   it('GET /tools lists built-in tools', async () => {
     const app = await makeApp();

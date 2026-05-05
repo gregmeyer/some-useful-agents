@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { RunStatus } from '@some-useful-agents/core';
+import { extractPriorAgentInputs, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentNodes, renderAgentConfig, renderAgentRuns } from '../../views/agent-detail-v2.js';
 import { deriveBack } from '../../views/page-header.js';
@@ -21,18 +21,9 @@ async function buildTabArgs(req: Request, ctx: ReturnType<typeof getContext>, na
 
   // Extract previous run's agent-level inputs for the Run Now modal.
   let previousInputs: Record<string, string> | undefined;
-  if (rows.length > 0 && agent.inputs) {
-    try {
-      const execs = ctx.runStore.listNodeExecutions(rows[0].id);
-      if (execs.length > 0 && execs[0].inputsJson) {
-        const allEnv = JSON.parse(execs[0].inputsJson) as Record<string, string>;
-        const inputNames = new Set(Object.keys(agent.inputs));
-        previousInputs = {};
-        for (const [k, v] of Object.entries(allEnv)) {
-          if (inputNames.has(k) && v !== '') previousInputs[k] = v;
-        }
-      }
-    } catch { /* no node executions yet */ }
+  if (rows.length > 0) {
+    const recovered = extractPriorAgentInputs(agent, rows[0].id, ctx.runStore);
+    if (Object.keys(recovered).length > 0) previousInputs = recovered;
   }
 
   return { agent, recentRuns: rows, secretsStore: ctx.secretsStore, flash, back, from: fromParam, previousInputs };

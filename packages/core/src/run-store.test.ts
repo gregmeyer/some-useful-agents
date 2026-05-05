@@ -407,3 +407,50 @@ describe('RunStore.distinctValues', () => {
     expect(store.distinctValues('triggeredBy')).toEqual(['cli', 'schedule']);
   });
 });
+
+describe('RunStore retry chain', () => {
+  it('createRun defaults attempt to 1 and retryOfRunId to undefined', () => {
+    const run = makeRun({ id: 'r-orig' });
+    store.createRun(run);
+    const got = store.getRun('r-orig');
+    expect(got!.attempt).toBe(1);
+    expect(got!.retryOfRunId).toBeUndefined();
+  });
+
+  it('persists attempt + retryOfRunId on createRun', () => {
+    store.createRun(makeRun({ id: 'r-orig' }));
+    store.createRun(makeRun({
+      id: 'r-retry-1',
+      retryOfRunId: 'r-orig',
+      attempt: 2,
+    }));
+    const got = store.getRun('r-retry-1');
+    expect(got!.retryOfRunId).toBe('r-orig');
+    expect(got!.attempt).toBe(2);
+  });
+
+  it('getRetryChain returns original + retries ordered by attempt', () => {
+    store.createRun(makeRun({ id: 'r-orig', startedAt: '2026-05-04T10:00:00Z' }));
+    store.createRun(makeRun({
+      id: 'r-retry-2', retryOfRunId: 'r-orig', attempt: 2, startedAt: '2026-05-04T10:01:00Z',
+    }));
+    store.createRun(makeRun({
+      id: 'r-retry-3', retryOfRunId: 'r-orig', attempt: 3, startedAt: '2026-05-04T10:02:00Z',
+    }));
+    const chain = store.getRetryChain('r-retry-2');
+    expect(chain.map((r) => r.id)).toEqual(['r-orig', 'r-retry-2', 'r-retry-3']);
+    // Calling on the head should also return the full chain.
+    const chainFromHead = store.getRetryChain('r-orig');
+    expect(chainFromHead.map((r) => r.id)).toEqual(['r-orig', 'r-retry-2', 'r-retry-3']);
+  });
+
+  it('getRetryChain on a non-retry run returns just that run', () => {
+    store.createRun(makeRun({ id: 'r-solo' }));
+    const chain = store.getRetryChain('r-solo');
+    expect(chain.map((r) => r.id)).toEqual(['r-solo']);
+  });
+
+  it('getRetryChain returns empty array for unknown run id', () => {
+    expect(store.getRetryChain('does-not-exist')).toEqual([]);
+  });
+});
