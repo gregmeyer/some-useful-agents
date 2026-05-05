@@ -216,4 +216,49 @@ describe('substitutePlaceholders', () => {
     });
     expect(out).toBe('A:xy|B:12');
   });
+
+  describe('#if blocks', () => {
+    it('keeps the body when the output is a non-empty string', () => {
+      const out = substitutePlaceholders(
+        '{{#if outputs.title}}<h1>{{outputs.title}}</h1>{{/if}}',
+        { outputs: { title: 'hi' } },
+      );
+      expect(out).toBe('<h1>hi</h1>');
+    });
+
+    it('drops the body for null, undefined, empty string, false, 0, empty array', () => {
+      const t = '<p>before</p>{{#if outputs.x}}<p>shown</p>{{/if}}<p>after</p>';
+      for (const falsy of [null, undefined, '', false, 0, []] as const) {
+        const out = substitutePlaceholders(t, { outputs: { x: falsy as unknown } });
+        expect(out).toBe('<p>before</p><p>after</p>');
+      }
+    });
+
+    it('keeps the body for truthy values: numbers, objects, non-empty arrays', () => {
+      for (const truthy of [1, { a: 1 }, ['x'], 'text'] as const) {
+        const out = substitutePlaceholders(
+          '{{#if outputs.x}}YES{{/if}}',
+          { outputs: { x: truthy as unknown } },
+        );
+        expect(out).toBe('YES');
+      }
+    });
+
+    it('lets inner placeholders render after the if-body is kept', () => {
+      const out = substitutePlaceholders(
+        '{{#if outputs.found}}<a href="{{outputs.url}}">{{outputs.title}}</a>{{/if}}',
+        { outputs: { found: true, url: 'https://x', title: 'cat' } },
+      );
+      expect(out).toBe('<a href="https://x">cat</a>');
+    });
+
+    it('does not match Handlebars helpers like (eq …) — renders as literal', () => {
+      // Documents the deliberate non-feature: only {{#if outputs.NAME}} is
+      // supported. Helpers must be caught by catalog guidance, not silently
+      // partially-evaluated.
+      const t = '{{#if (eq outputs.status "found")}}A{{/if}}';
+      const out = substitutePlaceholders(t, { outputs: { status: 'found' } });
+      expect(out).toBe(t);
+    });
+  });
 });

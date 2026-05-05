@@ -258,6 +258,33 @@ nodes:
   });
 });
 
+describe('autoFixYaml — outputWidget.template un-escape (Bug from cat-video dogfood)', () => {
+  it('repairs { { → {{ inside outputWidget.template', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: main
+    type: shell
+    command: echo '{}'
+outputWidget:
+  type: ai-template
+  template: |
+    <h1>{ {outputs.title}}</h1>
+    <p>{ {outputs.caption}}</p>
+    { {#if outputs.found}}<a href="{ {outputs.url}}">go</a>{ {/if}}
+`.trim());
+    const tpl = (fixed.outputWidget as Record<string, unknown>).template as string;
+    expect(tpl).toContain('{{outputs.title}}');
+    expect(tpl).toContain('{{outputs.caption}}');
+    expect(tpl).toContain('{{#if outputs.found}}');
+    expect(tpl).toContain('{{/if}}');
+    expect(tpl).not.toContain('{ {');
+    expect(tpl).not.toContain('} }');
+  });
+});
+
 describe('autoFixYaml — outputs shorthand promotion', () => {
   it('promotes bare-string outputs to { type: ... } objects', () => {
     const fixed = fix(`

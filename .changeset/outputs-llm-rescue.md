@@ -1,12 +1,13 @@
 ---
-"@some-useful-agents/core": patch
-"@some-useful-agents/cli": patch
-"@some-useful-agents/mcp-server": patch
-"@some-useful-agents/temporal-provider": patch
-"@some-useful-agents/dashboard": patch
+"@some-useful-agents/core": minor
+"@some-useful-agents/cli": minor
+"@some-useful-agents/mcp-server": minor
+"@some-useful-agents/temporal-provider": minor
+"@some-useful-agents/dashboard": minor
 ---
 
-Rescue analyzer/builder LLM mistakes in the `outputs:` block.
+Rescue analyzer/builder LLM mistakes in `outputs:` and ai-template widgets,
+and add truthy `{{#if outputs.X}}` to the template grammar.
 
 Three changes that close a "Fix with AI" loop where every suggestion failed
 validation with `outputs.X: Expected object, received string`:
@@ -22,3 +23,16 @@ validation with `outputs.X: Expected object, received string`:
   output type, so this is safe and unblocks the user.
 - **`/analyze/fix-yaml` retry prompt** now lists the outputs rules so a
   second LLM pass can actually fix the problem.
+- **ai-template `{{#if outputs.X}} … {{/if}}`** now supported as a truthy
+  conditional (single-level, no `else`, no helpers). LLMs reach for this
+  constantly when describing "show success card if found"; the workaround
+  was always-render which produced broken UIs. Helpers like `(eq …)` and
+  `{{else}}` deliberately remain unsupported — render two templates and
+  switch via a field-toggle for branching.
+- **`autoFixYaml` Fix 6b** un-escapes `{ {` → `{{` (and `} }` → `}}`)
+  inside `outputWidget.template`, mirroring the existing fix for
+  claude-code prompts. Without this, the renderer printed escape
+  sequences as literal text.
+- **Discovery catalog** documents the full ai-template grammar (including
+  the new `#if`) and explicitly enumerates what's NOT supported, so the
+  builder LLM stops reaching for `(eq …)`, `{{else}}`, and `{{#unless}}`.

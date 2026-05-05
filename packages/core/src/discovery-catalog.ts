@@ -51,7 +51,7 @@ Use when the agent produces structured JSON. The widget renders on the agent det
 - key-value: Labeled pairs as definition list. Field types: text, code, badge.
 - diff-apply: Review/analysis with actions. Field types: text, code, badge. Supports actions (buttons that POST).
 - raw: Sectioned fallback for mixed content. Field types: text, code, preview.
-- ai-template: AI-rendered HTML template. Supports {{outputs.X}} (escaped), {{{outputs.X}}} (unescaped), and {{#each outputs.X as item}}...{{/each}} iteration with {{item.field}} / {{@index}}. Use for list/card layouts.
+- ai-template: AI-rendered HTML template. Supported syntax: {{outputs.X}} (escaped scalar), {{{outputs.X}}} (unescaped), {{result}} (raw run output), {{#each outputs.X as item}}...{{/each}} iteration with {{item.field}} / {{@index}}, and {{#if outputs.X}}...{{/if}} truthy-only conditional. NOT supported: Handlebars helpers like (eq …) (lt …) (gt …), {{else}} branches, {{#unless}}, nested {{#if}} blocks, or any expression syntax inside the {{ }} braces beyond a single outputs.NAME. For "show A if found else show B", render two ai-template variants and switch via a field-toggle/view-switch control. Use ai-template for list/card layouts. NEVER write {{ var }} with spaces — must be {{var}}.
 
 CRITICAL — OUTPUT WIDGET FIELD SCHEMA:
 Each entry in outputWidget.fields has EXACTLY these keys:

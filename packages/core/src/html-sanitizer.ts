@@ -218,10 +218,14 @@ export function sanitizeHtml(input: string): string {
  *   {{#each outputs.NAME as item}} … {{/each}}  iterate an array
  *     inside the block: {{item.field}} (escaped), {{{item.field}}} (unescaped),
  *     {{@index}} (zero-based)
+ *   {{#if outputs.NAME}} … {{/if}}              keep block when output is truthy
+ *     (truthy = not null/undefined, not empty string, not false, not 0, not empty array)
  *
- * Deliberately tiny grammar: no nested loops, no conditionals, no helpers.
- * Iteration substitutes inside-out — outer-scope `{{outputs.X}}` references
- * inside an each body are resolved AFTER the loop expands them.
+ * Deliberately tiny grammar: no nested ifs, no else, no helpers (no `eq`, no
+ * `unless`). #if added because LLMs reach for it constantly when describing
+ * "show the success card if found, otherwise show the empty state" — the
+ * workaround was always-render which produced broken UIs. Single-level only;
+ * for branching, render two templates and pick via a field-toggle control.
  */
 export function substitutePlaceholders(
   template: string,
@@ -237,9 +241,25 @@ export function substitutePlaceholders(
     return String(v);
   };
 
-  // 1. Each blocks first — non-greedy body match means an inner #each would
-  //    confuse the parser; that's by design (no nested loops).
+  const isTruthy = (v: unknown): boolean => {
+    if (v === null || v === undefined) return false;
+    if (v === false || v === 0) return false;
+    if (typeof v === 'string') return v.length > 0;
+    if (Array.isArray(v)) return v.length > 0;
+    return true;
+  };
+
+  // 0. #if blocks first — drop or keep the body based on truthiness, before
+  //    any inner #each / placeholder substitution so we don't waste work on
+  //    a branch we're going to discard.
   let out = template.replace(
+    /\{\{\s*#if\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/if\s*\}\}/g,
+    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? body : ''),
+  );
+
+  // 1. Each blocks — non-greedy body match means an inner #each would
+  //    confuse the parser; that's by design (no nested loops).
+  out = out.replace(
     /\{\{\s*#each\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/g,
     (_, name: string, itemName: string, body: string) => {
       const arr = values.outputs?.[name];

@@ -122,6 +122,8 @@ export function autoFixYaml(yaml: string): string {
     // The escape function in resolveUpstreamTemplate converts {{ to { {
     // to prevent re-expansion. If an LLM or round-trip saves this escaped
     // form, fix it back so templates resolve at runtime.
+    const unescapeBraces = (s: string): string =>
+      s.replace(/\{ \{/g, '{{').replace(/\} \}/g, '}}');
     if (raw.nodes && Array.isArray(raw.nodes)) {
       for (const n of raw.nodes) {
         if (n.type === 'claude-code' && typeof n.prompt === 'string') {
@@ -131,6 +133,17 @@ export function autoFixYaml(yaml: string): string {
             .replace(/\{ \{vars\./g, '{{vars.');
           if (fixed !== n.prompt) { n.prompt = fixed; changed = true; }
         }
+      }
+    }
+    // Fix 6b: same un-escape on outputWidget.template — same root cause
+    // (escaped form gets pasted back), but a different storage slot.
+    // Without this, the renderer prints `{ {outputs.X}}` literally.
+    if (raw.outputWidget && typeof raw.outputWidget === 'object'
+        && typeof raw.outputWidget.template === 'string') {
+      const fixed = unescapeBraces(raw.outputWidget.template);
+      if (fixed !== raw.outputWidget.template) {
+        raw.outputWidget.template = fixed;
+        changed = true;
       }
     }
 
