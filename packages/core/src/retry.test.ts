@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import {
@@ -306,5 +306,145 @@ describe('executeAgentWithRetry — retry loop', () => {
     // Loop entered, signal aborted before attempt 2 → only 1 spawn.
     expect(calls).toBe(1);
     expect(run.status).toBe('failed');
+  });
+});
+
+describe('executeAgentWithRetry — notify deferral (R3)', () => {
+  // The `file` notify handler appends a JSON line per fire — counting lines
+  // is the simplest way to count notify dispatches without faking fetch
+  // (the webhook handler runs an SSRF check that rejects test URLs).
+  // The handler also enforces a path-traversal guard against process.cwd(),
+  // so we write to a relative path under cwd rather than tmpdir.
+  let notifyDir: string;
+  let notifyPath: string; // path passed to the handler — relative to cwd
+  let notifyAbs: string;  // absolute path for readback
+  beforeEach(() => {
+    const rel = `.tmp-r3-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    notifyDir = join(process.cwd(), rel);
+    mkdirSync(notifyDir, { recursive: true });
+    notifyPath = join(rel, 'notify.jsonl');
+    notifyAbs = join(notifyDir, 'notify.jsonl');
+  });
+  afterEach(() => {
+    rmSync(notifyDir, { recursive: true, force: true });
+  });
+
+  function makeNotifyAgent(retry: RetryPolicy, on: Array<'failure' | 'success' | 'always'>): Agent {
+    return {
+      ...makeAgent(retry),
+      notify: {
+        on,
+        handlers: [{ type: 'file', path: notifyPath, append: true }],
+      },
+    } as Agent;
+  }
+
+  function readNotifyLines(): Array<Record<string, unknown>> {
+    let raw: string;
+    try { raw = readFileSync(notifyAbs, 'utf8'); } catch { return []; }
+    return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  }
+
+  it('3 attempts all fail → fires failure notify exactly once (not three times)', async () => {
+    const agent = makeNotifyAgent(
+      { attempts: 3, delaySeconds: 0, categories: ['exit_nonzero'] },
+      ['failure'],
+    );
+    let calls = 0;
+    const fakeDeps: DagExecutorDeps = {
+      runStore: store,
+      spawnNode: async () => {
+        calls++;
+        return { result: '', exitCode: 1, error: 'fail', category: 'exit_nonzero' };
+      },
+    };
+    await executeAgentWithRetry(
+      agent, { triggeredBy: 'cli' }, fakeDeps,
+      { sleepFn: async () => {} },
+    );
+    expect(calls).toBe(3);
+    expect(readNotifyLines()).toHaveLength(1);
+  });
+
+  it('succeeds on attempt 2 → fires success notify once, zero failure notifies', async () => {
+    const agent = makeNotifyAgent(
+      { attempts: 3, delaySeconds: 0, categories: ['exit_nonzero'] },
+      ['failure', 'success'],
+    );
+    let calls = 0;
+    const fakeDeps: DagExecutorDeps = {
+      runStore: store,
+      spawnNode: async () => {
+        calls++;
+        if (calls === 1) return { result: '', exitCode: 1, error: 'flake', category: 'exit_nonzero' };
+        return { result: 'ok', exitCode: 0 };
+      },
+    };
+    await executeAgentWithRetry(
+      agent, { triggeredBy: 'cli' }, fakeDeps,
+      { sleepFn: async () => {} },
+    );
+    expect(calls).toBe(2);
+    const lines = readNotifyLines();
+    expect(lines).toHaveLength(1);
+    // The single notify must reflect the SUCCEEDED attempt, not the failed one.
+    expect(lines[0].status).toBe('completed');
+  });
+
+  it('non-retryable failure category → fires failure notify once on attempt 1', async () => {
+    const agent = makeNotifyAgent(
+      { attempts: 5, delaySeconds: 0, categories: ['timeout'] }, // exit_nonzero NOT listed
+      ['failure'],
+    );
+    let calls = 0;
+    const fakeDeps: DagExecutorDeps = {
+      runStore: store,
+      spawnNode: async () => {
+        calls++;
+        return { result: '', exitCode: 1, error: 'real bug', category: 'exit_nonzero' };
+      },
+    };
+    await executeAgentWithRetry(
+      agent, { triggeredBy: 'cli' }, fakeDeps,
+      { sleepFn: async () => {} },
+    );
+    expect(calls).toBe(1);
+    expect(readNotifyLines()).toHaveLength(1);
+  });
+
+  it('agents WITHOUT a retry policy still fire notify per call (regression guard)', async () => {
+    // attempts: 1 means the wrapper falls through to a single executeAgentDag.
+    // The executor itself fires notify (suppressNotify is unset). One call → one notify.
+    const agent = makeNotifyAgent({ attempts: 1 }, ['failure']);
+    const fakeDeps: DagExecutorDeps = {
+      runStore: store,
+      spawnNode: async () => ({ result: '', exitCode: 1, error: 'fail', category: 'exit_nonzero' }),
+    };
+    await executeAgentWithRetry(agent, { triggeredBy: 'cli' }, fakeDeps);
+    expect(readNotifyLines()).toHaveLength(1);
+  });
+
+  it('signal aborted between attempts still fires notify once on the failed run', async () => {
+    const agent = makeNotifyAgent(
+      { attempts: 5, delaySeconds: 0, categories: ['exit_nonzero'] },
+      ['failure'],
+    );
+    const ctl = new AbortController();
+    let calls = 0;
+    const fakeDeps: DagExecutorDeps = {
+      runStore: store,
+      spawnNode: async () => {
+        calls++;
+        if (calls === 1) ctl.abort();
+        return { result: '', exitCode: 1, error: 'fail', category: 'exit_nonzero' };
+      },
+    };
+    await executeAgentWithRetry(
+      agent, { triggeredBy: 'cli', signal: ctl.signal }, fakeDeps,
+      { sleepFn: async () => {} },
+    );
+    expect(calls).toBe(1);
+    // Fires once on the (failed) terminal attempt — silent failure would be a regression.
+    expect(readNotifyLines()).toHaveLength(1);
   });
 });

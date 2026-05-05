@@ -18,6 +18,7 @@
 import type { Agent, NodeErrorCategory, RetryPolicy } from './agent-v2-types.js';
 import type { Run } from './types.js';
 import { executeAgentDag, type DagExecuteOptions, type DagExecutorDeps } from './dag-executor.js';
+import { dispatchNotify } from './notify-dispatcher.js';
 
 /**
  * Default categories that trigger auto-retry when `retry.categories` is
@@ -139,15 +140,21 @@ export async function executeAgentWithRetry(
 ): Promise<Run> {
   const policy = agent.retry;
   // No policy → single execution. The executor's existing return value is
-  // exactly what we'd produce, so don't even iterate.
+  // exactly what we'd produce, so don't even iterate. Notify dispatch is
+  // handled inside the executor as before — this path stays unchanged.
   if (!policy || policy.attempts <= 1) {
     return executeAgentDag(agent, options, deps);
   }
 
   const sleeper = hooks.sleepFn ?? sleep;
 
+  // Internal attempts run with `suppressNotify: true` so the executor
+  // doesn't fire a notify per attempt. We fire ONCE at the end of the
+  // chain — see the dispatchNotify call after the loop.
+  const internalOptions: DagExecuteOptions = { ...options, suppressNotify: true };
+
   let attempt = options.retryOf?.attempt ?? 1;
-  let currentRun = await executeAgentDag(agent, options, deps);
+  let currentRun = await executeAgentDag(agent, internalOptions, deps);
 
   while (
     currentRun.status === 'failed' &&
@@ -165,9 +172,31 @@ export async function executeAgentWithRetry(
     attempt += 1;
     const headRunId = currentRun.retryOfRunId ?? currentRun.id;
     currentRun = await executeAgentDag(agent, {
-      ...options,
+      ...internalOptions,
       retryOf: { originalRunId: headRunId, attempt },
     }, deps);
+  }
+
+  // R3: fire notify ONCE for the chain's terminal outcome. A 3-attempt
+  // run that recovers on attempt 2 produces zero failure pages and one
+  // success notify. A run that exhausts the budget produces one failure
+  // notify, not three.
+  if (agent.notify) {
+    try {
+      await dispatchNotify(agent.notify, {
+        agent,
+        run: currentRun,
+        secretsStore: deps.secretsStore,
+        variablesStore: deps.variablesStore,
+        dashboardBaseUrl: deps.dashboardBaseUrl,
+        fetchImpl: deps.notifyFetch,
+        logger: deps.notifyLogger,
+      });
+    } catch (err) {
+      // Defense-in-depth: dispatchNotify catches handler errors itself.
+      const logger = deps.notifyLogger ?? { warn: (m: string) => console.warn(`[notify] ${m}`) };
+      logger.warn(`dispatch failed: ${(err as Error).message}`);
+    }
   }
   return currentRun;
 }

@@ -97,8 +97,20 @@ All sleeps are capped at 1 hour.
 
 Manual retry and auto-retry share the same chain. If a user clicks Retry on a run that's already part of an auto-retry chain, the new attempt picks up where the chain left off and counts further auto-retries against the policy's `attempts` budget. Manual retries can take you over the policy budget — they're explicit user overrides — but no further auto-retries fire after that point.
 
+### Notify deferral
+
+When the agent has a `retry:` policy, `notify:` triggers fire **once per chain**, not once per attempt:
+
+| Outcome | What fires |
+|---|---|
+| Recover on attempt 2 (after attempt 1 failed) | One `success` notify, zero `failure` notifies |
+| Exhaust budget over 3 failed attempts | One `failure` notify (not three) |
+| Non-retryable failure on attempt 1 | One `failure` notify immediately |
+| Signal cancelled mid-chain | One notify on whatever the terminal attempt was |
+
+The mechanism: every internal attempt runs with `suppressNotify: true` so the executor stays silent. The wrapper fires notify once after the chain settles, with the run object reflecting the terminal attempt's status. Agents without a `retry:` policy fall through to single-attempt mode and fire notify exactly as before — no behavior change.
+
 ## What's coming next
 
-- **Notify deferral** (R3) — when auto-retry is in play, `failure` notifications wait until the final attempt fails.
 - **Triage surface** (R4) — per-agent consecutive-failure tracking and a "now broken" view.
 - **Scheduler backoff** (R5) — after N consecutive failed terminal attempts, the cron tick is skipped to stop spamming.
