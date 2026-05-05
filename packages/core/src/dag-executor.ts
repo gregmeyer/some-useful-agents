@@ -160,6 +160,17 @@ export interface DagExecuteOptions {
    * retry).
    */
   retryOf?: { originalRunId: string; attempt: number };
+  /**
+   * Set by `executeAgentWithRetry` on every internal attempt. When true,
+   * the executor skips the post-run `dispatchNotify` call so the wrapper
+   * can fire notify EXACTLY ONCE after the retry chain settles. Without
+   * this flag, a 3-attempt run that fails 3× would page 3 times — the
+   * whole point of R3 is one page on the final outcome.
+   *
+   * Direct callers (replay route, agents without a retry policy) leave it
+   * unset and get per-call notify dispatch as before.
+   */
+  suppressNotify?: boolean;
 }
 
 
@@ -872,8 +883,10 @@ export async function executeAgentDag(
 
   // Notify dispatch fires AFTER the run row is committed. Wrapped so any
   // dispatcher exception can never bubble into the run path — the run
-  // result is final by this point.
-  if (agent.notify) {
+  // result is final by this point. Suppressed when the caller is
+  // `executeAgentWithRetry` mid-chain (R3): the wrapper fires once on
+  // the final attempt to avoid paging on every transient failure.
+  if (agent.notify && !options.suppressNotify) {
     try {
       await dispatchNotify(agent.notify, {
         agent,
