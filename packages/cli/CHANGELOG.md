@@ -1,5 +1,322 @@
 # @some-useful-agents/cli
 
+## 0.20.0
+
+### Minor Changes
+
+- 5c2e83f: agent-builder uses the manifest layer.
+
+  Wires the manifest data shipped in PR A.5/A.6/A.7 into the existing `design → validate → fix` agent-builder DAG. Three changes:
+
+  **Discovery catalog upgrade** — `buildDiscoveryCatalog` now sources node-types from the canonical `NODE_CATALOG` (PR A.7) instead of a hand-authored string, and includes per-agent `outputs:` (PR A.5) + `capabilities:` (PR A.6) in the AVAILABLE AGENTS section. New CRITICAL — OUTPUT WIDGET FIELD SCHEMA section calls out the most common bug (`name:` is the JSON key, not a label; do NOT use `source:`/`path:`/`from:`/`key:`). New DESIGN DISCIPLINE section enforces decomposition (3+ stages → 3+ nodes), `outputs:` declaration, and template-syntax rules.
+
+  **Agent-builder prompt** — `agents/examples/agent-builder.yaml` adds explicit decomposition discipline, outputs declaration rules, widget field schema rules with concrete examples, and signal-template/title rules.
+
+  **`autoFixYaml` extensions** — five new fixes for residual LLM mistakes the prompt doesn't always prevent:
+
+  - Widget field `source:` / `path:` / `from:` / `key:` → `name:` (with smart name/label swap when name was treated as a label)
+  - Invalid `signal.template` → fallback to `text-headline`
+  - `signal.title` JSEP-style expression → strip to first quoted segment
+  - `signal.mapping.*` non-string value (array/object) → `result`
+  - `outputWidget.title` (invented field) → silently strip
+
+  **Dogfood result**: rebuilt the same weather-agent prompt that produced 6 distinct bugs in the baseline. Improved version produces clean YAML with `outputs:` declared, multi-node decomposition, correct widget field names, plain-string signal title, and a smarter API choice (Open-Meteo + geocoding instead of wttr.in). 12 new tests for the autoFixYaml extensions.
+
+- 0042d16: Derived agent capabilities at the parse boundary.
+
+  New `deriveCapabilities(agent: Agent): AgentCapabilities` in core. Computes a static, best-effort summary of what an agent uses and does — populated by `parseAgent` and `agent-store.rowToAgent` and exposed on `Agent.capabilities`.
+
+  ```ts
+  {
+    tools_used:        string[],   // shell-exec, claude-code, http-get, allowedTools entries…
+    mcp_servers_used:  string[],   // extracted from mcp__server__tool naming
+    side_effects:      ('sends_notifications' | 'writes_files' | 'posts_http')[],
+    reads_external:    string[],   // URLs from toolInputs.url/endpoint, regex hits in command/prompt
+  }
+  ```
+
+  Heuristic and conservative — an empty array means "couldn't statically prove," not "doesn't do X." Not a security boundary. Used by the planner-fronted agent-builder (PR A) for cross-agent composition decisions and by the upcoming preflight checks ("does this agent need MCP servers I haven't installed?"). Recomputed on every read; never persisted.
+
+- 0a73abe: Author-declared agent outputs.
+
+  New top-level `outputs:` field on agents — a typed map describing the shape the agent's final-node JSON result reliably contains. Mirrors `inputs:` but with `lowercase_snake_case` names (matches JSON convention) and types `string | number | boolean | object | array`. Optional but recommended.
+
+  ```yaml
+  outputs:
+    articles:
+      type: array
+      description: List of stories with title, url, score
+    count:
+      type: number
+  ```
+
+  Documentation, not a runtime contract — the executor doesn't verify the JSON matches. Used by the planner-fronted agent-builder (PR A) for cross-agent composition via `agent-invoke`, and by the Output Widget editor for `name:` field suggestions. Three example agents (`llm-tells-a-joke`, `daily-joke`, `two-step-digest`) now declare `outputs:` as reference patterns.
+
+- 0745598: ai-template iteration + per-agent visibility toggles.
+
+  The ai-template widget now supports `{{#each outputs.X as item}}…{{/each}}` block iteration (with nested `{{item.field}}`, escaped `{{item.field}}` vs unescaped `{{{item.field}}}`, and `{{@index}}`) plus a `{{{outputs.X}}}` triple-brace unescaped variant. List-shaped agent outputs (HN feeds, GitHub PR digests, monitoring dashboards) can now render proper card layouts instead of HTML-escaped JSON blobs.
+
+  Adds two new top-level agent fields — `pulseVisible` and `dashboardVisible` (both default true). Toggleable from a new Visibility card on the agent Config tab. `pulseVisible: false` hides a tile from /pulse even when a signal is declared (legacy `signal.hidden` still honored). `dashboardVisible: false` hides the agent from the /agents list view; it remains reachable via direct URL, MCP, scheduler, and the runs page.
+
+- b2f5498: Auto-retry on transient failures (R2 of failed-runs-and-retry plan).
+
+  Agents can declare a top-level `retry:` block. When a run fails with a configured `errorCategory`, the orchestrator sleeps with backoff and spawns a fresh attempt, linked back to the head of the chain via `retryOfRunId` (same shape as R1's manual retry).
+
+  ```yaml
+  retry:
+    attempts: 3 # total tries including the first; default 1
+    backoff: exponential # exponential (default) | linear | fixed
+    delaySeconds: 30 # base; 30 → 60 → 120 for exponential
+    categories: [timeout, spawn_failure] # default; conservative
+  ```
+
+  `cancelled`, `setup`, `input_resolution`, `condition_not_met`, `flow_ended` are NEVER retried regardless of policy — they're deterministic or user-driven.
+
+  Implementation lives ABOVE the executor as a thin wrapper (`executeAgentWithRetry` in core/retry.ts). Callers — Run Now, manual retry, widget run, `sua workflow run` — switched from `executeAgentDag` to the wrapper. Replay route stays on the raw executor (replay is investigation, not auto-recovery). Agents without a `retry:` block fall through to a single executor call (zero overhead).
+
+- 38f2da6: `file-write` first-class node type.
+
+  A real schema gap surfaced by the dogfood: agent-builder kept reaching for `type: file-write` (a node type that didn't exist) instead of the longer `type: shell` + `tool: file-write` + `toolInputs: { path, content }` form. Promoting it to a first-class node type makes the LLM's intuition correct and keeps YAML readable.
+
+  ```yaml
+  - id: save
+    type: file-write
+    dependsOn: [build-summary]
+    path: "output/digest-{{inputs.DATE}}.md"
+    content: "{{upstream.build-summary.result}}"
+    append: false # optional; default false
+  ```
+
+  Top-level `path:` and `content:` desugar to `tool: 'file-write'` + `toolInputs: { path, content, append }` at dispatch time — no executor branch added, just a small `resolveToolId`/`resolveToolInputs` extension. The existing `file-write` tool gained an `append:` mode (writes with `flag: 'a'`).
+
+  Templating: built-in tool dispatch now resolves `{{upstream.X.field}}`, `{{vars.X}}`, and `{{inputs.X}}` in string-typed tool inputs, so `path:` and `content:` (and any other built-in tool's string fields) can reference upstream outputs and inputs. Previously only MCP tools had this.
+
+  Schema enforces `path` + `content` are required when `type: file-write`, and validates that any `{{upstream.X.result}}` reference in `path` or `content` declares `X` in `dependsOn` (same rule as for shell/claude-code).
+
+  Capabilities derivation (PR A.6) updated to recognize `type: file-write` as the `file-write` tool, so `tools_used` and `side_effects: ['writes_files']` populate correctly.
+
+  Node catalog (PR A.7) gets a new entry with description, inputs, outputs, use-when guidance, and example. The forcing-function test ensures the new `NodeType` enum value has a catalog entry.
+
+- 475f28d: Interactive widgets: form is always visible alongside the result.
+
+  Magic-8-ball-style Pulse tiles now render the inputs form below the last result in idle, so re-running with a tweaked prompt is one edit + one click instead of two clicks through a separate "Ask again" pane. Form fields pre-fill with the most recent run's input values rather than the agent's declared defaults. The state machine collapses to idle / running / stuck / error.
+
+- 96b1089: One-click manual retry on failed runs.
+
+  Failed runs (`status: failed`) gain a Retry button on the run-detail page. Clicking it recovers the original agent-level inputs from the prior run, creates a fresh run with `attempt: N+1`, and links back to the head of the chain via the new `retryOfRunId` field. Distinct from Replay (which re-runs from a specific node reusing upstream outputs); Retry redoes the whole run from scratch — the right tool for transient failures. Run-detail header now shows an "attempt N" badge on any retry, plus a "Retry of" link back to the original.
+
+  Schema additions: `runs.attempt INTEGER DEFAULT 1`, `runs.retry_of_run_id TEXT` (nullable). Migrations are additive — existing runs default to `attempt=1, retry_of_run_id=NULL`.
+
+  Foundation for upcoming auto-retry (agent-declared `retry:` policy), notify deferral, and triage surfaces.
+
+- bea09e7: Dashboard: control the outbound MCP server from `/settings/mcp`.
+
+  A new Settings tab between Variables and MCP Servers shows the live state of the MCP server (the one Claude Desktop talks to): running/stopped status with PID, endpoint URL, bearer-token fingerprint with a link to rotate, list of `mcp: true` agents with run counts, and a pre-filled Claude Desktop config snippet you can copy directly into `claude_desktop_config.json`. Start and Stop buttons spawn or signal the MCP service via the same daemon supervisor `sua daemon start` uses, so the dashboard and the CLI agree on the PID file at `<dataDir>/daemon/mcp.pid`. The supervisor moved from the `cli` package to `core` so the dashboard can use it directly.
+
+- 0f93483: mcp-server: `run-agent` accepts inputs.
+
+  The MCP `run-agent` tool now takes an optional `inputs` map so MCP clients (Claude Desktop, Claude Code, Cursor) can run agents that declare an `inputs:` block, not only the input-less ones. Values are validated through the same path as dashboard / CLI / scheduler runs (type checks, enum membership, undeclared-key rejection, missing-required errors). Validation failures surface as MCP `isError: true` with the user-readable message instead of a generic 500.
+
+  Two defensive caps live at the MCP boundary specifically: 8 KB per value, 64 KB total. Dashboard / CLI / scheduler are unaffected. The `list-agents` tool now also returns each agent's declared input schema (type, required, default, enum values) so callers can introspect what to pass.
+
+  Known follow-up: shell agents that interpolate raw inputs into command strings via `{{inputs.X}}` (or unquoted env-var expansion) are vulnerable to injection regardless of trigger source. Tracked separately for a hardening pass at the substitution layer.
+
+- 9bcce23: Node catalog API + dashboard page.
+
+  Hand-authored typed contract for every first-class node type (`shell`, `claude-code`, `conditional`, `switch`, `loop`, `agent-invoke`, `branch`, `end`, `break`). Each contract has a description, full inputs and outputs lists, "use when" guidance, and a copy-pasteable example.
+
+  - `NODE_CATALOG` + `listNodeContracts()` + `getNodeContract()` exported from `@some-useful-agents/core`.
+  - Dashboard routes: `GET /api/nodes` (full catalog as JSON), `GET /api/nodes/:type` (single entry), `GET /nodes` (browseable HTML page).
+  - New "Nodes" entry in the top nav between Tools and Runs.
+
+  The planner-fronted agent-builder (PR A) will query `/api/nodes` during its discover step so the LLM works from the actual node-type contract instead of guessing or inventing names like `file-write` or `template`. The page is also useful for humans browsing what's available.
+
+  Forcing function: a test asserts every `NodeType` has a catalog entry — adding a new node type without documenting it fails the test.
+
+- 29b524f: Notify deferral: one page per retry chain, not one per attempt (R3).
+
+  When an agent has a `retry:` policy, `notify:` handlers now fire **once per chain** at the terminal outcome instead of once per attempt. A 3-attempt agent that recovers on attempt 2 produces one `success` notify and zero `failure` notifies. A run that exhausts its budget over three failed attempts produces one `failure` notify, not three.
+
+  Mechanism: `executeAgentDag` accepts a new `suppressNotify` option that the orchestrator sets on every internal attempt. The wrapper fires notify itself after the chain settles. Agents without a `retry:` policy fall through to single-attempt mode and fire notify exactly as before — no behavior change.
+
+  Builds on R1 (manual retry) + R2 (auto-retry policy). R4 (triage surface) and R5 (scheduler backoff) still to come.
+
+- 647e172: Rescue analyzer/builder LLM mistakes in `outputs:` and ai-template widgets,
+  and add truthy `{{#if outputs.X}}` to the template grammar.
+
+  Three changes that close a "Fix with AI" loop where every suggestion failed
+  validation with `outputs.X: Expected object, received string`:
+
+  - **Discovery catalog** now shows the canonical `outputs:` syntax with
+    examples of both shorthand (`count: number`) and full form, and explicitly
+    flags the two common LLM mistakes (description in the type slot, camelCase
+    keys). The previous one-liner said "declare the shape" without a single
+    example, which invited free-text descriptions in the value slot.
+  - **`autoFixYaml`** now coerces any string value in `outputs:` to
+    `{ type: 'string', description: val }` (instead of leaving non-type strings
+    alone) and snake_cases camelCase keys. Strings are the most permissive
+    output type, so this is safe and unblocks the user.
+  - **`/analyze/fix-yaml` retry prompt** now lists the outputs rules so a
+    second LLM pass can actually fix the problem.
+  - **ai-template `{{#if outputs.X}} … {{/if}}`** now supported as a truthy
+    conditional (single-level, no `else`, no helpers). LLMs reach for this
+    constantly when describing "show success card if found"; the workaround
+    was always-render which produced broken UIs. Helpers like `(eq …)` and
+    `{{else}}` deliberately remain unsupported — render two templates and
+    switch via a field-toggle for branching.
+  - **`autoFixYaml` Fix 6b** un-escapes `{ {` → `{{` (and `} }` → `}}`)
+    inside `outputWidget.template`, mirroring the existing fix for
+    claude-code prompts. Without this, the renderer printed escape
+    sequences as literal text.
+  - **Discovery catalog** documents the full ai-template grammar (including
+    `#if` and `#unless`) and explicitly enumerates what's NOT supported, so
+    the builder LLM stops reaching for `(eq …)` and `{{else}}`.
+  - **`{{#unless outputs.X}}`** added as the falsy complement to `#if`. Two
+    adjacent blocks (`#if X` … `#unless X`) replace the if/else pattern
+    without dragging in `{{else}}` parsing.
+  - **`autoFixYaml` now runs on every YAML save**, not just on AI-suggested
+    YAML from the analyze flow. Hand-edited and pasted YAML get the same
+    rescues (un-escape `{ {`, shorthand outputs, signal/template
+    normalisation).
+  - **`<iframe>` allowed conditionally** in `sanitizeHtml` — HTTPS only,
+    host on a small allowlist (YouTube + Vimeo to start), with a forced
+    `sandbox="allow-scripts allow-presentation"` regardless of input. Was
+    unconditionally stripped before, which made video-embed templates
+    impossible. Author-supplied sandbox attrs are overridden so an
+    `allow-same-origin` injection can't escape.
+
+- 6ddff4f: State directory hardening.
+
+  Three additions to the `$STATE_DIR` primitive shipped in PR D, addressing the most likely operational/correctness concerns:
+
+  **1. Per-agent size cap** — new `agent.stateMaxBytes` field (default 100 MB; set 0 to disable). Pre-node check refuses to run when the dir exceeds the cap, with a clear error pointing to `sua state prune <agent>`. The node that _exceeded_ the cap completes; the _next_ node fails. This attributes the error to a fresh node rather than retroactively failing one that already finished.
+
+  **2. `sua state` CLI** — four subcommands for operational hygiene:
+
+  - `sua state list` — every agent with a state dir, sorted by size
+  - `sua state du <agent>` — per-file breakdown
+  - `sua state prune <agent>` — clear contents (or `--remove` the dir)
+  - `sua state export <agent> [path]` — `tar.gz` to path or stdout
+
+  **3. Audit trail** — additive `stateBytesBefore` / `stateBytesAfter` columns on `node_executions`. Captured per node when the agent has a state dir. Dashboard run-detail shows the delta as a small badge (`state +12 KB`) on each node when the value changed. Useful for spotting which node is growing state unexpectedly.
+
+  Implementation notes:
+
+  - `stateDirSize(id, dataRoot)` is a recursive synchronous walk; for typical agent state (a few files) it's microseconds. Symlinks are skipped (don't follow, don't count target size). Race-tolerant: silently skips files removed mid-walk.
+  - `stateMaxBytes` is stored as a flat column on the `agents` table (alongside `pulse_visible`, `dashboard_visible`) — operator policy that shouldn't bump the agent version when changed.
+  - The CLI uses system `tar` for `export` (avoids bundling a tar library for a rarely-used verb).
+
+  Live smoke confirmed: cap enforcement refuses run 2 when state from run 1 exceeded 1-byte cap (status: failed, category: setup). Audit trail captured `0 → 6` bytes on the successful first run.
+
+  Closes critical items 1, 2, 3 from the security roadmap entry added in PR D. Items 4–7 remain on the future-work list in `docs/SECURITY.md`.
+
+- e71ba5e: `$STATE_DIR` primitive for stateful agents.
+
+  Agents that need to persist data across runs (diff-over-time, caches, last-fired markers) get a per-agent directory at `data/agent-state/<agent-id>/`. Created lazily on first use, chmod 0o700, removed automatically when the agent is deleted.
+
+  Available as:
+
+  - `$STATE_DIR` env var in shell nodes (and as a string in any built-in tool input)
+  - `{{state}}` template token in claude-code prompts and built-in tool inputs (e.g. `file-write`'s `path:`)
+
+  ```yaml
+  nodes:
+    - id: diff
+      type: shell
+      command: |
+        mkdir -p "$STATE_DIR"
+        PREV="$STATE_DIR/last-readme.md"
+        NEW="$STATE_DIR/current-readme.md"
+        echo "$UPSTREAM_FETCH_RESULT" > "$NEW"
+        if [ -f "$PREV" ] && ! diff -q "$PREV" "$NEW" > /dev/null; then
+          echo '{"changed":true}'
+        fi
+        cp "$NEW" "$PREV"
+  ```
+
+  Promotes the convention agents had been inventing by hand (`.sua/state/<id>/`) into a first-class primitive. Surfaced by Round 2 dogfood Bug 8: the README diff agent invented its own state convention, and downstream agents would each invent a different one.
+
+  **Cascading delete**: `agentStore.deleteAgent(id)` now also removes `data/agent-state/<id>/`. Idempotent (no-op when the dir was never created). State is **not** swept by the run-retention timer — it persists until the agent is deleted.
+
+  **New `DagExecutorDeps.dataRoot`**: optional. When set, the executor exposes the state dir; when absent, `$STATE_DIR` is unset and `{{state}}` resolves to empty string. Tests and one-shot CLI runs typically omit it. Production paths (dashboard run-now / build / replay / widget-run, `sua workflow run` / `replay`) thread it through automatically.
+
+  **Known limitation**: `sua schedule start` uses the v1 chain executor (via `LocalProvider`), not the DAG executor — scheduled agents going through that path don't get `$STATE_DIR` yet. The migration to the v2 path will pick this up.
+
+  Sandbox: agent ids are validated against the lowercase+hyphens regex before path resolution; `removeStateDir` re-checks for defense in depth.
+
+- 539f569: Output widgets gain interactive controls.
+
+  Agents can now declare a `controls:` array on `outputWidget` with three control types: `replay` (re-run inline, optionally with tweakable inputs), `field-toggle` (hide/show optional fields), and `view-switch` (tab-style switch between named field subsets — e.g. metric ↔ imperial). State lives in URL query params (`?wv=`, `?wh=`) so refresh resets to defaults and links can be shared. Renders on agent detail and run detail pages; Pulse tiles continue to render statically. The agent-builder prompt and discovery catalog teach the planner when to reach for each control type.
+
+### Patch Changes
+
+- 5610714: Dashboard: Agent Config tab UX cleanup.
+
+  The per-agent Config tab (`/agents/<id>/config`) was a 7-card vertical stack ~2500px tall with seven competing primary buttons. This refactor cuts the page in half (~1400px), reorders sections by decision sequence (Variables → LLM → MCP → Secrets), promotes Variables to a full-width row above a two-column grid, collapses the heavyweight Output Widget and Notify editors when configured (with one-line "Set up" CTAs when not), and demotes gateway buttons so "Run now" is the only primary action above the fold. The agent Status dropdown moves to the page header next to "Run now" so lifecycle decisions live where runs are triggered. Persistence paths and form actions are unchanged.
+
+- 3c77e9e: Dashboard: toggle MCP exposure from the agent Config tab.
+
+  A new card on `/agents/<id>/config` flips `mcp: true/false` without editing YAML. Off → "Expose via MCP" button; on → "exposed" badge + "Stop exposing" button. The flip rewrites the agent record but does not restart the running MCP server — the form copy points at Settings → MCP for that.
+
+- 1cba377: Dashboard: move Output Widget editor to its own page with sub-tabs, and make Preview match Pulse.
+
+  The Output Widget editor was a ~1200px inline section on the Config tab — widget-type cards, contextual helper, field table, AI-template branch, interactive-mode subform, action bar, and live preview all stacked in one form. It now lives at `/agents/<id>/output-widget` with sub-tabs **Type**, **Fields**, **Interactive**, and **Preview** filtering which sections are visible. The action bar (Save / Remove) stays visible across all tabs. Save and validation errors return you to the editor (preserving iteration) instead of bouncing to Config. The Config tab's Output Widget card collapses to a one-line summary (`Type: dashboard, Layout: 5 fields, Interactive: yes`) plus an "Edit" link.
+
+  Preview now respects `interactive: true`. When the editor's Interactive checkbox is on, the Preview tab renders the same `renderInteractiveWidget` Pulse uses (with the configured runInputs filter, askLabel, and replayLabel applied) — in `staticPreview` mode so clicks don't accidentally submit a real run. Previously the preview always rendered the static widget output, hiding the visual effect of every Interactive setting.
+
+- 1531948: Dashboard: split `routes/agents.ts` and `views/agent-detail-v2.ts` into per-feature files.
+
+  Internal refactor with no behaviour change. The 441-line agents router becomes a 22-line composition over six per-action modules under `routes/agents/`. The 466-line agent-detail view becomes a barrel over six per-tab renderers under `views/agent-detail/`. Adding new agent surfaces no longer requires scrolling through unrelated code.
+
+- 85e01ee: mcp-server: fix crash on the second client connection.
+
+  The MCP server reused a single `McpServer` instance across all sessions and called `server.connect(transport)` on it once per new session. The MCP SDK requires a fresh server per transport — the second connect threw `Already connected to a transport`, surfaced as an unhandled HTTP-parser exception, and crashed the process. Symptom: `claude mcp list` (or any second client) reported `Failed to connect` and `daemon status` showed the MCP service as `stale (pid dead)`. Now each session gets its own `McpServer`; `provider` and `agentDirs` are still shared. Closing the session also closes its server.
+
+- 5fd8e74: Tidier `/nodes` catalog page.
+
+  Cards are now collapsible (default collapsed), grouped by category (Execution / Control flow / Terminal), with a top toolbar that has a live filter (matches type, description, use-when, field names) plus collapse-all / expand-all buttons. Anchor chips at the top jump straight to a node type. Filter and per-card open state persist in sessionStorage so anchor clicks don't lose context.
+
+- a5d41c1: Accept shorthand string form for `outputs:` declarations.
+
+  LLM-generated YAML routinely writes `outputs.url: string` (the shorthand) instead of the verbose `outputs.url: { type: string }`. The schema now accepts both forms — the parser normalises the shorthand to the verbose object form, so downstream consumers always see the canonical shape. Fixes the painful "Fix with AI" loop where every Suggest improvements run hit the same `Expected object, received string` validation wall.
+
+  The autofixer (run-now-build → autoFixYaml) also rewrites shorthand to verbose form so the canonical stored YAML stays stable in git.
+
+  Camel-case output names (`mediaType`) still need to be renamed to snake_case (`media_type`) by hand — the schema can't auto-coerce keys without breaking template references.
+
+- 746b1e5: Run detail: sticky DAG + result summary while scrolling node logs.
+
+  The DAG visualization and result widget at the top of `/runs/:id` now stick to the viewport (capped at 60vh) while the node-execution panel scrolls below. On long runs with many nodes you keep the graph and final output in view instead of having to scroll back up. Falls back to a non-sticky stacked layout below 900px wide.
+
+- Updated dependencies [5c2e83f]
+- Updated dependencies [0042d16]
+- Updated dependencies [5610714]
+- Updated dependencies [3c77e9e]
+- Updated dependencies [1cba377]
+- Updated dependencies [0a73abe]
+- Updated dependencies [0745598]
+- Updated dependencies [b2f5498]
+- Updated dependencies [1531948]
+- Updated dependencies [38f2da6]
+- Updated dependencies [475f28d]
+- Updated dependencies [96b1089]
+- Updated dependencies [bea09e7]
+- Updated dependencies [0f93483]
+- Updated dependencies [85e01ee]
+- Updated dependencies [9bcce23]
+- Updated dependencies [5fd8e74]
+- Updated dependencies [29b524f]
+- Updated dependencies [a5d41c1]
+- Updated dependencies [647e172]
+- Updated dependencies [746b1e5]
+- Updated dependencies [6ddff4f]
+- Updated dependencies [e71ba5e]
+- Updated dependencies [539f569]
+  - @some-useful-agents/core@0.20.0
+  - @some-useful-agents/mcp-server@0.20.0
+  - @some-useful-agents/temporal-provider@0.20.0
+  - @some-useful-agents/dashboard@0.20.0
+
 ## 0.19.0
 
 ### Minor Changes
