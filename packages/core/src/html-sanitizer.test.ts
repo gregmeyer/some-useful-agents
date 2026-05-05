@@ -73,6 +73,56 @@ describe('sanitizeHtml', () => {
     expect(out).not.toContain('<!--');
     expect(out).toContain('<p');
   });
+
+  describe('iframe allowlist', () => {
+    it('keeps a YouTube embed and forces a safe sandbox', () => {
+      const out = sanitizeHtml(
+        '<iframe src="https://www.youtube.com/embed/abc123" width="560" height="315" allowfullscreen></iframe>',
+      );
+      expect(out).toContain('<iframe');
+      expect(out).toContain('src="https://www.youtube.com/embed/abc123"');
+      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
+      expect(out).toContain('</iframe>');
+    });
+
+    it('keeps Vimeo embeds', () => {
+      const out = sanitizeHtml('<iframe src="https://player.vimeo.com/video/1234"></iframe>');
+      expect(out).toContain('player.vimeo.com');
+    });
+
+    it('drops the entire tag when src host is not on the allowlist', () => {
+      const out = sanitizeHtml('<iframe src="https://evil.example.com/p"></iframe>between<p>after</p>');
+      expect(out).not.toContain('<iframe');
+      expect(out).not.toContain('evil.example.com');
+      // surrounding content survives
+      expect(out).toContain('between');
+      expect(out).toContain('<p');
+    });
+
+    it('drops http:// (non-HTTPS) iframes even on allowlisted hosts', () => {
+      const out = sanitizeHtml('<iframe src="http://www.youtube.com/embed/x"></iframe>');
+      expect(out).not.toContain('<iframe');
+    });
+
+    it('drops javascript:/data: iframe srcs', () => {
+      expect(sanitizeHtml('<iframe src="javascript:alert(1)"></iframe>')).not.toContain('<iframe');
+      expect(sanitizeHtml('<iframe src="data:text/html,<script>x</script>"></iframe>')).not.toContain('<iframe');
+    });
+
+    it('overrides an author-supplied sandbox with the safe one', () => {
+      const out = sanitizeHtml(
+        '<iframe src="https://www.youtube.com/embed/x" sandbox="allow-same-origin allow-top-navigation"></iframe>',
+      );
+      expect(out).toContain('sandbox="allow-scripts allow-presentation"');
+      expect(out).not.toContain('allow-same-origin');
+      expect(out).not.toContain('allow-top-navigation');
+    });
+
+    it('drops iframe with no src', () => {
+      const out = sanitizeHtml('<iframe></iframe>');
+      expect(out).not.toContain('<iframe');
+    });
+  });
 });
 
 describe('substitutePlaceholders', () => {

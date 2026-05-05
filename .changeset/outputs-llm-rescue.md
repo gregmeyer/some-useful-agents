@@ -34,5 +34,18 @@ validation with `outputs.X: Expected object, received string`:
   claude-code prompts. Without this, the renderer printed escape
   sequences as literal text.
 - **Discovery catalog** documents the full ai-template grammar (including
-  the new `#if`) and explicitly enumerates what's NOT supported, so the
-  builder LLM stops reaching for `(eq …)`, `{{else}}`, and `{{#unless}}`.
+  `#if` and `#unless`) and explicitly enumerates what's NOT supported, so
+  the builder LLM stops reaching for `(eq …)` and `{{else}}`.
+- **`{{#unless outputs.X}}`** added as the falsy complement to `#if`. Two
+  adjacent blocks (`#if X` … `#unless X`) replace the if/else pattern
+  without dragging in `{{else}}` parsing.
+- **`autoFixYaml` now runs on every YAML save**, not just on AI-suggested
+  YAML from the analyze flow. Hand-edited and pasted YAML get the same
+  rescues (un-escape `{ {`, shorthand outputs, signal/template
+  normalisation).
+- **`<iframe>` allowed conditionally** in `sanitizeHtml` — HTTPS only,
+  host on a small allowlist (YouTube + Vimeo to start), with a forced
+  `sandbox="allow-scripts allow-presentation"` regardless of input. Was
+  unconditionally stripped before, which made video-embed templates
+  impossible. Author-supplied sandbox attrs are overridden so an
+  `allow-same-origin` injection can't escape.
