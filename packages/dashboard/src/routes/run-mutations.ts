@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentDag, executeAgentWithRetry, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
 export const runMutationsRouter: Router = Router();
@@ -264,7 +264,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
   const nextAttempt = maxAttempt + 1;
 
   const abortController = new AbortController();
-  const runPromise = executeAgentDag(
+  const runPromise = executeAgentWithRetry(
     agent,
     {
       triggeredBy: 'dashboard',

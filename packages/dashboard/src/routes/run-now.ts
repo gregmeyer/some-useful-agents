@@ -3,7 +3,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
 export const runNowRouter: Router = Router();
@@ -56,7 +56,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
     // before spawning nodes, so the redirect to /runs/:id lands on a
     // valid page that polls for progress.
     const abortController = new AbortController();
-    const runPromise = executeAgentDag(
+    const runPromise = executeAgentWithRetry(
       v2Agent,
       { triggeredBy: 'dashboard', inputs, signal: abortController.signal },
       {

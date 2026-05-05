@@ -9,6 +9,7 @@ import {
   EncryptedFileStore,
   loadAgents,
   executeAgentDag,
+  executeAgentWithRetry,
   planMigration,
   applyMigration,
   exportAgent,
@@ -297,7 +298,7 @@ workflowCommand
         process.exitCode = 1;
         return;
       }
-      const run = await executeAgentDag(
+      const run = await executeAgentWithRetry(
         agent,
         { triggeredBy: 'cli', inputs: options.input },
         {

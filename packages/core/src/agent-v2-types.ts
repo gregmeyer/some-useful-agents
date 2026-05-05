@@ -73,6 +73,40 @@ export type NodeErrorCategory =
 export type { AgentSource };
 
 /**
+ * Backoff strategies for `retry:` policies.
+ *   exponential — `delaySeconds * 2^(attempt-1)`. Default.
+ *   linear      — `delaySeconds * attempt`.
+ *   fixed       — `delaySeconds` every attempt.
+ * All capped at 1 hour to prevent runaway sleeps.
+ */
+export type RetryBackoffMode = 'exponential' | 'linear' | 'fixed';
+
+/**
+ * Agent-declared automatic retry policy. Opt-in. When omitted (or `attempts`
+ * is `1` / undefined), the executor runs once and reports the final status.
+ *
+ * Each retry creates a new `runs` row with `retryOfRunId` linking back to
+ * the head of the chain (same flat-chain shape as manual retry). On the
+ * dashboard you see attempt 1, 2, 3 as siblings under the original.
+ *
+ * `categories` controls which `NodeErrorCategory` values trigger a retry.
+ * Defaults to a conservative `[timeout, spawn_failure]` — flaky-network /
+ * port-in-use territory. Authors can broaden to `[exit_nonzero]` etc. when
+ * an agent is known to be transient. Categories `cancelled`, `setup`,
+ * `input_resolution`, `condition_not_met`, `flow_ended` are NEVER retried
+ * regardless of policy — they're deterministic or user-driven.
+ */
+export interface RetryPolicy {
+  /** Total tries including the first. 1 = no retry; default 1. */
+  attempts: number;
+  backoff?: RetryBackoffMode;
+  /** Base delay in seconds. Default 30. */
+  delaySeconds?: number;
+  /** Categories that trigger retry. Default `['timeout', 'spawn_failure']`. */
+  categories?: NodeErrorCategory[];
+}
+
+/**
  * A single executable step within an agent's DAG. Corresponds 1:1 with what
  * a v1 `AgentDefinition` described, minus the cross-file chaining fields
  * (`dependsOn`/`input`/`source`) which now live at the agent or edge level.
@@ -303,6 +337,15 @@ export interface Agent {
    */
   notify?: import('./notify-dispatcher.js').NotifyConfig;
 
+  /**
+   * Automatic retry policy. Opt-in. When set with `attempts > 1`, transient
+   * failures (configurable via `categories`) trigger a fresh run with
+   * exponential / linear / fixed backoff between attempts. Each retry is a
+   * new `runs` row linked to the head via `retryOfRunId` — the same chain
+   * shape as one-click manual retry. See `retry.ts` for the orchestrator.
+   */
+  retry?: RetryPolicy;
+
   // Metadata
   author?: string;
   tags?: string[];
@@ -394,6 +437,7 @@ export interface AgentVersionDag {
   signal?: AgentSignal;
   outputWidget?: import('./output-widget-types.js').OutputWidgetSchema;
   notify?: import('./notify-dispatcher.js').NotifyConfig;
+  retry?: RetryPolicy;
   author?: string;
   tags?: string[];
 }
