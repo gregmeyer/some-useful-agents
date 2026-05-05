@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, topologicalSort, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentDag, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
 export const runMutationsRouter: Router = Router();
@@ -194,6 +194,132 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Replay failed: ${message}`)}`);
+  }
+});
+
+/**
+ * POST /runs/:id/retry — one-click manual retry of a failed run.
+ *
+ * Creates a fresh run with the same agent-level inputs as the prior run
+ * (recovered from the prior run's first node-execution `inputsJson`).
+ * Links the new run back to the head of the retry chain via
+ * `retryOfRunId` and increments `attempt`.
+ *
+ * Distinct from `/replay`: replay re-runs from a specific node reusing
+ * upstream outputs (partial re-execution); retry redoes the whole run
+ * from scratch with the same inputs (full re-execution). For a flaky
+ * upstream that recovered, retry is the right tool.
+ *
+ * Defense layers (on top of requireAuth cookie + Host + Origin):
+ *   1. Prior run must exist + be a v2 DAG run.
+ *   2. Prior run must be terminally failed (status === 'failed'). Cancelled
+ *      and completed runs are not retried — cancellation was deliberate,
+ *      and completed runs should use Run Now.
+ *   3. Agent must still be in AgentStore.
+ *   4. Community shell agents require `confirm_community_shell=yes`.
+ */
+runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const confirmed = body.confirm_community_shell === 'yes';
+
+  const priorRun = ctx.runStore.getRun(id);
+  if (!priorRun) {
+    res.status(404).redirect(303, '/runs');
+    return;
+  }
+  if (!priorRun.workflowId) {
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Retry only works on v2 DAG runs.')}`);
+    return;
+  }
+  if (priorRun.status !== 'failed') {
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Only failed runs can be retried (this one is ${priorRun.status}).`)}`);
+    return;
+  }
+
+  const agent = ctx.agentStore.getAgent(priorRun.workflowId);
+  if (!agent) {
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Agent "${priorRun.workflowId}" not found in store.`)}`);
+    return;
+  }
+
+  const needsConfirm = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
+  if (needsConfirm && !confirmed) {
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Community shell retries need explicit confirmation.')}`);
+    return;
+  }
+
+  // Recover the agent-level inputs from the prior run. Empty object is fine
+  // — agents without declared inputs go straight to the executor with {}.
+  const recoveredInputs = extractPriorAgentInputs(agent, id, ctx.runStore);
+
+  // Compute attempt + chain head. Flat chain: every retry points at the
+  // original head, never an intermediate retry. So if priorRun is itself a
+  // retry, the new attempt links to its head and increments based on the
+  // chain's max attempt (resilient against gaps from manual deletions).
+  const headId = priorRun.retryOfRunId ?? priorRun.id;
+  const chain = ctx.runStore.getRetryChain(headId);
+  const maxAttempt = chain.reduce((m, r) => Math.max(m, r.attempt ?? 1), 1);
+  const nextAttempt = maxAttempt + 1;
+
+  const abortController = new AbortController();
+  const runPromise = executeAgentDag(
+    agent,
+    {
+      triggeredBy: 'dashboard',
+      inputs: recoveredInputs,
+      signal: abortController.signal,
+      retryOf: { originalRunId: headId, attempt: nextAttempt },
+    },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      toolStore: ctx.toolStore,
+      agentStore: ctx.agentStore,
+      allowUntrustedShell: ctx.allowUntrustedShell,
+      dashboardBaseUrl: ctx.dashboardBaseUrl,
+      dataRoot: ctx.agentStore.dataRoot,
+    },
+  );
+
+  // Track for cancel.
+  runPromise.then((run) => { ctx.activeRuns.delete(run.id); }).catch(() => {});
+  setTimeout(() => {
+    const { rows } = ctx.runStore.queryRuns({
+      agentName: agent.id,
+      statuses: ['running'] as RunStatus[],
+      limit: 1,
+      offset: 0,
+    });
+    if (rows.length > 0) ctx.activeRuns.set(rows[0].id, abortController);
+  }, 100);
+
+  try {
+    const result = await Promise.race([
+      runPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+    if (result) {
+      res.redirect(303, `/runs/${encodeURIComponent(result.id)}?flash=${encodeURIComponent(`Retry attempt ${String(nextAttempt)} complete.`)}`);
+    } else {
+      const { rows } = ctx.runStore.queryRuns({
+        agentName: agent.id,
+        statuses: ['running'] as RunStatus[],
+        limit: 1,
+        offset: 0,
+      });
+      if (rows.length > 0) {
+        res.redirect(303, `/runs/${encodeURIComponent(rows[0].id)}?flash=${encodeURIComponent(`Retry attempt ${String(nextAttempt)} started...`)}`);
+      } else {
+        const fullResult = await runPromise;
+        res.redirect(303, `/runs/${encodeURIComponent(fullResult.id)}?flash=${encodeURIComponent(`Retry attempt ${String(nextAttempt)} complete.`)}`);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent(`Retry failed: ${message}`)}`);
   }
 });
 

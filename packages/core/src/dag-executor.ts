@@ -152,6 +152,14 @@ export interface DagExecuteOptions {
    *  by an `agent-invoke` or `loop` node in a parent run. */
   parentRunId?: string;
   parentNodeId?: string;
+  /**
+   * Retry chain metadata. Set when this execution is a manual retry of a
+   * prior failed run. `originalRunId` always points at the head of the
+   * chain (never an intermediate retry); `attempt` is 1-indexed and
+   * already incremented for the new run (i.e. attempt=2 for the first
+   * retry).
+   */
+  retryOf?: { originalRunId: string; attempt: number };
 }
 
 
@@ -186,6 +194,8 @@ export async function executeAgentDag(
     replayedFromNodeId: options.replayFrom?.fromNodeId,
     parentRunId: options.parentRunId,
     parentNodeId: options.parentNodeId,
+    retryOfRunId: options.retryOf?.originalRunId,
+    attempt: options.retryOf?.attempt,
   });
 
   const outputs = new Map<string, NodeOutput>();

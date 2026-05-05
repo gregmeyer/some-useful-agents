@@ -106,6 +106,15 @@ export interface Run {
    */
   parentRunId?: string;
   parentNodeId?: string;
+  /**
+   * One-click manual retry: link back to the original (head of chain) run.
+   * `attempt` is 1-indexed; first attempt is 1, first retry is 2, etc.
+   * `retryOfRunId` is null/undefined for first attempts and for non-retried
+   * runs. The chain is flat — every retry points at the original head, not
+   * at the immediate previous attempt.
+   */
+  retryOfRunId?: string;
+  attempt?: number;
 }
 
 export interface RunRequest {

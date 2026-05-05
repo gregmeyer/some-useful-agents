@@ -39,6 +39,14 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     </dd>
   ` : html``;
 
+  const retryOf = run.retryOfRunId ? html`
+    <dt>Retry of</dt>
+    <dd class="mono">
+      <a href="/runs/${run.retryOfRunId}">${run.retryOfRunId.slice(0, 8)}</a>
+      <span class="dim"> · attempt ${String(run.attempt ?? 1)}</span>
+    </dd>
+  ` : html``;
+
   // Terminal v2 runs get clickable DAG nodes that offer "Replay from
   // here". Running / pending runs intentionally don't — the executor
   // hasn't finalised upstream outputs yet.
@@ -98,11 +106,15 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     : html``;
 
 
+  const attemptBadge = (run.attempt ?? 1) > 1
+    ? html`<span class="badge badge--muted" title="This run is a retry of an earlier attempt">attempt ${String(run.attempt)}</span>`
+    : html``;
+
   const header = partial
-    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)} ${cancelButton}</h1>`
+    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)} ${attemptBadge} ${cancelButton}</h1>`
     : pageHeader({
         title: `Run ${run.id.slice(0, 8)}`,
-        meta: [statusBadge(run.status)],
+        meta: [statusBadge(run.status), attemptBadge],
         cta: cancelButton,
         back,
       });
@@ -120,6 +132,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode)}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           ${replayedFrom}
+          ${retryOf}
         </dl>
       </div>
 
@@ -127,8 +140,15 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <h2>Error</h2>
         <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
           <span>${run.error}</span>
-          <a href="/agents/${run.agentName}?suggest=1&focus=${encodeURIComponent(run.error)}"
-            class="btn btn--sm btn--primary" style="white-space: nowrap; flex-shrink: 0;">Suggest improvements</a>
+          <span style="display: inline-flex; gap: var(--space-2); flex-shrink: 0; white-space: nowrap;">
+            ${run.status === 'failed' ? html`
+              <form method="POST" action="/runs/${run.id}/retry" style="display: inline; margin: 0;">
+                <button type="submit" class="btn btn--sm btn--primary" data-retry-run>Retry run</button>
+              </form>
+            ` : html``}
+            <a href="/agents/${run.agentName}?suggest=1&focus=${encodeURIComponent(run.error)}"
+              class="btn btn--sm btn--ghost">Suggest improvements</a>
+          </span>
         </div>
       ` : html``}
 

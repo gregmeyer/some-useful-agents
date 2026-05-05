@@ -170,6 +170,21 @@ export class RunStore {
       this.db.exec(`ALTER TABLE runs ADD COLUMN parent_node_id TEXT`);
     }
 
+    // Retry chain: a one-click retry creates a new run that links back to
+    // the head of the chain via `retry_of_run_id`. `attempt` is 1-indexed
+    // (1 = first attempt). Flat chain — every retry points at the original,
+    // not at the immediate previous attempt — so counting siblings is cheap.
+    if (!runCols.has('retry_of_run_id')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN retry_of_run_id TEXT`);
+    }
+    if (!runCols.has('attempt')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`);
+    }
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runs_retry_of
+        ON runs(retry_of_run_id) WHERE retry_of_run_id IS NOT NULL;
+    `);
+
     // v0.16: structured tool outputs stored alongside the flat result.
     const execCols = columnNames(this.db, 'node_executions');
     if (!execCols.has('outputsjson')) {
@@ -205,12 +220,12 @@ export class RunStore {
     return Number(result.changes ?? 0);
   }
 
-  createRun(run: Run & { workflowId?: string; workflowVersion?: number; replayedFromRunId?: string; replayedFromNodeId?: string; parentRunId?: string; parentNodeId?: string }): void {
+  createRun(run: Run & { workflowId?: string; workflowVersion?: number; replayedFromRunId?: string; replayedFromNodeId?: string; parentRunId?: string; parentNodeId?: string; retryOfRunId?: string; attempt?: number }): void {
     const stmt = this.db.prepare(`
       INSERT INTO runs (id, agentName, status, startedAt, completedAt, result, exitCode, error, triggeredBy,
                         workflow_id, workflow_version, replayed_from_run_id, replayed_from_node_id,
-                        parent_run_id, parent_node_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        parent_run_id, parent_node_id, retry_of_run_id, attempt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       run.id, run.agentName, run.status, run.startedAt,
@@ -219,7 +234,26 @@ export class RunStore {
       run.workflowId ?? null, run.workflowVersion ?? null,
       run.replayedFromRunId ?? null, run.replayedFromNodeId ?? null,
       run.parentRunId ?? null, run.parentNodeId ?? null,
+      run.retryOfRunId ?? null, run.attempt ?? 1,
     );
+  }
+
+  /**
+   * Return every run in a retry chain (the original + all retries) ordered
+   * by attempt ascending. `runId` may be either the head of the chain or
+   * any retry within it. Empty array if `runId` is unknown.
+   */
+  getRetryChain(runId: string): Run[] {
+    const head = this.getRun(runId);
+    if (!head) return [];
+    const headId = head.retryOfRunId ?? head.id;
+    const stmt = this.db.prepare(`
+      SELECT * FROM runs
+      WHERE id = ? OR retry_of_run_id = ?
+      ORDER BY attempt ASC, startedAt ASC
+    `);
+    const rows = stmt.all(headId, headId) as Record<string, unknown>[];
+    return rows.map((r) => this.rowToRun(r));
   }
 
   getRun(id: string): Run | null {
@@ -458,6 +492,8 @@ export class RunStore {
       replayedFromNodeId: (row.replayed_from_node_id as string | null) ?? undefined,
       parentRunId: (row.parent_run_id as string | null) ?? undefined,
       parentNodeId: (row.parent_node_id as string | null) ?? undefined,
+      retryOfRunId: (row.retry_of_run_id as string | null) ?? undefined,
+      attempt: typeof row.attempt === 'number' ? row.attempt : 1,
     };
   }
 
