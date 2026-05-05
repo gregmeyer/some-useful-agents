@@ -117,6 +117,47 @@ describe('agentV2Schema — happy paths', () => {
     if (r.success) expect(r.data.outputs?.articles?.type).toBe('array');
   });
 
+  it('accepts output shorthand: bare string promotes to { type: string }', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: {
+        url: 'string',
+        count: 'number',
+        articles: 'array',
+        ok: 'boolean',
+        meta: 'object',
+      },
+    }));
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.outputs?.url).toEqual({ type: 'string' });
+      expect(r.data.outputs?.count).toEqual({ type: 'number' });
+      expect(r.data.outputs?.articles).toEqual({ type: 'array' });
+      expect(r.data.outputs?.ok).toEqual({ type: 'boolean' });
+      expect(r.data.outputs?.meta).toEqual({ type: 'object' });
+    }
+  });
+
+  it('accepts a mix of shorthand and verbose forms in the same outputs block', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: {
+        url: 'string',
+        count: { type: 'number', description: 'How many.' },
+      },
+    }));
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.outputs?.url).toEqual({ type: 'string' });
+      expect(r.data.outputs?.count).toEqual({ type: 'number', description: 'How many.' });
+    }
+  });
+
+  it('rejects shorthand string that is not a valid type', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      outputs: { x: 'date' },
+    }));
+    expect(r.success).toBe(false);
+  });
+
   it('omits the outputs key when not declared', () => {
     const r = agentV2Schema.safeParse(validSingleNode());
     expect(r.success).toBe(true);
