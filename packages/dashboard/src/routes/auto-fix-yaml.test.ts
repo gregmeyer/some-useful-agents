@@ -257,3 +257,66 @@ nodes:
     expect(nodes[0].prompt).not.toContain('{ {');
   });
 });
+
+describe('autoFixYaml — outputs shorthand promotion', () => {
+  it('promotes bare-string outputs to { type: ... } objects', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: main
+    type: shell
+    command: echo hi
+outputs:
+  url: string
+  count: number
+  ok: boolean
+  meta: object
+  items: array
+`.trim());
+    expect(fixed.outputs).toEqual({
+      url: { type: 'string' },
+      count: { type: 'number' },
+      ok: { type: 'boolean' },
+      meta: { type: 'object' },
+      items: { type: 'array' },
+    });
+  });
+
+  it('leaves verbose-form outputs untouched', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: main
+    type: shell
+    command: echo hi
+outputs:
+  count:
+    type: number
+    description: How many stories.
+`.trim());
+    expect(fixed.outputs).toEqual({
+      count: { type: 'number', description: 'How many stories.' },
+    });
+  });
+
+  it('only promotes shorthands that name a valid type', () => {
+    // 'date' is not a valid output type — leave the value alone so the
+    // schema can surface a clear error rather than silently coercing.
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: main
+    type: shell
+    command: echo hi
+outputs:
+  birthday: date
+`.trim());
+    expect(fixed.outputs).toEqual({ birthday: 'date' });
+  });
+});
