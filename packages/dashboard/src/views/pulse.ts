@@ -20,8 +20,22 @@ import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
 // ── Tile chrome ──────────────────────────────────────────────────────────
 
+/**
+ * Surface where a tile is being rendered. Determines what the tile's
+ * × button does — on Pulse it toggles the agent's pulseVisible flag;
+ * on a dashboard it removes the tile from that specific dashboard's
+ * section without touching pulseVisible.
+ */
+export type TileWrapContext =
+  | { kind: 'pulse' }
+  | { kind: 'dashboard'; dashboardId: string; sectionIdx: number; tileIdx: number };
+
 /** Wraps tile content with header, footer, resize handle, and data attributes. */
-export function tileWrap(tile: PulseTile, content: SafeHtml): SafeHtml {
+export function tileWrap(
+  tile: PulseTile,
+  content: SafeHtml,
+  ctx: TileWrapContext = { kind: 'pulse' },
+): SafeHtml {
   const isSystem = tile.agent.id.startsWith('_system-');
   const sizeAttr = tile.signal.size ?? '1x1';
   const autoPalette = resolveAutoPalette(tile);
@@ -33,7 +47,7 @@ export function tileWrap(tile: PulseTile, content: SafeHtml): SafeHtml {
     : '';
   return unsafeHtml(
     `<div class="pulse-tile ${sizeClass(sizeAttr)}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
-    tileHeader(tile, isSystem).toString() +
+    tileHeader(tile, isSystem, ctx).toString() +
     content.toString() +
     (isSystem ? '' : tileFooter(tile).toString()) +
     '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>' +
@@ -72,7 +86,7 @@ function sizeClass(size: string): string {
   return '';
 }
 
-function tileHeader(tile: PulseTile, isSystem: boolean): SafeHtml {
+function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): SafeHtml {
   const icon = tile.signal.icon ?? '';
   const { template, mapping } = normalizeSignal(tile.signal);
   // Embed signal config as data attributes for the configure modal JS.
@@ -101,11 +115,17 @@ function tileHeader(tile: PulseTile, isSystem: boolean): SafeHtml {
           <button type="button" class="pulse-tile__configure-btn" data-tile-id="${tile.agent.id}" title="Configure tile">\u2699</button>
         `}
         <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
-        ${isSystem ? html`` : html`
-          <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;">
-            <button type="submit" class="pulse-tile__toggle" title="Hide from Pulse">\u00D7</button>
-          </form>
-        `}
+        ${isSystem ? html`` : (ctx.kind === 'dashboard'
+          ? html`
+              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;">
+                <button type="submit" class="pulse-tile__toggle" title="Remove from this dashboard">\u00D7</button>
+              </form>
+            `
+          : html`
+              <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;">
+                <button type="submit" class="pulse-tile__toggle" title="Hide from Pulse">\u00D7</button>
+              </form>
+            `)}
       </div>
     </div>
   `;

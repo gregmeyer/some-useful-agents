@@ -29,6 +29,14 @@ export interface WidgetLayoutConfig {
   sizesKey?: string;
   /** Override localStorage key for collapsed state. Defaults to `${storageKey}-collapsed`. */
   collapsedKey?: string;
+  /**
+   * Optional. When set, the generated JS reads this attribute from the
+   * host element at runtime and appends its value to all four storage
+   * keys (layout/palette/sizes/collapsed). Used by the dashboards
+   * surface so each `/dashboards/<id>` page gets its own isolated
+   * client state without compiling per-page JS.
+   */
+  runtimeKeySuffixAttr?: string;
 }
 
 export function widgetLayoutJS(config: WidgetLayoutConfig): string {
@@ -50,10 +58,11 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     var systemIds = tileData.systemTileIds || [];
     var protectedPrefixes = ${protectedPrefixes};
 
-    var LAYOUT_KEY = '${config.storageKey}';
-    var PALETTE_KEY = '${paletteKey}';
-    var SIZES_KEY = '${sizesKey}';
-    var COLLAPSED_KEY = '${collapsedKey}';
+    var KEY_SUFFIX = ${config.runtimeKeySuffixAttr ? `host.getAttribute('${config.runtimeKeySuffixAttr}') || ''` : `''`};
+    var LAYOUT_KEY = '${config.storageKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
+    var PALETTE_KEY = '${paletteKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
+    var SIZES_KEY = '${sizesKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
+    var COLLAPSED_KEY = '${collapsedKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
     var PALETTES = ['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green'];
 
     function isProtected(id) {
