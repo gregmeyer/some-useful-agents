@@ -57,6 +57,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
       <div style="margin-left: auto; display: flex; gap: var(--space-2);">
         <button type="button" class="btn btn--ghost btn--sm" id="dashboard-edit-toggle">✎ Edit layout</button>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit sections</a>
+        <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
       </div>
     </div>
 

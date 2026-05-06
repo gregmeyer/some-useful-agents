@@ -82,6 +82,11 @@ export {
   type PackUninstallResult,
 } from './pack-installer.js';
 export {
+  dashboardToPackManifest,
+  type DashboardExportInput,
+  type DashboardExportResult,
+} from './pack-export.js';
+export {
   buildPlanSchema,
   extractPlanJson,
   type BuildPlan,
