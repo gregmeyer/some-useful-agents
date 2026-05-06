@@ -8,6 +8,8 @@ import {
   ToolStore,
   PacksStore,
   DashboardsStore,
+  loadBuiltinPacks,
+  defaultBuiltinPacksDir,
   VariablesStore,
   EncryptedFileStore,
   loadAgents,
@@ -43,6 +45,8 @@ import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { pulseRouter } from './routes/pulse.js';
+import { packsRouter } from './routes/packs.js';
+import { dashboardsRouter } from './routes/dashboards.js';
 
 export interface StartDashboardOptions {
   port: number;
@@ -196,6 +200,8 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(toolsRouter);
   app.use(nodesRouter);
   app.use(pulseRouter);
+  app.use(packsRouter);
+  app.use(dashboardsRouter);
 
   // Catch-all 404 for authenticated routes.
   app.use((_req, res) => {
@@ -249,6 +255,13 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   try {
     packsStore = new PacksStore(opts.dbPath);
     dashboardsStore = new DashboardsStore(opts.dbPath);
+    // Discover and register bundled packs. Idempotent — re-running on each
+    // restart picks up version/manifest changes without toggling install state.
+    // Failures here are non-fatal: a broken pack manifest shouldn't gate the
+    // dashboard from coming up.
+    try {
+      loadBuiltinPacks(packsStore, defaultBuiltinPacksDir());
+    } catch { /* ignore — packs discovery is best-effort */ }
   } catch {
     // Non-fatal: packs/dashboards surface stays absent until later PRs
     // wire routes that depend on these stores.

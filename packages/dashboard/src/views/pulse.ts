@@ -14,6 +14,7 @@ import { formatAge } from './components.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
+import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -136,13 +137,33 @@ export function renderPulsePage(input: PulsePageInput): string {
 
   const doRenderTile = (tile: PulseTile) => renderTile(tile, tileWrap);
 
+  const dropdownOptions = buildDashboardOptions(input.installedDashboards ?? []);
+  // Only render the dropdown when there's more than just the Default
+  // entry — otherwise it's noise.
+  const dropdown = dropdownOptions.length > 1
+    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
+    : html``;
+
   const body = html`
+    ${dropdownOptions.length > 1
+      ? html`<div style="margin-bottom: var(--space-3);">${dropdown}</div>`
+      : html``}
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       <h1 style="margin: 0;">Pulse</h1>
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(allTileCount)} signal${allTileCount !== 1 ? 's' : ''}${hiddenCount > 0 ? html`, ${String(hiddenCount)} hidden` : html``}
       </span>
       <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+        ${tiles.length > 0 ? html`
+          <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" onsubmit="return confirm('Hide all ${String(tiles.length)} signal${tiles.length !== 1 ? 's' : ''} from Pulse? They\\'ll move to the hidden section and can be restored individually.');">
+            <button type="submit" class="btn btn--ghost btn--sm" title="Move every visible tile to the hidden section. Useful before installing packs.">Hide all</button>
+          </form>
+        ` : html``}
+        ${hiddenCount > 0 && tiles.length === 0 ? html`
+          <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;">
+            <button type="submit" class="btn btn--ghost btn--sm">Show all</button>
+          </form>
+        ` : html``}
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-edit-toggle">\u270E Edit layout</button>
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
       </div>
@@ -178,5 +199,5 @@ export function renderPulsePage(input: PulsePageInput): string {
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
 
-  return render(layout({ title: 'Pulse', activeNav: 'pulse' }, body));
+  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: input.flash }, body));
 }

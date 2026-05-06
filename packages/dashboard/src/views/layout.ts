@@ -13,8 +13,8 @@ import { footer } from './footer.js';
 
 export interface LayoutOptions {
   title: string;
-  /** Highlight in the nav (one of: agents, tools, runs, pulse, settings, help). */
-  activeNav?: 'agents' | 'tools' | 'nodes' | 'runs' | 'pulse' | 'settings' | 'help';
+  /** Highlight in the nav (one of: agents, tools, runs, pulse, packs, settings, help). */
+  activeNav?: 'agents' | 'tools' | 'nodes' | 'runs' | 'pulse' | 'packs' | 'settings' | 'help';
   /** Flash banner shown at the top of the body (errors from prior actions). */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** Widen the main column (for screens with 2-col layouts). */
@@ -56,6 +56,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
     <a href="/nodes" class="${opts.activeNav === 'nodes' ? 'is-active' : ''}">Nodes</a>
     <a href="/runs" class="${opts.activeNav === 'runs' ? 'is-active' : ''}">Runs</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
+    <a href="/packs" class="${opts.activeNav === 'packs' ? 'is-active' : ''}">Packs</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>

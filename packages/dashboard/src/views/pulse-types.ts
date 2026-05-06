@@ -24,6 +24,14 @@ export interface PulsePageInput {
   systemTiles: PulseTile[];
   tiles: PulseTile[];
   hiddenTiles: PulseTile[];
+  /** Optional one-shot banner from a redirect (?ok=… / ?error=…). */
+  flash?: { kind: 'ok' | 'error' | 'info'; message: string };
+  /**
+   * Installed dashboards (from DashboardsStore) used to populate the
+   * dashboards dropdown above the Pulse header. Empty/undefined when
+   * the dashboards store isn't wired (tests, older daemons).
+   */
+  installedDashboards?: import('@some-useful-agents/core').Dashboard[];
 }
 
 /** Signature for the tile wrapper function, passed to renderers. */

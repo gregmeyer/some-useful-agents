@@ -1,0 +1,171 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import request from 'supertest';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  AgentStore,
+  DashboardsStore,
+  LocalProvider,
+  MemorySecretsStore,
+  PacksStore,
+  RunStore,
+  buildLoopbackAllowlist,
+  loadAgents,
+} from '@some-useful-agents/core';
+import { buildDashboardApp } from '../index.js';
+import type { DashboardContext } from '../context.js';
+import { SESSION_COOKIE } from '../auth-middleware.js';
+import { MemorySecretsSession } from '../secrets-session.js';
+
+const TOKEN = 'a'.repeat(64);
+const PORT = 3997;
+
+let dir: string;
+let provider: LocalProvider;
+let runStore: RunStore;
+let agentStore: AgentStore;
+let packsStore: PacksStore;
+let dashboardsStore: DashboardsStore;
+
+async function makeApp() {
+  dir = mkdtempSync(join(tmpdir(), 'sua-dashboards-routes-'));
+  const dbPath = join(dir, 'runs.db');
+  const agentsDir = join(dir, 'agents', 'local');
+  mkdirSync(agentsDir, { recursive: true });
+
+  const secretsStore = new MemorySecretsStore();
+  runStore = new RunStore(dbPath);
+  agentStore = new AgentStore(dbPath);
+  packsStore = new PacksStore(dbPath);
+  dashboardsStore = new DashboardsStore(dbPath);
+  provider = new LocalProvider(dbPath, secretsStore);
+  await provider.initialize();
+
+  // Install a tiny v2 agent with a signal so tile-building has something to do.
+  agentStore.createAgent({
+    id: 'hello',
+    name: 'Hello',
+    status: 'active',
+    source: 'local',
+    mcp: false,
+    nodes: [{ id: 'greet', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    signal: { title: 'Hello', template: 'text-headline', mapping: { headline: 'greeting' } },
+  }, 'cli');
+
+  const ctx: DashboardContext = {
+    token: TOKEN,
+    allowlist: buildLoopbackAllowlist(PORT),
+    port: PORT,
+    provider,
+    runStore,
+    agentStore,
+    loadAgents: () => loadAgents({ directories: [agentsDir] }),
+    secretsStore,
+    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
+    tokenPath: join(dir, 'mcp-token'),
+    retentionDays: 30,
+    dbPath,
+    secretsPath: join(dir, 'secrets.enc'),
+    rotateToken: () => 'r'.repeat(64),
+    packsStore,
+    dashboardsStore,
+    allowUntrustedShell: new Set(),
+    activeRuns: new Map(),
+    dataDir: dir,
+    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
+  };
+
+  return buildDashboardApp(ctx);
+}
+
+afterEach(async () => {
+  if (provider) {
+    const start = Date.now();
+    while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await provider.shutdown();
+  }
+  try { runStore?.close(); } catch { /* ignore */ }
+  try { agentStore?.close(); } catch { /* ignore */ }
+  try { packsStore?.close(); } catch { /* ignore */ }
+  try { dashboardsStore?.close(); } catch { /* ignore */ }
+  if (dir) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('dashboards routes', () => {
+  it('GET /dashboards/:id renders sections + tiles', async () => {
+    const app = await makeApp();
+    dashboardsStore.upsertDashboard({
+      id: 'starter:main',
+      packId: 'starter',
+      name: 'Main',
+      layout: { sections: [{ title: 'Greetings', agentIds: ['hello'] }] },
+    });
+    const res = await request(app)
+      .get('/dashboards/starter:main')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Main');
+    expect(res.text).toContain('Greetings');
+    expect(res.text).toContain('data-agent-id="hello"');
+    expect(res.text).toContain('from pack: starter');
+  });
+
+  it('renders missing-agent placeholders for ids the agent store doesn\'t know', async () => {
+    const app = await makeApp();
+    dashboardsStore.upsertDashboard({
+      id: 'd1',
+      packId: null,
+      name: 'D1',
+      layout: { sections: [{ title: 'Mixed', agentIds: ['hello', 'ghost-agent'] }] },
+    });
+    const res = await request(app)
+      .get('/dashboards/d1')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('data-agent-id="hello"');
+    expect(res.text).toContain('ghost-agent');
+    expect(res.text).toContain('not installed');
+  });
+
+  it('GET /dashboards/unknown 404s', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .get('/dashboards/nope')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('Pulse shows the dashboards dropdown when at least one dashboard is installed', async () => {
+    const app = await makeApp();
+    dashboardsStore.upsertDashboard({
+      id: 'starter:main',
+      packId: 'starter',
+      name: 'Main',
+      layout: { sections: [{ title: 'Greetings', agentIds: ['hello'] }] },
+    });
+    const res = await request(app)
+      .get('/pulse')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('class="dashboards-dropdown"');
+    expect(res.text).toContain('Default Dashboard');
+    expect(res.text).toContain('href="/dashboards/starter%3Amain"');
+  });
+
+  it('Pulse hides the dropdown when no dashboards exist (only Default would show — noise)', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .get('/pulse')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('class="dashboards-dropdown"');
+  });
+});
