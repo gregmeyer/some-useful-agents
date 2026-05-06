@@ -109,10 +109,12 @@ nodes:
     timeout: 25
 signal:
   title: Weather
-  template: text-headline
-  mapping:
-    headline: temperature
-    body: condition
+  # `widget` mirrors the full outputWidget on tiles — surfaces the
+  # view-switch / field-toggle / replay controls so the dashboard
+  # tile feels like the full result page. Use `text-headline` for
+  # a compact temperature-only summary instead.
+  template: widget
+  mapping: {}
   size: 2x1
   accent: blue
 outputWidget:
