@@ -1,0 +1,98 @@
+# Vimeo Staff Picks — recent picks rendered as embedded players.
+#
+# Fetches the public Vimeo Staff Picks RSS feed and renders the latest
+# entries as inline players using the `ai-template` widget. Tests the
+# new iframe allowlist (player.vimeo.com is on it), {{#each}} iteration,
+# and the replay control.
+#
+# Run:
+#   sua workflow run vimeo-staff-picks
+#   sua workflow run vimeo-staff-picks --input COUNT=2
+
+id: vimeo-staff-picks
+name: Vimeo Staff Picks
+description: "Recent Vimeo Staff Picks rendered as embedded players. Tests ai-template + iframe + #each + replay."
+status: active
+source: local
+mcp: false
+version: 2
+inputs:
+  COUNT:
+    type: number
+    default: 4
+    description: Number of staff picks to show (1-10)
+outputs:
+  videos:
+    type: array
+    description: List of {id, embed_src, title, url, thumbnail}
+  fetched_at:
+    type: string
+    description: Date the feed was fetched
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      set -e
+      RAW=$(curl -sf -A "Mozilla/5.0 sua-agent" "https://vimeo.com/channels/staffpicks/videos/rss")
+      if [ -z "$RAW" ]; then
+        echo "Failed to fetch Vimeo Staff Picks RSS" >&2
+        exit 1
+      fi
+      # Slice items, take COUNT, parse with python (xml is fragile from shell).
+      echo "$RAW" | python3 -c '
+      import sys, re, json, html, os
+      raw = sys.stdin.read()
+      count = int(os.environ.get("COUNT", "4"))
+      items = re.findall(r"<item>(.*?)</item>", raw, re.DOTALL)[:count]
+      videos = []
+      for it in items:
+          title = re.search(r"<title>(.*?)</title>", it, re.DOTALL)
+          link = re.search(r"<link>(.*?)</link>", it, re.DOTALL)
+          player = re.search(r"<media:player url=\"([^\"]+)\"", it)
+          thumb = re.search(r"<media:thumbnail[^>]*url=\"([^\"]+)\"", it)
+          if not (title and link and player):
+              continue
+          embed_src = player.group(1)
+          # ID is the path segment after /video/.
+          mid = re.search(r"/video/(\d+)", embed_src)
+          videos.append({
+              "id": mid.group(1) if mid else "",
+              "embed_src": embed_src,
+              "title": html.unescape(title.group(1)),
+              "url": link.group(1),
+              "thumbnail": thumb.group(1) if thumb else "",
+          })
+      from datetime import date
+      print(json.dumps({"videos": videos, "fetched_at": date.today().isoformat()}))
+      '
+    timeout: 20
+signal:
+  title: Vimeo Staff Picks
+  template: text-headline
+  mapping:
+    headline: fetched_at
+    body: fetched_at
+  size: 2x1
+  accent: blue
+outputWidget:
+  type: ai-template
+  prompt: Render each Vimeo staff pick as an embedded player card with the title above.
+  template: |
+    <div style="display:grid;gap:16px;font-family:system-ui,sans-serif;">
+      {{#each outputs.videos as v}}
+      <div>
+        <h3 style="margin:0 0 8px 0;font-size:1rem;font-weight:600;">{{v.title}}</h3>
+        <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:10px;background:#000;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+          <iframe src="{{v.embed_src}}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;" allowfullscreen></iframe>
+        </div>
+        <a href="{{v.url}}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;font-size:0.85rem;color:#1ab7ea;text-decoration:none;">Open on Vimeo →</a>
+      </div>
+      {{/each}}
+      {{#unless outputs.videos}}
+      <p style="color:#666;font-style:italic;">No staff picks fetched.</p>
+      {{/unless}}
+    </div>
+  controls:
+    - type: replay
+      label: Refresh picks
+
