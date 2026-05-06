@@ -9,6 +9,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { buildHomeWidgets, renderHomeWidget } from './home-widgets.js';
 import type { HomeWidgetData } from './home-widgets.js';
+import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
 export { type HomeWidgetData as HomePageInput } from './home-widgets.js';
 
@@ -25,6 +26,8 @@ export function renderHomePage(input: HomeWidgetData): string {
         ${String(input.agents.length)} agents registered
       </span>
       <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+        ${buildFromGoalButton({ variant: 'primary' })}
+        <a class="btn btn--ghost btn--sm" href="/packs">Browse packs</a>
         <button type="button" class="btn btn--ghost btn--sm" id="home-edit-toggle">\u270E Edit layout</button>
         <button type="button" class="btn btn--ghost btn--sm" id="home-add-container" style="display: none;">+ Add group</button>
       </div>
@@ -39,6 +42,8 @@ export function renderHomePage(input: HomeWidgetData): string {
     </div>
 
     ${unsafeHtml(`<script type="application/json" id="home-widget-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
+
+    ${buildFromGoalModal()}
   `;
 
   return render(layout({ title: 'Dashboard', activeNav: 'agents' }, body));

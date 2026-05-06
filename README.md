@@ -12,8 +12,10 @@ MIT-licensed. Published to [npm](https://www.npmjs.com/search?q=%40some-useful-a
 - **Multi-provider LLM support** — claude-code nodes can use Claude or Codex via the `provider` field. Stream-json progress tracking shows real-time turn status during execution.
 - **10 built-in tools** — `shell-exec`, `claude-code`, `http-get`, `http-post`, `file-read`, `file-write`, `json-parse`, `json-path`, `template`, `csv-to-chart-json`. Plus MCP-imported tools and user-authored tools. Full catalog: [docs/tools.md](docs/tools.md).
 - **MCP servers as first-class** — paste a Claude Desktop / Cursor `mcpServers` config, sua discovers the tools, you pick which to import, and runs can call them like any other tool. Enable/disable/delete whole servers from `/settings/mcp-servers`. Full guide: [docs/mcp.md](docs/mcp.md).
-- **Output widgets** — render run output as structured UI. Four built-in widget types (raw, key-value, diff-apply, dashboard) plus `ai-template`: describe the layout in plain English, Claude generates a sanitized HTML template. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
-- **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, MCP servers, and Pulse tiles. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs, live preview for output widgets. Full tour: [docs/dashboard.md](docs/dashboard.md).
+- **Output widgets** — render run output as structured UI. Four built-in widget types (raw, key-value, diff-apply, dashboard) plus `ai-template` with an HTML grammar that supports `{{outputs.X}}`, `{{#each}}`, `{{#if}}` / `{{#unless}}` truthy conditionals, and sandboxed `<iframe>` from a small host allowlist (YouTube + Vimeo). Inline widget controls (`replay`, `field-toggle`, `view-switch`) drive interactivity from URL params with no client JS. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
+- **Widget packs** — bundles of curated agents and dashboards that install as a unit. The bundled `Starter` pack ships three demo agents organised into Media + Weather dashboards. Browse + install at `/packs`; pack uninstall removes the dashboards but keeps the agents (reference-only ownership).
+- **Dashboards** — named, ordered, sectioned views over installed agents. Pack-owned (e.g. `starter:media`) or user-created. Inline editor at `/dashboards/:id/edit` — add/remove/reorder sections and tiles, all server-rendered. The default dashboard at `/pulse` is auto-derived from per-agent `pulseVisible` flags.
+- **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, MCP servers, packs, and Pulse tiles. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs, live preview for output widgets. Full tour: [docs/dashboard.md](docs/dashboard.md).
 - **AI suggest improvements** — one-click agent analysis via the built-in `agent-analyzer`. Reviews your agent's YAML, classifies changes, shows a colored diff, and auto-validates + fixes the suggested YAML before presenting it.
 - **Global variables** — plain-text, non-sensitive values available to every agent. CRUD via `/settings/variables` or `sua vars` CLI. Referenced as `$NAME` in shell, `{{vars.NAME}}` in prompts.
 - **MCP server (outbound)** — expose your agents to Claude Desktop and other MCP clients over HTTP/SSE.
@@ -128,8 +130,10 @@ Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm sto
 
 ![Agent config](docs/images/agent-config.png)
 
-- **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop reorder, widget palette with auto-theming, system metric tiles, markdown rendering, YouTube media player, tile collapse/expand.
-- **Build from goal** — describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block.
+- **Pulse** — information radiator at `/pulse`, the default dashboard. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop reorder, widget palette with auto-theming, system metric tiles, markdown rendering, YouTube media player, tile collapse/expand. A switcher dropdown at the top of the page lets you flip between Default and any installed pack/user dashboard. "Hide all" / "Show all" buttons bulk-toggle every signal — useful before installing a pack.
+- **Packs** — `/packs` lists all registered packs (bundled + user-created), shows install state, and routes Install/Uninstall through one click. Built-in packs ship in `packages/core/packs/*.yaml` and auto-register on daemon start.
+- **Dashboards** — render at `/dashboards/:id`, edit at `/dashboards/:id/edit`. Pack-owned dashboards are editable (rename, reorder, add/remove tiles) but not deletable; uninstall the pack instead. User-created dashboards are deletable. Create a new one from the dropdown's "+ New dashboard name" input.
+- **Build from goal** — Build button on the home page (`/`) and `/agents`. Describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block. Review the generated YAML before saving.
 - **Agents** — card grid with **User / Examples / Community tabs**, per-tab counts, filtering (status, search), sorting, pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (variables, output widget, signal, secrets), Runs (history), YAML (editor).
 - **Output widget editor** — at `/agents/:id/config`, pick from visual cards (raw / key-value / diff-apply / dashboard / ai-template), load one of 5 starter examples in one click, watch a live preview rerender as you edit. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
 - **Tools** — browse **User / Built-in tabs** with per-tab counts, filtering, pagination. Paste a Claude-Desktop-style config at `/tools/mcp/import` to import MCP servers wholesale.
@@ -137,7 +141,7 @@ Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm sto
 - **Suggest improvements** — AI-powered agent review with "Apply now" one-click save. Auto-fixes shell template mistakes. Available from failed run pages with the error pre-filled.
 - **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes.
 - **Settings** — secrets CRUD with passphrase unlock, global variables, MCP servers, MCP token rotation.
-- **Tutorial** — 7-step guided walkthrough that scaffolds agents from the dashboard.
+- **Tutorial** — 8-step guided walkthrough that scaffolds agents and culminates in installing the bundled Starter pack.
 
 ## Flow control
 

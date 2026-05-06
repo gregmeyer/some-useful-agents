@@ -200,6 +200,7 @@ function collectTutorialState(req: Request): TutorialState & { flash?: string } 
   const hasParameterisedGreet = !!ctx.agentStore.getAgent('parameterised-greet');
   const hasConditionalRouter = !!ctx.agentStore.getAgent('conditional-router');
   const hasResearchDigest = !!ctx.agentStore.getAgent('research-digest');
+  const hasInstalledPack = !!ctx.packsStore?.listInstalled().length;
 
   // Pick the friendliest starting agent: prefer single-node v2, then any v2, then v1.
   const firstAgentId = v2Agents.find((a) => a.nodes.length === 1)?.id
@@ -220,6 +221,7 @@ function collectTutorialState(req: Request): TutorialState & { flash?: string } 
     hasParameterisedGreet,
     hasConditionalRouter,
     hasResearchDigest,
+    hasInstalledPack,
     flash,
   };
 }

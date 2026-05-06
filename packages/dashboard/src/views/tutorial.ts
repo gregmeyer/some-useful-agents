@@ -33,6 +33,8 @@ export interface TutorialState {
   hasConditionalRouter: boolean;
   /** Whether the research-digest example is in the DB. */
   hasResearchDigest: boolean;
+  /** Whether at least one widget pack is installed. */
+  hasInstalledPack: boolean;
   /** Optional flash message from a scaffold action (success or error). */
   flash?: string;
 }
@@ -99,6 +101,7 @@ function buildSteps(s: TutorialState): Step[] {
     step5ConfigurableInputs(s),
     step6FlowControl(s),
     step7WireUpSecret(s),
+    step8InstallAPack(s),
   ];
 }
 
@@ -348,6 +351,41 @@ function scaffoldPreview(p: ScaffoldPreviewArgs): SafeHtml {
       </ol>
     </div>
   `;
+}
+
+// ─── Step 8 ──────────────────────────────────────────────────────────
+// "Install a pack" — packs bundle agents and curated dashboards. Done
+// when any pack has installed_at set. Points users at /packs and at
+// /pulse + the dashboards dropdown so they discover the broader
+// dashboards architecture from a concrete starting point.
+function step8InstallAPack(s: TutorialState): Step {
+  const summary = s.hasInstalledPack
+    ? html`
+        You've installed at least one pack — its dashboards are now in the
+        switcher dropdown above the <a href="/pulse">Pulse</a> header. You can
+        also create your own dashboards (open the dropdown →
+        "New dashboard name" → Create) or browse more at <a href="/packs">/packs</a>.
+      `
+    : html`
+        Packs bundle agents and curated dashboards as installable units —
+        like extensions for the dashboard. The bundled
+        <code>Starter</code> pack contains the three ai-template demo agents
+        organised into Media + Weather dashboards. Install it from
+        <a href="/packs">/packs</a> to see the dashboards dropdown light up
+        on Pulse.
+      `;
+
+  const action = s.hasInstalledPack
+    ? html`<a class="btn btn--ghost btn--sm" href="/packs">Browse packs</a>`
+    : html`<a class="btn btn--primary btn--sm" href="/packs">Open /packs</a>`;
+
+  return {
+    n: 8,
+    title: 'Install a widget pack',
+    done: s.hasInstalledPack,
+    summary,
+    action,
+  };
 }
 
 // ─── Renderer ────────────────────────────────────────────────────────
