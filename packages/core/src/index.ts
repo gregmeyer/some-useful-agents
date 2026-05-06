@@ -52,6 +52,19 @@ export {
 } from './tool-schema.js';
 export { ToolStore } from './tool-store.js';
 export {
+  PacksStore,
+  type Pack,
+  type PackManifest,
+  type PackAgentRef,
+  type PackDashboardManifest,
+  type DashboardSection,
+} from './packs-store.js';
+export {
+  DashboardsStore,
+  type Dashboard,
+  type DashboardLayout,
+} from './dashboards-store.js';
+export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,
