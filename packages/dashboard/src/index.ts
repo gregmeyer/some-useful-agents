@@ -6,6 +6,8 @@ import {
   RunStore,
   AgentStore,
   ToolStore,
+  PacksStore,
+  DashboardsStore,
   VariablesStore,
   EncryptedFileStore,
   loadAgents,
@@ -241,6 +243,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore = new VariablesStore(opts.variablesPath);
   }
 
+  // Widget packs + dashboards stores. Same DB file as agents/runs/tools.
+  let packsStore: PacksStore | undefined;
+  let dashboardsStore: DashboardsStore | undefined;
+  try {
+    packsStore = new PacksStore(opts.dbPath);
+    dashboardsStore = new DashboardsStore(opts.dbPath);
+  } catch {
+    // Non-fatal: packs/dashboards surface stays absent until later PRs
+    // wire routes that depend on these stores.
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -258,6 +271,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     rotateToken: () => rotateMcpToken(tokenPath),
     toolStore,
     variablesStore,
+    packsStore,
+    dashboardsStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),

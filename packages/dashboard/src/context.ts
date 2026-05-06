@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -73,6 +73,16 @@ export interface DashboardContext {
    * autocomplete and the /settings/variables tab.
    */
   variablesStore?: VariablesStore;
+  /**
+   * Widget packs store. Optional today (PR 1 of widget-packs-and-dashboards)
+   * because no routes consume it yet; later PRs make it required.
+   */
+  packsStore?: PacksStore;
+  /**
+   * Dashboards store. Optional today (PR 1 of widget-packs-and-dashboards)
+   * because no routes consume it yet; later PRs make it required.
+   */
+  dashboardsStore?: DashboardsStore;
   /**
    * Active DAG runs with their AbortControllers. Used by POST /runs/:id/cancel
    * to signal cancellation to the executor. Entries are added when a run starts
