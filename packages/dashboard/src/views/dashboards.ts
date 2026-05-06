@@ -9,7 +9,7 @@
  */
 
 import type { Dashboard } from '@some-useful-agents/core';
-import { html, render, type SafeHtml } from './html.js';
+import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { renderTile } from './pulse-renderers.js';
@@ -54,7 +54,10 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
         ${totalMissing > 0 ? html`, ${String(totalMissing)} missing` : html``}
         · ${sourceLabel}
       </span>
-      <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit" style="margin-left: auto;">Edit</a>
+      <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+        <button type="button" class="btn btn--ghost btn--sm" id="dashboard-edit-toggle">✎ Edit layout</button>
+        <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit sections</a>
+      </div>
     </div>
 
     ${pageHeader({
@@ -64,7 +67,15 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
 
     ${input.sections.length === 0
       ? html`<p class="dim" style="padding: var(--space-4); text-align: center;">No sections in this dashboard.</p>`
-      : input.sections.map((s) => renderSection(s)) as unknown as SafeHtml[]}
+      : html`
+        <div id="dashboard-containers" data-dashboard-id="${input.dashboard.id}">
+          ${input.sections.map((s, idx) => renderSection(input.dashboard.id, s, idx)) as unknown as SafeHtml[]}
+        </div>
+        ${unsafeHtml(`<script type="application/json" id="dashboard-tile-data">${JSON.stringify({
+          allTileIds: input.sections.flatMap((s) => s.tiles.map((t) => t.agent.id)),
+          systemTileIds: [],
+        })}</script>`)}
+      `}
   `;
 
   return render(layout({
@@ -74,14 +85,25 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
   }, body));
 }
 
-function renderSection(s: DashboardSectionRender): SafeHtml {
+function renderSection(
+  dashboardId: string,
+  s: DashboardSectionRender,
+  sectionIdx: number,
+): SafeHtml {
   const isEmpty = s.tiles.length === 0 && s.missingAgentIds.length === 0;
   if (isEmpty) return html``;
   return html`
-    <section style="margin-bottom: var(--space-5);">
+    <section class="pulse-container" data-container-id="section-${String(sectionIdx)}" style="margin-bottom: var(--space-5);">
       <h2 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold);">${s.title}</h2>
-      <div class="pulse-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3);">
-        ${s.tiles.map((t) => renderTile(t, tileWrap)) as unknown as SafeHtml[]}
+      <div class="pulse-grid" data-container-id="section-${String(sectionIdx)}" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3);">
+        ${s.tiles.map((t, tileIdx) =>
+          renderTile(t, (tile, content) => tileWrap(tile, content, {
+            kind: 'dashboard',
+            dashboardId,
+            sectionIdx,
+            tileIdx,
+          }))
+        ) as unknown as SafeHtml[]}
         ${s.missingAgentIds.map((id) => html`
           <div class="card dim" style="padding: var(--space-3); border: 1px dashed var(--color-border-strong);">
             <div style="font-family: var(--font-mono); font-size: var(--font-size-sm);">${id}</div>

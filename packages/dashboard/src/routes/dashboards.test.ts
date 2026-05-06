@@ -112,6 +112,17 @@ describe('dashboards routes', () => {
     expect(res.text).toContain('Greetings');
     expect(res.text).toContain('data-agent-id="hello"');
     expect(res.text).toContain('from pack: starter');
+    // Pulse-parity tile chrome.
+    expect(res.text).toContain('id="dashboard-containers"');
+    expect(res.text).toContain('data-dashboard-id="starter:main"');
+    expect(res.text).toContain('id="dashboard-edit-toggle"');
+    expect(res.text).toContain('id="dashboard-tile-data"');
+    expect(res.text).toContain('class="pulse-tile__resize-handle"');
+    expect(res.text).toContain('class="pulse-tile__configure-btn"');
+    expect(res.text).toContain('class="pulse-tile__palette-btn"');
+    // × button removes from this dashboard, not from Pulse.
+    expect(res.text).toContain('action="/dashboards/starter%3Amain/sections/0/tiles/0/delete"');
+    expect(res.text).not.toContain('action="/agents/hello/signal/toggle"');
   });
 
   it('renders missing-agent placeholders for ids the agent store doesn\'t know', async () => {
