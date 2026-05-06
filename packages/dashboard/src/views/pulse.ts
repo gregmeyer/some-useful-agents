@@ -14,6 +14,7 @@ import { formatAge } from './components.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
+import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -136,7 +137,17 @@ export function renderPulsePage(input: PulsePageInput): string {
 
   const doRenderTile = (tile: PulseTile) => renderTile(tile, tileWrap);
 
+  const dropdownOptions = buildDashboardOptions(input.installedDashboards ?? []);
+  // Only render the dropdown when there's more than just the Default
+  // entry — otherwise it's noise.
+  const dropdown = dropdownOptions.length > 1
+    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
+    : html``;
+
   const body = html`
+    ${dropdownOptions.length > 1
+      ? html`<div style="margin-bottom: var(--space-3);">${dropdown}</div>`
+      : html``}
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       <h1 style="margin: 0;">Pulse</h1>
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
