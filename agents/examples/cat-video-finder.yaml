@@ -1,0 +1,143 @@
+# Cat Video Finder — facade-pattern card around a YouTube search hit.
+#
+# Scrapes a YouTube search results page for the first cat video, then
+# renders an `ai-template` widget with a clickable thumbnail + play
+# overlay that opens the video on YouTube in a new tab. Tests the
+# {{#if outputs.thumbnail}} / {{#unless outputs.url}} conditional pair
+# and the replay control with input-tweak (pass a different query).
+#
+# Embedding-via-iframe was deliberately dropped — YouTube's player
+# rejects many videos at runtime (error 153) and the embed JS bloats
+# the page. The facade is more robust + faster + privacy-preserving.
+#
+# Run:
+#   sua workflow run cat-video-finder
+#   sua workflow run cat-video-finder --input SEARCH_QUERY="kitten compilation"
+
+id: cat-video-finder
+name: Cat Video Finder
+description: Searches YouTube for a popular cat video and returns a playable link.
+status: draft
+source: local
+mcp: false
+version: 11
+inputs:
+  SEARCH_QUERY:
+    type: string
+    default: funny cat video
+    description: What kind of cat video to find
+outputs:
+  url:
+    type: string
+    description: Full YouTube watch URL
+  thumbnail:
+    type: string
+    description: Video thumbnail image URL
+  title:
+    type: string
+    description: Video title
+  caption:
+    type: string
+    description: Fun caption
+  media_type:
+    type: string
+    description: Always "video"
+  status:
+    type: string
+    description: '"found" or "not_found"'
+  message:
+    type: string
+    description: Markdown-formatted watch link
+nodes:
+  - id: search
+    type: shell
+    command: |
+      QUERY=$(echo "$SEARCH_QUERY" | sed 's/ /+/g')
+      HTML=$(curl -sf -L -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+        -H "Accept-Language: en-US,en;q=0.9" \
+        "https://www.youtube.com/results?search_query=${QUERY}")
+      if [ $? -ne 0 ] || [ -z "$HTML" ]; then
+        echo "curl failed or returned empty response" >&2
+        exit 1
+      fi
+      VIDEO_ID=$(echo "$HTML" | grep -oE '"videoId":"[A-Za-z0-9_-]{11}"' | head -1 | sed 's/"videoId":"//;s/"//')
+      if [ -z "$VIDEO_ID" ]; then
+        VIDEO_ID=$(echo "$HTML" | grep -oE '/watch\?v=[A-Za-z0-9_-]{11}' | head -1 | sed 's|/watch?v=||')
+      fi
+      TITLE=$(echo "$HTML" | grep -oE '"title":\{"runs":\[\{"text":"[^"]*"' | head -1 | sed 's/.*"text":"//;s/"$//')
+      if [ -z "$TITLE" ]; then TITLE="Cat Video"; fi
+      jq -n --arg vid "${VIDEO_ID:-}" --arg title "$TITLE" --arg query "$SEARCH_QUERY" \
+        '{found: ($vid | length > 0), videoId: $vid, title: $title, query: $query}'
+    timeout: 30
+  - id: format
+    type: shell
+    command: |
+      SEARCH_OUTPUT="$UPSTREAM_SEARCH_RESULT"
+      VIDEO_ID=$(echo "$SEARCH_OUTPUT" | jq -r '.videoId')
+      FOUND=$(echo "$SEARCH_OUTPUT" | jq -r '.found')
+      TITLE=$(echo "$SEARCH_OUTPUT" | jq -r '.title')
+      if [ "$FOUND" = "true" ] && [ -n "$VIDEO_ID" ] && [ "$VIDEO_ID" != "null" ]; then
+        URL="https://www.youtube.com/watch?v=${VIDEO_ID}"
+        THUMB="https://img.youtube.com/vi/${VIDEO_ID}/hqdefault.jpg"
+        jq -n \
+          --arg url "$URL" \
+          --arg thumb "$THUMB" \
+          --arg title "$TITLE" \
+          '{
+            url: $url,
+            thumbnail: $thumb,
+            title: $title,
+            caption: "Another certified internet classic",
+            media_type: "video",
+            status: "found",
+            message: ("Watch: [" + $title + "](" + $url + ")")
+          }'
+      else
+        jq -n '{
+          url: "",
+          thumbnail: "",
+          title: "No Cat Video Found",
+          caption: "The cats are hiding today...",
+          media_type: "video",
+          status: "not_found",
+          message: "Could not find a cat video. Try a different query."
+        }'
+      fi
+    dependsOn:
+      - search
+signal:
+  title: Cat Video Finder
+  template: widget
+  mapping: {}
+  size: 2x1
+  accent: orange
+outputWidget:
+  type: ai-template
+  template: |
+    {{#if outputs.thumbnail}}
+    <div style="max-width:560px;font-family:system-ui,sans-serif;">
+      <a href="{{outputs.url}}" target="_blank" rel="noopener" style="display:block;position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);text-decoration:none;">
+        <img src="{{outputs.thumbnail}}" alt="{{outputs.title}}" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;" />
+        <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:68px;height:48px;background:rgba(0,0,0,0.75);border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-size:1.5rem;">▶</span>
+      </a>
+      <div style="margin-top:12px;">
+        <h3 style="margin:0 0 4px 0;font-size:1.1rem;">{{outputs.title}}</h3>
+        <p style="margin:0;color:#666;font-size:0.9rem;font-style:italic;">{{outputs.caption}}</p>
+      </div>
+      <div style="margin-top:8px;">
+        <a href="{{outputs.url}}" target="_blank" rel="noopener" style="display:inline-block;padding:8px 16px;background:#ff4500;color:white;border-radius:6px;text-decoration:none;font-size:0.85rem;font-weight:600;">▶ Watch on YouTube</a>
+      </div>
+    </div>
+    {{/if}}
+    {{#unless outputs.url}}
+    <div style="padding:24px;text-align:center;font-family:system-ui,sans-serif;color:#666;">
+      <p style="font-size:1.2rem;">🙉 {{outputs.title}}</p>
+      <p>{{outputs.message}}</p>
+    </div>
+    {{/unless}}
+  controls:
+    - type: replay
+      label: Find another
+      inputs:
+        - SEARCH_QUERY
+

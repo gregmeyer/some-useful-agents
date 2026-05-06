@@ -1,0 +1,213 @@
+# Weather Forecast — current conditions + 7-day outlook with view-switch,
+# field-toggle, and replay controls.
+#
+# Stress-tests the `dashboard` widget controls: a view-switch flips
+# between "today" (hero metrics + extras) and "week" (7-day list); a
+# field-toggle hides/shows the secondary metrics (humidity, wind, UV,
+# precipitation, sunrise/sunset); a replay control re-runs for a
+# different city without leaving the page.
+#
+# Zero LLM cost — wttr.in JSON parsed via shell + python.
+#
+# Run:
+#   sua workflow run weather-forecast
+#   sua workflow run weather-forecast --input LOCATION="Austin TX"
+#   sua workflow run weather-forecast --input LOCATION=90210
+
+id: weather-forecast
+name: Weather Forecast
+description: Live weather + 7-day forecast with view-switch (today/week), field-toggle (extras), and replay (different city). Tests dashboard widget controls.
+status: active
+source: local
+mcp: false
+version: 4
+inputs:
+  LOCATION:
+    type: string
+    default: Seattle
+    description: City name (e.g. "Austin"), city + state (e.g. "Austin TX"), or zip code (e.g. 90210).
+outputs:
+  temperature:
+    type: string
+  feels_like:
+    type: string
+  condition:
+    type: string
+  humidity:
+    type: string
+  wind:
+    type: string
+  uv_index:
+    type: string
+  precipitation_chance:
+    type: string
+  sunrise:
+    type: string
+  sunset:
+    type: string
+  location:
+    type: string
+  day_0:
+    type: string
+  day_1:
+    type: string
+  day_2:
+    type: string
+  day_3:
+    type: string
+  day_4:
+    type: string
+  day_5:
+    type: string
+  day_6:
+    type: string
+nodes:
+  - id: fetch
+    type: shell
+    command: |
+      set -e
+      CLEAN=$(echo "$LOCATION" | sed 's/,//g' | sed 's/ /+/g')
+      RAW=$(curl -sf --max-time 15 "https://wttr.in/${CLEAN}?format=j1")
+      if [ -z "$RAW" ]; then
+        echo "wttr.in returned empty for $LOCATION" >&2
+        exit 1
+      fi
+      RAWFILE=$(mktemp)
+      printf '%s' "$RAW" > "$RAWFILE"
+      export RAWFILE
+      python3 << 'PYEOF'
+      import os, json
+      from datetime import datetime
+      with open(os.environ["RAWFILE"]) as f:
+          d = json.load(f)
+      cur = d["current_condition"][0]
+      area = d["nearest_area"][0]
+      astro_today = d["weather"][0]["astronomy"][0]
+      hourly_today = d["weather"][0]["hourly"]
+      precip_chance = max((int(h.get("chanceofrain", "0")) for h in hourly_today), default=0)
+      out = {
+          "temperature": cur["temp_F"] + "°F",
+          "feels_like": cur["FeelsLikeF"] + "°F",
+          "condition": cur["weatherDesc"][0]["value"],
+          "humidity": cur["humidity"] + "%",
+          "wind": cur["windspeedMiles"] + " mph " + cur["winddir16Point"],
+          "uv_index": cur["uvIndex"],
+          "precipitation_chance": str(precip_chance) + "%",
+          "sunrise": astro_today["sunrise"],
+          "sunset": astro_today["sunset"],
+          "location": area["areaName"][0]["value"] + ", " + area["region"][0]["value"],
+      }
+      for i, day in enumerate(d["weather"][:7]):
+          date = datetime.strptime(day["date"], "%Y-%m-%d").strftime("%a %b %-d")
+          desc = day["hourly"][len(day["hourly"]) // 2]["weatherDesc"][0]["value"]
+          out["day_" + str(i)] = date + " — H " + day["maxtempF"] + "° L " + day["mintempF"] + "° — " + desc
+      for i in range(7):
+          out.setdefault("day_" + str(i), "")
+      print(json.dumps(out))
+      PYEOF
+      rm -f "$RAWFILE"
+    timeout: 25
+signal:
+  title: Weather
+  template: text-headline
+  mapping:
+    headline: temperature
+    body: condition
+  size: 2x1
+  accent: blue
+outputWidget:
+  type: dashboard
+  fields:
+    - name: temperature
+      label: Temperature
+      type: metric
+    - name: condition
+      label: Condition
+      type: badge
+    - name: feels_like
+      label: Feels like
+      type: stat
+    - name: humidity
+      label: Humidity
+      type: stat
+    - name: wind
+      label: Wind
+      type: stat
+    - name: uv_index
+      label: UV Index
+      type: stat
+    - name: precipitation_chance
+      label: Precip chance
+      type: stat
+    - name: sunrise
+      label: Sunrise
+      type: stat
+    - name: sunset
+      label: Sunset
+      type: stat
+    - name: location
+      label: Location
+      type: text
+    - name: day_0
+      label: Today
+      type: stat
+    - name: day_1
+      label: Day 2
+      type: stat
+    - name: day_2
+      label: Day 3
+      type: stat
+    - name: day_3
+      label: Day 4
+      type: stat
+    - name: day_4
+      label: Day 5
+      type: stat
+    - name: day_5
+      label: Day 6
+      type: stat
+    - name: day_6
+      label: Day 7
+      type: stat
+  controls:
+    - type: view-switch
+      label: Range
+      views:
+        - id: today
+          fields:
+            - temperature
+            - condition
+            - feels_like
+            - humidity
+            - wind
+            - uv_index
+            - precipitation_chance
+            - sunrise
+            - sunset
+            - location
+        - id: week
+          fields:
+            - day_0
+            - day_1
+            - day_2
+            - day_3
+            - day_4
+            - day_5
+            - day_6
+            - location
+      default: today
+    - type: field-toggle
+      label: Show extras
+      fields:
+        - humidity
+        - wind
+        - uv_index
+        - precipitation_chance
+        - sunrise
+        - sunset
+      default: hidden
+    - type: replay
+      label: Different city
+      inputs:
+        - LOCATION
+
