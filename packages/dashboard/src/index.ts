@@ -107,7 +107,13 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use((_req, res, next) => {
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com; frame-ancestors 'none'",
+      // frame-src + img-src must include every host on the iframe
+      // sanitizer's IFRAME_ALLOWED_HOSTS allowlist (packages/core/src/
+      // html-sanitizer.ts). Otherwise the sanitizer renders the
+      // <iframe> but the browser silently blocks the load — and the
+      // poster image (loaded inside the iframe) never appears either.
+      // Mirror any allowlist additions in core here too.
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com https://i.vimeocdn.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'",
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
