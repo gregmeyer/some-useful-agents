@@ -65,6 +65,23 @@ export {
   type DashboardLayout,
 } from './dashboards-store.js';
 export {
+  packManifestSchema,
+  type PackManifestInput,
+  type PackManifestParsed,
+} from './pack-schema.js';
+export {
+  loadBuiltinPacks,
+  defaultBuiltinPacksDir,
+  type LoadBuiltinPacksResult,
+} from './pack-loader.js';
+export {
+  installPack,
+  uninstallPack,
+  type PackInstallContext,
+  type PackInstallResult,
+  type PackUninstallResult,
+} from './pack-installer.js';
+export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,

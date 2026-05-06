@@ -8,6 +8,8 @@ import {
   ToolStore,
   PacksStore,
   DashboardsStore,
+  loadBuiltinPacks,
+  defaultBuiltinPacksDir,
   VariablesStore,
   EncryptedFileStore,
   loadAgents,
@@ -249,6 +251,13 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   try {
     packsStore = new PacksStore(opts.dbPath);
     dashboardsStore = new DashboardsStore(opts.dbPath);
+    // Discover and register bundled packs. Idempotent — re-running on each
+    // restart picks up version/manifest changes without toggling install state.
+    // Failures here are non-fatal: a broken pack manifest shouldn't gate the
+    // dashboard from coming up.
+    try {
+      loadBuiltinPacks(packsStore, defaultBuiltinPacksDir());
+    } catch { /* ignore — packs discovery is best-effort */ }
   } catch {
     // Non-fatal: packs/dashboards surface stays absent until later PRs
     // wire routes that depend on these stores.

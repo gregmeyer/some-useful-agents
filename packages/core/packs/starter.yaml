@@ -1,0 +1,35 @@
+# Starter pack — a guided tour of the new ai-template widget capabilities.
+#
+# Bundles the three dogfood agents shipped in #199, organised into two
+# dashboards (Media + Weather). Installing this pack creates the agents
+# (if missing) and registers the two dashboards under /dashboards/<id>.
+# Uninstalling removes the dashboards but keeps the agents.
+
+id: starter
+name: Starter
+description: A guided tour of the new ai-template widget capabilities.
+version: 0.1.0
+author: some-useful-agents
+
+agents:
+  - id: vimeo-staff-picks
+    yamlPath: ../../../agents/examples/vimeo-staff-picks.yaml
+  - id: weather-forecast
+    yamlPath: ../../../agents/examples/weather-forecast.yaml
+  - id: cat-video-finder
+    yamlPath: ../../../agents/examples/cat-video-finder.yaml
+
+dashboards:
+  - id: media
+    name: Media
+    sections:
+      - title: Video
+        agentIds:
+          - vimeo-staff-picks
+          - cat-video-finder
+  - id: weather
+    name: Weather
+    sections:
+      - title: Forecast
+        agentIds:
+          - weather-forecast
