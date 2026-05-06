@@ -82,6 +82,12 @@ export {
   type PackUninstallResult,
 } from './pack-installer.js';
 export {
+  buildPlanSchema,
+  extractPlanJson,
+  type BuildPlan,
+  type BuildPlanInput,
+} from './build-plan-schema.js';
+export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,

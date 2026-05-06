@@ -9,6 +9,8 @@
 
 import type { Agent } from './agent-v2-types.js';
 import type { ToolDefinition } from './tool-types.js';
+import type { Dashboard } from './dashboards-store.js';
+import type { Pack } from './packs-store.js';
 import { NODE_CATALOG } from './node-catalog.js';
 
 export interface TemplateDef {
@@ -22,6 +24,19 @@ export interface DiscoveryCatalogOptions {
   agents: Agent[];
   tools: ToolDefinition[];
   templateRegistry: Record<string, TemplateDef>;
+  /**
+   * Optional. When supplied, the catalog appends an INSTALLED DASHBOARDS
+   * section so the build-planner LLM can spot overlap with existing
+   * curated layouts (e.g. "extend Morning Briefing instead of creating
+   * a new dashboard").
+   */
+  dashboards?: Dashboard[];
+  /**
+   * Optional. When supplied, the catalog appends an INSTALLED PACKS
+   * section so the planner can suggest pack installation as an
+   * alternative to from-scratch agent generation.
+   */
+  packs?: Pack[];
 }
 
 const EXCLUDED_AGENT_IDS = new Set(['agent-builder', 'agent-analyzer']);
@@ -129,6 +144,33 @@ function buildTemplateSection(registry: Record<string, TemplateDef>): string {
   return `## SIGNAL TEMPLATES (signal.template in agent YAML)\n${lines.join('\n')}`;
 }
 
+function buildDashboardsSection(dashboards: Dashboard[]): string {
+  if (dashboards.length === 0) {
+    return '## INSTALLED DASHBOARDS\nNo dashboards installed yet. (Default Pulse layout at /pulse is auto-derived from pulseVisible, not stored here.)';
+  }
+  const lines = dashboards.map((d) => {
+    const owner = d.packId ? `pack:${d.packId}` : 'user';
+    const sectionLine = d.layout.sections
+      .map((s) => `${s.title} [${s.agentIds.join(', ') || '(empty)'}]`)
+      .join(' · ');
+    return `- ${d.id} (${owner}): "${d.name}" — sections: ${sectionLine || '(none)'}`;
+  });
+  return `## INSTALLED DASHBOARDS\nNamed dashboards stored in DashboardsStore. When a goal asks for a dashboard, prefer extending an existing one over creating a duplicate.\n${lines.join('\n')}`;
+}
+
+function buildPacksSection(packs: Pack[]): string {
+  if (packs.length === 0) {
+    return '## INSTALLED + AVAILABLE PACKS\nNo packs registered.';
+  }
+  const lines = packs.map((p) => {
+    const state = p.installedAt ? 'installed' : 'available';
+    const dashCount = p.manifest.dashboards?.length ?? 0;
+    const agentCount = p.manifest.agents?.length ?? 0;
+    return `- ${p.id} (${state}): "${p.name}" v${p.version} — ${agentCount} agent${agentCount === 1 ? '' : 's'}, ${dashCount} dashboard${dashCount === 1 ? '' : 's'}`;
+  });
+  return `## INSTALLED + AVAILABLE PACKS\nIf an available pack already covers the goal, suggest installing it as a question rather than building from scratch.\n${lines.join('\n')}`;
+}
+
 function buildAgentsSection(agents: Agent[]): string {
   const eligible = agents
     .filter((a) => a.status === 'active' && !EXCLUDED_AGENT_IDS.has(a.id))
@@ -179,15 +221,15 @@ WRONG: \`url: YouTube watch URL\` (description in the type slot — schema rejec
 6. FAIL FAST. When a step's primary purpose returns no data (HTTP non-200, empty array, null lookup, missing required field), exit with a non-zero status so downstream nodes skip cleanly via the executor's upstream_failed cascade. Don't return {x: null, y: null} and trust downstream to notice — they won't, and you'll get cryptic jq parse errors three nodes later. Pattern for shell: \`if [ "$LAT" = "null" ] || [ -z "$LAT" ]; then echo '{"error":"city not found"}' >&2; exit 1; fi\`. Pattern for tool calls: check the exit code and bail.`.trim();
 
 export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
-  const sections = [
+  const sections: string[] = [
     buildNodeTypesSection(),
     buildTemplateSection(opts.templateRegistry),
     OUTPUT_WIDGETS,
     buildAgentsSection(opts.agents),
-    PATTERNS,
-    WIDGET_GUIDANCE,
-    DESIGN_DISCIPLINE,
   ];
+  if (opts.dashboards) sections.push(buildDashboardsSection(opts.dashboards));
+  if (opts.packs) sections.push(buildPacksSection(opts.packs));
+  sections.push(PATTERNS, WIDGET_GUIDANCE, DESIGN_DISCIPLINE);
 
   return sections.join('\n\n');
 }

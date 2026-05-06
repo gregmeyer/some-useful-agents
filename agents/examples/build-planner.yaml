@@ -1,0 +1,159 @@
+# Build Planner — multi-flavor goal → plan agent.
+#
+# The Build-from-goal wizard sends a user's goal here. The planner
+# reads the discovery catalog (existing agents, dashboards, packs,
+# node types, signal templates) and returns a structured BuildPlan
+# JSON with:
+#   - intent classification (agent / dashboard-existing / dashboard-new / dashboard-mixed)
+#   - survey of what's already installed that matches the goal
+#   - new agents to create (each with full YAML)
+#   - dashboard layout (when applicable)
+#   - clarifying questions
+#
+# The wizard renders the plan, lets the user review/edit, then commits
+# via POST /agents/build/commit which creates the agents and dashboard.
+
+id: build-planner
+name: Build Planner
+description: >
+  Multi-flavor agent + dashboard planner. Reads a goal + the live
+  catalog of installed agents/dashboards/packs and emits a structured
+  BuildPlan JSON. Replaces direct invocation of agent-builder when the
+  goal might involve a dashboard. Run via "Build from goal" on the
+  home page or /agents.
+status: active
+source: examples
+
+inputs:
+  GOAL:
+    type: string
+    required: true
+    description: Natural language description of what the user wants built.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: Optional constraints or preferences (e.g. "schedule daily", "shell only").
+  AVAILABLE_TOOLS:
+    type: string
+    required: false
+    default: ""
+    description: Dynamically injected tool catalog. Populated at build time.
+  DISCOVERY_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Node types, signal templates, output widgets, INSTALLED AGENTS,
+      INSTALLED DASHBOARDS, INSTALLED + AVAILABLE PACKS, and architecture
+      patterns. Injected at build time.
+
+nodes:
+  - id: plan
+    type: claude-code
+    prompt: |
+      You are the multi-flavor build planner for the sua agent platform.
+
+      Read the user's goal + the live catalog of what's already installed,
+      then emit a structured BuildPlan JSON describing what to do.
+
+      ════════════════════════════════════════════════════════════════
+      USER'S GOAL:
+      {{inputs.GOAL}}
+
+      OPTIONAL FOCUS / CONSTRAINTS:
+      {{inputs.FOCUS}}
+
+      AVAILABLE TOOLS:
+      {{inputs.AVAILABLE_TOOLS}}
+
+      DISCOVERY CATALOG:
+      {{inputs.DISCOVERY_CATALOG}}
+      ════════════════════════════════════════════════════════════════
+
+      STEP 1 — CLASSIFY INTENT.
+      One of:
+        - "agent"               : the goal is one agent, no dashboard.
+        - "dashboard-existing"  : the goal is a dashboard composed entirely of agents that already exist.
+        - "dashboard-new"       : the goal is a dashboard composed entirely of new agents you must create.
+        - "dashboard-mixed"     : the goal is a dashboard mixing some existing agents with some new ones.
+
+      STEP 2 — SURVEY THE GOAL FRAGMENTS.
+      Decompose the goal into logical fragments (e.g. "HN top stories", "today's weather", "my notes list").
+      For each fragment, look in INSTALLED AGENTS for a fuzzy id+description match.
+      - Match found → add to `survey.matchedAgents` with the fragment text in `matchedFor`.
+      - No match → add the fragment text to `survey.missingFor`.
+      Also scan INSTALLED DASHBOARDS — if any look like overlap, mention them in `survey.existingDashboards`.
+
+      STEP 3 — DRAFT NEW AGENTS for everything in survey.missingFor.
+      Each new agent is { id, purpose, yaml }. The YAML must be a complete, parseable sua agent
+      (same rules as agent-builder.yaml — signal block, output widget, source: local, snake_case
+      outputs, UPPERCASE inputs, no double-brace templates in shell nodes, etc.).
+      Crucial constraints:
+      - id MUST be lowercase-with-hyphens AND must NOT collide with any id already in INSTALLED AGENTS.
+      - Add `schedule:` to NEW agents if the goal asks for "daily" / "every morning" / etc.
+      - DO NOT propose modifying any existing agent. (The user does that via /agents/<id>/yaml.)
+      - Each new agent's YAML should include both signal: and outputWidget: blocks so dashboard
+        tiles render correctly.
+
+      STEP 4 — DESIGN THE DASHBOARD (when intent ≠ "agent").
+      Dashboard id MUST start with `user:` followed by lowercase-with-hyphens (e.g. `user:morning-briefing`).
+      Pick a `name` (Title Case, human-readable). Group tiles into 1-3 sections by topic.
+      Every agentId in dashboard.sections MUST appear in either survey.matchedAgents (existing)
+      or newAgents (proposed) — never an id you didn't include in one of those two lists.
+
+      STEP 5 — CLARIFYING QUESTIONS.
+      For anything ambiguous (file paths, frequency, region, units, source URL), add a question
+      to `questions[]`. Provide `suggestedAnswer` when reasonable. The user re-runs the wizard
+      with answers appended to the goal — no multi-turn chat in v1.
+
+      STEP 6 — RECOMMEND PACK INSTALL (optional).
+      If a pack in INSTALLED + AVAILABLE PACKS labelled "available" already covers the goal,
+      surface it as a question (suggestedAnswer: "yes") rather than proposing redundant agents.
+
+      OUTPUT FORMAT — wrap the plan in <plan>…</plan> tags. The body MUST be valid JSON
+      matching this exact shape (extra fields will be rejected by the schema validator):
+
+      <plan>
+      {
+        "intent": "agent" | "dashboard-existing" | "dashboard-new" | "dashboard-mixed",
+        "summary": "one-line human description of what you're going to do",
+        "survey": {
+          "matchedAgents": [{ "id": "weather-forecast", "matchedFor": "today's weather" }],
+          "missingFor": ["my notes list"],
+          "existingDashboards": []
+        },
+        "newAgents": [
+          {
+            "id": "notes-list-daily",
+            "purpose": "Reads markdown files from a notes folder and returns the latest 10 titles.",
+            "yaml": "id: notes-list-daily\nname: ...\n... (full YAML)"
+          }
+        ],
+        "dashboard": {
+          "id": "user:morning-briefing",
+          "name": "Morning Briefing",
+          "sections": [
+            { "title": "News", "agentIds": ["hn-top-stories"] },
+            { "title": "Weather", "agentIds": ["weather-forecast"] },
+            { "title": "Notes", "agentIds": ["notes-list-daily"] }
+          ]
+        },
+        "questions": [
+          { "text": "Which folder should the notes agent read from?", "suggestedAnswer": "~/Documents/Notes" }
+        ]
+      }
+      </plan>
+
+      RULES THE VALIDATOR ENFORCES (failing these means the plan gets rejected and the user
+      sees an error):
+      - intent="agent" must have exactly one newAgents entry AND dashboard=null.
+      - intent="dashboard-existing" must have newAgents=[] AND a non-null dashboard.
+      - intent="dashboard-new" / "dashboard-mixed" must have a non-null dashboard.
+      - Every dashboard.sections[].agentIds[] must appear in survey.matchedAgents or newAgents.
+      - dashboard.id must start with "user:".
+      - newAgents[].id and matchedAgents[].id must be lowercase-with-hyphens.
+
+      Output ONLY the <plan>…</plan> block. No explanation before or after.
+    maxTurns: 3
+    timeout: 180

@@ -6,7 +6,18 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, exportAgent, listBuiltinTools, parseAgent, buildDiscoveryCatalog, type RunStatus, type ToolDefinition } from '@some-useful-agents/core';
+import {
+  executeAgentDag,
+  exportAgent,
+  listBuiltinTools,
+  parseAgent,
+  buildDiscoveryCatalog,
+  buildPlanSchema,
+  extractPlanJson,
+  type BuildPlan,
+  type RunStatus,
+  type ToolDefinition,
+} from '@some-useful-agents/core';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
@@ -17,6 +28,7 @@ export const buildRouter: Router = Router();
 
 const ANALYZER_AGENT_ID = 'agent-analyzer';
 const BUILDER_AGENT_ID = 'agent-builder';
+const PLANNER_AGENT_ID = 'build-planner';
 
 // ── Auto-fix common LLM YAML mistakes ──────────────────────────────────
 
@@ -638,22 +650,22 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
-  // Auto-import or update builder agent from examples YAML.
+  // Auto-import or update planner agent from examples YAML.
   // Uses upsertAgent so prompt improvements take effect without manual deletion.
-  let builder: ReturnType<typeof ctx.agentStore.getAgent> = null;
+  let planner: ReturnType<typeof ctx.agentStore.getAgent> = null;
   try {
-    const yamlPath = join(resolve('agents/examples'), `${BUILDER_AGENT_ID}.yaml`);
+    const yamlPath = join(resolve('agents/examples'), `${PLANNER_AGENT_ID}.yaml`);
     const yamlText = readFileSync(yamlPath, 'utf-8');
     const parsed = parseAgent(yamlText);
-    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for agent builder');
-    builder = ctx.agentStore.getAgent(BUILDER_AGENT_ID);
+    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for build planner');
+    planner = ctx.agentStore.getAgent(PLANNER_AGENT_ID);
   } catch { /* fall through */ }
-  if (!builder) {
-    res.json({ ok: false, error: 'Builder agent not found. Ensure agent-builder.yaml exists in agents/examples/.' });
+  if (!planner) {
+    res.json({ ok: false, error: 'Build planner agent not found. Ensure build-planner.yaml exists in agents/examples/.' });
     return;
   }
 
-  // Build a dynamic tool catalog so the builder LLM knows about all
+  // Build a dynamic tool catalog so the planner LLM knows about all
   // registered tools, not just the 9 hardcoded built-ins.
   const builtins = listBuiltinTools();
   let userTools: ToolDefinition[] = [];
@@ -665,10 +677,14 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     agents: ctx.agentStore.listAgents(),
     tools: [...builtins, ...userTools],
     templateRegistry: TEMPLATE_REGISTRY,
+    // Optional — when present, the planner sees them and can suggest
+    // reuse / pack install / dashboard extension instead of duplicating.
+    dashboards: ctx.dashboardsStore?.listDashboards(),
+    packs: ctx.packsStore?.listPacks(),
   });
 
   const runPromise = executeAgentDag(
-    builder,
+    planner,
     {
       triggeredBy: 'dashboard',
       inputs: {
@@ -692,7 +708,7 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
   ]);
 
   const { rows } = ctx.runStore.queryRuns({
-    agentName: BUILDER_AGENT_ID,
+    agentName: PLANNER_AGENT_ID,
     statuses: ['running', 'completed', 'failed'] as RunStatus[],
     limit: 1,
     offset: 0,
@@ -727,7 +743,8 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
   if (run.status === 'running' || run.status === 'pending') {
     const execs = ctx.runStore.listNodeExecutions(runId);
     const runningNode = execs.find((e) => e.status === 'running');
-    const phaseMessage = runningNode?.nodeId === 'design' ? 'Designing agent...'
+    const phaseMessage = runningNode?.nodeId === 'plan' ? 'Planning agents and dashboard...'
+      : runningNode?.nodeId === 'design' ? 'Designing agent...'
       : runningNode?.nodeId === 'validate' ? 'Validating YAML...'
       : runningNode?.nodeId === 'fix' ? 'Fixing validation errors...'
       : 'Starting...';
@@ -744,7 +761,51 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
     return;
   }
 
-  // Extract YAML from the result (may come from design or fix node).
+  // Detect which agent produced this run (planner emits a plan; the
+  // legacy agent-builder still emits raw YAML).
+  const ranPlanner = run.agentName === PLANNER_AGENT_ID;
+
+  if (ranPlanner) {
+    // Extract + validate the plan JSON.
+    let resultText = run.result;
+    if (!resultText.includes('<plan>')) {
+      const execs = ctx.runStore.listNodeExecutions(runId);
+      const planExec = execs.find((e) => e.nodeId === 'plan' && e.status === 'completed');
+      if (planExec?.result) resultText = planExec.result;
+    }
+    const planText = extractPlanJson(resultText);
+    if (!planText) {
+      res.json({ ok: true, status: 'failed', error: 'Planner did not produce a <plan>…</plan> block.' });
+      return;
+    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(planText); }
+    catch (e) {
+      res.json({ ok: true, status: 'failed', error: `Plan JSON parse failed: ${(e as Error).message}` });
+      return;
+    }
+    const result = buildPlanSchema.safeParse(parsed);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      res.json({ ok: true, status: 'failed', error: `Plan validation failed: ${issues}`, rawPlan: parsed });
+      return;
+    }
+
+    // Apply autoFixYaml to each newAgent's YAML so we surface a clean
+    // form to the user (mirrors what /create did before).
+    const cleanedNewAgents = result.data.newAgents.map((a) => ({
+      ...a,
+      yaml: autoFixYaml(a.yaml),
+    }));
+    const plan: BuildPlan = { ...result.data, newAgents: cleanedNewAgents };
+
+    res.json({ ok: true, status: 'done', plan });
+    return;
+  }
+
+  // Legacy agent-builder path — kept for any external script still
+  // hitting POST /agents/build (the wizard's own route now uses the
+  // planner).
   let resultText = run.result;
   if (!resultText.includes('<yaml>')) {
     const execs = ctx.runStore.listNodeExecutions(runId);
@@ -762,7 +823,6 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
     return;
   }
 
-  // Validate the YAML.
   let agentId: string | undefined;
   let agentName: string | undefined;
   let yamlError: string | undefined;
@@ -774,18 +834,103 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
     yamlError = e instanceof Error ? e.message : String(e);
   }
 
+  res.json({ ok: true, status: 'done', yaml, agentId, agentName, yamlError });
+});
+
+/**
+ * POST /agents/build/commit — execute an approved BuildPlan.
+ *
+ * Walks `plan.newAgents` creating each via agentStore (skipping any whose
+ * id already exists). Then if `plan.dashboard` is non-null, upserts the
+ * dashboard via dashboardsStore. Returns a partial-success report so
+ * the wizard can show what landed and what didn't.
+ */
+buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
+  const result = buildPlanSchema.safeParse(body.plan);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    res.json({ ok: false, error: `Plan failed validation: ${issues}` });
+    return;
+  }
+  const plan = result.data;
+
+  const agentsCreated: string[] = [];
+  const agentsSkipped: Array<{ id: string; reason: string }> = [];
+
+  for (const ref of plan.newAgents) {
+    if (ctx.agentStore.getAgent(ref.id)) {
+      agentsSkipped.push({ id: ref.id, reason: 'agent id already exists' });
+      continue;
+    }
+    let parsed;
+    try {
+      const fixedYaml = autoFixYaml(ref.yaml);
+      parsed = parseAgent(fixedYaml);
+    } catch (e) {
+      agentsSkipped.push({ id: ref.id, reason: `YAML parse failed: ${(e as Error).message}` });
+      continue;
+    }
+    if (parsed.id !== ref.id) {
+      agentsSkipped.push({ id: ref.id, reason: `YAML id "${parsed.id}" does not match plan ref id "${ref.id}"` });
+      continue;
+    }
+    try {
+      ctx.agentStore.createAgent(
+        { ...parsed, source: 'local' },
+        'dashboard',
+        `Created via Build from goal wizard (intent: ${plan.intent})`,
+      );
+      agentsCreated.push(ref.id);
+    } catch (e) {
+      agentsSkipped.push({ id: ref.id, reason: (e as Error).message });
+    }
+  }
+
+  let dashboardCreated: string | null = null;
+  let dashboardError: string | undefined;
+  if (plan.dashboard && ctx.dashboardsStore) {
+    try {
+      ctx.dashboardsStore.upsertDashboard({
+        id: plan.dashboard.id,
+        packId: null,
+        name: plan.dashboard.name,
+        layout: { sections: plan.dashboard.sections },
+      });
+      dashboardCreated = plan.dashboard.id;
+    } catch (e) {
+      dashboardError = (e as Error).message;
+    }
+  } else if (plan.dashboard && !ctx.dashboardsStore) {
+    dashboardError = 'Dashboards store unavailable.';
+  }
+
+  // Choose a redirect target: prefer the new dashboard, fall back to
+  // the first new agent, fall back to /agents.
+  const redirectUrl = dashboardCreated
+    ? `/dashboards/${encodeURIComponent(dashboardCreated)}`
+    : agentsCreated[0]
+      ? `/agents/${encodeURIComponent(agentsCreated[0])}`
+      : '/agents';
+
   res.json({
     ok: true,
-    status: 'done',
-    yaml,
-    agentId,
-    agentName,
-    yamlError,
+    agentsCreated,
+    agentsSkipped,
+    dashboardCreated,
+    dashboardError,
+    redirectUrl,
   });
 });
 
 /**
- * POST /agents/build/create — create an agent from builder-suggested YAML.
+ * POST /agents/build/create — legacy single-agent create endpoint.
+ *
+ * Kept as a thin compat shim for any external script that still POSTs
+ * raw YAML here. Wraps the YAML in a one-agent BuildPlan and forwards
+ * to /commit so we have one execution path.
  */
 buildRouter.post('/agents/build/create', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -799,13 +944,12 @@ buildRouter.post('/agents/build/create', (req: Request, res: Response) => {
 
   let parsed;
   try {
-    parsed = parseAgent(yaml);
+    parsed = parseAgent(autoFixYaml(yaml));
   } catch (e) {
     res.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
     return;
   }
 
-  // Check if agent already exists.
   if (ctx.agentStore.getAgent(parsed.id)) {
     res.json({ ok: false, error: `Agent "${parsed.id}" already exists. Edit the YAML to use a different id.` });
     return;
@@ -815,7 +959,7 @@ buildRouter.post('/agents/build/create', (req: Request, res: Response) => {
     ctx.agentStore.createAgent(
       { ...parsed, source: 'local' },
       'dashboard',
-      'Created via Build from goal wizard',
+      'Created via Build from goal wizard (legacy /create)',
     );
     res.json({ ok: true, agentId: parsed.id });
   } catch (e) {
