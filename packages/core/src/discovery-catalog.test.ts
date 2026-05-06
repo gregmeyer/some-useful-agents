@@ -191,4 +191,72 @@ describe('buildDiscoveryCatalog', () => {
 
     expect(catalog).toContain('No agents available yet.');
   });
+
+  it('omits dashboards + packs sections when those args are absent', () => {
+    const catalog = buildDiscoveryCatalog({
+      agents: MOCK_AGENTS,
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+    });
+    expect(catalog).not.toContain('INSTALLED DASHBOARDS');
+    expect(catalog).not.toContain('INSTALLED + AVAILABLE PACKS');
+  });
+
+  it('renders dashboards section with section + agent details', () => {
+    const catalog = buildDiscoveryCatalog({
+      agents: MOCK_AGENTS,
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+      dashboards: [{
+        id: 'starter:media',
+        packId: 'starter',
+        name: 'Media',
+        layout: { sections: [
+          { title: 'Video', agentIds: ['vimeo-staff-picks', 'cat-video-finder'] },
+        ]},
+        createdAt: 0,
+        updatedAt: 0,
+      }],
+    });
+    expect(catalog).toContain('INSTALLED DASHBOARDS');
+    expect(catalog).toContain('starter:media (pack:starter)');
+    expect(catalog).toContain('Video [vimeo-staff-picks, cat-video-finder]');
+  });
+
+  it('renders packs section with installed/available state', () => {
+    const catalog = buildDiscoveryCatalog({
+      agents: MOCK_AGENTS,
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+      packs: [{
+        id: 'starter',
+        name: 'Starter',
+        description: 'demo',
+        version: '0.1.0',
+        author: 'sua',
+        source: 'builtin',
+        manifest: {
+          id: 'starter', name: 'Starter', version: '0.1.0',
+          agents: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+          dashboards: [{ id: 'd', name: 'D', sections: [{ title: 'T', agentIds: ['a'] }] }],
+        },
+        installedAt: null,
+      }],
+    });
+    expect(catalog).toContain('INSTALLED + AVAILABLE PACKS');
+    expect(catalog).toContain('starter (available)');
+    expect(catalog).toContain('3 agents, 1 dashboard');
+  });
+
+  it('renders empty-state lines when dashboards/packs are empty arrays', () => {
+    const catalog = buildDiscoveryCatalog({
+      agents: MOCK_AGENTS,
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+      dashboards: [],
+      packs: [],
+    });
+    expect(catalog).toContain('No dashboards installed yet');
+    expect(catalog).toContain('No packs registered.');
+  });
 });

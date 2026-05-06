@@ -26,11 +26,11 @@ export function buildFromGoalModal(): SafeHtml {
         <div id="build-modal-content">
           <h3 style="margin: 0 0 var(--space-3);">Build from goal</h3>
           <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-            Describe what you want your agent to do. Claude will design a complete agent with the right nodes, tools, and wiring.
+            Describe an agent <em>or</em> a dashboard. Claude surveys what's already installed, drafts any missing agents, and assembles the dashboard. Review the plan before anything is created.
           </p>
           <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
             <strong style="font-size: var(--font-size-sm);">Goal</strong>
-            <textarea id="build-goal" rows="3" placeholder="e.g. Scrape job listings from ashbyhq, extract key details, and save to a local JSON file"
+            <textarea id="build-goal" rows="3" placeholder="e.g. a daily morning dashboard with HN top stories, today's weather, and my notes folder"
               style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); resize: vertical;"></textarea>
           </label>
           <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
