@@ -45,6 +45,7 @@ import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { pulseRouter } from './routes/pulse.js';
+import { packsRouter } from './routes/packs.js';
 
 export interface StartDashboardOptions {
   port: number;
@@ -198,6 +199,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(toolsRouter);
   app.use(nodesRouter);
   app.use(pulseRouter);
+  app.use(packsRouter);
 
   // Catch-all 404 for authenticated routes.
   app.use((_req, res) => {
