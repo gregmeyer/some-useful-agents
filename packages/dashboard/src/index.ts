@@ -206,8 +206,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(dashboardsRouter);
 
   // Catch-all 404 for authenticated routes.
-  app.use((_req, res) => {
-    res.status(404).type('html').send('<p>Not found. <a href="/agents">Back</a></p>');
+  app.use(async (req, res) => {
+    const { renderNotFoundPage } = await import('./views/not-found.js');
+    res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl }));
   });
 
   return app;

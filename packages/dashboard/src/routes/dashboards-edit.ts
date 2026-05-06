@@ -10,6 +10,7 @@ import { Router, type Request, type Response } from 'express';
 import type { DashboardLayout, DashboardSection } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderDashboardEditPage } from '../views/dashboard-edit.js';
+import { renderNotFoundPage } from '../views/not-found.js';
 
 export const dashboardsEditRouter: Router = Router();
 
@@ -18,13 +19,19 @@ const DASHBOARD_ID_RE = /^[a-z0-9][a-z0-9:_-]*$/;
 dashboardsEditRouter.get('/dashboards/:id/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.dashboardsStore) {
-    res.status(404).type('html').send('<p>Dashboards store unavailable. <a href="/pulse">Back</a></p>');
+    res.status(404).type('html').send(renderNotFoundPage({
+      path: req.originalUrl,
+      message: 'Dashboards store unavailable.',
+    }));
     return;
   }
   const id = pickId(req);
   const dashboard = ctx.dashboardsStore.getDashboard(id);
   if (!dashboard) {
-    res.status(404).type('html').send(`<p>No dashboard with id "${id}". <a href="/packs">Browse packs</a></p>`);
+    res.status(404).type('html').send(renderNotFoundPage({
+      path: req.originalUrl,
+      message: `No dashboard with id "${id}".`,
+    }));
     return;
   }
   // Only signal-bearing agents can render as Pulse tiles. Filter so the

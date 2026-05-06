@@ -16,19 +16,26 @@ import {
   type DashboardSectionRender,
 } from '../views/dashboards.js';
 import { buildPulseTile } from '../views/pulse-tile-builder.js';
+import { renderNotFoundPage } from '../views/not-found.js';
 
 export const dashboardsRouter: Router = Router();
 
 dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.dashboardsStore) {
-    res.status(404).type('html').send('<p>Dashboards store unavailable. <a href="/pulse">Back to Pulse</a></p>');
+    res.status(404).type('html').send(renderNotFoundPage({
+      path: req.originalUrl,
+      message: 'Dashboards store unavailable.',
+    }));
     return;
   }
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const dashboard = ctx.dashboardsStore.getDashboard(id);
   if (!dashboard) {
-    res.status(404).type('html').send(`<p>No dashboard with id "${id}". <a href="/packs">Browse packs</a></p>`);
+    res.status(404).type('html').send(renderNotFoundPage({
+      path: req.originalUrl,
+      message: `No dashboard with id "${id}".`,
+    }));
     return;
   }
 
