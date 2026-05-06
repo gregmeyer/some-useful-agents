@@ -24,6 +24,8 @@ export interface PulsePageInput {
   systemTiles: PulseTile[];
   tiles: PulseTile[];
   hiddenTiles: PulseTile[];
+  /** Optional one-shot banner from a redirect (?ok=… / ?error=…). */
+  flash?: { kind: 'ok' | 'error' | 'info'; message: string };
 }
 
 /** Signature for the tile wrapper function, passed to renderers. */

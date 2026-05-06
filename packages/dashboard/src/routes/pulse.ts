@@ -191,12 +191,21 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
     }
   }
 
+  const flash = parsePulseFlash(req);
   res.type('html').send(renderPulsePage({
     systemTiles,
     tiles,
     hiddenTiles,
+    flash,
   }));
 });
+
+function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
+  if (typeof req.query.ok === 'string') return { kind: 'ok', message: req.query.ok };
+  if (typeof req.query.error === 'string') return { kind: 'error', message: req.query.error };
+  if (typeof req.query.info === 'string') return { kind: 'info', message: req.query.info };
+  return undefined;
+}
 
 pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -276,6 +285,43 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
 });
 
 // ── Tile fragment (for auto-refresh polling) ────────────────────────────
+
+/**
+ * POST /pulse/hide-all — bulk-flip pulseVisible=false on every agent that
+ * has a signal block AND isn't already hidden. Use case: "clear the slate
+ * before installing a pack so only its dashboards show through". Reversible
+ * via `/pulse/show-all` or per-agent toggle.
+ */
+pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  let hidden = 0;
+  for (const agent of ctx.agentStore.listAgents()) {
+    if (!agent.signal) continue;
+    const alreadyHidden = agent.pulseVisible === false
+      || (agent.pulseVisible === undefined && agent.signal.hidden === true);
+    if (alreadyHidden) continue;
+    ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
+    hidden++;
+  }
+  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
+});
+
+/**
+ * POST /pulse/show-all — counterpart to hide-all. Sets pulseVisible=true
+ * on every agent that has a signal block. Useful after a "clear and
+ * curate" cycle if the user changes their mind.
+ */
+pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  let shown = 0;
+  for (const agent of ctx.agentStore.listAgents()) {
+    if (!agent.signal) continue;
+    if (agent.pulseVisible === true) continue;
+    ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
+    shown++;
+  }
+  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
+});
 
 pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
