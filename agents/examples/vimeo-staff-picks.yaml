@@ -68,10 +68,12 @@ nodes:
     timeout: 20
 signal:
   title: Vimeo Staff Picks
-  template: text-headline
-  mapping:
-    headline: fetched_at
-    body: fetched_at
+  # `widget` mirrors the full outputWidget on tiles so the iframe
+  # players + #each iteration + replay control all show inline.
+  # Switch to text-headline if you'd rather a tiny "last fetched at"
+  # tile instead of the full embed grid.
+  template: widget
+  mapping: {}
   size: 2x1
   accent: blue
 outputWidget:
