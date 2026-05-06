@@ -315,6 +315,13 @@ function printOutro(): void {
   ui.step('sua schedule start', 'start the scheduler');
   ui.step('sua agent new', 'scaffold your own agent');
   console.log('');
+  ui.section('Want a richer experience? Open the dashboard');
+  ui.step('sua dashboard start', 'launches the web UI on http://127.0.0.1:3000');
+  console.log('  Once it\'s up:');
+  console.log('   • visit ' + chalk.cyan('/packs') + ' to install the bundled Starter pack (3 demo agents + 2 dashboards)');
+  console.log('   • visit ' + chalk.cyan('/pulse') + ' to see live signal tiles for everything you\'ve scheduled');
+  console.log('   • use the ' + chalk.cyan('Build from goal') + ' button on / or /agents to design a new agent in plain English');
+  console.log('');
 }
 
 function indent(text: string, prefix: string): string {
