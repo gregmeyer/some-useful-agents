@@ -54,6 +54,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
         ${totalMissing > 0 ? html`, ${String(totalMissing)} missing` : html``}
         · ${sourceLabel}
       </span>
+      <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit" style="margin-left: auto;">Edit</a>
     </div>
 
     ${pageHeader({
