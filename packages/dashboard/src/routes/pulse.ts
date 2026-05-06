@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
 import { renderPulsePage, tileWrap, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
-import { normalizeSignal, extractMappedValues, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
+import { buildPulseTile } from '../views/pulse-tile-builder.js';
+import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 
 export const pulseRouter: Router = Router();
 
@@ -32,60 +33,7 @@ function autoImportSignalExamples(ctx: ReturnType<typeof getContext>): void {
 // ── Tile building ────────────────────────────────────────────────────────
 
 function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeof getContext>): PulseTile {
-  const signal = agent.signal;
-  let lastRun: Run | undefined;
-  let outputsJson: string | undefined;
-  let previousInputs: Record<string, string> | undefined;
-  try {
-    const runs = ctx.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
-    if (runs.length > 0) {
-      lastRun = runs[0];
-      const execs = ctx.runStore.listNodeExecutions(lastRun.id);
-      const lastExec = execs.filter((e) => e.status === 'completed').pop();
-      if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;
-
-      // Pre-fill the interactive widget form with the most recent run's
-      // input values so re-running with a tweaked prompt is one edit, not
-      // a full retype. Mirrors buildTabArgs in routes/agents/tabs.ts.
-      if (agent.outputWidget?.interactive && agent.inputs && execs.length > 0 && execs[0].inputsJson) {
-        try {
-          const allEnv = JSON.parse(execs[0].inputsJson) as Record<string, string>;
-          const inputNames = new Set(Object.keys(agent.inputs));
-          const picked: Record<string, string> = {};
-          for (const [k, v] of Object.entries(allEnv)) {
-            if (inputNames.has(k) && v !== '') picked[k] = v;
-          }
-          if (Object.keys(picked).length > 0) previousInputs = picked;
-        } catch { /* malformed inputsJson */ }
-      }
-    }
-  } catch { /* no runs */ }
-
-  const { mapping } = normalizeSignal(signal);
-  const slots = extractMappedValues(lastRun, mapping, outputsJson);
-
-  // Discover output field keys for the configure modal.
-  const outputFields: string[] = [];
-  const fieldSet = new Set<string>();
-  if (outputsJson) {
-    try {
-      const parsed = JSON.parse(outputsJson);
-      if (typeof parsed === 'object' && parsed !== null) {
-        for (const k of Object.keys(parsed)) fieldSet.add(k);
-      }
-    } catch { /* ignore */ }
-  }
-  if (lastRun?.result) {
-    try {
-      const parsed = JSON.parse(lastRun.result);
-      if (typeof parsed === 'object' && parsed !== null) {
-        for (const k of Object.keys(parsed)) fieldSet.add(k);
-      }
-    } catch { /* not JSON */ }
-  }
-  outputFields.push(...Array.from(fieldSet).sort());
-
-  return { agent, signal, lastRun, slots, outputFields, previousInputs };
+  return buildPulseTile(agent, { runStore: ctx.runStore });
 }
 
 // ── Virtual system tiles ─────────────────────────────────────────────────
@@ -192,11 +140,13 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   }
 
   const flash = parsePulseFlash(req);
+  const installedDashboards = ctx.dashboardsStore?.listDashboards() ?? [];
   res.type('html').send(renderPulsePage({
     systemTiles,
     tiles,
     hiddenTiles,
     flash,
+    installedDashboards,
   }));
 });
 
