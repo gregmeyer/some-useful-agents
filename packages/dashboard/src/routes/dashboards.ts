@@ -9,7 +9,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import type { Agent, AgentSignal } from '@some-useful-agents/core';
+import { dashboardToPackManifest, type Agent, type AgentSignal } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import {
   renderDashboardPage,
@@ -64,6 +64,50 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
     installedDashboards,
     flash,
   }));
+});
+
+/**
+ * GET /dashboards/:id/export — download the dashboard as a Pack manifest YAML.
+ *
+ * Bundles the dashboard's layout + each agent it references (full YAML
+ * inlined). Round-trips through pack-loader: the file the browser
+ * downloads is parseable by `packManifestSchema` + installable via
+ * `installPack` once dropped in the right directory.
+ *
+ * Missing agents (referenced in sections but not in agentStore) are
+ * silently dropped from the export — surfaced as a header for the
+ * caller's awareness.
+ */
+dashboardsRouter.get('/dashboards/:id/export', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.dashboardsStore) {
+    res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'Dashboards store unavailable.' }));
+    return;
+  }
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const dashboard = ctx.dashboardsStore.getDashboard(id);
+  if (!dashboard) {
+    res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: `No dashboard with id "${id}".` }));
+    return;
+  }
+
+  // Resolve the agents the dashboard references.
+  const agentIds = new Set<string>();
+  for (const s of dashboard.layout.sections) for (const aid of s.agentIds) agentIds.add(aid);
+  const agents = Array.from(agentIds)
+    .map((aid) => ctx.agentStore.getAgent(aid))
+    .filter((a): a is NonNullable<typeof a> => a !== null);
+
+  const result = dashboardToPackManifest({ dashboard, agents });
+
+  // Suggest a sensible filename. Browsers honour `attachment;
+  // filename="..."` for download dialogs.
+  const filename = `${result.manifest.id}.pack.yaml`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  if (result.missingAgentIds.length) {
+    res.setHeader('X-Pack-Missing-Agents', result.missingAgentIds.join(','));
+  }
+  res.type('text/yaml').send(result.yaml);
 });
 
 function parseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
