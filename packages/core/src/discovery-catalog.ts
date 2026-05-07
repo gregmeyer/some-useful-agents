@@ -202,6 +202,8 @@ function buildAgentsSection(agents: Agent[]): string {
 
   return `## AVAILABLE AGENTS (for agent-invoke / loop nodes)
 Each agent's outputs are what its final-node JSON produces — use these field names when referencing the result via {{upstream.<id>.<field>}} or "$upstream.<id>.<field>" in inputMapping. Agents tagged "(draft)" are user work-in-progress — prefer reusing one over creating a near-duplicate with a fresh id.
+
+ANY AGENT HERE IS LOOP-INVOKABLE. To run agent X per item in a list, use a \`loop\` node with \`agentId: X\` and \`inputMapping\` that references per-iteration fields with \`$item.<field>\`. To call agent X once as a sub-workflow, use \`agent-invoke\` with the same \`agentId\` + \`inputMapping\`. When a goal is "do <existing-agent's job> across <list>", DO NOT re-implement the existing agent — wrap it in a loop.
 ${lines.join('\n')}`;
 }
 

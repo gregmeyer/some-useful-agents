@@ -1,0 +1,180 @@
+# Ashby Jobs Across Companies — multi-company orchestrator.
+#
+# Searches matching jobs across N companies' Ashby boards in one shot.
+# Accepts either Ashby slugs (e.g. "rula") or company names (slugified
+# automatically). Verifies each candidate against the public posting
+# API before fetching, so unknown / non-Ashby companies get skipped
+# with a clear reason rather than silently dropped.
+#
+# Three nodes — discover (slug → API check) → fetch (per-company job
+# list) → explain (claude-code summary). Inlined per-company logic
+# rather than agent-invoke because: (a) one combined haystack means
+# one claude-code call instead of N; (b) the per-item work is two
+# trivial HTTP calls. For richer per-item primitives, prefer the
+# loop+agent-invoke pattern described in agents/examples/build-planner.yaml
+# (STEP 3b — COMPOSE OVER EXISTING AGENTS).
+#
+# Run:
+#   sua workflow run ashby-jobs-multi
+#   sua workflow run ashby-jobs-multi --input JOB_QUERY="staff engineer" --input COMPANIES="ramp,linear"
+
+id: ashby-jobs-multi
+name: Ashby Jobs Across Companies
+description: |
+  Searches for matching jobs across multiple companies' Ashby HQ boards
+  in one shot. Accepts either Ashby slugs or company names — names are
+  slugified and verified against the API before fetching. Claude filters
+  + summarises matches grouped by company.
+
+  Three nodes: discover → fetch (per company) → explain. No agent-invoke
+  loop — faster than spawning ashby-job-finder per company since the
+  filter step runs once over the combined haystack.
+status: draft
+source: local
+mcp: false
+version: 2
+inputs:
+  JOB_QUERY:
+    type: string
+    default: senior product manager
+    description: Role to filter for (e.g. "staff engineer", "director marketing")
+  COMPANIES:
+    type: string
+    default: rula,anthropic,ramp,notion,linear
+    description: Comma-separated Ashby slugs OR company names. Names get slugified (lowercase, spaces→hyphens) and verified.
+  MAX_RESULTS_PER_COMPANY:
+    type: number
+    default: 10
+    description: Cap matched jobs per company so the prompt doesn't blow up
+nodes:
+  - id: discover
+    type: shell
+    command: |
+      set -e
+      RAW="$COMPANIES"
+      if [ -z "$RAW" ]; then
+        echo '{"error":"COMPANIES is empty"}' >&2
+        exit 1
+      fi
+      python3 << 'PYEOF'
+      import json, os, re, urllib.request, urllib.error
+      raw = os.environ.get("COMPANIES", "").strip()
+      candidates = [c.strip() for c in raw.split(",") if c.strip()]
+      results = []
+      for name in candidates:
+          slug = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
+          if not slug:
+              results.append({"input": name, "slug": None, "ashby": False, "reason": "empty after slugify"})
+              continue
+          url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+          req = urllib.request.Request(url, headers={
+              "User-Agent": "Mozilla/5.0 sua-agent",
+              "Accept": "application/json",
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=8) as resp:
+                  body = resp.read().decode("utf-8", errors="replace")
+                  data = json.loads(body)
+                  job_count = len(data.get("jobs") or data.get("jobPostings") or [])
+                  results.append({"input": name, "slug": slug, "ashby": True, "job_count": job_count})
+          except urllib.error.HTTPError as e:
+              results.append({"input": name, "slug": slug, "ashby": False, "reason": f"HTTP {e.code}"})
+          except Exception as e:
+              results.append({"input": name, "slug": slug, "ashby": False, "reason": str(e)[:80]})
+      print(json.dumps({"candidates": results}))
+      PYEOF
+    timeout: 90
+  - id: fetch
+    type: shell
+    command: |
+      set -e
+      python3 << 'PYEOF'
+      import json, os, urllib.request, urllib.error
+      disc = json.loads(os.environ["UPSTREAM_DISCOVER_RESULT"])
+      out = []
+      for c in disc.get("candidates", []):
+          if not c.get("ashby"):
+              out.append({"input": c["input"], "slug": c.get("slug"), "found": False, "reason": c.get("reason", "no Ashby board")})
+              continue
+          slug = c["slug"]
+          url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+          try:
+              req = urllib.request.Request(url, headers={
+                  "User-Agent": "Mozilla/5.0 sua-agent",
+                  "Accept": "application/json",
+              })
+              with urllib.request.urlopen(req, timeout=12) as resp:
+                  data = json.loads(resp.read().decode("utf-8", errors="replace"))
+              jobs = data.get("jobs") or data.get("jobPostings") or []
+              # Trim each job to the fields the explainer needs — keeps token use down.
+              trimmed = []
+              for j in jobs:
+                  trimmed.append({
+                      "title": j.get("title") or j.get("name") or "",
+                      "team": j.get("team") or j.get("department") or "",
+                      "location": j.get("location") or j.get("locationName") or "",
+                      "employmentType": j.get("employmentType") or "",
+                      "url": j.get("jobUrl") or f"https://jobs.ashbyhq.com/{slug}/{j.get('id', '')}",
+                  })
+              out.append({"input": c["input"], "slug": slug, "found": True, "total": len(trimmed), "jobs": trimmed})
+          except Exception as e:
+              out.append({"input": c["input"], "slug": slug, "found": False, "reason": str(e)[:120]})
+      print(json.dumps({"companies": out}))
+      PYEOF
+    timeout: 120
+    dependsOn:
+      - discover
+  - id: explain
+    type: claude-code
+    prompt: |
+      Filter and summarise job postings across multiple companies.
+
+      USER QUERY: {{inputs.JOB_QUERY}}
+      MAX MATCHES PER COMPANY: {{inputs.MAX_RESULTS_PER_COMPANY}}
+
+      RAW DATA (per-company job lists):
+      {{upstream.fetch.result}}
+
+      Instructions:
+      1. For each company in `companies[]`:
+         - If `found: false`, mention briefly: "Skipped <input> — <reason>".
+         - If `found: true`, scan `jobs[]` for titles matching the user query (case-insensitive, partial match — e.g. "product manager" matches "Senior Product Manager" and "Product Manager II" but not "Product Designer").
+         - Cap matches per company at MAX MATCHES.
+      2. Render results as markdown grouped by company:
+
+         ## <Company Name> (<slug>)
+         - **<Job Title>** — <team> · <location> · <type> — [Apply](<url>)
+         - ...
+
+         (omit any field that's empty)
+      3. After all per-company sections, write a one-paragraph summary:
+         "Found N matching roles across M companies (out of T total open positions surveyed). <quick observations about location/team trends if any>"
+      4. If a company had zero matches, write "No matching roles" under its heading.
+      5. End with a short JSON block on its own line wrapped in ```json fences containing:
+         {"total_matches": N, "companies_searched": M, "companies_with_matches": K}
+    maxTurns: 1
+    timeout: 180
+    dependsOn:
+      - fetch
+signal:
+  title: Ashby Jobs (multi)
+  icon: 💼
+  template: text-headline
+  mapping:
+    headline: result
+  refresh: 24h
+  size: 2x1
+outputWidget:
+  type: raw
+  fields:
+    - name: result
+      label: Matched roles across companies
+      type: text
+  controls:
+    - type: replay
+      label: Re-run
+      inputs:
+        - JOB_QUERY
+        - COMPANIES
+        - MAX_RESULTS_PER_COMPANY
+

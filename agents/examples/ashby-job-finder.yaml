@@ -1,0 +1,207 @@
+# Ashby Job Finder — single-company job board search.
+#
+# Hits the public Ashby posting API for one company's job board, falls
+# back to scraping the HTML page if the API doesn't respond. Claude
+# filters the results for the user's role query.
+#
+# Designed to be loop-invoked by a multi-company orchestrator (see
+# ashby-jobs-multi.yaml for an inlined version, or the build-planner
+# loop+agent-invoke recipe for the composition pattern).
+#
+# NOTE on the static signal title: signal.title is rendered as a
+# literal string in tile chrome — the renderer doesn't substitute
+# {{inputs.X}} in signal.title (only outputWidget templates substitute
+# {{outputs.X}}/{{result}}). So the title here stays static
+# ("Ashby Jobs") instead of e.g. "{{inputs.JOB_QUERY}} @ {{inputs.COMPANY_SLUG}}",
+# which would render as that literal string on Pulse and dashboard tiles.
+#
+# Run:
+#   sua workflow run ashby-job-finder --input COMPANY_SLUG=rula --input JOB_QUERY="senior product manager"
+
+id: ashby-job-finder
+name: Ashby Job Finder
+description: |
+  Finds jobs on a company's Ashby HQ job board and filters for specific roles.
+  Tries the public Ashby posting API first; falls back to scraping the HTML
+  job board page. Claude parses whichever source succeeded and filters for
+  matching roles, returning structured JSON for the output widget.
+status: draft
+source: local
+mcp: false
+version: 12
+pulseVisible: true
+inputs:
+  COMPANY_SLUG:
+    type: string
+    default: rula
+    description: The company slug on jobs.ashbyhq.com (e.g. "rula")
+  JOB_QUERY:
+    type: string
+    default: senior product manager
+    description: Role to search for (e.g. "senior product manager")
+  MAX_RESULTS:
+    type: number
+    default: 20
+    description: Maximum number of matching jobs to return
+outputs:
+  headline:
+    type: string
+  match_count:
+    type: number
+  total_count:
+    type: number
+  summary:
+    type: string
+  roles:
+    type: array
+    description: Array of matching role objects with title, team, location, type, url
+nodes:
+  - id: fetch-jobs-api
+    type: shell
+    command: |
+      SLUG="$COMPANY_SLUG"
+      if ! echo "$SLUG" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+        echo '{"error": "Invalid company slug. Only alphanumeric characters, hyphens, and underscores are allowed."}' >&2
+        exit 1
+      fi
+      TMPFILE=$(mktemp /tmp/ashby_api_XXXXXX.json)
+      trap "rm -f $TMPFILE" EXIT
+      UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+      HTTP_CODE=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+        -H "User-Agent: $UA" \
+        -H "Accept: application/json" \
+        "https://api.ashbyhq.com/posting-api/job-board/${SLUG}" 2>/dev/null)
+      if [ "$HTTP_CODE" = "200" ]; then
+        if python3 -c "import sys, json; d = json.load(open('$TMPFILE')); sys.exit(0 if ('jobs' in d or 'jobPostings' in d) else 1)" 2>/dev/null; then
+          cat "$TMPFILE"
+          exit 0
+        fi
+      fi
+      echo "{\"api_failed\": true, \"http_code\": \"${HTTP_CODE}\"}"
+    timeout: 30
+  - id: fetch-jobs-html
+    type: shell
+    command: |
+      SLUG="$COMPANY_SLUG"
+      if ! echo "$SLUG" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+        echo "SLUG_INVALID" >&2
+        exit 1
+      fi
+      UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+      TMPFILE=$(mktemp /tmp/ashby_html_XXXXXX.html)
+      trap "rm -f $TMPFILE" EXIT
+      HTTP_CODE=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
+        -H "User-Agent: $UA" \
+        -H "Accept: text/html,application/xhtml+xml" \
+        -L \
+        "https://jobs.ashbyhq.com/${SLUG}" 2>/dev/null)
+      if [ "$HTTP_CODE" = "200" ]; then
+        cat "$TMPFILE"
+      else
+        echo "HTML_FETCH_FAILED: HTTP ${HTTP_CODE}" >&2
+        exit 1
+      fi
+    timeout: 30
+  - id: filter-and-summarize
+    type: claude-code
+    prompt: |
+      I'm looking for "{{inputs.JOB_QUERY}}" roles at the company with Ashby slug "{{inputs.COMPANY_SLUG}}".
+
+      I fetched job data from TWO sources. Use whichever one succeeded:
+
+      --- SOURCE 1: Ashby REST API (structured JSON, preferred if available) ---
+      {{upstream.fetch-jobs-api.result}}
+
+      --- SOURCE 2: HTML page from jobs.ashbyhq.com/{{inputs.COMPANY_SLUG}} (fallback) ---
+      {{upstream.fetch-jobs-html.result}}
+
+      **Instructions:**
+
+      1. **Pick your data source:**
+         - If Source 1 contains a "jobs" or "jobPostings" array (not an "api_failed" key), use it.
+         - If Source 1 failed, use Source 2 (extract jobs from the HTML markup).
+         - If BOTH sources failed, return: {"headline":"Fetch failed","match_count":0,"total_count":0,"summary":"Both API and HTML fetch failed. Verify slug at https://jobs.ashbyhq.com/{{inputs.COMPANY_SLUG}}","roles":[]}
+
+      2. **Parse all job listings** from whichever source you're using.
+
+      3. **Filter** for roles matching "{{inputs.JOB_QUERY}}" (case-insensitive, partial match on title).
+
+      4. Return up to {{inputs.MAX_RESULTS}} matching jobs.
+
+      5. **You MUST output ONLY a single JSON object** (no markdown, no explanation, no code fences) with this exact structure:
+         {
+           "headline": "<match_count> matching roles at <company>",
+           "match_count": <number of matching roles>,
+           "total_count": <total open positions>,
+           "summary": "<one-line summary, e.g. 'Found 3 PM roles out of 45 total positions'>",
+           "roles": [
+             {
+               "title": "Job Title",
+               "team": "Department or team name (or empty string if unknown)",
+               "location": "Location (or 'Not specified')",
+               "type": "Full-Time / Part-Time / Contract (or empty string)",
+               "url": "https://jobs.ashbyhq.com/{{inputs.COMPANY_SLUG}}/<job-id>"
+             }
+           ]
+         }
+
+      If no jobs match the query, set match_count to 0 and roles to an empty array.
+      Add a note in summary suggesting related roles if available.
+
+      IMPORTANT: Output raw JSON only. No markdown formatting, no backticks, no extra text.
+    maxTurns: 1
+    timeout: 120
+    dependsOn:
+      - fetch-jobs-api
+      - fetch-jobs-html
+signal:
+  title: Ashby Jobs
+  icon: 💼
+  template: text-headline
+  mapping:
+    headline: headline
+    body: summary
+  refresh: 24h
+  size: 2x1
+outputWidget:
+  type: ai-template
+  template: |
+    <div style="font-family: system-ui, sans-serif; padding: 1rem;">
+      <h2 style="margin: 0 0 0.25rem 0; font-size: 1.25rem;">{{outputs.headline}}</h2>
+      <p style="margin: 0 0 1rem 0; color: #666; font-size: 0.9rem;">{{outputs.summary}}</p>
+      {{#if outputs.roles}}
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid #e2e8f0; text-align: left;">
+            <th style="padding: 0.5rem;">Title</th>
+            <th style="padding: 0.5rem;">Team</th>
+            <th style="padding: 0.5rem;">Location</th>
+            <th style="padding: 0.5rem;">Type</th>
+            <th style="padding: 0.5rem;">Apply</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each outputs.roles as item}}
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 0.5rem; font-weight: 500;">{{item.title}}</td>
+            <td style="padding: 0.5rem;">{{item.team}}</td>
+            <td style="padding: 0.5rem;">{{item.location}}</td>
+            <td style="padding: 0.5rem;">{{item.type}}</td>
+            <td style="padding: 0.5rem;"><a href="{{item.url}}" target="_blank" style="color: #2563eb;">Apply →</a></td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+      {{/if}}
+      {{#unless outputs.roles}}
+      <p style="color: #888; font-style: italic;">No matching roles found.</p>
+      {{/unless}}
+    </div>
+  controls:
+    - type: replay
+      label: Search Again
+      inputs:
+        - COMPANY_SLUG
+        - JOB_QUERY
+        - MAX_RESULTS
+

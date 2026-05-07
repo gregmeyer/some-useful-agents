@@ -96,6 +96,63 @@ nodes:
       - Each new agent's YAML should include both signal: and outputWidget: blocks so dashboard
         tiles render correctly.
 
+      STEP 3b — COMPOSE OVER EXISTING AGENTS (the `loop + agent-invoke` pattern).
+      Before drafting a brand-new agent, ask: "is this goal a list × primitive?"
+      That is, does the user want the same operation repeated across many inputs
+      (e.g. "jobs across companies", "weather in 5 cities", "scrape these 8 URLs")?
+      If yes AND survey.matchedAgents has a primitive that already does the per-item
+      work, you MUST build ONLY an orchestrator that loops over the list and invokes
+      the existing primitive — do NOT re-implement the primitive's logic.
+
+      Orchestrator recipe (3 nodes — parse → loop → summarise). The angle-
+      bracket placeholders below are PSEUDOCODE — when you emit the actual
+      YAML, replace «X» with real double-brace template syntax: «inputs.NAME»
+      becomes (open-brace)(open-brace)inputs.NAME(close-brace)(close-brace),
+      and «upstream.NODE.field» the same with upstream prefix. (Spelled out
+      because this prompt is itself a YAML field validated by the parser —
+      writing literal double-braces here would trip the template-reference
+      checker.)
+
+        nodes:
+          - id: parse
+            type: shell
+            command: |
+              # split the comma-list into a JSON array, one entry per item.
+              # Output: {"items":[{"slug":"rula"},{"slug":"ramp"},...]}
+              python3 -c '...'
+          - id: search
+            type: loop
+            dependsOn: [parse]
+            loopConfig:
+              over: items                          # field in parse's output
+              agentId: <existing-primitive-id>     # e.g. ashby-job-finder
+              maxIterations: 10
+              inputMapping:
+                # map each item's fields to the primitive's inputs.
+                # $item.<field> resolves per iteration.
+                COMPANY_SLUG: "$item.slug"
+                JOB_QUERY: "«inputs.JOB_QUERY»"   # emit double-braces inputs.JOB_QUERY
+          - id: summarise
+            type: claude-code
+            dependsOn: [search]
+            prompt: |
+              Summarise the per-company results in «upstream.search.result».
+              (emit double-braces upstream.search.result in the actual YAML)
+              Group by company. Highlight matches.
+
+      Anti-pattern: if you find yourself drafting two near-identical agents (e.g.
+      `ashby-job-search` AND `ashby-job-hunter` doing the same thing for one vs many
+      companies), you're doing it wrong — write ONE orchestrator that loops over the
+      EXISTING primitive. The primitive belongs to the user; the orchestrator is your
+      only new agent.
+
+      Skip composition (just draft a normal multi-node agent) when:
+      - The goal is one-off, not list-shaped ("fetch the latest XKCD comic").
+      - No matching primitive exists yet — write a simple monolith and let the user
+        compose later.
+      - The per-item operation is trivial (one curl + jq) — inline it; loops add
+        coordination overhead that's only worth it for non-trivial primitives.
+
       STEP 4 — DESIGN THE DASHBOARD (when intent ≠ "agent").
       Dashboard id MUST start with `user:` followed by lowercase-with-hyphens (e.g. `user:morning-briefing`).
       Pick a `name` (Title Case, human-readable). Group tiles into 1-3 sections by topic.
