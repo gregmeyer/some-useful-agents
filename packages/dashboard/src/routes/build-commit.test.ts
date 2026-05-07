@@ -195,6 +195,34 @@ describe('POST /agents/build/commit', () => {
     expect(res.body.dashboardCreated).toBe('user:morning');
   });
 
+  it('refuses to create the dashboard when a referenced agent failed to land', async () => {
+    const app = await makeApp();
+    // YAML with a v1 inputs-as-array shape — autoFixYaml + schema reject.
+    const broken = `id: broken-agent\nname: Broken\nstatus: active\nsource: local\nmcp: false\ninputs:\n  - name: foo\n    description: bad shape\nnodes:\n  - id: n\n    type: shell\n    command: echo x\n    dependsOn: []\n`;
+    const plan: BuildPlan = {
+      intent: 'dashboard-mixed',
+      summary: 'Mixed with failing new agent',
+      survey: { matchedAgents: [{ id: 'hn-top-stories', matchedFor: 'HN' }], missingFor: ['notes'], existingDashboards: [] },
+      newAgents: [{ id: 'broken-agent', purpose: 'will fail to parse', yaml: broken }],
+      dashboard: {
+        id: 'user:will-not-land',
+        name: 'Will Not Land',
+        sections: [{ title: 'Mixed', agentIds: ['hn-top-stories', 'broken-agent'] }],
+      },
+      questions: [],
+    };
+    const res = await request(app).post('/agents/build/commit')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send({ plan });
+    expect(res.body.ok).toBe(true);
+    expect(res.body.agentsCreated).toEqual([]);
+    expect(res.body.agentsSkipped).toHaveLength(1);
+    // Dashboard was NOT created (would have referenced a non-existent agent).
+    expect(res.body.dashboardCreated).toBeNull();
+    expect(res.body.dashboardError).toMatch(/broken-agent/);
+    expect(dashboardsStore.getDashboard('user:will-not-land')).toBeNull();
+  });
+
   it('rejects plans that fail schema validation', async () => {
     const app = await makeApp();
     const res = await request(app).post('/agents/build/commit')
