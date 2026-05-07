@@ -33,6 +33,27 @@ export type ExecuteDagFn = (
   deps: DagExecutorDeps,
 ) => Promise<Run>;
 
+/**
+ * Merge YAML-declared input defaults into the user-supplied inputs map.
+ *
+ * The dashboard's run handler builds `options.inputs` from `input_*` form
+ * fields only — it does not apply spec defaults. Per-node env construction
+ * applies defaults later (`node-env.ts`), but `{{inputs.X}}` substitution
+ * in loop/agent-invoke `inputMapping` runs at the control-flow layer and
+ * needs the same merge to see declared defaults instead of an empty value.
+ *
+ * Precedence: user-supplied wins, then spec.default, otherwise omitted.
+ */
+function effectiveInputs(agent: Agent, supplied: Record<string, string>): Record<string, string> {
+  const merged: Record<string, string> = { ...supplied };
+  for (const [name, spec] of Object.entries(agent.inputs ?? {})) {
+    if (merged[name] === undefined && spec.default !== undefined) {
+      merged[name] = String(spec.default);
+    }
+  }
+  return merged;
+}
+
 // ── Conditional + Switch ───────────────────────────────────────────────
 
 export function executeControlFlowNode(
@@ -184,7 +205,7 @@ export async function executeAgentInvokeNode(
   parentRunId: string,
   parentOptions: DagExecuteOptions,
   deps: DagExecutorDeps,
-  _parentAgent: Agent,
+  parentAgent: Agent,
   executeDag: ExecuteDagFn,
 ): Promise<AgentInvokeResult> {
   const config = node.agentInvokeConfig;
@@ -200,10 +221,11 @@ export async function executeAgentInvokeNode(
     return { ok: false, error: `Sub-agent "${config.agentId}" not found in store` };
   }
 
+  const parentInputs = effectiveInputs(parentAgent, parentOptions.inputs ?? {});
   const subInputs: Record<string, string> = {};
   if (config.inputMapping) {
     for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
-      subInputs[subKey] = resolveSourceExpr(sourceExpr, undefined, outputs, parentOptions.inputs ?? {});
+      subInputs[subKey] = resolveSourceExpr(sourceExpr, undefined, outputs, parentInputs);
     }
   }
 
@@ -259,7 +281,7 @@ export async function executeLoopNode(
   parentRunId: string,
   parentOptions: DagExecuteOptions,
   deps: DagExecutorDeps,
-  _parentAgent: Agent,
+  parentAgent: Agent,
   executeDag: ExecuteDagFn,
   onProgress?: (event: SpawnProgress) => void,
 ): Promise<AgentInvokeResult> {
@@ -314,6 +336,7 @@ export async function executeLoopNode(
   const results: (unknown | null)[] = [];
 
   const total = limited.length;
+  const parentInputs = effectiveInputs(parentAgent, parentOptions.inputs ?? {});
   for (let i = 0; i < total; i++) {
     const item = limited[i];
     const label = itemLabel(item);
@@ -324,7 +347,7 @@ export async function executeLoopNode(
 
     if (config.inputMapping) {
       for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
-        subInputs[subKey] = resolveSourceExpr(sourceExpr, item, outputs, parentOptions.inputs ?? {});
+        subInputs[subKey] = resolveSourceExpr(sourceExpr, item, outputs, parentInputs);
       }
     }
 

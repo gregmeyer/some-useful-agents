@@ -1242,6 +1242,59 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(loopOutput.items[1].headline).toBe('match for ramp');
   });
 
+  it('applies parent inputs defaults to {{inputs.X}} substitution when user did not supply', async () => {
+    agentStore.createAgent(
+      {
+        id: 'topic-echo',
+        name: 'Topic Echo',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: { TOPIC: { type: 'string', default: 'unset' } },
+        nodes: [{ id: 'echo', type: 'shell', command: 'echo "topic=$TOPIC"' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    // Parent declares JOB_QUERY default, user does NOT supply it on this run.
+    // The loop's inputMapping references {{inputs.JOB_QUERY}} and must see
+    // the parent's spec.default ("default-query") rather than empty string.
+    const parentAgent = makeAgent({
+      inputs: { JOB_QUERY: { type: 'string', default: 'default-query' } },
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: {
+            over: 'companies',
+            agentId: 'topic-echo',
+            inputMapping: { TOPIC: '{{inputs.JOB_QUERY}}' },
+          },
+        },
+      ],
+    });
+
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      if (node.id === 'source') {
+        return { result: '{"companies": [{"slug": "rula"}]}', exitCode: 0 };
+      }
+      if (node.id === 'echo') {
+        return { result: `topic=${env.TOPIC ?? ''}`, exitCode: 0 };
+      }
+      return { result: 'ok', exitCode: 0 };
+    };
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    // Note: no `inputs:` passed — exercises the defaults path.
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const subRun = runStore.queryRuns({ limit: 20, offset: 0, statuses: [] }).rows.find((r) => r.parentRunId === run.id)!;
+    expect(subRun.result).toBe('topic=default-query');
+  });
+
   it('substitutes {{inputs.X}} in agent-invoke inputMapping', async () => {
     agentStore.createAgent(
       {
