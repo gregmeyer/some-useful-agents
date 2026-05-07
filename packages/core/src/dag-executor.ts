@@ -586,7 +586,7 @@ export async function executeAgentDag(
     let upstreamSnapshot: Record<string, string>;
     try {
       upstreamSnapshot = buildUpstreamSnapshot(node, outputs);
-      env = await buildNodeEnv(agent, node, options.inputs ?? {}, upstreamSnapshot, deps);
+      env = await buildNodeEnv(agent, node, options.inputs ?? {}, upstreamSnapshot, deps, runId);
     } catch (err) {
       const message = (err as Error).message;
       deps.runStore.createNodeExecution({

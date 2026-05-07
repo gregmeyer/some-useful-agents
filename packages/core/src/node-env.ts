@@ -4,6 +4,8 @@
  * caller inputs, and upstream results. Extracted from dag-executor.ts.
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Agent, AgentNode, NodeOutput } from './agent-v2-types.js';
 import type { DagExecutorDeps } from './dag-executor.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
@@ -35,12 +37,24 @@ export const LOCAL_PATTERNS = [/^LC_/];
  * LD_PRELOAD, etc.) coming from user-supplied inputs are blocked — the
  * schema rejects these at load time but we defense-in-depth here too.
  */
+/**
+ * Soft cap above which an UPSTREAM_<ID>_RESULT env value gets truncated
+ * inline and the full payload is written to a per-run tempfile pointed
+ * at by UPSTREAM_<ID>_RESULT_FILE. Picked at 32KB so the common case
+ * (small upstream JSON / one-line shell echoes) stays fully inline; only
+ * fat HTML pages or large API dumps hit the file path. Chosen well below
+ * ARG_MAX (~256KB Linux) so even when several upstream-results stack
+ * the total exec env stays comfortably under the kernel cap.
+ */
+export const UPSTREAM_INLINE_THRESHOLD = 32 * 1024;
+
 export async function buildNodeEnv(
   agent: Agent,
   node: AgentNode,
   callerInputs: Record<string, string>,
   upstreamSnapshot: Record<string, string>,
   deps: DagExecutorDeps,
+  runId?: string,
 ): Promise<Record<string, string>> {
   const trustLevel = agent.source === 'community' ? 'community' : 'local';
   const baseAllowlist = trustLevel === 'community' ? MINIMAL_ALLOWLIST : LOCAL_ALLOWLIST;
@@ -103,10 +117,32 @@ export async function buildNodeEnv(
     env[k] = v;
   }
 
-  // 7: upstream results as UPSTREAM_<NODEID>_RESULT.
+  // 7: upstream results as UPSTREAM_<NODEID>_RESULT. Values above the
+  // soft cap get truncated inline and the full payload is written to
+  // a per-run tempfile pointed at by UPSTREAM_<NODEID>_RESULT_FILE.
+  // Falls back to inline-only when stateDir + runId aren't available
+  // (test paths, one-shot CLI runs without a dataRoot).
+  const stateDir = deps.dataRoot ? ensureStateDir(agent.id, deps.dataRoot) : undefined;
   for (const [upstreamId, value] of Object.entries(upstreamSnapshot)) {
     const key = `UPSTREAM_${upstreamId.toUpperCase().replace(/-/g, '_')}_RESULT`;
-    env[key] = value;
+    if (value.length <= UPSTREAM_INLINE_THRESHOLD || !stateDir || !runId) {
+      env[key] = value;
+      continue;
+    }
+    try {
+      const dir = join(stateDir, '_upstream', runId);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `${upstreamId}.txt`);
+      writeFileSync(path, value, 'utf8');
+      const marker = `\n...(truncated at ${UPSTREAM_INLINE_THRESHOLD} bytes; full value at $${key}_FILE)`;
+      env[key] = value.slice(0, UPSTREAM_INLINE_THRESHOLD) + marker;
+      env[`${key}_FILE`] = path;
+    } catch {
+      // Filesystem failure: fall back to inline (existing behaviour).
+      // The downstream node may still hit E2BIG; the guardrail in
+      // spawnProcess will surface a structured error in that case.
+      env[key] = value;
+    }
   }
 
   return env;

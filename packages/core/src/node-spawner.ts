@@ -178,7 +178,10 @@ export const codexSpawner: LlmSpawner = {
   binary: 'codex',
 
   buildArgs(opts: LlmSpawnOptions): string[] {
-    const args = ['exec', '-s', 'read-only', opts.prompt];
+    // Prompt rides on stdin (see claudeSpawner note). `codex exec` reads
+    // its prompt from stdin when no positional argument is given.
+    void opts.prompt;
+    const args = ['exec', '-s', 'read-only'];
     if (opts.model) args.push('-m', opts.model);
     return args;
   },
@@ -302,6 +305,30 @@ export interface SpawnProcessOptions {
 }
 
 /**
+ * Soft cap on the rendered argv + env total. Sits well below ARG_MAX
+ * (~256KB Linux, often stricter under sandboxes / containers) so the
+ * executor refuses with a structured error before the kernel rejects
+ * with `spawn E2BIG`. The fix-claude-stdin (#220) and tempfile-fallback
+ * (this PR) paths handle the common offenders; this guardrail is the
+ * safety net for any future regression or shell-node path that stacks
+ * multiple fat upstreams without using $UPSTREAM_<ID>_RESULT_FILE.
+ */
+const SPAWN_TOTAL_SOFT_CAP = 200 * 1024;
+
+function approximateExecSize(args: string[], env: Record<string, string>, stdinInput: string | undefined): number {
+  let total = 0;
+  // argv slot overhead: each arg pays its byte length + a NUL terminator.
+  for (const a of args) total += a.length + 1;
+  // env slot overhead: each "K=V" pays both lengths + NUL + the equals.
+  for (const [k, v] of Object.entries(env)) total += k.length + v.length + 2;
+  // Stdin doesn't go through execve, but a runaway prompt is still worth
+  // mentioning in the error so authors know which lever to pull. Counted
+  // separately from the argv+env cap.
+  void stdinInput;
+  return total;
+}
+
+/**
  * Low-level process spawn with timeout, exit-code categorization,
  * optional per-line progress callback, and result extraction.
  */
@@ -314,6 +341,26 @@ export async function spawnProcess(
     let child: ChildProcess;
     let killed = false;
     const stdinMode = opts.stdinInput !== undefined ? 'pipe' : 'ignore';
+
+    const execSize = approximateExecSize(args, opts.env, opts.stdinInput);
+    if (execSize > SPAWN_TOTAL_SOFT_CAP) {
+      // Find the heaviest contributor so the error tells the author
+      // which env var or arg to trim or move to a tempfile.
+      const heaviestEnv = Object.entries(opts.env)
+        .map(([k, v]) => ({ k, bytes: k.length + v.length + 2 }))
+        .sort((a, b) => b.bytes - a.bytes)[0];
+      const heaviestHint = heaviestEnv && heaviestEnv.bytes > 8 * 1024
+        ? ` Largest env var: ${heaviestEnv.k} (${heaviestEnv.bytes} bytes); consider $${heaviestEnv.k}_FILE if shell, or upstream trimming.`
+        : '';
+      resolve({
+        result: '',
+        exitCode: 127,
+        error: `Refusing spawn: argv+env total ${execSize} bytes exceeds soft cap ${SPAWN_TOTAL_SOFT_CAP} (kernel ARG_MAX ~256KB).${heaviestHint}`,
+        category: 'setup',
+      });
+      return;
+    }
+
     try {
       child = spawn(bin, args, {
         cwd: opts.cwd,
