@@ -1188,6 +1188,104 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(execs.find((e) => e.nodeId === 'each')!.error).toContain('not an array');
   });
 
+  it('exposes loop items as parsed JSON when sub-agent results are JSON objects', async () => {
+    agentStore.createAgent(
+      {
+        id: 'json-emitter',
+        name: 'JSON Emitter',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: { COMPANY_SLUG: { type: 'string', default: 'x' } },
+        nodes: [{ id: 'emit', type: 'shell', command: 'echo placeholder' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: {
+            over: 'companies',
+            agentId: 'json-emitter',
+            inputMapping: { COMPANY_SLUG: '$item.slug' },
+          },
+        },
+      ],
+    });
+
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      if (node.id === 'source') {
+        return { result: '{"companies": [{"slug": "rula"}, {"slug": "ramp"}]}', exitCode: 0 };
+      }
+      if (node.id === 'emit') {
+        return { result: JSON.stringify({ headline: `match for ${env.COMPANY_SLUG}`, count: 3 }), exitCode: 0 };
+      }
+      return { result: 'ok', exitCode: 0 };
+    };
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const loopExec = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'each')!;
+    const loopOutput = JSON.parse(loopExec.result!);
+    expect(loopOutput.count).toBe(2);
+    // Items must be objects (parsed), not JSON-encoded strings — so a downstream
+    // prompt can dot-walk into them via {{upstream.each.items.0.headline}}.
+    expect(typeof loopOutput.items[0]).toBe('object');
+    expect(loopOutput.items[0].headline).toBe('match for rula');
+    expect(loopOutput.items[1].headline).toBe('match for ramp');
+  });
+
+  it('substitutes {{inputs.X}} in agent-invoke inputMapping', async () => {
+    agentStore.createAgent(
+      {
+        id: 'echo-query',
+        name: 'Echo Query',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: { TOPIC: { type: 'string', default: 'unset' } },
+        nodes: [{ id: 'echo', type: 'shell', command: 'echo "topic=$TOPIC"' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      inputs: { TOPIC: { type: 'string', default: 'fintech' } },
+      nodes: [
+        {
+          id: 'invoke-child',
+          type: 'agent-invoke' as any,
+          agentInvokeConfig: {
+            agentId: 'echo-query',
+            inputMapping: { TOPIC: '{{inputs.TOPIC}}' },
+          },
+        },
+      ],
+    });
+
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      if (node.id === 'echo') {
+        return { result: `topic=${env.TOPIC ?? ''}`, exitCode: 0 };
+      }
+      return { result: 'ok', exitCode: 0 };
+    };
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli', inputs: { TOPIC: 'fintech' } }, deps);
+
+    expect(run.status).toBe('completed');
+    const subRuns = runStore.queryRuns({ limit: 20, offset: 0, statuses: [] }).rows.filter((r) => r.parentRunId === run.id);
+    expect(subRuns).toHaveLength(1);
+    expect(subRuns[0].result).toBe('topic=fintech');
+  });
+
   it('passes per-iteration values to the sub-agent via inputMapping', async () => {
     agentStore.createAgent(
       {
