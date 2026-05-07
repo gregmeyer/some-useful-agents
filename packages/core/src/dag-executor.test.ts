@@ -1397,6 +1397,24 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(subResults[1]).toBe('slug=rula query=staff engineer');
   });
 
+  it('refuses to spawn with a structured error when argv+env exceeds the soft cap', async () => {
+    // 250KB of garbage in a single env var pushes well past the 200KB cap.
+    const fatBlob = 'x'.repeat(250 * 1024);
+    const parentAgent = makeAgent({
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi', env: { FAT: fatBlob } }],
+    });
+    // Use the REAL spawnNode so the guardrail in spawnProcess fires; canned
+    // spawners would bypass it. We expect spawnProcess to refuse before exec.
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, { runStore, agentStore });
+
+    expect(run.status).toBe('failed');
+    const exec = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'main')!;
+    expect(exec.status).toBe('failed');
+    expect(exec.errorCategory).toBe('setup');
+    expect(exec.error).toMatch(/Refusing spawn.*soft cap/);
+    expect(exec.error).toMatch(/FAT/); // mentions the heaviest env var
+  });
+
   it('emits per-iteration progress events on the loop node execution row', async () => {
     agentStore.createAgent(
       {

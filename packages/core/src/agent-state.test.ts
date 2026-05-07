@@ -133,6 +133,63 @@ describe('STATE_DIR env-var integration via buildNodeEnv', () => {
   });
 });
 
+describe('UPSTREAM_<ID>_RESULT_FILE fat-payload fallback', () => {
+  let dataRoot: string;
+  beforeEach(() => { dataRoot = mkdtempSync(join(tmpdir(), 'sua-upstream-')); });
+  afterEach(() => { rmSync(dataRoot, { recursive: true, force: true }); });
+
+  it('writes a tempfile + sets _FILE env when an upstream value exceeds the inline threshold', async () => {
+    const { buildNodeEnv, UPSTREAM_INLINE_THRESHOLD } = await import('./node-env.js');
+    const agent = {
+      id: 'upstream-test',
+      name: 'upstream-test',
+      status: 'active' as const,
+      source: 'local' as const,
+      mcp: false,
+      version: 1,
+      nodes: [{ id: 'main', type: 'shell' as const, command: 'echo hi' }],
+    };
+    const fatValue = 'x'.repeat(UPSTREAM_INLINE_THRESHOLD + 5_000);
+    const env = await buildNodeEnv(
+      agent,
+      agent.nodes[0],
+      {},
+      { 'fetch-jobs-html': fatValue },
+      { runStore: { } as never, dataRoot },
+      'run-abc',
+    );
+    expect(env.UPSTREAM_FETCH_JOBS_HTML_RESULT.length).toBeLessThan(fatValue.length);
+    expect(env.UPSTREAM_FETCH_JOBS_HTML_RESULT).toContain('truncated');
+    expect(env.UPSTREAM_FETCH_JOBS_HTML_RESULT_FILE).toBeTruthy();
+    expect(existsSync(env.UPSTREAM_FETCH_JOBS_HTML_RESULT_FILE)).toBe(true);
+    const onDisk = readFileSync(env.UPSTREAM_FETCH_JOBS_HTML_RESULT_FILE, 'utf8');
+    expect(onDisk).toBe(fatValue);
+  });
+
+  it('keeps small upstream values fully inline (no _FILE env, no tempfile)', async () => {
+    const { buildNodeEnv } = await import('./node-env.js');
+    const agent = {
+      id: 'small-upstream',
+      name: 'small-upstream',
+      status: 'active' as const,
+      source: 'local' as const,
+      mcp: false,
+      version: 1,
+      nodes: [{ id: 'main', type: 'shell' as const, command: 'echo hi' }],
+    };
+    const env = await buildNodeEnv(
+      agent,
+      agent.nodes[0],
+      {},
+      { 'tiny-node': 'small-payload' },
+      { runStore: { } as never, dataRoot },
+      'run-xyz',
+    );
+    expect(env.UPSTREAM_TINY_NODE_RESULT).toBe('small-payload');
+    expect(env.UPSTREAM_TINY_NODE_RESULT_FILE).toBeUndefined();
+  });
+});
+
 describe('stateDirSize (PR D.1)', () => {
   let dataRoot: string;
   beforeEach(() => { dataRoot = mkdtempSync(join(tmpdir(), 'sua-state-size-')); });
