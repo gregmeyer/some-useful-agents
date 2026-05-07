@@ -202,20 +202,7 @@ export async function executeAgentInvokeNode(
   const subInputs: Record<string, string> = {};
   if (config.inputMapping) {
     for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
-      if (sourceExpr.startsWith('upstream.')) {
-        const parts = sourceExpr.split('.');
-        const upId = parts[1];
-        const field = parts.slice(2).join('.');
-        const upOutput = outputs.get(upId);
-        if (upOutput?.outputs) {
-          const val = walkPath(upOutput.outputs, field);
-          subInputs[subKey] = val !== undefined ? String(val) : '';
-        } else if (upOutput) {
-          subInputs[subKey] = upOutput.result;
-        }
-      } else {
-        subInputs[subKey] = sourceExpr;
-      }
+      subInputs[subKey] = resolveSourceExpr(sourceExpr, undefined, outputs, parentOptions.inputs ?? {});
     }
   }
 
@@ -304,7 +291,11 @@ export async function executeLoopNode(
 
   const maxIter = config.maxIterations ?? 1000;
   const limited = items.slice(0, maxIter);
-  const results: (string | null)[] = [];
+  // Per-iteration items: parsed JSON when the sub-agent's result was a JSON object,
+  // raw string when it wasn't, null when the sub-run failed. This lets downstream
+  // prompts read structured fields with `{{upstream.<id>.items.0.<field>}}` instead
+  // of having to parse JSON-encoded strings out of an array of strings.
+  const results: (unknown | null)[] = [];
 
   for (let i = 0; i < limited.length; i++) {
     const item = limited[i];
@@ -315,7 +306,7 @@ export async function executeLoopNode(
 
     if (config.inputMapping) {
       for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
-        subInputs[subKey] = resolveLoopSource(sourceExpr, item, outputs, parentOptions.inputs ?? {});
+        subInputs[subKey] = resolveSourceExpr(sourceExpr, item, outputs, parentOptions.inputs ?? {});
       }
     }
 
@@ -330,7 +321,16 @@ export async function executeLoopNode(
       deps,
     );
 
-    results.push(subRun.status === 'completed' ? (subRun.result ?? null) : null);
+    if (subRun.status !== 'completed' || subRun.result == null) {
+      results.push(null);
+    } else {
+      let parsed: unknown = subRun.result;
+      try {
+        const candidate = JSON.parse(subRun.result);
+        if (typeof candidate === 'object' && candidate !== null) parsed = candidate;
+      } catch { /* not JSON — keep raw string */ }
+      results.push(parsed);
+    }
   }
 
   return {
@@ -374,26 +374,37 @@ export function evaluateOnlyIf(condition: OnlyIfCondition, upOutput: NodeOutput 
 }
 
 /**
- * Resolve a loop inputMapping source expression. Supports:
- *   `$item.<path>`            → walkPath into the current item
- *   `$upstream.<id>.<field>`  → field of an upstream node's structured output
- *   `{{inputs.X}}`            → parent agent's input X (substituted in-place)
- * Anything else is treated as a literal string.
+ * Resolve an inputMapping source expression for both `loop` and `agent-invoke`.
+ * Supported source forms:
+ *   `$item.<path>`            → walkPath into the current item (loop only — agent-invoke
+ *                                passes `item: undefined`, in which case `$item` resolves
+ *                                to empty string)
+ *   `$upstream.<id>.<field>`  → field of an upstream node's structured output (or its
+ *                                raw `result` when no field is supplied)
+ *   `upstream.<id>.<field>`   → backward-compat alias for the above (no `$` prefix)
+ *   `{{inputs.X}}`            → parent agent's input X (in-place substitution; multiple
+ *                                {{inputs.X}} tokens may appear in a single expression)
+ * Anything else (including a plain literal with no recognized prefix) is treated as a
+ * literal string after `{{inputs.X}}` substitution.
  */
-function resolveLoopSource(
+function resolveSourceExpr(
   expr: string,
-  item: unknown,
+  item: unknown | undefined,
   outputs: Map<string, NodeOutput>,
   parentInputs: Record<string, string>,
 ): string {
   if (expr.startsWith('$item')) {
+    if (item === undefined) return '';
     const path = expr.slice('$item'.length).replace(/^\./, '');
     const val = path ? walkPath(item, path) : item;
     if (val === undefined || val === null) return '';
     return typeof val === 'string' ? val : JSON.stringify(val);
   }
-  if (expr.startsWith('$upstream.')) {
-    const parts = expr.slice('$upstream.'.length).split('.');
+  const upstreamPrefix = expr.startsWith('$upstream.') ? '$upstream.'
+    : expr.startsWith('upstream.') ? 'upstream.'
+    : null;
+  if (upstreamPrefix) {
+    const parts = expr.slice(upstreamPrefix.length).split('.');
     const upId = parts[0];
     const field = parts.slice(1).join('.');
     const upOutput = outputs.get(upId);
