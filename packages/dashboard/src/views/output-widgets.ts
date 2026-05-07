@@ -179,6 +179,15 @@ export function renderOutputWidget(
   output: string,
   agentId: string,
   controlState?: WidgetControlState,
+  /**
+   * Names of the agent's declared inputs. When present and the schema has
+   * no `replay` control, the renderer synthesises a default Re-run button
+   * pre-wired with these inline input fields, so authors don't have to
+   * remember to declare `controls: [{type: replay}]` to get a re-run
+   * affordance on detail pages. Pulse / home tiles pass no `controlState`
+   * and so still render in static mode.
+   */
+  defaultReplayInputs?: string[],
 ): SafeHtml | undefined {
   // ai-template widgets render their own layout via the stored template;
   // field-toggle / view-switch don't apply (rejected at schema time). Only
@@ -207,9 +216,31 @@ export function renderOutputWidget(
       return undefined;
   }
 
-  if (!controlState || !schema.controls?.length) return body;
-  const controlsRow = renderControlsRow(schema, agentId, controlState);
+  if (!controlState) return body;
+  const effectiveSchema = ensureReplayControl(schema, defaultReplayInputs);
+  if (!effectiveSchema.controls?.length) return body;
+  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState);
   return html`${controlsRow}${body}`;
+}
+
+/**
+ * Return the schema unchanged when it already has a `replay` control or
+ * when the caller didn't supply default inputs to wire one with. Otherwise
+ * return a shallow copy with a synthesised replay control prepended so
+ * every detail-page widget gets a Re-run button for free.
+ */
+function ensureReplayControl(
+  schema: OutputWidgetSchema,
+  defaultReplayInputs: string[] | undefined,
+): OutputWidgetSchema {
+  const hasReplay = schema.controls?.some((c) => c.type === 'replay');
+  if (hasReplay) return schema;
+  const synthesized: WidgetControl = {
+    type: 'replay',
+    label: 'Run again',
+    inputs: defaultReplayInputs && defaultReplayInputs.length > 0 ? defaultReplayInputs : undefined,
+  };
+  return { ...schema, controls: [synthesized, ...(schema.controls ?? [])] };
 }
 
 /**

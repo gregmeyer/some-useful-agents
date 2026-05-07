@@ -44,7 +44,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
           </div>
           ${latestCompletedRun?.result
             ? html`
-              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id, widgetControls) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
+              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id, widgetControls, Object.keys(agent.inputs ?? {})) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
               <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0;">From run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
             `
             : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Run the agent to see a preview.</p>`}
