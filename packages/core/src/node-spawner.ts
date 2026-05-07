@@ -84,7 +84,11 @@ export const claudeSpawner: LlmSpawner = {
   binary: 'claude',
 
   buildArgs(opts: LlmSpawnOptions): string[] {
-    const args = ['--print', '--output-format', 'stream-json', '--verbose', opts.prompt];
+    // Prompt is sent via stdin (see spawnProcess.stdinInput) — keeping it
+    // out of argv avoids E2BIG when {{upstream.X.result}} substitution
+    // produces a fat prompt.
+    void opts.prompt;
+    const args = ['--print', '--output-format', 'stream-json', '--verbose'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
     if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
@@ -151,7 +155,9 @@ export const claudeTextSpawner: LlmSpawner = {
   binary: 'claude',
 
   buildArgs(opts: LlmSpawnOptions): string[] {
-    const args = ['--print', opts.prompt];
+    // Prompt rides on stdin (see claudeSpawner note).
+    void opts.prompt;
+    const args = ['--print'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
     if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
@@ -245,9 +251,24 @@ export async function spawnNodeReal(
     allowedTools: node.allowedTools,
   });
 
+  // Strip UPSTREAM_*_RESULT env vars before exec: claude-code consumed
+  // them via {{upstream.X.field}} substitution above (lines 228-233), so
+  // the raw env-var copies are now dead weight. Leaving them in argv+env
+  // total contributes to E2BIG when execve()'s argv+env exceeds ARG_MAX.
+  // Shell nodes still receive these env vars — they're the intended
+  // consumer (`$UPSTREAM_<ID>_RESULT` references in the command).
+  const childEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (!/^UPSTREAM_[A-Z0-9_]+_RESULT$/.test(k)) childEnv[k] = v;
+  }
+
   return spawnProcess(spawner.binary, args, {
     cwd: node.workingDirectory,
-    env,
+    env: childEnv,
+    // Prompt rides on stdin — argv would also count toward ARG_MAX, and
+    // `{{upstream.X.result}}` substitution can produce 100KB+ prompts on
+    // agents like ashby-job-finder (fetch-jobs-html alone is multi-100KB).
+    stdinInput: resolvedPrompt,
     timeoutSec: node.timeout ?? 300,
     onProgress: onProgress ? (line) => {
       const event = spawner.parseProgress(line);
@@ -270,6 +291,14 @@ export interface SpawnProcessOptions {
   extractResult?: (stdout: string) => string;
   /** Cancellation signal. SIGTERMs the child process when aborted. */
   signal?: AbortSignal;
+  /**
+   * When set, opens stdin as a pipe, writes this string, and closes it.
+   * Used by the claude / codex spawners so the prompt rides on stdin
+   * instead of argv — argv+env is bounded by ARG_MAX (~256KB on Linux,
+   * stricter under sandboxes), and any agent whose prompt-after-template-
+   * substitution exceeds that ceiling fails with `spawn E2BIG` otherwise.
+   */
+  stdinInput?: string;
 }
 
 /**
@@ -284,15 +313,20 @@ export async function spawnProcess(
   return new Promise<SpawnResult>((resolve) => {
     let child: ChildProcess;
     let killed = false;
+    const stdinMode = opts.stdinInput !== undefined ? 'pipe' : 'ignore';
     try {
       child = spawn(bin, args, {
         cwd: opts.cwd,
         env: opts.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [stdinMode, 'pipe', 'pipe'],
       });
     } catch (err) {
       resolve({ result: '', exitCode: 127, error: (err as Error).message, category: 'spawn_failure' });
       return;
+    }
+    if (opts.stdinInput !== undefined && child.stdin) {
+      child.stdin.on('error', () => { /* child may close before we finish writing — swallow EPIPE */ });
+      child.stdin.end(opts.stdinInput);
     }
 
     let stdout = '';
