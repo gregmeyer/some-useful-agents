@@ -9,6 +9,7 @@
 import type { Agent, AgentNode, NodeOutput, OnlyIfCondition } from './agent-v2-types.js';
 import type { Run } from './types.js';
 import type { DagExecutorDeps, DagExecuteOptions } from './dag-executor.js';
+import type { SpawnProgress } from './node-spawner.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -238,6 +239,20 @@ export async function executeAgentInvokeNode(
 
 // ── Loop ───────────────────────────────────────────────────────────────
 
+/** Short label for an iteration's item — used in progress messages. */
+function itemLabel(item: unknown): string {
+  if (typeof item === 'string') return item.length > 40 ? item.slice(0, 37) + '...' : item;
+  if (item && typeof item === 'object') {
+    const rec = item as Record<string, unknown>;
+    for (const key of ['slug', 'id', 'name', 'title']) {
+      const v = rec[key];
+      if (typeof v === 'string' && v) return v.length > 40 ? v.slice(0, 37) + '...' : v;
+    }
+  }
+  const s = JSON.stringify(item);
+  return s.length > 40 ? s.slice(0, 37) + '...' : s;
+}
+
 export async function executeLoopNode(
   node: AgentNode,
   outputs: Map<string, NodeOutput>,
@@ -246,6 +261,7 @@ export async function executeLoopNode(
   deps: DagExecutorDeps,
   _parentAgent: Agent,
   executeDag: ExecuteDagFn,
+  onProgress?: (event: SpawnProgress) => void,
 ): Promise<AgentInvokeResult> {
   const config = node.loopConfig;
   if (!config) {
@@ -297,8 +313,10 @@ export async function executeLoopNode(
   // of having to parse JSON-encoded strings out of an array of strings.
   const results: (unknown | null)[] = [];
 
-  for (let i = 0; i < limited.length; i++) {
+  const total = limited.length;
+  for (let i = 0; i < total; i++) {
     const item = limited[i];
+    const label = itemLabel(item);
     const subInputs: Record<string, string> = {
       ITEM: typeof item === 'string' ? item : JSON.stringify(item),
       ITEM_INDEX: String(i),
@@ -309,6 +327,14 @@ export async function executeLoopNode(
         subInputs[subKey] = resolveSourceExpr(sourceExpr, item, outputs, parentOptions.inputs ?? {});
       }
     }
+
+    onProgress?.({
+      timestamp: new Date().toISOString(),
+      type: 'loop_iteration_start',
+      turn: i + 1,
+      maxTurns: total,
+      message: `iteration ${i + 1}/${total}: ${label}`,
+    });
 
     const subRun = await executeDag(
       subAgent,
@@ -321,7 +347,8 @@ export async function executeLoopNode(
       deps,
     );
 
-    if (subRun.status !== 'completed' || subRun.result == null) {
+    const ok = subRun.status === 'completed' && subRun.result != null;
+    if (!ok || subRun.result == null) {
       results.push(null);
     } else {
       let parsed: unknown = subRun.result;
@@ -331,6 +358,16 @@ export async function executeLoopNode(
       } catch { /* not JSON — keep raw string */ }
       results.push(parsed);
     }
+
+    onProgress?.({
+      timestamp: new Date().toISOString(),
+      type: 'loop_iteration_complete',
+      turn: i + 1,
+      maxTurns: total,
+      message: ok
+        ? `iteration ${i + 1}/${total}: ${label} done`
+        : `iteration ${i + 1}/${total}: ${label} failed${subRun.error ? ` — ${subRun.error.slice(0, 80)}` : ''}`,
+    });
   }
 
   return {
