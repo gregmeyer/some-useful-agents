@@ -24,10 +24,18 @@ export type SpawnNodeFn = (
   opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string> },
 ) => Promise<SpawnResult>;
 
-/** Progress event emitted during LLM execution. */
+/**
+ * Progress event emitted during a node's execution. Originally LLM-only
+ * (turn_*, tool_use, thinking, output_chunk), now also surfaces per-iteration
+ * progress for `loop` nodes so the dashboard can render "iteration 3/4: rula"
+ * and per-iteration failures inline at the parent run instead of forcing the
+ * user to dig into nested sub-run pages.
+ */
 export interface SpawnProgress {
   timestamp: string;
-  type: 'turn_start' | 'turn_complete' | 'tool_use' | 'thinking' | 'output_chunk';
+  type:
+    | 'turn_start' | 'turn_complete' | 'tool_use' | 'thinking' | 'output_chunk'
+    | 'loop_iteration_start' | 'loop_iteration_complete';
   turn?: number;
   maxTurns?: number;
   message?: string;

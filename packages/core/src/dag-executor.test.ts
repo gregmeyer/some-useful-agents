@@ -1344,6 +1344,71 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(subResults[1]).toBe('slug=rula query=staff engineer');
   });
 
+  it('emits per-iteration progress events on the loop node execution row', async () => {
+    agentStore.createAgent(
+      {
+        id: 'progress-child',
+        name: 'Progress Child',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: { COMPANY_SLUG: { type: 'string', default: 'x' } },
+        nodes: [{ id: 'echo', type: 'shell', command: 'echo ok' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: {
+            over: 'companies',
+            agentId: 'progress-child',
+            inputMapping: { COMPANY_SLUG: '$item.slug' },
+          },
+        },
+      ],
+    });
+
+    // Sub-run for slug "ramp" deliberately fails so we can verify the
+    // failed-iteration progress event surfaces the error.
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      if (node.id === 'source') {
+        return { result: '{"companies": [{"slug": "rula"}, {"slug": "ramp"}, {"slug": "linear"}]}', exitCode: 0 };
+      }
+      if (node.id === 'echo') {
+        if (env.COMPANY_SLUG === 'ramp') {
+          return { result: '', exitCode: 1, error: 'simulated ramp failure' };
+        }
+        return { result: 'ok', exitCode: 0 };
+      }
+      return { result: 'ok', exitCode: 0 };
+    };
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const loopExec = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'each')!;
+    expect(loopExec.progressJson).toBeTruthy();
+    const events = JSON.parse(loopExec.progressJson!) as Array<{ type: string; turn?: number; maxTurns?: number; message?: string }>;
+    // 3 starts + 3 completes = 6 events.
+    expect(events).toHaveLength(6);
+    expect(events[0].type).toBe('loop_iteration_start');
+    expect(events[0].message).toContain('iteration 1/3: rula');
+    expect(events[1].type).toBe('loop_iteration_complete');
+    expect(events[1].message).toContain('done');
+    // Iteration 2 (ramp) should be marked failed.
+    expect(events[3].type).toBe('loop_iteration_complete');
+    expect(events[3].message).toContain('failed');
+    // Iteration 3 (linear) succeeds.
+    expect(events[5].message).toContain('done');
+  });
+
   it('respects maxIterations', async () => {
     agentStore.createAgent(
       {

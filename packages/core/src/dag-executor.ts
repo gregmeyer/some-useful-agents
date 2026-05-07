@@ -457,7 +457,24 @@ export async function executeAgentDag(
     }
 
     if (node.type === 'loop') {
-      const loopResult = await executeLoopNode(node, outputs, runId, options, deps, agent, executeAgentDag);
+      // Create the running row up-front so the dashboard can render
+      // per-iteration progress while sub-runs are in flight, instead of
+      // showing a black hole until the loop finishes.
+      deps.runStore.createNodeExecution({
+        runId,
+        nodeId: node.id,
+        workflowVersion: agent.version,
+        status: 'running',
+        startedAt: nodeStartedAt,
+      });
+      const loopProgress: SpawnProgress[] = [];
+      const onLoopProgress = (event: SpawnProgress) => {
+        loopProgress.push(event);
+        deps.runStore.updateNodeExecution(runId, node.id, {
+          progressJson: JSON.stringify(loopProgress),
+        });
+      };
+      const loopResult = await executeLoopNode(node, outputs, runId, options, deps, agent, executeAgentDag, onLoopProgress);
       const completedAt = new Date().toISOString();
       if (loopResult.ok) {
         const outputsJson = JSON.stringify(loopResult.output);
@@ -467,25 +484,17 @@ export async function executeAgentDag(
           source: agent.source,
           outputs: loopResult.output,
         });
-        deps.runStore.createNodeExecution({
-          runId,
-          nodeId: node.id,
-          workflowVersion: agent.version,
+        deps.runStore.updateNodeExecution(runId, node.id, {
           status: 'completed',
-          startedAt: nodeStartedAt,
           completedAt,
           result: JSON.stringify(loopResult.output),
           exitCode: 0,
           outputsJson,
         });
       } else {
-        deps.runStore.createNodeExecution({
-          runId,
-          nodeId: node.id,
-          workflowVersion: agent.version,
+        deps.runStore.updateNodeExecution(runId, node.id, {
           status: 'failed',
           errorCategory: 'setup',
-          startedAt: nodeStartedAt,
           completedAt,
           error: loopResult.error,
         });
