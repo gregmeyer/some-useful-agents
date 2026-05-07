@@ -248,6 +248,40 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('3 agents, 1 dashboard');
   });
 
+  it('includes draft agents marked as (draft)', () => {
+    const draftAgent = {
+      id: 'wip-explorer',
+      name: 'WIP Explorer',
+      description: 'Work in progress.',
+      status: 'draft',
+      version: 1,
+      nodes: [],
+    } as unknown as Agent;
+    const catalog = buildDiscoveryCatalog({
+      agents: [...MOCK_AGENTS, draftAgent],
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+    });
+    expect(catalog).toContain('wip-explorer (draft)');
+  });
+
+  it('does not include archived/paused agents', () => {
+    const archived = {
+      id: 'old-agent',
+      name: 'Old',
+      description: 'archived',
+      status: 'archived',
+      version: 1,
+      nodes: [],
+    } as unknown as Agent;
+    const catalog = buildDiscoveryCatalog({
+      agents: [...MOCK_AGENTS, archived],
+      tools: [],
+      templateRegistry: MOCK_REGISTRY,
+    });
+    expect(catalog).not.toContain('old-agent');
+  });
+
   it('renders empty-state lines when dashboards/packs are empty arrays', () => {
     const catalog = buildDiscoveryCatalog({
       agents: MOCK_AGENTS,

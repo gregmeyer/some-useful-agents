@@ -172,9 +172,14 @@ function buildPacksSection(packs: Pack[]): string {
 }
 
 function buildAgentsSection(agents: Agent[]): string {
+  // Include drafts AND active agents. Drafts are work-in-progress
+  // agents the user has scaffolded but not yet promoted; they're
+  // still installed and the planner should reuse them rather than
+  // hallucinate a new id with overlapping purpose. Marked `(draft)`
+  // so the LLM can decide whether to surface them in matchedAgents.
   const eligible = agents
-    .filter((a) => a.status === 'active' && !EXCLUDED_AGENT_IDS.has(a.id))
-    .slice(0, 20); // cap to keep catalog lean
+    .filter((a) => (a.status === 'active' || a.status === 'draft') && !EXCLUDED_AGENT_IDS.has(a.id))
+    .slice(0, 30); // cap to keep catalog lean
 
   if (eligible.length === 0) {
     return '## AVAILABLE AGENTS (for agent-invoke / loop nodes)\nNo agents available yet.';
@@ -186,7 +191,8 @@ function buildAgentsSection(agents: Agent[]): string {
     const outputNames = a.outputs ? Object.keys(a.outputs).join(', ') : '';
     const tools = a.capabilities?.tools_used?.join(', ') ?? '';
     const sideEffects = a.capabilities?.side_effects?.join(', ') ?? '';
-    const parts: string[] = [`- ${a.id}: ${desc}`];
+    const statusTag = a.status === 'draft' ? ' (draft)' : '';
+    const parts: string[] = [`- ${a.id}${statusTag}: ${desc}`];
     if (inputNames) parts.push(`    inputs: ${inputNames}`);
     if (outputNames) parts.push(`    outputs: ${outputNames}`);
     if (tools) parts.push(`    tools: ${tools}`);
@@ -195,7 +201,7 @@ function buildAgentsSection(agents: Agent[]): string {
   });
 
   return `## AVAILABLE AGENTS (for agent-invoke / loop nodes)
-Each agent's outputs are what its final-node JSON produces — use these field names when referencing the result via {{upstream.<id>.<field>}} or "$upstream.<id>.<field>" in inputMapping.
+Each agent's outputs are what its final-node JSON produces — use these field names when referencing the result via {{upstream.<id>.<field>}} or "$upstream.<id>.<field>" in inputMapping. Agents tagged "(draft)" are user work-in-progress — prefer reusing one over creating a near-duplicate with a fresh id.
 ${lines.join('\n')}`;
 }
 

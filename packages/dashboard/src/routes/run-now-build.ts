@@ -892,16 +892,37 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
   let dashboardCreated: string | null = null;
   let dashboardError: string | undefined;
   if (plan.dashboard && ctx.dashboardsStore) {
-    try {
-      ctx.dashboardsStore.upsertDashboard({
-        id: plan.dashboard.id,
-        packId: null,
-        name: plan.dashboard.name,
-        layout: { sections: plan.dashboard.sections },
-      });
-      dashboardCreated = plan.dashboard.id;
-    } catch (e) {
-      dashboardError = (e as Error).message;
+    // Integrity check: every agentId the dashboard references must
+    // either already exist in AgentStore or have just been created.
+    // Otherwise we'd persist a dashboard pointing at agents that
+    // never landed (e.g. their YAML failed to parse) — the user
+    // sees broken "not installed" tiles with no clear cause.
+    const createdSet = new Set(agentsCreated);
+    const referencedIds = new Set<string>();
+    for (const s of plan.dashboard.sections) for (const id of s.agentIds) referencedIds.add(id);
+    const unmet: string[] = [];
+    for (const id of referencedIds) {
+      if (createdSet.has(id)) continue;
+      if (ctx.agentStore.getAgent(id)) continue;
+      unmet.push(id);
+    }
+    if (unmet.length > 0) {
+      const skippedDetail = agentsSkipped.length
+        ? ` ${agentsSkipped.map((s) => `${s.id}: ${s.reason}`).join('; ')}`
+        : '';
+      dashboardError = `Dashboard references ${unmet.length} agent${unmet.length === 1 ? '' : 's'} that did not land: ${unmet.join(', ')}.${skippedDetail}`;
+    } else {
+      try {
+        ctx.dashboardsStore.upsertDashboard({
+          id: plan.dashboard.id,
+          packId: null,
+          name: plan.dashboard.name,
+          layout: { sections: plan.dashboard.sections },
+        });
+        dashboardCreated = plan.dashboard.id;
+      } catch (e) {
+        dashboardError = (e as Error).message;
+      }
     }
   } else if (plan.dashboard && !ctx.dashboardsStore) {
     dashboardError = 'Dashboards store unavailable.';
