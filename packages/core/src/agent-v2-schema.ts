@@ -74,6 +74,7 @@ const loopConfigSchema = z.object({
   over: z.string(),
   agentId: z.string(),
   maxIterations: z.number().int().positive().optional(),
+  inputMapping: z.record(z.string()).optional(),
 });
 
 const agentInvokeConfigSchema = z.object({

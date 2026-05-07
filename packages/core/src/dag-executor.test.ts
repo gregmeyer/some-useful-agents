@@ -1188,6 +1188,64 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(execs.find((e) => e.nodeId === 'each')!.error).toContain('not an array');
   });
 
+  it('passes per-iteration values to the sub-agent via inputMapping', async () => {
+    agentStore.createAgent(
+      {
+        id: 'slug-echo',
+        name: 'Slug Echo',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        inputs: { COMPANY_SLUG: { type: 'string', default: 'unset' }, JOB_QUERY: { type: 'string', default: 'unset' } },
+        nodes: [{ id: 'echo', type: 'shell', command: 'echo "slug=$COMPANY_SLUG query=$JOB_QUERY"' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      inputs: { JOB_QUERY: { type: 'string', default: 'pm' } },
+      nodes: [
+        { id: 'source', type: 'shell', command: 'echo source' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['source'],
+          loopConfig: {
+            over: 'companies',
+            agentId: 'slug-echo',
+            inputMapping: {
+              COMPANY_SLUG: '$item.slug',
+              JOB_QUERY: '{{inputs.JOB_QUERY}}',
+            },
+          },
+        },
+      ],
+    });
+
+    // Custom spawner: source emits the array; sub-agent's `echo` node echoes back the env vars
+    // it received, so we can verify the inputMapping resolved correctly per-iteration.
+    const spawner: DagExecutorDeps['spawnNode'] = async (node, env) => {
+      if (node.id === 'source') {
+        return { result: '{"companies": [{"slug": "rula"}, {"slug": "ramp"}]}', exitCode: 0 };
+      }
+      if (node.id === 'echo') {
+        return { result: `slug=${env.COMPANY_SLUG ?? ''} query=${env.JOB_QUERY ?? ''}`, exitCode: 0 };
+      }
+      return { result: 'ok', exitCode: 0 };
+    };
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli', inputs: { JOB_QUERY: 'staff engineer' } }, deps);
+
+    expect(run.status).toBe('completed');
+    const allRuns = runStore.queryRuns({ limit: 20, offset: 0, statuses: [] });
+    const subRuns = allRuns.rows.filter((r) => r.parentRunId === run.id);
+    expect(subRuns).toHaveLength(2);
+    const subResults = subRuns.map((r) => r.result).sort();
+    expect(subResults[0]).toBe('slug=ramp query=staff engineer');
+    expect(subResults[1]).toBe('slug=rula query=staff engineer');
+  });
+
   it('respects maxIterations', async () => {
     agentStore.createAgent(
       {

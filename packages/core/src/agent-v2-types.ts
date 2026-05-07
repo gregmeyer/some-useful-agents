@@ -142,6 +142,14 @@ export interface LoopConfig {
   /** Agent id to invoke per item. */
   agentId: string;
   maxIterations?: number;
+  /**
+   * Optional mapping of sub-agent input names to per-iteration source expressions.
+   * Supported sources: `$item.<path>` (current iteration's item),
+   * `$upstream.<id>.<field>` (any upstream node's structured output),
+   * `{{inputs.X}}` (the parent agent's input X). Anything else is a literal.
+   * When unset, the sub-agent receives `{ITEM, ITEM_INDEX}` as before.
+   */
+  inputMapping?: Record<string, string>;
 }
 
 export interface AgentInvokeConfig {
