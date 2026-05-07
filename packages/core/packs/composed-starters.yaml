@@ -1,0 +1,45 @@
+# Composed Starters pack — the canonical "wizard → orchestrator → widget"
+# example as an installable skeleton.
+#
+# Bundles the three agents that make up one worked example of the
+# loop + agent-invoke composition pattern that build-planner v3 (#214)
+# teaches and PRs #215–#221 made correct end-to-end:
+#
+#   ashby-discover           producer    — emits companies[] {slug, ...}
+#   ashby-job-finder         per-item    — looped over each discovered slug
+#   ashby-search-discovered  orchestrator — wraps the two with a wizard
+#                                           form (declared inputs:) and a
+#                                           structured ai-template widget
+#
+# Install this pack to get a runnable skeleton you can copy and adapt
+# for your own wizard → orchestrator → widget flow. Uninstall removes
+# the dashboard but keeps the agents installed.
+
+id: composed-starters
+name: Composed Agents
+description: |
+  Worked example of the wizard → orchestrator → output-widget composition
+  pattern. Install, run the orchestrator, then read the YAML to see how
+  loop + agent-invoke + inputMapping fit together.
+version: 0.1.0
+author: some-useful-agents
+
+agents:
+  - id: ashby-discover
+    yamlPath: ../../../agents/examples/ashby-discover.yaml
+  - id: ashby-job-finder
+    yamlPath: ../../../agents/examples/ashby-job-finder.yaml
+  - id: ashby-search-discovered
+    yamlPath: ../../../agents/examples/ashby-search-discovered.yaml
+
+dashboards:
+  - id: composed-starters
+    name: Composed Agents
+    sections:
+      - title: Orchestrator (start here)
+        agentIds:
+          - ashby-search-discovered
+      - title: Sub-agents it composes
+        agentIds:
+          - ashby-discover
+          - ashby-job-finder

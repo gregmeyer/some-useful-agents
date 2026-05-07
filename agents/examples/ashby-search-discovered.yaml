@@ -1,0 +1,166 @@
+# Ashby Search Discovered — multi-agent composition demo.
+#
+# Demonstrates the canonical "producer → loop → aggregate" pattern:
+#
+#   1. agent-invoke ashby-discover  → produces companies[] {slug, job_count}
+#   2. loop over companies, calling ashby-job-finder per slug (inputMapping
+#      translates $item.slug → COMPANY_SLUG and forwards this agent's
+#      JOB_QUERY input down via {{inputs.JOB_QUERY}})
+#   3. claude-code rolls per-company JSON results into a single structured
+#      summary
+#
+# After #216, loopConfig output exposes items[] as parsed objects, so
+# summarise can read {{upstream.search-each.items.0.roles}} directly
+# instead of parsing JSON-encoded strings.
+#
+# Run:
+#   sua workflow run ashby-search-discovered
+#   sua workflow run ashby-search-discovered --input JOB_QUERY="staff engineer" --input TOPIC=fintech
+id: ashby-search-discovered
+name: Ashby Search Discovered
+description: |
+  Discovers companies hiring on Ashby (via ashby-discover), loops over
+  the discovered slugs running ashby-job-finder per company, then rolls
+  them into one structured summary widget.
+status: draft
+source: local
+mcp: false
+inputs:
+  JOB_QUERY:
+    type: string
+    default: senior product manager
+    description: Role to filter for across all discovered companies.
+  TOPIC:
+    type: string
+    default: ""
+    description: Optional topic to narrow the discovery search (e.g. "fintech", "ai").
+  MAX_COMPANIES:
+    type: number
+    default: 4
+    description: Cap how many discovered companies to actually search (each is one sub-run).
+outputs:
+  headline:
+    type: string
+  total_matches:
+    type: number
+  companies_searched:
+    type: number
+  matches:
+    type: array
+    description: Flat array of {company, title, team, location, type, url} for every matching role
+nodes:
+  - id: discover
+    type: agent-invoke
+    agentInvokeConfig:
+      agentId: ashby-discover
+      inputMapping:
+        TOPIC: "{{inputs.TOPIC}}"
+        MAX_RESULTS: "15"
+  - id: search-each
+    type: loop
+    dependsOn: [discover]
+    loopConfig:
+      over: companies
+      agentId: ashby-job-finder
+      maxIterations: 4
+      inputMapping:
+        COMPANY_SLUG: $item.slug
+        JOB_QUERY: "{{inputs.JOB_QUERY}}"
+        MAX_RESULTS: "5"
+  - id: summarise
+    type: claude-code
+    dependsOn: [search-each]
+    prompt: |
+      Roll up Ashby job-search results from multiple companies into one structured summary.
+
+      USER QUERY: {{inputs.JOB_QUERY}}
+      TOPIC FILTER: {{inputs.TOPIC}}
+
+      RAW DATA — `items[]` is one entry per searched company. Each entry is
+      already-parsed JSON from ashby-job-finder with shape:
+        {
+          "headline": "<n> matching roles at <Co>",
+          "match_count": <number>,
+          "total_count": <number>,
+          "summary": "<one-line>",
+          "roles": [{"title", "team", "location", "type", "url"}, ...]
+        }
+
+      {{upstream.search-each.result}}
+
+      Output ONLY a single JSON object (no markdown, no fences, no commentary)
+      with this exact shape:
+
+      {
+        "headline": "<short summary, e.g. '3 matches across 4 companies'>",
+        "total_matches": <number>,
+        "companies_searched": <number>,
+        "matches": [
+          {
+            "company": "<company headline / slug>",
+            "title": "<role title>",
+            "team": "<team or empty string>",
+            "location": "<location or empty string>",
+            "type": "<employment type or empty string>",
+            "url": "<apply url>"
+          }
+        ]
+      }
+
+      Flatten roles[] from every company that had match_count > 0 into the
+      top-level matches[] array. Skip companies with match_count == 0.
+      If NO companies had matches, set matches to [] and headline to
+      "No matching roles across <N> companies".
+    maxTurns: 1
+    timeout: 240
+signal:
+  title: Ashby (discovered)
+  icon: 🧭
+  template: text-headline
+  mapping:
+    headline: headline
+  refresh: 24h
+  size: 2x1
+outputWidget:
+  type: ai-template
+  template: |
+    <div style="font-family: system-ui, sans-serif; padding: 1rem;">
+      <h2 style="margin: 0 0 0.25rem 0; font-size: 1.25rem;">{{outputs.headline}}</h2>
+      <p style="margin: 0 0 1rem 0; color: #666; font-size: 0.9rem;">
+        Searched {{outputs.companies_searched}} discovered companies, found {{outputs.total_matches}} matching roles.
+      </p>
+      {{#if outputs.matches}}
+      <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid #e2e8f0; text-align: left;">
+            <th style="padding: 0.5rem;">Company</th>
+            <th style="padding: 0.5rem;">Title</th>
+            <th style="padding: 0.5rem;">Team</th>
+            <th style="padding: 0.5rem;">Location</th>
+            <th style="padding: 0.5rem;">Apply</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each outputs.matches as item}}
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 0.5rem; font-weight: 500;">{{item.company}}</td>
+            <td style="padding: 0.5rem;">{{item.title}}</td>
+            <td style="padding: 0.5rem;">{{item.team}}</td>
+            <td style="padding: 0.5rem;">{{item.location}}</td>
+            <td style="padding: 0.5rem;"><a href="{{item.url}}" target="_blank" style="color: #2563eb;">Apply →</a></td>
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+      {{/if}}
+      {{#unless outputs.matches}}
+      <p style="color: #888; font-style: italic;">No matching roles found.</p>
+      {{/unless}}
+    </div>
+  controls:
+    - type: replay
+      label: Re-run
+      inputs:
+        - JOB_QUERY
+        - TOPIC
+        - MAX_COMPANIES

@@ -1,0 +1,120 @@
+# Ashby Discover — find companies that use Ashby HQ for hiring.
+#
+# Searches DuckDuckGo for jobs.ashbyhq.com URLs (optionally filtered by
+# topic), extracts the company slugs, then verifies each candidate via
+# the public posting API to drop dead boards. Emits a structured array
+# of {slug, job_count} suitable for a downstream loop+invoke.
+#
+# Run:
+#   sua workflow run ashby-discover
+#   sua workflow run ashby-discover --input TOPIC=fintech --input MAX_RESULTS=15
+id: ashby-discover
+name: Ashby Discover
+description: |
+  Finds companies hiring on Ashby HQ via web search, extracts the company
+  slugs, and verifies each one against the public Ashby posting API.
+  Emits a `companies[]` array of {slug, job_count} ready to be looped over.
+status: draft
+source: local
+mcp: false
+pulseVisible: true
+inputs:
+  TOPIC:
+    type: string
+    default: ""
+    description: Optional topic filter (e.g. "fintech", "remote", "ai"). Empty = broad search.
+  MAX_RESULTS:
+    type: number
+    default: 15
+    description: Cap on candidate slugs to verify (the API check is one HTTP call each).
+outputs:
+  headline:
+    type: string
+  count:
+    type: number
+  companies:
+    type: array
+    description: Array of {slug, job_count} for verified Ashby boards
+nodes:
+  - id: search-and-verify
+    type: shell
+    command: |
+      set -e
+      python3 << 'PYEOF'
+      import json, os, re, urllib.request, urllib.error, urllib.parse
+
+      topic = os.environ.get("TOPIC", "").strip()
+      try:
+          cap = int(os.environ.get("MAX_RESULTS", "15"))
+      except ValueError:
+          cap = 15
+
+      query = f"site:jobs.ashbyhq.com {topic}".strip()
+      ddg_url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
+      ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+
+      req = urllib.request.Request(ddg_url, headers={"User-Agent": ua, "Accept": "text/html"})
+      try:
+          with urllib.request.urlopen(req, timeout=20) as resp:
+              html = resp.read().decode("utf-8", errors="replace")
+      except Exception as e:
+          print(json.dumps({"headline": "Search failed", "count": 0, "companies": [], "error": str(e)[:120]}))
+          raise SystemExit(0)
+
+      # Pull the first path segment after jobs.ashbyhq.com/
+      slugs = []
+      seen = set()
+      for m in re.finditer(r"jobs\.ashbyhq\.com/([A-Za-z0-9_-]+)", html):
+          s = m.group(1).lower()
+          # Skip Ashby's own marketing paths.
+          if s in {"www", "blog", "about", "careers", "jobs"}:
+              continue
+          if s not in seen:
+              seen.add(s)
+              slugs.append(s)
+          if len(slugs) >= cap:
+              break
+
+      verified = []
+      for slug in slugs:
+          api = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+          r = urllib.request.Request(api, headers={"User-Agent": ua, "Accept": "application/json"})
+          try:
+              with urllib.request.urlopen(r, timeout=8) as resp:
+                  data = json.loads(resp.read().decode("utf-8", errors="replace"))
+              jobs = data.get("jobs") or data.get("jobPostings") or []
+              verified.append({"slug": slug, "job_count": len(jobs)})
+          except Exception:
+              continue
+
+      topic_label = topic if topic else "all"
+      print(json.dumps({
+          "headline": f"{len(verified)} Ashby boards ({topic_label})",
+          "count": len(verified),
+          "companies": verified,
+      }))
+      PYEOF
+    timeout: 180
+signal:
+  title: Ashby Discover
+  icon: 🔎
+  template: text-headline
+  mapping:
+    headline: headline
+  refresh: 24h
+  size: 2x1
+outputWidget:
+  type: raw
+  fields:
+    - name: headline
+      label: Summary
+      type: text
+    - name: companies
+      label: Verified Ashby boards
+      type: code
+  controls:
+    - type: replay
+      label: Search Again
+      inputs:
+        - TOPIC
+        - MAX_RESULTS
