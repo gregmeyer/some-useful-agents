@@ -313,6 +313,12 @@ export async function executeLoopNode(
       ITEM_INDEX: String(i),
     };
 
+    if (config.inputMapping) {
+      for (const [subKey, sourceExpr] of Object.entries(config.inputMapping)) {
+        subInputs[subKey] = resolveLoopSource(sourceExpr, item, outputs, parentOptions.inputs ?? {});
+      }
+    }
+
     const subRun = await executeDag(
       subAgent,
       {
@@ -365,6 +371,40 @@ export function evaluateOnlyIf(condition: OnlyIfCondition, upOutput: NodeOutput 
     return value != condition.notEquals;
   }
   return value !== undefined && value !== null;
+}
+
+/**
+ * Resolve a loop inputMapping source expression. Supports:
+ *   `$item.<path>`            → walkPath into the current item
+ *   `$upstream.<id>.<field>`  → field of an upstream node's structured output
+ *   `{{inputs.X}}`            → parent agent's input X (substituted in-place)
+ * Anything else is treated as a literal string.
+ */
+function resolveLoopSource(
+  expr: string,
+  item: unknown,
+  outputs: Map<string, NodeOutput>,
+  parentInputs: Record<string, string>,
+): string {
+  if (expr.startsWith('$item')) {
+    const path = expr.slice('$item'.length).replace(/^\./, '');
+    const val = path ? walkPath(item, path) : item;
+    if (val === undefined || val === null) return '';
+    return typeof val === 'string' ? val : JSON.stringify(val);
+  }
+  if (expr.startsWith('$upstream.')) {
+    const parts = expr.slice('$upstream.'.length).split('.');
+    const upId = parts[0];
+    const field = parts.slice(1).join('.');
+    const upOutput = outputs.get(upId);
+    if (!upOutput) return '';
+    if (upOutput.outputs && field) {
+      const val = walkPath(upOutput.outputs, field);
+      return val !== undefined && val !== null ? String(val) : '';
+    }
+    return upOutput.result ?? '';
+  }
+  return expr.replace(/\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_m, name) => parentInputs[name] ?? '');
 }
 
 // ── Utility ────────────────────────────────────────────────────────────
