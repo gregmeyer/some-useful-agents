@@ -14,7 +14,10 @@ import {
   buildDiscoveryCatalog,
   buildPlanSchema,
   extractPlanJson,
+  critiquePlan,
+  formatCriticFeedback,
   type BuildPlan,
+  type PlanCriticError,
   type RunStatus,
   type ToolDefinition,
 } from '@some-useful-agents/core';
@@ -273,6 +276,111 @@ function formatToolCatalog(tools: ToolDefinition[]): string {
       return `- ${t.id} (type: ${implType}): ${desc}${inputNames ? ` Inputs: ${inputNames}.` : ''}`;
     })
     .join('\n');
+}
+
+/**
+ * Maximum number of *additional* planner attempts after the first one. So
+ * total tries = 1 initial + MAX_CRITIC_RETRIES retries = up to 3 calls into
+ * the planner per pipeline. After that, surface critic errors to the user
+ * with a "Continue anyway" override.
+ */
+const MAX_CRITIC_RETRIES = 2;
+
+interface PlannerKickoffArgs {
+  ctx: ReturnType<typeof getContext>;
+  goal: string;
+  focus?: string;
+  /**
+   * When set, this is a retry: append the formatted critic feedback to the
+   * goal so the planner sees *exactly* which structural mistakes to fix.
+   */
+  criticFeedback?: string;
+}
+
+/**
+ * Spawn a single planner agent run and return its run-id. Shared by the
+ * initial POST /agents/build call and by the GET-handler's critic-retry
+ * loop. Returns null when the planner agent itself can't be loaded
+ * (caller surfaces an error to the user).
+ */
+async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | null> {
+  const { ctx, goal, focus, criticFeedback } = args;
+
+  let planner: ReturnType<typeof ctx.agentStore.getAgent> = null;
+  try {
+    const yamlPath = join(resolve('agents/examples'), `${PLANNER_AGENT_ID}.yaml`);
+    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const parsed = parseAgent(yamlText);
+    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for build planner');
+    planner = ctx.agentStore.getAgent(PLANNER_AGENT_ID);
+  } catch { /* fall through */ }
+  if (!planner) return null;
+
+  const builtins = listBuiltinTools();
+  let userTools: ToolDefinition[] = [];
+  try {
+    if (ctx.toolStore) userTools = ctx.toolStore.listTools();
+  } catch { /* store not available */ }
+  const catalog = formatToolCatalog([...builtins, ...userTools]);
+  const discoveryCatalog = buildDiscoveryCatalog({
+    agents: ctx.agentStore.listAgents(),
+    tools: [...builtins, ...userTools],
+    templateRegistry: TEMPLATE_REGISTRY,
+    dashboards: ctx.dashboardsStore?.listDashboards(),
+    packs: ctx.packsStore?.listPacks(),
+  });
+
+  // Append critic feedback to the goal on retry. Keeps the rest of the
+  // input pipeline unchanged — the planner prompt already speaks <plan>.
+  const effectiveGoal = criticFeedback ? `${goal}\n${criticFeedback}` : goal;
+
+  const runPromise = executeAgentDag(
+    planner,
+    {
+      triggeredBy: 'dashboard',
+      inputs: {
+        GOAL: effectiveGoal,
+        ...(focus ? { FOCUS: `Constraints: ${focus}` } : {}),
+        AVAILABLE_TOOLS: catalog,
+        DISCOVERY_CATALOG: discoveryCatalog,
+      },
+    },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      dataRoot: ctx.agentStore.dataRoot,
+    },
+  );
+
+  // Race the run-record creation; we only need its id, not its result.
+  await Promise.race([runPromise, new Promise((r) => setTimeout(r, 200))]);
+  const { rows } = ctx.runStore.queryRuns({
+    agentName: PLANNER_AGENT_ID,
+    statuses: ['running', 'completed', 'failed'] as RunStatus[],
+    limit: 1,
+    offset: 0,
+  });
+  if (rows.length > 0) return rows[0].id;
+  try {
+    const run = await runPromise;
+    return run.id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a stable `existingAgentIds` Set from the current AgentStore.
+ * Used by the critic to check survey.matchedAgents and dashboard refs
+ * against catalog reality.
+ */
+function loadExistingAgentIds(ctx: ReturnType<typeof getContext>): Set<string> {
+  try {
+    return new Set(ctx.agentStore.listAgents().map((a) => a.id));
+  } catch {
+    return new Set();
+  }
 }
 
 // ── Analyze (suggest improvements) ──────────────────────────────────────
@@ -655,87 +763,17 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
-  // Auto-import or update planner agent from examples YAML.
-  // Uses upsertAgent so prompt improvements take effect without manual deletion.
-  let planner: ReturnType<typeof ctx.agentStore.getAgent> = null;
-  try {
-    const yamlPath = join(resolve('agents/examples'), `${PLANNER_AGENT_ID}.yaml`);
-    const yamlText = readFileSync(yamlPath, 'utf-8');
-    const parsed = parseAgent(yamlText);
-    ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for build planner');
-    planner = ctx.agentStore.getAgent(PLANNER_AGENT_ID);
-  } catch { /* fall through */ }
-  if (!planner) {
+  const runId = await kickoffPlannerRun({ ctx, goal, focus });
+  if (!runId) {
     res.json({ ok: false, error: 'Build planner agent not found. Ensure build-planner.yaml exists in agents/examples/.' });
     return;
   }
 
-  // Build a dynamic tool catalog so the planner LLM knows about all
-  // registered tools, not just the 9 hardcoded built-ins.
-  const builtins = listBuiltinTools();
-  let userTools: ToolDefinition[] = [];
-  try {
-    if (ctx.toolStore) userTools = ctx.toolStore.listTools();
-  } catch { /* store not available */ }
-  const catalog = formatToolCatalog([...builtins, ...userTools]);
-  const discoveryCatalog = buildDiscoveryCatalog({
-    agents: ctx.agentStore.listAgents(),
-    tools: [...builtins, ...userTools],
-    templateRegistry: TEMPLATE_REGISTRY,
-    // Optional — when present, the planner sees them and can suggest
-    // reuse / pack install / dashboard extension instead of duplicating.
-    dashboards: ctx.dashboardsStore?.listDashboards(),
-    packs: ctx.packsStore?.listPacks(),
-  });
+  res.json({ ok: true, status: 'started', runId });
 
-  const runPromise = executeAgentDag(
-    planner,
-    {
-      triggeredBy: 'dashboard',
-      inputs: {
-        GOAL: goal,
-        ...(focus ? { FOCUS: `Constraints: ${focus}` } : {}),
-        AVAILABLE_TOOLS: catalog,
-        DISCOVERY_CATALOG: discoveryCatalog,
-      },
-    },
-    {
-      runStore: ctx.runStore,
-      secretsStore: ctx.secretsStore,
-      variablesStore: ctx.variablesStore,
-      dataRoot: ctx.agentStore.dataRoot,
-    },
-  );
-
-  await Promise.race([
-    runPromise,
-    new Promise((resolve) => setTimeout(resolve, 200)),
-  ]);
-
-  const { rows } = ctx.runStore.queryRuns({
-    agentName: PLANNER_AGENT_ID,
-    statuses: ['running', 'completed', 'failed'] as RunStatus[],
-    limit: 1,
-    offset: 0,
-  });
-
-  let runId: string | undefined;
-  if (rows.length > 0) {
-    runId = rows[0].id;
-    res.json({ ok: true, status: 'started', runId });
-  } else {
-    try {
-      const run = await runPromise;
-      runId = run.id;
-      res.json({ ok: true, status: 'started', runId });
-    } catch (err) {
-      res.json({ ok: false, error: (err as Error).message });
-      return;
-    }
-  }
   // Telemetry: record this planner run with its goal so /metrics/planner
   // can correlate timing + outcome later. Best-effort — failure is silent.
-  if (runId && ctx.plannerTelemetryStore) {
+  if (ctx.plannerTelemetryStore) {
     try { ctx.plannerTelemetryStore.recordStart(runId, goal); } catch { /* swallow */ }
   }
 });
@@ -744,7 +782,7 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
  * GET /agents/build/:runId — poll builder run status.
  * Returns YAML when done so the client can preview + create.
  */
-buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
+buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId;
 
@@ -824,17 +862,90 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
     });
     const plan: BuildPlan = { ...result.data, newAgents: cleanedNewAgents };
 
+    // Critic loop: structurally validate the plan against catalog reality
+    // (newAgent YAMLs parse, cross-refs resolve, dashboard refs land, etc.).
+    // On failure, retry up to MAX_CRITIC_RETRIES times by spawning a fresh
+    // planner run with the critic feedback appended to the goal.
+    const critic = critiquePlan(plan, { existingAgentIds: loadExistingAgentIds(ctx) });
+
+    // The runId we got polled with may be a retry alias; resolve to root
+    // for telemetry + attempt-counting, and look the goal up there.
+    const rootRunId = ctx.plannerTelemetryStore?.resolveOriginalRunId(runId) ?? runId;
+    const rootRow = ctx.plannerTelemetryStore?.get(rootRunId) ?? null;
+    const attemptsSoFar = rootRow?.planAttempts ?? 1;
+
+    if (!critic.ok && attemptsSoFar <= MAX_CRITIC_RETRIES) {
+      // Spawn a retry with the critic feedback. Increment attempts on the
+      // root telemetry row so the next pass can stop after MAX retries.
+      try { ctx.plannerTelemetryStore?.incrementAttempts(runId); } catch { /* swallow */ }
+      const goal = rootRow?.goal ?? '';
+      const feedback = formatCriticFeedback(critic.errors);
+      const retryRunId = await kickoffPlannerRun({ ctx, goal, criticFeedback: feedback });
+      if (retryRunId && ctx.plannerTelemetryStore) {
+        try { ctx.plannerTelemetryStore.recordRetrySpawn(rootRunId, retryRunId); } catch { /* swallow */ }
+      }
+      // Telemetry: stamp this attempt's extract status as schema-valid (the
+      // schema accepted it; only the critic rejected). Record validation
+      // errors as the critic-error count so the metrics page reflects them.
+      try {
+        ctx.plannerTelemetryStore?.recordExtract({
+          runId,
+          status: 'ok',
+          autofixCount,
+          validationErrors: critic.errors.length,
+          timeToPlanMs: planMs,
+          intent: plan.intent,
+        });
+      } catch { /* swallow */ }
+
+      if (!retryRunId) {
+        // Couldn't spawn a retry — surface what we have with the critic errors.
+        res.json({
+          ok: true,
+          status: 'done',
+          plan,
+          criticErrors: critic.errors,
+          criticWarning: 'Plan has unresolved structural issues; retry could not be started. You can commit anyway or dismiss.',
+        });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        status: 'retrying',
+        runId: retryRunId,
+        attempt: attemptsSoFar + 1,
+        criticErrors: critic.errors,
+        phase: `Refining plan (attempt ${attemptsSoFar + 1})...`,
+      });
+      return;
+    }
+
+    // Either critic passed, or we've exhausted retries — return the plan.
+    // When the critic is still failing, surface its errors so the wizard
+    // can show "Continue anyway" with eyes-open consent.
     try {
       ctx.plannerTelemetryStore?.recordExtract({
         runId,
         status: 'ok',
         autofixCount,
+        validationErrors: critic.ok ? 0 : critic.errors.length,
         timeToPlanMs: planMs,
         intent: plan.intent,
       });
     } catch { /* swallow */ }
 
-    res.json({ ok: true, status: 'done', plan });
+    if (critic.ok) {
+      res.json({ ok: true, status: 'done', plan });
+    } else {
+      res.json({
+        ok: true,
+        status: 'done',
+        plan,
+        criticErrors: critic.errors,
+        criticWarning: `Planner could not produce a clean plan after ${attemptsSoFar} attempts. Review the issues below and either fix the YAML inline or commit anyway.`,
+      });
+    }
     return;
   }
 
@@ -969,10 +1080,12 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
 
   // Telemetry: stamp the commit time + total time-to-commit. Only fires
   // when the wizard supplied plannerRunId (correlates this commit back
-  // to its planner-run row); otherwise the row stays uncommitted in the
-  // telemetry view, which is the correct semantic for direct /commit
-  // POSTs from non-wizard callers.
-  if (plannerRunId && ctx.plannerTelemetryStore) {
+  // to its planner-run row) AND something actually landed (an agent was
+  // created or a dashboard was upserted). A "Commit" click that ends with
+  // zero creates is not a successful commit — counting it would inflate
+  // /metrics/planner's commit-rate for failures the user just dismissed.
+  const somethingLanded = agentsCreated.length > 0 || dashboardCreated !== null;
+  if (plannerRunId && somethingLanded && ctx.plannerTelemetryStore) {
     try {
       const plannerRun = ctx.runStore.getRun(plannerRunId);
       if (plannerRun?.startedAt) {

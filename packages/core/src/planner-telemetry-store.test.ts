@@ -95,6 +95,48 @@ describe('PlannerTelemetryStore', () => {
     expect(store.get('run-retry')!.planAttempts).toBe(3);
   });
 
+  describe('retry alias map', () => {
+    it('routes incrementAttempts on a retry runId back to the original row', () => {
+      store.recordStart('orig', 'goal');
+      store.recordRetrySpawn('orig', 'retry-1');
+      store.incrementAttempts('retry-1');
+      expect(store.get('orig')!.planAttempts).toBe(2);
+      // No row was created for the retry id.
+      expect(store.get('retry-1')).toBeNull();
+    });
+
+    it('routes recordExtract on a retry runId back to the original row', () => {
+      store.recordStart('orig2', 'goal');
+      store.recordRetrySpawn('orig2', 'retry-2');
+      store.recordExtract({ runId: 'retry-2', status: 'ok', autofixCount: 1, validationErrors: 2, timeToPlanMs: 9000, intent: 'agent' });
+      const row = store.get('orig2')!;
+      expect(row.planExtractStatus).toBe('ok');
+      expect(row.planAutofixCount).toBe(1);
+      expect(row.planValidationErrors).toBe(2);
+      expect(row.intent).toBe('agent');
+    });
+
+    it('routes recordCommit on a retry runId back to the original row', () => {
+      store.recordStart('orig3', 'goal');
+      store.recordRetrySpawn('orig3', 'retry-3');
+      store.recordCommit('retry-3', 4242);
+      expect(store.get('orig3')!.timeToCommitMs).toBe(4242);
+    });
+
+    it('resolveOriginalRunId returns input unchanged when no alias is registered', () => {
+      expect(store.resolveOriginalRunId('unknown')).toBe('unknown');
+    });
+
+    it('resolves alias-of-alias chains down to the root', () => {
+      store.recordStart('root', 'goal');
+      store.recordRetrySpawn('root', 'retry-a');
+      store.recordRetrySpawn('retry-a', 'retry-b');
+      expect(store.resolveOriginalRunId('retry-b')).toBe('root');
+      store.incrementAttempts('retry-b');
+      expect(store.get('root')!.planAttempts).toBe(2);
+    });
+  });
+
   describe('computeStats', () => {
     it('returns zeroed stats when no rows exist', () => {
       const s = store.computeStats(7);
