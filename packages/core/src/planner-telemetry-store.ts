@@ -89,6 +89,12 @@ export class PlannerTelemetryStore {
     const store = Object.create(PlannerTelemetryStore.prototype) as PlannerTelemetryStore;
     (store as unknown as { db: DatabaseSync }).db = db;
     (store as unknown as { ownsConnection: boolean }).ownsConnection = false;
+    // Class-field initializers (e.g. `private readonly retryAliases = new Map(...)`)
+    // only run inside `new` — Object.create bypasses them. Initialise any
+    // instance state the methods rely on here, otherwise calls into
+    // resolveOriginalRunId/recordRetrySpawn fail with "Cannot read
+    // properties of undefined".
+    (store as unknown as { retryAliases: Map<string, string> }).retryAliases = new Map();
     store.ensureSchema();
     return store;
   }

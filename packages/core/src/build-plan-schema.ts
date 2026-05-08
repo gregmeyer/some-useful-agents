@@ -26,14 +26,21 @@ export const buildPlanSchema = z.object({
       matchedFor: z.string().min(1),
     })).default([]),
     missingFor: z.array(z.string().min(1)).default([]),
-    existingDashboards: z.array(z.object({
-      id: z.string().min(1),
-      // The display name + reason are LLM-best-effort labels. Required
-      // would fail-the-plan needlessly; default to empty so the rest
-      // of the plan still validates and the user sees a usable card.
-      name: z.string().optional().default(''),
-      reason: z.string().optional().default(''),
-    })).default([]),
+    // Planner sometimes emits `existingDashboards` as a bare string array
+    // (just the dashboard ids) instead of objects with id/name/reason.
+    // Coerce strings into the canonical object shape so the rest of the
+    // plan still validates and the user sees a usable card. Surfaced by
+    // the smoke runner — see /Users/grmeyer/.claude/plans/can-we-build-these-warm-finch.md.
+    existingDashboards: z.array(
+      z.union([
+        z.string().min(1).transform((id) => ({ id, name: '', reason: '' })),
+        z.object({
+          id: z.string().min(1),
+          name: z.string().optional().default(''),
+          reason: z.string().optional().default(''),
+        }),
+      ]),
+    ).default([]),
   }).default({ matchedAgents: [], missingFor: [], existingDashboards: [] }),
 
   newAgents: z.array(z.object({

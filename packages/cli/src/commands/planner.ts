@@ -19,6 +19,7 @@ import {
   AgentStore,
   DashboardsStore,
   PlannerTelemetryStore,
+  readMcpToken,
   type PlannerTelemetryRow,
 } from '@some-useful-agents/core';
 import { loadConfig, getDbPath, getDashboardBaseUrl } from '../config.js';
@@ -38,6 +39,13 @@ export interface SmokeContext {
   agentStore: AgentStore;
   dashboardsStore: DashboardsStore;
   telemetryStore: PlannerTelemetryStore;
+  /**
+   * Bearer token for the dashboard's session cookie. The dashboard reuses
+   * the MCP token via `requireAuth` — without it every /agents/build call
+   * fails with "Missing session cookie". Token is read once at runner
+   * startup; the helpers below thread it onto every request.
+   */
+  authCookie?: string;
 }
 
 export interface ScenarioResult {
@@ -84,6 +92,7 @@ export async function pollUntilDone(
   initialRunId: string,
   maxMs = 300_000,
   pollIntervalMs = 2000,
+  authCookie?: string,
 ): Promise<{ final: BuildPollResponse; chain: string[]; retries: number }> {
   const start = Date.now();
   const chain: string[] = [initialRunId];
@@ -92,7 +101,7 @@ export async function pollUntilDone(
 
   while (Date.now() - start < maxMs) {
     const res = await fetch(`${baseUrl}/agents/build/${encodeURIComponent(runId)}`, {
-      // Daemon is local; no auth required for the build poll endpoint.
+      headers: cookieHeader(authCookie),
     });
     const data = (await res.json()) as BuildPollResponse;
 
@@ -121,10 +130,11 @@ export async function startBuild(
   baseUrl: string,
   goal: string,
   focus?: string,
+  authCookie?: string,
 ): Promise<{ ok: boolean; runId?: string; error?: string }> {
   const res = await fetch(`${baseUrl}/agents/build`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...cookieHeader(authCookie) },
     body: JSON.stringify({ goal, ...(focus ? { focus } : {}) }),
   });
   return res.json() as Promise<{ ok: boolean; runId?: string; error?: string }>;
@@ -144,13 +154,23 @@ export async function commitPlan(
   baseUrl: string,
   plan: unknown,
   plannerRunId: string,
+  authCookie?: string,
 ): Promise<CommitResponse> {
   const res = await fetch(`${baseUrl}/agents/build/commit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...cookieHeader(authCookie) },
     body: JSON.stringify({ plan, plannerRunId }),
   });
   return res.json() as Promise<CommitResponse>;
+}
+
+/**
+ * Build the `Cookie:` header for authenticated requests. Returns an
+ * empty object when the caller didn't supply a token (smoke command will
+ * have already failed startup if the token couldn't be read).
+ */
+function cookieHeader(token: string | undefined): Record<string, string> {
+  return token ? { Cookie: `sua_dashboard_session=${token}` } : {};
 }
 
 // ── Telemetry assertion helper ──────────────────────────────────────────
@@ -287,12 +307,22 @@ plannerCommand
       return;
     }
 
-    // Live: confirm daemon is up before doing anything else. /health is
-    // unauthenticated and matches the dashboard's startup probe.
+    // Live: confirm daemon is up before doing anything else.
     const healthy = await probeHealth(baseUrl);
     if (!healthy) {
       ui.fail(`Dashboard not reachable at ${baseUrl}/health.`);
       ui.info(`Run 'sua daemon start' first, or pass --dashboard-url <url>.`);
+      process.exit(1);
+    }
+
+    // Auth: /agents/build is behind requireAuth (cookie + Host + Origin).
+    // The dashboard reuses the MCP token as its session cookie value.
+    // Without it, every scenario fails immediately with "Missing session
+    // cookie" — fail loudly here instead.
+    const authCookie = readMcpToken();
+    if (!authCookie) {
+      ui.fail('Could not read the MCP/dashboard session token.');
+      ui.info('Run `sua init` or `sua mcp rotate-token` to create one.');
       process.exit(1);
     }
 
@@ -306,6 +336,7 @@ plannerCommand
     const db = new DatabaseSync(dbPath);
     const ctx: SmokeContext = {
       baseUrl,
+      authCookie,
       db,
       agentStore: AgentStore.fromHandle(db),
       dashboardsStore: DashboardsStore.fromHandle(db),
@@ -385,8 +416,10 @@ function parseScenarioIds(raw: string[]): number[] {
 
 async function probeHealth(baseUrl: string): Promise<boolean> {
   try {
+    // /health is unauthenticated per the dashboard's auth wiring; we
+    // don't need to send a cookie. Short timeout matches the dashboard's
+    // own probe semantics.
     const res = await fetch(`${baseUrl}/health`, {
-      // Match dashboard's own probe semantics — short timeout, ignore body shape.
       signal: AbortSignal.timeout(3000),
     });
     return res.ok;
