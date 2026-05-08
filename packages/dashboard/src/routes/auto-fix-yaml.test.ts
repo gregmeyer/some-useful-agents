@@ -372,3 +372,74 @@ outputs:
     });
   });
 });
+
+describe('autoFixYaml — shell template-syntax → bash-interpolation (daily-greeting bug)', () => {
+  // The build-planner sometimes generates {{inputs.X}} inside a shell node's
+  // command — bash doesn't substitute it, so the literal text lands in the
+  // shell output and downstream rendering surfaces it as visible artefact.
+  // Plus when planner output is piped through {{upstream.X.result}}, the
+  // safe-escape converts {{ to "{ {", landing the space-form on disk.
+  it('rewrites {{inputs.NAME}} → $NAME inside a shell command body', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+inputs:
+  NAME:
+    type: string
+    default: friend
+nodes:
+  - id: greet
+    type: shell
+    command: echo "Hello, {{inputs.NAME}}!"
+`.trim());
+    const node = (fixed.nodes as Array<{ id: string; command: string }>)[0];
+    expect(node.command).toBe('echo "Hello, $NAME!"');
+  });
+
+  it('rewrites the space-escaped { {inputs.NAME}} form too', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+inputs:
+  NAME:
+    type: string
+    default: friend
+nodes:
+  - id: greet
+    type: shell
+    command: 'echo "Hello, { {inputs.NAME}}!"'
+`.trim());
+    const node = (fixed.nodes as Array<{ id: string; command: string }>)[0];
+    expect(node.command).toBe('echo "Hello, $NAME!"');
+  });
+
+  it('uppercases lowercase input refs (shell env vars are by convention UPPER)', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: greet
+    type: shell
+    command: echo "{{inputs.name}}"
+`.trim());
+    const node = (fixed.nodes as Array<{ id: string; command: string }>)[0];
+    expect(node.command).toBe('echo "$NAME"');
+  });
+
+  it('leaves claude-code prompts alone — template syntax is correct there', () => {
+    const fixed = fix(`
+id: x
+name: X
+source: local
+nodes:
+  - id: think
+    type: claude-code
+    prompt: 'Hello {{inputs.NAME}}'
+`.trim());
+    const node = (fixed.nodes as Array<{ id: string; prompt: string }>)[0];
+    expect(node.prompt).toBe('Hello {{inputs.NAME}}');
+  });
+});

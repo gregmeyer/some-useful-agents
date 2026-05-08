@@ -8,7 +8,7 @@
  *   - raw: pre-formatted output with field extraction
  */
 
-import type { OutputWidgetSchema, WidgetControl, WidgetField } from '@some-useful-agents/core';
+import type { OutputWidgetSchema, WidgetControl, WidgetField, AgentInputSpec } from '@some-useful-agents/core';
 import { sanitizeHtml, substitutePlaceholders } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
@@ -180,14 +180,15 @@ export function renderOutputWidget(
   agentId: string,
   controlState?: WidgetControlState,
   /**
-   * Names of the agent's declared inputs. When present and the schema has
-   * no `replay` control, the renderer synthesises a default Re-run button
-   * pre-wired with these inline input fields, so authors don't have to
-   * remember to declare `controls: [{type: replay}]` to get a re-run
-   * affordance on detail pages. Pulse / home tiles pass no `controlState`
-   * and so still render in static mode.
+   * The agent's declared input specs. Threaded through so the inline replay
+   * form can pre-fill `default` values and render `<select>` for enum/boolean
+   * types instead of a bare text input. Also drives default-replay synthesis
+   * (when no replay control is declared, one is wired with these input names
+   * so authors don't have to remember the boilerplate).
+   * Pulse / home tiles pass no `controlState` and so still render in static
+   * mode regardless.
    */
-  defaultReplayInputs?: string[],
+  agentInputs?: Record<string, AgentInputSpec>,
 ): SafeHtml | undefined {
   // ai-template widgets render their own layout via the stored template;
   // field-toggle / view-switch don't apply (rejected at schema time). Only
@@ -217,28 +218,29 @@ export function renderOutputWidget(
   }
 
   if (!controlState) return body;
-  const effectiveSchema = ensureReplayControl(schema, defaultReplayInputs);
+  const effectiveSchema = ensureReplayControl(schema, agentInputs);
   if (!effectiveSchema.controls?.length) return body;
-  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState);
+  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState, agentInputs);
   return html`${controlsRow}${body}`;
 }
 
 /**
  * Return the schema unchanged when it already has a `replay` control or
- * when the caller didn't supply default inputs to wire one with. Otherwise
+ * when the caller didn't supply input specs to wire one with. Otherwise
  * return a shallow copy with a synthesised replay control prepended so
  * every detail-page widget gets a Re-run button for free.
  */
 function ensureReplayControl(
   schema: OutputWidgetSchema,
-  defaultReplayInputs: string[] | undefined,
+  agentInputs: Record<string, AgentInputSpec> | undefined,
 ): OutputWidgetSchema {
   const hasReplay = schema.controls?.some((c) => c.type === 'replay');
   if (hasReplay) return schema;
+  const inputNames = agentInputs ? Object.keys(agentInputs) : [];
   const synthesized: WidgetControl = {
     type: 'replay',
     label: 'Run again',
-    inputs: defaultReplayInputs && defaultReplayInputs.length > 0 ? defaultReplayInputs : undefined,
+    inputs: inputNames.length > 0 ? inputNames : undefined,
   };
   return { ...schema, controls: [synthesized, ...(schema.controls ?? [])] };
 }
@@ -251,10 +253,11 @@ function renderControlsRow(
   schema: OutputWidgetSchema,
   agentId: string,
   state: WidgetControlState,
+  agentInputs?: Record<string, AgentInputSpec>,
 ): SafeHtml {
   const controls = schema.controls ?? [];
   const groups = controls.map((c) => {
-    if (c.type === 'replay') return renderReplayControl(c, agentId);
+    if (c.type === 'replay') return renderReplayControl(c, agentId, agentInputs);
     if (c.type === 'view-switch') return renderViewSwitchControl(c, state);
     if (c.type === 'field-toggle') return renderFieldToggleControl(c, schema, state);
     return html``;
@@ -266,14 +269,47 @@ function renderControlsRow(
   `;
 }
 
-function renderReplayControl(c: Extract<WidgetControl, { type: 'replay' }>, agentId: string): SafeHtml {
+function renderReplayControl(
+  c: Extract<WidgetControl, { type: 'replay' }>,
+  agentId: string,
+  agentInputs?: Record<string, AgentInputSpec>,
+): SafeHtml {
   const label = c.label ?? 'Run again';
-  const inlineInputs = (c.inputs ?? []).map((name) => html`
-    <label style="display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs);">
-      <span class="dim">${name}</span>
-      <input type="text" name="input_${name}" style="padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 8em;">
-    </label>
-  `);
+  const FIELD = 'padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm);';
+  const inlineInputs = (c.inputs ?? []).map((name) => {
+    const spec = agentInputs?.[name];
+    const defVal = spec?.default !== undefined ? String(spec.default) : '';
+    let inputEl: SafeHtml;
+    if (spec?.type === 'enum' && Array.isArray(spec.values) && spec.values.length > 0) {
+      // Render <select> so users get a dropdown of declared enum values
+      // rather than a bare text input where they'd have to remember the
+      // valid options.
+      const options = spec.values.map((v) => {
+        const val = String(v);
+        const selected = val === defVal ? ' selected' : '';
+        return `<option value="${val}"${selected}>${val}</option>`;
+      });
+      inputEl = unsafeHtml(`<select name="input_${name}" style="${FIELD}">${options.join('')}</select>`);
+    } else if (spec?.type === 'boolean') {
+      inputEl = unsafeHtml(
+        `<select name="input_${name}" style="${FIELD}">` +
+        `<option value="true"${defVal === 'true' ? ' selected' : ''}>true</option>` +
+        `<option value="false"${defVal !== 'true' ? ' selected' : ''}>false</option>` +
+        `</select>`
+      );
+    } else {
+      // Pre-fill with the spec default so users see what would run if they
+      // hit Re-run without typing anything (the wizard form already does
+      // this — inline replay should match).
+      inputEl = html`<input type="text" name="input_${name}" value="${defVal}" placeholder="${defVal || '(empty)'}" style="${FIELD} width: 8em;">`;
+    }
+    return html`
+      <label style="display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs);">
+        <span class="dim">${name}</span>
+        ${inputEl}
+      </label>
+    `;
+  });
   return html`
     <form method="POST" action="/agents/${encodeURIComponent(agentId)}/run" style="display: inline-flex; gap: var(--space-2); align-items: center; margin: 0;">
       ${inlineInputs as unknown as SafeHtml[]}
