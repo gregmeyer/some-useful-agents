@@ -165,7 +165,7 @@ nodes:
 
       If total_matches is 0, set matches to [] and headline to "No <query> roles across <companies_searched> companies".
     maxTurns: 1
-    timeout: 120
+    timeout: 240
 signal:
   title: Ashby (discovered)
   icon: 🧭
