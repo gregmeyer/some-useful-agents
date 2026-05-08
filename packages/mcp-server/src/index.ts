@@ -220,11 +220,13 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // Close all live MCP transports first so their underlying HTTP responses
-    // don't race the server.close() callback.
-    for (const entry of sessions.values()) {
-      try { await entry.server.close?.(); } catch { /* ignore */ }
-    }
+    // Stop accepting new connections + actively close existing ones via
+    // closeAllConnections so the close-callback fires promptly even when
+    // streamable-HTTP sessions left long-lived responses open. This is
+    // intentionally simpler than calling McpServer.close() per session —
+    // doing that races SDK transport teardown against the next test's
+    // first request and surfaces as "other side closed" client errors.
+    try { (httpServer as unknown as { closeAllConnections?: () => void }).closeAllConnections?.(); } catch { /* ignore */ }
     sessions.clear();
     try { await provider.shutdown(); } catch { /* ignore */ }
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
