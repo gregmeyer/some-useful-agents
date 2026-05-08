@@ -166,6 +166,7 @@ signal:
   size: 2x1
 outputWidget:
   type: raw
+  interactive: true
   fields:
     - name: result
       label: Matched roles across companies

@@ -113,6 +113,7 @@ signal:
   accent: orange
 outputWidget:
   type: ai-template
+  interactive: true
   template: |
     {{#if outputs.thumbnail}}
     <div style="max-width:560px;font-family:system-ui,sans-serif;">

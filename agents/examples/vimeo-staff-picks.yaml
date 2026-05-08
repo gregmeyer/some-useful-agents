@@ -78,6 +78,7 @@ signal:
   accent: blue
 outputWidget:
   type: ai-template
+  interactive: true
   prompt: Render each Vimeo staff pick as an embedded player card with the title above.
   template: |
     <div style="display:grid;gap:16px;font-family:system-ui,sans-serif;">

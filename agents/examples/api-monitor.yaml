@@ -31,6 +31,7 @@ signal:
 
 outputWidget:
   type: dashboard
+  interactive: true
   fields:
     - name: status
       label: Status

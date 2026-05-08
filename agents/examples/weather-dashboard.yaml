@@ -36,6 +36,7 @@ signal:
 
 outputWidget:
   type: dashboard
+  interactive: true
   fields:
     - name: temperature
       label: Temperature
