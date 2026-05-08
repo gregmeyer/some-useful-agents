@@ -1,17 +1,30 @@
-# Ashby Search Discovered — multi-agent composition demo.
+# Ashby Search Discovered — discover-then-bulk-summarise composition.
 #
-# Demonstrates the canonical "producer → loop → aggregate" pattern:
+# Composition shape:
+#   1. agent-invoke ashby-discover     → produces companies[] {slug, ...}
+#   2. shell (Python)                  → fetches Ashby API for each
+#                                         discovered slug, trims fields
+#   3. claude-code                     → single bulk-summarise across
+#                                         all companies, structured JSON
+#                                         output for the ai-template widget
 #
-#   1. agent-invoke ashby-discover  → produces companies[] {slug, job_count}
-#   2. loop over companies, calling ashby-job-finder per slug (inputMapping
-#      translates $item.slug → COMPANY_SLUG and forwards this agent's
-#      JOB_QUERY input down via {{inputs.JOB_QUERY}})
-#   3. claude-code rolls per-company JSON results into a single structured
-#      summary
+# Why one summarise instead of loop[ashby-job-finder per slug]?
 #
-# After #216, loopConfig output exposes items[] as parsed objects, so
-# summarise can read {{upstream.search-each.items.0.roles}} directly
-# instead of parsing JSON-encoded strings.
+# The loop + agent-invoke composition is the right pattern when per-item
+# work is genuinely independent (e.g. generate an image per item, write a
+# file per item, post a comment per item — each iteration produces a
+# distinct side-effect). When the per-item work is "filter / extract from
+# this list," an LLM does it cheaper, faster, and within rate limits in
+# one bulk call than in N sequential sub-claude invocations.
+#
+# Rule of thumb:
+#   loop + agent-invoke   → side-effecting per-item work
+#   bulk-summarise         → filtering/extraction across a discovered set
+#
+# (For an explicit demo of loop + agent-invoke composition, see
+# ashby-job-finder.yaml's docstring — that agent IS loop-invokable, and
+# orchestrators that need per-company side-effects should compose it via
+# `loopConfig.agentId: ashby-job-finder` with inputMapping.)
 #
 # Run:
 #   sua workflow run ashby-search-discovered
@@ -19,9 +32,9 @@
 id: ashby-search-discovered
 name: Ashby Search Discovered
 description: |
-  Discovers companies hiring on Ashby (via ashby-discover), loops over
-  the discovered slugs running ashby-job-finder per company, then rolls
-  them into one structured summary widget.
+  Discovers companies hiring on Ashby (via ashby-discover), fetches each
+  one's job board in a single shell pass, then bulk-summarises matches
+  across all companies into one structured ai-template widget.
 status: draft
 source: local
 mcp: false
@@ -36,8 +49,8 @@ inputs:
     description: Optional topic to narrow the discovery search (e.g. "fintech", "ai").
   MAX_COMPANIES:
     type: number
-    default: 4
-    description: Cap how many discovered companies to actually search (each is one sub-run).
+    default: 8
+    description: Cap on discovered companies to fetch (each is one HTTP call).
 outputs:
   headline:
     type: string
@@ -56,63 +69,103 @@ nodes:
       inputMapping:
         TOPIC: "{{inputs.TOPIC}}"
         MAX_RESULTS: "15"
-  - id: search-each
-    type: loop
+  - id: fetch-and-filter
+    type: shell
     dependsOn: [discover]
-    loopConfig:
-      over: companies
-      agentId: ashby-job-finder
-      maxIterations: 4
-      inputMapping:
-        COMPANY_SLUG: $item.slug
-        JOB_QUERY: "{{inputs.JOB_QUERY}}"
-        MAX_RESULTS: "5"
+    command: |
+      set -e
+      # Filter deterministically in Python (case-insensitive, partial-title
+      # match) so the summariser only sees pre-filtered hits. This keeps
+      # the claude prompt small + accurate — claude is good at prose, not
+      # at scanning hundreds of job titles for keyword matches without
+      # losing count.
+      python3 << 'PYEOF'
+      import json, os, urllib.request, urllib.error
+
+      try:
+          cap = int(os.environ.get("MAX_COMPANIES", "8"))
+      except ValueError:
+          cap = 8
+      query = (os.environ.get("JOB_QUERY") or "").strip().lower()
+
+      disc = json.loads(os.environ["UPSTREAM_DISCOVER_RESULT"])
+      companies = (disc.get("companies") or [])[:cap]
+
+      out = []
+      total_searched = 0
+      total_matches = 0
+      for c in companies:
+          slug = c.get("slug")
+          if not slug:
+              continue
+          total_searched += 1
+          url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+          req = urllib.request.Request(url, headers={
+              "User-Agent": "Mozilla/5.0 sua-agent",
+              "Accept": "application/json",
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=12) as resp:
+                  data = json.loads(resp.read().decode("utf-8", errors="replace"))
+              jobs = data.get("jobs") or data.get("jobPostings") or []
+              matches = []
+              for j in jobs:
+                  title = (j.get("title") or j.get("name") or "")
+                  if query and query not in title.lower():
+                      continue
+                  matches.append({
+                      "company": slug,
+                      "title": title,
+                      "team": j.get("team") or j.get("department") or "",
+                      "location": j.get("location") or j.get("locationName") or "",
+                      "type": j.get("employmentType") or "",
+                      "url": j.get("jobUrl") or f"https://jobs.ashbyhq.com/{slug}/{j.get('id', '')}",
+                  })
+              total_matches += len(matches)
+              out.append({"slug": slug, "found": True, "total_open": len(jobs), "match_count": len(matches), "matches": matches})
+          except Exception as e:
+              out.append({"slug": slug, "found": False, "reason": str(e)[:120]})
+      with_matches = sum(1 for c in out if c.get("match_count", 0) > 0)
+      print(json.dumps({
+          "query": query,
+          "companies_searched": total_searched,
+          "companies_with_matches": with_matches,
+          "total_matches": total_matches,
+          "per_company": out,
+      }))
+      PYEOF
+    timeout: 180
   - id: summarise
     type: claude-code
-    dependsOn: [search-each]
+    dependsOn: [fetch-and-filter]
     prompt: |
-      Roll up Ashby job-search results from multiple companies into one structured summary.
+      Frame already-filtered Ashby job-search results as a structured response.
+
+      IMPORTANT: Do not use any tools (no Bash, no Python, no file reads). The
+      data below has already been deterministically filtered for matches; read
+      it directly and emit the JSON response. Tool use forces a second turn and
+      we run with maxTurns: 1.
 
       USER QUERY: {{inputs.JOB_QUERY}}
       TOPIC FILTER: {{inputs.TOPIC}}
 
-      RAW DATA — `items[]` is one entry per searched company. Each entry is
-      already-parsed JSON from ashby-job-finder with shape:
-        {
-          "headline": "<n> matching roles at <Co>",
-          "match_count": <number>,
-          "total_count": <number>,
-          "summary": "<one-line>",
-          "roles": [{"title", "team", "location", "type", "url"}, ...]
-        }
+      DATA — already filtered to matching jobs only. Trustworthy counts:
+      {{upstream.fetch-and-filter.result}}
 
-      {{upstream.search-each.result}}
-
-      Output ONLY a single JSON object (no markdown, no fences, no commentary)
-      with this exact shape:
+      Concatenate every per_company[*].matches[] entry into a flat matches[]
+      array (preserving order), and emit ONLY this JSON object (no markdown,
+      no fences, no commentary):
 
       {
-        "headline": "<short summary, e.g. '3 matches across 4 companies'>",
-        "total_matches": <number>,
-        "companies_searched": <number>,
-        "matches": [
-          {
-            "company": "<company headline / slug>",
-            "title": "<role title>",
-            "team": "<team or empty string>",
-            "location": "<location or empty string>",
-            "type": "<employment type or empty string>",
-            "url": "<apply url>"
-          }
-        ]
+        "headline": "<short, e.g. '<total_matches> <query> matches across <companies_with_matches> of <companies_searched> companies'>",
+        "total_matches": <copy of total_matches from data>,
+        "companies_searched": <copy of companies_searched from data>,
+        "matches": [<concatenated entries from per_company[*].matches[]>]
       }
 
-      Flatten roles[] from every company that had match_count > 0 into the
-      top-level matches[] array. Skip companies with match_count == 0.
-      If NO companies had matches, set matches to [] and headline to
-      "No matching roles across <N> companies".
+      If total_matches is 0, set matches to [] and headline to "No <query> roles across <companies_searched> companies".
     maxTurns: 1
-    timeout: 240
+    timeout: 120
 signal:
   title: Ashby (discovered)
   icon: 🧭
