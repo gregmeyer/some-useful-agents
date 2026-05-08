@@ -38,13 +38,18 @@ export function autoFixYaml(yaml: string): string {
     if (!raw || typeof raw !== 'object') return yaml;
     let changed = false;
 
-    // Fix 1: {{inputs.X}} → $X in shell node commands.
+    // Fix 1: {{inputs.X}} → $X in shell node commands. Matches both the
+    // canonical form and the space-escaped {{ → "{ {" form that the
+    // template-substitution pipeline produces when the planner's output
+    // is piped through {{upstream.X.result}} (safe-escape protection
+    // against double-substitution leaks `{ {inputs.NAME}}` into the saved
+    // YAML on disk if we don't catch it here).
     if (raw.nodes && Array.isArray(raw.nodes)) {
       for (const n of raw.nodes) {
         if (n.type === 'shell' && typeof n.command === 'string') {
           const fixed = n.command.replace(
-            /\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g,
-            (_: string, name: string) => '$' + name,
+            /\{ ?\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g,
+            (_: string, name: string) => '$' + name.toUpperCase(),
           );
           if (fixed !== n.command) { n.command = fixed; changed = true; }
         }

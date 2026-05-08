@@ -163,7 +163,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             <h2 style="margin-top: 0;">Result</h2>
             ${!inProgress && run.result
               ? (agent?.outputWidget
-                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, Object.keys(agent.inputs ?? {})) ?? outputFrame(run.result)
+                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result)
                   : outputFrame(run.result))
               : inProgress
                 ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
@@ -191,7 +191,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ` : html`
         <h2>Output</h2>
         ${run.result
-          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, Object.keys(agent.inputs ?? {})) ?? outputFrame(run.result) : outputFrame(run.result))
+          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result) : outputFrame(run.result))
           : html`<p class="dim">No output yet.</p>`}
       `}
       ${cancelModal}
