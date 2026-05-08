@@ -93,6 +93,39 @@ describe('buildPlanSchema', () => {
     expect(plan.dashboard?.sections).toHaveLength(2);
   });
 
+  it('coerces existingDashboards string entries into objects', () => {
+    // Surfaced by the smoke runner: real planner output emits
+    // `existingDashboards: ["dash-1", "dash-2"]` instead of the
+    // canonical {id, name?, reason?} shape. We coerce strings into
+    // objects so the rest of the plan still validates.
+    const plan = buildPlanSchema.parse({
+      intent: 'dashboard-mixed',
+      summary: 's',
+      survey: { matchedAgents: [], missingFor: [], existingDashboards: ['user:home', 'user:work'] },
+      newAgents: [{ id: 'a', purpose: 'p', yaml: 'id: a\nname: A\n' }],
+      dashboard: { id: 'user:d', name: 'D', sections: [{ title: 'T', agentIds: ['a'] }] },
+    });
+    expect(plan.survey.existingDashboards).toEqual([
+      { id: 'user:home', name: '', reason: '' },
+      { id: 'user:work', name: '', reason: '' },
+    ]);
+  });
+
+  it('still accepts the canonical {id,name,reason} object shape', () => {
+    const plan = buildPlanSchema.parse({
+      intent: 'dashboard-mixed',
+      summary: 's',
+      survey: {
+        matchedAgents: [],
+        missingFor: [],
+        existingDashboards: [{ id: 'user:x', name: 'X', reason: 'because' }],
+      },
+      newAgents: [{ id: 'a', purpose: 'p', yaml: 'id: a\nname: A\n' }],
+      dashboard: { id: 'user:d', name: 'D', sections: [{ title: 'T', agentIds: ['a'] }] },
+    });
+    expect(plan.survey.existingDashboards[0]).toEqual({ id: 'user:x', name: 'X', reason: 'because' });
+  });
+
   it('rejects user dashboard ids without the user: prefix', () => {
     expect(() => buildPlanSchema.parse(basePlan({
       intent: 'dashboard-new',

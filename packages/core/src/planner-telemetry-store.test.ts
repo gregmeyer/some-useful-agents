@@ -127,6 +127,19 @@ describe('PlannerTelemetryStore', () => {
       expect(store.resolveOriginalRunId('unknown')).toBe('unknown');
     });
 
+    it('a fromHandle-built store has its retryAliases map initialised', () => {
+      // Regression: class-field initialisers (`private readonly retryAliases
+      // = new Map()`) only run inside `new`. fromHandle uses Object.create
+      // so the field stayed undefined, and any call into resolveOriginalRunId
+      // / recordRetrySpawn from a fromHandle store crashed with
+      // "Cannot read properties of undefined (reading 'get')".
+      // Surfaced by the planner smoke runner.
+      const fresh = PlannerTelemetryStore.fromHandle((store as unknown as { db: import('node:sqlite').DatabaseSync }).db);
+      expect(() => fresh.resolveOriginalRunId('whatever')).not.toThrow();
+      expect(() => fresh.recordRetrySpawn('a', 'b')).not.toThrow();
+      expect(fresh.resolveOriginalRunId('b')).toBe('a');
+    });
+
     it('resolves alias-of-alias chains down to the root', () => {
       store.recordStart('root', 'goal');
       store.recordRetrySpawn('root', 'retry-a');
