@@ -66,6 +66,15 @@ export interface PlannerTelemetryStats {
 export class PlannerTelemetryStore {
   private db: DatabaseSync;
   private readonly ownsConnection: boolean;
+  /**
+   * Maps retry run-ids back to the original (root) run-id whose telemetry
+   * row owns the pipeline. PR2's critic-loop spawns a new planner run on
+   * critic failure; the new run's run_id is aliased here so subsequent
+   * recordExtract / incrementAttempts / recordCommit calls update the
+   * original row. In-memory only — daemon restart abandons in-flight
+   * retries, which is fine because the wizard modal is short-lived.
+   */
+  private readonly retryAliases = new Map<string, string>();
 
   constructor(dbPath: string) {
     const dir = dirname(dbPath);
@@ -111,6 +120,26 @@ export class PlannerTelemetryStore {
     `);
   }
 
+  /**
+   * Register a retry planner run as an alias of an original (root) run.
+   * Subsequent telemetry updates targeting `retryRunId` will be applied to
+   * `originalRunId` instead. Safe to call multiple times — last call wins.
+   */
+  recordRetrySpawn(originalRunId: string, retryRunId: string): void {
+    // Resolve transitively in case the caller passes an already-aliased id
+    // (avoids alias-of-alias chains that drift if the original gets renamed).
+    const root = this.resolveOriginalRunId(originalRunId);
+    this.retryAliases.set(retryRunId, root);
+  }
+
+  /**
+   * Resolve a potentially-aliased run-id to the root telemetry-row run-id.
+   * Returns the input unchanged when no alias is registered.
+   */
+  resolveOriginalRunId(runId: string): string {
+    return this.retryAliases.get(runId) ?? runId;
+  }
+
   /** Insert a row for a freshly-started planner run. Idempotent — re-runs no-op via INSERT OR IGNORE. */
   recordStart(runId: string, goal: string): void {
     const truncated = goal.length > 1024 ? goal.slice(0, 1024) : goal;
@@ -147,7 +176,7 @@ export class PlannerTelemetryStore {
       args.validationErrors ?? null,
       args.timeToPlanMs,
       args.intent ?? null,
-      args.runId,
+      this.resolveOriginalRunId(args.runId),
     );
   }
 
@@ -158,7 +187,7 @@ export class PlannerTelemetryStore {
   incrementAttempts(runId: string): void {
     this.db.prepare(`
       UPDATE planner_telemetry SET plan_attempts = plan_attempts + 1 WHERE run_id = ?
-    `).run(runId);
+    `).run(this.resolveOriginalRunId(runId));
   }
 
   /** Record that the user clicked Commit on this plan. */
@@ -168,7 +197,7 @@ export class PlannerTelemetryStore {
       SET committed_at = datetime('now'),
           time_to_commit_ms = ?
       WHERE run_id = ?
-    `).run(timeToCommitMs, runId);
+    `).run(timeToCommitMs, this.resolveOriginalRunId(runId));
   }
 
   /** Read a single row (mainly for tests + debugging). */

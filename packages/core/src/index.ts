@@ -98,6 +98,13 @@ export {
   type BuildPlanInput,
 } from './build-plan-schema.js';
 export {
+  critiquePlan,
+  formatCriticFeedback,
+  type PlanCriticError,
+  type PlanCriticResult,
+  type PlanCriticContext,
+} from './build-plan-critic.js';
+export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,

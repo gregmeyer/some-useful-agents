@@ -100,9 +100,21 @@ export const BUILD_FROM_GOAL_JS = `
                   if (pe) pe.textContent = data.phase;
                 }
                 pollTimer = setTimeout(poll, 2000);
+              } else if (data.status === 'retrying' && data.runId) {
+                // Critic rejected the plan; server spawned a fresh planner
+                // run with the structural feedback. Switch our polling
+                // target to the new runId and update the phase label so
+                // the user sees that we're refining, not stuck.
+                runId = data.runId;
+                if (data.phase) {
+                  serverPhase = data.phase;
+                  var per = document.getElementById('build-phase');
+                  if (per) per.textContent = data.phase;
+                }
+                pollTimer = setTimeout(poll, 2000);
               } else if (data.status === 'done' && data.plan) {
                 clearInterval(tickTimer);
-                renderPlanReview(data.plan);
+                renderPlanReview(data.plan, data.criticErrors, data.criticWarning);
               } else if (data.status === 'done' && data.yaml) {
                 // Legacy single-YAML response (agent-builder fallback). Wrap it
                 // in a one-agent plan and reuse the review UI.
@@ -134,8 +146,24 @@ export const BUILD_FROM_GOAL_JS = `
           '<div style="margin-top:var(--space-3);text-align:right;"><button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Close</button></div>';
       }
 
-      function renderPlanReview(plan) {
+      function renderPlanReview(plan, criticErrors, criticWarning) {
         var h = '';
+        // Critic warnings appear up top so the user sees them before
+        // scanning the plan body. Each error is path + message; the user
+        // can fix the YAML inline (textareas below) or commit anyway.
+        if (criticErrors && criticErrors.length) {
+          h += '<div class="flash flash--warning" style="margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
+               '<div style="font-weight:var(--weight-semibold);margin-bottom:var(--space-1);">Plan has structural issues:</div>';
+          if (criticWarning) {
+            h += '<div style="margin-bottom:var(--space-1);">' + esc(criticWarning) + '</div>';
+          }
+          h += '<ul style="margin:0;padding-left:var(--space-4);">';
+          for (var ce = 0; ce < criticErrors.length; ce++) {
+            var er = criticErrors[ce];
+            h += '<li><code>' + esc(er.path) + '</code>: ' + esc(er.message) + '</li>';
+          }
+          h += '</ul></div>';
+        }
         var intentLabel = {
           'agent': 'Agent',
           'dashboard-existing': 'Dashboard (existing agents)',
@@ -217,12 +245,16 @@ export const BUILD_FROM_GOAL_JS = `
         }
 
         h += '<div id="build-result-flash"></div>';
+        var hasCritic = criticErrors && criticErrors.length > 0;
+        var commitLabel = hasCritic
+          ? 'Commit anyway'
+          : (plan.dashboard ? 'Create dashboard + ' + (plan.newAgents.length || 0) + ' agent(s)' :
+             plan.newAgents.length === 1 ? 'Create agent' :
+             'Create ' + plan.newAgents.length + ' agents');
         h += '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;flex-wrap:wrap;">' +
              '<button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Dismiss</button>' +
              '<button type="button" class="btn btn--primary btn--sm" id="build-commit-btn">' +
-             (plan.dashboard ? 'Create dashboard + ' + (plan.newAgents.length || 0) + ' agent(s)' :
-              plan.newAgents.length === 1 ? 'Create agent' :
-              'Create ' + plan.newAgents.length + ' agents') +
+             esc(commitLabel) +
              '</button></div>';
         content.innerHTML = h;
 
