@@ -104,6 +104,7 @@ nodes:
           type: metric
 
       WIDGET INTERACTION (outputWidget.controls — make widgets feel alive):
+      For ANY agent with declared `inputs:` — set `outputWidget.interactive: true`. This makes the pulse tile render an inline inputs form + run button so users can re-run with tweaked values without leaving the dashboard. Without this flag, pulse tiles render in static mode and only the /agents/<id> detail page exposes a re-run UI. Skip the flag for purely scheduled agents that take no inputs (daily digests, status checks).
       Add a controls: array on outputWidget when the user might interact with the result. Three control types — replay, field-toggle, view-switch — render as a row above the widget body. State is URL-driven (no client JS). field-toggle and view-switch are NOT supported on ai-template widgets.
       Per archetype:
       - Weather / forecast: include all three. replay with inputs:[CITY] for tweaking. view-switch metric ↔ imperial. field-toggle (default: hidden) for optional metrics like uv / sunrise / precip.
