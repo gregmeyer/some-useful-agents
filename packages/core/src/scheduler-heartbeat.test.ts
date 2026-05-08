@@ -68,7 +68,7 @@ describe('getSchedulerStatus', () => {
     expect(heartbeat).toBeNull();
   });
 
-  it('returns running for a fresh heartbeat', () => {
+  it('returns running for a fresh heartbeat with at least one agent', () => {
     writeHeartbeat(dataDir, {
       pid: process.pid,
       startedAt: new Date().toISOString(),
@@ -77,6 +77,20 @@ describe('getSchedulerStatus', () => {
     });
     const { status } = getSchedulerStatus(dataDir);
     expect(status).toBe('running');
+  });
+
+  it('returns idle for a fresh heartbeat with zero agents registered', () => {
+    // Daemon alive but registered nothing. Used to be lumped in with
+    // 'running' (green dot), which let the v1/v2 loader split look healthy.
+    writeHeartbeat(dataDir, {
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      agents: [],
+      nextFires: {},
+    });
+    const { status, heartbeat } = getSchedulerStatus(dataDir);
+    expect(status).toBe('idle');
+    expect(heartbeat).not.toBeNull();
   });
 
   it('returns stale for an old heartbeat', () => {

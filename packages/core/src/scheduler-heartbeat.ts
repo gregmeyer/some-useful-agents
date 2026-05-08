@@ -55,12 +55,16 @@ export function clearHeartbeat(dataDir: string): void {
   }
 }
 
-export type SchedulerStatus = 'running' | 'stale' | 'stopped';
+export type SchedulerStatus = 'running' | 'idle' | 'stale' | 'stopped';
 
 /**
  * Determine scheduler status from the heartbeat file.
- * - 'running': heartbeat is fresh (within staleThresholdMs)
- * - 'stale': heartbeat exists but is older than threshold
+ * - 'running': heartbeat is fresh AND at least one agent is registered
+ * - 'idle':    heartbeat is fresh but zero agents are registered. The
+ *              daemon is alive but firing nothing — used to be lumped in
+ *              with 'running' (green dot), which made the dashboard lie
+ *              when v2 agents were silently dropped by the v1 loader.
+ * - 'stale':   heartbeat exists but is older than threshold
  * - 'stopped': no heartbeat file found
  */
 export function getSchedulerStatus(
@@ -71,7 +75,8 @@ export function getSchedulerStatus(
   if (!heartbeat) return { status: 'stopped', heartbeat: null };
 
   const age = Date.now() - new Date(heartbeat.lastHeartbeat).getTime();
-  const status: SchedulerStatus = age <= staleThresholdMs ? 'running' : 'stale';
+  if (age > staleThresholdMs) return { status: 'stale', heartbeat };
+  const status: SchedulerStatus = heartbeat.agents.length === 0 ? 'idle' : 'running';
   return { status, heartbeat };
 }
 

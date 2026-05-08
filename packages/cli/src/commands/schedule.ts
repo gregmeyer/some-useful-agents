@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -7,11 +9,14 @@ import {
   LocalScheduler,
   inspectSecretsFile,
   RunStore,
+  AgentStore,
+  VariablesStore,
+  EncryptedFileStore,
   cronToHuman,
   getSchedulerStatus,
   nextFireTime,
 } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getSecretsPath, getDbPath } from '../config.js';
+import { loadConfig, getAgentDirs, getSecretsPath, getDbPath, getDashboardBaseUrl } from '../config.js';
 import { createProvider } from '../provider-factory.js';
 import * as ui from '../ui.js';
 
@@ -183,12 +188,27 @@ scheduleCommand
       ui.warn(`${w.file}: ${w.message}`);
     }
 
+    // Open AgentStore + load v2 (DAG) agents that have a schedule. Until
+    // PR-4b lands LocalProvider.submitDagRun, these flow through the
+    // executor directly via LocalScheduler's v2 path. Without this, every
+    // wizard-built agent silently drops on the floor — see #228.
+    const dbPath = getDbPath(config);
+    const dbDir = dirname(dbPath);
+    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    const sharedDb = new DatabaseSync(dbPath);
+    const agentStore = AgentStore.fromHandle(sharedDb);
+    const v2Agents = agentStore.listAgents().filter(
+      (a) => a.schedule && a.status === 'active',
+    );
+
     // Preflight: if any scheduled agent needs secrets and the store is v2
     // passphrase-protected without SUA_SECRETS_PASSPHRASE set, fail fast.
     // Otherwise the daemon starts, fires on schedule, and every fire fails
     // silently at secret-resolution time — a nasty UX.
     const scheduledAgents = Array.from(agents.values()).filter((a) => a.schedule);
-    const needsSecrets = scheduledAgents.some((a) => (a.secrets ?? []).length > 0);
+    // v2 Agents declare secrets only at the node level.
+    const v2NeedsSecrets = v2Agents.some((a) => (a.nodes ?? []).some((n) => (n.secrets ?? []).length > 0));
+    const needsSecrets = scheduledAgents.some((a) => (a.secrets ?? []).length > 0) || v2NeedsSecrets;
     if (needsSecrets) {
       const status = inspectSecretsFile(getSecretsPath(config));
       const envPass = process.env.SUA_SECRETS_PASSPHRASE;
@@ -211,59 +231,96 @@ scheduleCommand
       allowUntrustedShell: new Set(options.allowUntrustedShell),
     });
 
-    // Create a read-only RunStore for catch-up queries.
-    const dbPath = getDbPath(config);
-    const runStore = new RunStore(dbPath);
+    // Share the AgentStore's DB handle with the RunStore so the scheduler
+    // and the v2 executor see a consistent view (matches workflow.ts's
+    // openStores pattern).
+    const runStore = RunStore.fromHandle(sharedDb);
+
+    // v2 wiring: optional stores. Variables are best-effort (absent stores
+    // just mean variables don't resolve at fire time). Secrets are loaded
+    // here (rather than only when needed) because v2 agents can declare
+    // secrets at the top level OR per-node, and we want predictable failure
+    // semantics across the daemon's lifetime.
+    const variablesStore = (() => {
+      try { return new VariablesStore(join(config.dataDir, '.sua', 'variables.json')); }
+      catch { return undefined; }
+    })();
+    const secretsStore = (() => {
+      try { return new EncryptedFileStore(getSecretsPath(config)); }
+      catch { return undefined; }
+    })();
 
     const scheduler = new LocalScheduler({
       provider,
       agents,
+      v2Agents,
+      v2Deps: {
+        runStore,
+        secretsStore,
+        variablesStore,
+        agentStore,
+        allowUntrustedShell: new Set(options.allowUntrustedShell),
+        dashboardBaseUrl: getDashboardBaseUrl(config),
+        dataRoot: agentStore.dataRoot,
+      },
       inputs: options.input,
       dataDir,
       runStore,
       onFire: (agent, runId) => {
         const ts = new Date().toISOString();
-        console.log(`${ui.dim(ts)} ${chalk.green('fired')} ${ui.agent(agent.name)} ${ui.dim(`run=${runId.slice(0, 8)}`)}`);
+        // v1 agents have `name`, v2 agents have `id` + `name`. Use whichever
+        // is present so the log line stays useful for both kinds.
+        const label = 'id' in agent && agent.id ? agent.id : agent.name;
+        console.log(`${ui.dim(ts)} ${chalk.green('fired')} ${ui.agent(label)} ${ui.dim(`run=${runId.slice(0, 8)}`)}`);
       },
       onError: (agent, err) => {
-        ui.fail(`Error firing ${agent.name}: ${err.message}`);
+        const label = 'id' in agent && agent.id ? agent.id : agent.name;
+        ui.fail(`Error firing ${label}: ${err.message}`);
       },
     });
 
     let entries;
+    let v2Entries: Array<{ agent: { id: string; name: string }; schedule: string }> = [];
     try {
       entries = await scheduler.start();
+      v2Entries = scheduler.getScheduledV2Agents();
     } catch (err) {
       ui.fail((err as Error).message);
       runStore.close();
+      sharedDb.close();
       await provider.shutdown();
       process.exit(1);
     }
 
-    if (entries.length === 0) {
+    const totalCount = entries.length + v2Entries.length;
+    if (totalCount === 0) {
       ui.warn(
         'No agents have a schedule. Idling — restart the scheduler after adding ' +
           '`schedule: "<cron>"` to an agent YAML.',
       );
     }
 
-    const bannerLines = entries.length > 0
-      ? entries.map(({ agent, schedule }) => `${agent.name.padEnd(24)} ${cronToHuman(schedule)}`)
+    const bannerLines = totalCount > 0
+      ? [
+          ...entries.map(({ agent, schedule }) => `${agent.name.padEnd(24)} ${cronToHuman(schedule)}`),
+          ...v2Entries.map(({ agent, schedule }) => `${agent.id.padEnd(24)} ${cronToHuman(schedule)} ${ui.dim('(v2)')}`),
+        ]
       : ['idle — no scheduled agents'];
-    ui.banner(`Scheduler running (${entries.length} agent${entries.length === 1 ? '' : 's'})`, bannerLines);
+    ui.banner(`Scheduler running (${totalCount} agent${totalCount === 1 ? '' : 's'})`, bannerLines);
     console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
     // When there are no scheduled entries the scheduler holds no internal
     // timers, so the event loop would exit immediately. Keep a low-frequency
     // tick so the supervised process stays alive (and keeps writing the
     // heartbeat) until the user adds a schedule and restarts it.
-    const idleKeepAlive = entries.length === 0 ? setInterval(() => {}, 60_000) : null;
+    const idleKeepAlive = totalCount === 0 ? setInterval(() => {}, 60_000) : null;
 
     const shutdown = async () => {
       console.log('\nShutting down scheduler...');
       if (idleKeepAlive) clearInterval(idleKeepAlive);
       scheduler.stop();
       runStore.close();
+      sharedDb.close();
       await provider.shutdown();
       process.exit(0);
     };

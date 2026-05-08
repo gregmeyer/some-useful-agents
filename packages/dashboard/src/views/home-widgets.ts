@@ -245,13 +245,21 @@ function buildScheduled(data: HomeWidgetData): SystemWidget {
   }
 
   // Status indicator.
+  // 'idle' = daemon alive but registered zero agents. We surface this
+  // distinctly from 'running' so the dashboard doesn't falsely claim
+  // success when the v2/v1 loader split (or a stale agents/ dir) has
+  // left the daemon firing nothing.
   const statusDot = status === 'running'
     ? '\u{1F7E2}' // green circle
+    : status === 'idle'
+    ? '\u{1F7E0}' // orange circle — alive but firing nothing
     : status === 'stale'
     ? '\u{1F7E1}' // yellow circle
     : '\u{1F534}'; // red circle
   const statusLabel = status === 'running'
     ? 'Scheduler running'
+    : status === 'idle'
+    ? 'Scheduler idle (0 agents registered)'
     : status === 'stale'
     ? 'Scheduler stale'
     : 'Scheduler stopped';
