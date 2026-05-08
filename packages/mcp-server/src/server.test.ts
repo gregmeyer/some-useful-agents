@@ -20,7 +20,12 @@ describe('MCP server multi-session', () => {
   let tokenPath: string;
   let secretsPath: string;
   let port: number;
-  let httpServer: { close: () => void } | undefined;
+  // Handle from startMcpServer; afterEach uses it to drain the http server
+  // before deleting the tmpdir + ending the test. Without this the http
+  // server keeps listening on the random port and a future test that hits
+  // the same port talks to a server pointing at a deleted agentDir,
+  // surfacing as flaky "Agent ... not found" in CI.
+  let serverHandle: { shutdown: () => Promise<void> } | undefined;
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'sua-mcp-multi-'));
@@ -32,13 +37,16 @@ describe('MCP server multi-session', () => {
     port = 18000 + Math.floor(Math.random() * 1000);
   });
 
-  afterEach(() => {
-    httpServer?.close();
+  afterEach(async () => {
+    if (serverHandle) {
+      await serverHandle.shutdown();
+      serverHandle = undefined;
+    }
     rmSync(dataDir, { recursive: true, force: true });
   });
 
   it('serves two independent initialize requests without crashing', async () => {
-    await startMcpServer({
+    serverHandle = await startMcpServer({
       port,
       host: '127.0.0.1',
       agentDirs: [dataDir], // empty dir — agent loader returns no agents
@@ -106,6 +114,10 @@ describe('MCP run-agent with inputs', () => {
   let tokenPath: string;
   let secretsPath: string;
   let port: number;
+  // See note in the first describe block — without this the random-port
+  // pool collides across tests and a fresh test ends up talking to a
+  // prior test's still-running server (whose agentDir was rm'd).
+  let serverHandle: { shutdown: () => Promise<void> } | undefined;
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'sua-mcp-run-'));
@@ -136,7 +148,11 @@ describe('MCP run-agent with inputs', () => {
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    if (serverHandle) {
+      await serverHandle.shutdown();
+      serverHandle = undefined;
+    }
     rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -155,7 +171,7 @@ describe('MCP run-agent with inputs', () => {
   }
 
   it('list-agents returns the declared input schema', async () => {
-    await startMcpServer({
+    serverHandle = await startMcpServer({
       port,
       host: '127.0.0.1',
       agentDirs: [agentDir],
@@ -179,7 +195,7 @@ describe('MCP run-agent with inputs', () => {
   });
 
   it('run-agent threads inputs through to the run', async () => {
-    await startMcpServer({
+    serverHandle = await startMcpServer({
       port,
       host: '127.0.0.1',
       agentDirs: [agentDir],
@@ -204,7 +220,7 @@ describe('MCP run-agent with inputs', () => {
   });
 
   it('run-agent returns an MCP error when a required input is missing', async () => {
-    await startMcpServer({
+    serverHandle = await startMcpServer({
       port,
       host: '127.0.0.1',
       agentDirs: [agentDir],
@@ -228,7 +244,7 @@ describe('MCP run-agent with inputs', () => {
   });
 
   it('run-agent rejects oversize input values before submitting', async () => {
-    await startMcpServer({
+    serverHandle = await startMcpServer({
       port,
       host: '127.0.0.1',
       agentDirs: [agentDir],

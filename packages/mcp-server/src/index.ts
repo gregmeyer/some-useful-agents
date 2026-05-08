@@ -65,7 +65,13 @@ function rejectIfNotOk(res: ServerResponse, check: AuthCheckResult): boolean {
   return true;
 }
 
-export async function startMcpServer(options: McpServerOptions): Promise<void> {
+/** Handle returned by `startMcpServer` so callers (tests, CLI) can shut down cleanly. */
+export interface McpServerHandle {
+  /** Stop accepting new connections, drain the provider, and close the http server. */
+  shutdown(): Promise<void>;
+}
+
+export async function startMcpServer(options: McpServerOptions): Promise<McpServerHandle> {
   const host = options.host ?? '127.0.0.1';
   const tokenPath = options.tokenPath ?? getMcpTokenPath();
 
@@ -198,17 +204,37 @@ export async function startMcpServer(options: McpServerOptions): Promise<void> {
     res.end();
   });
 
-  httpServer.listen(options.port, host, () => {
-    const displayHost = host === '0.0.0.0' || host === '::' ? '<all interfaces>' : host;
-    console.log(`MCP server listening on http://${displayHost}:${options.port}/mcp`);
-    console.log(`Health check: http://${displayHost}:${options.port}/health`);
-    console.log(`Bearer token: ${tokenPath}`);
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(options.port, host, () => {
+      httpServer.removeListener('error', reject);
+      const displayHost = host === '0.0.0.0' || host === '::' ? '<all interfaces>' : host;
+      console.log(`MCP server listening on http://${displayHost}:${options.port}/mcp`);
+      console.log(`Health check: http://${displayHost}:${options.port}/health`);
+      console.log(`Bearer token: ${tokenPath}`);
+      resolve();
+    });
   });
+
+  let shuttingDown = false;
+  const shutdown = async (): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Close all live MCP transports first so their underlying HTTP responses
+    // don't race the server.close() callback.
+    for (const entry of sessions.values()) {
+      try { await entry.server.close?.(); } catch { /* ignore */ }
+    }
+    sessions.clear();
+    try { await provider.shutdown(); } catch { /* ignore */ }
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  };
 
   process.on('SIGINT', async () => {
     console.log('\nShutting down...');
-    await provider.shutdown();
-    httpServer.close();
+    await shutdown();
     process.exit(0);
   });
+
+  return { shutdown };
 }
