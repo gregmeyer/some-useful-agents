@@ -239,7 +239,10 @@ export const BUILD_FROM_GOAL_JS = `
             var ta = document.querySelector('[data-new-agent-idx="' + i + '"]');
             return { id: a.id, purpose: a.purpose, yaml: ta ? ta.value : a.yaml };
           });
-          var payload = { plan: Object.assign({}, plan, { newAgents: editedNewAgents }) };
+          var payload = {
+            plan: Object.assign({}, plan, { newAgents: editedNewAgents }),
+            plannerRunId: runId,
+          };
 
           commitBtn.disabled = true;
           commitBtn.textContent = 'Creating...';

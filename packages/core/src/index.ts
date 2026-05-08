@@ -65,6 +65,11 @@ export {
   type DashboardLayout,
 } from './dashboards-store.js';
 export {
+  PlannerTelemetryStore,
+  type PlannerTelemetryRow,
+  type PlannerTelemetryStats,
+} from './planner-telemetry-store.js';
+export {
   packManifestSchema,
   type PackManifestInput,
   type PackManifestParsed,

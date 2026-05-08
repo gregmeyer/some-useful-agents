@@ -8,6 +8,7 @@ import {
   ToolStore,
   PacksStore,
   DashboardsStore,
+  PlannerTelemetryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
   VariablesStore,
@@ -34,6 +35,7 @@ import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
+import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
 import { widgetRunRouter } from './routes/widget-run.js';
 import { toolsRouter } from './routes/tools.js';
@@ -198,6 +200,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(runsRouter);
   app.use(runNowRouter);
   app.use(buildRouter);
+  app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);
   app.use(widgetRunRouter);
   app.use(settingsMcpRouter);
@@ -276,6 +279,14 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // wire routes that depend on these stores.
   }
 
+  // Planner telemetry store. Records one row per planner run; feeds /metrics/planner.
+  let plannerTelemetryStore: PlannerTelemetryStore | undefined;
+  try {
+    plannerTelemetryStore = new PlannerTelemetryStore(opts.dbPath);
+  } catch {
+    // Non-fatal: telemetry stays absent if the table can't be created.
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -295,6 +306,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore,
     packsStore,
     dashboardsStore,
+    plannerTelemetryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),

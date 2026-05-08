@@ -719,15 +719,24 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     offset: 0,
   });
 
+  let runId: string | undefined;
   if (rows.length > 0) {
-    res.json({ ok: true, status: 'started', runId: rows[0].id });
+    runId = rows[0].id;
+    res.json({ ok: true, status: 'started', runId });
   } else {
     try {
       const run = await runPromise;
-      res.json({ ok: true, status: 'started', runId: run.id });
+      runId = run.id;
+      res.json({ ok: true, status: 'started', runId });
     } catch (err) {
       res.json({ ok: false, error: (err as Error).message });
+      return;
     }
+  }
+  // Telemetry: record this planner run with its goal so /metrics/planner
+  // can correlate timing + outcome later. Best-effort — failure is silent.
+  if (runId && ctx.plannerTelemetryStore) {
+    try { ctx.plannerTelemetryStore.recordStart(runId, goal); } catch { /* swallow */ }
   }
 });
 
@@ -771,6 +780,10 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
   const ranPlanner = run.agentName === PLANNER_AGENT_ID;
 
   if (ranPlanner) {
+    // Telemetry timing — measure from the run's startedAt to its completedAt.
+    const planMs = run.completedAt && run.startedAt
+      ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
+      : 0;
     // Extract + validate the plan JSON.
     let resultText = run.result;
     if (!resultText.includes('<plan>')) {
@@ -780,29 +793,46 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
     }
     const planText = extractPlanJson(resultText);
     if (!planText) {
+      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'no-json', autofixCount: 0, timeToPlanMs: planMs }); } catch { /* swallow */ }
       res.json({ ok: true, status: 'failed', error: 'Planner did not produce a <plan>…</plan> block.' });
       return;
     }
     let parsed: unknown;
     try { parsed = JSON.parse(planText); }
     catch (e) {
+      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'no-json', autofixCount: 0, timeToPlanMs: planMs }); } catch { /* swallow */ }
       res.json({ ok: true, status: 'failed', error: `Plan JSON parse failed: ${(e as Error).message}` });
       return;
     }
     const result = buildPlanSchema.safeParse(parsed);
     if (!result.success) {
       const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'schema-invalid', autofixCount: 0, validationErrors: result.error.issues.length, timeToPlanMs: planMs }); } catch { /* swallow */ }
       res.json({ ok: true, status: 'failed', error: `Plan validation failed: ${issues}`, rawPlan: parsed });
       return;
     }
 
     // Apply autoFixYaml to each newAgent's YAML so we surface a clean
-    // form to the user (mirrors what /create did before).
-    const cleanedNewAgents = result.data.newAgents.map((a) => ({
-      ...a,
-      yaml: autoFixYaml(a.yaml),
-    }));
+    // form to the user (mirrors what /create did before). Count how many
+    // YAMLs were actually modified by autoFix so /metrics/planner can
+    // surface "how often did the planner generate clean YAML on its own".
+    let autofixCount = 0;
+    const cleanedNewAgents = result.data.newAgents.map((a) => {
+      const fixed = autoFixYaml(a.yaml);
+      if (fixed !== a.yaml) autofixCount++;
+      return { ...a, yaml: fixed };
+    });
     const plan: BuildPlan = { ...result.data, newAgents: cleanedNewAgents };
+
+    try {
+      ctx.plannerTelemetryStore?.recordExtract({
+        runId,
+        status: 'ok',
+        autofixCount,
+        timeToPlanMs: planMs,
+        intent: plan.intent,
+      });
+    } catch { /* swallow */ }
 
     res.json({ ok: true, status: 'done', plan });
     return;
@@ -853,6 +883,10 @@ buildRouter.get('/agents/build/:runId', (req: Request, res: Response) => {
 buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const body = (req.body ?? {}) as Record<string, unknown>;
+  // Optional: the wizard sends the planner runId so we can correlate this
+  // commit with its planner-run row in planner_telemetry. Older clients
+  // that don't send it just skip the commit-time telemetry update.
+  const plannerRunId = typeof body.plannerRunId === 'string' ? body.plannerRunId : undefined;
 
   const result = buildPlanSchema.safeParse(body.plan);
   if (!result.success) {
@@ -931,6 +965,21 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
     }
   } else if (plan.dashboard && !ctx.dashboardsStore) {
     dashboardError = 'Dashboards store unavailable.';
+  }
+
+  // Telemetry: stamp the commit time + total time-to-commit. Only fires
+  // when the wizard supplied plannerRunId (correlates this commit back
+  // to its planner-run row); otherwise the row stays uncommitted in the
+  // telemetry view, which is the correct semantic for direct /commit
+  // POSTs from non-wizard callers.
+  if (plannerRunId && ctx.plannerTelemetryStore) {
+    try {
+      const plannerRun = ctx.runStore.getRun(plannerRunId);
+      if (plannerRun?.startedAt) {
+        const ms = Date.now() - new Date(plannerRun.startedAt).getTime();
+        ctx.plannerTelemetryStore.recordCommit(plannerRunId, ms);
+      }
+    } catch { /* swallow */ }
   }
 
   // Choose a redirect target: prefer the new dashboard, fall back to
