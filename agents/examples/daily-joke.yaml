@@ -27,6 +27,12 @@ nodes:
     tool: http-get
     toolInputs:
       url: "https://icanhazdadjoke.com/"
+      # Without an explicit Accept header icanhazdadjoke serves its HTML
+      # web page (their browser default). Asking for JSON gets us the
+      # documented {id, joke, status} shape that the format node parses.
+      headers:
+        Accept: "application/json"
+        User-Agent: "some-useful-agents (+https://github.com/gregmeyer/some-useful-agents)"
   - id: format
     type: shell
     command: |

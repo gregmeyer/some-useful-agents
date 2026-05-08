@@ -74,6 +74,27 @@ function isPrivateIp(ip: string): boolean {
  * gate doesn't apply.
  */
 
+/**
+ * Normalize a free-form `headers` tool input into the `Record<string, string>`
+ * shape `fetch` expects. Accepts either an object literal from a templated
+ * input (`{Accept: 'application/json'}`), a JSON string (when the tool input
+ * arrives as serialized text from upstream nodes), or undefined. Drops
+ * non-string values defensively — fetch will throw on those.
+ */
+function normalizeHeaders(raw: unknown): Record<string, string> {
+  if (raw == null) return {};
+  let obj: unknown = raw;
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj); } catch { return {}; }
+  }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (typeof k === 'string' && typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
 function def(
   id: string,
   name: string,
@@ -181,6 +202,10 @@ const BUILTINS: BuiltinToolEntry[] = [
     {
       url: { type: 'string', description: 'Absolute URL to fetch.', required: true },
       timeout: { type: 'number', description: 'Timeout in seconds.', default: 30 },
+      headers: {
+        type: 'object',
+        description: 'Optional request headers ({"Accept":"application/json","User-Agent":"…"}). Many APIs return HTML instead of JSON without an explicit Accept header.',
+      },
     },
     {
       status: { type: 'number', description: 'HTTP status code.' },
@@ -196,7 +221,10 @@ const BUILTINS: BuiltinToolEntry[] = [
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(url, {
+          signal: controller.signal,
+          headers: normalizeHeaders(inputs.headers),
+        });
         const text = await res.text();
         let body: unknown;
         try { body = JSON.parse(text); } catch { body = text; }
@@ -221,6 +249,10 @@ const BUILTINS: BuiltinToolEntry[] = [
       url: { type: 'string', description: 'Absolute URL.', required: true },
       body: { type: 'json', description: 'Request body (JSON-encoded).' },
       timeout: { type: 'number', description: 'Timeout in seconds.', default: 30 },
+      headers: {
+        type: 'object',
+        description: 'Optional request headers. Merged on top of the default Content-Type: application/json (caller can override).',
+      },
     },
     {
       status: { type: 'number', description: 'HTTP status code.' },
@@ -237,9 +269,14 @@ const BUILTINS: BuiltinToolEntry[] = [
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
+        const customHeaders = normalizeHeaders(inputs.headers);
+        const headers: Record<string, string> = {
+          ...(reqBody ? { 'Content-Type': 'application/json' } : {}),
+          ...customHeaders,
+        };
         const res = await fetch(url, {
           method: 'POST',
-          headers: reqBody ? { 'Content-Type': 'application/json' } : {},
+          headers,
           body: reqBody,
           signal: controller.signal,
         });

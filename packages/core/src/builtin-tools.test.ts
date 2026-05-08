@@ -119,6 +119,83 @@ describe('Builtin tool registry', () => {
     expect(entry.definition.inputs.url.required).toBe(true);
     expect(entry.definition.outputs.status.type).toBe('number');
   });
+
+  describe('http-get / http-post headers passthrough', () => {
+    let originalFetch: typeof fetch;
+    let captured: { url: string; init?: RequestInit }[];
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+      captured = [];
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        captured.push({ url: String(url), init });
+        return new Response('{"ok":true}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }) as unknown as typeof fetch;
+    });
+    afterEach(() => { globalThis.fetch = originalFetch; });
+
+    it('http-get sends the supplied headers on the request', async () => {
+      const entry = getBuiltinTool('http-get')!;
+      // Use a public-DNS-shaped URL that passes assertSafeUrl. The fetch
+      // is mocked so no real network call goes out.
+      await entry.execute({
+        url: 'https://example.com/',
+        headers: { Accept: 'application/json', 'User-Agent': 'sua-test' },
+      }, {});
+      expect(captured).toHaveLength(1);
+      const sent = captured[0].init?.headers as Record<string, string>;
+      expect(sent.Accept).toBe('application/json');
+      expect(sent['User-Agent']).toBe('sua-test');
+    });
+
+    it('http-get tolerates JSON-string-shaped headers (templated upstream)', async () => {
+      const entry = getBuiltinTool('http-get')!;
+      await entry.execute({
+        url: 'https://example.com/',
+        headers: '{"Accept":"text/html"}',
+      }, {});
+      const sent = captured[0].init?.headers as Record<string, string>;
+      expect(sent.Accept).toBe('text/html');
+    });
+
+    it('http-get drops non-string header values defensively', async () => {
+      const entry = getBuiltinTool('http-get')!;
+      await entry.execute({
+        url: 'https://example.com/',
+        headers: { Accept: 'application/json', BadValue: 42 as unknown as string },
+      }, {});
+      const sent = captured[0].init?.headers as Record<string, string>;
+      expect(sent.Accept).toBe('application/json');
+      expect(sent.BadValue).toBeUndefined();
+    });
+
+    it('http-post merges custom headers on top of default Content-Type', async () => {
+      const entry = getBuiltinTool('http-post')!;
+      await entry.execute({
+        url: 'https://example.com/',
+        body: { hello: 'world' },
+        headers: { Authorization: 'Bearer x', Accept: 'application/vnd.api+json' },
+      }, {});
+      const sent = captured[0].init?.headers as Record<string, string>;
+      expect(sent['Content-Type']).toBe('application/json');
+      expect(sent.Authorization).toBe('Bearer x');
+      expect(sent.Accept).toBe('application/vnd.api+json');
+    });
+
+    it('http-post lets the caller override Content-Type', async () => {
+      const entry = getBuiltinTool('http-post')!;
+      await entry.execute({
+        url: 'https://example.com/',
+        body: { hello: 'world' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }, {});
+      const sent = captured[0].init?.headers as Record<string, string>;
+      expect(sent['Content-Type']).toBe('application/x-www-form-urlencoded');
+    });
+  });
 });
 
 describe('assertSafeUrl (SSRF guard)', () => {
