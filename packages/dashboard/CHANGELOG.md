@@ -1,5 +1,899 @@
 # @some-useful-agents/dashboard
 
+## 0.20.0
+
+### Minor Changes
+
+- 5c2e83f: agent-builder uses the manifest layer.
+
+  Wires the manifest data shipped in PR A.5/A.6/A.7 into the existing `design → validate → fix` agent-builder DAG. Three changes:
+
+  **Discovery catalog upgrade** — `buildDiscoveryCatalog` now sources node-types from the canonical `NODE_CATALOG` (PR A.7) instead of a hand-authored string, and includes per-agent `outputs:` (PR A.5) + `capabilities:` (PR A.6) in the AVAILABLE AGENTS section. New CRITICAL — OUTPUT WIDGET FIELD SCHEMA section calls out the most common bug (`name:` is the JSON key, not a label; do NOT use `source:`/`path:`/`from:`/`key:`). New DESIGN DISCIPLINE section enforces decomposition (3+ stages → 3+ nodes), `outputs:` declaration, and template-syntax rules.
+
+  **Agent-builder prompt** — `agents/examples/agent-builder.yaml` adds explicit decomposition discipline, outputs declaration rules, widget field schema rules with concrete examples, and signal-template/title rules.
+
+  **`autoFixYaml` extensions** — five new fixes for residual LLM mistakes the prompt doesn't always prevent:
+
+  - Widget field `source:` / `path:` / `from:` / `key:` → `name:` (with smart name/label swap when name was treated as a label)
+  - Invalid `signal.template` → fallback to `text-headline`
+  - `signal.title` JSEP-style expression → strip to first quoted segment
+  - `signal.mapping.*` non-string value (array/object) → `result`
+  - `outputWidget.title` (invented field) → silently strip
+
+  **Dogfood result**: rebuilt the same weather-agent prompt that produced 6 distinct bugs in the baseline. Improved version produces clean YAML with `outputs:` declared, multi-node decomposition, correct widget field names, plain-string signal title, and a smarter API choice (Open-Meteo + geocoding instead of wttr.in). 12 new tests for the autoFixYaml extensions.
+
+- 0042d16: Derived agent capabilities at the parse boundary.
+
+  New `deriveCapabilities(agent: Agent): AgentCapabilities` in core. Computes a static, best-effort summary of what an agent uses and does — populated by `parseAgent` and `agent-store.rowToAgent` and exposed on `Agent.capabilities`.
+
+  ```ts
+  {
+    tools_used:        string[],   // shell-exec, claude-code, http-get, allowedTools entries…
+    mcp_servers_used:  string[],   // extracted from mcp__server__tool naming
+    side_effects:      ('sends_notifications' | 'writes_files' | 'posts_http')[],
+    reads_external:    string[],   // URLs from toolInputs.url/endpoint, regex hits in command/prompt
+  }
+  ```
+
+  Heuristic and conservative — an empty array means "couldn't statically prove," not "doesn't do X." Not a security boundary. Used by the planner-fronted agent-builder (PR A) for cross-agent composition decisions and by the upcoming preflight checks ("does this agent need MCP servers I haven't installed?"). Recomputed on every read; never persisted.
+
+- 0a73abe: Author-declared agent outputs.
+
+  New top-level `outputs:` field on agents — a typed map describing the shape the agent's final-node JSON result reliably contains. Mirrors `inputs:` but with `lowercase_snake_case` names (matches JSON convention) and types `string | number | boolean | object | array`. Optional but recommended.
+
+  ```yaml
+  outputs:
+    articles:
+      type: array
+      description: List of stories with title, url, score
+    count:
+      type: number
+  ```
+
+  Documentation, not a runtime contract — the executor doesn't verify the JSON matches. Used by the planner-fronted agent-builder (PR A) for cross-agent composition via `agent-invoke`, and by the Output Widget editor for `name:` field suggestions. Three example agents (`llm-tells-a-joke`, `daily-joke`, `two-step-digest`) now declare `outputs:` as reference patterns.
+
+- 4ca3edf: New `sua agent reimport <path>` verb + sweep of example agents to enable pulse-tile interactivity.
+
+  Editing `agents/examples/*.yaml` previously required a one-off node script to land — once an agent is in the run DB, the on-disk YAML is no longer authoritative. The new verb takes a YAML file or a directory, calls `agentStore.upsertAgent` for each, and prints a per-file `created` / `updated` (with version bump) / `unchanged` (DAG identical, metadata refreshed) / `failed` summary. Idempotent.
+
+  Sweeps eight example agents that declare runtime `inputs:` (api-monitor, ashby-discover, ashby-jobs-multi, ashby-search-discovered, cat-video-finder, vimeo-staff-picks, weather-dashboard, weather-forecast) and adds `outputWidget.interactive: true` so their pulse tiles render with the inline inputs form + run button. Run `sua agent reimport agents/examples` after pulling to land them in your local DB.
+
+- 0745598: ai-template iteration + per-agent visibility toggles.
+
+  The ai-template widget now supports `{{#each outputs.X as item}}…{{/each}}` block iteration (with nested `{{item.field}}`, escaped `{{item.field}}` vs unescaped `{{{item.field}}}`, and `{{@index}}`) plus a `{{{outputs.X}}}` triple-brace unescaped variant. List-shaped agent outputs (HN feeds, GitHub PR digests, monitoring dashboards) can now render proper card layouts instead of HTML-escaped JSON blobs.
+
+  Adds two new top-level agent fields — `pulseVisible` and `dashboardVisible` (both default true). Toggleable from a new Visibility card on the agent Config tab. `pulseVisible: false` hides a tile from /pulse even when a signal is declared (legacy `signal.hidden` still honored). `dashboardVisible: false` hides the agent from the /agents list view; it remains reachable via direct URL, MCP, scheduler, and the runs page.
+
+- 9b482b6: ARG_MAX defense-in-depth — three follow-ups to the claude-stdin fix (#220).
+
+  1. **Fat upstream tempfile fallback** for shell nodes. When an `UPSTREAM_<ID>_RESULT` env value exceeds 32KB, it gets truncated inline (with a `...(truncated; full value at $UPSTREAM_<ID>_RESULT_FILE)` marker) and the full payload is written to `$STATE_DIR/_upstream/<runId>/<nodeId>.txt`. A new `UPSTREAM_<ID>_RESULT_FILE` env var holds the path. Shell agents that need the full payload do `cat $UPSTREAM_<ID>_RESULT_FILE`. Small upstreams behave exactly as today.
+
+  2. **Argv+env soft-cap guardrail** at `spawnProcess`. Refuses spawn with a structured `setup`-category error when the rendered argv+env exceeds 200KB (well below kernel ARG_MAX ~256KB so we leave headroom for under-sandbox stricter limits). Error message names the heaviest env var and suggests `$<NAME>_FILE` as a fix. Catches any future regression that re-introduces fat-arg/env paths instead of surfacing as raw `spawn E2BIG`.
+
+  3. **Codex spawner now pipes prompt via stdin** (mirrors #220's claude fix). The `codex exec` invocation reads its prompt from stdin natively. Was untouched in #220 because the CLI's stdin behaviour wasn't verified; codex-using agents now share the same E2BIG immunity as claude-code.
+
+  Verified live on `ashby-search-discovered`: fat upstream payloads (1.6MB JSON, 180KB HTML) are now correctly written to `_upstream/<runId>/<nodeId>.txt` instead of being stuffed into env vars.
+
+- b2f5498: Auto-retry on transient failures (R2 of failed-runs-and-retry plan).
+
+  Agents can declare a top-level `retry:` block. When a run fails with a configured `errorCategory`, the orchestrator sleeps with backoff and spawns a fresh attempt, linked back to the head of the chain via `retryOfRunId` (same shape as R1's manual retry).
+
+  ```yaml
+  retry:
+    attempts: 3 # total tries including the first; default 1
+    backoff: exponential # exponential (default) | linear | fixed
+    delaySeconds: 30 # base; 30 → 60 → 120 for exponential
+    categories: [timeout, spawn_failure] # default; conservative
+  ```
+
+  `cancelled`, `setup`, `input_resolution`, `condition_not_met`, `flow_ended` are NEVER retried regardless of policy — they're deterministic or user-driven.
+
+  Implementation lives ABOVE the executor as a thin wrapper (`executeAgentWithRetry` in core/retry.ts). Callers — Run Now, manual retry, widget run, `sua workflow run` — switched from `executeAgentDag` to the wrapper. Replay route stays on the raw executor (replay is investigation, not auto-recovery). Agents without a `retry:` block fall through to a single executor call (zero overhead).
+
+- c2b6ad5: Build from goal v2 — agents, dashboards, or both, with a survey-and-plan
+  review screen.
+
+  The wizard previously only built single agents. It now auto-classifies
+  intent across four flavors: `agent`, `dashboard-existing`,
+  `dashboard-new`, `dashboard-mixed`. The user's goal hits the new
+  `build-planner` agent, which surveys what's already installed
+  (matched agents, missing fragments, overlapping dashboards) and emits
+  a structured `BuildPlan` JSON with:
+
+  - the proposed dashboard (when applicable)
+  - new agents to create (each with full YAML — editable in the review)
+  - clarifying questions for ambiguous parts of the goal
+
+  The review screen surfaces all four blocks; the user edits YAMLs
+  inline, then commits via `POST /agents/build/commit` which walks the
+  plan creating agents + the dashboard atomically (with partial-success
+  reporting). Redirect lands on the new dashboard for dashboard intents,
+  or the new agent's page for agent intents.
+
+  **New plumbing:**
+
+  - `packages/core/src/build-plan-schema.ts` — Zod schema for `BuildPlan`
+    with cross-field validation (intent="agent" can't have a dashboard;
+    dashboard agentIds must reference matched or new agents; etc.) plus
+    `extractPlanJson()` for unwrapping `<plan>…</plan>` / fenced JSON.
+  - `packages/core/src/discovery-catalog.ts` — accepts optional
+    `dashboards` + `packs` args and renders them as new catalog sections
+    so the planner LLM can see installed-state.
+  - `agents/examples/build-planner.yaml` — the multi-flavor planner.
+    Single claude-code node, structured output to `<plan>…</plan>`.
+  - `POST /agents/build/commit` (new) + `GET /agents/build/:runId`
+    (extended to return `BuildPlan` instead of raw YAML) +
+    `POST /agents/build` (now invokes the planner instead of agent-builder).
+  - `POST /agents/build/create` kept as a thin compat shim.
+  - Wizard JS + modal copy updated to surface the plan-review stage and
+    hint at the dashboard flavors.
+
+  19 new unit + supertest cases; full suite 1066/1066 green. Live smoke
+  on three goals (agent / dashboard-existing / dashboard-mixed)
+  produces sensible plans.
+
+- cd21018: Build planner: critic loop with auto-retry + tighter commit telemetry.
+
+  The build wizard now structurally validates each plan before showing it to you. New `critiquePlan()` walks every newAgent YAML through `parseAgent`, checks dashboard refs against your actual catalog, and verifies that `loopConfig.agentId` / `agentInvokeConfig.agentId` cross-references inside generated agents resolve to either an installed agent or another newAgent in the same plan.
+
+  When the critic flags issues, the planner is re-fired up to two more times with a structured "Critic feedback:" block appended to the goal — so it sees exactly which fields to fix. After all retries exhaust, the wizard surfaces the remaining issues with a "Commit anyway" override so you stay in control.
+
+  Telemetry: `recordCommit` now only fires when an agent or dashboard actually landed, so `/metrics/planner` no longer counts dismissed/failed commits toward commit-rate. Retry attempts are routed back to the original telemetry row via the new alias map, so per-pipeline metrics stay accurate.
+
+- 60a4f40: Build-from-goal v3 — bias the planner toward multi-agent / multi-node
+  composition over rebuilding monoliths.
+
+  When a goal looks like _primitive × list-of-inputs_ AND the catalog
+  already has a matching primitive, the planner now proposes ONE
+  orchestrator that wraps the existing primitive via `loop` +
+  `agent-invoke`, instead of drafting parallel near-duplicate agents.
+
+  Live verification: prompt _"Find me senior product manager roles
+  across rula, ramp, notion, and linear, and refresh weekly"_ now
+  produces a single `pm-role-tracker` orchestrator that does
+  `agent-invoke ashby-jobs-multi` (the existing primitive) on a
+  weekly schedule — not a fresh rewrite.
+
+  Changes:
+
+  - **`agents/examples/build-planner.yaml`** — adds a STEP 3b
+    ("COMPOSE OVER EXISTING AGENTS") with the `loop + agent-invoke`
+    recipe and an explicit anti-pattern callout for "two near-identical
+    primitives." Uses angle-bracket placeholders (`«inputs.X»`) in the
+    recipe pseudocode so the agent-yaml validator doesn't try to resolve
+    the example template references against the planner's own scope.
+  - **`packages/core/src/discovery-catalog.ts`** — AVAILABLE AGENTS
+    section header now ends with: "ANY AGENT HERE IS LOOP-INVOKABLE…"
+    - the per-iteration `$item.<field>` mapping syntax.
+  - **NEW** `agents/examples/ashby-jobs-multi.yaml` — multi-company
+    Ashby orchestrator (3 nodes: discover → fetch → explain).
+    Inlined per-company logic; suitable as a worked example of the
+    monolithic alternative the planner can now compose AROUND.
+  - **EDIT** `agents/examples/ashby-job-finder.yaml` — strip the
+    `{{inputs.X}}` from `signal.title` (the renderer doesn't substitute
+    input values into signal titles, so the literal string was showing
+    on tiles). Comment in the file documents WHY for the next reader.
+
+  Catalog size budget bumped 11000 → 12500 chars to absorb the new
+  composition guidance (~500 chars).
+
+- 2f0aa90: Composition correctness — `agent-invoke` and `loop` now share one input-mapping resolver, and loop items expose parsed structured outputs.
+
+  Two correctness fixes that block clean composed agents (the "wizard → orchestrator → result widget" pattern the build-planner v3 catalog promotes):
+
+  1. `agent-invoke` `inputMapping` now substitutes `{{inputs.X}}` (forwarding the parent agent's inputs to the sub-run) and accepts `$upstream.<id>.<field>` and `$item.<path>` for symmetry with `loop`. Previously only `upstream.<id>.<field>` worked, so a literal `{{inputs.TOPIC}}` would be passed verbatim to the sub-agent.
+
+  2. `loop` results expose `items[]` as **parsed structured outputs** when the sub-agent's result was a JSON object — so a downstream summariser prompt can dot-walk via `{{upstream.<loop>.items.0.<field>}}` instead of having to parse JSON-encoded strings out of an array of strings. Plain-text sub-agent results still come through as raw strings; failed sub-runs are still `null`.
+
+  Both change paths share one resolver (`resolveSourceExpr`), so future composition node types stay consistent.
+
+- 5e5f5e9: "Save as pack" — export a dashboard as a portable pack manifest YAML.
+
+  Adds a download path so users can take a dashboard they've curated and
+  turn it into a shareable pack file. Bundles the dashboard's layout
+  plus the full YAML of every agent it references into one manifest.
+
+  - **`dashboardToPackManifest()`** in core. Round-trips through
+    `packManifestSchema` — the file the browser downloads is parseable
+    by the existing pack loader and installable via `installPack`.
+  - **`GET /dashboards/:id/export`** returns a YAML attachment with
+    `Content-Disposition: attachment; filename="<pack-id>.pack.yaml"`.
+    Missing agents (referenced in sections but not in the agent store)
+    are dropped from the export and surfaced via an
+    `X-Pack-Missing-Agents` response header.
+  - **"Save as pack"** button on every dashboard view page, alongside
+    Edit layout / Edit sections.
+
+  For now there's no user-pack directory — the downloaded file is
+  ready to share or commit, but installing it locally still means
+  dropping it in `packages/core/packs/` (a follow-up will add a
+  user-pack directory under `~/.sua/packs/` so the loader picks them
+  up automatically).
+
+  6 new unit tests cover round-trip-through-schema, missing-agent
+  handling, namespace stripping, and id/name/version overrides.
+
+- cc44352: Dashboard editor — create, customise, reorder (widget-packs PR 5/5).
+
+  Closes the widget-packs architecture series. New surfaces:
+
+  - **`GET /dashboards/:id/edit`** — editor for any stored dashboard.
+    Each section gets a rename input + up/down arrows + delete; each
+    tile gets up/down arrows + delete; an "Add tile" dropdown lists
+    agents not already in the section; an "Add a section" form at the
+    bottom; "Delete dashboard" for user-created dashboards.
+  - **`POST /dashboards`** — create a user dashboard from the dropdown.
+    The dashboards dropdown gained a "New dashboard name" input that
+    POSTs here; redirects to the new dashboard's editor.
+  - **Action endpoints** — `POST /dashboards/:id/sections`,
+    `/sections/:idx/{rename,delete,move}`,
+    `/sections/:idx/tiles`,
+    `/sections/:idx/tiles/:tileIdx/{delete,move}`,
+    `/dashboards/:id/delete`. All form-POST + 303-redirect — no JS.
+  - **"Edit" button** on every dashboard view page (top-right of the
+    header strip).
+  - **Pack-owned dashboards are editable** but can't be deleted directly
+    (uninstall the pack instead). User-created dashboards can be deleted.
+  - The Default Dashboard backing `/pulse` stays non-editable — it's
+    auto-derived from `pulseVisible`, so per-agent toggles are the
+    edit affordance there (already exists via the existing × button).
+
+  Drag-drop reorder is intentionally deferred. The existing
+  `widget-layout.js.ts` has the bones for it (currently localStorage-only);
+  swapping its persistence layer to call this PR's `/sections/:idx/move`
+  endpoints is a clean follow-up.
+
+  11 new supertest cases covering every action endpoint; full suite
+  1038/1038 green. Live smoke: created "Morning Briefing" → added
+  Weather section → added weather-forecast tile via the editor.
+
+- be4551f: Render pack dashboards + add a switcher dropdown (widget-packs PR 4/5).
+
+  - **`GET /dashboards/:id`** renders any installed dashboard via the
+    existing Pulse tile machinery. Unknown agents render as muted
+    placeholder cards so the user knows what's missing.
+  - **Dashboards dropdown** above the Pulse header (and on each
+    dashboard page) lists Default + every installed dashboard, plus a
+    link to `/packs` to install more. Server-rendered `<details>` —
+    no JS. Hidden when only the Default option exists (avoids noise).
+  - **Pulse stays at `/pulse`** as the "Default Dashboard" — its
+    visible tiles are still the agents with `pulseVisible !== false`,
+    computed on each request (no rows in the dashboards table).
+  - Refactor: extracted `buildPulseTile` from `routes/pulse.ts` to a
+    new `views/pulse-tile-builder.ts` so the dashboards route can
+    build identical tiles without cross-route imports.
+
+  5 new supertest cases; full suite 1027/1027 green. Live smoke:
+  install Starter pack → switch via dropdown to /dashboards/starter:media
+  → Vimeo + cat-video tiles render in their "Video" section.
+
+- 38f2da6: `file-write` first-class node type.
+
+  A real schema gap surfaced by the dogfood: agent-builder kept reaching for `type: file-write` (a node type that didn't exist) instead of the longer `type: shell` + `tool: file-write` + `toolInputs: { path, content }` form. Promoting it to a first-class node type makes the LLM's intuition correct and keeps YAML readable.
+
+  ```yaml
+  - id: save
+    type: file-write
+    dependsOn: [build-summary]
+    path: "output/digest-{{inputs.DATE}}.md"
+    content: "{{upstream.build-summary.result}}"
+    append: false # optional; default false
+  ```
+
+  Top-level `path:` and `content:` desugar to `tool: 'file-write'` + `toolInputs: { path, content, append }` at dispatch time — no executor branch added, just a small `resolveToolId`/`resolveToolInputs` extension. The existing `file-write` tool gained an `append:` mode (writes with `flag: 'a'`).
+
+  Templating: built-in tool dispatch now resolves `{{upstream.X.field}}`, `{{vars.X}}`, and `{{inputs.X}}` in string-typed tool inputs, so `path:` and `content:` (and any other built-in tool's string fields) can reference upstream outputs and inputs. Previously only MCP tools had this.
+
+  Schema enforces `path` + `content` are required when `type: file-write`, and validates that any `{{upstream.X.result}}` reference in `path` or `content` declares `X` in `dependsOn` (same rule as for shell/claude-code).
+
+  Capabilities derivation (PR A.6) updated to recognize `type: file-write` as the `file-write` tool, so `tools_used` and `side_effects: ['writes_files']` populate correctly.
+
+  Node catalog (PR A.7) gets a new entry with description, inputs, outputs, use-when guidance, and example. The forcing-function test ensures the new `NodeType` enum value has a catalog entry.
+
+- 6065e6c: Built-in `http-get` and `http-post` tools now accept an optional `headers` input. Many APIs (icanhazdadjoke, GitHub, anything content-negotiating) return HTML or text by default unless an explicit `Accept` header is sent — the tools used to ignore custom headers entirely, leaving agents to scrape HTML or fall back to a shell `curl` node. The new input is a `{name: value}` object passed through to `fetch`; for `http-post` the caller's headers are merged on top of the default `Content-Type: application/json` (and can override it).
+
+  Also fixes the `daily-joke` example agent: it was rendering the icanhazdadjoke HTML page on pulse because the default content type isn't JSON. Now sends `Accept: application/json` and `User-Agent: some-useful-agents` and gets the documented `{joke}` shape, which the format node parses cleanly.
+
+- 475f28d: Interactive widgets: form is always visible alongside the result.
+
+  Magic-8-ball-style Pulse tiles now render the inputs form below the last result in idle, so re-running with a tweaked prompt is one edit + one click instead of two clicks through a separate "Ask again" pane. Form fields pre-fill with the most recent run's input values rather than the agent's declared defaults. The state machine collapses to idle / running / stuck / error.
+
+- 098bf28: `loopConfig.inputMapping` — pass per-iteration values to looped sub-agents.
+
+  The build-planner v3 catalog teaches the `loop + agent-invoke` recipe with
+  `inputMapping: { COMPANY_SLUG: "$item.slug", JOB_QUERY: "{{inputs.JOB_QUERY}}" }`,
+  but the loop executor previously only set `ITEM` / `ITEM_INDEX` on each sub-run —
+  so sub-agents fell through to their default inputs every iteration and the
+  composition pattern never actually worked.
+
+  This adds the schema field and resolves three source forms inside the loop:
+
+  - `$item.<path>` — walk into the current iteration's item
+  - `$upstream.<id>.<field>` — pull from any upstream node's structured output
+  - `{{inputs.X}}` — forward the parent agent's input X down to each sub-run
+
+  Anything else is treated as a literal. When `inputMapping` is unset, behaviour
+  is unchanged (sub-agent still gets `{ITEM, ITEM_INDEX}`).
+
+- 6e96119: Loop nodes now emit per-iteration progress events.
+
+  When a parent agent uses `loop` to fan out across N items, the dashboard previously rendered the loop as a single black box that read "running" for the entire fan-out — users had to dig into nested sub-run pages by URL to see whether iteration 3 of 8 was alive, dead, or just slow.
+
+  Loop nodes now create a `running` node-execution row up front and emit two `SpawnProgress` events per iteration (`loop_iteration_start` / `loop_iteration_complete`) into the existing `progressJson` channel. The dashboard's run-detail progress indicator already reads that channel, so messages like `iteration 3/4: rula done` and `iteration 1/4: ashby failed — <error>` show up inline at the parent run without further dashboard work.
+
+  Failed iterations also surface their sub-run error in the message, so partial-failure debugging no longer requires URL-walking into nested runs.
+
+- 96b1089: One-click manual retry on failed runs.
+
+  Failed runs (`status: failed`) gain a Retry button on the run-detail page. Clicking it recovers the original agent-level inputs from the prior run, creates a fresh run with `attempt: N+1`, and links back to the head of the chain via the new `retryOfRunId` field. Distinct from Replay (which re-runs from a specific node reusing upstream outputs); Retry redoes the whole run from scratch — the right tool for transient failures. Run-detail header now shows an "attempt N" badge on any retry, plus a "Retry of" link back to the original.
+
+  Schema additions: `runs.attempt INTEGER DEFAULT 1`, `runs.retry_of_run_id TEXT` (nullable). Migrations are additive — existing runs default to `attempt=1, retry_of_run_id=NULL`.
+
+  Foundation for upcoming auto-retry (agent-declared `retry:` policy), notify deferral, and triage surfaces.
+
+- bea09e7: Dashboard: control the outbound MCP server from `/settings/mcp`.
+
+  A new Settings tab between Variables and MCP Servers shows the live state of the MCP server (the one Claude Desktop talks to): running/stopped status with PID, endpoint URL, bearer-token fingerprint with a link to rotate, list of `mcp: true` agents with run counts, and a pre-filled Claude Desktop config snippet you can copy directly into `claude_desktop_config.json`. Start and Stop buttons spawn or signal the MCP service via the same daemon supervisor `sua daemon start` uses, so the dashboard and the CLI agree on the PID file at `<dataDir>/daemon/mcp.pid`. The supervisor moved from the `cli` package to `core` so the dashboard can use it directly.
+
+- 0f93483: mcp-server: `run-agent` accepts inputs.
+
+  The MCP `run-agent` tool now takes an optional `inputs` map so MCP clients (Claude Desktop, Claude Code, Cursor) can run agents that declare an `inputs:` block, not only the input-less ones. Values are validated through the same path as dashboard / CLI / scheduler runs (type checks, enum membership, undeclared-key rejection, missing-required errors). Validation failures surface as MCP `isError: true` with the user-readable message instead of a generic 500.
+
+  Two defensive caps live at the MCP boundary specifically: 8 KB per value, 64 KB total. Dashboard / CLI / scheduler are unaffected. The `list-agents` tool now also returns each agent's declared input schema (type, required, default, enum values) so callers can introspect what to pass.
+
+  Known follow-up: shell agents that interpolate raw inputs into command strings via `{{inputs.X}}` (or unquoted env-var expansion) are vulnerable to injection regardless of trigger source. Tracked separately for a hardening pass at the substitution layer.
+
+- 9bcce23: Node catalog API + dashboard page.
+
+  Hand-authored typed contract for every first-class node type (`shell`, `claude-code`, `conditional`, `switch`, `loop`, `agent-invoke`, `branch`, `end`, `break`). Each contract has a description, full inputs and outputs lists, "use when" guidance, and a copy-pasteable example.
+
+  - `NODE_CATALOG` + `listNodeContracts()` + `getNodeContract()` exported from `@some-useful-agents/core`.
+  - Dashboard routes: `GET /api/nodes` (full catalog as JSON), `GET /api/nodes/:type` (single entry), `GET /nodes` (browseable HTML page).
+  - New "Nodes" entry in the top nav between Tools and Runs.
+
+  The planner-fronted agent-builder (PR A) will query `/api/nodes` during its discover step so the LLM works from the actual node-type contract instead of guessing or inventing names like `file-write` or `template`. The page is also useful for humans browsing what's available.
+
+  Forcing function: a test asserts every `NodeType` has a catalog entry — adding a new node type without documenting it fails the test.
+
+- 29b524f: Notify deferral: one page per retry chain, not one per attempt (R3).
+
+  When an agent has a `retry:` policy, `notify:` handlers now fire **once per chain** at the terminal outcome instead of once per attempt. A 3-attempt agent that recovers on attempt 2 produces one `success` notify and zero `failure` notifies. A run that exhausts its budget over three failed attempts produces one `failure` notify, not three.
+
+  Mechanism: `executeAgentDag` accepts a new `suppressNotify` option that the orchestrator sets on every internal attempt. The wrapper fires notify itself after the chain settles. Agents without a `retry:` policy fall through to single-attempt mode and fire notify exactly as before — no behavior change.
+
+  Builds on R1 (manual retry) + R2 (auto-retry policy). R4 (triage surface) and R5 (scheduler backoff) still to come.
+
+- 3508c50: Onboarding + discovery for widget packs and Build-from-goal.
+
+  - **Home page** (`/`) gains a "Build from goal" CTA + "Browse packs"
+    link in the header. The wizard modal markup is now a shared partial
+    (`build-from-goal-modal.ts`) used by both the home page and
+    `/agents`. New users start their session with the wizard one click
+    away instead of having to navigate into Agents first.
+  - **Dashboard tutorial** gains an 8th step ("Install a widget pack")
+    that points users at `/packs`, marks itself done when any pack has
+    `installed_at` set, and explains the dashboards switcher dropdown.
+  - **CLI tutorial outro** now closes with a "Want a richer experience?"
+    block: `sua dashboard start` plus the three surfaces worth visiting
+    first (Packs, Pulse, Build from goal).
+  - **README** "What you get" gains Widget packs + Dashboards bullets;
+    the Output widgets bullet now mentions the `{{#if}}` / `{{#unless}}`
+    / `{{#each}}` grammar and inline widget controls; the Dashboard
+    section documents `/packs`, `/dashboards/:id`, the editor, and the
+    Pulse "Hide all" / "Show all" bulk-toggle.
+
+- 647e172: Rescue analyzer/builder LLM mistakes in `outputs:` and ai-template widgets,
+  and add truthy `{{#if outputs.X}}` to the template grammar.
+
+  Three changes that close a "Fix with AI" loop where every suggestion failed
+  validation with `outputs.X: Expected object, received string`:
+
+  - **Discovery catalog** now shows the canonical `outputs:` syntax with
+    examples of both shorthand (`count: number`) and full form, and explicitly
+    flags the two common LLM mistakes (description in the type slot, camelCase
+    keys). The previous one-liner said "declare the shape" without a single
+    example, which invited free-text descriptions in the value slot.
+  - **`autoFixYaml`** now coerces any string value in `outputs:` to
+    `{ type: 'string', description: val }` (instead of leaving non-type strings
+    alone) and snake_cases camelCase keys. Strings are the most permissive
+    output type, so this is safe and unblocks the user.
+  - **`/analyze/fix-yaml` retry prompt** now lists the outputs rules so a
+    second LLM pass can actually fix the problem.
+  - **ai-template `{{#if outputs.X}} … {{/if}}`** now supported as a truthy
+    conditional (single-level, no `else`, no helpers). LLMs reach for this
+    constantly when describing "show success card if found"; the workaround
+    was always-render which produced broken UIs. Helpers like `(eq …)` and
+    `{{else}}` deliberately remain unsupported — render two templates and
+    switch via a field-toggle for branching.
+  - **`autoFixYaml` Fix 6b** un-escapes `{ {` → `{{` (and `} }` → `}}`)
+    inside `outputWidget.template`, mirroring the existing fix for
+    claude-code prompts. Without this, the renderer printed escape
+    sequences as literal text.
+  - **Discovery catalog** documents the full ai-template grammar (including
+    `#if` and `#unless`) and explicitly enumerates what's NOT supported, so
+    the builder LLM stops reaching for `(eq …)` and `{{else}}`.
+  - **`{{#unless outputs.X}}`** added as the falsy complement to `#if`. Two
+    adjacent blocks (`#if X` … `#unless X`) replace the if/else pattern
+    without dragging in `{{else}}` parsing.
+  - **`autoFixYaml` now runs on every YAML save**, not just on AI-suggested
+    YAML from the analyze flow. Hand-edited and pasted YAML get the same
+    rescues (un-escape `{ {`, shorthand outputs, signal/template
+    normalisation).
+  - **`<iframe>` allowed conditionally** in `sanitizeHtml` — HTTPS only,
+    host on a small allowlist (YouTube + Vimeo to start), with a forced
+    `sandbox="allow-scripts allow-presentation"` regardless of input. Was
+    unconditionally stripped before, which made video-embed templates
+    impossible. Author-supplied sandbox attrs are overridden so an
+    `allow-same-origin` injection can't escape.
+
+- be4551f: Pack manifest format + first built-in Starter pack (widget-packs PR 2/5).
+
+  Builds on PR 1's stores. New modules in `packages/core`:
+
+  - **`pack-schema.ts`** — Zod schema for the pack manifest YAML format.
+    Validates pack id, semver version, dashboard structure, and the
+    `yaml` / `yamlPath` mutual exclusion on agent refs.
+  - **`pack-loader.ts`** — discovers `packages/core/packs/*.yaml` on
+    daemon start, validates each, resolves `yamlPath` agent refs against
+    the manifest's directory, and upserts into `PacksStore` as
+    `source = 'builtin'`. Idempotent: reload preserves `installed_at`,
+    so a manifest version bump doesn't toggle install state. Failures on
+    individual files are skipped (returned in `result.skipped`) so one
+    broken pack doesn't gate the rest.
+  - **`pack-installer.ts`** — `installPack(packId, ctx)` and
+    `uninstallPack(packId, ctx)` orchestrate across PacksStore +
+    DashboardsStore + AgentStore (the latter optional). Reference-only
+    ownership: install upserts missing agents from embedded YAML;
+    uninstall removes only the dashboards.
+  - **`packages/core/packs/starter.yaml`** — first built-in pack. Bundles
+    the three dogfood agents from #199 (vimeo-staff-picks +
+    weather-forecast + cat-video-finder) into two dashboards (Media +
+    Weather). Auto-registers on daemon start; visible in PR 3's UI.
+
+  Daemon startup (`packages/dashboard/src/index.ts`) now calls
+  `loadBuiltinPacks(packsStore, defaultBuiltinPacksDir())` immediately
+  after PacksStore init. Best-effort — failures don't block the
+  dashboard from coming up.
+
+  Added `packs/` to `packages/core/package.json`'s `files` array so the
+  bundled manifest ships with the npm package.
+
+  22 new unit tests; full suite 1017/1017 green.
+
+- 9412fa4: Foundation for widget packs + dashboards (PR 1 of 5).
+
+  Two new SQLite-backed stores in `packages/core`:
+
+  - **`PacksStore`** — `packs` table holds pack registrations
+    (`id, name, version, source, manifest_json, installed_at`). CRUD plus
+    `markInstalled` / `markUninstalled` / `listInstalled`. Re-registering
+    a built-in pack preserves its installed state across daemon restarts.
+  - **`DashboardsStore`** — `dashboards` table holds named, ordered,
+    sectioned views (`id, pack_id, name, layout_json, …`). CRUD plus
+    `updateLayout`, `listByPack`, `listUserDashboards`, `deleteByPack`.
+
+  Pack→dashboard cascade is handled explicitly via `deleteByPack`
+  (no SQL FK) so the stores don't couple table-creation order.
+
+  Both wired into `DashboardContext` (optional fields for now); no UI
+  or routes consume them yet — that's PR 2 onwards. The
+  "Default Dashboard" backing `/pulse` will be computed in PR 4, not
+  stored here.
+
+  Tests cover round-trips, install-state preservation across upsert,
+  and explicit cascade behaviour.
+
+- be4551f: Browse and install widget packs from the dashboard (widget-packs PR 3/5).
+
+  New routes:
+
+  - **`GET /packs`** — grid of all registered packs, split into Installed
+    and Available sections. Cards show name, description, version, source,
+    dashboard/agent counts.
+  - **`GET /packs/:id`** — pack detail with manifest summary (dashboards
+    by name + section count, agent ids) and an Install or Uninstall button.
+  - **`POST /packs/:id/install`** / **`POST /packs/:id/uninstall`** — call
+    the installer from PR 2; redirect back to the detail page with a flash
+    banner reporting what changed.
+  - **"Packs" entry in the top nav**, between Pulse and Settings.
+
+  Plus a "clear-the-slate" pair on Pulse:
+
+  - **`POST /pulse/hide-all`** — bulk-flip `pulseVisible=false` on every
+    agent that has a signal block. Use case: "I want to install a pack
+    and only see those tiles". Reversible.
+  - **`POST /pulse/show-all`** — restores everything that was hidden.
+  - **"Hide all" button** appears on the Pulse header when at least one
+    signal is visible; flips to "Show all" when nothing is visible but
+    hidden tiles exist.
+
+  5 new route tests; full suite 1022/1022 green. Live smoke confirms
+  install/uninstall round-trip + bulk hide/show.
+
+- 3f7706b: Add `sua planner smoke` — automated end-to-end smoke tests for the build-planner pipeline.
+
+  Hits a running daemon's HTTP endpoints, walks each scenario's poll + (optional) commit flow, asserts against the `planner_telemetry` row + response shapes the wizard expects. Real LLM calls are gated behind `--live` so neither CI nor a stray invocation burns budget.
+
+  Six server-side scenarios cover the new critic-loop branches from the previous release: happy-path first-try clean, critic-retry on complex composition, the HN-digest signal.title regression reproducer, critic-exhaustion (3 attempts → "Commit anyway"), dismiss-without-commit, and the empty-commit gating fix. Two browser scenarios (`--browser`) drive the wizard via playwright to verify the warning flash + "Commit anyway" button label and dismiss-mid-retry cleanliness; playwright is loaded dynamically so non-browser users never pay the dep cost.
+
+  Run `sua planner smoke` for a dry-run preview, `sua planner smoke --live` to actually execute. Output is one PASS/FAIL line per scenario plus a final summary; exit code 0 iff every selected scenario passed.
+
+- 98a1031: Build-planner telemetry — `/metrics/planner` view + per-run record.
+
+  The build-planner pipeline (`POST /agents/build` → poll → commit) was previously a black box: we couldn't measure how often plans extracted cleanly, how often `autoFixYaml` had to rescue an LLM mistake, or how plans-attempted mapped to plans-committed. This PR records one row per planner run in a new `planner_telemetry` table (sibling to `runs`, foreign-keyed with `ON DELETE CASCADE`) and surfaces aggregates at `/metrics/planner`.
+
+  Captured per run: `plan_attempts` (1 today; PR2's critic-loop will increment), `plan_extract_status` (`ok` / `no-json` / `schema-invalid`), `plan_autofix_count`, `plan_validation_errors`, `time_to_plan_ms`, `time_to_commit_ms`, `committed_at`, `goal` (truncated to 1KB), `intent`.
+
+  The headline metric — **first-attempt clean rate** — is the baseline for future quality work. PR2 (plan critic + auto-retry) and beyond can be measured against this.
+
+- e628eff: Schedule is now editable from the agent's Config tab — previously you had to hand-edit YAML to set or clear a cron expression. New card shows the current cron expression, a human-readable summary (`Every day at 8:00 AM`), and a Save button that validates server-side via the same `validateScheduleInterval` the scheduler uses. Empty input clears the schedule. Sub-minute (6-field) cron is still rejected unless `allowHighFrequency` is set on the agent.
+
+  Two latent bugs fixed along the way:
+
+  1. **`allowHighFrequency` was being silently dropped on every save**: `extractDag` didn't include it, so even agents that declared `allowHighFrequency: true` lost it on every `upsertAgent`/`createNewVersion`, breaking the scheduler's frequency-cap exception. Now persisted via `AgentVersionDag`.
+  2. **`updateAgentMeta` couldn't clear nullable fields**: it skipped any field whose value was `undefined`, conflating "key absent" with "key present, clear me." Switched the nullable fields (description, schedule, stateMaxBytes) to use `'key' in patch` so explicit-clear works.
+
+- 1fcd534: Scheduler now fires v2 (DAG) agents — fixes silently-dropped wizard-built schedules.
+
+  Until now the scheduler daemon only loaded v1 YAML agents from disk: every v2 agent built via the dashboard wizard (or `sua workflow import`) was silently skipped at load time, even though the dashboard's Scheduled widget cheerfully listed them with "last: never" and a green "Scheduler running" dot. The split came from `loadAgents` skipping any file with `id:` + `nodes:` (the v2 marker), with no other code path picking them up.
+
+  `LocalScheduler` now accepts a parallel set of v2 agents plus a small dependency bundle, registers cron tasks for both v1 and v2 entries, and fires v2 agents directly through `executeAgentWithRetry` (the same path the dashboard's run-now and `sua workflow run` already use). The scheduler CLI now opens AgentStore + VariablesStore + EncryptedFileStore alongside the v1 loader and merges everything before starting.
+
+  Also: scheduler heartbeat now distinguishes `idle` (alive, zero agents registered) from `running` (alive, at least one agent registered). The dashboard widget surfaces this with an orange dot and the label "Scheduler idle (0 agents registered)" so future cases of "daemon happy, nothing firing" are visible at a glance instead of silently green.
+
+- 6ddff4f: State directory hardening.
+
+  Three additions to the `$STATE_DIR` primitive shipped in PR D, addressing the most likely operational/correctness concerns:
+
+  **1. Per-agent size cap** — new `agent.stateMaxBytes` field (default 100 MB; set 0 to disable). Pre-node check refuses to run when the dir exceeds the cap, with a clear error pointing to `sua state prune <agent>`. The node that _exceeded_ the cap completes; the _next_ node fails. This attributes the error to a fresh node rather than retroactively failing one that already finished.
+
+  **2. `sua state` CLI** — four subcommands for operational hygiene:
+
+  - `sua state list` — every agent with a state dir, sorted by size
+  - `sua state du <agent>` — per-file breakdown
+  - `sua state prune <agent>` — clear contents (or `--remove` the dir)
+  - `sua state export <agent> [path]` — `tar.gz` to path or stdout
+
+  **3. Audit trail** — additive `stateBytesBefore` / `stateBytesAfter` columns on `node_executions`. Captured per node when the agent has a state dir. Dashboard run-detail shows the delta as a small badge (`state +12 KB`) on each node when the value changed. Useful for spotting which node is growing state unexpectedly.
+
+  Implementation notes:
+
+  - `stateDirSize(id, dataRoot)` is a recursive synchronous walk; for typical agent state (a few files) it's microseconds. Symlinks are skipped (don't follow, don't count target size). Race-tolerant: silently skips files removed mid-walk.
+  - `stateMaxBytes` is stored as a flat column on the `agents` table (alongside `pulse_visible`, `dashboard_visible`) — operator policy that shouldn't bump the agent version when changed.
+  - The CLI uses system `tar` for `export` (avoids bundling a tar library for a rarely-used verb).
+
+  Live smoke confirmed: cap enforcement refuses run 2 when state from run 1 exceeded 1-byte cap (status: failed, category: setup). Audit trail captured `0 → 6` bytes on the successful first run.
+
+  Closes critical items 1, 2, 3 from the security roadmap entry added in PR D. Items 4–7 remain on the future-work list in `docs/SECURITY.md`.
+
+- e71ba5e: `$STATE_DIR` primitive for stateful agents.
+
+  Agents that need to persist data across runs (diff-over-time, caches, last-fired markers) get a per-agent directory at `data/agent-state/<agent-id>/`. Created lazily on first use, chmod 0o700, removed automatically when the agent is deleted.
+
+  Available as:
+
+  - `$STATE_DIR` env var in shell nodes (and as a string in any built-in tool input)
+  - `{{state}}` template token in claude-code prompts and built-in tool inputs (e.g. `file-write`'s `path:`)
+
+  ```yaml
+  nodes:
+    - id: diff
+      type: shell
+      command: |
+        mkdir -p "$STATE_DIR"
+        PREV="$STATE_DIR/last-readme.md"
+        NEW="$STATE_DIR/current-readme.md"
+        echo "$UPSTREAM_FETCH_RESULT" > "$NEW"
+        if [ -f "$PREV" ] && ! diff -q "$PREV" "$NEW" > /dev/null; then
+          echo '{"changed":true}'
+        fi
+        cp "$NEW" "$PREV"
+  ```
+
+  Promotes the convention agents had been inventing by hand (`.sua/state/<id>/`) into a first-class primitive. Surfaced by Round 2 dogfood Bug 8: the README diff agent invented its own state convention, and downstream agents would each invent a different one.
+
+  **Cascading delete**: `agentStore.deleteAgent(id)` now also removes `data/agent-state/<id>/`. Idempotent (no-op when the dir was never created). State is **not** swept by the run-retention timer — it persists until the agent is deleted.
+
+  **New `DagExecutorDeps.dataRoot`**: optional. When set, the executor exposes the state dir; when absent, `$STATE_DIR` is unset and `{{state}}` resolves to empty string. Tests and one-shot CLI runs typically omit it. Production paths (dashboard run-now / build / replay / widget-run, `sua workflow run` / `replay`) thread it through automatically.
+
+  **Known limitation**: `sua schedule start` uses the v1 chain executor (via `LocalProvider`), not the DAG executor — scheduled agents going through that path don't get `$STATE_DIR` yet. The migration to the v2 path will pick this up.
+
+  Sandbox: agent ids are validated against the lowercase+hyphens regex before path resolution; `removeStateDir` re-checks for defense in depth.
+
+- c0b773f: Three new example agents that exercise the recently-shipped ai-template
+  widget capabilities end-to-end:
+
+  - **`vimeo-staff-picks`** — `ai-template` + `<iframe>` (player.vimeo.com,
+    on the new sanitiser allowlist) + `{{#each}}` iteration + `replay`
+    control. Renders the latest Vimeo Staff Picks as inline players.
+  - **`weather-forecast`** — `dashboard` widget + `view-switch`
+    (today/week) + `field-toggle` (extras) + `replay` (different city).
+    Live wttr.in data; stress-tests every dashboard widget control type.
+  - **`cat-video-finder`** — `ai-template` + `{{#if outputs.thumbnail}}` /
+    `{{#unless outputs.url}}` + `replay` with input-tweak. Facade-pattern
+    card around a YouTube search hit (clickable thumbnail, opens on
+    YouTube).
+
+  Together these cover all 7 capabilities that previously had zero
+  in-repo examples: `replay`, `field-toggle`, `view-switch`, `{{#if}}`,
+  `{{#unless}}`, `{{#each}}`, and `<iframe>` from the host allowlist.
+
+- 539f569: Output widgets gain interactive controls.
+
+  Agents can now declare a `controls:` array on `outputWidget` with three control types: `replay` (re-run inline, optionally with tweakable inputs), `field-toggle` (hide/show optional fields), and `view-switch` (tab-style switch between named field subsets — e.g. metric ↔ imperial). State lives in URL query params (`?wv=`, `?wh=`) so refresh resets to defaults and links can be shared. Renders on agent detail and run detail pages; Pulse tiles continue to render statically. The agent-builder prompt and discovery catalog teach the planner when to reach for each control type.
+
+### Patch Changes
+
+- 5610714: Dashboard: Agent Config tab UX cleanup.
+
+  The per-agent Config tab (`/agents/<id>/config`) was a 7-card vertical stack ~2500px tall with seven competing primary buttons. This refactor cuts the page in half (~1400px), reorders sections by decision sequence (Variables → LLM → MCP → Secrets), promotes Variables to a full-width row above a two-column grid, collapses the heavyweight Output Widget and Notify editors when configured (with one-line "Set up" CTAs when not), and demotes gateway buttons so "Run now" is the only primary action above the fold. The agent Status dropdown moves to the page header next to "Run now" so lifecycle decisions live where runs are triggered. Persistence paths and form actions are unchanged.
+
+- 3c77e9e: Dashboard: toggle MCP exposure from the agent Config tab.
+
+  A new card on `/agents/<id>/config` flips `mcp: true/false` without editing YAML. Off → "Expose via MCP" button; on → "exposed" badge + "Stop exposing" button. The flip rewrites the agent record but does not restart the running MCP server — the form copy points at Settings → MCP for that.
+
+- 1cba377: Dashboard: move Output Widget editor to its own page with sub-tabs, and make Preview match Pulse.
+
+  The Output Widget editor was a ~1200px inline section on the Config tab — widget-type cards, contextual helper, field table, AI-template branch, interactive-mode subform, action bar, and live preview all stacked in one form. It now lives at `/agents/<id>/output-widget` with sub-tabs **Type**, **Fields**, **Interactive**, and **Preview** filtering which sections are visible. The action bar (Save / Remove) stays visible across all tabs. Save and validation errors return you to the editor (preserving iteration) instead of bouncing to Config. The Config tab's Output Widget card collapses to a one-line summary (`Type: dashboard, Layout: 5 fields, Interactive: yes`) plus an "Edit" link.
+
+  Preview now respects `interactive: true`. When the editor's Interactive checkbox is on, the Preview tab renders the same `renderInteractiveWidget` Pulse uses (with the configured runInputs filter, askLabel, and replayLabel applied) — in `staticPreview` mode so clicks don't accidentally submit a real run. Previously the preview always rendered the static widget output, hiding the visual effect of every Interactive setting.
+
+- 62e7a01: Fix `spawn E2BIG` on claude-code nodes with large upstream outputs.
+
+  `claude-code` nodes were spawned with the resolved prompt as a single argv element AND with every upstream node's full result copied into env vars (`UPSTREAM_<ID>_RESULT`). When `{{upstream.X.result}}` substitution produced a fat prompt — typical for any agent whose upstream shell node returns a JSON payload or HTML page — `argv + env` total exceeded the kernel's `ARG_MAX` (~256KB Linux, lower under sandboxes), and `execve()` failed with `spawn E2BIG`. Surfaced loudly on `ashby-job-finder` running under a parent loop: any iteration whose company had a meaty job board (e.g. `ashby`, `zip`) failed instantly.
+
+  Two changes:
+
+  1. **Prompt rides on stdin instead of argv.** `claudeSpawner` / `claudeTextSpawner` no longer include the prompt as a positional arg; `spawnProcess` opens stdin as a pipe (new `stdinInput?: string` option) and writes the prompt. Claude CLI in `--print` mode reads from stdin natively.
+  2. **`UPSTREAM_*_RESULT` env vars are stripped before exec for claude-code nodes.** They were already consumed at template-substitution time; passing them to claude was redundant bytes that contributed to the same ARG*MAX cap. Shell nodes still receive these env vars (intended consumer: `$UPSTREAM*<ID>\_RESULT` references).
+
+  Codex spawner is left untouched in this PR (its CLI's stdin support hasn't been verified) — same fix applies and is tracked as a fast-follow.
+
+- 726c856: CSP `frame-src` and `img-src` were missing the Vimeo + youtube-nocookie
+  hosts that the iframe sanitizer's allowlist permits. The browser
+  silently blocked Vimeo iframes (and their poster images) even though
+  the sanitizer rendered them. Added `https://player.vimeo.com` and
+  `https://www.youtube-nocookie.com` to `frame-src`, plus
+  `https://i.vimeocdn.com` to `img-src` for the Vimeo CDN's posters.
+
+  CSP block now mirrors the host allowlist in
+  `packages/core/src/html-sanitizer.ts:IFRAME_ALLOWED_HOSTS`. Comment
+  above the directive flags this — any future host added to the
+  sanitizer must also be added here or it'll silently 4xx in browsers.
+
+- 1531948: Dashboard: split `routes/agents.ts` and `views/agent-detail-v2.ts` into per-feature files.
+
+  Internal refactor with no behaviour change. The 441-line agents router becomes a 22-line composition over six per-action modules under `routes/agents/`. The 466-line agent-detail view becomes a barrel over six per-tab renderers under `views/agent-detail/`. Adding new agent surfaces no longer requires scrolling through unrelated code.
+
+- 934c1f9: Bring `/dashboards/:id` to parity with Pulse for tile-level controls.
+
+  Tiles on a stored dashboard now get the same chrome as Pulse tiles:
+
+  - **Configure tile** (already worked — listener is global).
+  - **Palette cycle** with persistence (was renderless on dashboards).
+  - **Resize handle** with persistence (didn't work at all on dashboards).
+  - **Collapse / expand** with persistence (didn't work at all).
+  - **"Edit layout" toggle** in the dashboard header reveals resize handles
+    and delete buttons, mirroring Pulse's edit mode.
+  - **× remove button**: when rendered on a dashboard, the × now removes
+    the tile from THAT DASHBOARD's section (POSTs to the existing
+    `/sections/:idx/tiles/:tileIdx/delete` endpoint) instead of toggling
+    the agent's global Pulse visibility. Pulse's × keeps its old semantic.
+
+  Cosmetic state (palette / size / collapsed) is persisted to localStorage
+  keyed per-dashboard (`sua-dashboard-<kind>-<id>`), matching Pulse's
+  client-state model. Server still owns section structure (which is
+  edited via `/dashboards/:id/edit`'s up/down + add/remove flow).
+
+  Implementation:
+
+  - `widgetLayoutJS` gained an optional `runtimeKeySuffixAttr` that
+    appends a host-element attribute value to all storage keys at
+    runtime — so a single global JS bundle can serve every dashboard
+    page with isolated state.
+  - New `DASHBOARDS_LAYOUT_JS` module composes `widgetLayoutJS` with
+    dashboard-specific element ids + a per-dashboard collapse handler.
+  - `tileWrap` now accepts an optional `TileWrapContext` that controls
+    the × button's form action.
+  - The dashboards view renders a `#dashboard-containers` host with
+    `data-dashboard-id`, embeds tile data in
+    `<script id="dashboard-tile-data">`, and adds an "Edit layout"
+    button next to the existing "Edit sections" link.
+
+  Out of scope (deferred): drag-drop tile reorder + add-container —
+  the existing `/dashboards/:id/edit` page covers section structure
+  with up/down arrows.
+
+  Tests bumped; full suite 1066/1066.
+
+- 6d683f0: Output widgets now synthesise a default "Run again" control when no replay is declared.
+
+  Authoring an output widget previously required adding `controls: [{type: replay}]` in YAML to get a Re-run button on the agent / run detail pages. Most authors forgot, so most widgets shipped without one. The button now synthesises automatically when (a) the renderer is invoked with a `controlState` (i.e. a detail-page render, not Pulse / home / interactive tile), and (b) the schema has no `replay` control declared.
+
+  The synthesised control is wired with the agent's declared `inputs[*]` names so the inline form lets users tweak inputs before re-running. Authors who declared a custom replay (with custom label or input subset) keep their config.
+
+- c04594f: Switch the two remaining dogfood agents to `signal.template: widget`
+  so their dashboard tiles render the full output widget instead of a
+  compact text-headline.
+
+  `weather-forecast` and `vimeo-staff-picks` previously used
+  `text-headline`, which surfaced just temperature/condition or
+  `fetched_at` on tiles — none of the view-switch / field-toggle /
+  replay / iframe machinery the agents were specifically built to
+  showcase. `cat-video-finder` was already on `template: widget` and
+  served as the proof. With this change all three demo tiles now
+  render their full widgets, matching their behaviour on the agent
+  detail page.
+
+  Each YAML gained a comment explaining the trade-off: `text-headline`
+  is the compact alternative for high-density Pulse layouts.
+
+- 66c5394: Add `allow-same-origin` to the iframe sandbox so YouTube/Vimeo embeds can
+  load posters and play-button overlays.
+
+  YouTube's embed page hits its own origin's storage on init to render the
+  poster image and player chrome. Without `allow-same-origin`, those calls
+  fail and the iframe shows blank. Safe under the existing host allowlist
+  invariant: every approved host is a third-party origin (youtube.com,
+  vimeo.com), so granting same-origin lets the embed reach **its own**
+  cookies, never ours. Locked the invariant in a comment so future hosts
+  can't be added on the dashboard's origin without explicit review.
+
+- 5b6267b: `{{inputs.X}}` in `loop` / `agent-invoke` `inputMapping` now resolves YAML-declared input defaults.
+
+  The dashboard's run handler builds `options.inputs` from `input_*` form fields only — it does not merge in the agent's declared `inputs:` defaults. Per-node env construction applies defaults later, so single-node agents always saw their defaults. But composition node types (`loop`, `agent-invoke`) resolve `{{inputs.X}}` at the control-flow layer using `parentOptions.inputs` directly — which contained user-supplied values only.
+
+  Effect: when a user ran a parent agent without supplying every declared input, any composition node referencing `{{inputs.X}}` for an unsupplied X passed empty string to the sub-run. The orchestrator's loop fanned out N times with empty `JOB_QUERY` even though the YAML declared a default.
+
+  Both call sites now merge `parentAgent.inputs[*].default` into the resolved map before substitution, with user-supplied values still winning.
+
+- 2ef8e44: Pulse tiles for parameterized agents now ship with the inputs form + re-run button by default.
+
+  The flag (`outputWidget.interactive: true`) was always available, but neither the agent-builder nor the build-planner prompted the LLM to set it — so every wizard-built search/lookup agent rendered as a static tile on pulse, with the re-run UI only available on the `/agents/<id>` detail page. The agent-builder + build-planner prompts now both instruct the model to set `interactive: true` whenever the agent declares runtime `inputs:`.
+
+  Also flips the flag on `agents/examples/ashby-job-finder.yaml` so it benefits immediately.
+
+- 85e01ee: mcp-server: fix crash on the second client connection.
+
+  The MCP server reused a single `McpServer` instance across all sessions and called `server.connect(transport)` on it once per new session. The MCP SDK requires a fresh server per transport — the second connect threw `Already connected to a transport`, surfaced as an unhandled HTTP-parser exception, and crashed the process. Symptom: `claude mcp list` (or any second client) reported `Failed to connect` and `daemon status` showed the MCP service as `stale (pid dead)`. Now each session gets its own `McpServer`; `provider` and `agentDirs` are still shared. Closing the session also closes its server.
+
+- 343242e: `startMcpServer` now returns a `{ shutdown }` handle so callers (tests, CLI, embedders) can stop the listening http server cleanly.
+
+  Pre-fix it returned `void`, leaving callers no way to drain the server. Two MCP test describe blocks ran random-port servers per test and never shut them down — across CI runs the random-port pool occasionally collided and a fresh test ended up talking to a prior test's still-running server (whose agentDir had been rm'd), surfacing as flaky `Agent "..." not found`. The planner-telemetry PR (#224) added enough test load to shift ordering and trip the latent flake reliably.
+
+  `shutdown()` closes all live MCP transports, drains the provider, and awaits `httpServer.close()`. Also tightened the initial `listen()` to await the bind and surface listen errors instead of fire-and-forget.
+
+- 63e9eb6: Make `startMcpServer().shutdown()` use `httpServer.closeAllConnections()` instead of per-session `McpServer.close()`.
+
+  #225 added a `shutdown()` handle so tests could stop the listening http server, which fixed the EADDRINUSE flake. But the `for entry of sessions: await entry.server.close?.()` loop raced SDK transport teardown against the next test's first request, surfacing as a different flake: `TypeError: fetch failed — SocketError: other side closed`. The Release workflow tripped this on the post-#225 main push.
+
+  Conservative fix: drop the per-session McpServer close, just `httpServer.closeAllConnections()` + drain provider + await `httpServer.close()`. Releases the port without poking at SDK internals. 10/10 stress runs of the file pass locally.
+
+- 5fd8e74: Tidier `/nodes` catalog page.
+
+  Cards are now collapsible (default collapsed), grouped by category (Execution / Control flow / Terminal), with a top toolbar that has a live filter (matches type, description, use-when, field names) plus collapse-all / expand-all buttons. Anchor chips at the top jump straight to a node type. Filter and per-card open state persist in sessionStorage so anchor clicks don't lose context.
+
+- a5d41c1: Accept shorthand string form for `outputs:` declarations.
+
+  LLM-generated YAML routinely writes `outputs.url: string` (the shorthand) instead of the verbose `outputs.url: { type: string }`. The schema now accepts both forms — the parser normalises the shorthand to the verbose object form, so downstream consumers always see the canonical shape. Fixes the painful "Fix with AI" loop where every Suggest improvements run hit the same `Expected object, received string` validation wall.
+
+  The autofixer (run-now-build → autoFixYaml) also rewrites shorthand to verbose form so the canonical stored YAML stays stable in git.
+
+  Camel-case output names (`mediaType`) still need to be renamed to snake_case (`media_type`) by hand — the schema can't auto-coerce keys without breaking template references.
+
+- 62ccfdc: Two related Build-from-goal fixes that surfaced from a real-user dashboard
+  where the planner hallucinated an agent id and the wizard still created
+  the dashboard pointing at it.
+
+  **A. Discovery catalog includes draft agents.** `buildAgentsSection`
+  previously filtered to `status: 'active'` only, so any agent the user
+  had scaffolded but not yet activated was invisible to the planner.
+  Result: when the goal mentioned "the ashby job search," the planner
+  couldn't see the user's draft `ashby-job-finder` and invented
+  `ashby-job-hunter` instead. Drafts are now included, marked
+  `(draft)` in the catalog so the LLM treats them as work-in-progress
+  candidates rather than hidden. Cap raised from 20 → 30 agents.
+
+  **B. Commit refuses to create a dashboard whose tiles reference
+  agents that didn't land.** Previously each agent in `newAgents` had
+  its YAML parsed/upserted independently; failures went into
+  `agentsSkipped[]` but the dashboard was still upserted, leaving the
+  user with empty "not installed" placeholder cards and no clear cause.
+  The commit now checks every `dashboard.sections[].agentIds[]` against
+  both the just-created agents AND the existing AgentStore. If any are
+  unmet, the dashboard is NOT created and `dashboardError` includes the
+  ids and the per-agent skip reasons.
+
+  3 new tests (catalog draft inclusion, archived exclusion, commit
+  integrity check); full suite 1075/1075 green.
+
+- b07f1bb: Two daily-greeting dogfood bugs:
+
+  1. **Inline replay form now honours input specs.** The Re-run button's inline input fields previously rendered as bare `<input type="text">` with no value attribute and no enum awareness — so `daily-greeting`'s `NAME` input showed empty even though the YAML declared `default: friend`, and `STYLE` was a free text field instead of a dropdown of its declared `enum` values. The renderer now mirrors the wizard form: `<select>` with options for enum/boolean, `value=spec.default` pre-fill for everything else.
+
+  2. **`{{inputs.X}}` in shell commands now auto-fixed in both forms.** The build-planner sometimes generates shell commands using `{{inputs.X}}` template syntax (correct for claude-code prompts, wrong for shell). `autoFixYaml` already rewrote the canonical form to `$X`; it now also catches the space-escaped `{ {inputs.X}}` form that the template-substitution pipeline produces when planner output is piped through `{{upstream.X.result}}`. Plus a planner-prompt update so this generation mistake should happen less often: the catalog now explicitly contrasts shell `$VAR` vs claude-code `{{inputs.X}}` syntax.
+
+- 746b1e5: Run detail: sticky DAG + result summary while scrolling node logs.
+
+  The DAG visualization and result widget at the top of `/runs/:id` now stick to the viewport (capped at 60vh) while the node-execution panel scrolls below. On long runs with many nodes you keep the graph and final output in view instead of having to scroll back up. Falls back to a non-sticky stacked layout below 900px wide.
+
+- 6a2088a: Three planner-pipeline bugs surfaced by the new `sua planner smoke` command.
+
+  **`PlannerTelemetryStore.fromHandle` field-init bug.** Class-field initialisers (`private readonly retryAliases = new Map()`) only run inside `new` — `Object.create` skipped them, so any call into `resolveOriginalRunId` / `recordRetrySpawn` on a `fromHandle`-built store crashed with `Cannot read properties of undefined (reading 'get')`. The wizard always uses the constructor path so this only surfaced for CLI consumers.
+
+  **`survey.existingDashboards` string-array shape.** The real planner sometimes emits `existingDashboards: ["dash-id-1", "dash-id-2"]` instead of the canonical `[{id, name?, reason?}]` objects. The schema now accepts either form, coercing strings into the canonical shape so the rest of the plan still validates.
+
+  **Smoke command auth.** `sua planner smoke --live` was hitting `/agents/build` without a session cookie and getting "Missing session cookie" on every scenario. The runner now reads the dashboard token via `readMcpToken()` and threads it onto every authenticated request. Two scenarios (1 and 4) had over-strict asserts that fought the planner's stochasticity; they now PASS-with-informational-note when the planner happens to skip a branch instead of hard-failing.
+
+- dc9e0f1: Styled 404 page that wraps the standard layout (topbar, theme toggle,
+  suggestion cards) instead of the previous bare `<p>Not found</p>` scrap.
+
+  The catch-all in `index.ts` and the unknown-id paths in the new
+  dashboards routes now render `renderNotFoundPage`. Shows the requested
+  path (HTML-escaped), an optional context message, and a card list of
+  common destinations (Agents / Pulse / Packs / Runs).
+
+- Updated dependencies [5c2e83f]
+- Updated dependencies [0042d16]
+- Updated dependencies [5610714]
+- Updated dependencies [3c77e9e]
+- Updated dependencies [1cba377]
+- Updated dependencies [0a73abe]
+- Updated dependencies [4ca3edf]
+- Updated dependencies [0745598]
+- Updated dependencies [9b482b6]
+- Updated dependencies [b2f5498]
+- Updated dependencies [c2b6ad5]
+- Updated dependencies [cd21018]
+- Updated dependencies [60a4f40]
+- Updated dependencies [62e7a01]
+- Updated dependencies [2f0aa90]
+- Updated dependencies [726c856]
+- Updated dependencies [5e5f5e9]
+- Updated dependencies [1531948]
+- Updated dependencies [934c1f9]
+- Updated dependencies [cc44352]
+- Updated dependencies [be4551f]
+- Updated dependencies [6d683f0]
+- Updated dependencies [c04594f]
+- Updated dependencies [38f2da6]
+- Updated dependencies [6065e6c]
+- Updated dependencies [66c5394]
+- Updated dependencies [5b6267b]
+- Updated dependencies [475f28d]
+- Updated dependencies [2ef8e44]
+- Updated dependencies [098bf28]
+- Updated dependencies [6e96119]
+- Updated dependencies [96b1089]
+- Updated dependencies [bea09e7]
+- Updated dependencies [0f93483]
+- Updated dependencies [85e01ee]
+- Updated dependencies [343242e]
+- Updated dependencies [63e9eb6]
+- Updated dependencies [9bcce23]
+- Updated dependencies [5fd8e74]
+- Updated dependencies [29b524f]
+- Updated dependencies [3508c50]
+- Updated dependencies [a5d41c1]
+- Updated dependencies [647e172]
+- Updated dependencies [be4551f]
+- Updated dependencies [9412fa4]
+- Updated dependencies [be4551f]
+- Updated dependencies [62ccfdc]
+- Updated dependencies [3f7706b]
+- Updated dependencies [98a1031]
+- Updated dependencies [b07f1bb]
+- Updated dependencies [746b1e5]
+- Updated dependencies [e628eff]
+- Updated dependencies [1fcd534]
+- Updated dependencies [6a2088a]
+- Updated dependencies [6ddff4f]
+- Updated dependencies [e71ba5e]
+- Updated dependencies [dc9e0f1]
+- Updated dependencies [c0b773f]
+- Updated dependencies [539f569]
+  - @some-useful-agents/core@0.20.0
+
 ## 0.19.0
 
 ### Minor Changes

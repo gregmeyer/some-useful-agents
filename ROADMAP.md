@@ -5,7 +5,17 @@ on direction.
 
 ## Recently shipped
 
-### v0.19 (current)
+### v0.20 (current)
+- **Build planner with critic loop + auto-retry** — `build-planner` agent + structural critic (`critiquePlan`) that catches schema-valid plans which fall apart on contact with reality (newAgent YAML missing required fields, dashboard refs to phantom agents, hallucinated `matchedAgents`). On critic failure the wizard re-fires the planner with formatted feedback up to twice; after exhaustion the user gets a "Commit anyway" override. Per-pipeline telemetry at `/metrics/planner` (first-attempt-clean rate, retry counts, commit rate). PRs #224, #227, #230.
+- **Scheduler now fires v2 agents** — `loadAgents` silently skipped every wizard-built v2 agent, so `LocalScheduler` registered zero of them while the dashboard widget cheerfully reported "Scheduler running." Now loads from AgentStore alongside the v1 directory loader and fires v2 through `executeAgentWithRetry`. New `'idle'` heartbeat status when the daemon is alive but firing nothing, surfaced as an orange dot. PR #228.
+- **`sua planner smoke`** — automated CLI that hits the running daemon and exercises every branch of the planner pipeline. Six server-side scenarios (happy path, retry, exhaustion, dismiss, empty-commit, HN-digest reproducer) plus two playwright-driven browser scenarios (warning UX, dismiss-mid-retry). Real LLM calls gated behind `--live`. PRs #229, #230.
+- **`sua agent reimport <path>`** — refresh a v2 agent (or directory of them) in the run DB from on-disk YAML. Idempotent: created / updated / unchanged / failed per file. Closes the "edit YAML, nothing happens" papercut. PR #232.
+- **Schedule editor in dashboard** — `/agents/<id>/config` Schedule card replaces hand-editing YAML. Server-side validation via `validateScheduleInterval`. Two latent bugs fixed along the way: `extractDag` was silently dropping `allowHighFrequency`; `updateAgentMeta` couldn't clear nullable fields. PR #234.
+- **HTTP tools accept custom headers** — `http-get` / `http-post` `headers` input. Many APIs (icanhazdadjoke, GitHub, anything content-negotiating) return HTML instead of JSON without an explicit `Accept` header — agents used to fall back to shell `curl` nodes. Fixes `daily-joke` rendering the icanhazdadjoke web page on pulse. PR #233.
+- **Interactive pulse tiles by default** — `outputWidget.interactive: true` flips parameterised pulse tiles into self-contained mini-apps with inputs form + run button. Eight bundled examples swept; both planner prompts now set the flag whenever the agent declares runtime `inputs:`. PRs #231, #232.
+- **MCP shutdown handle** — `startMcpServer` returns `{ shutdown }` so tests release the http server cleanly; replaced per-session `McpServer.close()` with `httpServer.closeAllConnections()` to avoid `SocketError: other side closed`. PRs #225, #226.
+
+### v0.19
 - **Daemon mode** — `sua daemon start|stop|status` runs the dashboard, scheduler, and MCP server detached in the background; clickable URL column; configurable dashboard port (#150, #155).
 - **Notifications** — `notify` field on agents with Slack / file / webhook handlers; structured form editor in the dashboard replaces the JSON textarea; Slack messages link back to the run via `dashboardBaseUrl` (#151, #157, #165).
 - **Agent install** — `sua agent install <github-url>` and a dashboard `/agents/install` paste-and-confirm flow turn community YAMLs into one-command installs (#152).
@@ -51,7 +61,7 @@ on direction.
 
 ## Now
 
-**v0.19 shipped, post-release.** No active in-flight feature; picking the next bet from the list below.
+**v0.20 packaging.** Build-planner critic loop, scheduler v2 fix, smoke command, schedule editor, http-headers, and assorted polish all merged. Picking up **tool policies** next per the v0.20+ sequence: tool policies → outcome-driven flows → node discovery.
 
 ## Next (3–6 months)
 
