@@ -439,6 +439,14 @@ export interface AgentVersionDag {
   id: string;
   provider?: 'claude' | 'codex';
   model?: string;
+  /**
+   * Per-agent opt-out of the scheduler's frequency cap. When true, sub-minute
+   * (6-field) cron expressions are accepted. Lives in the versioned DAG —
+   * not row metadata — because relaxing the safety cap is a design-time
+   * decision authors make alongside the cron expression itself, not
+   * something operators flip casually.
+   */
+  allowHighFrequency?: boolean;
   inputs?: Record<string, AgentInputSpec>;
   outputs?: Record<string, AgentOutputSpec>;
   nodes: AgentNode[];
