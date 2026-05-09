@@ -218,16 +218,21 @@ export class AgentStore {
   ): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
+    // For nullable fields (description, schedule, stateMaxBytes), distinguish
+    // "key absent from patch" (skip the column) from "key present with
+    // undefined value" (clear the column to NULL). Using `in` operator so
+    // callers can explicitly pass {schedule: undefined} to clear without
+    // also having to special-case-null.
     if (patch.name !== undefined) { fields.push('name = ?'); values.push(patch.name); }
-    if (patch.description !== undefined) { fields.push('description = ?'); values.push(patch.description ?? null); }
+    if ('description' in patch) { fields.push('description = ?'); values.push(patch.description ?? null); }
     if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
-    if (patch.schedule !== undefined) { fields.push('schedule = ?'); values.push(patch.schedule ?? null); }
+    if ('schedule' in patch) { fields.push('schedule = ?'); values.push(patch.schedule ?? null); }
     if (patch.mcp !== undefined) { fields.push('mcp = ?'); values.push(patch.mcp ? 1 : 0); }
     if (patch.starred !== undefined) { fields.push('starred = ?'); values.push(patch.starred ? 1 : 0); }
     if (patch.source !== undefined) { fields.push('source = ?'); values.push(patch.source); }
     if (patch.pulseVisible !== undefined) { fields.push('pulse_visible = ?'); values.push(patch.pulseVisible ? 1 : 0); }
     if (patch.dashboardVisible !== undefined) { fields.push('dashboard_visible = ?'); values.push(patch.dashboardVisible ? 1 : 0); }
-    if (patch.stateMaxBytes !== undefined) { fields.push('state_max_bytes = ?'); values.push(patch.stateMaxBytes); }
+    if ('stateMaxBytes' in patch) { fields.push('state_max_bytes = ?'); values.push(patch.stateMaxBytes ?? null); }
     if (fields.length === 0) return;
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -370,6 +375,7 @@ export class AgentStore {
     };
     if (agent.provider) dag.provider = agent.provider;
     if (agent.model) dag.model = agent.model;
+    if (agent.allowHighFrequency) dag.allowHighFrequency = agent.allowHighFrequency;
     if (agent.inputs) dag.inputs = agent.inputs;
     if (agent.outputs) dag.outputs = agent.outputs;
     if (agent.signal) dag.signal = agent.signal;
@@ -412,6 +418,7 @@ export class AgentStore {
       version: row.current_version as number,
       provider: dag.provider,
       model: dag.model,
+      allowHighFrequency: dag.allowHighFrequency,
       inputs: dag.inputs,
       outputs: dag.outputs,
       nodes: dag.nodes,

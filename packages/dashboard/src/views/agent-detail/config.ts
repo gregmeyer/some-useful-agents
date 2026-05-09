@@ -5,6 +5,7 @@ import {
   providerOption,
   renderModelOptions,
 } from '../agent-detail-helpers.js';
+import { cronToHuman } from '../components.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 
 /**
@@ -102,6 +103,35 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">Hidden agents are still reachable by direct URL, MCP, scheduler, and the runs page.</p>`
       : html``}
   `);
+
+  const scheduleCard = (() => {
+    // The scheduler watches the `schedule` column on the agents row;
+    // editing it here is metadata-only (no version bump). Empty input
+    // disables the schedule. Validation lives server-side — we don't
+    // try to gate keystrokes here because the cron-validator messages
+    // are more useful than what we'd hand-roll in JS.
+    const current = agent.schedule ?? '';
+    const human = current ? cronToHuman(current) : null;
+    return configCard('Schedule', html`
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+        Five-field cron expression. Empty disables. Examples: <code>0 8 * * *</code> (daily 8am), <code>*/15 * * * *</code> (every 15m), <code>0 9 * * 1-5</code> (weekdays 9am).
+      </p>
+      <form method="POST" action="/agents/${agent.id}/schedule" style="display: flex; flex-direction: column; gap: var(--space-2);">
+        <div style="display: flex; gap: var(--space-2); align-items: center;">
+          <input type="text" name="schedule" value="${current}" placeholder="0 8 * * *"
+                 class="form-field mono"
+                 style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);" />
+          <button type="submit" class="btn btn--sm">Save</button>
+        </div>
+        ${current
+          ? html`<div class="dim" style="font-size: var(--font-size-xs);">${human ? html`Currently: <strong>${human}</strong>` : html`<span style="color: var(--color-danger);">Currently set, but not parseable as cron.</span>`}</div>`
+          : html`<div class="dim" style="font-size: var(--font-size-xs);">No schedule. The agent only fires on demand (run-now / MCP).</div>`}
+        ${current && agent.allowHighFrequency
+          ? html`<div class="dim" style="font-size: var(--font-size-xs); color: var(--color-warn);">allowHighFrequency: true — sub-minute schedules permitted.</div>`
+          : html``}
+      </form>
+    `);
+  })();
 
   const mcpCard = configCard('MCP exposure', html`
     <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
@@ -201,6 +231,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     <div class="config-grid" style="margin-top: var(--space-4);">
       <div class="config-grid__col">
         ${llmCard}
+        ${scheduleCard}
         ${visibilityCard}
         ${mcpCard}
         ${secretsCard}

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { getContext } from '../context.js';
 import { renderVersionsList, renderVersionDetail } from '../views/versions.js';
+import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from '@some-useful-agents/core';
 
 /**
  * Version history + rollback routes for v2 DAG agents.
@@ -210,6 +211,73 @@ versionsRouter.post('/agents/:id/visibility', (req: Request, res: Response) => {
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Visibility toggle failed: ${m}`)}`);
+  }
+});
+
+/**
+ * POST /agents/:id/schedule — set or clear the agent's cron schedule.
+ *
+ * Body: { schedule: string } — empty string clears the schedule.
+ * Validation: parses + applies the frequency cap via core's
+ * validateScheduleInterval, honouring the agent's allowHighFrequency flag.
+ * Schedule lives on the agents row metadata (no version bump) — the
+ * scheduler reads it from there at start time and re-reads on each
+ * heartbeat tick.
+ */
+versionsRouter.post('/agents/:id/schedule', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = typeof body.schedule === 'string' ? body.schedule.trim() : '';
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  // Empty input clears the schedule.
+  if (raw === '') {
+    if (!agent.schedule) {
+      res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Schedule unchanged.')}`);
+      return;
+    }
+    try {
+      ctx.agentStore.updateAgentMeta(id, { schedule: undefined });
+      res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Schedule cleared.')}`);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule clear failed: ${m}`)}`);
+    }
+    return;
+  }
+
+  try {
+    validateScheduleInterval(raw, { allowHighFrequency: agent.allowHighFrequency });
+  } catch (err) {
+    let msg: string;
+    if (err instanceof CronInvalidError) {
+      msg = `"${raw}" is not a valid cron expression. Use 5 fields (minute hour day month weekday), e.g. "0 8 * * *".`;
+    } else if (err instanceof CronTooFrequentError) {
+      msg = `"${raw}" fires sub-minute. Set allowHighFrequency: true on the agent YAML to bypass the safety cap.`;
+    } else {
+      msg = err instanceof Error ? err.message : String(err);
+    }
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(msg)}`);
+    return;
+  }
+
+  if (agent.schedule === raw) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Schedule unchanged.')}`);
+    return;
+  }
+
+  try {
+    ctx.agentStore.updateAgentMeta(id, { schedule: raw });
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule set to "${raw}". Restart the scheduler daemon to pick it up.`)}`);
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule update failed: ${m}`)}`);
   }
 });
 
