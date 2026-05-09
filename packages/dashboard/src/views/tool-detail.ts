@@ -1,14 +1,28 @@
-import type { ToolDefinition } from '@some-useful-agents/core';
+import type { ToolDefinition, AgentStatus } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { statusBadge } from './components.js';
+
+export interface ToolUsage {
+  id: string;
+  name: string;
+  status: AgentStatus;
+}
 
 export function renderToolDetail(args: {
   tool: ToolDefinition;
   /** When set, link the tool to its source MCP server for navigation. */
   mcpServerId?: string;
+  /**
+   * Agents that statically reference this tool, derived from
+   * `agent.capabilities.tools_used`. Empty list renders an explicit
+   * "no agents use this tool yet" line so users can tell the difference
+   * between "loaded but empty" and "the section never rendered."
+   */
+  usedByAgents?: ToolUsage[];
 }): string {
-  const { tool, mcpServerId } = args;
+  const { tool, mcpServerId, usedByAgents = [] } = args;
 
   const sourceBadge = tool.source === 'builtin'
     ? html`<span class="badge badge--muted">builtin</span>`
@@ -102,6 +116,25 @@ export function renderToolDetail(args: {
           ` : unsafeHtml('')}
         </dl>
       </div>
+    </section>
+
+    <section class="mt-6">
+      <h2>Used by</h2>
+      ${usedByAgents.length === 0
+        ? html`<p class="dim">No agents reference this tool yet.</p>`
+        : html`
+          <table class="table">
+            <thead><tr><th>Agent</th><th>Status</th></tr></thead>
+            <tbody>
+              ${usedByAgents.map((a) => html`
+                <tr>
+                  <td><a href="/agents/${a.id}" class="mono">${a.id}</a> <span class="dim">${a.name}</span></td>
+                  <td>${statusBadge(a.status)}</td>
+                </tr>
+              `) as unknown as SafeHtml[]}
+            </tbody>
+          </table>
+        `}
     </section>
   `;
 
