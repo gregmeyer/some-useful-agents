@@ -16,6 +16,7 @@ MIT-licensed. Published to [npm](https://www.npmjs.com/search?q=%40some-useful-a
 - **Widget packs** — bundles of curated agents and dashboards that install as a unit. The bundled `Starter` pack ships three demo agents organised into Media + Weather dashboards. Browse + install at `/packs`; pack uninstall removes the dashboards but keeps the agents (reference-only ownership).
 - **Dashboards** — named, ordered, sectioned views over installed agents. Pack-owned (e.g. `starter:media`) or user-created. Inline editor at `/dashboards/:id/edit` — add/remove/reorder sections and tiles, all server-rendered. The default dashboard at `/pulse` is auto-derived from per-agent `pulseVisible` flags.
 - **Dashboard** — web UI for managing agents, tools, runs, secrets, variables, MCP servers, packs, and Pulse tiles. Visual DAG editor, click-to-replay, YAML editor, template palette autocomplete, per-node action dialogs, live preview for output widgets. Full tour: [docs/dashboard.md](docs/dashboard.md).
+- **Build from a goal, with a critic loop** — describe what you want in plain language; the built-in `build-planner` proposes a complete plan (new agents, dashboard sections, references to existing agents). A structural critic checks the plan against catalog reality before showing it to you and re-fires the planner with feedback up to twice if the first pass has issues. After 2 retries you get a "Commit anyway" override. Telemetry at `/metrics/planner` tracks first-attempt-clean rate, retry counts, and commit rate.
 - **AI suggest improvements** — one-click agent analysis via the built-in `agent-analyzer`. Reviews your agent's YAML, classifies changes, shows a colored diff, and auto-validates + fixes the suggested YAML before presenting it.
 - **Global variables** — plain-text, non-sensitive values available to every agent. CRUD via `/settings/variables` or `sua vars` CLI. Referenced as `$NAME` in shell, `{{vars.NAME}}` in prompts.
 - **MCP server (outbound)** — expose your agents to Claude Desktop and other MCP clients over HTTP/SSE.
@@ -66,6 +67,7 @@ sua agent list                          # all agents (examples + local)
 sua agent new                           # interactive scaffold
 sua agent run <name>                    # run once
 sua agent run <name> --input K=V        # supply inputs
+sua agent reimport <path>               # refresh agent(s) in DB from on-disk YAML
 ```
 
 ### Workflows (DAG agents)
@@ -110,6 +112,14 @@ sua secrets list                        # list names (values hidden)
 sua secrets delete <NAME>               # remove a secret
 ```
 
+### Build planner
+
+```bash
+sua planner smoke                       # dry-run preview of pipeline scenarios
+sua planner smoke --live                # run all 6 server scenarios end-to-end
+sua planner smoke --live --browser      # also drive 2 wizard scenarios via playwright
+```
+
 ### Infrastructure
 
 ```bash
@@ -117,6 +127,7 @@ sua init                                # initialize a project
 sua doctor                              # check prerequisites
 sua mcp start                           # start the MCP server
 sua dashboard start                     # start the web dashboard
+sua daemon start                        # run dashboard + scheduler + MCP detached
 sua schedule list                       # show scheduled agents
 ```
 
@@ -133,7 +144,8 @@ Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm sto
 - **Pulse** — information radiator at `/pulse`, the default dashboard. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop reorder, widget palette with auto-theming, system metric tiles, markdown rendering, YouTube media player, tile collapse/expand. A switcher dropdown at the top of the page lets you flip between Default and any installed pack/user dashboard. "Hide all" / "Show all" buttons bulk-toggle every signal — useful before installing a pack.
 - **Packs** — `/packs` lists all registered packs (bundled + user-created), shows install state, and routes Install/Uninstall through one click. Built-in packs ship in `packages/core/packs/*.yaml` and auto-register on daemon start.
 - **Dashboards** — render at `/dashboards/:id`, edit at `/dashboards/:id/edit`. Pack-owned dashboards are editable (rename, reorder, add/remove tiles) but not deletable; uninstall the pack instead. User-created dashboards are deletable. Create a new one from the dropdown's "+ New dashboard name" input.
-- **Build from goal** — Build button on the home page (`/`) and `/agents`. Describe what you want in plain language, the builder designs a complete agent YAML with nodes, tools, inputs, and a Pulse signal block. Review the generated YAML before saving.
+- **Build from goal** — Build button on the home page (`/`) and `/agents`. Describe what you want in plain language. The build-planner proposes a complete plan: new agents, dashboard sections, and references to existing agents you already have. A structural critic validates the plan before showing it to you and silently re-fires the planner with feedback if the first pass has issues. Review the generated YAML before saving; "Commit anyway" lets you override unresolved warnings.
+- **Schedule editor** — `/agents/<id>/config` has a Schedule card so you can set or clear a cron expression without hand-editing YAML. Server-side validation rejects invalid expressions and sub-minute cadences (unless the agent opts in via `allowHighFrequency: true`).
 - **Agents** — card grid with **User / Examples / Community tabs**, per-tab counts, filtering (status, search), sorting, pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (variables, output widget, signal, secrets), Runs (history), YAML (editor).
 - **Output widget editor** — at `/agents/:id/config`, pick from visual cards (raw / key-value / diff-apply / dashboard / ai-template), load one of 5 starter examples in one click, watch a live preview rerender as you edit. Full reference: [docs/output-widgets.md](docs/output-widgets.md).
 - **Tools** — browse **User / Built-in tabs** with per-tab counts, filtering, pagination. Paste a Claude-Desktop-style config at `/tools/mcp/import` to import MCP servers wholesale.
