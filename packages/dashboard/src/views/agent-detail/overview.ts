@@ -9,10 +9,27 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
   const hasCommunityShellNode = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
 
-  // Quick stats row
-  const toolIds = new Set<string>();
-  for (const n of agent.nodes) toolIds.add(n.tool ?? (n.type === 'shell' ? 'shell-exec' : 'claude-code'));
-  const toolBadges = [...toolIds].sort().map((id) => html`<a href="/tools/${id}" class="badge badge--muted" style="text-decoration: none;">${id}</a>`);
+  // Quick stats row. Tools-used comes from `agent.capabilities` — the
+  // canonical static analysis (parse-time, includes explicit `tool:`,
+  // type-based desugaring, AND `allowedTools`). Falls back to a node-level
+  // walk only if capabilities wasn't computed (e.g., older row not yet
+  // re-read). claude-code-native tools (Bash, Edit, etc.) link to /tools
+  // and will 404 there; skipping the link keeps users out of dead ends.
+  const toolsUsed = agent.capabilities?.tools_used && agent.capabilities.tools_used.length > 0
+    ? agent.capabilities.tools_used
+    : (() => {
+        const ids = new Set<string>();
+        for (const n of agent.nodes) ids.add(n.tool ?? (n.type === 'shell' ? 'shell-exec' : 'claude-code'));
+        return [...ids].sort();
+      })();
+  // Linkable tool ids match sua's kebab-lowercase convention (built-ins,
+  // user tools, MCP-imported tools all use it). Claude-code-native tools
+  // like `Bash` / `Edit` / `NotebookEdit` ship in capitalised form and
+  // have no `/tools` entry — render those as plain badges.
+  const isLinkable = (id: string) => /^[a-z][a-z0-9_-]*$/.test(id);
+  const toolBadges = toolsUsed.map((id) => isLinkable(id)
+    ? html`<a href="/tools/${id}" class="badge badge--muted" style="text-decoration: none;">${id}</a>`
+    : html`<span class="badge badge--muted" title="Built into the LLM runtime; no /tools entry.">${id}</span>`);
 
   const runRows = recentRuns.slice(0, 5).map((r) => html`
     <tr>

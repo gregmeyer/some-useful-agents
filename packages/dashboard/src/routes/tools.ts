@@ -204,9 +204,24 @@ toolsRouter.get('/tools/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
+  // Find every agent that statically references this tool. Sourced from
+  // the parse-time `capabilities.tools_used` (covers explicit `tool:`,
+  // type-based desugaring, and node-level `allowedTools`). Cheap enough
+  // to walk all agents on each request — there's no high-cardinality
+  // workload that would warrant an index.
+  const usedByAgents = (() => {
+    try {
+      return ctx.agentStore.listAgents()
+        .filter((a) => a.capabilities?.tools_used.includes(id))
+        .map((a) => ({ id: a.id, name: a.name, status: a.status }));
+    } catch {
+      return [];
+    }
+  })();
+
   const builtin = getBuiltinTool(id);
   if (builtin) {
-    res.type('html').send(renderToolDetail({ tool: builtin.definition }));
+    res.type('html').send(renderToolDetail({ tool: builtin.definition, usedByAgents }));
     return;
   }
 
@@ -215,7 +230,7 @@ toolsRouter.get('/tools/:id', (req: Request, res: Response) => {
       const tool = ctx.toolStore.getTool(id);
       if (tool) {
         const serverId = ctx.toolStore.getToolServerId(id);
-        res.type('html').send(renderToolDetail({ tool, mcpServerId: serverId }));
+        res.type('html').send(renderToolDetail({ tool, mcpServerId: serverId, usedByAgents }));
         return;
       }
     }
