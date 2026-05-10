@@ -45,6 +45,7 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
   const paletteKey = config.paletteKey ?? `${config.storageKey}-palettes`;
   const sizesKey = config.sizesKey ?? `${config.storageKey}-sizes`;
   const collapsedKey = config.collapsedKey ?? `${config.storageKey}-collapsed`;
+  const editModeKey = `${config.storageKey}-edit-mode`;
 
   return `
   // ── Widget layout: containers, drag-and-drop, palette (${config.prefix}) ──
@@ -63,6 +64,7 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     var PALETTE_KEY = '${paletteKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
     var SIZES_KEY = '${sizesKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
     var COLLAPSED_KEY = '${collapsedKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
+    var EDIT_MODE_KEY = '${editModeKey}' + (KEY_SUFFIX ? '-' + KEY_SUFFIX : '');
     var PALETTES = ['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green'];
 
     function isProtected(id) {
@@ -328,12 +330,27 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     });
 
     // ── Edit mode toggle ─────────────────────────────────────────────
-    var editMode = false;
+    // Persist edit mode in localStorage so it survives the full page
+    // reloads our form-driven actions trigger (configure tile, change
+    // palette, hide signal, etc.). Without this, every tweak kicked the
+    // user out of edit mode and they had to click Edit Layout again.
+    function getEditMode() {
+      try { return localStorage.getItem(EDIT_MODE_KEY) === '1'; } catch { return false; }
+    }
+    function saveEditMode(on) {
+      try {
+        if (on) localStorage.setItem(EDIT_MODE_KEY, '1');
+        else localStorage.removeItem(EDIT_MODE_KEY);
+      } catch {}
+    }
+
+    var editMode = getEditMode();
     var editBtn = document.getElementById('${config.editToggleId}');
     var addContainerBtn = document.getElementById('${config.addContainerId}');
 
     function setEditMode(on) {
       editMode = on;
+      saveEditMode(on);
       document.body.classList.toggle('pulse-edit-mode', on);
       if (editBtn) editBtn.textContent = on ? '\\u2713 Done editing' : '\\u270E Edit layout';
       if (editBtn) editBtn.classList.toggle('btn--primary', on);
@@ -356,6 +373,11 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     if (editBtn) {
       editBtn.addEventListener('click', function() { setEditMode(!editMode); });
     }
+
+    // Apply persisted edit mode on initial load. Runs *after* the
+    // setEditMode definition so the visual state catches up with the
+    // boolean read from localStorage above.
+    if (editMode) setEditMode(true);
 
     // ── Drag and drop ────────────────────────────────────────────────
     var draggedId = null;
