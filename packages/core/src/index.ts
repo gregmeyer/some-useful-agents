@@ -105,6 +105,20 @@ export {
   type PlanCriticContext,
 } from './build-plan-critic.js';
 export {
+  policyDocumentSchema,
+  policyRuleSchema,
+  loadPolicyDocument,
+  policyFilePath,
+  evaluatePolicy,
+  PolicyLoadError,
+  PolicyDeniedError,
+  DEFAULT_POLICY_DOCUMENT,
+  type PolicyDocument,
+  type PolicyRule,
+  type PolicyEvaluationRequest,
+  type PolicyDecision,
+} from './policy-store.js';
+export {
   getBuiltinTool,
   listBuiltinTools,
   isBuiltinTool,

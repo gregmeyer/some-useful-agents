@@ -66,7 +66,15 @@ export type NodeErrorCategory =
   | 'cancelled'
   | 'upstream_failed'
   | 'condition_not_met'
-  | 'flow_ended';
+  | 'flow_ended'
+  /**
+   * Tool-policy denied this node. Set when a future enforcement engine
+   * (PR C of the tool-policies feature) refuses a tool call against a
+   * resource the project policy blocks. Lives in the enum from PR B
+   * onward so calling code, retry-policy filters, and dashboard
+   * categorisation can reason about it before the engine ships.
+   */
+  | 'policy_denied';
 
 // Re-export so consumers of v2 types can import from one place without
 // reaching back into the v1 loader module.

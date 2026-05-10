@@ -29,6 +29,7 @@ import type { ToolStore } from './tool-store.js';
 import type { VariablesStore } from './variables-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
+import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, type PolicyDocument, type PolicyEvaluationRequest } from './policy-store.js';
 import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
@@ -110,6 +111,14 @@ export interface DagExecutorDeps {
    * and one-shot CLI runs typically omit it.
    */
   dataRoot?: string;
+  /**
+   * Tool-policy document loaded from `.sua/policies.json` (or built
+   * inline by tests). When absent, the executor evaluates against the
+   * default allow-all document — same effective behaviour as projects
+   * that haven't authored a policy. PR B ships this as a no-op seam
+   * so PR C can drop in real allow/deny logic without changing dispatch.
+   */
+  policyDocument?: PolicyDocument;
 }
 
 export interface DagExecuteOptions {
@@ -681,6 +690,29 @@ export async function executeAgentDag(
     const toolId = resolveToolId(node);
     const builtinEntry = toolId ? getBuiltinTool(toolId) : undefined;
 
+    // PR B (tool policies): single seam that every tool-execute path
+    // crosses. The stub always allows; PR C wires real allow/deny logic
+    // here without touching downstream dispatch. The throw is caught by
+    // the existing tool-dispatch catch (~30 lines below) and re-mapped
+    // to errorCategory='policy_denied' via the instanceof check.
+    if (toolId) {
+      const policyRequest: PolicyEvaluationRequest = {
+        toolId,
+        resource: extractPrimaryResource(node, toolId),
+        agentSource: agent.source,
+        agentId: agent.id,
+      };
+      const decision = evaluatePolicy(deps.policyDocument ?? DEFAULT_POLICY_DOCUMENT, policyRequest);
+      if (decision.effect === 'deny') {
+        throw new PolicyDeniedError(
+          decision.reason ?? `Policy denied tool "${toolId}" on resource "${policyRequest.resource}".`,
+          toolId,
+          policyRequest.resource,
+          decision.matchedRuleIndex,
+        );
+      }
+    }
+
     let result: SpawnResult;
     let structuredOutput: ToolOutput | undefined;
 
@@ -822,14 +854,20 @@ export async function executeAgentDag(
     } catch (err) {
       const message = (err as Error).message;
       const stateBytesAfter = deps.dataRoot ? stateDirSize(agent.id, deps.dataRoot) : undefined;
+      // PolicyDeniedError comes from the policy-eval seam above. Map it
+      // to its own category so dashboards + retry-policy filters can
+      // distinguish "policy refused this" from generic setup failures.
+      // Policy denials are deliberately NOT in the default retry-categories
+      // list — denying is a stable signal, not a transient one.
+      const errorCategory: NodeErrorCategory = err instanceof PolicyDeniedError ? 'policy_denied' : 'setup';
       deps.runStore.updateNodeExecution(runId, node.id, {
         status: 'failed',
-        errorCategory: 'setup',
+        errorCategory,
         completedAt: new Date().toISOString(),
         error: message,
         stateBytesAfter,
       });
-      firstFailure = { nodeId: node.id, category: 'setup' };
+      firstFailure = { nodeId: node.id, category: errorCategory };
       continue;
     }
 
@@ -929,6 +967,43 @@ export async function executeAgentDag(
  * passes an Agent constructed outside the schema, throw rather than
  * silently dropping nodes from the output.
  */
+/**
+ * Extract the "primary resource" from a node for policy evaluation —
+ * the URL for http tools, the path for file tools, the command for
+ * shell-exec, etc. Returns empty string when no obvious resource is
+ * present (templated values that haven't been resolved yet, MCP tools
+ * with no canonical primary input). PR C's matcher treats `''` as
+ * "unknown resource" and uses `'*'` resource patterns to match it.
+ *
+ * Templated values (`{{inputs.X}}`, `{{upstream.Y.z}}`) are returned
+ * as-is — the eval seam runs *before* substitution so authors can write
+ * deny rules against the literal template strings if they want.
+ */
+function extractPrimaryResource(node: AgentNode, toolId: string): string {
+  // Tools whose primary resource is a URL.
+  if (toolId === 'http-get' || toolId === 'http-post') {
+    const ti = node.toolInputs ?? {};
+    const url = ti.url ?? ti.endpoint;
+    if (typeof url === 'string') return url;
+    return '';
+  }
+  // Tools whose primary resource is a filesystem path.
+  if (toolId === 'file-read' || toolId === 'file-write') {
+    const ti = node.toolInputs ?? {};
+    const path = (typeof ti.path === 'string' ? ti.path : undefined) ?? node.path;
+    if (typeof path === 'string') return path;
+    return '';
+  }
+  // shell-exec: the command itself is the resource. Same for un-tooled
+  // shell nodes that desugar to shell-exec.
+  if (toolId === 'shell-exec') {
+    return node.command ?? '';
+  }
+  // claude-code: prompt isn't really a resource; PR C may grow this to
+  // inspect node.allowedTools instead. For now, return empty.
+  return '';
+}
+
 export function topologicalSort(nodes: AgentNode[]): AgentNode[] {
   const byId = new Map<string, AgentNode>();
   const remainingDeps = new Map<string, Set<string>>();
