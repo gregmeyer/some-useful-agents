@@ -1024,7 +1024,17 @@ main.main--wide {
   font-size: var(--font-size-xs);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
+  /* Stick to the bottom of the (potentially scrolling) tile viewport so
+   * the agent link and timestamp stay reachable when an interactive
+   * widget's form overflows the tile's max-height. Without this the
+   * footer scrolls with content and gets visually overlapped by tall
+   * inputs forms. `margin-top: auto` still pushes it to the bottom of
+   * the flex column when content is short. */
+  position: sticky;
+  bottom: 0;
   margin-top: auto;
+  background: var(--color-surface);
+  z-index: 1;
 }
 
 .pulse-tile__agent {
