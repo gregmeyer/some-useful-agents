@@ -954,8 +954,25 @@ main.main--wide {
   gap: var(--space-3);
   min-height: 120px;
   max-height: 400px;
-  overflow-y: auto;
+  /* The tile itself doesn't scroll — the body wrapper inside does. This
+   * keeps the chrome (header + footer) reachable regardless of how tall
+   * the content gets. Overflow:hidden also stops absolutely-positioned
+   * descendants from spilling outside the rounded corners. */
+  overflow: hidden;
   transition: padding 150ms ease-out, min-height 150ms ease-out, gap 150ms ease-out;
+}
+
+/* Scrollable inner region between header and footer. `min-height: 0`
+ * is the magic flex incantation that lets a scrolling child shrink
+ * below its content's intrinsic size — without it the body would
+ * happily grow to its full height and break the parent's max-height. */
+.pulse-tile__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 .pulse-tile--2x2 { max-height: 600px; }
@@ -1024,17 +1041,11 @@ main.main--wide {
   font-size: var(--font-size-xs);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
-  /* Stick to the bottom of the (potentially scrolling) tile viewport so
-   * the agent link and timestamp stay reachable when an interactive
-   * widget's form overflows the tile's max-height. Without this the
-   * footer scrolls with content and gets visually overlapped by tall
-   * inputs forms. `margin-top: auto` still pushes it to the bottom of
-   * the flex column when content is short. */
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
-  background: var(--color-surface);
-  z-index: 1;
+  /* Footer is the last flex child of `.pulse-tile`. The body wrapper
+   * above us scrolls; we sit just below it as static chrome, always
+   * reachable regardless of content height. `flex-shrink: 0` keeps us
+   * from being squeezed when the body's intrinsic content is tall. */
+  flex-shrink: 0;
 }
 
 .pulse-tile__agent {

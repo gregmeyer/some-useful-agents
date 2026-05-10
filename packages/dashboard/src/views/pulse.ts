@@ -45,10 +45,18 @@ export function tileWrap(
   const accentAttr = tile.signal.accent
     ? ` data-accent="${esc(tile.signal.accent)}"`
     : '';
+  // Tile chrome (header + footer) sits *outside* the scrolling body so
+  // long content (notably interactive-widget forms whose stacked panes
+  // dominate the grid cell height) can't push the agent link below the
+  // visible bottom edge. The `pulse-tile__body` wrapper is the same
+  // class the home widgets already use; the CSS lets it `flex: 1` and
+  // own the overflow.
   return unsafeHtml(
     `<div class="pulse-tile ${sizeClass(sizeAttr)}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
     tileHeader(tile, isSystem, ctx).toString() +
+    `<div class="pulse-tile__body">` +
     content.toString() +
+    `</div>` +
     (isSystem ? '' : tileFooter(tile).toString()) +
     '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>' +
     '</div>'
