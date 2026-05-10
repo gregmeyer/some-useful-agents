@@ -115,7 +115,10 @@ nodes:
       Avoid controls on agents that are purely scheduled and never user-driven. Always reference declared field names — every name in field-toggle.fields[] and view-switch.views[].fields[] must match an outputWidget.fields[].name.
 
       SIGNAL TEMPLATE RULES:
-      - signal.template MUST be one of the names listed above (metric, time-series, text-headline, text-image, image, table, status, media, comparison, key-value, story, funnel).
+      - signal.template MUST be one of: metric, time-series, text-headline, text-image, image, table, status, media, comparison, key-value, story, funnel, widget.
+      - **`widget` is the right choice when the agent declares an `outputWidget`.** Pulse tile rendering is dispatched by `signal.template`, NOT by `outputWidget.type` — so an agent with `outputWidget: { type: ai-template, template: <rich HTML> }` and `signal.template: text-headline` will silently render the bare headline on Pulse and waste the ai-template entirely. Set `signal.template: widget` to make Pulse mirror the agent's outputWidget.
+      - When using `signal.template: widget`, omit `signal.mapping` — the outputWidget schema drives the layout, no slot mapping is needed. Keep `signal.title` as a static string (the chrome label).
+      - `text-headline`, `metric`, etc. are the right choice when the agent has NO outputWidget OR its outputWidget is a simple structured renderer (raw / key-value / dashboard) and you want the Pulse tile to be a glanceable summary instead of mirroring the full widget.
       - signal.title is a literal string. Do NOT use expression syntax like "'Weather: ' + output.city".
       - signal.mapping values are field names or "result" — not expressions.
 
