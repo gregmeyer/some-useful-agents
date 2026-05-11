@@ -1007,6 +1007,28 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
   }
   const plan = result.data;
 
+  // Optional landing target from the wizard. Three shapes:
+  //   { kind: 'agents-only' }
+  //   { kind: 'new-dashboard' }
+  //   { kind: 'existing-dashboard', dashboardId: string }
+  // Older clients send no target — fall back to planner's plan.dashboard.
+  let target: { kind: 'agents-only' } | { kind: 'new-dashboard' } | { kind: 'existing-dashboard'; dashboardId: string } | null = null;
+  if (body.target && typeof body.target === 'object') {
+    const t = body.target as Record<string, unknown>;
+    if (t.kind === 'agents-only') target = { kind: 'agents-only' };
+    else if (t.kind === 'new-dashboard') target = { kind: 'new-dashboard' };
+    else if (t.kind === 'existing-dashboard' && typeof t.dashboardId === 'string') target = { kind: 'existing-dashboard', dashboardId: t.dashboardId };
+  }
+  // Honor "agents-only": drop the planner's dashboard so nothing extra lands.
+  if (target?.kind === 'agents-only') {
+    plan.dashboard = null;
+  }
+  // "existing-dashboard": drop the planner's new dashboard — we'll merge into
+  // the user-selected one after the agents commit.
+  if (target?.kind === 'existing-dashboard') {
+    plan.dashboard = null;
+  }
+
   const agentsCreated: string[] = [];
   const agentsSkipped: Array<{ id: string; reason: string }> = [];
 
@@ -1078,6 +1100,58 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
     dashboardError = 'Dashboards store unavailable.';
   }
 
+  // Target = "new-dashboard": synthesize a user dashboard with every agent
+  // we just created, if the planner didn't already produce one.
+  if (target?.kind === 'new-dashboard' && !dashboardCreated && agentsCreated.length > 0 && ctx.dashboardsStore) {
+    const baseId = 'user:goal';
+    let dashId = baseId;
+    if (ctx.dashboardsStore.getDashboard(dashId)) dashId = `${baseId}-${Date.now().toString(36)}`;
+    const name = 'Built from goal';
+    try {
+      ctx.dashboardsStore.upsertDashboard({
+        id: dashId,
+        packId: null,
+        name,
+        layout: { sections: [{ title: 'Agents', agentIds: agentsCreated.slice() }] },
+      });
+      dashboardCreated = dashId;
+    } catch (e) {
+      dashboardError = (e as Error).message;
+    }
+  }
+
+  // Target = "existing-dashboard": append every agent we just created to
+  // section 0 of the user-selected dashboard. New tiles are added (existing
+  // agentIds in section 0 are preserved).
+  let dashboardUpdated: string | null = null;
+  if (target?.kind === 'existing-dashboard' && agentsCreated.length > 0 && ctx.dashboardsStore) {
+    const dash = ctx.dashboardsStore.getDashboard(target.dashboardId);
+    if (!dash) {
+      dashboardError = `Dashboard "${target.dashboardId}" not found.`;
+    } else if (dash.packId) {
+      dashboardError = 'Cannot add to a pack-owned dashboard. Pick a user dashboard.';
+    } else if (dash.layout.sections.length === 0) {
+      // No sections to append to — create one.
+      try {
+        ctx.dashboardsStore.updateLayout(dash.id, {
+          sections: [{ title: 'Agents', agentIds: agentsCreated.slice() }],
+        });
+        dashboardUpdated = dash.id;
+      } catch (e) { dashboardError = (e as Error).message; }
+    } else {
+      const sections = dash.layout.sections.map((s, i) => {
+        if (i !== 0) return s;
+        const existing = new Set(s.agentIds);
+        const merged = [...s.agentIds, ...agentsCreated.filter((id) => !existing.has(id))];
+        return { ...s, agentIds: merged };
+      });
+      try {
+        ctx.dashboardsStore.updateLayout(dash.id, { sections });
+        dashboardUpdated = dash.id;
+      } catch (e) { dashboardError = (e as Error).message; }
+    }
+  }
+
   // Telemetry: stamp the commit time + total time-to-commit. Only fires
   // when the wizard supplied plannerRunId (correlates this commit back
   // to its planner-run row) AND something actually landed (an agent was
@@ -1095,10 +1169,11 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
     } catch { /* swallow */ }
   }
 
-  // Choose a redirect target: prefer the new dashboard, fall back to
-  // the first new agent, fall back to /agents.
-  const redirectUrl = dashboardCreated
-    ? `/dashboards/${encodeURIComponent(dashboardCreated)}`
+  // Choose a redirect target: prefer the dashboard we created or updated,
+  // then the first new agent, then /agents.
+  const redirectDashId = dashboardCreated ?? dashboardUpdated;
+  const redirectUrl = redirectDashId
+    ? `/dashboards/${encodeURIComponent(redirectDashId)}`
     : agentsCreated[0]
       ? `/agents/${encodeURIComponent(agentsCreated[0])}`
       : '/agents';
@@ -1108,6 +1183,7 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
     agentsCreated,
     agentsSkipped,
     dashboardCreated,
+    dashboardUpdated,
     dashboardError,
     redirectUrl,
   });

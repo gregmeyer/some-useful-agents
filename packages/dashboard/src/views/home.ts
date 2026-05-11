@@ -43,7 +43,7 @@ export function renderHomePage(input: HomeWidgetData): string {
 
     ${unsafeHtml(`<script type="application/json" id="home-widget-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
 
-    ${buildFromGoalModal()}
+    ${buildFromGoalModal({ availableDashboards: input.availableDashboards })}
   `;
 
   return render(layout({ title: 'Dashboard', activeNav: 'agents' }, body));

@@ -40,6 +40,8 @@ export interface AgentsListInput {
   total: number;
   /** Banner shown above the page (redirected from a mutation route). */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** User-owned dashboards offered as targets in the Build-from-goal wizard. */
+  availableDashboards?: Array<{ id: string; name: string }>;
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -94,7 +96,7 @@ export function renderAgentsList(input: AgentsListInput): string {
       </footer>
     `}
 
-    ${buildFromGoalModal()}
+    ${buildFromGoalModal({ availableDashboards: input.availableDashboards })}
   `;
 
   return render(layout({ title: 'Agents', activeNav: 'agents', flash: input.flash }, body));
