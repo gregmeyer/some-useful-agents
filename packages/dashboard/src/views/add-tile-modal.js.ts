@@ -164,9 +164,6 @@ export const ADD_TILE_MODAL_JS = `
     document.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.add-tile-btn') : null;
       if (!btn) return;
-      // Only react when in edit mode (button is CSS-hidden otherwise, but
-      // belt-and-braces against keyboard-triggered clicks).
-      if (!document.body.classList.contains('pulse-edit-mode')) return;
       var dashboardId = btn.getAttribute('data-dashboard-id') || '';
       var sectionIdx = btn.getAttribute('data-section-idx') || '0';
       var raw = btn.getAttribute('data-section-agent-ids') || '';
