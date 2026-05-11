@@ -27,6 +27,8 @@ export interface HomeWidgetData {
   schedulerHeartbeat?: SchedulerHeartbeat | null;
   /** Last scheduled fire time per agent (from run store). */
   lastScheduledFires?: Record<string, string>;
+  /** User-owned dashboards offered as targets in the Build-from-goal wizard. */
+  availableDashboards?: Array<{ id: string; name: string }>;
 }
 
 interface SystemWidget {

@@ -29,6 +29,19 @@ export const BUILD_FROM_GOAL_JS = `
       if (e.target && e.target.getAttribute && e.target.getAttribute('data-close-build')) closeModal();
     });
 
+    // Toggle the existing-dashboard dropdown when the radio changes.
+    var targetRadios = document.querySelectorAll('input[name="build-target"]');
+    var dashRow = document.getElementById('build-target-dashboard-row');
+    function syncTargetUi() {
+      if (!dashRow) return;
+      var sel = document.querySelector('input[name="build-target"]:checked');
+      dashRow.style.display = sel && sel.value === 'existing' ? 'block' : 'none';
+    }
+    for (var ti = 0; ti < targetRadios.length; ti++) {
+      targetRadios[ti].addEventListener('change', syncTargetUi);
+    }
+    syncTargetUi();
+
     var submitBtn = document.getElementById('build-submit-btn');
     if (!submitBtn) return;
 
@@ -271,9 +284,24 @@ export const BUILD_FROM_GOAL_JS = `
             var ta = document.querySelector('[data-new-agent-idx="' + i + '"]');
             return { id: a.id, purpose: a.purpose, yaml: ta ? ta.value : a.yaml };
           });
+          // Read the target picker. Defaults to 'agents' if the picker
+          // isn't present on the page (older surfaces that haven't been
+          // updated still get the old just-create-agents behavior).
+          var targetRadio = document.querySelector('input[name="build-target"]:checked');
+          var target = { kind: 'agents-only' };
+          if (targetRadio) {
+            var v = targetRadio.value;
+            if (v === 'new-dashboard') {
+              target = { kind: 'new-dashboard' };
+            } else if (v === 'existing') {
+              var sel = document.getElementById('build-target-dashboard');
+              if (sel && sel.value) target = { kind: 'existing-dashboard', dashboardId: sel.value };
+            }
+          }
           var payload = {
             plan: Object.assign({}, plan, { newAgents: editedNewAgents }),
             plannerRunId: runId,
+            target: target,
           };
 
           commitBtn.disabled = true;
@@ -305,6 +333,9 @@ export const BUILD_FROM_GOAL_JS = `
             }
             if (result.dashboardCreated) {
               summary += '<div>Created dashboard: <code>' + esc(result.dashboardCreated) + '</code></div>';
+            }
+            if (result.dashboardUpdated) {
+              summary += '<div>Added to dashboard: <code>' + esc(result.dashboardUpdated) + '</code></div>';
             }
             if (result.dashboardError) {
               summary += '<div class="dim" style="color:var(--color-danger,#a00);">Dashboard error: ' + esc(result.dashboardError) + '</div>';

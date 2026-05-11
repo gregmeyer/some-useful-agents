@@ -175,6 +175,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
         if (result.rows[0]?.startedAt) lastScheduledFires[a.id] = result.rows[0].startedAt;
       }
 
+      const availableDashboards = ctx.dashboardsStore
+        ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
+        : [];
+
       res.type('html').send(renderHomePage({
         agents,
         recentRuns: recentResult.rows,
@@ -187,6 +191,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
         schedulerStatus,
         schedulerHeartbeat,
         lastScheduledFires,
+        availableDashboards,
       }));
     }).catch(() => {
       res.redirect(302, '/agents');

@@ -137,6 +137,10 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     ? { kind: 'ok' as const, message: flashOk }
     : undefined;
 
+  const availableDashboards = ctx.dashboardsStore
+    ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
+    : [];
+
   res.type('html').send(renderAgentsList({
     v1: mergedV1,
     v2: paginatedV2,
@@ -150,5 +154,6 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     offset,
     total: totalV2,
     flash,
+    availableDashboards,
   }));
 });

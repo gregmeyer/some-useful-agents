@@ -105,7 +105,10 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
       JSON.stringify(input.availableAgents).replace(/</g, '\\u003c')
     }</script>`)}
     <span style="display: none;">${buildFromGoalButton()}</span>
-    ${buildFromGoalModal()}
+    ${buildFromGoalModal({
+      availableDashboards: input.installedDashboards.filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name })),
+      defaultDashboardId: input.dashboard.packId ? undefined : input.dashboard.id,
+    })}
   `;
 
   return render(layout({
