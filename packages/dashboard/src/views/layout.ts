@@ -10,6 +10,7 @@ import { OUTPUT_WIDGET_ACTIONS_JS } from './output-widget-actions.js.js';
 import { RUN_DETAIL_FILTER_JS } from './run-detail-filter.js.js';
 import { PULSE_CONFIGURE_JS } from './pulse-configure.js.js';
 import { PULSE_REFRESH_JS } from './pulse-refresh.js.js';
+import { ADD_TILE_MODAL_JS } from './add-tile-modal.js.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
@@ -70,7 +71,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + ADD_TILE_MODAL_JS)}</script>
 </body>
 </html>`;
 }

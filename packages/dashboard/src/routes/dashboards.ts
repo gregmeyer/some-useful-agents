@@ -13,6 +13,7 @@ import { dashboardToPackManifest, type Agent, type AgentSignal } from '@some-use
 import { getContext } from '../context.js';
 import {
   renderDashboardPage,
+  type AvailableAgent,
   type DashboardSectionRender,
 } from '../views/dashboards.js';
 import { buildPulseTile } from '../views/pulse-tile-builder.js';
@@ -52,16 +53,40 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
       }
       tiles.push(buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore }));
     }
-    return { title: s.title, tiles, missingAgentIds };
+    return { title: s.title, tiles, missingAgentIds, agentIds: [...s.agentIds] };
   });
 
   const installedDashboards = ctx.dashboardsStore.listDashboards();
   const flash = parseFlash(req);
 
+  // Pool of agents the user could add to any section: every signal-bearing
+  // agent. The modal filters out ones already placed in the section it was
+  // opened from, but we expose the whole pool so the "Suggested" row (by
+  // recency) is stable across sections.
+  const availableAgents: AvailableAgent[] = ctx.agentStore
+    .listAgents()
+    .filter((a) => a.signal)
+    .map((a) => {
+      let lastFiredAt: string | null = null;
+      try {
+        const recent = ctx.runStore.listRuns({ agentName: a.id, limit: 1 });
+        if (recent.length > 0) lastFiredAt = recent[0].startedAt;
+      } catch { /* no runs */ }
+      return {
+        id: a.id,
+        name: a.name,
+        icon: a.signal?.icon ?? null,
+        template: a.signal?.template ?? null,
+        description: a.description ?? null,
+        lastFiredAt,
+      };
+    });
+
   res.type('html').send(renderDashboardPage({
     dashboard,
     sections,
     installedDashboards,
+    availableAgents,
     flash,
   }));
 });
