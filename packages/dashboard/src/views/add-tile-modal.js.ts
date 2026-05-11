@@ -92,11 +92,20 @@ export const ADD_TILE_MODAL_JS = `
             '<button type="button" class="add-tile-modal__close" title="Close" aria-label="Close">\\u00D7</button>' +
           '</div>' +
           '<p class="dim" style="padding: var(--space-4); text-align: center;">No more agents available.</p>' +
-          '<div style="text-align: center; padding-bottom: var(--space-4);">' +
-            '<a class="btn btn--primary btn--sm" href="/agents/new">Build a new agent \\u2192</a>' +
+          '<div style="display: flex; justify-content: center; gap: var(--space-2); padding-bottom: var(--space-4);">' +
+            '<a class="btn btn--ghost btn--sm" href="/agents/new">+ Blank agent</a>' +
+            '<button type="button" class="btn btn--primary btn--sm" id="add-tile-build-from-goal">Build from goal</button>' +
           '</div>' +
         '</div>';
         modal.querySelector('.add-tile-modal__close').addEventListener('click', closeModal);
+        var emptyBuildBtn = document.getElementById('add-tile-build-from-goal');
+        if (emptyBuildBtn) {
+          emptyBuildBtn.addEventListener('click', function () {
+            closeModal();
+            var trigger = document.getElementById('build-from-goal-btn');
+            if (trigger) trigger.click();
+          });
+        }
         modal.style.display = 'flex';
         return;
       }
@@ -122,9 +131,25 @@ export const ADD_TILE_MODAL_JS = `
         '<div class="add-tile-section-label">' + (suggested.length > 0 ? 'All agents' : 'Available agents') + ' (' + String(sorted.length) + ')</div>' +
         '<div class="add-tile-grid" id="add-tile-all">' + sorted.map(cardHtml).join('') + '</div>' +
         '<p class="add-tile-empty" id="add-tile-no-results" style="display: none; padding: var(--space-4); text-align: center;" class="dim">No agents match.</p>' +
+        '<div class="add-tile-modal__footer" style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-top: var(--space-4); margin-top: var(--space-3); border-top: 1px solid var(--color-border);">' +
+          '<span class="dim" style="font-size: var(--font-size-xs);">Don\\u2019t see what you need?</span>' +
+          '<div style="display: flex; gap: var(--space-2);">' +
+            '<a class="btn btn--ghost btn--sm" href="/agents/new">+ Blank agent</a>' +
+            '<button type="button" class="btn btn--ghost btn--sm" id="add-tile-build-from-goal">Build from goal</button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
 
       modal.querySelector('.add-tile-modal__close').addEventListener('click', closeModal);
+
+      var buildBtn = document.getElementById('add-tile-build-from-goal');
+      if (buildBtn) {
+        buildBtn.addEventListener('click', function () {
+          closeModal();
+          var trigger = document.getElementById('build-from-goal-btn');
+          if (trigger) trigger.click();
+        });
+      }
 
       var form = document.getElementById('add-tile-form');
       var hiddenAgent = document.getElementById('add-tile-agent-id');
