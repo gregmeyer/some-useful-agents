@@ -67,6 +67,14 @@ function rejectIfNotOk(res: ServerResponse, check: AuthCheckResult): boolean {
 
 /** Handle returned by `startMcpServer` so callers (tests, CLI) can shut down cleanly. */
 export interface McpServerHandle {
+  /**
+   * The actual TCP port the server bound to. Same as `options.port` when
+   * the caller asked for a specific port; the OS-assigned port when the
+   * caller passed `port: 0`. Tests rely on the latter so each instance
+   * gets a guaranteed-unique port and parallel runs don't collide on a
+   * narrow random pool.
+   */
+  port: number;
   /** Stop accepting new connections, drain the provider, and close the http server. */
   shutdown(): Promise<void>;
 }
@@ -103,7 +111,11 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
   };
 
   const sessions = new Map<string, SessionEntry>();
-  const allowlist = buildLoopbackAllowlist(options.port);
+  // Allowlist is reassigned once the server has actually bound — when
+  // the caller passes `port: 0`, options.port is meaningless and we
+  // need to authorize the kernel-assigned port instead. `let` so the
+  // request-handler closure picks up the post-listen value.
+  let allowlist = buildLoopbackAllowlist(options.port);
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', `http://${host}:${options.port}`);
@@ -208,13 +220,26 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     httpServer.once('error', reject);
     httpServer.listen(options.port, host, () => {
       httpServer.removeListener('error', reject);
-      const displayHost = host === '0.0.0.0' || host === '::' ? '<all interfaces>' : host;
-      console.log(`MCP server listening on http://${displayHost}:${options.port}/mcp`);
-      console.log(`Health check: http://${displayHost}:${options.port}/health`);
-      console.log(`Bearer token: ${tokenPath}`);
       resolve();
     });
   });
+
+  // Resolve the actual bound port. `options.port` may be 0 (OS chooses)
+  // — `httpServer.address()` returns the kernel-assigned port we should
+  // report to callers and log to the operator.
+  const addr = httpServer.address();
+  const actualPort = typeof addr === 'object' && addr !== null ? addr.port : options.port;
+  // Rebuild the Host/Origin allowlist now that we know the real port.
+  // Skipping this when port=0 leaves the allowlist pointing at the
+  // sentinel and every incoming request gets rejected with
+  // `Host header "..." is not allowed`.
+  if (actualPort !== options.port) {
+    allowlist = buildLoopbackAllowlist(actualPort);
+  }
+  const displayHost = host === '0.0.0.0' || host === '::' ? '<all interfaces>' : host;
+  console.log(`MCP server listening on http://${displayHost}:${actualPort}/mcp`);
+  console.log(`Health check: http://${displayHost}:${actualPort}/health`);
+  console.log(`Bearer token: ${tokenPath}`);
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
@@ -238,5 +263,5 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     process.exit(0);
   });
 
-  return { shutdown };
+  return { port: actualPort, shutdown };
 }
