@@ -16,55 +16,9 @@ export const PULSE_LAYOUT_JS = widgetLayoutJS({
   sizesKey: 'sua-pulse-sizes',
   collapsedKey: 'sua-pulse-collapsed',
 }) + `
-  // ── Pulse tile collapse/expand ──────────────────────────────────────
-  // Clicking the chevron or header title toggles the tile body.
-  // Collapsed state persists in localStorage per agent id.
-  (function () {
-    var STORAGE_KEY = 'sua-pulse-collapsed';
-    function getCollapsed() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
-    }
-    function setCollapsed(map) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(map)); } catch {}
-    }
-
-    // Restore collapsed state on load.
-    var collapsed = getCollapsed();
-    var tiles = document.querySelectorAll('.pulse-tile');
-    for (var i = 0; i < tiles.length; i++) {
-      var btn = tiles[i].querySelector('.pulse-tile__collapse');
-      if (btn) {
-        var id = btn.getAttribute('data-tile-id');
-        if (id && collapsed[id]) tiles[i].classList.add('pulse-tile--collapsed');
-      }
-    }
-
-    // Toggle on click.
-    document.addEventListener('click', function (e) {
-      var target = e.target;
-      // Check if click is on the collapse button or the header trigger area.
-      var tileId = null;
-      if (target.classList && target.classList.contains('pulse-tile__collapse')) {
-        tileId = target.getAttribute('data-tile-id');
-      } else if (target.closest && target.closest('[data-collapse-trigger]')) {
-        tileId = target.closest('[data-collapse-trigger]').getAttribute('data-tile-id');
-      }
-      if (!tileId) return;
-
-      // Find the parent tile.
-      var tile = target.closest('.pulse-tile');
-      if (!tile) return;
-
-      tile.classList.toggle('pulse-tile--collapsed');
-      var map = getCollapsed();
-      if (tile.classList.contains('pulse-tile--collapsed')) {
-        map[tileId] = true;
-      } else {
-        delete map[tileId];
-      }
-      setCollapsed(map);
-    });
-  })();
+  // Collapse/expand handler moved into widget-layout.js.ts so each
+  // surface scopes its persistence properly; see the host.contains
+  // check there.
 
   // ── Pulse media: click-to-play YouTube embeds ───────────────────────
   // Click thumbnail to swap to iframe embed. If embed fails (video

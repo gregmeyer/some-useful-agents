@@ -686,6 +686,35 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       } catch {}
     }
     restoreCollapsed();
+
+    // ── Collapse/expand click handler ───────────────────────────────
+    // Lives here (not in pulse-layout.js.ts) so the COLLAPSED_KEY
+    // scoping is shared across pulse + home + per-dashboard surfaces.
+    // Previously pulse-layout.js.ts hardcoded 'sua-pulse-collapsed' and
+    // home tiles' collapse state was saved to the wrong key.
+    document.addEventListener('click', function (e) {
+      var target = e.target;
+      if (!target || !target.closest) return;
+      // Match either the collapse chevron itself or the title trigger area.
+      var fromChevron = target.classList && target.classList.contains('pulse-tile__collapse');
+      var fromTrigger = target.closest('[data-collapse-trigger]');
+      var tileId = null;
+      if (fromChevron) tileId = target.getAttribute('data-tile-id');
+      else if (fromTrigger) tileId = fromTrigger.getAttribute('data-tile-id');
+      if (!tileId) return;
+      var tile = target.closest('.pulse-tile');
+      // Only handle collapse for tiles that belong to OUR host —
+      // otherwise a click on a pulse tile would fire the home handler
+      // too (both run on every page since the inline scripts are concatenated).
+      if (!tile || !host.contains(tile)) return;
+      tile.classList.toggle('pulse-tile--collapsed');
+      try {
+        var map = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '{}');
+        if (tile.classList.contains('pulse-tile--collapsed')) map[tileId] = true;
+        else delete map[tileId];
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify(map));
+      } catch {}
+    });
   })();
 `;
 }
