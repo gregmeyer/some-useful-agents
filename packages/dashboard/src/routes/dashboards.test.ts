@@ -143,6 +143,36 @@ describe('dashboards routes', () => {
     expect(res.text).toContain('not installed');
   });
 
+  it('exposes the in-place add-tile picker on /dashboards/:id', async () => {
+    const app = await makeApp();
+    dashboardsStore.upsertDashboard({
+      id: 'user:in-place',
+      packId: null,
+      name: 'InPlace',
+      layout: { sections: [{ title: 'Empty', agentIds: [] }] },
+    });
+    const res = await request(app)
+      .get('/dashboards/user:in-place')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // + Add tile button is in the section header, gated to edit mode by CSS.
+    expect(res.text).toContain('class="btn btn--ghost btn--sm add-tile-btn"');
+    expect(res.text).toContain('data-dashboard-id="user:in-place"');
+    expect(res.text).toContain('data-section-idx="0"');
+    // Empty section renders so the picker has an anchor — was previously skipped.
+    expect(res.text).toContain('class="pulse-container pulse-container--empty"');
+    // Available-agents JSON is embedded and includes the signal-bearing "hello".
+    expect(res.text).toContain('id="dashboard-available-agents"');
+    const m = res.text.match(/<script type="application\/json" id="dashboard-available-agents">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const agents = JSON.parse(m![1]);
+    expect(Array.isArray(agents)).toBe(true);
+    expect(agents.find((a: { id: string }) => a.id === 'hello')).toBeDefined();
+    expect(agents[0]).toMatchObject({ id: expect.any(String), name: expect.any(String) });
+    expect(agents[0]).toHaveProperty('lastFiredAt');
+  });
+
   it('GET /dashboards/unknown 404s', async () => {
     const app = await makeApp();
     const res = await request(app)

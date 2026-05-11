@@ -108,6 +108,12 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles', (req: Request, 
       arr[idx] = { ...arr[idx], agentIds: [...arr[idx].agentIds, agentId] };
     });
     ctx.dashboardsStore!.updateLayout(id, { sections });
+    // returnTo=live = in-place add-tile modal on /dashboards/:id; default
+    // is the editor at /dashboards/:id/edit.
+    if (pickString(req.body, 'returnTo') === 'live') {
+      res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=${encodeURIComponent(`Added "${agentId}".`)}`);
+      return;
+    }
     redirectOk(res, id, `Added "${agentId}".`);
   });
 });

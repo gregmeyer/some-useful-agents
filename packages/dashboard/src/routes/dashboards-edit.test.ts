@@ -176,6 +176,17 @@ describe('dashboards editor', () => {
     expect(dashboardsStore.getDashboard(id)?.layout.sections[0].agentIds).toEqual(['hello', 'world']);
   });
 
+  it('POST /sections/:idx/tiles with returnTo=live redirects to the live view', async () => {
+    const app = await makeApp();
+    const { id } = seed();
+    const res = await request(app).post(`/dashboards/${id}/sections/0/tiles`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ agentId: 'world', returnTo: 'live' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(new RegExp(`^/dashboards/${encodeURIComponent(id)}\\?ok=`));
+    expect(res.headers.location).not.toContain('/edit');
+  });
+
   it('POST /sections/:idx/tiles/:tileIdx/delete removes a tile', async () => {
     const app = await makeApp();
     const { id } = seed();

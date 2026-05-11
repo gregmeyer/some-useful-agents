@@ -26,6 +26,22 @@ export interface DashboardSectionRender {
   tiles: PulseTile[];
   /** Agent ids referenced by the section that aren't installed (rendered as muted placeholders). */
   missingAgentIds: string[];
+  /** Raw agentIds in the section — used to filter the add-tile picker. */
+  agentIds: string[];
+}
+
+/**
+ * One row of the in-place "+ Add tile" picker. Surfaced via a JSON
+ * <script> tag so the modal can render without a server round-trip.
+ */
+export interface AvailableAgent {
+  id: string;
+  name: string;
+  icon: string | null;
+  template: string | null;
+  description: string | null;
+  /** ISO timestamp of the most recent run, or null if never fired. */
+  lastFiredAt: string | null;
 }
 
 export interface RenderDashboardPageInput {
@@ -33,6 +49,8 @@ export interface RenderDashboardPageInput {
   sections: DashboardSectionRender[];
   /** All installed dashboards, used to populate the dropdown. */
   installedDashboards: Dashboard[];
+  /** Pool of signal-bearing agents for the in-place add-tile modal. */
+  availableAgents: AvailableAgent[];
   flash?: { kind: 'ok' | 'error' | 'info'; message: string };
 }
 
@@ -77,6 +95,9 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
           systemTileIds: [],
         })}</script>`)}
       `}
+    ${unsafeHtml(`<script type="application/json" id="dashboard-available-agents">${
+      JSON.stringify(input.availableAgents).replace(/</g, '\\u003c')
+    }</script>`)}
   `;
 
   return render(layout({
@@ -92,10 +113,19 @@ function renderSection(
   sectionIdx: number,
 ): SafeHtml {
   const isEmpty = s.tiles.length === 0 && s.missingAgentIds.length === 0;
-  if (isEmpty) return html``;
   return html`
-    <section class="pulse-container" data-container-id="section-${String(sectionIdx)}" style="margin-bottom: var(--space-5);">
-      <h2 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold);">${s.title}</h2>
+    <section class="pulse-container ${isEmpty ? 'pulse-container--empty' : ''}" data-container-id="section-${String(sectionIdx)}" style="margin-bottom: var(--space-5);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin: 0 0 var(--space-3) 0;">
+        <h2 style="margin: 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold);">${s.title}</h2>
+        <button type="button" class="btn btn--ghost btn--sm add-tile-btn"
+          data-dashboard-id="${dashboardId}"
+          data-section-idx="${String(sectionIdx)}"
+          data-section-agent-ids="${s.agentIds.join(',')}"
+          title="Add a tile to this section">+ Add tile</button>
+      </div>
+      ${s.tiles.length === 0 && s.missingAgentIds.length === 0
+        ? html`<p class="dim add-tile-empty-hint" style="padding: var(--space-3); font-size: var(--font-size-sm); margin: 0;">No tiles yet. Click <strong>+ Add tile</strong> to fill this section.</p>`
+        : html``}
       <div class="pulse-grid" data-container-id="section-${String(sectionIdx)}" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3);">
         ${s.tiles.map((t, tileIdx) =>
           renderTile(t, (tile, content) => tileWrap(tile, content, {
