@@ -123,21 +123,31 @@ export const ADD_TILE_MODAL_JS = `
           '<input type="hidden" name="returnTo" value="live">' +
           '<input type="hidden" name="agentId" id="add-tile-agent-id" value="">' +
         '</form>' +
+        '<div class="add-tile-section-label">Create new</div>' +
+        '<div class="add-tile-grid add-tile-grid--create">' +
+          '<a class="add-tile-card add-tile-card--create" href="/agents/new">' +
+            '<div class="add-tile-card__head">' +
+              '<span class="add-tile-card__icon">\\u002B</span>' +
+              '<span class="add-tile-card__name">Blank agent</span>' +
+            '</div>' +
+            '<div class="add-tile-card__desc">Start from an empty YAML and wire it up by hand.</div>' +
+          '</a>' +
+          '<button type="button" class="add-tile-card add-tile-card--create" id="add-tile-build-from-goal">' +
+            '<div class="add-tile-card__head">' +
+              '<span class="add-tile-card__icon">\\u2728</span>' +
+              '<span class="add-tile-card__name">Build from goal</span>' +
+            '</div>' +
+            '<div class="add-tile-card__desc">Describe what you want and let Claude draft the agent.</div>' +
+          '</button>' +
+        '</div>' +
         '<input type="search" class="input add-tile-search" id="add-tile-search" placeholder="Search agents\\u2026" autocomplete="off">' +
         (suggested.length > 0
-          ? '<div class="add-tile-section-label">Suggested</div>' +
+          ? '<div class="add-tile-section-label" id="add-tile-suggested-label">Suggested</div>' +
             '<div class="add-tile-grid" id="add-tile-suggested">' + suggested.map(cardHtml).join('') + '</div>'
           : '') +
         '<div class="add-tile-section-label">' + (suggested.length > 0 ? 'All agents' : 'Available agents') + ' (' + String(sorted.length) + ')</div>' +
         '<div class="add-tile-grid" id="add-tile-all">' + sorted.map(cardHtml).join('') + '</div>' +
         '<p class="add-tile-empty" id="add-tile-no-results" style="display: none; padding: var(--space-4); text-align: center;" class="dim">No agents match.</p>' +
-        '<div class="add-tile-modal__footer" style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-top: var(--space-4); margin-top: var(--space-3); border-top: 1px solid var(--color-border);">' +
-          '<span class="dim" style="font-size: var(--font-size-xs);">Don\\u2019t see what you need?</span>' +
-          '<div style="display: flex; gap: var(--space-2);">' +
-            '<a class="btn btn--ghost btn--sm" href="/agents/new">+ Blank agent</a>' +
-            '<button type="button" class="btn btn--ghost btn--sm" id="add-tile-build-from-goal">Build from goal</button>' +
-          '</div>' +
-        '</div>' +
       '</div>';
 
       modal.querySelector('.add-tile-modal__close').addEventListener('click', closeModal);
@@ -153,7 +163,9 @@ export const ADD_TILE_MODAL_JS = `
 
       var form = document.getElementById('add-tile-form');
       var hiddenAgent = document.getElementById('add-tile-agent-id');
-      var cards = modal.querySelectorAll('.add-tile-card');
+      // Only agent cards (with data-agent-id) submit the form; the
+      // "Create new" tiles have their own handlers above and are skipped.
+      var cards = modal.querySelectorAll('.add-tile-card[data-agent-id]');
       for (var c = 0; c < cards.length; c++) {
         cards[c].addEventListener('click', function () {
           hiddenAgent.value = this.getAttribute('data-agent-id') || '';
@@ -168,8 +180,8 @@ export const ADD_TILE_MODAL_JS = `
       search.addEventListener('input', function () {
         var q = this.value.toLowerCase().trim();
         if (suggestedEl) suggestedEl.style.display = q ? 'none' : '';
-        var labels = modal.querySelectorAll('.add-tile-section-label');
-        if (labels[0] && suggestedEl) labels[0].style.display = q ? 'none' : '';
+        var suggestedLabel = document.getElementById('add-tile-suggested-label');
+        if (suggestedLabel) suggestedLabel.style.display = q ? 'none' : '';
         var visible = 0;
         var allCards = allEl.querySelectorAll('.add-tile-card');
         for (var i = 0; i < allCards.length; i++) {
