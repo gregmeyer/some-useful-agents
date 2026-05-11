@@ -1894,3 +1894,26 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .add-tile-card__age {
   font-family: var(--font-mono);
 }
+
+/* "Create new" tiles pinned at the top of the modal. Anchor tag for the
+   blank-agent link, button for build-from-goal — both look identical. */
+.add-tile-grid--create {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  margin-bottom: var(--space-3);
+}
+.add-tile-card--create {
+  border-style: dashed;
+  border-color: var(--color-border-strong);
+  background: var(--color-bg);
+  text-decoration: none;
+  color: inherit;
+}
+.add-tile-card--create:hover {
+  border-style: solid;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+.add-tile-card--create .add-tile-card__icon {
+  font-size: 1.25rem;
+}
