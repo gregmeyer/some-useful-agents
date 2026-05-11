@@ -19,6 +19,7 @@ import {
   renderDashboardsDropdown,
   type DashboardOption,
 } from './dashboards-dropdown.js';
+import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
 export interface DashboardSectionRender {
   title: string;
@@ -103,6 +104,8 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
     ${unsafeHtml(`<script type="application/json" id="dashboard-available-agents">${
       JSON.stringify(input.availableAgents).replace(/</g, '\\u003c')
     }</script>`)}
+    <span style="display: none;">${buildFromGoalButton()}</span>
+    ${buildFromGoalModal()}
   `;
 
   return render(layout({
