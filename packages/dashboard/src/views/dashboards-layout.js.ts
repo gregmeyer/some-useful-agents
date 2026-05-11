@@ -23,53 +23,8 @@ export const DASHBOARDS_LAYOUT_JS = widgetLayoutJS({
   sizesKey: 'sua-dashboard-sizes',
   collapsedKey: 'sua-dashboard-collapsed',
   runtimeKeySuffixAttr: 'data-dashboard-id',
-}) + `
-  // ── Dashboard tile collapse/expand ──────────────────────────────────
-  // Mirrors the Pulse collapse handler. Lives here (not in pulse-layout)
-  // because the storage key needs the runtime dashboard-id suffix.
-  (function () {
-    var host = document.getElementById('dashboard-containers');
-    if (!host) return;
-    var dashId = host.getAttribute('data-dashboard-id') || '';
-    var STORAGE_KEY = 'sua-dashboard-collapsed' + (dashId ? '-' + dashId : '');
+});
+// Collapse/expand handler now lives in widget-layout.js.ts so each
+// surface scopes its persistence properly; removed the duplicate here
+// to avoid double-toggling.
 
-    function getCollapsed() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
-    }
-    function setCollapsed(map) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(map)); } catch {}
-    }
-
-    var collapsed = getCollapsed();
-    var tiles = host.querySelectorAll('.pulse-tile');
-    for (var i = 0; i < tiles.length; i++) {
-      var btn = tiles[i].querySelector('.pulse-tile__collapse');
-      if (btn) {
-        var id = btn.getAttribute('data-tile-id');
-        if (id && collapsed[id]) tiles[i].classList.add('pulse-tile--collapsed');
-      }
-    }
-
-    document.addEventListener('click', function (e) {
-      var target = e.target;
-      var tileId = null;
-      if (target.classList && target.classList.contains('pulse-tile__collapse')) {
-        tileId = target.getAttribute('data-tile-id');
-      } else if (target.closest && target.closest('[data-collapse-trigger]')) {
-        tileId = target.closest('[data-collapse-trigger]').getAttribute('data-tile-id');
-      }
-      if (!tileId) return;
-      var tile = target.closest('.pulse-tile');
-      if (!tile || !host.contains(tile)) return; // only act on dashboards-page tiles
-
-      tile.classList.toggle('pulse-tile--collapsed');
-      var map = getCollapsed();
-      if (tile.classList.contains('pulse-tile--collapsed')) {
-        map[tileId] = true;
-      } else {
-        delete map[tileId];
-      }
-      setCollapsed(map);
-    });
-  })();
-`;

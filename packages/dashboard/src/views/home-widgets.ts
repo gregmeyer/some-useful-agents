@@ -359,16 +359,32 @@ export function buildHomeWidgets(data: HomeWidgetData): SystemWidget[] {
  * Matches the Pulse tile chrome so the shared layout JS can manage it.
  */
 export function renderHomeWidget(widget: SystemWidget): SafeHtml {
+  // Mirrors the chrome on pulse tiles (collapse + palette buttons + resize
+  // handle) so users can recolor + collapse system widgets in edit mode.
+  // The configure (⚙) and × delete buttons are intentionally omitted:
+  // - configure: system widgets are hardcoded renderers, not template-driven
+  //   — the template picker / slot mapping in the configure modal don't apply.
+  // - delete: system widgets are persistent; removing one would just leave a
+  //   gap on every refresh.
+  // Palette + collapse parity covers the "I want to customise these tiles"
+  // ask without dragging template-picker complexity onto fixed renderers.
+  const id = escHtml(widget.id);
   return unsafeHtml(
-    `<div class="pulse-tile" data-agent-id="${escHtml(widget.id)}">` +
+    `<div class="pulse-tile" data-agent-id="${id}">` +
     `<div class="pulse-tile__header">` +
+    `<button type="button" class="pulse-tile__collapse" data-tile-id="${id}" title="Collapse/expand">▼</button>` +
+    `<div style="display: flex; align-items: center; gap: var(--space-2); flex: 1; cursor: pointer;" data-tile-id="${id}" data-collapse-trigger>` +
     `<span class="pulse-tile__icon">${widget.icon}</span>` +
     `<span class="pulse-tile__title">${escHtml(widget.title)}</span>` +
+    `</div>` +
+    `<div style="display: flex; gap: var(--space-1); align-items: center;">` +
+    `<button type="button" class="pulse-tile__palette-btn" data-tile-id="${id}" title="Change palette">●</button>` +
+    `</div>` +
     `</div>` +
     `<div class="pulse-tile__body" style="padding: var(--space-3);">` +
     widget.html.toString() +
     `</div>` +
-    `<div class="pulse-tile__resize-handle" data-agent-id="${escHtml(widget.id)}"></div>` +
+    `<div class="pulse-tile__resize-handle" data-agent-id="${id}"></div>` +
     `</div>`
   );
 }
