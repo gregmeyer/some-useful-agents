@@ -1749,16 +1749,9 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 
 /* ── In-place "Add tile" modal for /dashboards/:id ──────────────────── */
 
-/* + Add tile button: visible only when the dashboard is in edit mode. */
-.add-tile-btn { display: none; }
-body.pulse-edit-mode .add-tile-btn { display: inline-flex; }
-
-/* Empty-section hint + the section shell itself hide outside edit mode
-   so the live view stays uncluttered for read-only viewers. */
-.add-tile-empty-hint { display: none; }
-body.pulse-edit-mode .add-tile-empty-hint { display: block; }
-.pulse-container--empty { display: none; }
-body.pulse-edit-mode .pulse-container--empty { display: block; }
+/* + Add tile button is always visible — it's non-destructive and adding
+   a tile shouldn't require entering edit mode first. Empty sections
+   render their shell + hint so users can fill them in place. */
 
 .add-tile-modal {
   position: fixed;
