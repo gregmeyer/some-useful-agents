@@ -166,12 +166,15 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
     return;
   }
 
+  // Flip pulseVisible — the master visibility switch that the pulse
+  // page filter actually reads. Toggling signal.hidden here used to
+  // appear to do nothing once an agent had pulseVisible set, because
+  // the filter prefers pulseVisible when it's not undefined.
+  // Currently-visible includes `undefined` (default) and `true`; we
+  // collapse both to false on the click.
+  const currentlyVisible = agent.pulseVisible !== false;
   try {
-    const updated = {
-      ...agent,
-      signal: { ...agent.signal, hidden: !agent.signal.hidden },
-    };
-    ctx.agentStore.upsertAgent(updated, 'dashboard', agent.signal.hidden ? 'Unhide signal tile' : 'Hide signal tile');
+    ctx.agentStore.updateAgentMeta(id, { pulseVisible: !currentlyVisible });
     res.redirect(303, '/pulse');
   } catch {
     res.redirect(303, '/pulse');
