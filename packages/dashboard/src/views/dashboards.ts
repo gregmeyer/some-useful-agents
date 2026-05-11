@@ -73,6 +73,11 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
         · ${sourceLabel}
       </span>
       <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+        <button type="button" class="btn btn--primary btn--sm add-tile-btn"
+          data-dashboard-id="${input.dashboard.id}"
+          data-section-idx="0"
+          data-section-agent-ids="${input.sections.flatMap((s) => s.agentIds).join(',')}"
+          title="Add a tile to this dashboard">+ Add tile</button>
         <button type="button" class="btn btn--ghost btn--sm" id="dashboard-edit-toggle">✎ Edit layout</button>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit sections</a>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
@@ -113,19 +118,10 @@ function renderSection(
   sectionIdx: number,
 ): SafeHtml {
   const isEmpty = s.tiles.length === 0 && s.missingAgentIds.length === 0;
+  if (isEmpty) return html``;
   return html`
-    <section class="pulse-container ${isEmpty ? 'pulse-container--empty' : ''}" data-container-id="section-${String(sectionIdx)}" style="margin-bottom: var(--space-5);">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin: 0 0 var(--space-3) 0;">
-        <h2 style="margin: 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold);">${s.title}</h2>
-        <button type="button" class="btn btn--ghost btn--sm add-tile-btn"
-          data-dashboard-id="${dashboardId}"
-          data-section-idx="${String(sectionIdx)}"
-          data-section-agent-ids="${s.agentIds.join(',')}"
-          title="Add a tile to this section">+ Add tile</button>
-      </div>
-      ${s.tiles.length === 0 && s.missingAgentIds.length === 0
-        ? html`<p class="dim add-tile-empty-hint" style="padding: var(--space-3); font-size: var(--font-size-sm); margin: 0;">No tiles yet. Click <strong>+ Add tile</strong> to fill this section.</p>`
-        : html``}
+    <section class="pulse-container" data-container-id="section-${String(sectionIdx)}" style="margin-bottom: var(--space-5);">
+      <h2 style="margin: 0 0 var(--space-3) 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold);">${s.title}</h2>
       <div class="pulse-grid" data-container-id="section-${String(sectionIdx)}" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3);">
         ${s.tiles.map((t, tileIdx) =>
           renderTile(t, (tile, content) => tileWrap(tile, content, {
