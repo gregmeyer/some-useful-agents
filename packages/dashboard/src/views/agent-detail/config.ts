@@ -1,4 +1,4 @@
-import { html, type SafeHtml } from '../html.js';
+import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import {
   renderVariablesEditor,
   renderNotifyEditor,
@@ -113,13 +113,22 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     const current = agent.schedule ?? '';
     const human = current ? cronToHuman(current) : null;
     return configCard('Schedule', html`
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-        Five-field cron expression. Empty disables. Examples: <code>0 8 * * *</code> (daily 8am), <code>*/15 * * * *</code> (every 15m), <code>0 9 * * 1-5</code> (weekdays 9am).
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">
+        Pick a preset or type a five-field cron expression. Empty disables.
       </p>
-      <form method="POST" action="/agents/${agent.id}/schedule" style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <div class="schedule-presets" style="display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-2);">
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="*/5 * * * *">Every 5m</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="*/15 * * * *">Every 15m</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 * * * *">Hourly</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 8 * * *">Daily 8am</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 9 * * 1-5">Weekdays 9am</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 9 * * 1">Mon 9am</button>
+        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="">Disable</button>
+      </div>
+      <form method="POST" action="/agents/${agent.id}/schedule" style="display: flex; flex-direction: column; gap: var(--space-2);" data-schedule-form>
         <div style="display: flex; gap: var(--space-2); align-items: center;">
           <input type="text" name="schedule" value="${current}" placeholder="0 8 * * *"
-                 class="form-field mono"
+                 class="form-field mono schedule-input"
                  style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);" />
           <button type="submit" class="btn btn--sm">Save</button>
         </div>
@@ -130,6 +139,28 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
           ? html`<div class="dim" style="font-size: var(--font-size-xs); color: var(--color-warn);">allowHighFrequency: true — sub-minute schedules permitted.</div>`
           : html``}
       </form>
+      ${unsafeHtml(`<script>
+        (function () {
+          var form = document.querySelector('[data-schedule-form]');
+          if (!form) return;
+          var input = form.querySelector('.schedule-input');
+          var chips = document.querySelectorAll('.schedule-preset');
+          function sync() {
+            for (var i = 0; i < chips.length; i++) {
+              chips[i].classList.toggle('is-active', chips[i].getAttribute('data-cron') === input.value.trim());
+            }
+          }
+          for (var i = 0; i < chips.length; i++) {
+            chips[i].addEventListener('click', function () {
+              input.value = this.getAttribute('data-cron') || '';
+              sync();
+              input.focus();
+            });
+          }
+          input.addEventListener('input', sync);
+          sync();
+        })();
+      </script>`)}
     `);
   })();
 

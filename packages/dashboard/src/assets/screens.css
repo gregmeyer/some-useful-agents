@@ -1747,6 +1747,18 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   letter-spacing: 0.05em;
 }
 
+/* ── Schedule preset chips on agent → Config → Schedule ─────────────── */
+.schedule-preset {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.schedule-preset.is-active {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
 /* ── In-place "Add tile" modal for /dashboards/:id ──────────────────── */
 
 /* + Add tile button is always visible — it's non-destructive and adding
