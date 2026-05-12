@@ -71,6 +71,26 @@ export {
   type IntegrationKind,
 } from './integrations-store.js';
 export {
+  generatePkcePair,
+  generateOauthState,
+  type PkcePair,
+} from './oauth/pkce.js';
+export {
+  createOauthStateStore,
+  type OauthFlowState,
+  type OauthStateStore,
+} from './oauth/state-store.js';
+export {
+  GMAIL_SCOPES,
+  buildGoogleAuthUrl,
+  exchangeGoogleCode,
+  refreshGoogleToken,
+  fetchGoogleUserInfo,
+  sendGmail,
+  type GoogleTokenResponse,
+  type UserInfo as GoogleUserInfo,
+} from './oauth/google.js';
+export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,
   type PlannerTelemetryStats,

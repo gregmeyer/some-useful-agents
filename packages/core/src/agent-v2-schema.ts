@@ -261,6 +261,15 @@ export const agentV2Schema = z.object({
         method: z.enum(['POST', 'PUT']).optional(),
         headers_secret: z.string().regex(SECRET_NAME_RE, 'headers_secret must be UPPERCASE_WITH_UNDERSCORES').optional(),
       }),
+      z.object({
+        type: z.literal('gmail'),
+        /** Required — Gmail handlers always go through a saved integration
+         *  (OAuth credentials don't fit cleanly inline in YAML). */
+        integration: z.string().min(1),
+        to: z.string().email(),
+        subject: z.string().min(1),
+        body: z.string().optional(),
+      }),
     ])).min(1, 'notify.handlers must list at least one handler'),
   }).superRefine((data, ctx) => {
     const declared = new Set(data.secrets ?? []);
