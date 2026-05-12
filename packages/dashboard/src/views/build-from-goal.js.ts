@@ -386,6 +386,6 @@ export const BUILD_FROM_GOAL_JS = `
           });
         });
       }
-    });
+    }
   })();
 `;
