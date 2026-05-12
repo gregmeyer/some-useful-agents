@@ -452,6 +452,85 @@ describe('integration resolution', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/kind="file" but handler is type="slack"/));
   });
 
+  it('gmail handler refreshes the token and posts to Gmail send', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:gmail-oncall', packId: null, kind: 'gmail', name: 'Oncall Gmail',
+      config: {
+        client_id_secret: 'GMAIL_CLIENT_ID',
+        client_secret_secret: 'GMAIL_CLIENT_SECRET',
+        refresh_token_secret: 'USER_GMAIL_ONCALL__REFRESH_TOKEN',
+        connected_account: 'oncall@example.com',
+      },
+      secretRefs: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'USER_GMAIL_ONCALL__REFRESH_TOKEN'],
+    });
+    const secrets = new MemorySecretsStore();
+    await secrets.set('GMAIL_CLIENT_ID', 'cid');
+    await secrets.set('GMAIL_CLIENT_SECRET', 'csec');
+    await secrets.set('USER_GMAIL_ONCALL__REFRESH_TOKEN', 'rt-xyz');
+
+    // First fetch: token refresh; second fetch: Gmail send.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'AT', expires_in: 3600, scope: 's', token_type: 'Bearer' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' });
+
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{
+        type: 'gmail',
+        integration: 'user:gmail-oncall',
+        to: 'someone@example.com',
+        subject: 'Run failed',
+      }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent(),
+      run: makeRun(),
+      integrationsStore: store,
+      secretsStore: secrets,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: silentLogger,
+    });
+    expect(result.succeeded).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [tokenUrl, tokenInit] = fetchMock.mock.calls[0];
+    expect(String(tokenUrl)).toContain('oauth2.googleapis.com/token');
+    expect(String(tokenInit.body)).toContain('refresh_token=rt-xyz');
+    const [sendUrl, sendInit] = fetchMock.mock.calls[1];
+    expect(String(sendUrl)).toContain('gmail.googleapis.com');
+    expect(sendInit.headers.Authorization).toBe('Bearer AT');
+    const sendBody = JSON.parse(sendInit.body as string);
+    expect(typeof sendBody.raw).toBe('string');
+    const decoded = Buffer.from(sendBody.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
+    expect(decoded).toContain('To: someone@example.com');
+    expect(decoded).toContain('Subject: Run failed');
+    expect(decoded).toContain('From: oncall@example.com');
+  });
+
+  it('gmail handler reports a missing-connection error when refresh_token_secret is absent', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:gmail-half', packId: null, kind: 'gmail', name: 'Half-Configured',
+      config: { client_id_secret: 'GMAIL_CLIENT_ID', client_secret_secret: 'GMAIL_CLIENT_SECRET' },
+      secretRefs: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+    });
+    const warn = vi.fn();
+    const fetchMock = vi.fn();
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'gmail', integration: 'user:gmail-half', to: 'a@b.example.com', subject: 's' }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent(), run: makeRun(),
+      integrationsStore: store,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: { warn },
+    });
+    expect(result.succeeded).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not connected/));
+  });
+
   it('pulls integration secret refs into the resolution bag even when notify.secrets omits them', async () => {
     const store = makeIntegrationsStore();
     store.upsertIntegration({

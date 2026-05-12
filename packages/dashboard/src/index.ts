@@ -9,6 +9,7 @@ import {
   PacksStore,
   DashboardsStore,
   IntegrationsStore,
+  createOauthStateStore,
   PlannerTelemetryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
@@ -44,6 +45,7 @@ import { nodesRouter } from './routes/nodes.js';
 import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
 import { settingsRouter } from './routes/settings.js';
+import { oauthRouter } from './routes/oauth.js';
 import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
@@ -235,6 +237,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(widgetRunRouter);
   app.use(settingsMcpRouter);
   app.use(settingsRouter);
+  app.use(oauthRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
   app.use(toolsRouter);
@@ -318,6 +321,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: settings/integrations surface stays absent.
   }
 
+  // OAuth flow state — in-memory, single store per dashboard process.
+  // Survives a Connect-then-callback round-trip; cleared on daemon restart.
+  const oauthStateStore = createOauthStateStore();
+
   // Planner telemetry store. Records one row per planner run; feeds /metrics/planner.
   let plannerTelemetryStore: PlannerTelemetryStore | undefined;
   try {
@@ -346,6 +353,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     packsStore,
     dashboardsStore,
     integrationsStore,
+    oauthStateStore,
     plannerTelemetryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),

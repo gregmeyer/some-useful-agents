@@ -36,6 +36,7 @@ import type { VariablesStore } from './variables-store.js';
 import type { IntegrationsStore, Integration } from './integrations-store.js';
 import { assertSafeUrl } from './builtin-tools.js';
 import { resolveVarsTemplate } from './node-templates.js';
+import { refreshGoogleToken, sendGmail } from './oauth/google.js';
 
 export type NotifyTrigger = 'failure' | 'success' | 'always';
 
@@ -81,10 +82,26 @@ export interface WebhookHandlerConfig {
   headers_secret?: string;
 }
 
+/**
+ * Gmail notify handler. Always uses a connected `gmail` integration —
+ * OAuth credentials don't fit cleanly inline in YAML. The handler
+ * carries the per-message fields (to / subject / body); the integration
+ * provides the connected account + the refresh-token secret name.
+ */
+export interface GmailHandlerConfig {
+  type: 'gmail';
+  /** Required — id of a connected `gmail` integration. */
+  integration: string;
+  to: string;
+  subject: string;
+  body?: string;
+}
+
 export type NotifyHandlerConfig =
   | SlackHandlerConfig
   | FileHandlerConfig
-  | WebhookHandlerConfig;
+  | WebhookHandlerConfig
+  | GmailHandlerConfig;
 
 export interface NotifyConfig {
   on: NotifyTrigger[];
@@ -214,6 +231,12 @@ function mergeIntegrationIntoHandler(
   row: Integration,
 ): NotifyHandlerConfig {
   const c = row.config;
+  // Gmail keeps the `integration` ref on the handler — the runner uses
+  // it to look up the integration row again at send time (refresh
+  // token secret name lives on the row, not on the handler).
+  if (handler.type === 'gmail') {
+    return handler;
+  }
   if (handler.type === 'slack') {
     return {
       type: 'slack',
@@ -263,6 +286,8 @@ async function runHandler(handler: NotifyHandlerConfig, ctx: HandlerContext): Pr
       return fileHandler(handler, ctx);
     case 'webhook':
       return webhookHandler(handler, ctx);
+    case 'gmail':
+      return gmailHandler(handler, ctx);
     default: {
       const exhaustive: never = handler;
       throw new Error(`Unknown notify handler type: ${JSON.stringify(exhaustive)}`);
@@ -368,6 +393,69 @@ async function fileHandler(handler: FileHandlerConfig, ctx: HandlerContext): Pro
 }
 
 // ── Webhook ────────────────────────────────────────────────────────────
+
+// ── Gmail ──────────────────────────────────────────────────────────────
+
+async function gmailHandler(handler: GmailHandlerConfig, ctx: HandlerContext): Promise<void> {
+  if (!ctx.integrationsStore) {
+    throw new Error('gmail handler needs an integrationsStore (none provided).');
+  }
+  const row = ctx.integrationsStore.getIntegration(handler.integration);
+  if (!row) {
+    throw new Error(`gmail integration "${handler.integration}" not found.`);
+  }
+  if (row.kind !== 'gmail') {
+    throw new Error(`integration "${handler.integration}" is kind="${row.kind}" but handler is gmail.`);
+  }
+  const clientIdSecret = (row.config.client_id_secret as string | undefined) ?? 'GMAIL_CLIENT_ID';
+  const clientSecretSecret = (row.config.client_secret_secret as string | undefined) ?? 'GMAIL_CLIENT_SECRET';
+  const refreshTokenSecret = row.config.refresh_token_secret as string | undefined;
+  if (!refreshTokenSecret) {
+    throw new Error(`gmail integration "${handler.integration}" is not connected — visit Settings → Integrations and click Connect.`);
+  }
+  const clientId = ctx.secrets[clientIdSecret];
+  const clientSecret = ctx.secrets[clientSecretSecret];
+  const refreshToken = ctx.secrets[refreshTokenSecret];
+  if (!clientId || !clientSecret || !refreshToken) {
+    const missing = [
+      !clientId && clientIdSecret,
+      !clientSecret && clientSecretSecret,
+      !refreshToken && refreshTokenSecret,
+    ].filter(Boolean).join(', ');
+    throw new Error(`gmail integration missing secrets in store: ${missing}`);
+  }
+
+  const fetchFn = ctx.fetchImpl ?? fetch;
+  const tokens = await refreshGoogleToken({
+    clientId,
+    clientSecret,
+    refreshToken,
+    fetchImpl: fetchFn,
+  });
+  const to = resolveVarsTemplate(handler.to, ctx.vars);
+  const subject = resolveVarsTemplate(handler.subject, ctx.vars);
+  const body = handler.body ? resolveVarsTemplate(handler.body, ctx.vars) : defaultGmailBody(ctx.agent, ctx.run);
+  await sendGmail({
+    accessToken: tokens.access_token,
+    to,
+    subject,
+    body,
+    from: typeof row.config.connected_account === 'string' ? row.config.connected_account as string : undefined,
+    fetchImpl: fetchFn,
+  });
+}
+
+function defaultGmailBody(agent: Agent, run: Run): string {
+  const lines = [
+    `Agent: ${agent.id} (${agent.name})`,
+    `Run: ${run.id}`,
+    `Status: ${run.status}`,
+    run.startedAt ? `Started: ${run.startedAt}` : '',
+    run.completedAt ? `Completed: ${run.completedAt}` : '',
+    run.error ? `\nError:\n${run.error.slice(0, 2000)}` : '',
+  ].filter(Boolean);
+  return lines.join('\n');
+}
 
 async function webhookHandler(handler: WebhookHandlerConfig, ctx: HandlerContext): Promise<void> {
   if (!handler.url) {

@@ -382,6 +382,20 @@ settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) 
       secretRefs = [];
       break;
     }
+    case 'gmail': {
+      const clientIdSecret = typeof body.client_id_secret === 'string' ? body.client_id_secret.trim() : '';
+      const clientSecretSecret = typeof body.client_secret_secret === 'string' ? body.client_secret_secret.trim() : '';
+      if (!INTEGRATION_SECRET_NAME_RE.test(clientIdSecret)) return fail('client_id secret name must be UPPERCASE_WITH_UNDERSCORES.');
+      if (!INTEGRATION_SECRET_NAME_RE.test(clientSecretSecret)) return fail('client_secret secret name must be UPPERCASE_WITH_UNDERSCORES.');
+      // Connection state lands on the row only after the OAuth callback
+      // succeeds; for now we just record the credential secret names.
+      config = {
+        client_id_secret: clientIdSecret,
+        client_secret_secret: clientSecretSecret,
+      };
+      secretRefs = [clientIdSecret, clientSecretSecret];
+      break;
+    }
     default:
       return fail(`Unknown kind "${kind}".`);
   }

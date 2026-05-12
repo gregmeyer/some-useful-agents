@@ -36,6 +36,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${renderSlackForm(args)}
     ${renderWebhookForm(args)}
     ${renderFileForm(args)}
+    ${renderGmailForm(args)}
   `;
 }
 
@@ -97,6 +98,18 @@ function describeConfig(i: Integration): SafeHtml {
       const path = typeof i.config.path === 'string' ? i.config.path : '';
       const append = i.config.append !== false;
       return unsafeHtml(`${esc(path)} <span class="dim">(${append ? 'append' : 'overwrite'})</span>`);
+    }
+    case 'gmail': {
+      const connected = typeof i.config.connected_account === 'string' && i.config.connected_account.length > 0;
+      const account = typeof i.config.connected_account === 'string' ? i.config.connected_account : '';
+      if (connected) {
+        const form = `<form action="/settings/integrations/${esc(i.id)}/disconnect" method="post" style="display: inline; margin-left: var(--space-2);">` +
+          `<button type="submit" class="btn btn--sm btn--ghost">Disconnect</button></form>`;
+        return unsafeHtml(`<span class="badge badge--ok">connected as ${esc(account)}</span>${form}`);
+      }
+      const form = `<form action="/settings/integrations/${esc(i.id)}/connect" method="post" style="display: inline; margin-left: var(--space-2);">` +
+        `<button type="submit" class="btn btn--sm">Connect Google</button></form>`;
+      return unsafeHtml(`<span class="badge badge--muted">not connected</span>${form}`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -175,6 +188,46 @@ function renderWebhookForm(args: SettingsIntegrationsArgs): SafeHtml {
 
         <div class="settings-form__actions">
           <button type="submit" class="btn btn--primary">Add Webhook integration</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderGmailForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'gmail' ? args.addError : undefined;
+  const v = err?.values ?? {};
+  return html`
+    <div class="card">
+      <p class="card__title">Add Gmail (OAuth)</p>
+      <p class="dim">
+        Connect a Google account via OAuth so notify handlers can send
+        email. Bring your own Google Cloud OAuth client (type "Desktop
+        app"). Register <code>http://127.0.0.1:3000/oauth/callback</code>
+        as a redirect URI. Paste the client_id + client_secret into
+        <a href="/settings/secrets">Settings → Secrets</a> first, then
+        add this integration and click <strong>Connect Google</strong>.
+      </p>
+      ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      <form action="/settings/integrations/add" method="post" class="settings-form">
+        <input type="hidden" name="kind" value="gmail">
+        ${idAndNameFields(v)}
+        <label class="settings-form__label" for="gmail-client-id-secret">client_id secret name</label>
+        <input id="gmail-client-id-secret" name="client_id_secret" type="text" required
+          pattern="[A-Z_][A-Z0-9_]*"
+          placeholder="GMAIL_CLIENT_ID"
+          value="${v.client_id_secret ?? 'GMAIL_CLIENT_ID'}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <label class="settings-form__label" for="gmail-client-secret-secret">client_secret secret name</label>
+        <input id="gmail-client-secret-secret" name="client_secret_secret" type="text" required
+          pattern="[A-Z_][A-Z0-9_]*"
+          placeholder="GMAIL_CLIENT_SECRET"
+          value="${v.client_secret_secret ?? 'GMAIL_CLIENT_SECRET'}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <div class="settings-form__actions">
+          <button type="submit" class="btn btn--primary">Add Gmail integration</button>
         </div>
       </form>
     </div>
