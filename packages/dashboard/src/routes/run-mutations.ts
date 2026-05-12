@@ -159,6 +159,7 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
     {
       runStore: ctx.runStore,
       secretsStore: ctx.secretsStore,
+      integrationsStore: ctx.integrationsStore,
       agentStore: ctx.agentStore,
       allowUntrustedShell: ctx.allowUntrustedShell,
       dashboardBaseUrl: ctx.dashboardBaseUrl,
@@ -276,6 +277,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
       runStore: ctx.runStore,
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
+      integrationsStore: ctx.integrationsStore,
       toolStore: ctx.toolStore,
       agentStore: ctx.agentStore,
       allowUntrustedShell: ctx.allowUntrustedShell,

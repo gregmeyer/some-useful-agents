@@ -33,31 +33,48 @@ import type { Agent } from './agent-v2-types.js';
 import type { Run } from './types.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { VariablesStore } from './variables-store.js';
+import type { IntegrationsStore, Integration } from './integrations-store.js';
 import { assertSafeUrl } from './builtin-tools.js';
 import { resolveVarsTemplate } from './node-templates.js';
 
 export type NotifyTrigger = 'failure' | 'success' | 'always';
 
+/**
+ * Each handler may set `integration: <id>` to reference a named
+ * Slack/file/webhook entry from Settings → Integrations. When set, the
+ * dispatcher resolves the integration row at fire time and merges its
+ * config into the handler — inline fields on the handler still override
+ * the integration's values, so users can customise per-agent without
+ * editing the shared integration. The kind-specific required fields
+ * (webhook_secret, path, url) become optional when `integration` is
+ * present; if both are absent the schema rejects the YAML.
+ */
 export interface SlackHandlerConfig {
   type: 'slack';
+  /** Reference to a saved slack integration (resolved at fire time). */
+  integration?: string;
   /** Name of the secret holding the Slack incoming webhook URL. */
-  webhook_secret: string;
+  webhook_secret?: string;
   channel?: string;
   mention?: string;
 }
 
 export interface FileHandlerConfig {
   type: 'file';
+  /** Reference to a saved file integration. */
+  integration?: string;
   /** Path relative to the working directory; absolute paths are allowed
    *  only if they resolve inside cwd. Path traversal is rejected. */
-  path: string;
+  path?: string;
   /** When true (default), append. When false, overwrite each notify. */
   append?: boolean;
 }
 
 export interface WebhookHandlerConfig {
   type: 'webhook';
-  url: string;
+  /** Reference to a saved webhook integration. */
+  integration?: string;
+  url?: string;
   method?: 'POST' | 'PUT';
   /** Name of the secret holding a Bearer token; injected as
    *  `Authorization: Bearer <secret>` if present. */
@@ -91,6 +108,8 @@ export interface DispatchNotifyOptions {
   run: Run;
   secretsStore?: SecretsStore;
   variablesStore?: VariablesStore;
+  /** Resolves named integrations referenced by `handlers[i].integration`. */
+  integrationsStore?: IntegrationsStore;
   /** Project-cwd for the file handler's path-traversal guard. Defaults to process.cwd(). */
   cwd?: string;
   /** Optional URL prefix for dashboard run links inside Slack messages. */
@@ -117,14 +136,45 @@ export async function dispatchNotify(
     return { fired: 0, succeeded: 0 };
   }
 
-  // Resolve declared secrets up-front. If the store is locked / a secret
-  // is missing, we still fire handlers that don't need it; broken handlers
-  // log and continue. This matches the "never break the run" contract.
+  // Resolve handlers that reference a saved integration. Pulls config +
+  // secret refs from the integration row; inline fields on the handler
+  // override (so users can customise per-agent without editing the
+  // shared integration). A missing or wrong-kind integration logs and
+  // skips the handler — the contract says we never break the run.
+  const resolvedHandlers: NotifyHandlerConfig[] = [];
+  const integrationSecretNames = new Set<string>();
+  for (const handler of notify.handlers) {
+    if (!handler.integration) {
+      resolvedHandlers.push(handler);
+      continue;
+    }
+    if (!opts.integrationsStore) {
+      logger.warn(`handler references integration "${handler.integration}" but no integrations store is wired; skipping.`);
+      continue;
+    }
+    const row = opts.integrationsStore.getIntegration(handler.integration);
+    if (!row) {
+      logger.warn(`integration "${handler.integration}" not found; skipping handler.`);
+      continue;
+    }
+    if (row.kind !== handler.type) {
+      logger.warn(`integration "${handler.integration}" is kind="${row.kind}" but handler is type="${handler.type}"; skipping.`);
+      continue;
+    }
+    resolvedHandlers.push(mergeIntegrationIntoHandler(handler, row));
+    for (const s of row.secretRefs) integrationSecretNames.add(s);
+  }
+
+  // Resolve declared secrets up-front. Union: agent-declared
+  // `notify.secrets` + every secret referenced by a resolved integration.
+  // If the store is locked / a secret is missing, we still fire handlers
+  // that don't need it; broken handlers log and continue.
   const secrets: Record<string, string> = {};
-  if (notify.secrets && notify.secrets.length > 0 && opts.secretsStore) {
+  const needed = new Set<string>([...(notify.secrets ?? []), ...integrationSecretNames]);
+  if (needed.size > 0 && opts.secretsStore) {
     try {
       const all = await opts.secretsStore.getAll();
-      for (const name of notify.secrets) {
+      for (const name of needed) {
         if (name in all) secrets[name] = all[name];
       }
     } catch (err) {
@@ -135,7 +185,7 @@ export async function dispatchNotify(
   const vars = opts.variablesStore?.getAll() ?? {};
 
   const results = await Promise.all(
-    notify.handlers.map(async (handler) => {
+    resolvedHandlers.map(async (handler) => {
       try {
         await runHandler(handler, { ...opts, secrets, vars, logger });
         return true;
@@ -150,6 +200,46 @@ export async function dispatchNotify(
     fired: results.length,
     succeeded: results.filter(Boolean).length,
   };
+}
+
+/**
+ * Merge an integration row into a handler that referenced it. Inline
+ * handler fields win — the integration provides defaults the user can
+ * override. Returns a handler that no longer carries `integration` (it's
+ * already resolved) so the downstream runHandler switch sees a normal
+ * inline shape.
+ */
+function mergeIntegrationIntoHandler(
+  handler: NotifyHandlerConfig,
+  row: Integration,
+): NotifyHandlerConfig {
+  const c = row.config;
+  if (handler.type === 'slack') {
+    return {
+      type: 'slack',
+      webhook_secret: handler.webhook_secret ?? (typeof c.webhook_secret === 'string' ? c.webhook_secret : ''),
+      ...((handler.channel ?? (typeof c.channel === 'string' ? c.channel : '')) ? { channel: handler.channel ?? (c.channel as string) } : {}),
+      ...((handler.mention ?? (typeof c.mention === 'string' ? c.mention : '')) ? { mention: handler.mention ?? (c.mention as string) } : {}),
+    };
+  }
+  if (handler.type === 'webhook') {
+    return {
+      type: 'webhook',
+      url: handler.url ?? (typeof c.url === 'string' ? c.url : ''),
+      method: handler.method ?? (c.method === 'PUT' ? 'PUT' : c.method === 'POST' ? 'POST' : undefined),
+      ...((handler.headers_secret ?? (typeof c.headers_secret === 'string' ? c.headers_secret : '')) ? {
+        headers_secret: handler.headers_secret ?? (c.headers_secret as string),
+      } : {}),
+    };
+  }
+  if (handler.type === 'file') {
+    return {
+      type: 'file',
+      path: handler.path ?? (typeof c.path === 'string' ? c.path : ''),
+      append: handler.append ?? (c.append !== false),
+    };
+  }
+  return handler;
 }
 
 function shouldFire(triggers: NotifyTrigger[], status: Run['status']): boolean {
@@ -223,6 +313,13 @@ function stripMarkdown(text: string): string {
 }
 
 async function slackHandler(handler: SlackHandlerConfig, ctx: HandlerContext): Promise<void> {
+  // Post-resolution invariant: integration refs have been merged in by
+  // dispatchNotify, so webhook_secret is always set here. If it isn't,
+  // the YAML was wrong (schema should have caught it) or the integration
+  // row was missing fields.
+  if (!handler.webhook_secret) {
+    throw new Error('slack handler missing webhook_secret (integration may be misconfigured).');
+  }
   const url = ctx.secrets[handler.webhook_secret];
   if (!url) {
     throw new Error(`secret "${handler.webhook_secret}" not declared in notify.secrets or not present in store`);
@@ -252,6 +349,9 @@ async function slackHandler(handler: SlackHandlerConfig, ctx: HandlerContext): P
 // ── File ───────────────────────────────────────────────────────────────
 
 async function fileHandler(handler: FileHandlerConfig, ctx: HandlerContext): Promise<void> {
+  if (!handler.path) {
+    throw new Error('file handler missing path (integration may be misconfigured).');
+  }
   const cwd = resolve(ctx.cwd ?? process.cwd());
   const rawPath = resolveVarsTemplate(handler.path, ctx.vars);
   const filePath = resolve(cwd, rawPath);
@@ -270,6 +370,9 @@ async function fileHandler(handler: FileHandlerConfig, ctx: HandlerContext): Pro
 // ── Webhook ────────────────────────────────────────────────────────────
 
 async function webhookHandler(handler: WebhookHandlerConfig, ctx: HandlerContext): Promise<void> {
+  if (!handler.url) {
+    throw new Error('webhook handler missing url (integration may be misconfigured).');
+  }
   const url = resolveVarsTemplate(handler.url, ctx.vars);
   await assertSafeUrl(url);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

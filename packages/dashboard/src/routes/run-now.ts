@@ -63,6 +63,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
         runStore: ctx.runStore,
         secretsStore: ctx.secretsStore,
         variablesStore: ctx.variablesStore,
+        integrationsStore: ctx.integrationsStore,
         toolStore: ctx.toolStore,
         agentStore: ctx.agentStore,
         allowUntrustedShell: ctx.allowUntrustedShell,

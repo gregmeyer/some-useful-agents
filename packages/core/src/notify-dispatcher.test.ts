@@ -8,6 +8,7 @@ import {
   type NotifyConfig,
 } from './notify-dispatcher.js';
 import { MemorySecretsStore } from './secrets-store.js';
+import { IntegrationsStore } from './integrations-store.js';
 import type { Agent } from './agent-v2-types.js';
 import type { Run } from './types.js';
 
@@ -347,5 +348,135 @@ describe('handler isolation', () => {
     expect(result.succeeded).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('integration resolution', () => {
+  function makeIntegrationsStore() {
+    return new IntegrationsStore(join(dir, 'runs.db'));
+  }
+
+  it('resolves a slack handler by integration id and merges config', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:oncall', packId: null, kind: 'slack', name: 'Oncall',
+      config: { webhook_secret: 'SLACK_WEBHOOK', channel: '#alerts' },
+      secretRefs: ['SLACK_WEBHOOK'],
+    });
+    const secrets = new MemorySecretsStore();
+    await secrets.set('SLACK_WEBHOOK', 'https://hooks.slack.com/services/T/B/x');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'slack', integration: 'user:oncall' }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent(),
+      run: makeRun(),
+      integrationsStore: store,
+      secretsStore: secrets,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: silentLogger,
+    });
+    expect(result.fired).toBe(1);
+    expect(result.succeeded).toBe(1);
+    // Channel from the integration row made it into the Block Kit payload.
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.channel).toBe('#alerts');
+  });
+
+  it('inline handler fields override the integration', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:oncall', packId: null, kind: 'slack', name: 'Oncall',
+      config: { webhook_secret: 'SLACK_WEBHOOK', channel: '#alerts' },
+      secretRefs: ['SLACK_WEBHOOK'],
+    });
+    const secrets = new MemorySecretsStore();
+    await secrets.set('SLACK_WEBHOOK', 'https://hooks.slack.com/services/T/B/x');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'slack', integration: 'user:oncall', channel: '#war-room' }],
+    };
+    await dispatchNotify(notify, {
+      agent: makeAgent(), run: makeRun(),
+      integrationsStore: store, secretsStore: secrets,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: silentLogger,
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.channel).toBe('#war-room');
+  });
+
+  it('skips a handler whose integration is missing and logs', async () => {
+    const store = makeIntegrationsStore();
+    const warn = vi.fn();
+    const fetchMock = vi.fn();
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'slack', integration: 'user:nope' }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent(), run: makeRun(),
+      integrationsStore: store,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: { warn },
+    });
+    expect(result.fired).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not found/));
+  });
+
+  it('skips a handler whose integration kind mismatches', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:wrong', packId: null, kind: 'file', name: 'Log',
+      config: { path: 'out.log' }, secretRefs: [],
+    });
+    const warn = vi.fn();
+    const fetchMock = vi.fn();
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'slack', integration: 'user:wrong' }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent(), run: makeRun(),
+      integrationsStore: store,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: { warn },
+    });
+    expect(result.fired).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/kind="file" but handler is type="slack"/));
+  });
+
+  it('pulls integration secret refs into the resolution bag even when notify.secrets omits them', async () => {
+    const store = makeIntegrationsStore();
+    store.upsertIntegration({
+      id: 'user:hook', packId: null, kind: 'webhook', name: 'Hook',
+      config: { url: 'https://example.com/hook', method: 'POST', headers_secret: 'HOOK_TOKEN' },
+      secretRefs: ['HOOK_TOKEN'],
+    });
+    const secrets = new MemorySecretsStore();
+    await secrets.set('HOOK_TOKEN', 'shhhhh');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    // Note: notify.secrets is deliberately empty here. The dispatcher should
+    // still pull HOOK_TOKEN because the integration declared it.
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{ type: 'webhook', integration: 'user:hook' }],
+    };
+    await dispatchNotify(notify, {
+      agent: makeAgent(), run: makeRun(),
+      integrationsStore: store, secretsStore: secrets,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      logger: silentLogger,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe('Bearer shhhhh');
   });
 });

@@ -236,38 +236,66 @@ export const agentV2Schema = z.object({
     handlers: z.array(z.discriminatedUnion('type', [
       z.object({
         type: z.literal('slack'),
-        webhook_secret: z.string().regex(SECRET_NAME_RE, 'webhook_secret must be UPPERCASE_WITH_UNDERSCORES'),
+        /**
+         * Reference a named Slack integration from Settings → Integrations.
+         * When set, the handler resolves its webhook_secret + channel +
+         * mention from that integration; the inline fields below become
+         * optional overrides. When omitted, the inline form (legacy) is
+         * required.
+         */
+        integration: z.string().min(1).optional(),
+        webhook_secret: z.string().regex(SECRET_NAME_RE, 'webhook_secret must be UPPERCASE_WITH_UNDERSCORES').optional(),
         channel: z.string().optional(),
         mention: z.string().optional(),
       }),
       z.object({
         type: z.literal('file'),
-        path: z.string().min(1),
+        integration: z.string().min(1).optional(),
+        path: z.string().min(1).optional(),
         append: z.boolean().optional(),
       }),
       z.object({
         type: z.literal('webhook'),
-        url: z.string().url(),
+        integration: z.string().min(1).optional(),
+        url: z.string().url().optional(),
         method: z.enum(['POST', 'PUT']).optional(),
         headers_secret: z.string().regex(SECRET_NAME_RE, 'headers_secret must be UPPERCASE_WITH_UNDERSCORES').optional(),
       }),
     ])).min(1, 'notify.handlers must list at least one handler'),
   }).superRefine((data, ctx) => {
-    // Cross-check: every handler that names a secret must declare it in
-    // notify.secrets. Mirrors the node-level rule that secrets must be
-    // declared per consumer; keeps audits simple.
     const declared = new Set(data.secrets ?? []);
     for (let i = 0; i < data.handlers.length; i++) {
       const h = data.handlers[i];
-      const needed = h.type === 'slack' ? h.webhook_secret
-        : h.type === 'webhook' ? h.headers_secret
-        : undefined;
-      if (needed && !declared.has(needed)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['handlers', i],
-          message: `Handler references secret "${needed}" but it isn't listed in notify.secrets.`,
-        });
+      // Each handler must either reference a saved integration OR carry
+      // its required inline fields. We don't reach into the integration
+      // here — the dispatcher resolves it at fire time. This validation
+      // is purely "the YAML is internally consistent."
+      if (h.integration) {
+        // Integration ref: inline secret refs (if any) are still allowed
+        // as overrides, but the kind-specific required inline fields go
+        // optional. Nothing to validate at the schema level beyond that.
+        continue;
+      }
+      if (h.type === 'slack') {
+        if (!h.webhook_secret) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['handlers', i], message: 'slack handler needs either `integration` or `webhook_secret`.' });
+          continue;
+        }
+        if (!declared.has(h.webhook_secret)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['handlers', i], message: `Handler references secret "${h.webhook_secret}" but it isn't listed in notify.secrets.` });
+        }
+      } else if (h.type === 'webhook') {
+        if (!h.url) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['handlers', i], message: 'webhook handler needs either `integration` or `url`.' });
+          continue;
+        }
+        if (h.headers_secret && !declared.has(h.headers_secret)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['handlers', i], message: `Handler references secret "${h.headers_secret}" but it isn't listed in notify.secrets.` });
+        }
+      } else if (h.type === 'file') {
+        if (!h.path) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['handlers', i], message: 'file handler needs either `integration` or `path`.' });
+        }
       }
     }
   }).optional(),

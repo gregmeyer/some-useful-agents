@@ -11,6 +11,7 @@ import {
   RunStore,
   AgentStore,
   VariablesStore,
+  IntegrationsStore,
   EncryptedFileStore,
   cronToHuman,
   getSchedulerStatus,
@@ -245,6 +246,10 @@ scheduleCommand
       try { return new VariablesStore(join(config.dataDir, '.sua', 'variables.json')); }
       catch { return undefined; }
     })();
+    const integrationsStore = (() => {
+      try { return new IntegrationsStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
     const secretsStore = (() => {
       try { return new EncryptedFileStore(getSecretsPath(config)); }
       catch { return undefined; }
@@ -258,6 +263,7 @@ scheduleCommand
         runStore,
         secretsStore,
         variablesStore,
+        integrationsStore,
         agentStore,
         allowUntrustedShell: new Set(options.allowUntrustedShell),
         dashboardBaseUrl: getDashboardBaseUrl(config),
