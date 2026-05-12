@@ -27,6 +27,7 @@ import type { AgentStore } from './agent-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
 import type { VariablesStore } from './variables-store.js';
+import type { IntegrationsStore } from './integrations-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, type PolicyDocument, type PolicyEvaluationRequest } from './policy-store.js';
@@ -76,6 +77,12 @@ export interface DagExecutorDeps {
    * (claude-code). Precedence: --input > agent default > variable > secret.
    */
   variablesStore?: VariablesStore;
+  /**
+   * Resolves named integrations referenced by `notify.handlers[i].integration`.
+   * Optional — if absent, integration-ref handlers log + skip; inline-form
+   * handlers keep working unchanged.
+   */
+  integrationsStore?: IntegrationsStore;
   /**
    * Agent ids the operator has pre-audited for community shell execution.
    * Propagated into each node's spawn; a shell node inside a `source:
@@ -940,6 +947,7 @@ export async function executeAgentDag(
         run,
         secretsStore: deps.secretsStore,
         variablesStore: deps.variablesStore,
+        integrationsStore: deps.integrationsStore,
         dashboardBaseUrl: deps.dashboardBaseUrl,
         fetchImpl: deps.notifyFetch,
         logger: deps.notifyLogger,

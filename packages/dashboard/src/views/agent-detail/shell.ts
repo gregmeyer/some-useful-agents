@@ -20,6 +20,12 @@ export interface AgentDetailArgs {
   previousInputs?: Record<string, string>;
   /** URL-driven state for the latest-run output-widget preview's controls. */
   widgetControls?: WidgetControlState;
+  /**
+   * Available integrations (from `/settings/integrations`) surfaced in the
+   * Notify card's per-handler dropdowns. Empty when the route can't reach
+   * the integrations store — the inline form keeps working.
+   */
+  availableIntegrations?: Array<{ id: string; kind: string; name: string }>;
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

@@ -577,7 +577,17 @@ function fieldTypeSelectWithTooltip(name: string, current: string, _widgetType: 
  * would be more clicks than typing it. Save round-trips through the
  * agent-v2 schema, so any error surfaces inline as a flash.
  */
-export function renderNotifyEditor(agent: Agent): SafeHtml {
+export interface NotifyEditorOptions {
+  /**
+   * Available integrations from Settings → Integrations, grouped by kind on
+   * the client side so the per-handler dropdowns can show matching options.
+   * Pass an empty list (or omit) to render the editor without integration
+   * dropdowns — handlers fall back to the inline form.
+   */
+  integrations?: Array<{ id: string; kind: string; name: string }>;
+}
+
+export function renderNotifyEditor(agent: Agent, opts: NotifyEditorOptions = {}): SafeHtml {
   const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
   const FIELD_MONO = `${FIELD} font-family: var(--font-mono);`;
 
@@ -586,6 +596,7 @@ export function renderNotifyEditor(agent: Agent): SafeHtml {
   const initialJson = JSON.stringify(
     agent.notify ?? { on: ['failure'], secrets: [], handlers: [] },
   );
+  const integrationsJson = JSON.stringify(opts.integrations ?? []);
 
   return html`
     <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
@@ -636,8 +647,13 @@ export function renderNotifyEditor(agent: Agent): SafeHtml {
     ${unsafeHtml(`<script>
     (function () {
       var INITIAL = ${initialJson};
+      var INTEGRATIONS = ${integrationsJson};
       var FIELD = ${JSON.stringify(FIELD)};
       var FIELD_MONO = ${JSON.stringify(FIELD_MONO)};
+
+      function integrationsForKind(kind) {
+        return INTEGRATIONS.filter(function (i) { return i.kind === kind; });
+      }
 
       var form = document.getElementById('notify-form');
       var jsonOut = document.getElementById('notify-json-out');
@@ -681,10 +697,23 @@ export function renderNotifyEditor(agent: Agent): SafeHtml {
         row.setAttribute('data-handler-row', type);
         row.style.cssText = 'padding: var(--space-3);';
         var inner = '';
+        var matchingIntegrations = integrationsForKind(type);
+        var integrationPickerHtml = '';
+        if (matchingIntegrations.length > 0) {
+          var opts = '<option value="">Inline config (legacy)</option>' +
+            matchingIntegrations.map(function (i) {
+              return '<option value="' + i.id + '">' + i.name + ' (' + i.id + ')</option>';
+            }).join('');
+          integrationPickerHtml =
+            '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">' +
+              'Integration <select data-field="integration" data-integration-picker style="' + FIELD + ' margin-left: var(--space-2);">' + opts + '</select>' +
+              ' <span class="dim" style="margin-left: var(--space-2);">(<a href="/settings/integrations" target="_blank">manage</a>)</span>' +
+            '</label>';
+        }
         var header = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">' +
           '<strong style="font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.05em;">' + type + '</strong>' +
           '<button type="button" class="btn btn--ghost btn--sm" data-remove-handler style="color: var(--color-err);">Remove</button>' +
-          '</div>';
+          '</div>' + integrationPickerHtml;
         if (type === 'slack') {
           inner = header +
             '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">Webhook secret <select data-field="webhook_secret" data-secret-picker="required" style="' + FIELD + ' margin-left: var(--space-2);"></select></label>' +

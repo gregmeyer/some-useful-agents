@@ -12,6 +12,7 @@ import { hasMissedFire, nextFireTime } from './scheduler-catchup.js';
 import type { RunStore } from './run-store.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { VariablesStore } from './variables-store.js';
+import type { IntegrationsStore } from './integrations-store.js';
 import type { AgentStore } from './agent-store.js';
 import type { ToolStore } from './tool-store.js';
 import { executeAgentWithRetry } from './retry.js';
@@ -37,6 +38,7 @@ export interface V2SchedulerDeps {
   runStore: RunStore;
   secretsStore?: SecretsStore;
   variablesStore?: VariablesStore;
+  integrationsStore?: IntegrationsStore;
   agentStore?: AgentStore;
   toolStore?: ToolStore;
   allowUntrustedShell?: ReadonlySet<string>;
@@ -303,6 +305,7 @@ export class LocalScheduler {
         runStore: this.v2Deps.runStore,
         secretsStore: this.v2Deps.secretsStore,
         variablesStore: this.v2Deps.variablesStore,
+        integrationsStore: this.v2Deps.integrationsStore,
         agentStore: this.v2Deps.agentStore,
         toolStore: this.v2Deps.toolStore,
         allowUntrustedShell: this.v2Deps.allowUntrustedShell,

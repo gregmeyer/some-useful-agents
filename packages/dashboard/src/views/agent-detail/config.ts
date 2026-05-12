@@ -270,11 +270,11 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       <details class="config-empty-cta">
         <summary><span class="btn btn--sm">Set up notify</span></summary>
         <div style="margin-top: var(--space-3);">
-          ${renderNotifyEditor(agent)}
+          ${renderNotifyEditor(agent, { integrations: args.availableIntegrations })}
         </div>
       </details>
     `,
-    editor: renderNotifyEditor(agent),
+    editor: renderNotifyEditor(agent, { integrations: args.availableIntegrations }),
   });
 
   // Variables runs full-width because its editor is a 5-column table that

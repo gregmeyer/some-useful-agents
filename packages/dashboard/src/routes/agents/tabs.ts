@@ -42,7 +42,13 @@ agentTabsRouter.get('/agents/:name/config', async (req: Request, res: Response) 
   const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
   const args = await buildTabArgs(req, ctx, name);
   if (!args) { res.status(404).redirect(303, '/agents'); return; }
-  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config' }));
+  // Surface available integrations so the Notify card's per-handler
+  // dropdowns can offer them. Missing store → empty list → editor falls
+  // back to the inline form unchanged.
+  const availableIntegrations = ctx.integrationsStore
+    ? ctx.integrationsStore.listIntegrations().map((i) => ({ id: i.id, kind: i.kind as string, name: i.name }))
+    : [];
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations }));
 });
 
 agentTabsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {
