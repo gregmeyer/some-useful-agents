@@ -176,6 +176,30 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     </form>
   `);
 
+  const permImgSrc = agent.permissions?.imgSrc ?? [];
+  const permissionsCard = configCard('Permissions', html`
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      Hosts this agent's widgets can load images from. Each line widens the
+      page CSP <code>img-src</code> directive (prefixed with <code>https://</code>).
+      Wildcards like <code>*.unsplash.com</code> are allowed. Saving creates a
+      new agent version.
+    </p>
+    <form method="POST" action="/agents/${agent.id}/permissions" style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">img-src hosts (one per line)</label>
+      <textarea name="imgSrc" rows="3" placeholder="images.unsplash.com&#10;*.unsplash.com"
+        class="form-field mono"
+        style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm); resize: vertical;">${permImgSrc.join('\n')}</textarea>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="dim" style="font-size: var(--font-size-xs);">
+          ${permImgSrc.length === 0
+            ? html`No hosts declared.`
+            : html`${String(permImgSrc.length)} host${permImgSrc.length === 1 ? '' : 's'} declared.`}
+        </span>
+        <button type="submit" class="btn btn--sm">Save</button>
+      </div>
+    </form>
+  `);
+
   const llmCard = configCard('LLM defaults', html`
     <form method="POST" action="/agents/${agent.id}/llm" id="llm-form" style="display: flex; flex-direction: column; gap: var(--space-2);">
       <div style="display: flex; gap: var(--space-2); align-items: center;">
@@ -265,6 +289,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         ${scheduleCard}
         ${visibilityCard}
         ${mcpCard}
+        ${permissionsCard}
         ${secretsCard}
       </div>
       <div class="config-grid__col">

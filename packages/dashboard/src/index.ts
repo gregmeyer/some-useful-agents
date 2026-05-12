@@ -106,16 +106,40 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(express.json());
 
   // Security headers on all responses.
+  //
+  // The img-src directive starts with the dashboard's baseline hosts
+  // (the iframe sanitizer's IFRAME_ALLOWED_HOSTS allowlist — see
+  // packages/core/src/html-sanitizer.ts; mirror additions in both
+  // places) and is widened by every active agent's
+  // `permissions.imgSrc` declarations so widgets can render images
+  // from external services they explicitly opt into. Computed per
+  // request because the agent set can change at runtime; cost is one
+  // sqlite scan + a join, negligible for local-first.
+  const BASE_IMG_SRC = ["'self'", 'data:', 'https://img.youtube.com', 'https://i.vimeocdn.com'];
+  // Cache the computed img-src for 5s. Pulse pages and asset requests
+  // hit the middleware many times per page load — recomputing every
+  // time means listAgents() per request, which is wasteful even on a
+  // local sqlite. 5s is short enough that newly-installed agents
+  // light up after one polling tick without manual invalidation.
+  let cachedImgSrc = '';
+  let cachedAt = 0;
+  const computeImgSrc = (): string => {
+    if (Date.now() - cachedAt < 5000 && cachedImgSrc) return cachedImgSrc;
+    const declared = new Set<string>();
+    try {
+      for (const a of ctx.agentStore.listAgents()) {
+        for (const host of a.permissions?.imgSrc ?? []) declared.add(`https://${host}`);
+      }
+    } catch { /* agent store unavailable — fall back to baseline */ }
+    cachedImgSrc = [...BASE_IMG_SRC, ...Array.from(declared).sort()].join(' ');
+    cachedAt = Date.now();
+    return cachedImgSrc;
+  };
   app.use((_req, res, next) => {
+    const imgSrc = computeImgSrc();
     res.setHeader(
       'Content-Security-Policy',
-      // frame-src + img-src must include every host on the iframe
-      // sanitizer's IFRAME_ALLOWED_HOSTS allowlist (packages/core/src/
-      // html-sanitizer.ts). Otherwise the sanitizer renders the
-      // <iframe> but the browser silently blocks the load — and the
-      // poster image (loaded inside the iframe) never appears either.
-      // Mirror any allowlist additions in core here too.
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com https://i.vimeocdn.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'",
+      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src ${imgSrc}; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'`,
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');

@@ -300,6 +300,17 @@ export interface Agent {
    * `setup`). Defaults to 100 MB when undefined; set to 0 to disable.
    */
   stateMaxBytes?: number;
+
+  /**
+   * CSP allowlist contributions, merged into the dashboard's page-wide
+   * Content-Security-Policy on each request. Currently only `imgSrc` is
+   * honored — declared hosts (e.g. "images.unsplash.com" or "*.unsplash.com")
+   * widen the `img-src` directive so widgets can render external images.
+   * See agent-v2-schema.ts for validation rules.
+   */
+  permissions?: {
+    imgSrc?: string[];
+  };
   /**
    * The agent_versions row number. On parse from YAML this is the author's
    * hint; on read from DB it's the `current_version` pointer's target.
@@ -464,6 +475,8 @@ export interface AgentVersionDag {
   retry?: RetryPolicy;
   author?: string;
   tags?: string[];
+  /** CSP allowlist contributions (e.g. img-src hosts) — see Agent.permissions. */
+  permissions?: { imgSrc?: string[] };
 }
 
 /**

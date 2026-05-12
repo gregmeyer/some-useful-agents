@@ -199,6 +199,32 @@ describe('dashboards routes', () => {
     expect(res.text).toContain('href="/dashboards/starter%3Amain"');
   });
 
+  it('CSP img-src widens to include each active agent\'s permissions.imgSrc hosts', async () => {
+    const app = await makeApp();
+    // Add a second agent declaring an external image host.
+    agentStore.createAgent({
+      id: 'unsplash-tile',
+      name: 'Unsplash Tile',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'fetch', type: 'shell', command: 'echo done', dependsOn: [] }],
+      signal: { title: 'Photo', template: 'image', mapping: { url: 'image_url' } },
+      permissions: { imgSrc: ['images.unsplash.com', '*.unsplash.com'] },
+    }, 'cli');
+    // Cache is per-app and lazy — first request computes from scratch
+    // and picks up the new agent, no TTL wait needed.
+    const res = await request(app)
+      .get('/pulse')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toContain('https://images.unsplash.com');
+    expect(csp).toContain('https://*.unsplash.com');
+    // Baseline hosts still present.
+    expect(csp).toContain('https://img.youtube.com');
+  });
+
   it('Pulse hides the dropdown when no dashboards exist (only Default would show — noise)', async () => {
     const app = await makeApp();
     const res = await request(app)

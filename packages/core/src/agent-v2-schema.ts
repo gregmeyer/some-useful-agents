@@ -169,6 +169,23 @@ export const agentV2Schema = z.object({
    */
   stateMaxBytes: z.number().int().nonnegative().optional(),
 
+  /**
+   * CSP allowlist contributions. Currently only `imgSrc` is honored —
+   * each declared host (e.g. "images.unsplash.com" or "*.unsplash.com")
+   * is merged into the dashboard's page-wide `img-src` directive on
+   * each request. Wildcards are passed through to CSP unchanged
+   * (CSP supports `https://*.example.com` natively).
+   *
+   * Limited host charset matches CSP host-source grammar (a-z, 0-9,
+   * `.`, `-`, leading `*.`); schemes/ports are not accepted here, the
+   * server prepends `https://`. Local-first trust model: any installed
+   * agent can widen the page CSP — surface this on the agent install
+   * UI so the user sees what's being added.
+   */
+  permissions: z.object({
+    imgSrc: z.array(z.string().regex(/^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/, 'imgSrc hosts must be lowercase host names, optional leading "*." for wildcard subdomains')).optional(),
+  }).optional(),
+
   provider: z.enum(['claude', 'codex']).optional(),
   model: z.string().optional(),
 
