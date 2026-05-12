@@ -189,6 +189,7 @@ export async function executeAgentWithRetry(
         secretsStore: deps.secretsStore,
         variablesStore: deps.variablesStore,
         integrationsStore: deps.integrationsStore,
+        toolStore: deps.toolStore,
         dashboardBaseUrl: deps.dashboardBaseUrl,
         fetchImpl: deps.notifyFetch,
         logger: deps.notifyLogger,

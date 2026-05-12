@@ -301,7 +301,7 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
-const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'gmail']);
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool']);
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -323,10 +323,33 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   // user sees their preserved values on the right form) or to "all".
   const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
-    'all' | 'slack' | 'webhook' | 'file' | 'gmail';
+    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool';
 
   const integrations = ctx.integrationsStore.listIntegrations();
-  const body = renderSettingsIntegrations({ integrations, activeTab, addError });
+
+  // Pull MCP servers + their cached tools so the mcp-tool form can
+  // populate the server/tool dropdowns without a live list call.
+  // Cheap — both reads are direct SQLite scans we already do elsewhere.
+  let mcpServers: Array<{ id: string; name: string }> = [];
+  const mcpToolsByServer: Record<string, Array<{ name: string; description?: string }>> = {};
+  if (ctx.toolStore) {
+    try {
+      mcpServers = ctx.toolStore.listMcpServers()
+        .filter((s) => s.enabled)
+        .map((s) => ({ id: s.id, name: s.name }));
+      for (const s of mcpServers) {
+        const tools = ctx.toolStore.listToolsByServer(s.id);
+        mcpToolsByServer[s.id] = tools.map((t) => ({
+          name: t.implementation.mcpToolName ?? t.id,
+          description: t.description,
+        }));
+      }
+    } catch { /* tools surface stays empty — form shows the empty hint */ }
+  }
+
+  const body = renderSettingsIntegrations({
+    integrations, activeTab, addError, mcpServers, mcpToolsByServer,
+  });
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
 
@@ -390,18 +413,42 @@ settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) 
       secretRefs = [];
       break;
     }
-    case 'gmail': {
-      const clientIdSecret = typeof body.client_id_secret === 'string' ? body.client_id_secret.trim() : '';
-      const clientSecretSecret = typeof body.client_secret_secret === 'string' ? body.client_secret_secret.trim() : '';
-      if (!INTEGRATION_SECRET_NAME_RE.test(clientIdSecret)) return fail('client_id secret name must be UPPERCASE_WITH_UNDERSCORES.');
-      if (!INTEGRATION_SECRET_NAME_RE.test(clientSecretSecret)) return fail('client_secret secret name must be UPPERCASE_WITH_UNDERSCORES.');
-      // Connection state lands on the row only after the OAuth callback
-      // succeeds; for now we just record the credential secret names.
+    case 'mcp-tool': {
+      const serverId = typeof body.server_id === 'string' ? body.server_id.trim() : '';
+      const toolName = typeof body.tool_name === 'string' ? body.tool_name.trim() : '';
+      if (!serverId) return fail('Pick an MCP server (none selected).');
+      if (!toolName) return fail('Pick a tool from the selected server.');
+      // Validate the server exists + is enabled, and the tool name is one
+      // we've cached for it. Catches typos + stale dropdown state.
+      if (!ctx.toolStore) return fail('Tool store unavailable — can\'t validate the MCP target.');
+      const server = ctx.toolStore.getMcpServer(serverId);
+      if (!server || !server.enabled) return fail(`MCP server "${serverId}" is not enabled.`);
+      const known = ctx.toolStore.listToolsByServer(serverId).some((t) =>
+        (t.implementation.mcpToolName ?? t.id) === toolName,
+      );
+      if (!known) return fail(`Tool "${toolName}" is not imported under server "${serverId}". Import it via Settings → MCP Servers first.`);
+
+      let defaultInputs: Record<string, unknown> = {};
+      const rawInputs = typeof body.default_inputs === 'string' ? body.default_inputs.trim() : '';
+      if (rawInputs) {
+        try {
+          const parsed = JSON.parse(rawInputs);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            defaultInputs = parsed as Record<string, unknown>;
+          } else {
+            return fail('default_inputs must be a JSON object (or omitted).');
+          }
+        } catch (err) {
+          return fail(`default_inputs is not valid JSON: ${(err as Error).message}`);
+        }
+      }
+
       config = {
-        client_id_secret: clientIdSecret,
-        client_secret_secret: clientSecretSecret,
+        server_id: serverId,
+        tool_name: toolName,
+        ...(Object.keys(defaultInputs).length > 0 ? { default_inputs: defaultInputs } : {}),
       };
-      secretRefs = [clientIdSecret, clientSecretSecret];
+      secretRefs = [];
       break;
     }
     default:

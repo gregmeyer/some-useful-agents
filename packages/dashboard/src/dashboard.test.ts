@@ -1474,7 +1474,7 @@ describe('Dashboard /settings/integrations', () => {
     expect(res.text).toContain('Integrations');
     // Tab strip is present and the All tab is active by default.
     expect(res.text).toContain('?tab=slack');
-    expect(res.text).toContain('?tab=gmail');
+    expect(res.text).toContain('?tab=mcp-tool');
     // Empty state copy when no rows + All tab.
     expect(res.text).toContain('No integrations yet.');
     // No add forms on the All tab — they only render on per-kind tabs.
@@ -1490,18 +1490,63 @@ describe('Dashboard /settings/integrations', () => {
     expect(res.text).toContain('Add Slack');
     expect(res.text).not.toContain('Add Webhook');
     expect(res.text).not.toContain('Add File');
-    expect(res.text).not.toContain('Add Gmail integration');
+    expect(res.text).not.toContain('Add MCP tool integration');
   });
 
-  it('Gmail tab includes the setup guide pointing at console.cloud.google.com', async () => {
+  it('MCP tool tab hints when no servers are connected', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/settings/integrations?tab=gmail')
+    const res = await request(app).get('/settings/integrations?tab=mcp-tool')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('console.cloud.google.com');
-    expect(res.text).toContain('not <code>admin.google.com</code>');
-    expect(res.text).toContain('Add Gmail integration');
+    expect(res.text).toContain('Add MCP tool integration');
+    expect(res.text).toContain('No MCP servers connected');
+  });
+
+  it('MCP tool add path validates server + tool against the cache', async () => {
+    const toolStore = new ToolStore(':memory:');
+    toolStore.createMcpServer({
+      id: 'claude-ai-gmail', name: 'Claude.ai Gmail', transport: 'http',
+      url: 'https://example.invalid/mcp', enabled: true,
+    });
+    toolStore.createTool({
+      id: 'gmail-create-draft',
+      name: 'Create draft',
+      description: 'Drafts a Gmail message',
+      source: 'mcp',
+      inputs: { },
+      outputs: { },
+      implementation: { type: 'mcp', mcpToolName: 'mcp__claude_ai_Gmail__create_draft' },
+    }, undefined, 'claude-ai-gmail');
+
+    const app = await makeApp({ toolStore });
+
+    // Happy path: known server + tool.
+    const ok = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({
+        kind: 'mcp-tool',
+        id: 'gmail-via-mcp',
+        name: 'Gmail via Claude MCP',
+        server_id: 'claude-ai-gmail',
+        tool_name: 'mcp__claude_ai_Gmail__create_draft',
+        default_inputs: '{"to":"ops@example.com"}',
+      });
+    expect(ok.status).toBe(303);
+    expect(ok.headers.location).toContain('Added%20mcp-tool%20integration');
+
+    // Unknown tool → flash error.
+    const bad = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({
+        kind: 'mcp-tool',
+        id: 'gmail-bad',
+        name: 'Gmail Bad',
+        server_id: 'claude-ai-gmail',
+        tool_name: 'mcp__claude_ai_Gmail__not_imported',
+      });
+    expect(bad.status).toBe(303);
+    expect(bad.headers.location).toMatch(/not(\+|%20)imported(\+|%20)under(\+|%20)server/);
   });
 
   it('adds a Slack integration via POST and lists it', async () => {

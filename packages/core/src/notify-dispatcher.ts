@@ -34,9 +34,11 @@ import type { Run } from './types.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { VariablesStore } from './variables-store.js';
 import type { IntegrationsStore, Integration } from './integrations-store.js';
+import type { ToolStore } from './tool-store.js';
+import type { ToolImplementation } from './tool-types.js';
+import { callMcpTool } from './mcp-client.js';
 import { assertSafeUrl } from './builtin-tools.js';
 import { resolveVarsTemplate } from './node-templates.js';
-import { refreshGoogleToken, sendGmail } from './oauth/google.js';
 
 export type NotifyTrigger = 'failure' | 'success' | 'always';
 
@@ -83,25 +85,30 @@ export interface WebhookHandlerConfig {
 }
 
 /**
- * Gmail notify handler. Always uses a connected `gmail` integration —
- * OAuth credentials don't fit cleanly inline in YAML. The handler
- * carries the per-message fields (to / subject / body); the integration
- * provides the connected account + the refresh-token secret name.
+ * MCP-tool notify handler. Invokes a tool on a connected MCP server
+ * (configured at `/settings/mcp-servers` and imported into the local
+ * tool registry) using sua's existing MCP client + connection pool.
+ *
+ * Always uses a saved integration of kind `mcp-tool` so the server +
+ * tool name + (optional) default inputs live in one place; the handler
+ * itself just carries the per-fire `inputs` overrides.
+ *
+ * No new secret surface: the underlying MCP server's auth lives in
+ * `mcp_servers.env_json` / `url` already.
  */
-export interface GmailHandlerConfig {
-  type: 'gmail';
-  /** Required — id of a connected `gmail` integration. */
+export interface McpToolHandlerConfig {
+  type: 'mcp-tool';
+  /** Required — id of an mcp-tool integration. */
   integration: string;
-  to: string;
-  subject: string;
-  body?: string;
+  /** Optional per-handler inputs, merged on top of the integration's `default_inputs`. */
+  inputs?: Record<string, unknown>;
 }
 
 export type NotifyHandlerConfig =
   | SlackHandlerConfig
   | FileHandlerConfig
   | WebhookHandlerConfig
-  | GmailHandlerConfig;
+  | McpToolHandlerConfig;
 
 export interface NotifyConfig {
   on: NotifyTrigger[];
@@ -127,6 +134,10 @@ export interface DispatchNotifyOptions {
   variablesStore?: VariablesStore;
   /** Resolves named integrations referenced by `handlers[i].integration`. */
   integrationsStore?: IntegrationsStore;
+  /** Required for `mcp-tool` handlers — resolves the McpServerConfig. */
+  toolStore?: ToolStore;
+  /** Abort signal threaded into MCP tool calls. Optional; defaults to a 15s timeout per call. */
+  signal?: AbortSignal;
   /** Project-cwd for the file handler's path-traversal guard. Defaults to process.cwd(). */
   cwd?: string;
   /** Optional URL prefix for dashboard run links inside Slack messages. */
@@ -231,10 +242,10 @@ function mergeIntegrationIntoHandler(
   row: Integration,
 ): NotifyHandlerConfig {
   const c = row.config;
-  // Gmail keeps the `integration` ref on the handler — the runner uses
-  // it to look up the integration row again at send time (refresh
-  // token secret name lives on the row, not on the handler).
-  if (handler.type === 'gmail') {
+  // mcp-tool handlers keep the `integration` ref because the runner
+  // re-reads the integration row at fire time to resolve server_id +
+  // tool_name + default_inputs (which merges with the handler's inputs).
+  if (handler.type === 'mcp-tool') {
     return handler;
   }
   if (handler.type === 'slack') {
@@ -286,8 +297,8 @@ async function runHandler(handler: NotifyHandlerConfig, ctx: HandlerContext): Pr
       return fileHandler(handler, ctx);
     case 'webhook':
       return webhookHandler(handler, ctx);
-    case 'gmail':
-      return gmailHandler(handler, ctx);
+    case 'mcp-tool':
+      return mcpToolHandler(handler, ctx);
     default: {
       const exhaustive: never = handler;
       throw new Error(`Unknown notify handler type: ${JSON.stringify(exhaustive)}`);
@@ -394,69 +405,6 @@ async function fileHandler(handler: FileHandlerConfig, ctx: HandlerContext): Pro
 
 // ── Webhook ────────────────────────────────────────────────────────────
 
-// ── Gmail ──────────────────────────────────────────────────────────────
-
-async function gmailHandler(handler: GmailHandlerConfig, ctx: HandlerContext): Promise<void> {
-  if (!ctx.integrationsStore) {
-    throw new Error('gmail handler needs an integrationsStore (none provided).');
-  }
-  const row = ctx.integrationsStore.getIntegration(handler.integration);
-  if (!row) {
-    throw new Error(`gmail integration "${handler.integration}" not found.`);
-  }
-  if (row.kind !== 'gmail') {
-    throw new Error(`integration "${handler.integration}" is kind="${row.kind}" but handler is gmail.`);
-  }
-  const clientIdSecret = (row.config.client_id_secret as string | undefined) ?? 'GMAIL_CLIENT_ID';
-  const clientSecretSecret = (row.config.client_secret_secret as string | undefined) ?? 'GMAIL_CLIENT_SECRET';
-  const refreshTokenSecret = row.config.refresh_token_secret as string | undefined;
-  if (!refreshTokenSecret) {
-    throw new Error(`gmail integration "${handler.integration}" is not connected — visit Settings → Integrations and click Connect.`);
-  }
-  const clientId = ctx.secrets[clientIdSecret];
-  const clientSecret = ctx.secrets[clientSecretSecret];
-  const refreshToken = ctx.secrets[refreshTokenSecret];
-  if (!clientId || !clientSecret || !refreshToken) {
-    const missing = [
-      !clientId && clientIdSecret,
-      !clientSecret && clientSecretSecret,
-      !refreshToken && refreshTokenSecret,
-    ].filter(Boolean).join(', ');
-    throw new Error(`gmail integration missing secrets in store: ${missing}`);
-  }
-
-  const fetchFn = ctx.fetchImpl ?? fetch;
-  const tokens = await refreshGoogleToken({
-    clientId,
-    clientSecret,
-    refreshToken,
-    fetchImpl: fetchFn,
-  });
-  const to = resolveVarsTemplate(handler.to, ctx.vars);
-  const subject = resolveVarsTemplate(handler.subject, ctx.vars);
-  const body = handler.body ? resolveVarsTemplate(handler.body, ctx.vars) : defaultGmailBody(ctx.agent, ctx.run);
-  await sendGmail({
-    accessToken: tokens.access_token,
-    to,
-    subject,
-    body,
-    from: typeof row.config.connected_account === 'string' ? row.config.connected_account as string : undefined,
-    fetchImpl: fetchFn,
-  });
-}
-
-function defaultGmailBody(agent: Agent, run: Run): string {
-  const lines = [
-    `Agent: ${agent.id} (${agent.name})`,
-    `Run: ${run.id}`,
-    `Status: ${run.status}`,
-    run.startedAt ? `Started: ${run.startedAt}` : '',
-    run.completedAt ? `Completed: ${run.completedAt}` : '',
-    run.error ? `\nError:\n${run.error.slice(0, 2000)}` : '',
-  ].filter(Boolean);
-  return lines.join('\n');
-}
-
 async function webhookHandler(handler: WebhookHandlerConfig, ctx: HandlerContext): Promise<void> {
   if (!handler.url) {
     throw new Error('webhook handler missing url (integration may be misconfigured).');
@@ -480,6 +428,111 @@ async function webhookHandler(handler: WebhookHandlerConfig, ctx: HandlerContext
   if (!res.ok) {
     throw new Error(`webhook returned ${res.status}`);
   }
+}
+
+// ── MCP tool ───────────────────────────────────────────────────────────
+
+/**
+ * Resolves an mcp-tool integration → builds a `ToolImplementation` →
+ * calls `callMcpTool()` against sua's pooled MCP client. Same
+ * primitive the executor uses for in-DAG MCP tool nodes, so notify
+ * dispatch shares the connection pool.
+ *
+ * Failure modes that log + skip (never break the run):
+ *   - missing integrations store / tool store
+ *   - integration row missing / wrong kind / disconnected
+ *   - server row missing / disabled
+ *   - tool call throws / times out
+ */
+async function mcpToolHandler(handler: McpToolHandlerConfig, ctx: HandlerContext): Promise<void> {
+  if (!ctx.integrationsStore) {
+    throw new Error('mcp-tool handler needs an integrationsStore (none provided).');
+  }
+  if (!ctx.toolStore) {
+    throw new Error('mcp-tool handler needs a toolStore to resolve the target server.');
+  }
+  const row = ctx.integrationsStore.getIntegration(handler.integration);
+  if (!row) {
+    throw new Error(`mcp-tool integration "${handler.integration}" not found.`);
+  }
+  if (row.kind !== 'mcp-tool') {
+    throw new Error(`integration "${handler.integration}" is kind="${row.kind}" but handler is mcp-tool.`);
+  }
+  const serverId = typeof row.config.server_id === 'string' ? row.config.server_id : '';
+  const toolName = typeof row.config.tool_name === 'string' ? row.config.tool_name : '';
+  if (!serverId || !toolName) {
+    throw new Error(`mcp-tool integration "${handler.integration}" missing server_id / tool_name.`);
+  }
+  const server = ctx.toolStore.getMcpServer(serverId);
+  if (!server) {
+    throw new Error(`MCP server "${serverId}" not found (referenced by integration "${handler.integration}").`);
+  }
+  if (!server.enabled) {
+    throw new Error(`MCP server "${serverId}" is disabled — enable it at /settings/mcp-servers before this handler can fire.`);
+  }
+
+  // Merge default_inputs (from the integration) under per-handler
+  // inputs (from the agent's notify YAML). Inline values win — same
+  // semantics as the slack/webhook/file integration overrides.
+  const defaultInputs = (row.config.default_inputs as Record<string, unknown> | undefined) ?? {};
+  const mergedInputs = { ...defaultInputs, ...(handler.inputs ?? {}) };
+  const templated = templateMcpInputs(mergedInputs, ctx);
+
+  const impl: ToolImplementation = {
+    type: 'mcp',
+    mcpTransport: server.transport,
+    mcpCommand: server.command,
+    mcpArgs: server.args,
+    mcpEnv: server.env,
+    mcpUrl: server.url,
+    mcpToolName: toolName,
+  };
+
+  // 15s default timeout per call so a hung server doesn't keep the
+  // notify dispatcher tied up. Honour an outer abort signal if one
+  // was threaded in (CLI cancel, etc.).
+  const ctlSignal = ctx.signal ?? AbortSignal.timeout(15_000);
+  await callMcpTool(impl, templated, ctlSignal);
+}
+
+/**
+ * Walk a JSON-shaped record and run template substitution on every
+ * string leaf. Supports:
+ *   - `{{vars.<NAME>}}` from the global variables store
+ *   - `{{agent.id}}`, `{{agent.name}}`
+ *   - `{{run.id}}`, `{{run.status}}`, `{{run.error}}` (empty if absent)
+ *
+ * Non-string scalars pass through unchanged.
+ */
+function templateMcpInputs(
+  inputs: Record<string, unknown>,
+  ctx: HandlerContext,
+): Record<string, unknown> {
+  const tokenLookups: Record<string, string> = {
+    'agent.id': ctx.agent.id,
+    'agent.name': ctx.agent.name,
+    'run.id': ctx.run.id,
+    'run.status': ctx.run.status,
+    'run.error': ctx.run.error ?? '',
+  };
+  const renderString = (s: string): string => {
+    let out = resolveVarsTemplate(s, ctx.vars);
+    for (const [tok, val] of Object.entries(tokenLookups)) {
+      if (out.includes(`{{${tok}}}`)) out = out.split(`{{${tok}}}`).join(val);
+    }
+    return out;
+  };
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return renderString(v);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v)) out[k] = walk(val);
+      return out;
+    }
+    return v;
+  };
+  return walk(inputs) as Record<string, unknown>;
 }
 
 // ── Payload shape ──────────────────────────────────────────────────────
