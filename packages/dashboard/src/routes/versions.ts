@@ -327,3 +327,75 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`LLM update failed: ${msg}`)}`);
   }
 });
+
+// CSP host syntax — must match the regex in agent-v2-schema.ts
+// (`permissions.imgSrc` items). Lowercase host name with optional
+// leading "*." for wildcard subdomains. Schemes/ports are stripped on
+// input and re-added by the dashboard middleware.
+const IMG_SRC_HOST_RE = /^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+
+/**
+ * POST /agents/:id/permissions — update CSP allowlists declared by the
+ * agent. Accepts `imgSrc` as a newline-separated host list (textarea-
+ * friendly), normalises (lowercase, strip scheme + trailing path),
+ * dedupes, and validates each entry. Creates a new agent version since
+ * permissions live in the versioned DAG.
+ */
+versionsRouter.post('/agents/:id/permissions', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = typeof body.imgSrc === 'string' ? body.imgSrc : '';
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  // Normalise: split on whitespace/commas, trim, lowercase, strip
+  // common prefixes/paths so users can paste full URLs without
+  // tripping the regex.
+  const seen = new Set<string>();
+  const hosts: string[] = [];
+  const invalid: string[] = [];
+  for (const piece of raw.split(/[\s,]+/)) {
+    if (!piece) continue;
+    let h = piece.trim().toLowerCase();
+    h = h.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+    if (!h || seen.has(h)) continue;
+    seen.add(h);
+    if (!IMG_SRC_HOST_RE.test(h)) { invalid.push(h); continue; }
+    hosts.push(h);
+  }
+  if (invalid.length > 0) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(
+      `Invalid host${invalid.length === 1 ? '' : 's'}: ${invalid.join(', ')}. Use lowercase host names like images.unsplash.com or *.unsplash.com.`,
+    )}`);
+    return;
+  }
+
+  const existing = (agent.permissions?.imgSrc ?? []).slice().sort();
+  const next = hosts.slice().sort();
+  if (existing.length === next.length && existing.every((h, i) => h === next[i])) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Permissions unchanged.')}`);
+    return;
+  }
+
+  try {
+    const newPermissions = hosts.length > 0 ? { ...agent.permissions, imgSrc: hosts } : (() => {
+      // Drop imgSrc; if no other permissions remain, drop the whole field.
+      const rest = { ...agent.permissions };
+      delete rest.imgSrc;
+      return Object.keys(rest).length > 0 ? rest : undefined;
+    })();
+    const updated = { ...agent, permissions: newPermissions };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', `Updated img-src permissions (${hosts.length} host${hosts.length === 1 ? '' : 's'})`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(
+      hosts.length === 0 ? 'img-src permissions cleared.' : `img-src updated (${hosts.length} host${hosts.length === 1 ? '' : 's'}).`,
+    )}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Permissions update failed: ${msg}`)}`);
+  }
+});
