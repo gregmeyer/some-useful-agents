@@ -1,8 +1,12 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'gmail';
+
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
+  /** Active tab. Defaults to 'all' (overview table + no add form). */
+  activeTab?: IntegrationsTab;
   /** Preserved form values + error after a failed add. Keyed by kind. */
   addError?: { kind: string; message: string; values: Record<string, string> };
   /** Optional flash banner (test-send result, etc.) rendered above the table. */
@@ -10,39 +14,64 @@ export interface SettingsIntegrationsArgs {
 }
 
 /**
- * Render the `/settings/integrations` body. Three "kinds" in PR 1 —
- * slack (incoming webhook), webhook (generic POST/PUT), file (local
- * append/overwrite). Each gets its own dedicated form to keep the
- * surface zero-JS; kinds with very different fields don't share a UI.
+ * Render the `/settings/integrations` body.
  *
- * The "ID" field is the slug agents will reference, prefixed with
- * `user:` server-side. Pack-installed integrations show up here too
- * but their Delete button is disabled (they belong to the pack).
+ * Tabbed by kind so the page stays scannable as we add more kinds. The
+ * "All" tab is the overview — every row, no add form. Per-kind tabs
+ * show only rows of that kind plus the dedicated add form. The active
+ * tab is selected via `?tab=` so the page is bookmarkable + reload-
+ * stable; no client JS for the tab strip itself.
  */
 export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): SafeHtml {
+  const tab = args.activeTab ?? 'all';
+  const filtered = tab === 'all'
+    ? args.integrations
+    : args.integrations.filter((i) => i.kind === tab);
   return html`
     <div class="card">
       <p class="card__title">Integrations</p>
       <p class="dim">
-        Named external-service configurations. Agents will reference
-        these by id in notify handlers (and later, connectors) instead
-        of declaring raw secret names per-agent. Today only the storage
-        + UI exist — wiring agents to read them lands in the next PR.
+        Named external-service configurations. Agents reference these by
+        id in notify handlers (and later, connectors) instead of declaring
+        raw secret names per-agent.
       </p>
       ${args.inlineNote ? html`<div class="flash flash--${args.inlineNote.kind} mb-3">${args.inlineNote.message}</div>` : unsafeHtml('')}
-      ${renderIntegrationsTable(args.integrations)}
+      ${renderTabStrip(tab, args.integrations)}
+      ${renderIntegrationsTable(filtered, tab)}
     </div>
 
-    ${renderSlackForm(args)}
-    ${renderWebhookForm(args)}
-    ${renderFileForm(args)}
-    ${renderGmailForm(args)}
+    ${tab === 'slack' ? renderSlackForm(args) : unsafeHtml('')}
+    ${tab === 'webhook' ? renderWebhookForm(args) : unsafeHtml('')}
+    ${tab === 'file' ? renderFileForm(args) : unsafeHtml('')}
+    ${tab === 'gmail' ? renderGmailForm(args) : unsafeHtml('')}
   `;
 }
 
-function renderIntegrationsTable(integrations: Integration[]): SafeHtml {
+function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): SafeHtml {
+  const counts: Record<string, number> = {};
+  for (const i of integrations) counts[i.kind] = (counts[i.kind] ?? 0) + 1;
+  const tab = (id: IntegrationsTab, label: string) => {
+    const count = id === 'all' ? integrations.length : (counts[id] ?? 0);
+    const countBadge = count > 0 ? html` <span class="dim" style="font-size: var(--font-size-xs);">(${String(count)})</span>` : html``;
+    return html`<a href="/settings/integrations?tab=${id}" class="${active === id ? 'is-active' : ''}">${label}${countBadge}</a>`;
+  };
+  return html`
+    <nav class="tab-strip" style="margin-top: var(--space-3);">
+      ${tab('all', 'All')}
+      ${tab('slack', 'Slack')}
+      ${tab('webhook', 'Webhook')}
+      ${tab('file', 'File')}
+      ${tab('gmail', 'Gmail')}
+    </nav>
+  `;
+}
+
+function renderIntegrationsTable(integrations: Integration[], tab: IntegrationsTab): SafeHtml {
   if (integrations.length === 0) {
-    return html`<p class="settings-empty mt-3">No integrations yet. Add one below.</p>`;
+    const msg = tab === 'all'
+      ? 'No integrations yet. Pick a kind tab above to add one.'
+      : `No ${tab} integrations yet. Add one below.`;
+    return html`<p class="settings-empty mt-3">${msg}</p>`;
   }
   const rows = integrations.map((i) => html`
     <tr>
@@ -198,15 +227,14 @@ function renderGmailForm(args: SettingsIntegrationsArgs): SafeHtml {
   const err = args.addError?.kind === 'gmail' ? args.addError : undefined;
   const v = err?.values ?? {};
   return html`
+    ${renderGmailSetupGuide()}
     <div class="card">
-      <p class="card__title">Add Gmail (OAuth)</p>
+      <p class="card__title">Add Gmail integration</p>
       <p class="dim">
-        Connect a Google account via OAuth so notify handlers can send
-        email. Bring your own Google Cloud OAuth client (type "Desktop
-        app"). Register <code>http://127.0.0.1:3000/oauth/callback</code>
-        as a redirect URI. Paste the client_id + client_secret into
-        <a href="/settings/secrets">Settings → Secrets</a> first, then
-        add this integration and click <strong>Connect Google</strong>.
+        Already have the client_id + client_secret in
+        <a href="/settings/secrets">Settings → Secrets</a>? Add the
+        integration here, then return to the table above and click
+        <strong>Connect Google</strong>.
       </p>
       ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
       <form action="/settings/integrations/add" method="post" class="settings-form">
@@ -231,6 +259,65 @@ function renderGmailForm(args: SettingsIntegrationsArgs): SafeHtml {
         </div>
       </form>
     </div>
+  `;
+}
+
+function renderGmailSetupGuide(): SafeHtml {
+  return html`
+    <details class="card" open>
+      <summary class="card__title" style="cursor: pointer;">Where do client_id and client_secret come from?</summary>
+      <p class="dim" style="margin-top: var(--space-2);">
+        <strong>Short answer:</strong> Google Cloud Console
+        (<a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>),
+        not <code>admin.google.com</code>. admin.google.com is for Workspace administrators managing users —
+        it's a different surface that doesn't expose OAuth client creation.
+      </p>
+      <p class="dim">If you have any Google account (personal Gmail or Workspace), follow these steps:</p>
+      <ol style="font-size: var(--font-size-sm); line-height: 1.6; padding-left: var(--space-5);">
+        <li>
+          Open
+          <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com/projectcreate</a>
+          and create a project (any name; this scopes your OAuth client + API enablement).
+        </li>
+        <li>
+          Enable the Gmail API for that project:
+          <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">apis/library/gmail.googleapis.com</a>
+          → click <strong>Enable</strong>.
+        </li>
+        <li>
+          Configure the OAuth consent screen:
+          <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener">apis/credentials/consent</a>.
+          Pick <strong>External</strong> (for personal Gmail) or <strong>Internal</strong> (Workspace only).
+          Add the scope <code>https://www.googleapis.com/auth/gmail.send</code>. Add your own email under
+          "Test users" — that keeps the app in test mode without verification, which is fine for a local-only tool.
+        </li>
+        <li>
+          Create the OAuth 2.0 Client ID:
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">apis/credentials</a>
+          → <strong>Create credentials → OAuth client ID</strong>. <em>Application type:</em>
+          <strong>Web application</strong>. Under "Authorized redirect URIs" add:
+          <code>http://127.0.0.1:3000/oauth/callback</code>
+          (adjust the port if your dashboard runs elsewhere).
+          <span class="dim" style="font-size: var(--font-size-xs);">("Desktop app" also works without registering a URI, but Web application makes the redirect explicit + auditable.)</span>
+        </li>
+        <li>
+          Click Create. Google shows the <strong>client_id</strong> + <strong>client_secret</strong>. Copy both,
+          go to <a href="/settings/secrets">Settings → Secrets</a>, and set them as
+          <code>GMAIL_CLIENT_ID</code> + <code>GMAIL_CLIENT_SECRET</code> (or any names you'll reference below).
+        </li>
+        <li>
+          Return here, add the Gmail integration with those secret names, then click <strong>Connect Google</strong>
+          on the integration row above. Google walks you through consent; sua stores only a refresh token, encrypted.
+        </li>
+      </ol>
+      <p class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-2);">
+        <strong>Why bring-your-own credentials?</strong> sua is an open-source local tool. Bundling a hosted client_id
+        would need Google's app verification (weeks of paperwork for sensitive Gmail scopes) and would route every
+        user's consent through a single Google project. Your own client keeps your OAuth identity isolated and
+        doesn't require any approval. A future release may offer a verified shared client as an opt-in;
+        for now, this is the trust-clean path.
+      </p>
+    </details>
   `;
 }
 

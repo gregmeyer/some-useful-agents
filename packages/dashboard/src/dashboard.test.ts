@@ -1465,19 +1465,43 @@ describe('Dashboard /settings/general', () => {
 });
 
 describe('Dashboard /settings/integrations', () => {
-  it('renders the integrations surface with empty state + add forms', async () => {
+  it('renders the integrations surface with kind tabs and empty state', async () => {
     const app = await makeApp();
     const res = await request(app).get('/settings/integrations')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Integrations');
-    // Empty state copy.
+    // Tab strip is present and the All tab is active by default.
+    expect(res.text).toContain('?tab=slack');
+    expect(res.text).toContain('?tab=gmail');
+    // Empty state copy when no rows + All tab.
     expect(res.text).toContain('No integrations yet.');
-    // All three add forms render.
+    // No add forms on the All tab — they only render on per-kind tabs.
+    expect(res.text).not.toContain('Add Slack integration');
+  });
+
+  it('shows the matching add form when a kind tab is active', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/integrations?tab=slack')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
     expect(res.text).toContain('Add Slack');
-    expect(res.text).toContain('Add Webhook');
-    expect(res.text).toContain('Add File');
+    expect(res.text).not.toContain('Add Webhook');
+    expect(res.text).not.toContain('Add File');
+    expect(res.text).not.toContain('Add Gmail integration');
+  });
+
+  it('Gmail tab includes the setup guide pointing at console.cloud.google.com', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/integrations?tab=gmail')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('console.cloud.google.com');
+    expect(res.text).toContain('not <code>admin.google.com</code>');
+    expect(res.text).toContain('Add Gmail integration');
   });
 
   it('adds a Slack integration via POST and lists it', async () => {

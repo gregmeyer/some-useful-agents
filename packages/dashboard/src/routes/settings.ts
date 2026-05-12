@@ -301,6 +301,8 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'gmail']);
+
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -317,8 +319,14 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const formValues = pickFormValuesFromQuery(req);
   const addError = errKind && errMsg ? { kind: errKind, message: errMsg, values: formValues } : undefined;
 
+  // Tab is bookmarkable. Default to the kind that just errored (so the
+  // user sees their preserved values on the right form) or to "all".
+  const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
+  const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
+    'all' | 'slack' | 'webhook' | 'file' | 'gmail';
+
   const integrations = ctx.integrationsStore.listIntegrations();
-  const body = renderSettingsIntegrations({ integrations, addError });
+  const body = renderSettingsIntegrations({ integrations, activeTab, addError });
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
 
@@ -408,7 +416,7 @@ settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) 
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
   }
-  res.redirect(303, `/settings/integrations?flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
+  res.redirect(303, `/settings/integrations?tab=${kind}&flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
 });
 
 settingsRouter.post('/settings/integrations/delete', (req: Request, res: Response) => {
