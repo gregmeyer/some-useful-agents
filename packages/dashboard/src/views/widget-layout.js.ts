@@ -379,6 +379,19 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     // boolean read from localStorage above.
     if (editMode) setEditMode(true);
 
+    // Reassurance prompt when navigating away mid-edit. Drag/resize/etc.
+    // already write to localStorage instantly so nothing is "unsaved" —
+    // this just guards against accidental navigation while the user is
+    // still arranging tiles. Browsers ignore the returned string and
+    // show their own generic dialog text; presence of a return value
+    // is what triggers the prompt.
+    window.addEventListener('beforeunload', function (e) {
+      if (!editMode) return;
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    });
+
     // ── Drag and drop ────────────────────────────────────────────────
     var draggedId = null;
     var draggedEl = null;
