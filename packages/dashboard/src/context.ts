@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, PlannerTelemetryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -83,6 +83,13 @@ export interface DashboardContext {
    * because no routes consume it yet; later PRs make it required.
    */
   dashboardsStore?: DashboardsStore;
+  /**
+   * Integrations store. Holds project-scoped named external-service configs
+   * (slack, webhook, file, …) that agents and notify handlers reference by
+   * id. PR 1 wires the storage + UI; PR 2 onward connects them to notify.
+   * Optional so the dashboard boots even if the table can't be created.
+   */
+  integrationsStore?: IntegrationsStore;
   /**
    * Build-planner telemetry store. Records one row per planner run with
    * timing + failure-class counters; feeds `/metrics/planner`. Optional so

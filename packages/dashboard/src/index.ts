@@ -8,6 +8,7 @@ import {
   ToolStore,
   PacksStore,
   DashboardsStore,
+  IntegrationsStore,
   PlannerTelemetryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
@@ -308,6 +309,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // wire routes that depend on these stores.
   }
 
+  // Integrations store. Same DB file. Independently optional from packs/
+  // dashboards so a schema issue in either doesn't keep the other offline.
+  let integrationsStore: IntegrationsStore | undefined;
+  try {
+    integrationsStore = new IntegrationsStore(opts.dbPath);
+  } catch {
+    // Non-fatal: settings/integrations surface stays absent.
+  }
+
   // Planner telemetry store. Records one row per planner run; feeds /metrics/planner.
   let plannerTelemetryStore: PlannerTelemetryStore | undefined;
   try {
@@ -335,6 +345,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore,
     packsStore,
     dashboardsStore,
+    integrationsStore,
     plannerTelemetryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),

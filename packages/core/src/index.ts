@@ -65,6 +65,12 @@ export {
   type DashboardLayout,
 } from './dashboards-store.js';
 export {
+  IntegrationsStore,
+  INTEGRATION_ID_RE,
+  type Integration,
+  type IntegrationKind,
+} from './integrations-store.js';
+export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,
   type PlannerTelemetryStats,

@@ -7,6 +7,7 @@ import { renderSettingsVariables } from '../views/settings-variables.js';
 import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { renderSettingsAppearance } from '../views/settings-appearance.js';
+import { renderSettingsIntegrations } from '../views/settings-integrations.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 
@@ -294,20 +295,138 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
   redirectWith(res, '/settings/mcp-servers', 'flash', `Deleted ${id} and ${toolsDeleted} tool${toolsDeleted === 1 ? '' : 's'}.`);
 });
 
+// ── Integrations ─────────────────────────────────────────────────────────
+// Slug used in IDs. The store gates the full ID format (with `user:` prefix);
+// this is just the user-typed portion so the prefix stays implementation-detail.
+const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
+const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
-  const body = html`
-    <div class="settings-empty">
-      <h3 style="margin-top: 0;">Integrations</h3>
-      <p>Integrations are coming in a later release.</p>
-      <p class="dim">Today, external services are wired up through
-        secrets (e.g. <code>SLACK_WEBHOOK</code>) referenced from agent nodes.
-        Integrations will add a metadata layer on top so agents can
-        reference named services instead of raw secret names.</p>
-    </div>
-  `;
+  if (!ctx.integrationsStore) {
+    const body = html`<p class="settings-empty">Integrations store unavailable on this dashboard.</p>`;
+    res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
+    return;
+  }
+
+  // Inline error after a failed add is round-tripped via query string so the
+  // user keeps their typed values without us needing a session/flash store.
+  const errKind = typeof req.query.errKind === 'string' ? req.query.errKind : undefined;
+  const errMsg = typeof req.query.errMsg === 'string' ? req.query.errMsg : undefined;
+  const formValues = pickFormValuesFromQuery(req);
+  const addError = errKind && errMsg ? { kind: errKind, message: errMsg, values: formValues } : undefined;
+
+  const integrations = ctx.integrationsStore.listIntegrations();
+  const body = renderSettingsIntegrations({ integrations, addError });
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
+
+settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.integrationsStore) {
+    res.redirect(303, '/settings/integrations?error=Integrations+store+unavailable.');
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const kind = typeof body.kind === 'string' ? body.kind.trim() : '';
+  const slug = typeof body.id === 'string' ? body.id.trim() : '';
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+
+  const fail = (message: string): void => {
+    const qs = new URLSearchParams({ errKind: kind, errMsg: message });
+    for (const [k, v] of Object.entries(body)) {
+      if (typeof v === 'string' && k !== 'errKind' && k !== 'errMsg') qs.append(`f_${k}`, v);
+    }
+    res.redirect(303, `/settings/integrations?${qs.toString()}`);
+  };
+
+  if (!INTEGRATION_SLUG_RE.test(slug)) return fail('ID must be lowercase letters/digits/dashes/underscores, starting with a letter or digit.');
+  if (!name) return fail('Name is required.');
+
+  let config: Record<string, unknown>;
+  let secretRefs: string[];
+  switch (kind) {
+    case 'slack': {
+      const webhookSecret = typeof body.webhook_secret === 'string' ? body.webhook_secret.trim() : '';
+      if (!INTEGRATION_SECRET_NAME_RE.test(webhookSecret)) return fail('Webhook secret name must be UPPERCASE_WITH_UNDERSCORES.');
+      const channel = typeof body.channel === 'string' ? body.channel.trim() : '';
+      const mention = typeof body.mention === 'string' ? body.mention.trim() : '';
+      config = {
+        webhook_secret: webhookSecret,
+        ...(channel ? { channel } : {}),
+        ...(mention ? { mention } : {}),
+      };
+      secretRefs = [webhookSecret];
+      break;
+    }
+    case 'webhook': {
+      const url = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!/^https?:\/\//i.test(url)) return fail('URL must start with http:// or https://.');
+      const method = body.method === 'PUT' ? 'PUT' : 'POST';
+      const headersSecret = typeof body.headers_secret === 'string' ? body.headers_secret.trim() : '';
+      if (headersSecret && !INTEGRATION_SECRET_NAME_RE.test(headersSecret)) return fail('Headers secret name must be UPPERCASE_WITH_UNDERSCORES.');
+      config = {
+        url,
+        method,
+        ...(headersSecret ? { headers_secret: headersSecret } : {}),
+      };
+      secretRefs = headersSecret ? [headersSecret] : [];
+      break;
+    }
+    case 'file': {
+      const path = typeof body.path === 'string' ? body.path.trim() : '';
+      if (!path) return fail('Path is required.');
+      const mode = body.mode === 'overwrite' ? 'overwrite' : 'append';
+      config = { path, append: mode === 'append' };
+      secretRefs = [];
+      break;
+    }
+    default:
+      return fail(`Unknown kind "${kind}".`);
+  }
+
+  const id = `user:${slug}`;
+  if (ctx.integrationsStore.getIntegration(id)) return fail(`An integration with id "${id}" already exists.`);
+
+  try {
+    ctx.integrationsStore.upsertIntegration({ id, packId: null, kind, name, config, secretRefs });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err));
+  }
+  res.redirect(303, `/settings/integrations?flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
+});
+
+settingsRouter.post('/settings/integrations/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.integrationsStore) {
+    res.redirect(303, '/settings/integrations?error=Integrations+store+unavailable.');
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const id = typeof body.id === 'string' ? body.id.trim() : '';
+  if (!id) {
+    res.redirect(303, '/settings/integrations?error=Missing+id.');
+    return;
+  }
+  const existing = ctx.integrationsStore.getIntegration(id);
+  if (existing?.packId) {
+    res.redirect(303, '/settings/integrations?error=Pack-owned+integrations+can%27t+be+deleted+directly.');
+    return;
+  }
+  const removed = ctx.integrationsStore.deleteIntegration(id);
+  res.redirect(303, removed
+    ? `/settings/integrations?flash=${encodeURIComponent(`Deleted integration "${id}".`)}`
+    : '/settings/integrations?error=No+such+integration.');
+});
+
+function pickFormValuesFromQuery(req: Request): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.query)) {
+    if (typeof v === 'string' && k.startsWith('f_')) out[k.slice(2)] = v;
+  }
+  return out;
+}
 
 settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const { flash } = readQueryBanners(req);
