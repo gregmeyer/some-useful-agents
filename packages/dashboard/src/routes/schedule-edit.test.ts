@@ -165,3 +165,57 @@ describe('POST /agents/:id/schedule', () => {
     expect(res.headers.location).toBe('/agents');
   });
 });
+
+describe('POST /agents/:id/permissions', () => {
+  it('accepts a newline-separated list of valid hosts and bumps the agent version', async () => {
+    const app = await makeApp();
+    const initial = agentStore.getAgent('sched-agent')!.version;
+    const res = await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: 'images.unsplash.com\n*.unsplash.com' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('img-src%20updated');
+    const after = agentStore.getAgent('sched-agent')!;
+    expect(after.permissions?.imgSrc).toEqual(['images.unsplash.com', '*.unsplash.com']);
+    expect(after.version).toBe(initial + 1);
+  });
+
+  it('strips https:// + paths + ports so users can paste full URLs', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: 'https://images.unsplash.com/foo/bar, http://other.example.com:8080/x' });
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('sched-agent')!.permissions?.imgSrc).toEqual([
+      'images.unsplash.com',
+      'other.example.com',
+    ]);
+  });
+
+  it('rejects malformed hosts with a flash message and leaves the agent unchanged', async () => {
+    const app = await makeApp();
+    const before = agentStore.getAgent('sched-agent')!.version;
+    const res = await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: 'bad_host_with_underscore' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/Invalid%20host/);
+    expect(agentStore.getAgent('sched-agent')!.version).toBe(before);
+  });
+
+  it('clears imgSrc when given an empty list', async () => {
+    const app = await makeApp();
+    // Seed permissions first.
+    await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: 'images.unsplash.com' });
+    expect(agentStore.getAgent('sched-agent')!.permissions?.imgSrc).toEqual(['images.unsplash.com']);
+
+    const res = await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: '' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('cleared');
+    expect(agentStore.getAgent('sched-agent')!.permissions).toBeUndefined();
+  });
+});
