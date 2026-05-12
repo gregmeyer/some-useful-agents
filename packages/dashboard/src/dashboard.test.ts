@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -63,6 +63,7 @@ command: echo from-the-internet
   const secretsStore = new MemorySecretsStore();
   runStore = new RunStore(dbPath);
   agentStore = new AgentStore(dbPath);
+  const integrationsStore = new IntegrationsStore(dbPath);
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
 
@@ -75,6 +76,7 @@ command: echo from-the-internet
     provider,
     runStore,
     agentStore,
+    integrationsStore,
     loadAgents: () => loadAgents({
       directories: [agentsDir, join(dir, 'agents', 'community')],
     }),
@@ -1463,14 +1465,73 @@ describe('Dashboard /settings/general', () => {
 });
 
 describe('Dashboard /settings/integrations', () => {
-  it('renders placeholder copy', async () => {
+  it('renders the integrations surface with empty state + add forms', async () => {
     const app = await makeApp();
     const res = await request(app).get('/settings/integrations')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Integrations');
-    expect(res.text).toContain('coming in a later release');
+    // Empty state copy.
+    expect(res.text).toContain('No integrations yet.');
+    // All three add forms render.
+    expect(res.text).toContain('Add Slack');
+    expect(res.text).toContain('Add Webhook');
+    expect(res.text).toContain('Add File');
+  });
+
+  it('adds a Slack integration via POST and lists it', async () => {
+    const app = await makeApp();
+    const add = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'slack', id: 'oncall', name: 'Oncall', webhook_secret: 'SLACK_WEBHOOK', channel: '#alerts' });
+    expect(add.status).toBe(303);
+    expect(add.headers.location).toContain('Added%20slack%20integration');
+
+    const list = await request(app).get('/settings/integrations')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(list.text).toContain('user:oncall');
+    expect(list.text).toContain('SLACK_WEBHOOK');
+    expect(list.text).toContain('#alerts');
+  });
+
+  it('rejects an invalid slug with a useful flash + preserved values', async () => {
+    const app = await makeApp();
+    const add = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'slack', id: 'Has Spaces', name: 'x', webhook_secret: 'SLACK_WEBHOOK' });
+    expect(add.status).toBe(303);
+    expect(add.headers.location).toMatch(/errKind=slack/);
+    expect(add.headers.location).toMatch(/errMsg=ID/);
+    // Form values round-trip so the user doesn't retype.
+    expect(add.headers.location).toMatch(/f_id=Has\+Spaces/);
+  });
+
+  it('refuses to add a duplicate id', async () => {
+    const app = await makeApp();
+    const post = () => request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'webhook', id: 'dup', name: 'D', url: 'https://x.example.com', method: 'POST' });
+    await post();
+    const second = await post();
+    expect(second.status).toBe(303);
+    expect(second.headers.location).toMatch(/already(\+|%20)exists/);
+  });
+
+  it('deletes a user integration', async () => {
+    const app = await makeApp();
+    await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'file', id: 'log', name: 'Log', path: 'out.log', mode: 'append' });
+    const del = await request(app).post('/settings/integrations/delete')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ id: 'user:log' });
+    expect(del.status).toBe(303);
+    expect(del.headers.location).toContain('Deleted%20integration');
+
+    const list = await request(app).get('/settings/integrations')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(list.text).not.toContain('user:log');
   });
 });
 
