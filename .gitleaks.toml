@@ -1,0 +1,31 @@
+# Extends the upstream default ruleset (https://github.com/gitleaks/gitleaks)
+# and allowlists test fixtures that intentionally contain secret-shaped
+# strings to exercise the redactor.
+#
+# Authoring note: this is the trust boundary. Any new file that holds
+# fake-but-real-looking secrets must be added to the `paths` list below,
+# OR (preferable) the test should generate the value at runtime instead
+# of hard-coding it.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures + redactor self-tests with intentionally secret-shaped strings"
+paths = [
+  # secret-redactor tests construct fake tokens to verify masking
+  '''packages/core/src/secret-redactor\.test\.ts''',
+  # dag-executor test uses ghp_-shaped default to verify env scrubbing
+  '''packages/core/src/dag-executor\.test\.ts''',
+  # env-builder + local-provider tests assemble fake creds in fixtures
+  '''packages/core/src/env-builder\.test\.ts''',
+  '''packages/core/src/local-provider\.test\.ts''',
+  # node-env declares pattern constants used by the redactor
+  '''packages/core/src/node-env\.ts''',
+  '''packages/core/src/secret-redactor\.ts''',
+  # registry references known patterns
+  '''packages/core/src/registry\.ts''',
+  # ADRs and CHANGELOGs reference patterns in example form
+  '''docs/adr/.*\.md''',
+  '''.*CHANGELOG\.md''',
+]

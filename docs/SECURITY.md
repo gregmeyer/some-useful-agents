@@ -117,6 +117,19 @@ CLI surface.
 to v2 under the caller's passphrase; `sua secrets migrate` does the same
 without requiring a value change.
 
+### Public-repo secret hygiene (v0.21+)
+
+The project source lives in a public GitHub repo. Secrets must never land in commits — `.gitignore` excludes the runtime homes that hold them (`data/`, `~/.sua/`, `.env*`, `agents/local/`) and the encrypted secrets store sits at `~/.sua/secrets.enc`, outside the working tree entirely.
+
+In addition to the gitignore:
+
+- **Gitleaks runs in CI** on every push + pull request via `.github/workflows/secret-scan.yml`. A finding fails the job; the PR can't merge until cleared. The scan reads `.gitleaks.toml`, which extends the upstream default ruleset and allowlists test fixtures that intentionally contain secret-shaped strings (the redactor self-tests, fake `ghp_…` defaults in dag-executor tests, etc.).
+- **Opt-in local hook**: `./scripts/install-hooks.sh` installs a `.git/hooks/pre-commit` that runs `gitleaks protect --staged` so leaks die at commit time rather than after a force-push. Not auto-installed by `npm install` — explicit by design.
+- **Test fixtures convention**: any value that could be mistaken for a real secret must either be generated at test runtime or live in one of the allowlisted paths in `.gitleaks.toml`. Don't add new hard-coded fake tokens outside that list.
+- **Bypassing**: `git commit --no-verify` skips the local hook. CI is the ground truth; don't rely on `--no-verify` to silence a real finding.
+
+If gitleaks fires on a file you believe is a true positive, **rotate the credential first**, then remove from history via `git filter-repo` or BFG. Treat any committed real-looking secret as compromised even if quickly reverted — `git push` is public.
+
 ### Supply chain (v0.4.0)
 
 - Third-party GitHub Actions are pinned to full SHAs with version comments (`actions/checkout`, `actions/setup-node`, `changesets/action`). A compromise of those orgs cannot ship malicious code through a moving tag. Dependabot refreshes the SHAs weekly in its own PRs for review.
