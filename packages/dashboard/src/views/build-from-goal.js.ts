@@ -45,16 +45,29 @@ export const BUILD_FROM_GOAL_JS = `
     var submitBtn = document.getElementById('build-submit-btn');
     if (!submitBtn) return;
 
+    // Track the most recent goal/focus so the "Update plan" button in the
+    // Questions block can re-run the planner with appended clarifications
+    // (the original goal field is gone from the DOM by then).
+    var lastGoal = '';
+    var lastFocus = '';
+
     submitBtn.addEventListener('click', function () {
       var goalEl = document.getElementById('build-goal');
       var focusEl = document.getElementById('build-focus');
       var goal = goalEl ? goalEl.value.trim() : '';
       if (!goal) { goalEl && goalEl.focus(); return; }
       var focus = focusEl ? focusEl.value.trim() : '';
+      runPlanner(goal, focus);
+    });
 
+    function runPlanner(goal, focus) {
+      lastGoal = goal;
+      lastFocus = focus;
       var t0 = Date.now();
       var cancelled = false;
       var pollTimer = null;
+      // Lifted so wireCommit (a sibling of the .then) can reference it.
+      var runId = null;
       var PHASES = [[0,'Planning...'],[10,'Surveying installed agents...'],[25,'Drafting new agents...'],[55,'Designing dashboard...'],[90,'Almost there...']];
 
       content.innerHTML =
@@ -98,7 +111,7 @@ export const BUILD_FROM_GOAL_JS = `
           renderError(startData.error || 'Failed to start planner');
           return;
         }
-        var runId = startData.runId;
+        runId = startData.runId;
 
         function poll() {
           if (cancelled) return;
@@ -243,17 +256,24 @@ export const BUILD_FROM_GOAL_JS = `
           h += '</div>';
         }
 
-        // Questions block
+        // Questions block — answer inline + Update plan re-runs the planner
+        // with original goal + appended clarifications.
         if (plan.questions && plan.questions.length) {
           h += '<div class="card card--muted" style="padding:var(--space-2) var(--space-3);margin-bottom:var(--space-3);font-size:var(--font-size-xs);">' +
                '<div class="dim" style="font-weight:var(--weight-semibold);margin-bottom:var(--space-1);">Questions</div>';
           for (var k = 0; k < plan.questions.length; k++) {
             var q = plan.questions[k];
-            h += '<div style="margin-top:var(--space-1);">• ' + esc(q.text);
+            h += '<div style="margin-top:var(--space-1);">\\u2022 ' + esc(q.text);
             if (q.suggestedAnswer) h += ' <span class="dim">(suggested: ' + esc(q.suggestedAnswer) + ')</span>';
             h += '</div>';
           }
-          h += '<div class="dim" style="margin-top:var(--space-2);font-size:var(--font-size-xs);">To answer, append your reply to the goal and re-run.</div>' +
+          h += '<div style="margin-top:var(--space-2);">' +
+                 '<textarea id="build-answers" rows="2" placeholder="Your answers / clarifications..." ' +
+                 'style="width:100%;padding:var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);resize:vertical;"></textarea>' +
+                 '<div style="display:flex;justify-content:flex-end;margin-top:var(--space-1);">' +
+                   '<button type="button" class="btn btn--sm" id="build-update-plan">Update plan</button>' +
+                 '</div>' +
+               '</div>' +
                '</div>';
         }
 
@@ -273,6 +293,18 @@ export const BUILD_FROM_GOAL_JS = `
 
         // Stash the plan so commit can rebuild it with edited YAMLs.
         wireCommit(plan);
+
+        // "Update plan" — re-run the planner with the original goal plus
+        // any clarifications the user typed in the answers textarea.
+        var updateBtn = document.getElementById('build-update-plan');
+        if (updateBtn) {
+          updateBtn.addEventListener('click', function () {
+            var ansEl = document.getElementById('build-answers');
+            var ans = ansEl ? ansEl.value.trim() : '';
+            if (!ans) { ansEl && ansEl.focus(); return; }
+            runPlanner(lastGoal + '\\n\\nClarifications: ' + ans, lastFocus);
+          });
+        }
       }
 
       function wireCommit(plan) {
