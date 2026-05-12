@@ -392,6 +392,14 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       return '';
     });
 
+    // Whether the user confirms or refreshes, exit edit mode on the way
+    // out so coming back lands on the normal view. Edit mode is meant
+    // to be a focused arranging session, not a sticky surface state —
+    // re-entering edit mode unexpectedly on a return visit was confusing.
+    window.addEventListener('pagehide', function () {
+      saveEditMode(false);
+    });
+
     // ── Drag and drop ────────────────────────────────────────────────
     var draggedId = null;
     var draggedEl = null;
