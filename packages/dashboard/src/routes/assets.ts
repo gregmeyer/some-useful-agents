@@ -161,7 +161,13 @@ const GRAPH_RENDER_JS = `
           'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
           'font-size': 10,
           'font-weight': 600,
-          'width': 'label',
+          // Cytoscape ≥3.27 deprecates 'width: label'. Compute width from
+          // label length instead — keeps nodes hugging their text without
+          // the deprecation warning.
+          'width': function (n) {
+            var label = String(n.data('label') || '');
+            return Math.max(60, label.length * 7 + 20);
+          },
           'height': 26,
           'padding': '10px',
           'shape': function (n) {

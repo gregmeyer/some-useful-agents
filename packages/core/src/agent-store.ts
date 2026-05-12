@@ -384,6 +384,7 @@ export class AgentStore {
     if (agent.retry) dag.retry = agent.retry;
     if (agent.author !== undefined) dag.author = agent.author;
     if (agent.tags) dag.tags = agent.tags;
+    if (agent.permissions) dag.permissions = agent.permissions;
     return dag;
   }
 
@@ -428,6 +429,7 @@ export class AgentStore {
       retry: dag.retry,
       author: dag.author,
       tags: dag.tags,
+      permissions: dag.permissions,
     };
     agent.capabilities = deriveCapabilities(agent);
     return agent;
