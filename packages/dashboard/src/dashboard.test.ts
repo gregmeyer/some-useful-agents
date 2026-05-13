@@ -1513,7 +1513,7 @@ describe('Dashboard /settings/integrations', () => {
       id: 'gmail-create-draft',
       name: 'Create draft',
       description: 'Drafts a Gmail message',
-      source: 'mcp',
+      source: 'local',
       inputs: { },
       outputs: { },
       implementation: { type: 'mcp', mcpToolName: 'mcp__claude_ai_Gmail__create_draft' },
