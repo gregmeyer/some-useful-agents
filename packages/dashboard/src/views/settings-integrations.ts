@@ -1,7 +1,7 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
-export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'gmail';
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool';
 
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
@@ -11,6 +11,10 @@ export interface SettingsIntegrationsArgs {
   addError?: { kind: string; message: string; values: Record<string, string> };
   /** Optional flash banner (test-send result, etc.) rendered above the table. */
   inlineNote?: { kind: 'ok' | 'error' | 'info'; message: string };
+  /** Connected MCP servers (enabled only) — populates the mcp-tool form's server dropdown. */
+  mcpServers?: Array<{ id: string; name: string }>;
+  /** Cached MCP tools — populates the mcp-tool form's tool dropdown, keyed by server id. */
+  mcpToolsByServer?: Record<string, Array<{ name: string; description?: string }>>;
 }
 
 /**
@@ -43,7 +47,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${tab === 'slack' ? renderSlackForm(args) : unsafeHtml('')}
     ${tab === 'webhook' ? renderWebhookForm(args) : unsafeHtml('')}
     ${tab === 'file' ? renderFileForm(args) : unsafeHtml('')}
-    ${tab === 'gmail' ? renderGmailForm(args) : unsafeHtml('')}
+    ${tab === 'mcp-tool' ? renderMcpToolForm(args) : unsafeHtml('')}
   `;
 }
 
@@ -61,7 +65,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): S
       ${tab('slack', 'Slack')}
       ${tab('webhook', 'Webhook')}
       ${tab('file', 'File')}
-      ${tab('gmail', 'Gmail')}
+      ${tab('mcp-tool', 'MCP Tool')}
     </nav>
   `;
 }
@@ -128,17 +132,10 @@ function describeConfig(i: Integration): SafeHtml {
       const append = i.config.append !== false;
       return unsafeHtml(`${esc(path)} <span class="dim">(${append ? 'append' : 'overwrite'})</span>`);
     }
-    case 'gmail': {
-      const connected = typeof i.config.connected_account === 'string' && i.config.connected_account.length > 0;
-      const account = typeof i.config.connected_account === 'string' ? i.config.connected_account : '';
-      if (connected) {
-        const form = `<form action="/settings/integrations/${esc(i.id)}/disconnect" method="post" style="display: inline; margin-left: var(--space-2);">` +
-          `<button type="submit" class="btn btn--sm btn--ghost">Disconnect</button></form>`;
-        return unsafeHtml(`<span class="badge badge--ok">connected as ${esc(account)}</span>${form}`);
-      }
-      const form = `<form action="/settings/integrations/${esc(i.id)}/connect" method="post" style="display: inline; margin-left: var(--space-2);">` +
-        `<button type="submit" class="btn btn--sm">Connect Google</button></form>`;
-      return unsafeHtml(`<span class="badge badge--muted">not connected</span>${form}`);
+    case 'mcp-tool': {
+      const server = typeof i.config.server_id === 'string' ? i.config.server_id : '';
+      const tool = typeof i.config.tool_name === 'string' ? i.config.tool_name : '';
+      return unsafeHtml(`<code>${esc(server)}</code> → <code>${esc(tool)}</code>`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -223,101 +220,91 @@ function renderWebhookForm(args: SettingsIntegrationsArgs): SafeHtml {
   `;
 }
 
-function renderGmailForm(args: SettingsIntegrationsArgs): SafeHtml {
-  const err = args.addError?.kind === 'gmail' ? args.addError : undefined;
+function renderMcpToolForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'mcp-tool' ? args.addError : undefined;
   const v = err?.values ?? {};
+  const servers = args.mcpServers ?? [];
+  const toolsByServer = args.mcpToolsByServer ?? {};
+  const selectedServer = v.server_id ?? (servers[0]?.id ?? '');
+  const toolsForSelected = toolsByServer[selectedServer] ?? [];
+
+  // Encode the cached tools-by-server map for the small inline script
+  // that swaps the tool dropdown when the server changes.
+  const toolsJson = JSON.stringify(toolsByServer).replace(/</g, '\\u003c');
+
   return html`
-    ${renderGmailSetupGuide()}
     <div class="card">
-      <p class="card__title">Add Gmail integration</p>
+      <p class="card__title">Add MCP tool integration</p>
       <p class="dim">
-        Already have the client_id + client_secret in
-        <a href="/settings/secrets">Settings → Secrets</a>? Add the
-        integration here, then return to the table above and click
-        <strong>Connect Google</strong>.
+        Bind an MCP server tool you've already connected at
+        <a href="/settings/mcp-servers">Settings → MCP Servers</a> to a
+        friendly id. Notify handlers and other agents can then say
+        <code>integration: user:&lt;id&gt;</code> instead of repeating the server
+        + tool name. Auth lives with the MCP server — sua never sees the
+        underlying credentials.
       </p>
       ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      ${servers.length === 0
+        ? html`<div class="flash flash--info mb-3">No MCP servers connected. Add one at <a href="/settings/mcp-servers">Settings → MCP Servers</a> first.</div>`
+        : unsafeHtml('')}
       <form action="/settings/integrations/add" method="post" class="settings-form">
-        <input type="hidden" name="kind" value="gmail">
+        <input type="hidden" name="kind" value="mcp-tool">
         ${idAndNameFields(v)}
-        <label class="settings-form__label" for="gmail-client-id-secret">client_id secret name</label>
-        <input id="gmail-client-id-secret" name="client_id_secret" type="text" required
-          pattern="[A-Z_][A-Z0-9_]*"
-          placeholder="GMAIL_CLIENT_ID"
-          value="${v.client_id_secret ?? 'GMAIL_CLIENT_ID'}"
-          autocapitalize="off" autocorrect="off" spellcheck="false">
 
-        <label class="settings-form__label" for="gmail-client-secret-secret">client_secret secret name</label>
-        <input id="gmail-client-secret-secret" name="client_secret_secret" type="text" required
-          pattern="[A-Z_][A-Z0-9_]*"
-          placeholder="GMAIL_CLIENT_SECRET"
-          value="${v.client_secret_secret ?? 'GMAIL_CLIENT_SECRET'}"
-          autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label class="settings-form__label" for="mcp-tool-server">MCP server</label>
+        <select id="mcp-tool-server" name="server_id" required ${servers.length === 0 ? 'disabled' : ''}>
+          ${servers.map((s) => html`<option value="${s.id}" ${s.id === selectedServer ? 'selected' : ''}>${s.name} (${s.id})</option>`) as unknown as SafeHtml[]}
+        </select>
+
+        <label class="settings-form__label" for="mcp-tool-name">Tool</label>
+        <select id="mcp-tool-name" name="tool_name" required ${toolsForSelected.length === 0 ? 'disabled' : ''}>
+          ${toolsForSelected.map((t) => html`<option value="${t.name}" ${t.name === (v.tool_name ?? '') ? 'selected' : ''}>${t.name}</option>`) as unknown as SafeHtml[]}
+        </select>
+
+        <label class="settings-form__label" for="mcp-tool-default-inputs">Default inputs (JSON, optional)</label>
+        <textarea id="mcp-tool-default-inputs" name="default_inputs" rows="4"
+          placeholder='{ "to": "alerts@example.com", "subject": "Run {{run.status}}: {{agent.name}}" }'
+          style="font-family: var(--font-mono); font-size: var(--font-size-xs);">${v.default_inputs ?? ''}</textarea>
+        <p class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-1);">
+          Merged with any per-handler <code>inputs</code> at fire time;
+          inline values win. Templates: <code>{{vars.X}}</code>,
+          <code>{{agent.id}}</code>, <code>{{agent.name}}</code>, <code>{{run.id}}</code>,
+          <code>{{run.status}}</code>, <code>{{run.error}}</code>.
+        </p>
 
         <div class="settings-form__actions">
-          <button type="submit" class="btn btn--primary">Add Gmail integration</button>
+          <button type="submit" class="btn btn--primary" ${servers.length === 0 ? 'disabled' : ''}>Add MCP tool integration</button>
         </div>
       </form>
     </div>
-  `;
-}
-
-function renderGmailSetupGuide(): SafeHtml {
-  return html`
-    <details class="card" open>
-      <summary class="card__title" style="cursor: pointer;">Where do client_id and client_secret come from?</summary>
-      <p class="dim" style="margin-top: var(--space-2);">
-        <strong>Short answer:</strong> Google Cloud Console
-        (<a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a>),
-        not <code>admin.google.com</code>. admin.google.com is for Workspace administrators managing users —
-        it's a different surface that doesn't expose OAuth client creation.
-      </p>
-      <p class="dim">If you have any Google account (personal Gmail or Workspace), follow these steps:</p>
-      <ol style="font-size: var(--font-size-sm); line-height: 1.6; padding-left: var(--space-5);">
-        <li>
-          Open
-          <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">console.cloud.google.com/projectcreate</a>
-          and create a project (any name; this scopes your OAuth client + API enablement).
-        </li>
-        <li>
-          Enable the Gmail API for that project:
-          <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">apis/library/gmail.googleapis.com</a>
-          → click <strong>Enable</strong>.
-        </li>
-        <li>
-          Configure the OAuth consent screen:
-          <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener">apis/credentials/consent</a>.
-          Pick <strong>External</strong> (for personal Gmail) or <strong>Internal</strong> (Workspace only).
-          Add the scope <code>https://www.googleapis.com/auth/gmail.send</code>. Add your own email under
-          "Test users" — that keeps the app in test mode without verification, which is fine for a local-only tool.
-        </li>
-        <li>
-          Create the OAuth 2.0 Client ID:
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">apis/credentials</a>
-          → <strong>Create credentials → OAuth client ID</strong>. <em>Application type:</em>
-          <strong>Web application</strong>. Under "Authorized redirect URIs" add:
-          <code>http://127.0.0.1:3000/oauth/callback</code>
-          (adjust the port if your dashboard runs elsewhere).
-          <span class="dim" style="font-size: var(--font-size-xs);">("Desktop app" also works without registering a URI, but Web application makes the redirect explicit + auditable.)</span>
-        </li>
-        <li>
-          Click Create. Google shows the <strong>client_id</strong> + <strong>client_secret</strong>. Copy both,
-          go to <a href="/settings/secrets">Settings → Secrets</a>, and set them as
-          <code>GMAIL_CLIENT_ID</code> + <code>GMAIL_CLIENT_SECRET</code> (or any names you'll reference below).
-        </li>
-        <li>
-          Return here, add the Gmail integration with those secret names, then click <strong>Connect Google</strong>
-          on the integration row above. Google walks you through consent; sua stores only a refresh token, encrypted.
-        </li>
-      </ol>
-      <p class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-2);">
-        <strong>Why bring-your-own credentials?</strong> sua is an open-source local tool. Bundling a hosted client_id
-        would need Google's app verification (weeks of paperwork for sensitive Gmail scopes) and would route every
-        user's consent through a single Google project. Your own client keeps your OAuth identity isolated and
-        doesn't require any approval. A future release may offer a verified shared client as an opt-in;
-        for now, this is the trust-clean path.
-      </p>
-    </details>
+    ${unsafeHtml(`<script>
+      (function () {
+        var byServer = ${toolsJson};
+        var serverSel = document.getElementById('mcp-tool-server');
+        var toolSel = document.getElementById('mcp-tool-name');
+        if (!serverSel || !toolSel) return;
+        function refresh() {
+          var tools = byServer[serverSel.value] || [];
+          toolSel.innerHTML = '';
+          if (tools.length === 0) {
+            toolSel.disabled = true;
+            var opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '(no tools imported for this server)';
+            toolSel.appendChild(opt);
+            return;
+          }
+          toolSel.disabled = false;
+          tools.forEach(function (t) {
+            var opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.name;
+            toolSel.appendChild(opt);
+          });
+        }
+        serverSel.addEventListener('change', refresh);
+      })();
+    </script>`)}
   `;
 }
 

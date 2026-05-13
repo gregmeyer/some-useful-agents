@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, OauthStateStore, PlannerTelemetryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -90,12 +90,6 @@ export interface DashboardContext {
    * Optional so the dashboard boots even if the table can't be created.
    */
   integrationsStore?: IntegrationsStore;
-  /**
-   * In-memory store for in-flight OAuth flows. Each Connect click writes
-   * one entry keyed by `state`; the /oauth/callback route consumes it
-   * single-use. Process memory only — daemon restart cancels any flow.
-   */
-  oauthStateStore?: OauthStateStore;
   /**
    * Build-planner telemetry store. Records one row per planner run with
    * timing + failure-class counters; feeds `/metrics/planner`. Optional so

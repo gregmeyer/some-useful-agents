@@ -262,13 +262,11 @@ export const agentV2Schema = z.object({
         headers_secret: z.string().regex(SECRET_NAME_RE, 'headers_secret must be UPPERCASE_WITH_UNDERSCORES').optional(),
       }),
       z.object({
-        type: z.literal('gmail'),
-        /** Required — Gmail handlers always go through a saved integration
-         *  (OAuth credentials don't fit cleanly inline in YAML). */
+        type: z.literal('mcp-tool'),
+        /** Required — id of an mcp-tool integration. Server + tool come from there. */
         integration: z.string().min(1),
-        to: z.string().email(),
-        subject: z.string().min(1),
-        body: z.string().optional(),
+        /** Optional per-handler inputs, merged on top of the integration's default_inputs. */
+        inputs: z.record(z.string(), z.unknown()).optional(),
       }),
     ])).min(1, 'notify.handlers must list at least one handler'),
   }).superRefine((data, ctx) => {

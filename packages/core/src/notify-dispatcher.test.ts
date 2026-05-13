@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// Mock the MCP client so the mcp-tool handler tests can assert
+// invocations without spawning a real MCP server. vi.hoisted is the
+// official escape hatch for forward-referencing mocks from a vi.mock
+// factory; without it the factory runs before the const initialises.
+const { callMcpToolMock } = vi.hoisted(() => ({ callMcpToolMock: vi.fn() }));
+vi.mock('./mcp-client.js', () => ({ callMcpTool: callMcpToolMock }));
+
 import {
   dispatchNotify,
   buildSlackBlocks,
@@ -9,6 +17,7 @@ import {
 } from './notify-dispatcher.js';
 import { MemorySecretsStore } from './secrets-store.js';
 import { IntegrationsStore } from './integrations-store.js';
+import { ToolStore } from './tool-store.js';
 import type { Agent } from './agent-v2-types.js';
 import type { Run } from './types.js';
 
@@ -452,85 +461,6 @@ describe('integration resolution', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/kind="file" but handler is type="slack"/));
   });
 
-  it('gmail handler refreshes the token and posts to Gmail send', async () => {
-    const store = makeIntegrationsStore();
-    store.upsertIntegration({
-      id: 'user:gmail-oncall', packId: null, kind: 'gmail', name: 'Oncall Gmail',
-      config: {
-        client_id_secret: 'GMAIL_CLIENT_ID',
-        client_secret_secret: 'GMAIL_CLIENT_SECRET',
-        refresh_token_secret: 'USER_GMAIL_ONCALL__REFRESH_TOKEN',
-        connected_account: 'oncall@example.com',
-      },
-      secretRefs: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'USER_GMAIL_ONCALL__REFRESH_TOKEN'],
-    });
-    const secrets = new MemorySecretsStore();
-    await secrets.set('GMAIL_CLIENT_ID', 'cid');
-    await secrets.set('GMAIL_CLIENT_SECRET', 'csec');
-    await secrets.set('USER_GMAIL_ONCALL__REFRESH_TOKEN', 'rt-xyz');
-
-    // First fetch: token refresh; second fetch: Gmail send.
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => JSON.stringify({ access_token: 'AT', expires_in: 3600, scope: 's', token_type: 'Bearer' }) })
-      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => '{}' });
-
-    const notify: NotifyConfig = {
-      on: ['failure'],
-      handlers: [{
-        type: 'gmail',
-        integration: 'user:gmail-oncall',
-        to: 'someone@example.com',
-        subject: 'Run failed',
-      }],
-    };
-    const result = await dispatchNotify(notify, {
-      agent: makeAgent(),
-      run: makeRun(),
-      integrationsStore: store,
-      secretsStore: secrets,
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      logger: silentLogger,
-    });
-    expect(result.succeeded).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [tokenUrl, tokenInit] = fetchMock.mock.calls[0];
-    expect(String(tokenUrl)).toContain('oauth2.googleapis.com/token');
-    expect(String(tokenInit.body)).toContain('refresh_token=rt-xyz');
-    const [sendUrl, sendInit] = fetchMock.mock.calls[1];
-    expect(String(sendUrl)).toContain('gmail.googleapis.com');
-    expect(sendInit.headers.Authorization).toBe('Bearer AT');
-    const sendBody = JSON.parse(sendInit.body as string);
-    expect(typeof sendBody.raw).toBe('string');
-    const decoded = Buffer.from(sendBody.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8');
-    expect(decoded).toContain('To: someone@example.com');
-    expect(decoded).toContain('Subject: Run failed');
-    expect(decoded).toContain('From: oncall@example.com');
-  });
-
-  it('gmail handler reports a missing-connection error when refresh_token_secret is absent', async () => {
-    const store = makeIntegrationsStore();
-    store.upsertIntegration({
-      id: 'user:gmail-half', packId: null, kind: 'gmail', name: 'Half-Configured',
-      config: { client_id_secret: 'GMAIL_CLIENT_ID', client_secret_secret: 'GMAIL_CLIENT_SECRET' },
-      secretRefs: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    });
-    const warn = vi.fn();
-    const fetchMock = vi.fn();
-    const notify: NotifyConfig = {
-      on: ['failure'],
-      handlers: [{ type: 'gmail', integration: 'user:gmail-half', to: 'a@b.example.com', subject: 's' }],
-    };
-    const result = await dispatchNotify(notify, {
-      agent: makeAgent(), run: makeRun(),
-      integrationsStore: store,
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      logger: { warn },
-    });
-    expect(result.succeeded).toBe(0);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not connected/));
-  });
-
   it('pulls integration secret refs into the resolution bag even when notify.secrets omits them', async () => {
     const store = makeIntegrationsStore();
     store.upsertIntegration({
@@ -557,5 +487,127 @@ describe('integration resolution', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe('Bearer shhhhh');
+  });
+});
+
+describe('mcp-tool handler', () => {
+  function makeStores() {
+    const integrationsStore = new IntegrationsStore(join(dir, 'runs.db'));
+    const toolStore = new ToolStore(join(dir, 'runs.db'));
+    return { integrationsStore, toolStore };
+  }
+
+  beforeEach(() => {
+    callMcpToolMock.mockReset();
+  });
+
+  it('resolves integration → calls callMcpTool with merged + templated inputs', async () => {
+    const { integrationsStore, toolStore } = makeStores();
+    toolStore.upsertMcpServer({
+      id: 'claude-ai-gmail', name: 'Claude.ai Gmail',
+      transport: 'http', url: 'https://example.invalid/mcp', enabled: true,
+    });
+    integrationsStore.upsertIntegration({
+      id: 'user:gmail-via-mcp', packId: null, kind: 'mcp-tool', name: 'Gmail via Claude MCP',
+      config: {
+        server_id: 'claude-ai-gmail',
+        tool_name: 'mcp__claude_ai_Gmail__create_draft',
+        default_inputs: { to: 'ops@example.com', subject: '[sua] {{agent.id}} {{run.status}}' },
+      },
+      secretRefs: [],
+    });
+    callMcpToolMock.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] });
+
+    const notify: NotifyConfig = {
+      on: ['failure'],
+      handlers: [{
+        type: 'mcp-tool',
+        integration: 'user:gmail-via-mcp',
+        inputs: { body: 'Run {{run.id}} failed: {{run.error}}' },
+      }],
+    };
+    const result = await dispatchNotify(notify, {
+      agent: makeAgent({ id: 'health-check' }),
+      run: makeRun({ id: 'run-99', error: 'boom' }),
+      integrationsStore,
+      toolStore,
+      logger: silentLogger,
+    });
+
+    expect(result.fired).toBe(1);
+    expect(result.succeeded).toBe(1);
+    expect(callMcpToolMock).toHaveBeenCalledTimes(1);
+    const [impl, inputs] = callMcpToolMock.mock.calls[0];
+    expect(impl.type).toBe('mcp');
+    expect(impl.mcpTransport).toBe('http');
+    expect(impl.mcpUrl).toBe('https://example.invalid/mcp');
+    expect(impl.mcpToolName).toBe('mcp__claude_ai_Gmail__create_draft');
+    // Default + handler inputs merged; template vars substituted.
+    expect(inputs).toEqual({
+      to: 'ops@example.com',
+      subject: '[sua] health-check failed',
+      body: 'Run run-99 failed: boom',
+    });
+  });
+
+  it('handler.inputs win over integration default_inputs', async () => {
+    const { integrationsStore, toolStore } = makeStores();
+    toolStore.upsertMcpServer({ id: 's1', name: 'S1', transport: 'stdio', command: 'node', args: ['x'], enabled: true });
+    integrationsStore.upsertIntegration({
+      id: 'user:i', packId: null, kind: 'mcp-tool', name: 'I',
+      config: { server_id: 's1', tool_name: 'send', default_inputs: { to: 'default@x.com', subject: 'd' } },
+      secretRefs: [],
+    });
+    callMcpToolMock.mockResolvedValueOnce({});
+
+    await dispatchNotify(
+      { on: ['failure'], handlers: [{ type: 'mcp-tool', integration: 'user:i', inputs: { to: 'override@x.com' } }] },
+      { agent: makeAgent(), run: makeRun(), integrationsStore, toolStore, logger: silentLogger },
+    );
+    const [, inputs] = callMcpToolMock.mock.calls[0];
+    expect(inputs.to).toBe('override@x.com');
+    expect(inputs.subject).toBe('d');
+  });
+
+  it('skips and logs when the server is disabled', async () => {
+    const { integrationsStore, toolStore } = makeStores();
+    toolStore.upsertMcpServer({ id: 's1', name: 'S1', transport: 'stdio', command: 'x', enabled: false });
+    integrationsStore.upsertIntegration({
+      id: 'user:i', packId: null, kind: 'mcp-tool', name: 'I',
+      config: { server_id: 's1', tool_name: 'send' }, secretRefs: [],
+    });
+    const warn = vi.fn();
+    await dispatchNotify(
+      { on: ['failure'], handlers: [{ type: 'mcp-tool', integration: 'user:i' }] },
+      { agent: makeAgent(), run: makeRun(), integrationsStore, toolStore, logger: { warn } },
+    );
+    expect(callMcpToolMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/disabled/));
+  });
+
+  it('skips and logs when the integration row is missing', async () => {
+    const { integrationsStore, toolStore } = makeStores();
+    const warn = vi.fn();
+    await dispatchNotify(
+      { on: ['failure'], handlers: [{ type: 'mcp-tool', integration: 'user:ghost' }] },
+      { agent: makeAgent(), run: makeRun(), integrationsStore, toolStore, logger: { warn } },
+    );
+    expect(callMcpToolMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not found/));
+  });
+
+  it('skips and logs when toolStore is not provided', async () => {
+    const { integrationsStore } = makeStores();
+    integrationsStore.upsertIntegration({
+      id: 'user:i', packId: null, kind: 'mcp-tool', name: 'I',
+      config: { server_id: 's1', tool_name: 'send' }, secretRefs: [],
+    });
+    const warn = vi.fn();
+    await dispatchNotify(
+      { on: ['failure'], handlers: [{ type: 'mcp-tool', integration: 'user:i' }] },
+      { agent: makeAgent(), run: makeRun(), integrationsStore, logger: { warn } },
+    );
+    expect(callMcpToolMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/toolStore/));
   });
 });
