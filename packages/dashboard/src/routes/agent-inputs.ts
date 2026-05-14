@@ -278,6 +278,28 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && replayLabel ? { replayLabel } : {}),
     };
   } else {
+    // Typed widgets (dashboard / key-value / diff-apply / raw) are
+    // useless without fields — they render three empty divs and the
+    // widget extractor has nothing to populate. Silently accepting
+    // an empty `fields[]` has bitten us before: switching widgetType
+    // from `ai-template` back to `dashboard` shows an empty field
+    // table, and clicking Save here used to wipe the previously-saved
+    // fields. Fail loudly with a clear message instead. The user can
+    // either add a field row or use the Remove button to delete the
+    // widget entirely.
+    if (fields.length === 0) {
+      const existingCount = agent.outputWidget?.fields?.length ?? 0;
+      const hint = existingCount > 0
+        ? ` The previous version had ${existingCount} field${existingCount === 1 ? '' : 's'} — they were dropped because the form posted no rows.`
+        : '';
+      res.redirect(
+        303,
+        `/agents/${encodeURIComponent(agent.id)}/output-widget?flash=${encodeURIComponent(
+          `Add at least one field for "${widgetType}", or click Remove output widget to delete it entirely.${hint}`,
+        )}`,
+      );
+      return;
+    }
     outputWidget = {
       type: widgetType as OutputWidgetType,
       fields,
