@@ -7,6 +7,9 @@ import {
   AgentStore,
   RunStore,
   EncryptedFileStore,
+  IntegrationsStore,
+  VariablesStore,
+  ToolStore,
   loadAgents,
   executeAgentDag,
   executeAgentWithRetry,
@@ -290,6 +293,22 @@ workflowCommand
     const config = loadConfig();
     const stores = openStores();
     const secretsStore = new EncryptedFileStore(getSecretsPath(config));
+    // Optional stores — mirror the daemon's schedule wiring so CLI runs
+    // can resolve csv/postgres/sqlite generated tools, vars, and user
+    // tools the same way scheduled fires can. Each open is best-effort:
+    // an absent store just means that feature doesn't resolve.
+    const variablesStore = (() => {
+      try { return new VariablesStore(join(config.dataDir, '.sua', 'variables.json')); }
+      catch { return undefined; }
+    })();
+    const integrationsStore = (() => {
+      try { return new IntegrationsStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
+    const toolStore = (() => {
+      try { return new ToolStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
     const spinner = ora(`Running ${ui.agent(id)}...`).start();
     try {
       const agent = stores.agents.getAgent(id);
@@ -305,6 +324,9 @@ workflowCommand
           runStore: stores.runs,
           secretsStore,
           agentStore: stores.agents,
+          variablesStore,
+          integrationsStore,
+          toolStore,
           allowUntrustedShell: new Set(options.allowUntrustedShell),
           dashboardBaseUrl: getDashboardBaseUrl(config),
           dataRoot: stores.agents.dataRoot,
