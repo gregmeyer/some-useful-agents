@@ -100,6 +100,16 @@ export {
   type PgConnectionConfig,
 } from './integrations/postgres-driver.js';
 export {
+  inferSqliteSnapshot,
+  closeSqliteDatabase,
+  closeAllSqliteDatabases,
+  type SqliteSnapshot,
+  type SqliteTableSpec,
+  type SqliteColumnSpec,
+  type SqliteColumnType,
+  type SqliteConnectionConfig,
+} from './integrations/sqlite-driver.js';
+export {
   listGeneratedTools,
   getGeneratedTool,
   csvReadToolId,
@@ -107,6 +117,9 @@ export {
   pgFindToolId,
   pgFindOneToolId,
   pgCountToolId,
+  sqliteFindToolId,
+  sqliteFindOneToolId,
+  sqliteCountToolId,
   integrationSlug,
 } from './integrations/generated-tools.js';
 export {
