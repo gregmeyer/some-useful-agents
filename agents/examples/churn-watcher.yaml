@@ -1,0 +1,101 @@
+# Showcase agent: SQLite integration + auto-generated tools + claude-code
+# summary + dashboard metric widget. The whole "your database is now an API"
+# pipeline in one agent.
+#
+# Setup (one-time):
+#   1. Open the dashboard → Settings → Integrations → SQLite.
+#   2. ID slug: `churn-customers`  (must match the tool refs below).
+#   3. Path:    `agents/examples/data/churn-customers.db`
+#   4. Add. sua introspects the file and synthesises three tools per
+#      table — this agent uses two of them.
+#
+# Regenerate the seed file any time with:
+#   bash agents/examples/data/make-churn-db.sh
+#
+# Run: sua workflow run churn-watcher
+id: churn-watcher
+name: Churn watcher
+description: >
+  Daily roundup of churned customers, read straight from a local SQLite
+  file via PR 4.E's auto-generated find/count tools. Pairs with an LLM
+  summary node and a dashboard metric tile. No external services
+  required.
+status: active
+source: examples
+
+schedule: "0 9 * * *"
+
+signal:
+  title: Churn
+  icon: "\U0001F4C9"
+  format: json
+  template: metric
+  mapping:
+    value: total_churned
+    label: Churned (all-time)
+    delta: recent_count
+  refresh: 24h
+  size: 2x1
+  accent: orange
+
+outputWidget:
+  type: dashboard
+  fields:
+    - name: total_churned
+      label: Churned (all-time)
+      type: metric
+    - name: recent_count
+      label: Churned (recent batch)
+      type: stat
+    - name: summary
+      label: Notes
+      type: text
+
+nodes:
+  # 1. Pull the most-recent churn rows. The tool id encodes the
+  #    integration slug + table + verb; sua synthesises it from the
+  #    snapshot taken when you added the integration. PR 4.C will fail
+  #    `save` if you typo a column name in the prompt below.
+  - id: recent
+    type: shell
+    tool: sqlite.churn-customers.customers.find
+    toolInputs:
+      where:
+        status: churned
+      order_by: churned_at DESC
+      limit: 10
+
+  # 2. Parallel COUNT(*) — independent of `recent`, runs concurrently.
+  - id: total
+    type: shell
+    tool: sqlite.churn-customers.customers.count
+    toolInputs:
+      where:
+        status: churned
+
+  # 3. LLM summary. Reads structured upstream output (no JSON parsing
+  #    in the prompt — sua splices fields directly). The final line
+  #    is a JSON object so the dashboard widget can read `total_churned`,
+  #    `recent_count`, and `summary` fields.
+  - id: summarise
+    type: claude-code
+    dependsOn: [recent, total]
+    prompt: |
+      You are reviewing today's churn batch for a SaaS company.
+
+      Recent churned customers (newest first):
+      {{upstream.recent.result}}
+
+      All-time churned count: {{upstream.total.count}}
+      Rows in this batch:     {{upstream.recent.row_count}}
+
+      Write a tight 3-bullet brief covering:
+        - who churned today (emails, plans)
+        - common themes in the `reason` column
+        - one concrete suggested follow-up
+
+      Then on the LAST line, emit ONLY a single JSON object with keys
+      `total_churned` (number), `recent_count` (number), and `summary`
+      (string with the bullets joined by " — "). No prose after the JSON.
+    maxTurns: 1
+    timeout: 60
