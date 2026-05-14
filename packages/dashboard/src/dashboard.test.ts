@@ -435,6 +435,28 @@ describe('Dashboard static assets', () => {
     // The minified bundle starts with a short license block or IIFE.
     expect(res.text.length).toBeGreaterThan(10000); // should be ~100KB
   });
+
+  it('serves a real /assets/dashboard.css (no missing-file stubs)', async () => {
+    // Pins the contract that the CSS bundler resolved every source file —
+    // either from dist/assets (after `npm run build`) or via the src/
+    // fallback. A regression where bare `tsc` skips copy-assets.mjs would
+    // surface as five `/* missing */` lines and a styleless dashboard.
+    const app = await makeApp();
+    const res = await request(app).get('/assets/dashboard.css')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/css/);
+    expect(res.text).not.toMatch(/\/\* missing /);
+    // Sanity-check that real content from each source file is present.
+    expect(res.text).toContain('---- tokens.css ----');
+    expect(res.text).toContain('---- base.css ----');
+    expect(res.text).toContain('---- components.css ----');
+    expect(res.text).toContain('---- screens.css ----');
+    expect(res.text).toContain('---- themes.css ----');
+    // tokens.css declares :root design-token variables — assert at least
+    // one made it through so this isn't trivially passing on empty files.
+    expect(res.text).toMatch(/:root[\s\S]*--color-/);
+  });
 });
 
 describe('Dashboard help + tutorial', () => {

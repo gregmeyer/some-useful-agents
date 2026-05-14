@@ -55,22 +55,48 @@ const CYTOSCAPE_JS = CYTOSCAPE_PATH ? readFileSync(CYTOSCAPE_PATH, 'utf-8') : ''
 /**
  * Read and concatenate the dashboard CSS files at startup. Order matters:
  *   tokens (:root vars) → base (element defaults) → components → screens
- * Files are copied from src/assets/ to dist/assets/ by
- * scripts/copy-assets.mjs during the build.
+ *
+ * Lookup order per file:
+ *   1. `<here>/../assets/<name>.css` — the sibling-of-routes layout. Works
+ *      both for the production `dist/routes → dist/assets` shape (after
+ *      `scripts/copy-assets.mjs` runs) AND for `src/routes → src/assets`
+ *      (where the source files live).
+ *   2. `<here>/../../src/assets/<name>.css` — dev-mode fallback when the
+ *      module loaded from `dist/routes/` but copy-assets didn't run
+ *      (e.g. someone invoked bare `tsc --build` instead of `npm run
+ *      build`). Without this fallback the dashboard boots and serves
+ *      a styleless page; with it, the dev workflow stays robust.
+ *
+ * If every file is missing the function throws — a styleless dashboard
+ * is worse than a clear startup failure that names the problem.
  */
 function loadDashboardCss(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // Works from dist/routes/ (../assets) and from src/routes/ during tests
-  // (../assets too). The copy-assets script keeps both in sync.
-  const assetsDir = join(here, '..', 'assets');
+  const primaryDir = join(here, '..', 'assets');                  // dist/assets OR src/assets
+  const fallbackDir = join(here, '..', '..', 'src', 'assets');    // src/assets when serving from dist
   const order = ['tokens.css', 'base.css', 'components.css', 'screens.css', 'themes.css'];
-  return order
-    .map((name) => {
-      const path = join(assetsDir, name);
-      if (!existsSync(path)) return `/* missing ${name} */`;
-      return `/* ---- ${name} ---- */\n${readFileSync(path, 'utf-8')}`;
-    })
-    .join('\n');
+  const parts: string[] = [];
+  let foundAny = false;
+  for (const name of order) {
+    const primary = join(primaryDir, name);
+    const fallback = join(fallbackDir, name);
+    const path = existsSync(primary) ? primary : existsSync(fallback) ? fallback : undefined;
+    if (!path) {
+      parts.push(`/* missing ${name} */`);
+      continue;
+    }
+    foundAny = true;
+    parts.push(`/* ---- ${name} ---- */\n${readFileSync(path, 'utf-8')}`);
+  }
+  if (!foundAny) {
+    // Hard fail — better than a silently-broken dashboard. Names the
+    // most common cause so the operator knows what to do.
+    throw new Error(
+      `Dashboard CSS source files not found (looked in ${primaryDir} and ${fallbackDir}). ` +
+      `If you built with bare \`tsc\`, re-run \`npm run build\` so scripts/copy-assets.mjs copies src/assets → dist/assets.`,
+    );
+  }
+  return parts.join('\n');
 }
 
 const DASHBOARD_CSS = loadDashboardCss();
