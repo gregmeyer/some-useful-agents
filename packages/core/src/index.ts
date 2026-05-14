@@ -71,6 +71,22 @@ export {
   type IntegrationKind,
 } from './integrations-store.js';
 export {
+  inferCsvSnapshot,
+  readCsvRows,
+  countCsvRows,
+  parseCsv,
+  type CsvSnapshot,
+  type CsvColumnSpec,
+  type CsvColumnType,
+} from './integrations/csv-driver.js';
+export {
+  listGeneratedTools,
+  getGeneratedTool,
+  csvReadToolId,
+  csvCountToolId,
+  integrationSlug,
+} from './integrations/generated-tools.js';
+export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,
   type PlannerTelemetryStats,

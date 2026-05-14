@@ -30,6 +30,7 @@ import type { VariablesStore } from './variables-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
+import { getGeneratedTool } from './integrations/generated-tools.js';
 import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, type PolicyDocument, type PolicyEvaluationRequest } from './policy-store.js';
 import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
@@ -695,7 +696,14 @@ export async function executeAgentDag(
     // same spawn path as v0.15 nodes. Nodes without a tool field fall
     // through to the legacy spawn path directly (backcompat).
     const toolId = resolveToolId(node);
-    const builtinEntry = toolId ? getBuiltinTool(toolId) : undefined;
+    // Tool lookup order: hard-coded built-ins → connector-generated
+    // (csv per-integration tools today) → user tools from the store.
+    // Generated tools share the BuiltinToolEntry shape so the existing
+    // builtin dispatch path handles them with zero new branches.
+    const builtinEntry = toolId
+      ? (getBuiltinTool(toolId)
+        ?? (deps.integrationsStore ? getGeneratedTool(deps.integrationsStore, toolId) : undefined))
+      : undefined;
 
     // PR B (tool policies): single seam that every tool-execute path
     // crosses. The stub always allows; PR C wires real allow/deny logic

@@ -1549,6 +1549,36 @@ describe('Dashboard /settings/integrations', () => {
     expect(bad.headers.location).toMatch(/not(\+|%20)imported(\+|%20)under(\+|%20)server/);
   });
 
+  it('CSV add path introspects the file + persists the snapshot on the row', async () => {
+    const app = await makeApp();
+    const csvPath = join(dir, 'customers.csv');
+    writeFileSync(csvPath, [
+      'id,active,email',
+      '1,true,a@x.com',
+      '2,false,b@x.com',
+    ].join('\n'), 'utf-8');
+    const add = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'csv', id: 'customers', name: 'Customers', path: csvPath });
+    expect(add.status).toBe(303);
+    expect(add.headers.location).toContain('Added%20csv%20integration');
+
+    const list = await request(app).get('/settings/integrations?tab=csv')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(list.text).toContain('user:customers');
+    expect(list.text).toContain('3 cols');
+    expect(list.text).toContain('2 rows');
+  });
+
+  it('CSV add rejects a missing path with a helpful flash', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'csv', id: 'gone', name: 'G', path: '/no/such/file.csv' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/Could(\+|%20)not(\+|%20)read(\+|%20)CSV/);
+  });
+
   it('adds a Slack integration via POST and lists it', async () => {
     const app = await makeApp();
     const add = await request(app).post('/settings/integrations/add')
