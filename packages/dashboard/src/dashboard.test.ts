@@ -1579,6 +1579,24 @@ describe('Dashboard /settings/integrations', () => {
     expect(res.headers.location).toMatch(/Could(\+|%20)not(\+|%20)read(\+|%20)CSV/);
   });
 
+  it('Postgres tab renders with a setup hint', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/integrations?tab=postgres')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Add Postgres integration');
+    expect(res.text).toContain('information_schema');
+  });
+
+  it('Postgres add rejects when the connection-string secret is unset', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/settings/integrations/add')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ kind: 'postgres', id: 'main-db', name: 'Main DB', url_secret: 'DATABASE_URL', schemas: 'public' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/Secret(\+|%20)%22DATABASE_URL%22(\+|%20)is(\+|%20)not(\+|%20)set/);
+  });
+
   it('adds a Slack integration via POST and lists it', async () => {
     const app = await makeApp();
     const add = await request(app).post('/settings/integrations/add')

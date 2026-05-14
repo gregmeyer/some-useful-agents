@@ -697,12 +697,16 @@ export async function executeAgentDag(
     // through to the legacy spawn path directly (backcompat).
     const toolId = resolveToolId(node);
     // Tool lookup order: hard-coded built-ins → connector-generated
-    // (csv per-integration tools today) → user tools from the store.
-    // Generated tools share the BuiltinToolEntry shape so the existing
-    // builtin dispatch path handles them with zero new branches.
+    // (csv + postgres per-integration tools) → user tools from the
+    // store. Generated tools share the BuiltinToolEntry shape so the
+    // existing builtin dispatch path handles them with zero new
+    // branches. Postgres tools resolve their DSN from secretsStore at
+    // execute time; CSV ignores it.
     const builtinEntry = toolId
       ? (getBuiltinTool(toolId)
-        ?? (deps.integrationsStore ? getGeneratedTool(deps.integrationsStore, toolId) : undefined))
+        ?? (deps.integrationsStore
+          ? getGeneratedTool(deps.integrationsStore, toolId, { secretsStore: deps.secretsStore })
+          : undefined))
       : undefined;
 
     // PR B (tool policies): single seam that every tool-execute path

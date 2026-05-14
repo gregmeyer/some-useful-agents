@@ -80,10 +80,27 @@ export {
   type CsvColumnType,
 } from './integrations/csv-driver.js';
 export {
+  inferPostgresSnapshot,
+  findRows,
+  findOneRow,
+  countRows,
+  mapColumnType,
+  closePostgresPool,
+  closeAllPostgresPools,
+  type PgSnapshot,
+  type PgTableSpec,
+  type PgColumnSpec,
+  type PgColumnType,
+  type PgConnectionConfig,
+} from './integrations/postgres-driver.js';
+export {
   listGeneratedTools,
   getGeneratedTool,
   csvReadToolId,
   csvCountToolId,
+  pgFindToolId,
+  pgFindOneToolId,
+  pgCountToolId,
   integrationSlug,
 } from './integrations/generated-tools.js';
 export {

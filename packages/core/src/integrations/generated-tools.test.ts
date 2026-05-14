@@ -125,3 +125,81 @@ describe('tool id helpers', () => {
     expect(csvCountToolId({ id: 'pack-foo:orders' })).toBe('csv.orders.count');
   });
 });
+
+describe('postgres tool synthesis', () => {
+  function seedPostgres() {
+    store.upsertIntegration({
+      id: 'user:main-db',
+      packId: null,
+      kind: 'postgres',
+      name: 'Main DB',
+      config: {
+        url_secret: 'DATABASE_URL',
+        schemas: ['public'],
+        schema: {
+          tables: {
+            'public.users': {
+              schema: 'public',
+              name: 'users',
+              primaryKey: 'id',
+              columns: [
+                { name: 'id', pgType: 'integer', type: 'number', nullable: false },
+                { name: 'email', pgType: 'text', type: 'string', nullable: true },
+                { name: 'created_at', pgType: 'timestamp with time zone', type: 'string', format: 'timestamp', nullable: false },
+              ],
+            },
+            'public.orders': {
+              schema: 'public',
+              name: 'orders',
+              primaryKey: 'id',
+              columns: [
+                { name: 'id', pgType: 'bigint', type: 'number', nullable: false },
+                { name: 'user_id', pgType: 'integer', type: 'number', nullable: false },
+                { name: 'total', pgType: 'numeric', type: 'number', nullable: false },
+              ],
+            },
+          },
+          introspectedAt: '2026-05-13T00:00:00Z',
+        },
+      },
+      secretRefs: ['DATABASE_URL'],
+    });
+  }
+
+  it('synthesises find / find-one / count per table', () => {
+    seedPostgres();
+    const tools = listGeneratedTools(store);
+    const ids = Array.from(tools.keys()).filter((k) => k.startsWith('postgres.')).sort();
+    expect(ids).toEqual([
+      'postgres.main-db.orders.count',
+      'postgres.main-db.orders.find',
+      'postgres.main-db.orders.find-one',
+      'postgres.main-db.users.count',
+      'postgres.main-db.users.find',
+      'postgres.main-db.users.find-one',
+    ]);
+  });
+
+  it('resolves a single postgres tool by id', () => {
+    seedPostgres();
+    const find = getGeneratedTool(store, 'postgres.main-db.users.find');
+    expect(find).toBeDefined();
+    expect(find!.definition.source).toBe('builtin');
+    expect(find!.definition.outputs.rows.type).toBe('array');
+    expect(find!.definition.inputs.where.type).toBe('object');
+    expect(find!.definition.inputs.order_by.type).toBe('string');
+  });
+
+  it('returns undefined for unknown postgres tool ids', () => {
+    seedPostgres();
+    expect(getGeneratedTool(store, 'postgres.main-db.nope.find')).toBeUndefined();
+    expect(getGeneratedTool(store, 'postgres.unknown.users.find')).toBeUndefined();
+    expect(getGeneratedTool(store, 'postgres.main-db.users.unknown')).toBeUndefined();
+  });
+
+  it('execute throws a clear error when secretsStore is missing', async () => {
+    seedPostgres();
+    const find = getGeneratedTool(store, 'postgres.main-db.users.find')!;
+    await expect(find.execute({}, {})).rejects.toThrow(/secretsStore/);
+  });
+});

@@ -20,6 +20,7 @@
  */
 
 import type { Integration, IntegrationsStore } from '../integrations-store.js';
+import type { SecretsStore } from '../secrets-store.js';
 import type {
   BuiltinToolEntry,
   ToolDefinition,
@@ -27,11 +28,18 @@ import type {
   ToolOutputField,
 } from '../tool-types.js';
 import {
-  inferCsvSnapshot,
   readCsvRows,
   countCsvRows,
   type CsvSnapshot,
 } from './csv-driver.js';
+import {
+  findRows,
+  findOneRow,
+  countRows,
+  type PgSnapshot,
+  type PgTableSpec,
+  type PgConnectionConfig,
+} from './postgres-driver.js';
 
 /**
  * Strip the `<owner>:` prefix from an integration id to get the
@@ -49,6 +57,28 @@ export function csvReadToolId(integration: Pick<Integration, 'id'>): string {
 export function csvCountToolId(integration: Pick<Integration, 'id'>): string {
   return `csv.${integrationSlug(integration.id)}.count`;
 }
+export function pgFindToolId(integration: Pick<Integration, 'id'>, schema: string, table: string): string {
+  const tablePart = schema === 'public' ? table : `${schema}.${table}`;
+  return `postgres.${integrationSlug(integration.id)}.${tablePart}.find`;
+}
+export function pgFindOneToolId(integration: Pick<Integration, 'id'>, schema: string, table: string): string {
+  const tablePart = schema === 'public' ? table : `${schema}.${table}`;
+  return `postgres.${integrationSlug(integration.id)}.${tablePart}.find-one`;
+}
+export function pgCountToolId(integration: Pick<Integration, 'id'>, schema: string, table: string): string {
+  const tablePart = schema === 'public' ? table : `${schema}.${table}`;
+  return `postgres.${integrationSlug(integration.id)}.${tablePart}.count`;
+}
+
+/**
+ * Synthesis options shared by every kind. `secretsStore` is required
+ * for kinds that read DSNs from the encrypted store (postgres). CSV
+ * doesn't need it — passing undefined just means postgres tools
+ * resolve to a "secrets store unavailable" error at execute time.
+ */
+export interface GeneratedToolDeps {
+  secretsStore?: SecretsStore;
+}
 
 /**
  * Walk every csv integration in the store and synthesise both tools
@@ -58,18 +88,17 @@ export function csvCountToolId(integration: Pick<Integration, 'id'>): string {
  * Cheap to call — no file I/O happens here. The snapshot read at
  * tool execute time is the only disk hit.
  */
-export function listGeneratedTools(store: IntegrationsStore): Map<string, BuiltinToolEntry> {
+export function listGeneratedTools(
+  store: IntegrationsStore,
+  deps: GeneratedToolDeps = {},
+): Map<string, BuiltinToolEntry> {
   const out = new Map<string, BuiltinToolEntry>();
   for (const integ of store.listIntegrations()) {
-    if (integ.kind !== 'csv') continue;
-    const snapshot = readSnapshotFromIntegration(integ);
-    if (!snapshot) continue;
-    const path = typeof integ.config.path === 'string' ? (integ.config.path as string) : undefined;
-    if (!path) continue;
-    const readEntry = buildReadEntry(integ, path, snapshot);
-    const countEntry = buildCountEntry(integ, path, snapshot);
-    out.set(readEntry.definition.id, readEntry);
-    out.set(countEntry.definition.id, countEntry);
+    if (integ.kind === 'csv') {
+      addCsvEntries(out, integ);
+    } else if (integ.kind === 'postgres') {
+      addPostgresEntries(out, integ, deps);
+    }
   }
   return out;
 }
@@ -81,41 +110,141 @@ export function listGeneratedTools(store: IntegrationsStore): Map<string, Builti
 export function getGeneratedTool(
   store: IntegrationsStore,
   toolId: string,
+  deps: GeneratedToolDeps = {},
 ): BuiltinToolEntry | undefined {
-  // Tool ids look like `csv.<slug>.<verb>`. Reject anything else fast.
-  if (!toolId.startsWith('csv.')) return undefined;
+  if (toolId.startsWith('csv.')) return resolveCsvTool(store, toolId);
+  if (toolId.startsWith('postgres.')) return resolvePostgresTool(store, toolId, deps);
+  return undefined;
+}
+
+// ── CSV resolution ─────────────────────────────────────────────────────
+
+function addCsvEntries(out: Map<string, BuiltinToolEntry>, integ: Integration): void {
+  const snapshot = readCsvSnapshot(integ);
+  if (!snapshot) return;
+  const path = typeof integ.config.path === 'string' ? (integ.config.path as string) : undefined;
+  if (!path) return;
+  const readEntry = buildReadEntry(integ, path, snapshot);
+  const countEntry = buildCountEntry(integ, path, snapshot);
+  out.set(readEntry.definition.id, readEntry);
+  out.set(countEntry.definition.id, countEntry);
+}
+
+function resolveCsvTool(store: IntegrationsStore, toolId: string): BuiltinToolEntry | undefined {
   const rest = toolId.slice(4);
   const lastDot = rest.lastIndexOf('.');
   if (lastDot <= 0) return undefined;
   const slug = rest.slice(0, lastDot);
   const verb = rest.slice(lastDot + 1);
   if (verb !== 'read' && verb !== 'count') return undefined;
-
-  // Try the user namespace first (the only one the dashboard creates today).
-  // If pack-installed integrations land later they'd add another lookup.
   const integ = store.getIntegration(`user:${slug}`);
   if (!integ || integ.kind !== 'csv') return undefined;
-  const snapshot = readSnapshotFromIntegration(integ);
+  const snapshot = readCsvSnapshot(integ);
   if (!snapshot) return undefined;
   const path = typeof integ.config.path === 'string' ? (integ.config.path as string) : undefined;
   if (!path) return undefined;
   return verb === 'read' ? buildReadEntry(integ, path, snapshot) : buildCountEntry(integ, path, snapshot);
 }
 
+// ── Postgres resolution ────────────────────────────────────────────────
+
+function addPostgresEntries(
+  out: Map<string, BuiltinToolEntry>,
+  integ: Integration,
+  deps: GeneratedToolDeps,
+): void {
+  const snapshot = readPgSnapshot(integ);
+  if (!snapshot) return;
+  for (const table of Object.values(snapshot.tables)) {
+    const find = buildPgFindEntry(integ, table, deps);
+    const findOne = buildPgFindOneEntry(integ, table, deps);
+    const count = buildPgCountEntry(integ, table, deps);
+    out.set(find.definition.id, find);
+    out.set(findOne.definition.id, findOne);
+    out.set(count.definition.id, count);
+  }
+}
+
+function resolvePostgresTool(
+  store: IntegrationsStore,
+  toolId: string,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry | undefined {
+  // Format: postgres.<integration-slug>.[<schema>.]<table>.<verb>
+  // We split on dots from the right: <verb> last, then walk backwards
+  // until we find a known integration id.
+  const rest = toolId.slice('postgres.'.length);
+  const parts = rest.split('.');
+  if (parts.length < 3) return undefined;
+  const verb = parts[parts.length - 1];
+  if (verb !== 'find' && verb !== 'find-one' && verb !== 'count') return undefined;
+  // The integration slug is the first part. Everything between
+  // [slug] and [verb] is the table reference (with optional schema dot).
+  const slug = parts[0];
+  const tableParts = parts.slice(1, parts.length - 1);
+  if (tableParts.length === 0) return undefined;
+  const integ = store.getIntegration(`user:${slug}`);
+  if (!integ || integ.kind !== 'postgres') return undefined;
+  const snapshot = readPgSnapshot(integ);
+  if (!snapshot) return undefined;
+  const tableKey = tableParts.length === 1 ? `public.${tableParts[0]}` : tableParts.join('.');
+  const table = snapshot.tables[tableKey];
+  if (!table) return undefined;
+  if (verb === 'find') return buildPgFindEntry(integ, table, deps);
+  if (verb === 'find-one') return buildPgFindOneEntry(integ, table, deps);
+  return buildPgCountEntry(integ, table, deps);
+}
+
 // ── Snapshot helpers ───────────────────────────────────────────────────
 
 /**
- * Pull the snapshot off an integration row. Returns undefined when
+ * Pull the CSV snapshot off an integration row. Returns undefined when
  * absent — the synthesiser silently skips integrations whose snapshot
  * was never recorded (the dashboard runs `inferCsvSnapshot` at
  * add-time, so this should be rare; tolerate it for forward compat).
  */
-function readSnapshotFromIntegration(integ: Integration): CsvSnapshot | undefined {
+function readCsvSnapshot(integ: Integration): CsvSnapshot | undefined {
   const raw = integ.config.schema;
   if (!raw || typeof raw !== 'object') return undefined;
   const obj = raw as Record<string, unknown>;
   if (!Array.isArray(obj.columns)) return undefined;
   return obj as unknown as CsvSnapshot;
+}
+
+/** Pull the Postgres snapshot off an integration row. */
+function readPgSnapshot(integ: Integration): PgSnapshot | undefined {
+  const raw = integ.config.schema;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (!obj.tables || typeof obj.tables !== 'object') return undefined;
+  return obj as unknown as PgSnapshot;
+}
+
+/**
+ * Resolve the postgres DSN from the integration's `url_secret` via the
+ * encrypted secrets store. Returns undefined if anything is missing —
+ * caller throws a descriptive error from inside `execute()`.
+ */
+async function resolvePgConnection(
+  integ: Integration,
+  deps: GeneratedToolDeps,
+): Promise<PgConnectionConfig | { error: string }> {
+  const urlSecret = typeof integ.config.url_secret === 'string' ? (integ.config.url_secret as string) : 'DATABASE_URL';
+  if (!deps.secretsStore) {
+    return { error: `postgres tool needs a secretsStore to resolve "${urlSecret}".` };
+  }
+  let dsn: string | undefined;
+  try {
+    const all = await deps.secretsStore.getAll();
+    dsn = all[urlSecret];
+  } catch (err) {
+    return { error: `Could not read secrets store: ${(err as Error).message}` };
+  }
+  if (!dsn) {
+    return { error: `Secret "${urlSecret}" is not set — add it via Settings → Secrets.` };
+  }
+  const schemas = Array.isArray(integ.config.schemas) ? (integ.config.schemas as string[]) : ['public'];
+  return { integrationId: integ.id, connectionString: dsn, schemas };
 }
 
 // ── Tool synthesis ─────────────────────────────────────────────────────
@@ -184,6 +313,108 @@ function buildCountEntry(integ: Integration, path: string, snapshot: CsvSnapshot
     async execute(inputs) {
       const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
       const count = countCsvRows(path, snapshot.columns, { where });
+      return { count, result: JSON.stringify({ count }) };
+    },
+  };
+}
+
+// ── Postgres tool synthesis ────────────────────────────────────────────
+
+function buildPgFindEntry(
+  integ: Integration,
+  table: PgTableSpec,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry {
+  const fqn = `${table.schema}.${table.name}`;
+  const definition: ToolDefinition = {
+    id: pgFindToolId(integ, table.schema, table.name),
+    name: `Find rows in ${fqn}`,
+    description: `Read rows from Postgres ${fqn} (${table.columns.length} columns).`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value. Keys are validated against the table schema.' } as ToolInputField,
+      limit: { type: 'number', description: 'Maximum rows. Defaults to 100. Capped at 10000.', default: 100 } as ToolInputField,
+      order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
+    },
+    outputs: {
+      rows: { type: 'array', description: 'Matching rows in source-column order.' } as ToolOutputField,
+      row_count: { type: 'number', description: 'Number of rows returned.' } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: pgFindToolId(integ, table.schema, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const conn = await resolvePgConnection(integ, deps);
+      if ('error' in conn) throw new Error(conn.error);
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const limit = typeof inputs.limit === 'number' ? inputs.limit : undefined;
+      const orderBy = typeof inputs.order_by === 'string' ? inputs.order_by : undefined;
+      const rows = await findRows(conn, table, { where, limit, orderBy });
+      return { rows, row_count: rows.length, result: JSON.stringify({ rows, row_count: rows.length }) };
+    },
+  };
+}
+
+function buildPgFindOneEntry(
+  integ: Integration,
+  table: PgTableSpec,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry {
+  const fqn = `${table.schema}.${table.name}`;
+  const definition: ToolDefinition = {
+    id: pgFindOneToolId(integ, table.schema, table.name),
+    name: `Find one row in ${fqn}`,
+    description: `Read a single row from Postgres ${fqn} (LIMIT 1).`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value.' } as ToolInputField,
+      order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
+    },
+    outputs: {
+      row: { type: 'object', description: 'Matching row, or null when no row matches.' } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: pgFindOneToolId(integ, table.schema, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const conn = await resolvePgConnection(integ, deps);
+      if ('error' in conn) throw new Error(conn.error);
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const orderBy = typeof inputs.order_by === 'string' ? inputs.order_by : undefined;
+      const row = await findOneRow(conn, table, { where, orderBy });
+      return { row, result: JSON.stringify({ row }) };
+    },
+  };
+}
+
+function buildPgCountEntry(
+  integ: Integration,
+  table: PgTableSpec,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry {
+  const fqn = `${table.schema}.${table.name}`;
+  const definition: ToolDefinition = {
+    id: pgCountToolId(integ, table.schema, table.name),
+    name: `Count rows in ${fqn}`,
+    description: `COUNT(*) over Postgres ${fqn} with an optional where filter.`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value. Empty matches all rows.' } as ToolInputField,
+    },
+    outputs: {
+      count: { type: 'number', description: 'Number of matching rows.' } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: pgCountToolId(integ, table.schema, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const conn = await resolvePgConnection(integ, deps);
+      if ('error' in conn) throw new Error(conn.error);
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const count = await countRows(conn, table, where);
       return { count, result: JSON.stringify({ count }) };
     },
   };
