@@ -26,32 +26,76 @@ export interface WidgetControlState {
 }
 
 /**
- * Extract a field value from run output text. Supports two extraction modes:
- *   1. XML tags: <fieldName>value</fieldName>
- *   2. JSON: parse as JSON and read the key
+ * Extract a field value from run output text. Supports three extraction
+ * modes, in order:
+ *
+ *   1. XML tags: `<fieldName>value</fieldName>` (used by agent-analyzer).
+ *   2. Whole-output JSON: `JSON.parse(output)` succeeds and the field is
+ *      a top-level key (or found via shallow deep search for branch-node
+ *      `{ merged: { nodeId: { field } } }` shapes).
+ *   3. Embedded trailing JSON: the agent emitted human prose followed by
+ *      a JSON object as the last block. Common shape for claude-code
+ *      summarisers that want both a human-readable run.result AND
+ *      machine-readable widget fields.
+ *
+ * Exported for direct testing; widgets call `extractFields` which loops
+ * over a schema's declared fields.
  */
-function extractField(output: string, fieldName: string): string | undefined {
+export function extractField(output: string, fieldName: string): string | undefined {
   // Try XML tag extraction first (used by agent-analyzer).
   const tagMatch = output.match(new RegExp(`<${fieldName}>([\\s\\S]*?)</${fieldName}>`, 'i'));
   if (tagMatch) return tagMatch[1].trim();
 
-  // Try JSON — top-level first, then deep search.
+  const parsed = parseJsonFromOutput(output);
+  if (parsed && typeof parsed === 'object') {
+    const record = parsed as Record<string, unknown>;
+    if (fieldName in record) {
+      const val = record[fieldName];
+      return typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+    }
+    const found = deepFind(record, fieldName);
+    if (found !== undefined) {
+      return typeof found === 'string' ? found : JSON.stringify(found, null, 2);
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Try to recover a JSON object from the run output. Strategies, in order:
+ *   - Strict `JSON.parse(output)` — fast path for pure-JSON agents.
+ *   - Trailing-object scan: walk every `{` position from rightmost to
+ *     leftmost, slicing to the last `}`; the first slice that parses
+ *     wins. This finds the agent's final emitted JSON object even when
+ *     human prose precedes it.
+ *
+ * Returns the parsed object, or `undefined` when no JSON is recoverable.
+ * Limited to a few-KB outputs by construction — agent run output today
+ * is bounded by the output-framing layer.
+ */
+function parseJsonFromOutput(output: string): unknown {
+  // Fast path: the whole thing is JSON.
   try {
     const parsed = JSON.parse(output);
-    if (typeof parsed === 'object' && parsed !== null) {
-      // Top-level match (fast path).
-      if (fieldName in parsed) {
-        const val = parsed[fieldName];
-        return typeof val === 'string' ? val : JSON.stringify(val, null, 2);
-      }
-      // Deep search: walk nested objects to find the field.
-      const found = deepFind(parsed, fieldName);
-      if (found !== undefined) {
-        return typeof found === 'string' ? found : JSON.stringify(found, null, 2);
-      }
-    }
-  } catch { /* not JSON */ }
+    if (parsed !== null && typeof parsed === 'object') return parsed;
+  } catch { /* fall through */ }
 
+  // Embedded JSON: find the rightmost balanced object whose `}` is the
+  // last `}` in the text. Walking `{` from rightmost to leftmost gives
+  // the smallest trailing object first — preferred so we don't accidentally
+  // engulf earlier prose that happens to contain `{` characters.
+  const lastClose = output.lastIndexOf('}');
+  if (lastClose === -1) return undefined;
+  let openPos = output.lastIndexOf('{', lastClose);
+  while (openPos !== -1) {
+    try {
+      const candidate = JSON.parse(output.slice(openPos, lastClose + 1));
+      if (candidate !== null && typeof candidate === 'object') return candidate;
+    } catch { /* try the next `{` to the left */ }
+    if (openPos === 0) break;
+    openPos = output.lastIndexOf('{', openPos - 1);
+  }
   return undefined;
 }
 
