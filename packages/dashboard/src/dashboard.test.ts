@@ -2277,6 +2277,52 @@ describe('Output widget editor UI', () => {
     expect(res.text).not.toContain('<script');
   });
 
+  it('POST /output-widget/update rejects a typed widget with zero fields', async () => {
+    // Regression: switching widgetType from `ai-template` back to
+    // `dashboard` via the editor cards shows an empty field table.
+    // Clicking Save here used to silently store `fields: []`, which
+    // renders three blank divs and wipes the previously-saved fields.
+    // Server now rejects, surfaces a flash with a count of fields
+    // that would have been dropped, and preserves the existing widget.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-empty-fields',
+      name: 'ow-empty-fields',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [
+          { name: 'score', type: 'metric', label: 'Score' },
+          { name: 'notes', type: 'text', label: 'Notes' },
+        ],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-empty-fields/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        // No fieldName_N rows — simulates the type-switch-then-save flow.
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('/output-widget?flash=');
+    const flash = decodeURIComponent((res.headers.location.match(/flash=(.+)$/) ?? [, ''])[1]);
+    expect(flash).toContain('Add at least one field');
+    // The hint should call out the count of fields that would have been dropped.
+    expect(flash).toContain('2 fields');
+
+    // Existing widget must be preserved on disk — no new version created.
+    const saved = agentStore.getAgent('ow-empty-fields');
+    expect(saved?.outputWidget?.fields?.length).toBe(2);
+    expect(saved?.outputWidget?.fields?.[0].name).toBe('score');
+  });
+
   it('POST /output-widget/update saves an ai-template widget', async () => {
     const app = await makeApp();
     agentStore.createAgent({
