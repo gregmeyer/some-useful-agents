@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { looksLikeSensitive } from '@some-useful-agents/core';
+import { looksLikeSensitive, inferCsvSnapshot } from '@some-useful-agents/core';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
@@ -301,7 +301,7 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
-const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool']);
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv']);
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -323,7 +323,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   // user sees their preserved values on the right form) or to "all".
   const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
-    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool';
+    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv';
 
   const integrations = ctx.integrationsStore.listIntegrations();
 
@@ -447,6 +447,29 @@ settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) 
         server_id: serverId,
         tool_name: toolName,
         ...(Object.keys(defaultInputs).length > 0 ? { default_inputs: defaultInputs } : {}),
+      };
+      secretRefs = [];
+      break;
+    }
+    case 'csv': {
+      const path = typeof body.path === 'string' ? body.path.trim() : '';
+      if (!path) return fail('Path is required.');
+      const hasHeader = body.has_header !== 'false';
+      const delimiter = typeof body.delimiter === 'string' && body.delimiter.length === 1 ? body.delimiter : ',';
+      let snapshot;
+      try {
+        snapshot = inferCsvSnapshot(path, { hasHeader, delimiter });
+      } catch (err) {
+        return fail(`Could not read CSV: ${(err as Error).message}`);
+      }
+      if (snapshot.columns.length === 0) {
+        return fail('CSV is empty or has no columns.');
+      }
+      config = {
+        path,
+        has_header: hasHeader,
+        delimiter,
+        schema: snapshot,
       };
       secretRefs = [];
       break;

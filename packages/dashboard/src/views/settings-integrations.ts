@@ -1,7 +1,7 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
-export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool';
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv';
 
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
@@ -48,6 +48,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${tab === 'webhook' ? renderWebhookForm(args) : unsafeHtml('')}
     ${tab === 'file' ? renderFileForm(args) : unsafeHtml('')}
     ${tab === 'mcp-tool' ? renderMcpToolForm(args) : unsafeHtml('')}
+    ${tab === 'csv' ? renderCsvForm(args) : unsafeHtml('')}
   `;
 }
 
@@ -66,6 +67,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): S
       ${tab('webhook', 'Webhook')}
       ${tab('file', 'File')}
       ${tab('mcp-tool', 'MCP Tool')}
+      ${tab('csv', 'CSV')}
     </nav>
   `;
 }
@@ -136,6 +138,13 @@ function describeConfig(i: Integration): SafeHtml {
       const server = typeof i.config.server_id === 'string' ? i.config.server_id : '';
       const tool = typeof i.config.tool_name === 'string' ? i.config.tool_name : '';
       return unsafeHtml(`<code>${esc(server)}</code> → <code>${esc(tool)}</code>`);
+    }
+    case 'csv': {
+      const path = typeof i.config.path === 'string' ? i.config.path : '';
+      const schema = i.config.schema as { columns?: Array<unknown>; rowCount?: number } | undefined;
+      const cols = Array.isArray(schema?.columns) ? schema.columns.length : 0;
+      const rows = typeof schema?.rowCount === 'number' ? schema.rowCount : 0;
+      return unsafeHtml(`<code>${esc(path)}</code> <span class="dim">(${cols} col${cols === 1 ? '' : 's'}, ${rows} row${rows === 1 ? '' : 's'})</span>`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -305,6 +314,50 @@ function renderMcpToolForm(args: SettingsIntegrationsArgs): SafeHtml {
         serverSel.addEventListener('change', refresh);
       })();
     </script>`)}
+  `;
+}
+
+function renderCsvForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'csv' ? args.addError : undefined;
+  const v = err?.values ?? {};
+  return html`
+    <div class="card">
+      <p class="card__title">Add CSV integration</p>
+      <p class="dim">
+        Point at a CSV file on disk. On save, sua reads the header + a
+        sample of rows to infer column types, then exposes two
+        auto-generated tools per CSV:
+      </p>
+      <ul class="dim" style="margin: var(--space-1) 0 var(--space-3) var(--space-5); font-size: var(--font-size-sm);">
+        <li><code>csv.&lt;id&gt;.read</code> — fetch rows, optionally filtered by <code>where</code>, capped by <code>limit</code>.</li>
+        <li><code>csv.&lt;id&gt;.count</code> — count matching rows without fetching them.</li>
+      </ul>
+      ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      <form action="/settings/integrations/add" method="post" class="settings-form">
+        <input type="hidden" name="kind" value="csv">
+        ${idAndNameFields(v)}
+        <label class="settings-form__label" for="csv-path">Path</label>
+        <input id="csv-path" name="path" type="text" required
+          placeholder="data/customers.csv (or an absolute path)"
+          value="${v.path ?? ''}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <label class="settings-form__label" for="csv-has-header">First row is a header?</label>
+        <select id="csv-has-header" name="has_header">
+          <option value="true" ${(v.has_header ?? 'true') === 'true' ? 'selected' : ''}>Yes (recommended)</option>
+          <option value="false" ${v.has_header === 'false' ? 'selected' : ''}>No — synthesise col_0, col_1, …</option>
+        </select>
+
+        <label class="settings-form__label" for="csv-delimiter">Delimiter</label>
+        <input id="csv-delimiter" name="delimiter" type="text" maxlength="1"
+          placeholder=","
+          value="${v.delimiter ?? ','}">
+
+        <div class="settings-form__actions">
+          <button type="submit" class="btn btn--primary">Add CSV integration</button>
+        </div>
+      </form>
+    </div>
   `;
 }
 
