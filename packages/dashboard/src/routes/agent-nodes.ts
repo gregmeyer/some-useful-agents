@@ -1,6 +1,15 @@
 import { Router, type Request, type Response } from 'express';
 import type { Agent, AgentInputSpec } from '@some-useful-agents/core';
-import { exportAgent, parseAgent, AgentYamlParseError } from '@some-useful-agents/core';
+import {
+  exportAgent,
+  parseAgent,
+  AgentYamlParseError,
+  validateAgentTemplatePaths,
+  formatTemplatePathIssues,
+  getBuiltinTool,
+  getGeneratedTool,
+  type ToolDefinition,
+} from '@some-useful-agents/core';
 import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { html as h, render as renderHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
@@ -417,6 +426,26 @@ agentNodesRouter.post('/agents/:name/yaml', (req: Request, res: Response) => {
   // Ensure the id matches — don't let YAML edits rename the agent.
   if (parsed.id !== agent.id) {
     res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/yaml?error=${encodeURIComponent(`Agent id in YAML ("${parsed.id}") must match the current agent id ("${agent.id}"). Renaming via YAML is not supported.`)}`);
+    return;
+  }
+
+  // Schema-aware template-path check. Walks each `{{upstream.X.field}}`
+  // reference against the upstream node's tool output schema so typos
+  // like `rows.0.emial` fail at save time instead of resolving to "" at
+  // run time. Lenient — only fires when the upstream tool declares
+  // enough output schema to prove the path wrong.
+  const resolveTool = (toolId: string): ToolDefinition | undefined => {
+    const builtin = getBuiltinTool(toolId)
+      ?? (ctx.integrationsStore
+        ? getGeneratedTool(ctx.integrationsStore, toolId, { secretsStore: ctx.secretsStore })
+        : undefined);
+    if (builtin) return builtin.definition;
+    return ctx.toolStore?.getTool(toolId);
+  };
+  const templateIssues = validateAgentTemplatePaths(parsed, { resolveTool });
+  if (templateIssues.length > 0) {
+    const msg = `Template validation failed: ${formatTemplatePathIssues(templateIssues)}`;
+    res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/yaml?error=${encodeURIComponent(msg)}`);
     return;
   }
 

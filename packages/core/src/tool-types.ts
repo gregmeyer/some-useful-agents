@@ -28,6 +28,17 @@ export interface ToolInputField {
 export interface ToolOutputField {
   type: ToolFieldType;
   description?: string;
+  /**
+   * For `type: 'array'`: element schema. Used by save-time template
+   * validation so `{{upstream.<node>.rows.0.<col>}}` references can
+   * be checked against the declared per-row shape.
+   */
+  items?: ToolOutputField;
+  /**
+   * For `type: 'object'`: declared property schemas. Same role as
+   * `items` but for object outputs (e.g. pg find-one's `row`).
+   */
+  properties?: Record<string, ToolOutputField>;
 }
 
 export type ToolImplementationType = 'shell' | 'claude-code' | 'builtin' | 'mcp';

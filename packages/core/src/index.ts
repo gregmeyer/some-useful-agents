@@ -43,6 +43,12 @@ export {
   type AgentV2Parsed,
 } from './agent-v2-schema.js';
 export { parseAgent, exportAgent, exportAgents, AgentYamlParseError } from './agent-yaml.js';
+export {
+  validateAgentTemplatePaths,
+  formatTemplatePathIssues,
+  type TemplatePathIssue,
+  type TemplateValidatorDeps,
+} from './agent-template-validator.js';
 export { AgentStore } from './agent-store.js';
 export * from './tool-types.js';
 export {

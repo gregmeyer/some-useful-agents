@@ -57,6 +57,13 @@ describe('listGeneratedTools', () => {
     expect(readDef.source).toBe('builtin');
     expect(readDef.outputs.rows.type).toBe('array');
     expect(readDef.outputs.row_count.type).toBe('number');
+    // PR 4.C: nested per-row schema declared on `rows.items.properties`
+    // so save-time template validation can walk `rows.0.<col>` paths.
+    const rowItem = readDef.outputs.rows.items;
+    expect(rowItem?.type).toBe('object');
+    expect(rowItem?.properties?.email?.type).toBe('string');
+    expect(rowItem?.properties?.active?.type).toBe('boolean');
+    expect(rowItem?.properties?.id?.type).toBe('number');
     // The column list itself lives on the integration row (consulted at
     // execute time + by future schema-aware validation passes).
     const integ = store.getIntegration('user:customers')!;

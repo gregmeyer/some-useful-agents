@@ -249,12 +249,16 @@ async function resolvePgConnection(
 
 // ── Tool synthesis ─────────────────────────────────────────────────────
 
+function csvRowProperties(snapshot: CsvSnapshot): Record<string, ToolOutputField> {
+  const props: Record<string, ToolOutputField> = {};
+  for (const col of snapshot.columns) {
+    props[col.name] = { type: col.type, description: col.format ? `${col.type} (${col.format})` : undefined };
+  }
+  return props;
+}
+
 function buildReadEntry(integ: Integration, path: string, snapshot: CsvSnapshot): BuiltinToolEntry {
-  // For now the synthesised tool declares the array/object shapes but
-  // not per-item column types — the existing ToolOutputField schema
-  // doesn't model item schemas. PR 4.C revisits when we add schema-
-  // aware save-time validation; the column list still lives on the
-  // integration row so future passes can consult it directly.
+  const rowProps = csvRowProperties(snapshot);
   const definition: ToolDefinition = {
     id: csvReadToolId(integ),
     name: `Read ${integ.name}`,
@@ -275,6 +279,7 @@ function buildReadEntry(integ: Integration, path: string, snapshot: CsvSnapshot)
       rows: {
         type: 'array',
         description: 'Matching rows, coerced to the inferred column types.',
+        items: { type: 'object', properties: rowProps },
       } as ToolOutputField,
       row_count: { type: 'number', description: 'Number of rows returned.' } as ToolOutputField,
     },
@@ -320,12 +325,21 @@ function buildCountEntry(integ: Integration, path: string, snapshot: CsvSnapshot
 
 // ── Postgres tool synthesis ────────────────────────────────────────────
 
+function pgRowProperties(table: PgTableSpec): Record<string, ToolOutputField> {
+  const props: Record<string, ToolOutputField> = {};
+  for (const col of table.columns) {
+    props[col.name] = { type: col.type, description: col.format ? `${col.pgType} (${col.format})` : col.pgType };
+  }
+  return props;
+}
+
 function buildPgFindEntry(
   integ: Integration,
   table: PgTableSpec,
   deps: GeneratedToolDeps,
 ): BuiltinToolEntry {
   const fqn = `${table.schema}.${table.name}`;
+  const rowProps = pgRowProperties(table);
   const definition: ToolDefinition = {
     id: pgFindToolId(integ, table.schema, table.name),
     name: `Find rows in ${fqn}`,
@@ -337,7 +351,11 @@ function buildPgFindEntry(
       order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
     },
     outputs: {
-      rows: { type: 'array', description: 'Matching rows in source-column order.' } as ToolOutputField,
+      rows: {
+        type: 'array',
+        description: 'Matching rows in source-column order.',
+        items: { type: 'object', properties: rowProps },
+      } as ToolOutputField,
       row_count: { type: 'number', description: 'Number of rows returned.' } as ToolOutputField,
     },
     implementation: { type: 'builtin', builtinName: pgFindToolId(integ, table.schema, table.name) },
@@ -362,6 +380,7 @@ function buildPgFindOneEntry(
   deps: GeneratedToolDeps,
 ): BuiltinToolEntry {
   const fqn = `${table.schema}.${table.name}`;
+  const rowProps = pgRowProperties(table);
   const definition: ToolDefinition = {
     id: pgFindOneToolId(integ, table.schema, table.name),
     name: `Find one row in ${fqn}`,
@@ -372,7 +391,7 @@ function buildPgFindOneEntry(
       order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
     },
     outputs: {
-      row: { type: 'object', description: 'Matching row, or null when no row matches.' } as ToolOutputField,
+      row: { type: 'object', description: 'Matching row, or null when no row matches.', properties: rowProps } as ToolOutputField,
     },
     implementation: { type: 'builtin', builtinName: pgFindOneToolId(integ, table.schema, table.name) },
   };
