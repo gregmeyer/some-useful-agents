@@ -5,6 +5,8 @@ dist/
 
 # Runtime data
 data/
+# …but example agents ship their own sample data alongside the YAML.
+!agents/examples/data/
 
 # User-installed agents
 agents/local/
