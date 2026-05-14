@@ -1,7 +1,7 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
-export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres';
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite';
 
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
@@ -50,6 +50,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${tab === 'mcp-tool' ? renderMcpToolForm(args) : unsafeHtml('')}
     ${tab === 'csv' ? renderCsvForm(args) : unsafeHtml('')}
     ${tab === 'postgres' ? renderPostgresForm(args) : unsafeHtml('')}
+    ${tab === 'sqlite' ? renderSqliteForm(args) : unsafeHtml('')}
   `;
 }
 
@@ -70,6 +71,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): S
       ${tab('mcp-tool', 'MCP Tool')}
       ${tab('csv', 'CSV')}
       ${tab('postgres', 'Postgres')}
+      ${tab('sqlite', 'SQLite')}
     </nav>
   `;
 }
@@ -154,6 +156,12 @@ function describeConfig(i: Integration): SafeHtml {
       const tableCount = schema?.tables ? Object.keys(schema.tables).length : 0;
       const schemas = Array.isArray(i.config.schemas) ? (i.config.schemas as string[]).join(', ') : 'public';
       return unsafeHtml(`<code>${esc(urlSecret)}</code> <span class="dim">(${tableCount} table${tableCount === 1 ? '' : 's'} in ${esc(schemas)})</span>`);
+    }
+    case 'sqlite': {
+      const path = typeof i.config.path === 'string' ? i.config.path : '';
+      const schema = i.config.schema as { tables?: Record<string, unknown> } | undefined;
+      const tableCount = schema?.tables ? Object.keys(schema.tables).length : 0;
+      return unsafeHtml(`<code>${esc(path)}</code> <span class="dim">(${tableCount} table${tableCount === 1 ? '' : 's'})</span>`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -409,6 +417,45 @@ function renderPostgresForm(args: SettingsIntegrationsArgs): SafeHtml {
 
         <div class="settings-form__actions">
           <button type="submit" class="btn btn--primary">Add Postgres integration</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderSqliteForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'sqlite' ? args.addError : undefined;
+  const v = err?.values ?? {};
+  return html`
+    <div class="card">
+      <p class="card__title">Add SQLite integration</p>
+      <p class="dim">
+        Point at a local SQLite file. sua introspects every base table
+        via <code>sqlite_master</code> + <code>PRAGMA table_info</code>
+        and auto-generates three read-only tools per table:
+      </p>
+      <ul class="dim" style="margin: var(--space-1) 0 var(--space-3) var(--space-5); font-size: var(--font-size-sm);">
+        <li><code>sqlite.&lt;id&gt;.&lt;table&gt;.find</code> — typed <code>where</code> / <code>order_by</code> / <code>limit</code>.</li>
+        <li><code>sqlite.&lt;id&gt;.&lt;table&gt;.find-one</code> — single row.</li>
+        <li><code>sqlite.&lt;id&gt;.&lt;table&gt;.count</code> — COUNT(*) with optional where.</li>
+      </ul>
+      <p class="dim" style="font-size: var(--font-size-sm);">
+        Read-only. No DSN, no secret to manage — the file path is the
+        whole config.
+      </p>
+      ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      <form action="/settings/integrations/add" method="post" class="settings-form">
+        <input type="hidden" name="kind" value="sqlite">
+        ${idAndNameFields(v)}
+
+        <label class="settings-form__label" for="sqlite-path">Path</label>
+        <input id="sqlite-path" name="path" type="text" required
+          placeholder="data/customers.db"
+          value="${v.path ?? ''}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <div class="settings-form__actions">
+          <button type="submit" class="btn btn--primary">Add SQLite integration</button>
         </div>
       </form>
     </div>

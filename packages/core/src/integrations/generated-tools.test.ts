@@ -2,13 +2,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { IntegrationsStore } from '../integrations-store.js';
 import { inferCsvSnapshot } from './csv-driver.js';
+import { inferSqliteSnapshot, closeAllSqliteDatabases } from './sqlite-driver.js';
 import {
   listGeneratedTools,
   getGeneratedTool,
   csvReadToolId,
   csvCountToolId,
+  sqliteFindToolId,
+  sqliteCountToolId,
+  sqliteFindOneToolId,
 } from './generated-tools.js';
 
 let dir: string;
@@ -28,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  closeAllSqliteDatabases();
   try { store.close(); } catch { /* ignore */ }
   rmSync(dir, { recursive: true, force: true });
 });
@@ -84,6 +90,82 @@ describe('listGeneratedTools', () => {
     store.upsertIntegration({
       id: 'user:bare', packId: null, kind: 'csv', name: 'Bare CSV',
       config: { path: csvPath /* no schema */ }, secretRefs: [],
+    });
+    expect(listGeneratedTools(store).size).toBe(0);
+  });
+});
+
+describe('sqlite generated tools', () => {
+  function seedSqlite(): string {
+    const dbPath = join(dir, 'churn.db');
+    const seed = new DatabaseSync(dbPath);
+    seed.exec(`
+      CREATE TABLE customers (
+        id INTEGER PRIMARY KEY,
+        email TEXT NOT NULL,
+        status TEXT NOT NULL,
+        churned_at TIMESTAMP
+      );
+      INSERT INTO customers (email, status, churned_at) VALUES
+        ('a@x.com', 'active', NULL),
+        ('b@x.com', 'churned', '2026-05-10T00:00:00Z'),
+        ('c@x.com', 'churned', '2026-05-12T00:00:00Z');
+    `);
+    seed.close();
+    const snapshot = inferSqliteSnapshot({ integrationId: 'probe', path: dbPath, readonly: true });
+    store.upsertIntegration({
+      id: 'user:churn', packId: null, kind: 'sqlite', name: 'Churn DB',
+      config: { path: dbPath, schema: snapshot }, secretRefs: [],
+    });
+    return dbPath;
+  }
+
+  it('synthesises find + find-one + count per table', () => {
+    seedSqlite();
+    const tools = listGeneratedTools(store);
+    expect(Array.from(tools.keys()).sort()).toEqual([
+      'sqlite.churn.customers.count',
+      'sqlite.churn.customers.find',
+      'sqlite.churn.customers.find-one',
+    ]);
+    const findDef = tools.get('sqlite.churn.customers.find')!.definition;
+    expect(findDef.source).toBe('builtin');
+    // PR 4.E mirrors PR 4.B: per-row column schema lives on
+    // rows.items.properties so save-time template validation can walk
+    // `{{upstream.fetch.rows.0.<col>}}` paths.
+    const rowItem = findDef.outputs.rows.items;
+    expect(rowItem?.type).toBe('object');
+    expect(rowItem?.properties?.email?.type).toBe('string');
+    expect(rowItem?.properties?.id?.type).toBe('number');
+  });
+
+  it('getGeneratedTool resolves a single sqlite tool by id', () => {
+    seedSqlite();
+    const entry = getGeneratedTool(store, sqliteCountToolId({ id: 'user:churn' }, 'customers'));
+    expect(entry).toBeDefined();
+    expect(entry?.definition.id).toBe('sqlite.churn.customers.count');
+  });
+
+  it('execute() reads through to the actual SQLite file', async () => {
+    seedSqlite();
+    const find = getGeneratedTool(store, sqliteFindToolId({ id: 'user:churn' }, 'customers'))!;
+    const result = await find.execute({ where: { status: 'churned' }, order_by: 'id ASC' }, {});
+    expect((result.rows as Array<{ email: string }>).map((r) => r.email)).toEqual(['b@x.com', 'c@x.com']);
+    expect(result.row_count).toBe(2);
+  });
+
+  it('find-one returns null on miss, row on hit', async () => {
+    seedSqlite();
+    const findOne = getGeneratedTool(store, sqliteFindOneToolId({ id: 'user:churn' }, 'customers'))!;
+    expect((await findOne.execute({ where: { status: 'unknown' } }, {})).row).toBeNull();
+    const hit = await findOne.execute({ where: { status: 'churned' }, order_by: 'id ASC' }, {});
+    expect((hit.row as { email: string }).email).toBe('b@x.com');
+  });
+
+  it('skips sqlite integrations whose snapshot is missing', () => {
+    store.upsertIntegration({
+      id: 'user:bare-sqlite', packId: null, kind: 'sqlite', name: 'Bare',
+      config: { path: '/nowhere.db' /* no schema */ }, secretRefs: [],
     });
     expect(listGeneratedTools(store).size).toBe(0);
   });

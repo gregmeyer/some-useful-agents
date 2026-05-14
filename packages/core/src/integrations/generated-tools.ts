@@ -40,6 +40,14 @@ import {
   type PgTableSpec,
   type PgConnectionConfig,
 } from './postgres-driver.js';
+import {
+  findRows as sqliteFindRows,
+  findOneRow as sqliteFindOneRow,
+  countRows as sqliteCountRows,
+  type SqliteSnapshot,
+  type SqliteTableSpec,
+  type SqliteConnectionConfig,
+} from './sqlite-driver.js';
 
 /**
  * Strip the `<owner>:` prefix from an integration id to get the
@@ -68,6 +76,15 @@ export function pgFindOneToolId(integration: Pick<Integration, 'id'>, schema: st
 export function pgCountToolId(integration: Pick<Integration, 'id'>, schema: string, table: string): string {
   const tablePart = schema === 'public' ? table : `${schema}.${table}`;
   return `postgres.${integrationSlug(integration.id)}.${tablePart}.count`;
+}
+export function sqliteFindToolId(integration: Pick<Integration, 'id'>, table: string): string {
+  return `sqlite.${integrationSlug(integration.id)}.${table}.find`;
+}
+export function sqliteFindOneToolId(integration: Pick<Integration, 'id'>, table: string): string {
+  return `sqlite.${integrationSlug(integration.id)}.${table}.find-one`;
+}
+export function sqliteCountToolId(integration: Pick<Integration, 'id'>, table: string): string {
+  return `sqlite.${integrationSlug(integration.id)}.${table}.count`;
 }
 
 /**
@@ -98,6 +115,8 @@ export function listGeneratedTools(
       addCsvEntries(out, integ);
     } else if (integ.kind === 'postgres') {
       addPostgresEntries(out, integ, deps);
+    } else if (integ.kind === 'sqlite') {
+      addSqliteEntries(out, integ);
     }
   }
   return out;
@@ -114,6 +133,7 @@ export function getGeneratedTool(
 ): BuiltinToolEntry | undefined {
   if (toolId.startsWith('csv.')) return resolveCsvTool(store, toolId);
   if (toolId.startsWith('postgres.')) return resolvePostgresTool(store, toolId, deps);
+  if (toolId.startsWith('sqlite.')) return resolveSqliteTool(store, toolId);
   return undefined;
 }
 
@@ -218,6 +238,21 @@ function readPgSnapshot(integ: Integration): PgSnapshot | undefined {
   const obj = raw as Record<string, unknown>;
   if (!obj.tables || typeof obj.tables !== 'object') return undefined;
   return obj as unknown as PgSnapshot;
+}
+
+/** Pull the SQLite snapshot off an integration row. Same shape as PgSnapshot. */
+function readSqliteSnapshot(integ: Integration): SqliteSnapshot | undefined {
+  const raw = integ.config.schema;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (!obj.tables || typeof obj.tables !== 'object') return undefined;
+  return obj as unknown as SqliteSnapshot;
+}
+
+function sqliteConnection(integ: Integration): SqliteConnectionConfig | undefined {
+  const path = typeof integ.config.path === 'string' ? (integ.config.path as string) : undefined;
+  if (!path) return undefined;
+  return { integrationId: integ.id, path, readonly: true };
 }
 
 /**
@@ -434,6 +469,151 @@ function buildPgCountEntry(
       if ('error' in conn) throw new Error(conn.error);
       const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
       const count = await countRows(conn, table, where);
+      return { count, result: JSON.stringify({ count }) };
+    },
+  };
+}
+
+// ── SQLite resolution + synthesis ──────────────────────────────────────
+
+function addSqliteEntries(out: Map<string, BuiltinToolEntry>, integ: Integration): void {
+  const snapshot = readSqliteSnapshot(integ);
+  if (!snapshot) return;
+  const conn = sqliteConnection(integ);
+  if (!conn) return;
+  for (const table of Object.values(snapshot.tables)) {
+    const find = buildSqliteFindEntry(integ, conn, table);
+    const findOne = buildSqliteFindOneEntry(integ, conn, table);
+    const count = buildSqliteCountEntry(integ, conn, table);
+    out.set(find.definition.id, find);
+    out.set(findOne.definition.id, findOne);
+    out.set(count.definition.id, count);
+  }
+}
+
+function resolveSqliteTool(store: IntegrationsStore, toolId: string): BuiltinToolEntry | undefined {
+  // Format: sqlite.<integration-slug>.<table>.<verb>
+  const rest = toolId.slice('sqlite.'.length);
+  const parts = rest.split('.');
+  if (parts.length < 3) return undefined;
+  const verb = parts[parts.length - 1];
+  if (verb !== 'find' && verb !== 'find-one' && verb !== 'count') return undefined;
+  const slug = parts[0];
+  const tableParts = parts.slice(1, parts.length - 1);
+  if (tableParts.length !== 1) return undefined; // sqlite has no schema prefix
+  const integ = store.getIntegration(`user:${slug}`);
+  if (!integ || integ.kind !== 'sqlite') return undefined;
+  const snapshot = readSqliteSnapshot(integ);
+  if (!snapshot) return undefined;
+  const conn = sqliteConnection(integ);
+  if (!conn) return undefined;
+  const table = snapshot.tables[`main.${tableParts[0]}`];
+  if (!table) return undefined;
+  if (verb === 'find') return buildSqliteFindEntry(integ, conn, table);
+  if (verb === 'find-one') return buildSqliteFindOneEntry(integ, conn, table);
+  return buildSqliteCountEntry(integ, conn, table);
+}
+
+function sqliteRowProperties(table: SqliteTableSpec): Record<string, ToolOutputField> {
+  const props: Record<string, ToolOutputField> = {};
+  for (const col of table.columns) {
+    props[col.name] = { type: col.type, description: col.format ? `${col.sqliteType} (${col.format})` : col.sqliteType };
+  }
+  return props;
+}
+
+function buildSqliteFindEntry(
+  integ: Integration,
+  conn: SqliteConnectionConfig,
+  table: SqliteTableSpec,
+): BuiltinToolEntry {
+  const rowProps = sqliteRowProperties(table);
+  const definition: ToolDefinition = {
+    id: sqliteFindToolId(integ, table.name),
+    name: `Find rows in ${table.name}`,
+    description: `Read rows from SQLite ${table.name} (${table.columns.length} columns).`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value. Keys are validated against the table schema.' } as ToolInputField,
+      limit: { type: 'number', description: 'Maximum rows. Defaults to 100. Capped at 10000.', default: 100 } as ToolInputField,
+      order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
+    },
+    outputs: {
+      rows: {
+        type: 'array',
+        description: 'Matching rows in source-column order.',
+        items: { type: 'object', properties: rowProps },
+      } as ToolOutputField,
+      row_count: { type: 'number', description: 'Number of rows returned.' } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: sqliteFindToolId(integ, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const limit = typeof inputs.limit === 'number' ? inputs.limit : undefined;
+      const orderBy = typeof inputs.order_by === 'string' ? inputs.order_by : undefined;
+      const rows = sqliteFindRows(conn, table, { where, limit, orderBy });
+      return { rows, row_count: rows.length, result: JSON.stringify({ rows, row_count: rows.length }) };
+    },
+  };
+}
+
+function buildSqliteFindOneEntry(
+  integ: Integration,
+  conn: SqliteConnectionConfig,
+  table: SqliteTableSpec,
+): BuiltinToolEntry {
+  const rowProps = sqliteRowProperties(table);
+  const definition: ToolDefinition = {
+    id: sqliteFindOneToolId(integ, table.name),
+    name: `Find one row in ${table.name}`,
+    description: `Read a single row from SQLite ${table.name} (LIMIT 1).`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value.' } as ToolInputField,
+      order_by: { type: 'string', description: 'Column name optionally followed by ASC|DESC.' } as ToolInputField,
+    },
+    outputs: {
+      row: { type: 'object', description: 'Matching row, or null when no row matches.', properties: rowProps } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: sqliteFindOneToolId(integ, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const orderBy = typeof inputs.order_by === 'string' ? inputs.order_by : undefined;
+      const row = sqliteFindOneRow(conn, table, { where, orderBy });
+      return { row, result: JSON.stringify({ row }) };
+    },
+  };
+}
+
+function buildSqliteCountEntry(
+  integ: Integration,
+  conn: SqliteConnectionConfig,
+  table: SqliteTableSpec,
+): BuiltinToolEntry {
+  const definition: ToolDefinition = {
+    id: sqliteCountToolId(integ, table.name),
+    name: `Count rows in ${table.name}`,
+    description: `COUNT(*) over SQLite ${table.name} with an optional where filter.`,
+    source: 'builtin',
+    inputs: {
+      where: { type: 'object', description: 'Map of column → expected value. Empty matches all rows.' } as ToolInputField,
+    },
+    outputs: {
+      count: { type: 'number', description: 'Number of matching rows.' } as ToolOutputField,
+    },
+    implementation: { type: 'builtin', builtinName: sqliteCountToolId(integ, table.name) },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const where = (inputs.where as Record<string, unknown> | undefined) ?? {};
+      const count = sqliteCountRows(conn, table, where);
       return { count, result: JSON.stringify({ count }) };
     },
   };

@@ -1,5 +1,12 @@
 import { Router, type Request, type Response } from 'express';
-import { looksLikeSensitive, inferCsvSnapshot, inferPostgresSnapshot, closePostgresPool } from '@some-useful-agents/core';
+import {
+  looksLikeSensitive,
+  inferCsvSnapshot,
+  inferPostgresSnapshot,
+  closePostgresPool,
+  inferSqliteSnapshot,
+  closeSqliteDatabase,
+} from '@some-useful-agents/core';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
@@ -301,7 +308,7 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
-const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres']);
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres', 'sqlite']);
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -323,7 +330,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   // user sees their preserved values on the right form) or to "all".
   const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
-    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres';
+    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite';
 
   const integrations = ctx.integrationsStore.listIntegrations();
 
@@ -513,6 +520,27 @@ settingsRouter.post('/settings/integrations/add', async (req: Request, res: Resp
         schema: snapshot,
       };
       secretRefs = [urlSecret];
+      break;
+    }
+    case 'sqlite': {
+      const path = typeof body.path === 'string' ? body.path.trim() : '';
+      if (!path) return fail('Path is required.');
+      // Open + introspect through a throwaway integration id so the cached
+      // handle doesn't collide with the real integration's lifecycle.
+      const probeId = `__probe__:${slug}:${Date.now()}`;
+      let snapshot;
+      try {
+        snapshot = inferSqliteSnapshot({ integrationId: probeId, path, readonly: true });
+      } catch (err) {
+        return fail(`Could not open SQLite file: ${(err as Error).message}`);
+      } finally {
+        closeSqliteDatabase(probeId);
+      }
+      if (Object.keys(snapshot.tables).length === 0) {
+        return fail('No tables found in this SQLite file (or every table name is unsafe to splice into SQL).');
+      }
+      config = { path, schema: snapshot };
+      secretRefs = [];
       break;
     }
     default:
