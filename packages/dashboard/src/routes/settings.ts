@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { looksLikeSensitive, inferCsvSnapshot } from '@some-useful-agents/core';
+import { looksLikeSensitive, inferCsvSnapshot, inferPostgresSnapshot, closePostgresPool } from '@some-useful-agents/core';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
@@ -301,7 +301,7 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
-const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv']);
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres']);
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -323,7 +323,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   // user sees their preserved values on the right form) or to "all".
   const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
-    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv';
+    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres';
 
   const integrations = ctx.integrationsStore.listIntegrations();
 
@@ -353,7 +353,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
 
-settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) => {
+settingsRouter.post('/settings/integrations/add', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.integrationsStore) {
     res.redirect(303, '/settings/integrations?error=Integrations+store+unavailable.');
@@ -472,6 +472,47 @@ settingsRouter.post('/settings/integrations/add', (req: Request, res: Response) 
         schema: snapshot,
       };
       secretRefs = [];
+      break;
+    }
+    case 'postgres': {
+      const urlSecret = typeof body.url_secret === 'string' ? body.url_secret.trim() : '';
+      if (!INTEGRATION_SECRET_NAME_RE.test(urlSecret)) {
+        return fail('url_secret must be UPPERCASE_WITH_UNDERSCORES.');
+      }
+      const schemasRaw = typeof body.schemas === 'string' ? body.schemas.trim() : 'public';
+      const schemas = schemasRaw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (schemas.length === 0) return fail('At least one schema is required (e.g. "public").');
+      // Pull the DSN from the secrets store + introspect. We use a
+      // throwaway integration id for the pool key so the cached pool
+      // doesn't leak into the real integration's namespace before save.
+      let dsn: string | undefined;
+      try {
+        const all = await ctx.secretsStore.getAll();
+        dsn = all[urlSecret];
+      } catch (err) {
+        return fail(`Could not read secrets store: ${(err as Error).message}`);
+      }
+      if (!dsn) {
+        return fail(`Secret "${urlSecret}" is not set — add it via Settings → Secrets first.`);
+      }
+      const probeId = `__probe__:${slug}:${Date.now()}`;
+      let snapshot;
+      try {
+        snapshot = await inferPostgresSnapshot({ integrationId: probeId, connectionString: dsn, schemas });
+      } catch (err) {
+        return fail(`Could not introspect Postgres: ${(err as Error).message}`);
+      } finally {
+        await closePostgresPool(probeId);
+      }
+      if (Object.keys(snapshot.tables).length === 0) {
+        return fail(`No tables found in schemas: ${schemas.join(', ')}.`);
+      }
+      config = {
+        url_secret: urlSecret,
+        schemas,
+        schema: snapshot,
+      };
+      secretRefs = [urlSecret];
       break;
     }
     default:

@@ -1,7 +1,7 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
-export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv';
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres';
 
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
@@ -49,6 +49,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${tab === 'file' ? renderFileForm(args) : unsafeHtml('')}
     ${tab === 'mcp-tool' ? renderMcpToolForm(args) : unsafeHtml('')}
     ${tab === 'csv' ? renderCsvForm(args) : unsafeHtml('')}
+    ${tab === 'postgres' ? renderPostgresForm(args) : unsafeHtml('')}
   `;
 }
 
@@ -68,6 +69,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): S
       ${tab('file', 'File')}
       ${tab('mcp-tool', 'MCP Tool')}
       ${tab('csv', 'CSV')}
+      ${tab('postgres', 'Postgres')}
     </nav>
   `;
 }
@@ -145,6 +147,13 @@ function describeConfig(i: Integration): SafeHtml {
       const cols = Array.isArray(schema?.columns) ? schema.columns.length : 0;
       const rows = typeof schema?.rowCount === 'number' ? schema.rowCount : 0;
       return unsafeHtml(`<code>${esc(path)}</code> <span class="dim">(${cols} col${cols === 1 ? '' : 's'}, ${rows} row${rows === 1 ? '' : 's'})</span>`);
+    }
+    case 'postgres': {
+      const urlSecret = typeof i.config.url_secret === 'string' ? i.config.url_secret : 'DATABASE_URL';
+      const schema = i.config.schema as { tables?: Record<string, unknown> } | undefined;
+      const tableCount = schema?.tables ? Object.keys(schema.tables).length : 0;
+      const schemas = Array.isArray(i.config.schemas) ? (i.config.schemas as string[]).join(', ') : 'public';
+      return unsafeHtml(`<code>${esc(urlSecret)}</code> <span class="dim">(${tableCount} table${tableCount === 1 ? '' : 's'} in ${esc(schemas)})</span>`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -355,6 +364,51 @@ function renderCsvForm(args: SettingsIntegrationsArgs): SafeHtml {
 
         <div class="settings-form__actions">
           <button type="submit" class="btn btn--primary">Add CSV integration</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderPostgresForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'postgres' ? args.addError : undefined;
+  const v = err?.values ?? {};
+  return html`
+    <div class="card">
+      <p class="card__title">Add Postgres integration</p>
+      <p class="dim">
+        Connect a Postgres database. The DSN itself lives in
+        <a href="/settings/secrets">Settings → Secrets</a>; only the
+        secret name is referenced here. On save, sua walks
+        <code>information_schema</code> to introspect every table in
+        the listed schemas, then auto-generates three read-only tools
+        per table:
+      </p>
+      <ul class="dim" style="margin: var(--space-1) 0 var(--space-3) var(--space-5); font-size: var(--font-size-sm);">
+        <li><code>postgres.&lt;id&gt;.&lt;table&gt;.find</code> — typed <code>where</code> / <code>order_by</code> / <code>limit</code>.</li>
+        <li><code>postgres.&lt;id&gt;.&lt;table&gt;.find-one</code> — single row.</li>
+        <li><code>postgres.&lt;id&gt;.&lt;table&gt;.count</code> — COUNT(*) with optional where.</li>
+      </ul>
+      ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      <form action="/settings/integrations/add" method="post" class="settings-form">
+        <input type="hidden" name="kind" value="postgres">
+        ${idAndNameFields(v)}
+
+        <label class="settings-form__label" for="pg-url-secret">Connection-string secret name</label>
+        <input id="pg-url-secret" name="url_secret" type="text" required
+          pattern="[A-Z_][A-Z0-9_]*"
+          placeholder="DATABASE_URL"
+          value="${v.url_secret ?? 'DATABASE_URL'}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <label class="settings-form__label" for="pg-schemas">Schemas (comma-separated)</label>
+        <input id="pg-schemas" name="schemas" type="text"
+          placeholder="public"
+          value="${v.schemas ?? 'public'}"
+          autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <div class="settings-form__actions">
+          <button type="submit" class="btn btn--primary">Add Postgres integration</button>
         </div>
       </form>
     </div>
