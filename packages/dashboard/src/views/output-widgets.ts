@@ -457,9 +457,16 @@ function renderAiTemplate(
   // Build a unified outputs map. Start with the parsed JSON's top-level
   // keys (so arrays/objects are accessible to {{#each}} and {{{var}}}),
   // then layer declared scalar fields on top so explicit field config wins.
+  //
+  // We use `parseJsonFromOutput` (same recovery PR #274 added for
+  // extractField) instead of a bare `JSON.parse(output)` so prose-wrapped
+  // or markdown-fenced JSON still surfaces arrays / objects to the
+  // template. Without this, `{{#each outputs.rows as r}}` blocks render
+  // empty whenever the agent emits anything other than pure JSON —
+  // which most claude-code summarisers do (markdown fences, leading
+  // notes, trailing commentary).
   const outputsForSub: Record<string, unknown> = {};
-  let parsed: unknown = null;
-  try { parsed = JSON.parse(output); } catch { /* output isn't JSON; that's fine */ }
+  const parsed = parseJsonFromOutput(output);
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     for (const [k, v] of Object.entries(parsed)) outputsForSub[k] = v;
   }
