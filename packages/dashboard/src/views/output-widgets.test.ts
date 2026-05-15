@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractField } from './output-widgets.js';
+import { extractField, renderOutputWidget } from './output-widgets.js';
 
 describe('extractField', () => {
   // Whole-output JSON (the fast path)
@@ -76,5 +76,54 @@ describe('extractField', () => {
     // A bare quoted string parses as JSON but has no fields to extract.
     expect(extractField('"just a string"', 'x')).toBeUndefined();
     expect(extractField('42', 'x')).toBeUndefined();
+  });
+});
+
+describe('renderOutputWidget — ai-template arrays', () => {
+  // Regression for ccusage-daily and similar agents: claude-code
+  // summarisers wrap their JSON in prose / markdown fences, e.g.
+  //   "Note: data is incomplete\n```json\n{ ... }\n```\nCaveat: ..."
+  // The prior renderer did a bare `JSON.parse(output)` which threw on
+  // anything other than pure JSON, so top-level arrays never reached
+  // the outputs map and `{{#each}}` blocks rendered empty. Switching
+  // to `parseJsonFromOutput` recovers the embedded object.
+  it('populates {{#each}} from JSON wrapped in prose + a markdown fence', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: '<ul>{{#each outputs.rows as row}}<li data-d="{{row.date}}">{{row.label}}</li>{{/each}}</ul>',
+    };
+    const output = [
+      'Heads up: the upstream feed was truncated.',
+      '```json',
+      JSON.stringify({
+        rows: [
+          { date: '2026-05-10', label: 'alpha' },
+          { date: '2026-05-11', label: 'beta' },
+          { date: '2026-05-12', label: 'gamma' },
+        ],
+      }),
+      '```',
+      'Note: I used the most recent three days.',
+    ].join('\n');
+
+    const out = String(renderOutputWidget(schema, output, 'test-agent') ?? '');
+    expect(out).toContain('data-d="2026-05-10"');
+    expect(out).toContain('alpha');
+    expect(out).toContain('beta');
+    expect(out).toContain('gamma');
+    // Sanity: the loop body fired three times (one <li> per row).
+    expect((out.match(/<li /g) ?? []).length).toBe(3);
+  });
+
+  it('still works for a pure-JSON output (no regression on the fast path)', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: '<p>{{outputs.count}}</p><ul>{{#each outputs.items as i}}<li>{{i}}</li>{{/each}}</ul>',
+    };
+    const out = String(renderOutputWidget(schema, '{"count":3,"items":["a","b","c"]}', 'test-agent') ?? '');
+    expect(out).toContain('<p>3</p>');
+    expect(out).toContain('<li>a</li>');
+    expect(out).toContain('<li>b</li>');
+    expect(out).toContain('<li>c</li>');
   });
 });
