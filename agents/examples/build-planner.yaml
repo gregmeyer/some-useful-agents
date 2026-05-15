@@ -58,7 +58,7 @@ nodes:
       then emit a structured BuildPlan JSON describing what to do.
 
       ════════════════════════════════════════════════════════════════
-      USER'S GOAL:
+      /goal
       {{inputs.GOAL}}
 
       OPTIONAL FOCUS / CONSTRAINTS:
