@@ -370,21 +370,47 @@ describe('substitutePlaceholders', () => {
 
   // ── Safety net: leftover handlebars block tokens ──────────────────────
   describe('leftover block-token stripping', () => {
-    it('drops {{#if item.X}}…{{/if}} that leaked out of an #each body', () => {
-      // Regression: LLMs commonly write {{#if item.X}} inside {{#each}}.
-      // That form isn't part of the grammar, but the inner {{item.X}} was
-      // still being substituted, so both branches and the literal {{#if}} /
-      // {{/if}} tokens leaked to the page. Safety net drops the whole block.
-      const t = '{{#each outputs.rows as item}}<tr>{{#if item.url}}{{item.url}}{{/if}}</tr>{{/each}}';
-      const out = substitutePlaceholders(t, {
-        outputs: { rows: [{ url: 'a' }, { url: 'b' }] },
-      });
-      expect(out).toBe('<tr></tr><tr></tr>');
-    });
-
     it('drops bare {{else}} and other stray handlebars tokens', () => {
       const t = 'A{{else}}B{{#with foo}}C{{/with}}D';
       expect(substitutePlaceholders(t, {})).toBe('ABD');
+    });
+  });
+
+  // ── Item-scoped conditionals inside #each ─────────────────────────────
+  describe('item-scoped #if / #unless inside #each', () => {
+    it('keeps the if-body per-row when the field is truthy', () => {
+      // Regression for the greenhouse-search-discovered widget bug: LLMs
+      // reach for {{#if item.X}} inside {{#each}} constantly. Previously
+      // the inner {{item.X}} was substituted but the literal {{#if}} /
+      // {{/if}} tokens leaked into the rendered widget. Now the loop
+      // evaluates them per-iteration.
+      const t = '{{#each outputs.rows as item}}<tr>{{#if item.url}}<a href="{{item.url}}">{{item.name}}</a>{{/if}}{{#unless item.url}}—{{/unless}}</tr>{{/each}}';
+      const out = substitutePlaceholders(t, {
+        outputs: { rows: [{ name: 'A', url: '/a' }, { name: 'B', url: '' }] },
+      });
+      expect(out).toBe('<tr><a href="/a">A</a></tr><tr>—</tr>');
+    });
+
+    it('honours falsy values per the global isTruthy rules', () => {
+      const t = '{{#each outputs.x as i}}[{{#if i.v}}Y{{/if}}{{#unless i.v}}N{{/unless}}]{{/each}}';
+      const out = substitutePlaceholders(t, {
+        outputs: { x: [{ v: 1 }, { v: 0 }, { v: '' }, { v: 'ok' }, { v: null }, { v: [] }, { v: ['a'] }] },
+      });
+      expect(out).toBe('[Y][N][N][Y][N][N][Y]');
+    });
+
+    it('bare {{#if item}} tests the whole item (useful for primitive arrays)', () => {
+      const t = '{{#each outputs.x as item}}{{#if item}}+{{/if}}{{#unless item}}-{{/unless}}{{/each}}';
+      const out = substitutePlaceholders(t, { outputs: { x: ['a', '', 'b', 0, 'c'] } });
+      expect(out).toBe('+-+-+');
+    });
+
+    it('uses the per-each item alias, not a hardcoded "item" name', () => {
+      const t = '{{#each outputs.rows as row}}{{#if row.ok}}Y{{/if}}{{/each}}';
+      const out = substitutePlaceholders(t, {
+        outputs: { rows: [{ ok: true }, { ok: false }, { ok: true }] },
+      });
+      expect(out).toBe('YY');
     });
   });
 });

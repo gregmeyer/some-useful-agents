@@ -308,7 +308,9 @@ export function sanitizeHtml(input: string): string {
  *   {{result}} / {{{result}}}                   the raw run output
  *   {{#each outputs.NAME as item}} … {{/each}}  iterate an array
  *     inside the block: {{item.field}} (escaped), {{{item.field}}} (unescaped),
- *     {{@index}} (zero-based)
+ *     {{@index}} (zero-based), and item-scoped conditionals
+ *     {{#if item.field}} … {{/if}} / {{#unless item.field}} … {{/unless}}
+ *     (also bare {{#if item}} on the whole item)
  *   {{#if outputs.NAME}} … {{/if}}              keep block when output is truthy
  *     (truthy = not null/undefined, not empty string, not false, not 0, not empty array)
  *   {{#unless outputs.NAME}} … {{/unless}}       keep block when output is falsy
@@ -361,12 +363,33 @@ export function substitutePlaceholders(
     (_, name: string, itemName: string, body: string) => {
       const arr = values.outputs?.[name];
       if (!Array.isArray(arr)) return '';
-      const itemRe = new RegExp(`([a-zA-Z_][a-zA-Z0-9_]*)`); // unused, just for symmetry
-      void itemRe;
       const tripleRe = new RegExp(`\\{\\{\\{\\s*${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}\\}`, 'g');
       const doubleRe = new RegExp(`\\{\\{\\s*${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}`, 'g');
+      // Item-scoped conditionals: {{#if item(.field)?}}…{{/if}} and the
+      // #unless complement. Evaluated per-iteration against the current
+      // item. LLMs reach for this constantly when describing "show a link
+      // if the row has a url, otherwise show a dash"; without it they were
+      // writing the form anyway and the literal {{#if …}} / {{/if}} tokens
+      // leaked into the rendered widget.
+      // Single-level only (non-greedy body match, same as outer #each).
+      const ifRe = new RegExp(
+        `\\{\\{\\s*#if\\s+${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}([\\s\\S]*?)\\{\\{\\s*\\/if\\s*\\}\\}`,
+        'g',
+      );
+      const unlessRe = new RegExp(
+        `\\{\\{\\s*#unless\\s+${itemName}(?:\\.([a-zA-Z_][a-zA-Z0-9_]*))?\\s*\\}\\}([\\s\\S]*?)\\{\\{\\s*\\/unless\\s*\\}\\}`,
+        'g',
+      );
       return arr.map((item, index) => {
         let line = body;
+        line = line.replace(ifRe, (_m, field: string | undefined, inner: string) => {
+          const v = field ? (item as Record<string, unknown> | null)?.[field] : item;
+          return isTruthy(v) ? inner : '';
+        });
+        line = line.replace(unlessRe, (_m, field: string | undefined, inner: string) => {
+          const v = field ? (item as Record<string, unknown> | null)?.[field] : item;
+          return isTruthy(v) ? '' : inner;
+        });
         line = line.replace(tripleRe, (_match, field?: string) => {
           if (!field) return stringify(item);
           return stringify((item as Record<string, unknown> | null)?.[field]);
