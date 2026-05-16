@@ -23,6 +23,17 @@ export interface WidgetControlState {
   view?: string;
   /** Field names hidden via `?wh=csv`. Already-parsed by the caller. */
   hiddenFields?: ReadonlySet<string>;
+  /**
+   * Sort instructions keyed by control `field`. From `?ws_<field>=<col>-<asc|desc>`.
+   * Per-field so a widget with multiple `sort` controls (e.g. one for `daily`
+   * and one for `models`) keeps independent state — without this, the same
+   * `?ws=` would apply to every control that recognised the column.
+   */
+  sort?: ReadonlyMap<string, { column: string; direction: 'asc' | 'desc' }>;
+  /** Filter queries keyed by control `field`. From `?wf_<field>=<query>`. */
+  filter?: ReadonlyMap<string, string>;
+  /** 1-based page indices keyed by control `field`. From `?wp_<field>=<n>`. */
+  page?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -118,6 +129,190 @@ function deepFind(obj: unknown, field: string, depth = 0): unknown {
     }
   }
   return undefined;
+}
+
+// ── array-data controls (sort / filter / paginate) ────────────────────
+
+/**
+ * Metadata produced by `applyControlsToArrayData` — fed to the controls-row
+ * renderer so it can show "Page 2 of 7" / display the effective sort etc.
+ * Keyed by the array field name (the `field` on each sort/filter/paginate
+ * control). Fields that lack a particular control kind are simply absent
+ * from that map.
+ */
+interface ArrayControlMetadata {
+  pageInfo: Map<string, { totalAfterFilter: number; pageCount: number; currentPage: number; pageSize: number }>;
+  appliedSort: Map<string, { column: string; direction: 'asc' | 'desc' } | null>;
+  appliedFilter: Map<string, string>;
+}
+
+/**
+ * Apply sort / filter / paginate controls to top-level arrays in the
+ * substitution map. Mutates `outputs` in place — the named array is
+ * replaced with its filtered+sorted+paged copy. Idempotent: re-running
+ * with the same state produces the same result.
+ *
+ * Order per field: filter → sort → paginate. Filter first so page count
+ * reflects the visible (filtered) set; sort before paginate so pagination
+ * is consistent with the current order.
+ */
+function applyControlsToArrayData(
+  outputs: Record<string, unknown>,
+  schema: OutputWidgetSchema,
+  state: WidgetControlState,
+): ArrayControlMetadata {
+  const pageInfo: ArrayControlMetadata['pageInfo'] = new Map();
+  const appliedSort: ArrayControlMetadata['appliedSort'] = new Map();
+  const appliedFilter: ArrayControlMetadata['appliedFilter'] = new Map();
+
+  // Group controls by their target field so a single per-field pass can
+  // run filter → sort → paginate in the right order regardless of the
+  // controls' declaration order in the schema.
+  type ArrayCtrl = Extract<WidgetControl, { type: 'sort' | 'filter' | 'paginate' }>;
+  const byField = new Map<string, { sort?: Extract<ArrayCtrl, { type: 'sort' }>; filter?: Extract<ArrayCtrl, { type: 'filter' }>; paginate?: Extract<ArrayCtrl, { type: 'paginate' }> }>();
+  for (const c of schema.controls ?? []) {
+    if (c.type === 'sort' || c.type === 'filter' || c.type === 'paginate') {
+      const entry = byField.get(c.field) ?? {};
+      // Assignment to a discriminated-union prop keyed by `c.type` —
+      // narrow via the runtime check above; TS can't follow the dynamic key.
+      (entry as Record<string, unknown>)[c.type] = c;
+      byField.set(c.field, entry);
+    }
+  }
+
+  for (const [field, controls] of byField) {
+    const arr = outputs[field];
+    if (!Array.isArray(arr)) continue;
+    let working: unknown[] = arr.slice();
+
+    // 1. Filter
+    if (controls.filter) {
+      const raw = (state.filter?.get(field) ?? '').trim();
+      appliedFilter.set(field, raw);
+      if (raw.length > 0) {
+        const q = raw.toLowerCase();
+        const cols = controls.filter.columns;
+        working = working.filter((row) => {
+          if (!row || typeof row !== 'object') return false;
+          const rec = row as Record<string, unknown>;
+          for (const col of cols) {
+            const v = rec[col];
+            if (v != null && String(v).toLowerCase().includes(q)) return true;
+          }
+          return false;
+        });
+      }
+    }
+
+    // 2. Sort
+    if (controls.sort) {
+      const eff = effectiveSort(state.sort?.get(field), controls.sort);
+      appliedSort.set(field, eff);
+      if (eff) working = stableSortByColumn(working, eff.column, eff.direction);
+    }
+
+    // 3. Paginate
+    if (controls.paginate) {
+      const pageSize = controls.paginate.pageSize;
+      const total = working.length;
+      const pageCount = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.max(1, Math.min(state.page?.get(field) ?? 1, pageCount));
+      pageInfo.set(field, { totalAfterFilter: total, pageCount, currentPage: page, pageSize });
+      const start = (page - 1) * pageSize;
+      working = working.slice(start, start + pageSize);
+    }
+
+    outputs[field] = working;
+  }
+
+  return { pageInfo, appliedSort, appliedFilter };
+}
+
+/**
+ * Resolve the effective sort instruction for a single field. URL state
+ * wins when it picks a valid column; otherwise fall back to the control's
+ * `default` string (parsed as `"<column>"` or `"<column> ASC|DESC"`).
+ */
+function effectiveSort(
+  stateSort: { column: string; direction: 'asc' | 'desc' } | undefined,
+  control: Extract<WidgetControl, { type: 'sort' }>,
+): { column: string; direction: 'asc' | 'desc' } | null {
+  if (stateSort && control.columns.includes(stateSort.column)) return stateSort;
+  if (control.default) {
+    const m = /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc))?$/i.exec(control.default.trim());
+    if (m && control.columns.includes(m[1])) {
+      return { column: m[1], direction: ((m[2] ?? 'asc').toLowerCase() as 'asc' | 'desc') };
+    }
+  }
+  return null;
+}
+
+/**
+ * Try to read a value as a number, stripping common formatting decoration
+ * that agent templates produce for display:
+ *   - currency prefixes: `$`, `€`, `£`, `¥`
+ *   - percent suffix: `%`
+ *   - thousands separators: `,`
+ *   - whitespace
+ *
+ * Returns `null` when the value can't be reduced to a plain number — that
+ * signals "not numeric in this column" to the caller, which then falls
+ * back to string sort. SI suffixes (`K`/`M`/`B`/`T`) are deliberately
+ * NOT handled here — they imply magnitude logic that needs intentional
+ * design. Agents that want SI-formatted display + numeric sort should
+ * surface a parallel `<col>_raw` numeric column.
+ */
+function tryAsNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim();
+  if (trimmed === '') return null;
+  // Strip $/€/£/¥, %, and thousands commas. Single regex so the order
+  // of decoration doesn't matter ("$1,234.5%" → "1234.5").
+  const stripped = trimmed.replace(/[$€£¥%,\s]/g, '');
+  if (!/^-?\d+(\.\d+)?$/.test(stripped)) return null;
+  return Number(stripped);
+}
+
+/**
+ * Stable sort an array of row-objects by one of their columns. Type per
+ * column is inferred from the actual values: if every non-null cell
+ * parses as a number (via `tryAsNumber`, which understands common
+ * formatting like `$1,234.56` and `42%`), sort numerically. Otherwise
+ * case-insensitive locale-string. Nulls / undefineds sort last regardless
+ * of direction.
+ */
+function stableSortByColumn(rows: unknown[], col: string, dir: 'asc' | 'desc'): unknown[] {
+  const sign = dir === 'desc' ? -1 : 1;
+  const valuesByIndex = rows.map((r) =>
+    r && typeof r === 'object' ? (r as Record<string, unknown>)[col] : undefined,
+  );
+  // Treat the column as numeric only if every non-null cell parses as a
+  // number — a single un-parseable cell forces string sort to keep the
+  // ordering well-defined.
+  const numericByIndex = valuesByIndex.map((v) => tryAsNumber(v));
+  const allNumeric = valuesByIndex.every(
+    (v, i) => v === null || v === undefined || numericByIndex[i] !== null,
+  );
+  const indexed = rows.map((row, i) => ({ row, i, v: valuesByIndex[i], n: numericByIndex[i] }));
+  indexed.sort((a, b) => {
+    const aNil = a.v === null || a.v === undefined;
+    const bNil = b.v === null || b.v === undefined;
+    if (aNil && bNil) return a.i - b.i;
+    if (aNil) return 1;
+    if (bNil) return -1;
+    if (allNumeric) {
+      const an = a.n!;
+      const bn = b.n!;
+      if (an < bn) return -1 * sign;
+      if (an > bn) return 1 * sign;
+      return a.i - b.i;
+    }
+    const cmp = String(a.v).localeCompare(String(b.v), undefined, { sensitivity: 'base' });
+    return cmp !== 0 ? cmp * sign : a.i - b.i;
+  });
+  return indexed.map((e) => e.row);
 }
 
 /**
@@ -241,6 +436,7 @@ export function renderOutputWidget(
   const fields = extractFields(output, filtered);
 
   let body: SafeHtml | undefined;
+  let arrayMeta: ArrayControlMetadata | undefined;
   switch (filtered.type) {
     case 'diff-apply':
       body = renderDiffApply(filtered, fields, agentId);
@@ -254,9 +450,12 @@ export function renderOutputWidget(
     case 'dashboard':
       body = renderDashboard(filtered, fields);
       break;
-    case 'ai-template':
-      body = renderAiTemplate(filtered, output, fields);
+    case 'ai-template': {
+      const r = renderAiTemplate(filtered, output, fields, controlState);
+      body = r.body;
+      arrayMeta = r.metadata;
       break;
+    }
     default:
       return undefined;
   }
@@ -264,7 +463,7 @@ export function renderOutputWidget(
   if (!controlState) return body;
   const effectiveSchema = ensureReplayControl(schema, agentInputs);
   if (!effectiveSchema.controls?.length) return body;
-  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState, agentInputs);
+  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState, agentInputs, arrayMeta);
   return html`${controlsRow}${body}`;
 }
 
@@ -298,12 +497,16 @@ function renderControlsRow(
   agentId: string,
   state: WidgetControlState,
   agentInputs?: Record<string, AgentInputSpec>,
+  arrayMeta?: ArrayControlMetadata,
 ): SafeHtml {
   const controls = schema.controls ?? [];
   const groups = controls.map((c) => {
     if (c.type === 'replay') return renderReplayControl(c, agentId, agentInputs);
     if (c.type === 'view-switch') return renderViewSwitchControl(c, state);
     if (c.type === 'field-toggle') return renderFieldToggleControl(c, schema, state);
+    if (c.type === 'sort') return renderSortControl(c, state, arrayMeta);
+    if (c.type === 'filter') return renderFilterControl(c, state, arrayMeta);
+    if (c.type === 'paginate') return renderPaginateControl(c, state, arrayMeta);
     return html``;
   });
   return html`
@@ -425,6 +628,165 @@ function renderFieldToggleControl(
   `;
 }
 
+// ── sort / filter / paginate renderers ────────────────────────────────
+
+/**
+ * Build a query string that preserves the OTHER widget params while
+ * overriding ONE control on the named `field`. Pass `null` to clear that
+ * field's param; pass a value to set it; omit the key to leave it as-is.
+ *
+ * Page resets to 1 (omitted from the URL) for the SAME field whenever the
+ * override touches its sort or filter — those re-shape the visible set,
+ * so a stale page index would be misleading. Pages on OTHER fields are
+ * preserved unchanged.
+ */
+function buildWidgetUrl(
+  state: WidgetControlState,
+  field: string,
+  overrides: {
+    sort?: { column: string; direction: 'asc' | 'desc' } | null;
+    filter?: string | null;
+    page?: number | null;
+  } = {},
+): string {
+  const params: string[] = [];
+  if (state.view) params.push(`wv=${encodeURIComponent(state.view)}`);
+  if (state.hiddenFields !== undefined) {
+    params.push(`wh=${encodeURIComponent([...state.hiddenFields].join(','))}`);
+  }
+
+  // For each per-field map, walk every key and emit a param. Override the
+  // single `field` we're touching; keep the others' current state intact.
+  const writeSort = (f: string, v: { column: string; direction: 'asc' | 'desc' } | undefined) => {
+    if (v) params.push(`ws_${encodeURIComponent(f)}=${encodeURIComponent(`${v.column}-${v.direction}`)}`);
+  };
+  const writeFilter = (f: string, v: string | undefined) => {
+    if (v) params.push(`wf_${encodeURIComponent(f)}=${encodeURIComponent(v)}`);
+  };
+  const writePage = (f: string, v: number | undefined) => {
+    if (v && v > 1) params.push(`wp_${encodeURIComponent(f)}=${v}`);
+  };
+
+  // Sort: preserve all fields, override the named one if requested.
+  for (const [f, v] of state.sort ?? []) {
+    if (f !== field) writeSort(f, v);
+  }
+  const sortOverride = 'sort' in overrides ? overrides.sort : state.sort?.get(field);
+  writeSort(field, sortOverride ?? undefined);
+
+  // Filter: same shape.
+  for (const [f, v] of state.filter ?? []) {
+    if (f !== field) writeFilter(f, v);
+  }
+  const filterOverride = 'filter' in overrides ? overrides.filter : state.filter?.get(field);
+  writeFilter(field, filterOverride ?? undefined);
+
+  // Page: same shape, with the "reset on sort/filter change" rule on the
+  // target field only.
+  const resetPage = 'sort' in overrides || 'filter' in overrides;
+  for (const [f, v] of state.page ?? []) {
+    if (f !== field) writePage(f, v);
+  }
+  const pageOverride = resetPage ? null : ('page' in overrides ? overrides.page : state.page?.get(field));
+  writePage(field, pageOverride ?? undefined);
+
+  return params.length > 0 ? `?${params.join('&')}` : '?';
+}
+
+function renderSortControl(
+  c: Extract<WidgetControl, { type: 'sort' }>,
+  state: WidgetControlState,
+  arrayMeta?: ArrayControlMetadata,
+): SafeHtml {
+  const active = arrayMeta?.appliedSort.get(c.field) ?? null;
+  const label = c.label ?? 'Sort';
+  const chips = c.columns.map((col) => {
+    const isActive = active?.column === col;
+    const nextDir: 'asc' | 'desc' = isActive && active?.direction === 'asc' ? 'desc' : 'asc';
+    const href = buildWidgetUrl(state, c.field, { sort: { column: col, direction: nextDir } });
+    const arrow = isActive ? (active!.direction === 'asc' ? '↑' : '↓') : '';
+    const cls = isActive ? 'badge' : 'badge badge--muted';
+    return html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="sort" data-field="${c.field}" data-column="${col}">${col}${arrow ? html` ${arrow}` : html``}</a>`;
+  });
+  const clear = active
+    ? html`<a href="${buildWidgetUrl(state, c.field, { sort: null })}" class="dim" style="font-size: var(--font-size-xs); text-decoration: none;" data-widget-control="sort-clear" data-field="${c.field}">clear</a>`
+    : html``;
+  return html`
+    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
+      <span class="dim" style="font-size: var(--font-size-xs);">${label}:</span>
+      ${chips as unknown as SafeHtml[]}
+      ${clear}
+    </div>
+  `;
+}
+
+function renderFilterControl(
+  c: Extract<WidgetControl, { type: 'filter' }>,
+  state: WidgetControlState,
+  arrayMeta?: ArrayControlMetadata,
+): SafeHtml {
+  const current = arrayMeta?.appliedFilter.get(c.field) ?? state.filter?.get(c.field) ?? '';
+  const label = c.label ?? 'Filter';
+  // GET form so the submission lands as `?wf_<field>=...` plus preserved params.
+  // Hidden inputs carry every other widget param forward — including other
+  // fields' sort/filter/page state — so submitting this form doesn't lose
+  // a sibling table's settings.
+  const hiddens: SafeHtml[] = [];
+  if (state.view) hiddens.push(html`<input type="hidden" name="wv" value="${state.view}">`);
+  if (state.hiddenFields !== undefined) {
+    hiddens.push(html`<input type="hidden" name="wh" value="${[...state.hiddenFields].join(',')}">`);
+  }
+  for (const [f, v] of state.sort ?? []) {
+    hiddens.push(html`<input type="hidden" name="ws_${f}" value="${v.column}-${v.direction}">`);
+  }
+  for (const [f, v] of state.filter ?? []) {
+    if (f === c.field) continue; // this control owns its own input below
+    hiddens.push(html`<input type="hidden" name="wf_${f}" value="${v}">`);
+  }
+  // Other fields' pages preserved. THIS field's page is intentionally
+  // omitted so the filter submission resets it to 1.
+  for (const [f, v] of state.page ?? []) {
+    if (f === c.field) continue;
+    hiddens.push(html`<input type="hidden" name="wp_${f}" value="${String(v)}">`);
+  }
+  const placeholder = c.placeholder ?? `filter ${c.columns.join(', ')}`;
+  const FIELD = 'padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm);';
+  return html`
+    <form method="get" action="" style="display: inline-flex; gap: var(--space-1); align-items: center; margin: 0;">
+      ${hiddens as unknown as SafeHtml[]}
+      <label style="display: inline-flex; gap: var(--space-1); align-items: center; font-size: var(--font-size-xs);">
+        <span class="dim">${label}:</span>
+        <input type="text" name="wf_${c.field}" value="${current}" placeholder="${placeholder}" style="${FIELD} width: 12em;" data-widget-control="filter" data-field="${c.field}">
+      </label>
+      ${current ? html`<a href="${buildWidgetUrl(state, c.field, { filter: null })}" class="dim" style="font-size: var(--font-size-xs); text-decoration: none;" data-widget-control="filter-clear" data-field="${c.field}">clear</a>` : html``}
+    </form>
+  `;
+}
+
+function renderPaginateControl(
+  c: Extract<WidgetControl, { type: 'paginate' }>,
+  state: WidgetControlState,
+  arrayMeta?: ArrayControlMetadata,
+): SafeHtml {
+  const info = arrayMeta?.pageInfo.get(c.field);
+  if (!info) {
+    return html`<span class="dim" style="font-size: var(--font-size-xs);">page —</span>`;
+  }
+  const prevHref = info.currentPage > 1 ? buildWidgetUrl(state, c.field, { page: info.currentPage - 1 }) : null;
+  const nextHref = info.currentPage < info.pageCount ? buildWidgetUrl(state, c.field, { page: info.currentPage + 1 }) : null;
+  const cls = 'badge badge--muted';
+  const dis = (label: SafeHtml) => html`<span class="${cls}" style="opacity: 0.4; cursor: default;">${label}</span>`;
+  const link = (href: string, label: SafeHtml, dataKey: string) =>
+    html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="${dataKey}" data-field="${c.field}">${label}</a>`;
+  return html`
+    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
+      ${prevHref ? link(prevHref, html`← prev`, 'paginate-prev') : dis(html`← prev`)}
+      <span class="dim" style="font-size: var(--font-size-xs); font-variant-numeric: tabular-nums;">page ${String(info.currentPage)} of ${String(info.pageCount)} <span style="opacity: 0.7;">(${String(info.totalAfterFilter)} rows)</span></span>
+      ${nextHref ? link(nextHref, html`next →`, 'paginate-next') : dis(html`next →`)}
+    </div>
+  `;
+}
+
 /**
  * Parse `?wh=foo,bar` from a query string into a Set of field names.
  * Returns `undefined` when the param is absent (so per-control defaults
@@ -435,6 +797,75 @@ function renderFieldToggleControl(
 export function parseHiddenFieldsParam(value: string | undefined): Set<string> | undefined {
   if (value === undefined) return undefined;
   return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
+/**
+ * Parse a single `ws_<field>=<column>-<asc|desc>` value. Returns
+ * `undefined` for malformed input so the caller can drop that key
+ * silently (the control then falls back to its schema `default`).
+ */
+function parseSortValue(value: string | undefined): { column: string; direction: 'asc' | 'desc' } | undefined {
+  if (!value) return undefined;
+  const m = /^([a-zA-Z_][a-zA-Z0-9_]*)-(asc|desc)$/i.exec(value.trim());
+  if (!m) return undefined;
+  return { column: m[1], direction: m[2].toLowerCase() as 'asc' | 'desc' };
+}
+
+/**
+ * Build the per-field `sort` map from a query bag (Express's `req.query`
+ * or an equivalent record). Walks every `ws_<field>` key and parses its
+ * value. Unknown / malformed entries are skipped — no errors thrown.
+ * Returns `undefined` when no `ws_*` keys exist so the caller can omit
+ * the map entirely (cheaper than passing an empty Map).
+ */
+export function parseSortParamsFromQuery(query: Record<string, unknown>): Map<string, { column: string; direction: 'asc' | 'desc' }> | undefined {
+  let result: Map<string, { column: string; direction: 'asc' | 'desc' }> | undefined;
+  for (const [k, v] of Object.entries(query)) {
+    if (!k.startsWith('ws_') || typeof v !== 'string') continue;
+    const field = k.slice(3);
+    if (!field) continue;
+    const parsed = parseSortValue(v);
+    if (!parsed) continue;
+    if (!result) result = new Map();
+    result.set(field, parsed);
+  }
+  return result;
+}
+
+/**
+ * Build the per-field `filter` map from a query bag. Walks every
+ * `wf_<field>` key. Empty-string values are kept (so authors can clear
+ * a filter by submitting an empty input); only undefined / non-string
+ * values are skipped.
+ */
+export function parseFilterParamsFromQuery(query: Record<string, unknown>): Map<string, string> | undefined {
+  let result: Map<string, string> | undefined;
+  for (const [k, v] of Object.entries(query)) {
+    if (!k.startsWith('wf_') || typeof v !== 'string') continue;
+    const field = k.slice(3);
+    if (!field) continue;
+    if (!result) result = new Map();
+    result.set(field, v);
+  }
+  return result;
+}
+
+/**
+ * Build the per-field `page` map from a query bag. Walks every
+ * `wp_<field>` key. Values that aren't positive integers are skipped.
+ */
+export function parsePageParamsFromQuery(query: Record<string, unknown>): Map<string, number> | undefined {
+  let result: Map<string, number> | undefined;
+  for (const [k, v] of Object.entries(query)) {
+    if (!k.startsWith('wp_') || typeof v !== 'string') continue;
+    const field = k.slice(3);
+    if (!field) continue;
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n) || n < 1) continue;
+    if (!result) result = new Map();
+    result.set(field, n);
+  }
+  return result;
 }
 
 // ── ai-template ────────────────────────────────────────────────────────
@@ -449,9 +880,10 @@ function renderAiTemplate(
   schema: OutputWidgetSchema,
   output: string,
   fields: Record<string, string | undefined>,
-): SafeHtml {
+  controlState?: WidgetControlState,
+): { body: SafeHtml; metadata?: ArrayControlMetadata } {
   if (!schema.template) {
-    return html`<p class="dim">No template stored. Click "Generate" in the agent's Output Widget settings to build one.</p>`;
+    return { body: html`<p class="dim">No template stored. Click "Generate" in the agent's Output Widget settings to build one.</p>` };
   }
 
   // Build a unified outputs map. Start with the parsed JSON's top-level
@@ -487,9 +919,15 @@ function renderAiTemplate(
     }
   }
 
+  // Apply array-data controls (sort / filter / paginate) BEFORE
+  // substitution so the `{{#each}}` blocks see the transformed arrays.
+  // No-op when no such controls are declared or no controlState was
+  // threaded through (e.g. Pulse tiles render statically).
+  const metadata = controlState ? applyControlsToArrayData(outputsForSub, schema, controlState) : undefined;
+
   const substituted = substitutePlaceholders(schema.template, { outputs: outputsForSub, result: output });
   const safe = sanitizeHtml(substituted);
-  return unsafeHtml(`<div class="ai-template-widget">${safe}</div>`);
+  return { body: unsafeHtml(`<div class="ai-template-widget">${safe}</div>`), metadata };
 }
 
 // ── diff-apply ──────────────────────────────────────────────────────────

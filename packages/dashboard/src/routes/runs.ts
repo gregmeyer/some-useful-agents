@@ -3,7 +3,12 @@ import type { RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderRunsList } from '../views/runs-list.js';
 import { renderRunDetail } from '../views/run-detail.js';
-import { parseHiddenFieldsParam } from '../views/output-widgets.js';
+import {
+  parseHiddenFieldsParam,
+  parseSortParamsFromQuery,
+  parseFilterParamsFromQuery,
+  parsePageParamsFromQuery,
+} from '../views/output-widgets.js';
 import { deriveBack } from '../views/page-header.js';
 
 const VALID_STATUSES: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
@@ -100,12 +105,23 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     ? { kind: isError ? ('error' as const) : ('ok' as const), message: flashParam }
     : undefined;
 
-  // Output widget interactive controls: ?wv=<view-id> and ?wh=<csv-of-fields>.
-  // Always passed (even when both are absent) so the renderer knows it's on a
-  // controls-rendering page and emits the controls row in default state.
+  // Output widget interactive controls. Always passed (even when every
+  // param is absent) so the renderer knows it's on a controls-rendering
+  // page and emits the controls row in default state.
+  //   ?wv=<view-id>            active view-switch view
+  //   ?wh=<csv>                hidden-fields list (authoritative — empty means none)
+  //   ?ws_<field>=<col>-<dir>  per-field sort column + direction
+  //   ?wf_<field>=<query>      per-field filter (case-insensitive substring)
+  //   ?wp_<field>=<n>          per-field 1-based page index
   const wv = typeof req.query.wv === 'string' ? req.query.wv : undefined;
   const wh = typeof req.query.wh === 'string' ? req.query.wh : undefined;
-  const widgetControls = { view: wv, hiddenFields: parseHiddenFieldsParam(wh) };
+  const widgetControls = {
+    view: wv,
+    hiddenFields: parseHiddenFieldsParam(wh),
+    sort: parseSortParamsFromQuery(req.query as Record<string, unknown>),
+    filter: parseFilterParamsFromQuery(req.query as Record<string, unknown>),
+    page: parsePageParamsFromQuery(req.query as Record<string, unknown>),
+  };
 
   res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls }));
 });

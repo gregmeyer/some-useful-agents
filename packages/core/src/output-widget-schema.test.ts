@@ -194,4 +194,77 @@ describe('agent YAML round-trip preserves controls', () => {
     expect(agent.outputWidget?.controls?.[0]).toMatchObject({ type: 'replay', inputs: ['CITY'] });
     expect(agent.outputWidget?.controls?.[1]).toMatchObject({ type: 'view-switch', default: 'metric' });
   });
+
+  describe('sort / filter / paginate controls', () => {
+    it('accepts a sort control with a valid default', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'sort', field: 'rows', columns: ['name', 'cost'], default: 'cost desc' }],
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it('accepts a sort control with no default', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'] }],
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it('rejects sort.default that references an undeclared column', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'], default: 'cost desc' }],
+      });
+      expect(r.success).toBe(false);
+      if (!r.success) {
+        expect(r.error.issues.some((i) => i.message.includes('isn\'t in sort.columns'))).toBe(true);
+      }
+    });
+
+    it('rejects sort.default in a malformed shape', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'], default: 'name; DROP TABLE x' }],
+      });
+      expect(r.success).toBe(false);
+    });
+
+    it('accepts a filter control', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'filter', field: 'rows', columns: ['name', 'reason'], placeholder: 'search…' }],
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it('accepts a paginate control', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'paginate', field: 'rows', pageSize: 25 }],
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it('rejects paginate.pageSize > 1000', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [{ type: 'paginate', field: 'rows', pageSize: 1500 }],
+      });
+      expect(r.success).toBe(false);
+    });
+
+    it('accepts all three controls coexisting on the same field', () => {
+      const r = outputWidgetSchema.safeParse({
+        ...baseDashboard,
+        controls: [
+          { type: 'filter', field: 'rows', columns: ['name'] },
+          { type: 'sort', field: 'rows', columns: ['cost'] },
+          { type: 'paginate', field: 'rows', pageSize: 10 },
+        ],
+      });
+      expect(r.success).toBe(true);
+    });
+  });
 });
