@@ -368,6 +368,29 @@ describe('substitutePlaceholders', () => {
     });
   });
 
+  // ── Wrapping #if outputs.X around an #each with item-scoped #if ────────
+  describe('outer #if outputs.X wrapping an #each with item-scoped conditionals', () => {
+    it('renders all rows when outer #if wraps an #each whose body contains {{#if item.X}}…{{/if}}', () => {
+      // Regression: greenhouse-search-discovered widget rendered zero
+      // rows. The outer {{#if outputs.matches}} was processed first with a
+      // non-greedy body match, which terminated at the FIRST {{/if}} —
+      // the INNER item-scoped closer — truncating the table after the
+      // first <td>. Fix: run #each before outer #if so per-iteration
+      // rewriting consumes item-scoped {{/if}} tokens first.
+      const t = `{{#if outputs.matches}}<table>{{#each outputs.matches as item}}<tr><td>{{#if item.url}}<a href="{{item.url}}">{{item.name}}</a>{{/if}}{{#unless item.url}}{{item.name}}{{/unless}}</td></tr>{{/each}}</table>{{/if}}{{#unless outputs.matches}}<p>empty</p>{{/unless}}`;
+      const out = substitutePlaceholders(t, {
+        outputs: { matches: [{ name: 'A', url: '/a' }, { name: 'B', url: '' }] },
+      });
+      expect(out).toBe('<table><tr><td><a href="/a">A</a></td></tr><tr><td>B</td></tr></table>');
+    });
+
+    it('falls through to the #unless branch when the array is empty', () => {
+      const t = `{{#if outputs.matches}}<table>{{#each outputs.matches as item}}<tr><td>{{item.name}}</td></tr>{{/each}}</table>{{/if}}{{#unless outputs.matches}}<p>empty</p>{{/unless}}`;
+      expect(substitutePlaceholders(t, { outputs: { matches: [] } })).toBe('<p>empty</p>');
+      expect(substitutePlaceholders(t, { outputs: {} })).toBe('<p>empty</p>');
+    });
+  });
+
   // ── Safety net: leftover handlebars block tokens ──────────────────────
   describe('leftover block-token stripping', () => {
     it('drops bare {{else}} and other stray handlebars tokens', () => {

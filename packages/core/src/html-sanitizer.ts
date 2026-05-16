@@ -344,21 +344,16 @@ export function substitutePlaceholders(
     return true;
   };
 
-  // 0. #if / #unless blocks first — drop or keep the body based on
-  //    truthiness, before any inner #each / placeholder substitution so we
-  //    don't waste work on a branch we're going to discard.
-  let out = template.replace(
-    /\{\{\s*#if\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/if\s*\}\}/g,
-    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? body : ''),
-  );
-  out = out.replace(
-    /\{\{\s*#unless\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/unless\s*\}\}/g,
-    (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? '' : body),
-  );
-
-  // 1. Each blocks — non-greedy body match means an inner #each would
+  // 0. Each blocks first — must run BEFORE outer #if/#unless outputs.X.
+  //    All block regexes use non-greedy body matches, and an outer
+  //    {{#if outputs.X}}…{{/if}} that wraps an {{#each}} body with
+  //    item-scoped {{#if item.X}}…{{/if}} inside would otherwise have its
+  //    outer body truncated at the FIRST {{/if}} — the inner one —
+  //    nuking the table. Running #each first consumes those inner
+  //    closers (per-iteration) so the outer #if sees a balanced body.
+  //    Non-greedy each body match also means a nested #each would
   //    confuse the parser; that's by design (no nested loops).
-  out = out.replace(
+  let out = template.replace(
     /\{\{\s*#each\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/g,
     (_, name: string, itemName: string, body: string) => {
       const arr = values.outputs?.[name];
@@ -403,6 +398,23 @@ export function substitutePlaceholders(
       }).join('');
     },
   );
+
+  // 1b. Outer #if / #unless on outputs.X — runs AFTER #each so any
+  //     item-scoped {{/if}} / {{/unless}} inside an each body has already
+  //     been consumed and won't be mistaken for the outer block's closer.
+  //     Repeated until stable so multiple sibling blocks all process.
+  let blockPrev: string;
+  do {
+    blockPrev = out;
+    out = out.replace(
+      /\{\{\s*#if\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/if\s*\}\}/g,
+      (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? body : ''),
+    );
+    out = out.replace(
+      /\{\{\s*#unless\s+outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/unless\s*\}\}/g,
+      (_, name: string, body: string) => (isTruthy(values.outputs?.[name]) ? '' : body),
+    );
+  } while (out !== blockPrev);
 
   // 2. Triple-brace unescaped — must run before double-brace so the regex
   //    doesn't match the inner double braces of `{{{x}}}`.
