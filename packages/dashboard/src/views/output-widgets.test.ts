@@ -165,7 +165,7 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
       controls: [{ type: 'sort' as const, field: 'rows', columns: ['name', 'cost'], default: 'cost desc' }],
     };
     const out = String(renderOutputWidget(schema, output, 'a', {
-      sort: { column: 'name', direction: 'asc' },
+      sort: new Map([['rows', { column: 'name', direction: 'asc' }]]),
     }) ?? '');
     expect(rowsFromHtml(out)).toEqual([
       'alpha|100', 'beta|50', 'delta|75', 'epsilon|125', 'gamma|200',
@@ -178,9 +178,10 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
       template: baseTemplate,
       controls: [{ type: 'filter' as const, field: 'rows', columns: ['name'] }],
     };
-    const out = String(renderOutputWidget(schema, output, 'a', { filter: 'TA' }) ?? '');
-    // "alpha" (no), "beta" (yes — has "ta"... wait no — "beta" has "ta"? yes "be-TA"),
-    // "gamma" no, "delta" yes "del-TA", "epsilon" no.
+    const out = String(renderOutputWidget(schema, output, 'a', {
+      filter: new Map([['rows', 'TA']]),
+    }) ?? '');
+    // alpha (no "ta"), beta (be-TA ✓), gamma (no), delta (del-TA ✓), epsilon (no).
     expect(rowsFromHtml(out)).toEqual(['beta|50', 'delta|75']);
   });
 
@@ -190,11 +191,12 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
       template: baseTemplate,
       controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
     };
-    const page2 = String(renderOutputWidget(schema, output, 'a', { page: 2 }) ?? '');
+    const page2 = String(renderOutputWidget(schema, output, 'a', {
+      page: new Map([['rows', 2]]),
+    }) ?? '');
     expect(rowsFromHtml(page2)).toEqual(['gamma|200', 'delta|75']);
     expect(page2).toContain('page 2 of 3');
     expect(page2).toContain('5 rows');
-    // Prev is a real link on page 2, next is too.
     expect(page2.match(/data-widget-control="paginate-prev"/g)).toHaveLength(1);
     expect(page2.match(/data-widget-control="paginate-next"/g)).toHaveLength(1);
   });
@@ -205,10 +207,14 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
       template: baseTemplate,
       controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
     };
-    const page1 = String(renderOutputWidget(schema, output, 'a', { page: 1 }) ?? '');
+    const page1 = String(renderOutputWidget(schema, output, 'a', {
+      page: new Map([['rows', 1]]),
+    }) ?? '');
     expect(page1).not.toContain('data-widget-control="paginate-prev"');
     expect(page1).toContain('data-widget-control="paginate-next"');
-    const page3 = String(renderOutputWidget(schema, output, 'a', { page: 3 }) ?? '');
+    const page3 = String(renderOutputWidget(schema, output, 'a', {
+      page: new Map([['rows', 3]]),
+    }) ?? '');
     expect(page3).toContain('data-widget-control="paginate-prev"');
     expect(page3).not.toContain('data-widget-control="paginate-next"');
   });
@@ -223,33 +229,128 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
         { type: 'paginate' as const, field: 'rows', pageSize: 2 },
       ],
     };
-    // Filter "a" matches alpha (100), beta (50)? no — "beta" doesn't contain "a"... wait
-    // beta = b-e-t-a — yes it contains "a". Let me list:
-    // alpha (a) ✓, beta (a) ✓, gamma (a) ✓, delta (a) ✓, epsilon — no "a". So filter
-    // keeps 4 rows. Sort by cost asc: beta(50), delta(75), alpha(100), gamma(200).
-    // Page 2 of size 2: [alpha, gamma].
+    // Filter "a" keeps alpha, beta, gamma, delta (4 of 5 — epsilon has no "a").
+    // Sort cost asc: beta(50), delta(75), alpha(100), gamma(200). Page 2 of 2.
     const out = String(renderOutputWidget(schema, output, 'agent', {
-      filter: 'a',
-      sort: { column: 'cost', direction: 'asc' },
-      page: 2,
+      filter: new Map([['rows', 'a']]),
+      sort: new Map([['rows', { column: 'cost', direction: 'asc' }]]),
+      page: new Map([['rows', 2]]),
     }) ?? '');
     expect(rowsFromHtml(out)).toEqual(['alpha|100', 'gamma|200']);
     expect(out).toContain('page 2 of 2');
     expect(out).toContain('4 rows');
   });
 
-  it('clamps page to the valid range and stable-sorts when controls operate on a non-array (no-op)', () => {
+  it('clamps page to the valid range and no-ops on non-array fields', () => {
     const schema = {
       type: 'ai-template' as const,
       template: baseTemplate,
       controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
     };
-    // Page 99 → clamps to last (3); also exercises the non-array safety: if the
-    // underlying field isn't an array, controls just no-op without throwing.
-    const out = String(renderOutputWidget(schema, output, 'a', { page: 99 }) ?? '');
+    const out = String(renderOutputWidget(schema, output, 'a', {
+      page: new Map([['rows', 99]]),
+    }) ?? '');
     expect(out).toContain('page 3 of 3');
-    const noArr = String(renderOutputWidget(schema, '{"rows":"not an array"}', 'a', { page: 1 }) ?? '');
-    // Widget still renders, just without paged content; control row shows page —.
+    const noArr = String(renderOutputWidget(schema, '{"rows":"not an array"}', 'a', {
+      page: new Map([['rows', 1]]),
+    }) ?? '');
     expect(noArr).toContain('page —');
+  });
+
+  // ── regression: per-field state isolation ────────────────────────────
+  // Two sort controls on different fields (the ccusage-daily shape:
+  // `daily` + `models`) must keep INDEPENDENT state. Previously a single
+  // global `?ws=` applied to every sort control whose column list
+  // contained the named column — sorting `daily` by `tokens` also
+  // re-sorted `models` because both control's columns included `tokens`.
+  it('two sort controls on different fields keep independent state', () => {
+    const data = JSON.stringify({
+      daily: [
+        { date: '2026-05-15', tokens: 100 },
+        { date: '2026-05-14', tokens: 300 },
+        { date: '2026-05-13', tokens: 200 },
+      ],
+      models: [
+        { name: 'opus', tokens: 1000 },
+        { name: 'haiku', tokens: 50 },
+        { name: 'sonnet', tokens: 500 },
+      ],
+    });
+    const schema = {
+      type: 'ai-template' as const,
+      template:
+        '<table id="daily">{{#each outputs.daily as d}}<tr><td>{{d.date}}</td></tr>{{/each}}</table>' +
+        '<table id="models">{{#each outputs.models as m}}<tr><td>{{m.name}}</td></tr>{{/each}}</table>',
+      controls: [
+        { type: 'sort' as const, field: 'daily', columns: ['date', 'tokens'] },
+        { type: 'sort' as const, field: 'models', columns: ['name', 'tokens'] },
+      ],
+    };
+    // Sort daily by tokens-asc. Models should be UNCHANGED (no models
+    // sort instruction; no default; original order preserved).
+    const out = String(renderOutputWidget(schema, data, 'agent', {
+      sort: new Map([['daily', { column: 'tokens', direction: 'asc' }]]),
+    }) ?? '');
+    const dailyDates = [...out.matchAll(/<table id="daily">[\s\S]*?<\/table>/g)][0]?.[0]
+      .match(/2026-05-\d\d/g) ?? [];
+    const modelNames = [...out.matchAll(/<table id="models">[\s\S]*?<\/table>/g)][0]?.[0]
+      .match(/(opus|haiku|sonnet)/g) ?? [];
+    expect(dailyDates).toEqual(['2026-05-15', '2026-05-13', '2026-05-14']); // tokens asc: 100, 200, 300
+    expect(modelNames).toEqual(['opus', 'haiku', 'sonnet']);                 // untouched
+  });
+
+  // ── regression: numeric sort handles currency-prefixed strings ─────
+  // ccusage-daily's `models[].cost` is `"$711.63"` etc. Previously these
+  // sorted as strings — `"$2.89"` came before `"$711.63"` alphabetically,
+  // breaking "cost desc" ordering.
+  it('sorts $-prefixed numeric strings as numbers', () => {
+    const data = JSON.stringify({
+      rows: [
+        { name: 'a', cost: '$711.63' },
+        { name: 'b', cost: '$12.54' },
+        { name: 'c', cost: '$2.89' },
+      ],
+    });
+    const schema = {
+      type: 'ai-template' as const,
+      template: '<ul>{{#each outputs.rows as r}}<li>{{r.name}}|{{r.cost}}</li>{{/each}}</ul>',
+      controls: [{ type: 'sort' as const, field: 'rows', columns: ['cost'], default: 'cost desc' }],
+    };
+    const out = String(renderOutputWidget(schema, data, 'a', {}) ?? '');
+    expect(rowsFromHtml(out)).toEqual(['a|$711.63', 'b|$12.54', 'c|$2.89']);
+  });
+
+  it('sorts percent-suffixed numeric strings as numbers', () => {
+    const data = JSON.stringify({
+      rows: [
+        { name: 'a', pct: '5%' },
+        { name: 'b', pct: '95%' },
+        { name: 'c', pct: '25%' },
+      ],
+    });
+    const schema = {
+      type: 'ai-template' as const,
+      template: '<ul>{{#each outputs.rows as r}}<li>{{r.name}}|{{r.pct}}</li>{{/each}}</ul>',
+      controls: [{ type: 'sort' as const, field: 'rows', columns: ['pct'], default: 'pct asc' }],
+    };
+    const out = String(renderOutputWidget(schema, data, 'a', {}) ?? '');
+    expect(rowsFromHtml(out)).toEqual(['a|5%', 'c|25%', 'b|95%']);
+  });
+
+  it('treats comma-separated numbers (`$1,234.56`) as numeric', () => {
+    const data = JSON.stringify({
+      rows: [
+        { name: 'a', cost: '$1,234.56' },
+        { name: 'b', cost: '$999.99' },
+        { name: 'c', cost: '$50.00' },
+      ],
+    });
+    const schema = {
+      type: 'ai-template' as const,
+      template: '<ul>{{#each outputs.rows as r}}<li>{{r.name}}</li>{{/each}}</ul>',
+      controls: [{ type: 'sort' as const, field: 'rows', columns: ['cost'], default: 'cost asc' }],
+    };
+    const out = String(renderOutputWidget(schema, data, 'a', {}) ?? '');
+    expect(rowsFromHtml(out)).toEqual(['c', 'b', 'a']);
   });
 });
