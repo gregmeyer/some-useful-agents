@@ -23,6 +23,51 @@ describe('sanitizeHtml', () => {
     }
   });
 
+  describe('<style> blocks', () => {
+    // ai-template widgets need <style> for CSS-grid / flex layout. The
+    // previous sanitizer stripped these entirely, which broke top-level
+    // stat-card layouts in widgets like ccusage-daily.
+    it('preserves a benign <style> block with class rules', () => {
+      const css = '.stat { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }';
+      const out = sanitizeHtml(`<style>${css}</style><div class="stat"><span>a</span></div>`);
+      expect(out).toContain('<style');
+      expect(out).toContain('display: grid');
+      expect(out).toContain('grid-template-columns: 1fr 1fr');
+      expect(out).toContain('<div class="stat"');
+    });
+
+    it('scrubs javascript: / expression() / behavior: from style body', () => {
+      const evil = [
+        '.a { background: url(javascript:alert(1)); }',
+        '.b { width: expression(alert(1)); }',
+        '.c { background-image: url(vbscript:bad); }',
+        '.d { behavior: url(#default#evil); }',
+      ].join('\n');
+      const out = sanitizeHtml(`<style>${evil}</style>`);
+      expect(out.toLowerCase()).not.toContain('javascript');
+      expect(out.toLowerCase()).not.toContain('vbscript');
+      expect(out.toLowerCase()).not.toContain('expression(');
+      expect(out.toLowerCase()).not.toContain('behavior:');
+      // Benign rule structure survives — just the dangerous parts got stripped.
+      expect(out).toContain('<style');
+    });
+
+    it('strips external @import statements', () => {
+      const out = sanitizeHtml('<style>@import url("https://evil.com/x.css"); .ok { color: red; }</style>');
+      expect(out).not.toContain('@import');
+      expect(out).not.toContain('evil.com');
+      expect(out).toContain('.ok');
+    });
+
+    it('still strips <script> even when CSS allows <style> through', () => {
+      // Make sure my regex narrowing didn't accidentally permit <script>.
+      const out = sanitizeHtml('<style>.a{color:red;}</style><script>alert(1)</script>');
+      expect(out).toContain('<style');
+      expect(out.toLowerCase()).not.toContain('<script');
+      expect(out).not.toContain('alert');
+    });
+  });
+
   it('strips on* event handlers', () => {
     const out = sanitizeHtml('<div onclick="alert(1)" onmouseover="x()">hi</div>');
     expect(out).not.toContain('onclick');

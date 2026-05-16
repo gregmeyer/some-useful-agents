@@ -15,6 +15,11 @@
 const ALLOWED_TAGS = new Set<string>([
   // Block + inline text
   'div', 'span', 'p', 'br', 'hr', 'pre', 'code', 'small', 'strong', 'em', 'b', 'i', 'u',
+  // <style> for ai-template widgets that need CSS-grid / flex layout rules.
+  // The body is sanitised by sanitizeStyleBlock() in a pre-pass; the dashboard
+  // CSP already restricts where stylesheets can fetch from (`style-src 'self'
+  // 'unsafe-inline'`, no external imports).
+  'style',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   // Lists
   'ul', 'ol', 'li', 'dl', 'dt', 'dd',
@@ -167,6 +172,24 @@ function sanitizeStyle(value: string): string {
   return s;
 }
 
+/**
+ * Sanitize the BODY of a `<style>` block. Same threats as inline
+ * `style="…"` (which `sanitizeStyle` handles) plus stylesheet-specific
+ * vectors:
+ *   - external `@import url(http://…)` — CSP blocks the fetch but we
+ *     strip anyway for defense in depth
+ *   - `behavior:` — legacy IE script-execution hook
+ * Leaves benign CSS rules untouched.
+ */
+function sanitizeStyleBlock(body: string): string {
+  let s = body.replace(/expression\s*\(/gi, '');
+  s = s.replace(/url\s*\(\s*['"]?\s*(?:javascript|vbscript):[^)]*\)/gi, 'url()');
+  s = s.replace(/javascript\s*:/gi, '');
+  s = s.replace(/behavior\s*:/gi, '');
+  s = s.replace(/@import[^;]*;/gi, '');
+  return s;
+}
+
 interface ParsedAttrs {
   rawTagBody: string;
   attrs: Record<string, string>;
@@ -209,23 +232,35 @@ function buildAttrString(tag: string, attrs: Record<string, string>): string {
 
 /**
  * Sanitize untrusted HTML to a tag/attr allowlist. Strips:
- *  - all <script>, <style>, <object>, <embed>, <link>, <form>, <input>...
+ *  - all <script>, <object>, <embed>, <link>, <form>, <input>...
  *  - any tag not in ALLOWED_TAGS (preserving inner text)
  *  - any attribute not in the per-tag allowlist
  *  - on*, javascript:, vbscript:, data: (except data:image/*)
  *  - HTML comments (which can hide IE-conditional script)
  *  - <iframe> whose src isn't HTTPS + on the IFRAME_ALLOWED_HOSTS allowlist;
  *    accepted iframes get a forced `sandbox` attribute regardless of input.
+ *
+ * `<style>` blocks are PRESERVED (ai-template widgets need CSS for grid /
+ * flex layout). Their bodies are scrubbed via sanitizeStyleBlock() — kills
+ * `javascript:`, `expression()`, `behavior:`, and external `@import`.
  */
 export function sanitizeHtml(input: string): string {
   // Strip dangerous block constructs entirely first. Note: iframe is NOT in
   // this list — it's allowed conditionally (HTTPS + host allowlist) and
-  // gets a forced sandbox in the walker below.
+  // gets a forced sandbox in the walker below. `<style>` is also NOT in
+  // this list — ai-template widgets need it for layout CSS; the body is
+  // scrubbed by sanitizeStyleBlock() just below, and CSP restricts where
+  // any url(…) inside can fetch from.
   let s = input;
   s = s.replace(/<!--[\s\S]*?-->/g, '');
-  s = s.replace(/<(script|style|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  // Scrub the body of <style> blocks before the rest of the pipeline runs.
+  s = s.replace(
+    /<style([^>]*)>([\s\S]*?)<\/style\s*>/gi,
+    (_, attrs: string, body: string) => `<style${attrs}>${sanitizeStyleBlock(body)}</style>`,
+  );
+  s = s.replace(/<(script|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
   // And any orphan opening of those that lacks a closing tag.
-  s = s.replace(/<(script|style|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*\/?>/gi, '');
+  s = s.replace(/<(script|object|embed|noscript|template|xml|head|meta|link|form|input|button|select|textarea|frame|frameset|applet|base)[^>]*\/?>/gi, '');
 
   // Walk all remaining tags.
   return s.replace(/<\/?([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, rawTag, body) => {
