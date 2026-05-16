@@ -396,5 +396,21 @@ export function substitutePlaceholders(
   );
   out = out.replace(/\{\{\s*result\s*\}\}/g, () => escape(values.result ?? ''));
 
+  // 4. Safety net: drop any remaining {{#...}}...{{/...}} block pairs and
+  //    bare {{#...}} / {{/...}} / {{else}} tokens. Anything still here is an
+  //    unsupported handlebars form (helpers like `(eq …)`, `{{else}}`
+  //    branches, or item-scoped conditionals inside an #each that wrote them
+  //    in a way the loop body rewriter didn't recognise). Leaving the raw
+  //    syntax in the output leaks `{{#if …}}` / `{{/if}}` text into rendered
+  //    widgets, which is much worse than silently dropping the block.
+  //    Repeat the block strip until stable so adjacent leftovers all clear.
+  let prev: string;
+  do {
+    prev = out;
+    out = out.replace(/\{\{\s*#[a-zA-Z][^}]*\}\}[\s\S]*?\{\{\s*\/[a-zA-Z][^}]*\}\}/g, '');
+  } while (out !== prev);
+  out = out.replace(/\{\{\s*(?:#|\/)[a-zA-Z][^}]*\}\}/g, '');
+  out = out.replace(/\{\{\s*else\s*\}\}/g, '');
+
   return out;
 }

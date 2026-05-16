@@ -357,13 +357,34 @@ describe('substitutePlaceholders', () => {
       expect(substitutePlaceholders(t, { outputs: {} })).toBe('B');
     });
 
-    it('does not match Handlebars helpers like (eq …) — renders as literal', () => {
-      // Documents the deliberate non-feature: only {{#if outputs.NAME}} is
-      // supported. Helpers must be caught by catalog guidance, not silently
-      // partially-evaluated.
+    it('drops unsupported helper-style blocks like {{#if (eq …)}} instead of leaking syntax', () => {
+      // Only {{#if outputs.NAME}} is supported. Anything else (helpers,
+      // {{else}}, item-scoped item.X conditionals not consumed by #each)
+      // gets stripped by the safety net so raw handlebars tokens never leak
+      // into rendered widgets.
       const t = '{{#if (eq outputs.status "found")}}A{{/if}}';
       const out = substitutePlaceholders(t, { outputs: { status: 'found' } });
-      expect(out).toBe(t);
+      expect(out).toBe('');
+    });
+  });
+
+  // ── Safety net: leftover handlebars block tokens ──────────────────────
+  describe('leftover block-token stripping', () => {
+    it('drops {{#if item.X}}…{{/if}} that leaked out of an #each body', () => {
+      // Regression: LLMs commonly write {{#if item.X}} inside {{#each}}.
+      // That form isn't part of the grammar, but the inner {{item.X}} was
+      // still being substituted, so both branches and the literal {{#if}} /
+      // {{/if}} tokens leaked to the page. Safety net drops the whole block.
+      const t = '{{#each outputs.rows as item}}<tr>{{#if item.url}}{{item.url}}{{/if}}</tr>{{/each}}';
+      const out = substitutePlaceholders(t, {
+        outputs: { rows: [{ url: 'a' }, { url: 'b' }] },
+      });
+      expect(out).toBe('<tr></tr><tr></tr>');
+    });
+
+    it('drops bare {{else}} and other stray handlebars tokens', () => {
+      const t = 'A{{else}}B{{#with foo}}C{{/with}}D';
+      expect(substitutePlaceholders(t, {})).toBe('ABD');
     });
   });
 });
