@@ -108,8 +108,11 @@ export function renderInteractiveWidget(args: {
   `);
 
   // Initial idle body — render the widget against the last result.
+  // Pass an empty controlState so schema defaults (sort / paginate) apply
+  // and the interactive controls row renders. The widget owns visual
+  // styling via its own <style> block.
   const idleBody = hasResult
-    ? renderOutputWidget(widget, String(lastRun!.result), agent.id) ?? html`<p class="dim">Widget render failed.</p>`
+    ? renderOutputWidget(widget, String(lastRun!.result), agent.id, {}) ?? html`<p class="dim">Widget render failed.</p>`
     : html``;
 
   return html`

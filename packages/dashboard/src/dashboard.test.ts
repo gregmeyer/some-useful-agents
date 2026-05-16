@@ -2625,7 +2625,7 @@ describe('Widget controls (PR H)', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('output-widget__controls');
+    expect(res.text).toContain('wc-row');
     expect(res.text).toContain('data-widget-control="replay"');
     expect(res.text).toContain('data-widget-control="view-switch"');
     expect(res.text).toContain('data-widget-control="field-toggle"');
@@ -2660,7 +2660,7 @@ describe('Widget controls (PR H)', () => {
     // The chip for imperial should be styled active (badge, not badge--muted).
     // Active chip uses class="badge" (not badge--muted). Look for the
     // specific imperial chip's class via the surrounding anchor tag.
-    expect(imp.text).toMatch(/<a[^>]*class="badge"[^>]*data-view-id="imperial"/);
+    expect(imp.text).toMatch(/<a[^>]*class="[^"]*wc-chip--active[^"]*"[^>]*data-view-id="imperial"/);
   });
 
   it('field-toggle hides default-hidden fields by default and reveals them via ?wh', async () => {
@@ -2691,8 +2691,8 @@ describe('Widget controls (PR H)', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('output-widget__controls');
-    expect(res.text).toMatch(/<a[^>]*class="badge"[^>]*data-view-id="imperial"/);
+    expect(res.text).toContain('wc-row');
+    expect(res.text).toMatch(/<a[^>]*class="[^"]*wc-chip--active[^"]*"[^>]*data-view-id="imperial"/);
   });
 });
 

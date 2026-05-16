@@ -509,8 +509,12 @@ function renderControlsRow(
     if (c.type === 'paginate') return renderPaginateControl(c, state, arrayMeta);
     return html``;
   });
+  // Classes are intentionally minimal — appearance is owned by the
+  // dashboard's default widget-controls CSS plus any agent <style> block
+  // that wants to restyle. See packages/dashboard/src/assets/components.css
+  // for the full class catalogue.
   return html`
-    <div class="output-widget__controls" style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border);">
+    <div class="wc-row" data-widget-control-row="">
       ${groups as unknown as SafeHtml[]}
     </div>
   `;
@@ -522,45 +526,38 @@ function renderReplayControl(
   agentInputs?: Record<string, AgentInputSpec>,
 ): SafeHtml {
   const label = c.label ?? 'Run again';
-  const FIELD = 'padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm);';
   const inlineInputs = (c.inputs ?? []).map((name) => {
     const spec = agentInputs?.[name];
     const defVal = spec?.default !== undefined ? String(spec.default) : '';
     let inputEl: SafeHtml;
     if (spec?.type === 'enum' && Array.isArray(spec.values) && spec.values.length > 0) {
-      // Render <select> so users get a dropdown of declared enum values
-      // rather than a bare text input where they'd have to remember the
-      // valid options.
       const options = spec.values.map((v) => {
         const val = String(v);
         const selected = val === defVal ? ' selected' : '';
         return `<option value="${val}"${selected}>${val}</option>`;
       });
-      inputEl = unsafeHtml(`<select name="input_${name}" style="${FIELD}">${options.join('')}</select>`);
+      inputEl = unsafeHtml(`<select class="wc-input" name="input_${name}">${options.join('')}</select>`);
     } else if (spec?.type === 'boolean') {
       inputEl = unsafeHtml(
-        `<select name="input_${name}" style="${FIELD}">` +
+        `<select class="wc-input" name="input_${name}">` +
         `<option value="true"${defVal === 'true' ? ' selected' : ''}>true</option>` +
         `<option value="false"${defVal !== 'true' ? ' selected' : ''}>false</option>` +
         `</select>`
       );
     } else {
-      // Pre-fill with the spec default so users see what would run if they
-      // hit Re-run without typing anything (the wizard form already does
-      // this — inline replay should match).
-      inputEl = html`<input type="text" name="input_${name}" value="${defVal}" placeholder="${defVal || '(empty)'}" style="${FIELD} width: 8em;">`;
+      inputEl = html`<input class="wc-input wc-input--text" type="text" name="input_${name}" value="${defVal}" placeholder="${defVal || '(empty)'}">`;
     }
     return html`
-      <label style="display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs);">
-        <span class="dim">${name}</span>
+      <label class="wc-field">
+        <span class="wc-field__name">${name}</span>
         ${inputEl}
       </label>
     `;
   });
   return html`
-    <form method="POST" action="/agents/${encodeURIComponent(agentId)}/run" style="display: inline-flex; gap: var(--space-2); align-items: center; margin: 0;">
+    <form class="wc-group wc-group--replay" method="POST" action="/agents/${encodeURIComponent(agentId)}/run">
       ${inlineInputs as unknown as SafeHtml[]}
-      <button type="submit" class="btn btn--sm btn--primary" data-widget-control="replay">${label}</button>
+      <button type="submit" class="wc-button wc-button--primary" data-widget-control="replay">${label}</button>
     </form>
   `;
 }
@@ -572,20 +569,13 @@ function renderViewSwitchControl(
   const activeId = state.view ?? c.default;
   const chips = c.views.map((v) => {
     const isActive = v.id === activeId;
-    const cls = isActive ? 'badge' : 'badge badge--muted';
-    const style = isActive
-      ? 'cursor: default; text-decoration: none;'
-      : 'cursor: pointer; text-decoration: none;';
-    // The default view's URL omits `?wv=` (cleaner share links). All other
-    // views set it explicitly. `wh` is preserved by the caller via the form/
-    // link grammar — controls share state through query string only, so
-    // clicking a view-switch resets the hidden-fields list. Acceptable for v1.
+    const cls = isActive ? 'wc-chip wc-chip--active' : 'wc-chip';
     const href = v.id === c.default ? '?' : `?wv=${encodeURIComponent(v.id)}`;
-    return html`<a href="${href}" class="${cls}" style="${style}" data-widget-control="view-switch" data-view-id="${v.id}">${v.id}</a>`;
+    return html`<a href="${href}" class="${cls}" data-widget-control="view-switch" data-view-id="${v.id}" data-active="${isActive ? 'true' : 'false'}">${v.id}</a>`;
   });
   return html`
-    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
-      <span class="dim" style="font-size: var(--font-size-xs);">${c.label}:</span>
+    <div class="wc-group wc-group--view-switch">
+      <span class="wc-label">${c.label}:</span>
       ${chips as unknown as SafeHtml[]}
     </div>
   `;
@@ -599,30 +589,23 @@ function renderFieldToggleControl(
   const labelByName = new Map<string, string>();
   for (const f of schema.fields ?? []) labelByName.set(f.name, f.label ?? f.name);
 
-  // Reconstruct the effective hidden set so each chip can render its
-  // current state and link to the toggled URL. ?wh present (even empty) =
-  // authoritative; absent = per-control defaults.
   const effectiveHidden = state.hiddenFields !== undefined
     ? new Set(state.hiddenFields)
     : new Set(c.default === 'hidden' ? c.fields : []);
 
   const chips = c.fields.map((name) => {
     const isHidden = effectiveHidden.has(name);
-    // Build the toggled hidden set for this chip's link.
     const next = new Set(effectiveHidden);
     if (isHidden) next.delete(name); else next.add(name);
     const wh = [...next].join(',');
-    // Always emit ?wh=... (even empty) so the URL is authoritative — without
-    // this, revealing the only default-hidden field would produce a bare ?
-    // that falls back to defaults, locking the field hidden forever.
     const href = `?wh=${encodeURIComponent(wh)}`;
-    const cls = isHidden ? 'badge badge--muted' : 'badge';
+    const cls = isHidden ? 'wc-chip' : 'wc-chip wc-chip--active';
     const symbol = isHidden ? '○' : '●';
-    return html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="field-toggle" data-field="${name}" data-hidden="${isHidden ? '1' : '0'}">${symbol} ${labelByName.get(name) ?? name}</a>`;
+    return html`<a href="${href}" class="${cls}" data-widget-control="field-toggle" data-field="${name}" data-hidden="${isHidden ? '1' : '0'}">${symbol} ${labelByName.get(name) ?? name}</a>`;
   });
   return html`
-    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
-      <span class="dim" style="font-size: var(--font-size-xs);">${c.label}:</span>
+    <div class="wc-group wc-group--field-toggle">
+      <span class="wc-label">${c.label}:</span>
       ${chips as unknown as SafeHtml[]}
     </div>
   `;
@@ -705,15 +688,15 @@ function renderSortControl(
     const nextDir: 'asc' | 'desc' = isActive && active?.direction === 'asc' ? 'desc' : 'asc';
     const href = buildWidgetUrl(state, c.field, { sort: { column: col, direction: nextDir } });
     const arrow = isActive ? (active!.direction === 'asc' ? '↑' : '↓') : '';
-    const cls = isActive ? 'badge' : 'badge badge--muted';
-    return html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="sort" data-field="${c.field}" data-column="${col}">${col}${arrow ? html` ${arrow}` : html``}</a>`;
+    const cls = isActive ? 'wc-chip wc-chip--active' : 'wc-chip';
+    return html`<a href="${href}" class="${cls}" data-widget-control="sort" data-field="${c.field}" data-column="${col}" data-active="${isActive ? 'true' : 'false'}">${col}${arrow ? html` ${arrow}` : html``}</a>`;
   });
   const clear = active
-    ? html`<a href="${buildWidgetUrl(state, c.field, { sort: null })}" class="dim" style="font-size: var(--font-size-xs); text-decoration: none;" data-widget-control="sort-clear" data-field="${c.field}">clear</a>`
+    ? html`<a href="${buildWidgetUrl(state, c.field, { sort: null })}" class="wc-clear" data-widget-control="sort-clear" data-field="${c.field}">clear</a>`
     : html``;
   return html`
-    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
-      <span class="dim" style="font-size: var(--font-size-xs);">${label}:</span>
+    <div class="wc-group wc-group--sort" data-field="${c.field}">
+      <span class="wc-label">${label}:</span>
       ${chips as unknown as SafeHtml[]}
       ${clear}
     </div>
@@ -727,10 +710,6 @@ function renderFilterControl(
 ): SafeHtml {
   const current = arrayMeta?.appliedFilter.get(c.field) ?? state.filter?.get(c.field) ?? '';
   const label = c.label ?? 'Filter';
-  // GET form so the submission lands as `?wf_<field>=...` plus preserved params.
-  // Hidden inputs carry every other widget param forward — including other
-  // fields' sort/filter/page state — so submitting this form doesn't lose
-  // a sibling table's settings.
   const hiddens: SafeHtml[] = [];
   if (state.view) hiddens.push(html`<input type="hidden" name="wv" value="${state.view}">`);
   if (state.hiddenFields !== undefined) {
@@ -740,25 +719,22 @@ function renderFilterControl(
     hiddens.push(html`<input type="hidden" name="ws_${f}" value="${v.column}-${v.direction}">`);
   }
   for (const [f, v] of state.filter ?? []) {
-    if (f === c.field) continue; // this control owns its own input below
+    if (f === c.field) continue;
     hiddens.push(html`<input type="hidden" name="wf_${f}" value="${v}">`);
   }
-  // Other fields' pages preserved. THIS field's page is intentionally
-  // omitted so the filter submission resets it to 1.
   for (const [f, v] of state.page ?? []) {
     if (f === c.field) continue;
     hiddens.push(html`<input type="hidden" name="wp_${f}" value="${String(v)}">`);
   }
   const placeholder = c.placeholder ?? `filter ${c.columns.join(', ')}`;
-  const FIELD = 'padding: 2px var(--space-2); font-size: var(--font-size-xs); border: 1px solid var(--color-border); border-radius: var(--radius-sm);';
   return html`
-    <form method="get" action="" style="display: inline-flex; gap: var(--space-1); align-items: center; margin: 0;">
+    <form class="wc-group wc-group--filter" method="get" action="" data-field="${c.field}">
       ${hiddens as unknown as SafeHtml[]}
-      <label style="display: inline-flex; gap: var(--space-1); align-items: center; font-size: var(--font-size-xs);">
-        <span class="dim">${label}:</span>
-        <input type="text" name="wf_${c.field}" value="${current}" placeholder="${placeholder}" style="${FIELD} width: 12em;" data-widget-control="filter" data-field="${c.field}">
+      <label class="wc-field">
+        <span class="wc-label">${label}:</span>
+        <input type="text" class="wc-input wc-input--text" name="wf_${c.field}" value="${current}" placeholder="${placeholder}" data-widget-control="filter" data-field="${c.field}">
       </label>
-      ${current ? html`<a href="${buildWidgetUrl(state, c.field, { filter: null })}" class="dim" style="font-size: var(--font-size-xs); text-decoration: none;" data-widget-control="filter-clear" data-field="${c.field}">clear</a>` : html``}
+      ${current ? html`<a href="${buildWidgetUrl(state, c.field, { filter: null })}" class="wc-clear" data-widget-control="filter-clear" data-field="${c.field}">clear</a>` : html``}
     </form>
   `;
 }
@@ -770,19 +746,19 @@ function renderPaginateControl(
 ): SafeHtml {
   const info = arrayMeta?.pageInfo.get(c.field);
   if (!info) {
-    return html`<span class="dim" style="font-size: var(--font-size-xs);">page —</span>`;
+    return html`<span class="wc-group wc-group--paginate wc-page-info wc-page-info--empty">page —</span>`;
   }
   const prevHref = info.currentPage > 1 ? buildWidgetUrl(state, c.field, { page: info.currentPage - 1 }) : null;
   const nextHref = info.currentPage < info.pageCount ? buildWidgetUrl(state, c.field, { page: info.currentPage + 1 }) : null;
-  const cls = 'badge badge--muted';
-  const dis = (label: SafeHtml) => html`<span class="${cls}" style="opacity: 0.4; cursor: default;">${label}</span>`;
-  const link = (href: string, label: SafeHtml, dataKey: string) =>
-    html`<a href="${href}" class="${cls}" style="cursor: pointer; text-decoration: none;" data-widget-control="${dataKey}" data-field="${c.field}">${label}</a>`;
+  const dis = (label: SafeHtml, key: string) =>
+    html`<span class="wc-chip wc-chip--disabled" data-widget-control="${key}-disabled" data-field="${c.field}">${label}</span>`;
+  const link = (href: string, label: SafeHtml, key: string) =>
+    html`<a href="${href}" class="wc-chip" data-widget-control="${key}" data-field="${c.field}">${label}</a>`;
   return html`
-    <div style="display: inline-flex; gap: var(--space-2); align-items: center;">
-      ${prevHref ? link(prevHref, html`← prev`, 'paginate-prev') : dis(html`← prev`)}
-      <span class="dim" style="font-size: var(--font-size-xs); font-variant-numeric: tabular-nums;">page ${String(info.currentPage)} of ${String(info.pageCount)} <span style="opacity: 0.7;">(${String(info.totalAfterFilter)} rows)</span></span>
-      ${nextHref ? link(nextHref, html`next →`, 'paginate-next') : dis(html`next →`)}
+    <div class="wc-group wc-group--paginate" data-field="${c.field}">
+      ${prevHref ? link(prevHref, html`← prev`, 'paginate-prev') : dis(html`← prev`, 'paginate-prev')}
+      <span class="wc-page-info"><span class="wc-page-info__current">page ${String(info.currentPage)} of ${String(info.pageCount)}</span> <span class="wc-page-info__total">(${String(info.totalAfterFilter)} rows)</span></span>
+      ${nextHref ? link(nextHref, html`next →`, 'paginate-next') : dis(html`next →`, 'paginate-next')}
     </div>
   `;
 }

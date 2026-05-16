@@ -883,3 +883,131 @@
   word-break: break-all;
 }
 .modal-backdrop.open { display: flex; } /* legacy; new code uses .is-open */
+
+/* ── widget controls (sort / filter / paginate / view-switch / field-toggle) ──
+   Default styling for the controls row rendered above (or inside) output
+   widgets. Authors override appearance via their own <style> block inside
+   the ai-template — every visual property here is a low-specificity class
+   selector that a `.wc-row .wc-chip { ... }` or even bare `.wc-chip` rule
+   in the agent template can replace.
+
+   Class catalogue (stable contract):
+     .wc-row                     the controls row container
+     .wc-group                   one control's wrapper (modifier per type)
+     .wc-group--replay           Run-again form
+     .wc-group--view-switch
+     .wc-group--field-toggle
+     .wc-group--sort
+     .wc-group--filter
+     .wc-group--paginate
+     .wc-label                   "Sort:" / "Filter:" prefix
+     .wc-chip                    clickable token (sort cols, view chips, prev/next)
+     .wc-chip--active            currently-applied chip
+     .wc-chip--disabled          non-clickable (e.g. prev on page 1)
+     .wc-clear                   small "clear" link beside a chip group
+     .wc-field                   <label>-wrapped input+caption
+     .wc-field__name             input caption (label text)
+     .wc-input                   inputs / selects
+     .wc-input--text             text input variant
+     .wc-button                  primary button (Run again)
+     .wc-button--primary
+     .wc-page-info               "page N of M" indicator
+     .wc-page-info__current
+     .wc-page-info__total
+*/
+.wc-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.wc-group {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+}
+.wc-group--filter,
+.wc-group--replay { gap: var(--space-1); }
+.wc-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.wc-chip {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium, 500);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.wc-chip:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+.wc-chip--active {
+  background: var(--color-primary-soft, var(--color-surface-raised));
+  color: var(--color-text);
+  border-color: var(--color-primary, var(--color-border-strong));
+  cursor: default;
+}
+.wc-chip--disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+.wc-clear {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+.wc-clear:hover { color: var(--color-text); text-decoration: underline; }
+.wc-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  margin: 0;
+}
+.wc-field__name {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.wc-input {
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.wc-input--text { width: 12em; }
+.wc-button {
+  padding: 4px var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium, 500);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.wc-button--primary {
+  background: var(--color-primary, var(--color-surface-raised));
+  color: var(--color-on-primary, var(--color-text));
+}
+.wc-button--primary:hover { filter: brightness(1.05); }
+.wc-page-info {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wc-page-info__total { opacity: 0.7; }
+.wc-page-info--empty { opacity: 0.6; }
