@@ -127,3 +127,129 @@ describe('renderOutputWidget — ai-template arrays', () => {
     expect(out).toContain('<li>c</li>');
   });
 });
+
+describe('renderOutputWidget — sort / filter / paginate controls', () => {
+  const baseTemplate = '<ul>{{#each outputs.rows as r}}<li>{{r.name}}|{{r.cost}}</li>{{/each}}</ul>';
+  const rows = [
+    { name: 'alpha', cost: 100 },
+    { name: 'beta', cost: 50 },
+    { name: 'gamma', cost: 200 },
+    { name: 'delta', cost: 75 },
+    { name: 'epsilon', cost: 125 },
+  ];
+  const output = JSON.stringify({ rows });
+
+  function rowsFromHtml(html: string): string[] {
+    return [...html.matchAll(/<li>([^<]+)<\/li>/g)].map((m) => m[1]);
+  }
+
+  it('sort: applies the default sort when no state is supplied', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'sort' as const, field: 'rows', columns: ['name', 'cost'], default: 'cost desc' }],
+    };
+    const out = String(renderOutputWidget(schema, output, 'a', {}) ?? '');
+    expect(rowsFromHtml(out)).toEqual([
+      'gamma|200', 'epsilon|125', 'alpha|100', 'delta|75', 'beta|50',
+    ]);
+    // Controls row renders with active sort indicator.
+    expect(out).toContain('data-widget-control="sort"');
+    expect(out).toContain('↓'); // desc arrow on the active column
+  });
+
+  it('sort: URL state overrides the schema default', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'sort' as const, field: 'rows', columns: ['name', 'cost'], default: 'cost desc' }],
+    };
+    const out = String(renderOutputWidget(schema, output, 'a', {
+      sort: { column: 'name', direction: 'asc' },
+    }) ?? '');
+    expect(rowsFromHtml(out)).toEqual([
+      'alpha|100', 'beta|50', 'delta|75', 'epsilon|125', 'gamma|200',
+    ]);
+  });
+
+  it('filter: keeps rows whose listed columns contain the query (case-insensitive)', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'filter' as const, field: 'rows', columns: ['name'] }],
+    };
+    const out = String(renderOutputWidget(schema, output, 'a', { filter: 'TA' }) ?? '');
+    // "alpha" (no), "beta" (yes — has "ta"... wait no — "beta" has "ta"? yes "be-TA"),
+    // "gamma" no, "delta" yes "del-TA", "epsilon" no.
+    expect(rowsFromHtml(out)).toEqual(['beta|50', 'delta|75']);
+  });
+
+  it('paginate: slices the array and reports page info', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
+    };
+    const page2 = String(renderOutputWidget(schema, output, 'a', { page: 2 }) ?? '');
+    expect(rowsFromHtml(page2)).toEqual(['gamma|200', 'delta|75']);
+    expect(page2).toContain('page 2 of 3');
+    expect(page2).toContain('5 rows');
+    // Prev is a real link on page 2, next is too.
+    expect(page2.match(/data-widget-control="paginate-prev"/g)).toHaveLength(1);
+    expect(page2.match(/data-widget-control="paginate-next"/g)).toHaveLength(1);
+  });
+
+  it('paginate: prev disabled on page 1, next disabled on last page', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
+    };
+    const page1 = String(renderOutputWidget(schema, output, 'a', { page: 1 }) ?? '');
+    expect(page1).not.toContain('data-widget-control="paginate-prev"');
+    expect(page1).toContain('data-widget-control="paginate-next"');
+    const page3 = String(renderOutputWidget(schema, output, 'a', { page: 3 }) ?? '');
+    expect(page3).toContain('data-widget-control="paginate-prev"');
+    expect(page3).not.toContain('data-widget-control="paginate-next"');
+  });
+
+  it('combined: filter → sort → paginate run in that order', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [
+        { type: 'filter' as const, field: 'rows', columns: ['name'] },
+        { type: 'sort' as const, field: 'rows', columns: ['cost'] },
+        { type: 'paginate' as const, field: 'rows', pageSize: 2 },
+      ],
+    };
+    // Filter "a" matches alpha (100), beta (50)? no — "beta" doesn't contain "a"... wait
+    // beta = b-e-t-a — yes it contains "a". Let me list:
+    // alpha (a) ✓, beta (a) ✓, gamma (a) ✓, delta (a) ✓, epsilon — no "a". So filter
+    // keeps 4 rows. Sort by cost asc: beta(50), delta(75), alpha(100), gamma(200).
+    // Page 2 of size 2: [alpha, gamma].
+    const out = String(renderOutputWidget(schema, output, 'agent', {
+      filter: 'a',
+      sort: { column: 'cost', direction: 'asc' },
+      page: 2,
+    }) ?? '');
+    expect(rowsFromHtml(out)).toEqual(['alpha|100', 'gamma|200']);
+    expect(out).toContain('page 2 of 2');
+    expect(out).toContain('4 rows');
+  });
+
+  it('clamps page to the valid range and stable-sorts when controls operate on a non-array (no-op)', () => {
+    const schema = {
+      type: 'ai-template' as const,
+      template: baseTemplate,
+      controls: [{ type: 'paginate' as const, field: 'rows', pageSize: 2 }],
+    };
+    // Page 99 → clamps to last (3); also exercises the non-array safety: if the
+    // underlying field isn't an array, controls just no-op without throwing.
+    const out = String(renderOutputWidget(schema, output, 'a', { page: 99 }) ?? '');
+    expect(out).toContain('page 3 of 3');
+    const noArr = String(renderOutputWidget(schema, '{"rows":"not an array"}', 'a', { page: 1 }) ?? '');
+    // Widget still renders, just without paged content; control row shows page —.
+    expect(noArr).toContain('page —');
+  });
+});

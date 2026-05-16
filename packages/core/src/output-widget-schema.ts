@@ -46,6 +46,46 @@ export const widgetControlSchema = z.discriminatedUnion('type', [
     views: z.array(widgetViewSchema).min(1, 'view-switch needs at least one view'),
     default: z.string().min(1),
   }),
+  /**
+   * `sort` — renders a column-picker + asc/desc toggle above the widget.
+   * Operates on a top-level array in the agent's JSON output (e.g.
+   * `outputs.rows`, `outputs.daily`). State is URL-driven via `?ws=<col>-<dir>`.
+   * The renderer stable-sorts the array IN PLACE before substituting into
+   * `{{#each}}` blocks — works for any widget that surfaces array data.
+   */
+  z.object({
+    type: z.literal('sort'),
+    label: z.string().min(1).optional(),
+    /** Top-level array name in the parsed JSON (no `outputs.` prefix). */
+    field: z.string().min(1, 'sort.field is required (e.g. "rows" or "daily").'),
+    /** Sortable column names (object keys on each row). */
+    columns: z.array(z.string().min(1)).min(1, 'sort.columns must list at least one column.'),
+    /** Initial sort, e.g. `"cost"` or `"cost desc"`. Omitted = unsorted. */
+    default: z.string().optional(),
+  }),
+  /**
+   * `filter` — renders a text input above the widget that performs
+   * case-insensitive substring matching across the specified columns.
+   * Rows where ANY listed column's stringified value contains the query
+   * survive. State via `?wf=<query>`.
+   */
+  z.object({
+    type: z.literal('filter'),
+    label: z.string().min(1).optional(),
+    field: z.string().min(1, 'filter.field is required (e.g. "rows" or "daily").'),
+    columns: z.array(z.string().min(1)).min(1, 'filter.columns must list at least one column.'),
+    placeholder: z.string().optional(),
+  }),
+  /**
+   * `paginate` — slices the array into pages and renders prev/next + page
+   * indicator. Applied AFTER filter and sort. State via `?wp=<n>` (1-based).
+   * `pageSize` is the schema-fixed page length.
+   */
+  z.object({
+    type: z.literal('paginate'),
+    field: z.string().min(1, 'paginate.field is required (e.g. "rows" or "daily").'),
+    pageSize: z.number().int().positive().max(1000, 'paginate.pageSize is capped at 1000 — use sort/filter to narrow before paginating.'),
+  }),
 ]);
 
 export const outputWidgetSchema = z.object({
@@ -154,6 +194,24 @@ export const outputWidgetSchema = z.object({
     }
     // replay.inputs[] is cross-checked against agent.inputs at the agent
     // schema level, since outputWidgetSchema doesn't see the agent shape.
+
+    if (c.type === 'sort' && c.default) {
+      // `default` accepts "col" or "col asc" / "col desc"; case-insensitive.
+      const m = /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(asc|desc))?$/i.exec(c.default.trim());
+      if (!m) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['controls', i, 'default'],
+          message: `sort.default "${c.default}" must be "<column>" or "<column> ASC|DESC".`,
+        });
+      } else if (!c.columns.includes(m[1])) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['controls', i, 'default'],
+          message: `sort.default references column "${m[1]}" which isn't in sort.columns.`,
+        });
+      }
+    }
   }
 });
 
