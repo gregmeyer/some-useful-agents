@@ -97,4 +97,41 @@ export type WidgetControl =
       label: string;
       views: WidgetView[];
       default: string;
+    }
+  | {
+      /**
+       * Sort the named top-level array in `outputs` by a column the viewer
+       * picks. State via `?ws=<column>-<asc|desc>`. Stable; ties keep input
+       * order. Numeric / string / boolean / null are all supported — type is
+       * inferred per column at sort time from the actual data.
+       */
+      type: 'sort';
+      label?: string;
+      /** Top-level array name in the parsed JSON (no `outputs.` prefix). */
+      field: string;
+      columns: string[];
+      /** Initial sort, e.g. `"cost"` or `"cost desc"`. */
+      default?: string;
+    }
+  | {
+      /**
+       * Filter the named array by case-insensitive substring across the
+       * specified columns. State via `?wf=<query>`. Survives if ANY listed
+       * column's stringified value contains the query.
+       */
+      type: 'filter';
+      label?: string;
+      field: string;
+      columns: string[];
+      placeholder?: string;
+    }
+  | {
+      /**
+       * Slice the named array into pages of `pageSize` rows. State via
+       * `?wp=<n>` (1-based). Applied AFTER filter and sort so pagination
+       * reflects the visible (filtered+sorted) set.
+       */
+      type: 'paginate';
+      field: string;
+      pageSize: number;
     };

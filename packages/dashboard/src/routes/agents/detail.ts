@@ -5,7 +5,7 @@ import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../../views/agent-detail-v2.js';
 import { deriveBack } from '../../views/page-header.js';
-import { parseHiddenFieldsParam } from '../../views/output-widgets.js';
+import { parseHiddenFieldsParam, parseSortParam, parsePageParam } from '../../views/output-widgets.js';
 
 export const agentDetailRouter: Router = Router();
 
@@ -31,7 +31,16 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
     const back = deriveBack(referer, `127.0.0.1:${ctx.port}`, fromParam);
     const wv = typeof req.query.wv === 'string' ? req.query.wv : undefined;
     const wh = typeof req.query.wh === 'string' ? req.query.wh : undefined;
-    const widgetControls = { view: wv, hiddenFields: parseHiddenFieldsParam(wh) };
+    const ws = typeof req.query.ws === 'string' ? req.query.ws : undefined;
+    const wf = typeof req.query.wf === 'string' ? req.query.wf : undefined;
+    const wp = typeof req.query.wp === 'string' ? req.query.wp : undefined;
+    const widgetControls = {
+      view: wv,
+      hiddenFields: parseHiddenFieldsParam(wh),
+      sort: parseSortParam(ws),
+      filter: wf,
+      page: parsePageParam(wp),
+    };
     const html = await renderAgentDetailV2({
       agent: v2Agent,
       recentRuns: rows,
