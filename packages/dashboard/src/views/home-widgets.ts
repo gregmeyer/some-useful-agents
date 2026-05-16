@@ -54,7 +54,7 @@ function buildRunsToday(data: HomeWidgetData): SystemWidget {
     ],
   };
   const output = JSON.stringify({ total: String(todayRuns.length), completed: String(completed), failed: String(failed) });
-  const widgetHtml = renderOutputWidget(schema, output, '_home-runs-today');
+  const widgetHtml = renderOutputWidget(schema, output, '_home-runs-today', {});
 
   return {
     id: '_home-runs-today',
@@ -78,7 +78,7 @@ function buildFailureRate(data: HomeWidgetData): SystemWidget {
     ],
   };
   const output = JSON.stringify({ rate: `${String(rate)}%`, detail: label });
-  const widgetHtml = renderOutputWidget(schema, output, '_home-failure-rate');
+  const widgetHtml = renderOutputWidget(schema, output, '_home-failure-rate', {});
 
   return {
     id: '_home-failure-rate',
@@ -100,7 +100,7 @@ function buildInFlight(data: HomeWidgetData): SystemWidget {
       ],
     };
     const output = JSON.stringify({ count: '0', status: 'Nothing running' });
-    const widgetHtml = renderOutputWidget(schema, output, '_home-in-flight');
+    const widgetHtml = renderOutputWidget(schema, output, '_home-in-flight', {});
     return {
       id: '_home-in-flight',
       title: 'In Flight',
@@ -149,7 +149,7 @@ function buildAgents(data: HomeWidgetData): SystemWidget {
     active: String(active),
     scheduled: String(scheduledAgents.length),
   });
-  const widgetHtml = renderOutputWidget(schema, output, '_home-agents');
+  const widgetHtml = renderOutputWidget(schema, output, '_home-agents', {});
 
   return {
     id: '_home-agents',

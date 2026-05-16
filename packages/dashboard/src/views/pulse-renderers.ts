@@ -359,6 +359,11 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   if (!agent.outputWidget || !tile.lastRun?.result) {
     return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No widget output yet.</p>`);
   }
-  const widgetHtml = renderOutputWidget(agent.outputWidget, tile.lastRun.result, agent.id);
+  // Pass an empty controlState (not undefined) so:
+  //   1. Schema defaults (`sort.default`, `paginate.pageSize`) take effect
+  //      — Pulse tables match what's seen on the agent detail page
+  //   2. The interactive controls row renders, with appearance owned by
+  //      the widget's own <style> block (see widget-controls CSS classes)
+  const widgetHtml = renderOutputWidget(agent.outputWidget, tile.lastRun.result, agent.id, {});
   return wrap(tile, widgetHtml ?? html`<p class="dim" style="font-size: var(--font-size-xs);">Widget render failed.</p>`);
 }
