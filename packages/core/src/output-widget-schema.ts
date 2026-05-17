@@ -4,10 +4,52 @@
 
 import { z } from 'zod';
 
+export const tableColumnSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().optional(),
+  format: z.enum(['text', 'link']).optional(),
+  /** For format=link: the per-row JSON key holding the URL. */
+  href: z.string().min(1).optional(),
+  /** For format=link: per-row key for the displayed text, OR a literal string
+   *  fallback (when no row has a matching key). */
+  text: z.string().min(1).optional(),
+});
+
 export const widgetFieldSchema = z.object({
   name: z.string().min(1),
   label: z.string().optional(),
-  type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview']),
+  type: z.enum(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview', 'table']),
+  columns: z.array(tableColumnSchema).min(1, 'table.columns must list at least one column.').optional(),
+}).superRefine((field, ctx) => {
+  if (field.type === 'table') {
+    if (!field.columns || field.columns.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['columns'], message: 'table fields require `columns` (at least one).' });
+      return;
+    }
+    for (let i = 0; i < field.columns.length; i++) {
+      const col = field.columns[i];
+      if (col.format === 'link' && !col.href) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['columns', i, 'href'],
+          message: `column "${col.name}" has format=link but no \`href\` — name the per-row JSON key holding the URL.`,
+        });
+      }
+      if (col.format !== 'link' && (col.href || col.text)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['columns', i, 'format'],
+          message: `column "${col.name}" sets \`href\`/\`text\` but format is not "link".`,
+        });
+      }
+    }
+  } else if (field.columns) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['columns'],
+      message: '`columns` is only valid on `type: table` fields.',
+    });
+  }
 });
 
 export const widgetActionSchema = z.object({
@@ -127,6 +169,21 @@ export const outputWidgetSchema = z.object({
   } else {
     if (!Array.isArray(schema.fields) || schema.fields.length === 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['fields'], message: 'Non-ai widgets need at least one field.' });
+    }
+  }
+
+  // `table` fields only render on `dashboard` widgets — other typed widgets
+  // (key-value/raw/diff-apply) use a scalar-per-field layout that doesn't
+  // know how to surface array data, and ai-template widgets render via the
+  // template so a typed `table` field would be meaningless.
+  for (let i = 0; i < (schema.fields?.length ?? 0); i++) {
+    const f = schema.fields![i];
+    if (f.type === 'table' && schema.type !== 'dashboard') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['fields', i, 'type'],
+        message: `table fields are only supported on dashboard widgets (this widget is type "${schema.type}").`,
+      });
     }
   }
 

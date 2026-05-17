@@ -447,9 +447,30 @@ export function renderOutputWidget(
     case 'raw':
       body = renderRaw(filtered, fields);
       break;
-    case 'dashboard':
-      body = renderDashboard(filtered, fields);
+    case 'dashboard': {
+      // Dashboards may declare `type: table` fields backed by top-level
+      // arrays in the parsed JSON. Build the array map once, then run the
+      // existing sort/filter/paginate engine over it so table fields share
+      // the same controls grammar (and per-field URL state) as ai-template
+      // widgets. Fields without a matching array render nothing — the
+      // table-rendering branch handles that.
+      const arraysForTable: Record<string, unknown> = {};
+      const tableFields = (filtered.fields ?? []).filter((f) => f.type === 'table');
+      if (tableFields.length > 0) {
+        const parsed = parseJsonFromOutput(output);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const f of tableFields) {
+            const v = (parsed as Record<string, unknown>)[f.name];
+            if (Array.isArray(v)) arraysForTable[f.name] = v;
+          }
+        }
+        if (controlState) {
+          arrayMeta = applyControlsToArrayData(arraysForTable, filtered, controlState);
+        }
+      }
+      body = renderDashboard(filtered, fields, arraysForTable);
       break;
+    }
     case 'ai-template': {
       const r = renderAiTemplate(filtered, output, fields, controlState);
       body = r.body;
@@ -1076,16 +1097,30 @@ function renderRaw(
 function renderDashboard(
   schema: OutputWidgetSchema,
   fields: Record<string, string | undefined>,
+  /** Top-level arrays for `table` fields, already filtered/sorted/paged by
+   *  `applyControlsToArrayData`. Keyed by the field's `name`. Absent / non-
+   *  array entries render as an empty-state caption under the column header. */
+  arrays: Record<string, unknown> = {},
 ): SafeHtml {
   const heroes: SafeHtml[] = [];
   const badges: SafeHtml[] = [];
   const stats: SafeHtml[] = [];
   const texts: SafeHtml[] = [];
+  const tables: SafeHtml[] = [];
 
   for (const f of schema.fields ?? []) {
+    const label = f.label ?? f.name;
+
+    // `table` reads from the arrays map, not the fields map — top-level
+    // array data is structured (objects per row), so it bypasses the
+    // scalar field extractor.
+    if (f.type === 'table') {
+      tables.push(renderTableField(f, arrays[f.name]));
+      continue;
+    }
+
     const value = fields[f.name];
     if (value === undefined) continue;
-    const label = f.label ?? f.name;
 
     if (f.type === 'metric') {
       heroes.push(html`
@@ -1123,8 +1158,12 @@ function renderDashboard(
   // Combine heroes + badges into one top row so badges sit alongside metrics
   const topRow = [...heroes, ...badges];
 
+  // Tables expand to fill width — drop the 480px cap when any are present
+  // so columns have room to breathe.
+  const widthCap = tables.length > 0 ? '' : 'max-width: 480px;';
+
   return html`
-    <div class="output-widget output-widget--dashboard" style="display: flex; flex-direction: column; gap: var(--space-3); max-width: 480px;">
+    <div class="output-widget output-widget--dashboard" style="display: flex; flex-direction: column; gap: var(--space-3); ${unsafeHtml(widthCap)}">
       ${topRow.length > 0 ? html`
         <div style="display: flex; gap: var(--space-4); justify-content: center; align-items: flex-start; padding: var(--space-2) 0; flex-wrap: wrap;">
           ${topRow as unknown as SafeHtml[]}
@@ -1140,6 +1179,63 @@ function renderDashboard(
           ${texts as unknown as SafeHtml[]}
         </div>
       ` : html``}
+      ${tables.length > 0 ? html`
+        <div style="display: flex; flex-direction: column; gap: var(--space-4);">
+          ${tables as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
     </div>
+  `;
+}
+
+/**
+ * Render a `type: table` field as an HTML table. `value` is the (possibly
+ * filtered/sorted/paged) array for this field; non-array / empty values
+ * render the header row + a "No rows" caption so the column structure stays
+ * visible. Cells are escaped text by default; `format: "link"` columns wrap
+ * the cell value in an `<a href>` driven by the per-row key named in `href`,
+ * with display text drawn from `text` (also a per-row key, or — if no row
+ * has that key — a literal string fallback like "Open").
+ */
+function renderTableField(field: WidgetField, value: unknown): SafeHtml {
+  const label = field.label ?? field.name;
+  const cols = field.columns ?? [];
+  const rows = Array.isArray(value) ? value : [];
+
+  const headerCells = cols.map((c) => html`
+    <th style="text-align: left; padding: var(--space-2); border-bottom: 2px solid var(--color-border); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">${c.label ?? c.name}</th>
+  `);
+
+  const bodyRows = rows.map((rawRow) => {
+    const row = (rawRow && typeof rawRow === 'object' ? rawRow : {}) as Record<string, unknown>;
+    const cells = cols.map((c) => {
+      const raw = row[c.name];
+      const cellText = raw == null ? '' : String(raw);
+      if (c.format === 'link') {
+        const href = c.href ? row[c.href] : undefined;
+        // `text` is per-row key when one exists on the row; otherwise treat
+        // as a literal label (so `text: "Open"` works without every row
+        // needing an `open` field).
+        const textRaw = c.text && c.text in row ? row[c.text] : c.text;
+        const display = (textRaw == null || textRaw === '') ? cellText : String(textRaw);
+        if (href != null && href !== '') {
+          return html`<td style="padding: var(--space-2); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm);"><a href="${String(href)}" target="_blank" rel="noopener">${display}</a></td>`;
+        }
+        return html`<td style="padding: var(--space-2); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm);">${display}</td>`;
+      }
+      return html`<td style="padding: var(--space-2); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm);">${cellText}</td>`;
+    });
+    return html`<tr>${cells as unknown as SafeHtml[]}</tr>`;
+  });
+
+  return html`
+    <section class="output-widget__table" data-field="${field.name}">
+      ${field.label ? html`<h4 style="margin: 0 0 var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted);">${label}</h4>` : html``}
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead><tr>${headerCells as unknown as SafeHtml[]}</tr></thead>
+        <tbody>${bodyRows as unknown as SafeHtml[]}</tbody>
+      </table>
+      ${rows.length === 0 ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">No rows.</p>` : html``}
+    </section>
   `;
 }

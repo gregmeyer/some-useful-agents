@@ -354,3 +354,116 @@ describe('renderOutputWidget — sort / filter / paginate controls', () => {
     expect(rowsFromHtml(out)).toEqual(['c', 'b', 'a']);
   });
 });
+
+describe('renderOutputWidget — table field type (dashboard)', () => {
+  const matches = [
+    { company: 'Remotecom', title: 'Senior PM', team: 'Product', url: 'https://x/remote' },
+    { company: 'Clickhouse', title: 'Senior PM - Cloud', team: 'Product', url: 'https://x/click' },
+    { company: 'Gitlab', title: 'Senior PM, Scale', team: 'Platforms', url: '' },
+  ];
+  const output = JSON.stringify({ headline: '3 matches', matches });
+
+  const baseSchema = {
+    type: 'dashboard' as const,
+    fields: [
+      { name: 'headline', type: 'metric' as const, label: 'Headline' },
+      {
+        name: 'matches',
+        type: 'table' as const,
+        label: 'Job matches',
+        columns: [
+          { name: 'company', label: 'Company' },
+          { name: 'title', label: 'Title' },
+          { name: 'team', label: 'Team' },
+          { name: 'url', label: 'Apply', format: 'link' as const, href: 'url', text: 'Apply →' },
+        ],
+      },
+    ],
+  };
+
+  function bodyTexts(html: string): string[] {
+    // Pull tbody-only cells so we don't pick up the column headers.
+    const tbody = /<tbody>([\s\S]*?)<\/tbody>/.exec(html);
+    if (!tbody) return [];
+    return [...tbody[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1].trim());
+  }
+
+  it('renders a row per item with column-driven cells', () => {
+    const out = String(renderOutputWidget(baseSchema, output, 'a') ?? '');
+    expect(out).toContain('<th'); // header row present
+    expect(out).toContain('>Company<');
+    expect(out).toContain('>Title<');
+    // Per-row cells: company / title / team are escaped text, last column is a link.
+    const cells = bodyTexts(out);
+    expect(cells.slice(0, 4)).toEqual([
+      'Remotecom', 'Senior PM', 'Product',
+      '<a href="https://x/remote" target="_blank" rel="noopener">Apply →</a>',
+    ]);
+  });
+
+  it('renders the literal link text when no row carries the named text key', () => {
+    // `text: "Apply →"` is a literal because no row has an "Apply →" key.
+    const out = String(renderOutputWidget(baseSchema, output, 'a') ?? '');
+    expect(out).toContain('>Apply →</a>');
+  });
+
+  it('uses a per-row key for link text when the row supplies it', () => {
+    const schema = {
+      type: 'dashboard' as const,
+      fields: [{
+        name: 'rows', type: 'table' as const, columns: [
+          { name: 'name', format: 'link' as const, href: 'url', text: 'name' },
+        ],
+      }],
+    };
+    const out = String(renderOutputWidget(schema, JSON.stringify({
+      rows: [{ name: 'Acme', url: 'https://acme/' }],
+    }), 'a') ?? '');
+    expect(out).toContain('<a href="https://acme/" target="_blank" rel="noopener">Acme</a>');
+  });
+
+  it('falls back to plain text when href is missing on a row', () => {
+    const out = String(renderOutputWidget(baseSchema, output, 'a') ?? '');
+    // Row 3 has url: '' — the last cell should be plain "Apply →" without an <a>.
+    expect(out).toMatch(/Gitlab[\s\S]*?Senior PM, Scale[\s\S]*?Platforms[\s\S]*?<td[^>]*>Apply →<\/td>/);
+  });
+
+  it('renders header row + empty-state caption when the array is missing or empty', () => {
+    const out = String(renderOutputWidget(baseSchema, '{"headline":"none"}', 'a') ?? '');
+    expect(out).toContain('>Company<'); // header still visible
+    expect(out).toContain('No rows.');
+  });
+
+  it('shares sort/filter/paginate controls with the field by name', () => {
+    const schema = {
+      ...baseSchema,
+      controls: [
+        { type: 'sort' as const, field: 'matches', columns: ['company', 'title'], default: 'company asc' },
+        { type: 'filter' as const, field: 'matches', columns: ['company'] },
+      ],
+    };
+    const sorted = String(renderOutputWidget(schema, output, 'a', {}) ?? '');
+    const cells = bodyTexts(sorted);
+    // First column of each row should now be sorted: Clickhouse, Gitlab, Remotecom.
+    expect([cells[0], cells[4], cells[8]]).toEqual(['Clickhouse', 'Gitlab', 'Remotecom']);
+
+    const filtered = String(renderOutputWidget(schema, output, 'a', {
+      filter: new Map([['matches', 'gitlab']]),
+    }) ?? '');
+    const fcells = bodyTexts(filtered);
+    expect(fcells[0]).toBe('Gitlab');
+    // Only one row in the filtered set.
+    expect(fcells.length / 4).toBe(1);
+  });
+
+  it('escapes raw HTML in cell values', () => {
+    const out = String(renderOutputWidget({
+      type: 'dashboard' as const,
+      fields: [{
+        name: 'rows', type: 'table' as const, columns: [{ name: 'name' }],
+      }],
+    }, JSON.stringify({ rows: [{ name: '<script>alert(1)</script>' }] }), 'a') ?? '');
+    expect(out).not.toContain('<script>alert');
+    expect(out).toContain('&lt;script&gt;');
+  });
+});

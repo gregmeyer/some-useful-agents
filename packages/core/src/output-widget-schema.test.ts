@@ -268,3 +268,82 @@ describe('agent YAML round-trip preserves controls', () => {
     });
   });
 });
+
+describe('outputWidgetSchema — table field type', () => {
+  it('accepts a minimal table field with text-only columns', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{
+        name: 'rows', type: 'table',
+        columns: [{ name: 'company' }, { name: 'title' }],
+      }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts a table field with a format=link column', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{
+        name: 'matches', type: 'table',
+        columns: [
+          { name: 'company', label: 'Company' },
+          { name: 'url', format: 'link', href: 'url', text: 'Apply →' },
+        ],
+      }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects a table field with no columns', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{ name: 'rows', type: 'table' }],
+    });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r)).toContain('columns');
+  });
+
+  it('rejects format=link without an href', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{
+        name: 'rows', type: 'table',
+        columns: [{ name: 'url', format: 'link' }],
+      }],
+    });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r)).toContain('href');
+  });
+
+  it('rejects href/text on a non-link column', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{
+        name: 'rows', type: 'table',
+        columns: [{ name: 'company', href: 'url' }],
+      }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects table on non-dashboard widgets', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'key-value',
+      fields: [{
+        name: 'rows', type: 'table',
+        columns: [{ name: 'a' }],
+      }],
+    });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r)).toContain('table fields are only supported on dashboard');
+  });
+
+  it('rejects columns on non-table fields', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'dashboard',
+      fields: [{ name: 'count', type: 'metric', columns: [{ name: 'x' }] }],
+    });
+    expect(r.success).toBe(false);
+  });
+});

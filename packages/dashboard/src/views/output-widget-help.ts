@@ -10,7 +10,7 @@
 import type { OutputWidgetSchema } from '@some-useful-agents/core';
 
 export type WidgetType = 'raw' | 'key-value' | 'diff-apply' | 'dashboard' | 'ai-template';
-export type FieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat' | 'preview';
+export type FieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat' | 'preview' | 'table';
 
 export interface WidgetTypeInfo {
   name: WidgetType;
@@ -58,7 +58,7 @@ export const WIDGET_TYPES: Record<WidgetType, WidgetTypeInfo> = {
     displayName: 'Dashboard',
     description: 'Hero metrics up top, compact stats below, text sections underneath.',
     layoutHint: '┌────┐ ┌────┐\n│ 42 │ │ 12 │\n└────┘ └────┘\n  stat  stat\nBody text…',
-    compatibleFields: ['text', 'code', 'badge', 'metric', 'stat', 'preview'],
+    compatibleFields: ['text', 'code', 'badge', 'metric', 'stat', 'preview', 'table'],
     helperCopy: 'Use metric for headline numbers (rendered large) and stat for the compact row below. Any text/code/badge fields render beneath in order. Best for run scorecards and KPI summaries.',
   },
   'ai-template': {
@@ -113,6 +113,11 @@ export const FIELD_TYPES: Record<FieldType, FieldTypeInfo> = {
     name: 'preview',
     description: 'Value must be a file path. Renders HTML in an iframe or images inline.',
     validIn: ['raw', 'dashboard'],
+  },
+  table: {
+    name: 'table',
+    description: 'Row-per-item table over a top-level array. Declare `columns` inline. Pairs with sort/filter/paginate controls.',
+    validIn: ['dashboard'],
   },
 };
 
@@ -192,7 +197,7 @@ export function synthPreviewOutput(fields: Array<{ name: string; type: FieldType
   return JSON.stringify(payload, null, 2);
 }
 
-function sampleValueFor(type: FieldType, name: string): string | number {
+function sampleValueFor(type: FieldType, name: string): string | number | unknown[] {
   switch (type) {
     case 'metric':
     case 'stat':
@@ -205,6 +210,15 @@ function sampleValueFor(type: FieldType, name: string): string | number {
       return '/sample/preview.html';
     case 'action':
       return 'Run';
+    case 'table':
+      // Three plausible rows so the preview renders the column layout +
+      // an example of how `format: link` cells light up when href/text
+      // columns are present on the row.
+      return [
+        { name: 'Alpha', count: 12, url: 'https://example.com/a' },
+        { name: 'Bravo', count: 7, url: 'https://example.com/b' },
+        { name: 'Charlie', count: 3, url: '' },
+      ];
     case 'text':
     default:
       return `Sample ${name} value. This is what your tile will show when the agent emits a real value.`;
