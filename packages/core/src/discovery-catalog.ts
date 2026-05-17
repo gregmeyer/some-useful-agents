@@ -62,7 +62,7 @@ UPSTREAM DATA FLOW:
 const OUTPUT_WIDGETS = `
 ## OUTPUT WIDGET TYPES (outputWidget: in agent YAML)
 Use when the agent produces structured JSON. The widget renders on the agent detail page.
-- dashboard: Hero metric + stats grid. Field types: metric (big number), stat (compact label+value), badge (pill), text.
+- dashboard: Hero metric + stats grid, plus row-per-item tables. Field types: metric (big number), stat (compact label+value), badge (pill), text, table (over a top-level array).
 - key-value: Labeled pairs as definition list. Field types: text, code, badge.
 - diff-apply: Review/analysis with actions. Field types: text, code, badge. Supports actions (buttons that POST).
 - raw: Sectioned fallback for mixed content. Field types: text, code, preview.
@@ -71,8 +71,9 @@ Use when the agent produces structured JSON. The widget renders on the agent det
 CRITICAL — OUTPUT WIDGET FIELD SCHEMA:
 Each entry in outputWidget.fields has EXACTLY these keys:
   name: string    ← THE JSON KEY TO LOOK UP in the agent's final-node JSON output
-  type: string    ← one of: text | code | badge | action | metric | stat | preview
+  type: string    ← one of: text | code | badge | action | metric | stat | preview | table
   label: string   ← OPTIONAL human-readable display label (defaults to name)
+  columns: list   ← REQUIRED only when type=table. See TABLE FIELDS below.
 DO NOT use \`source:\`, \`path:\`, \`from:\`, or \`key:\` — these are silently dropped and the widget renders empty.
 Example for a final node that emits {"file":"x.md","count":5}:
   fields:
@@ -82,6 +83,33 @@ Example for a final node that emits {"file":"x.md","count":5}:
     - name: count      # reads outputs.count → renders "5"
       type: metric
       label: Stories
+
+TABLE FIELDS (dashboard widgets only):
+A \`table\` field renders an HTML table over a top-level JSON array. Use this
+INSTEAD of writing \`<table>\` markup in an ai-template when your data is a
+simple list of objects with the same keys. Sort/filter/paginate controls
+attach by sharing the field's \`name\` — no extra wiring needed.
+
+  fields:
+    - name: matches            # reads outputs.matches (must be an array)
+      type: table
+      label: Job matches       # optional caption above the table
+      columns:
+        - { name: company, label: Company }
+        - { name: title,   label: Title }
+        - { name: url,     label: Apply, format: link, href: url, text: "Apply →" }
+  controls:
+    - { type: sort,     field: matches, columns: [company, title] }
+    - { type: filter,   field: matches, columns: [company, title] }
+    - { type: paginate, field: matches, pageSize: 20 }
+
+Column formats:
+  - (default text): escaped cell value from row[name].
+  - format: link: wraps the cell in <a href>. \`href\` names the per-row key
+    holding the URL (e.g. href: url reads row.url). \`text\` either names a
+    per-row key for the displayed text OR is a literal string fallback
+    when no row carries that key (e.g. text: "Apply →" always renders that
+    label). Cells with a missing/empty href fall back to plain text.
 
 ## WIDGET CONTROLS (outputWidget.controls — interactive UI on the rendered widget)
 Make widgets feel alive. Three control types render as a row above the widget body. State lives in URL query params (no client JS); refresh = default state. NOT supported on ai-template widgets except for "replay".

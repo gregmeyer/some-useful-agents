@@ -132,7 +132,7 @@ export function renderVariablesEditor(agent: Agent): SafeHtml {
 // ── Output widget editor ────────────────────────────────────────────────
 
 const WIDGET_TYPES: OutputWidgetType[] = ['dashboard', 'key-value', 'diff-apply', 'raw', 'ai-template'];
-const FIELD_TYPES: WidgetFieldType[] = ['text', 'code', 'badge', 'metric', 'stat', 'preview', 'action'];
+const FIELD_TYPES: WidgetFieldType[] = ['text', 'code', 'badge', 'metric', 'stat', 'preview', 'action', 'table'];
 
 function widgetTypeSelect(current: string): string {
   const opts = WIDGET_TYPES.map((t) =>

@@ -7,16 +7,39 @@
 /** Field type determines rendering: text is plain, code gets monospace+scroll,
  *  badge gets a colored pill, action renders a button, metric renders a big number,
  *  stat renders a compact label+value pair in a grid, preview renders a file
- *  in a sandboxed iframe via the /output-file route. */
-export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat' | 'preview';
+ *  in a sandboxed iframe via the /output-file route, table renders a row-per-
+ *  item table over a top-level array. */
+export type WidgetFieldType = 'text' | 'code' | 'badge' | 'action' | 'metric' | 'stat' | 'preview' | 'table';
+
+/** Cell render mode within a `table` field column. `text` (default) escapes the
+ *  value as plain text; `link` wraps the cell in an `<a>` using `href` (a row-
+ *  key name resolved per-row) and `text` (a row-key name OR a literal string)
+ *  to drive what's shown. */
+export type TableColumnFormat = 'text' | 'link';
+
+/** One column in a `table` field. `name` is the per-row JSON key whose value
+ *  drives the cell. `format` picks the cell render; for `link`, `href` names a
+ *  per-row key holding the URL, and optional `text` either names a per-row key
+ *  for the displayed text or — when no such key exists on the row — falls back
+ *  to a literal string (e.g. `"Open"`). */
+export interface TableColumn {
+  name: string;
+  label?: string;
+  format?: TableColumnFormat;
+  href?: string;
+  text?: string;
+}
 
 export interface WidgetField {
-  /** Key in the structured output to extract this field from. */
+  /** Key in the structured output to extract this field from. For `table`
+   *  fields, this is the name of the top-level array (e.g. `matches`). */
   name: string;
   /** Display label. Defaults to `name` if omitted. */
   label?: string;
   /** How to render the field value. */
   type: WidgetFieldType;
+  /** Required when `type` is `table`. One entry per column, in display order. */
+  columns?: TableColumn[];
 }
 
 export interface WidgetAction {
