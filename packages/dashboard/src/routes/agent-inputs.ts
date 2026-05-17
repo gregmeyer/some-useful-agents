@@ -189,7 +189,7 @@ agentInputsRouter.get('/agents/:name/output-widget', (req: Request, res: Respons
 // ── Output widget update ────────────────────────────────────────────────
 
 const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw', 'ai-template']);
-const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview']);
+const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview', 'table']);
 
 agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -229,6 +229,15 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   }
 
   // Collect fields from the form (fieldName_0, fieldLabel_0, fieldType_0, etc.).
+  // For richer field shapes the editor form doesn't yet know about (e.g. a
+  // `table` field's `columns`), copy them over from the previous version of
+  // the same-named field so a Save here doesn't wipe author-edited YAML.
+  // Pre-existing limitation: this means renaming a field via the editor
+  // loses its columns — acceptable for now since the editor doesn't expose
+  // a rename flow and columns are author-edited via YAML.
+  const prevFieldsByName = new Map<string, NonNullable<OutputWidgetSchema['fields']>[number]>();
+  for (const f of agent.outputWidget?.fields ?? []) prevFieldsByName.set(f.name, f);
+
   const fields: NonNullable<OutputWidgetSchema['fields']> = [];
   for (let i = 0; i < 50; i++) {
     const fieldName = body[`fieldName_${i}`];
@@ -236,10 +245,16 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     const fieldType = body[`fieldType_${i}`];
     if (typeof fieldName !== 'string' || !fieldName.trim()) continue;
     const ft = typeof fieldType === 'string' && VALID_FIELD_TYPES.has(fieldType) ? fieldType : 'text';
+    const name = fieldName.trim();
+    const prev = prevFieldsByName.get(name);
     fields.push({
-      name: fieldName.trim(),
+      name,
       ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
       type: ft as WidgetFieldType,
+      // Carry `columns` forward when the type still wants them (only `table`
+      // today). Stripped on type changes so e.g. switching table → text
+      // doesn't smuggle a stale `columns` array into a field that can't use it.
+      ...(ft === 'table' && prev?.type === 'table' && prev.columns ? { columns: prev.columns } : {}),
     });
   }
 
@@ -257,6 +272,14 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     ? body.widget_ask_label.trim() : undefined;
   const replayLabel = typeof body.widget_replay_label === 'string' && body.widget_replay_label.trim()
     ? body.widget_replay_label.trim() : undefined;
+
+  // Carry over schema shapes the editor form doesn't surface, but only
+  // when staying on the same widget type — a type change implies "start
+  // over", so `actions` (diff-apply only) and `controls` (per-type
+  // semantics) shouldn't survive a switch.
+  const sameType = agent.outputWidget?.type === widgetType;
+  const prevControls = sameType ? agent.outputWidget?.controls : undefined;
+  const prevActions = sameType ? agent.outputWidget?.actions : undefined;
 
   let outputWidget: OutputWidgetSchema;
   if (widgetType === 'ai-template') {
@@ -276,6 +299,8 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && runInputs ? { runInputs } : {}),
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
+      ...(prevControls?.length ? { controls: prevControls } : {}),
+      ...(prevActions?.length ? { actions: prevActions } : {}),
     };
   } else {
     // Typed widgets (dashboard / key-value / diff-apply / raw) are
@@ -307,6 +332,8 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && runInputs ? { runInputs } : {}),
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
+      ...(prevControls?.length ? { controls: prevControls } : {}),
+      ...(prevActions?.length ? { actions: prevActions } : {}),
     };
   }
 

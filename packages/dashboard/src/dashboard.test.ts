@@ -2367,6 +2367,159 @@ describe('Output widget editor UI', () => {
     expect(saved?.outputWidget?.prompt).toBe('show the headline');
   });
 
+  it('POST /output-widget/update preserves columns on a table field across saves', async () => {
+    // Regression: the editor form has fields for name/label/type but no UI
+    // for `columns` yet. A naive Save would rebuild the schema and drop
+    // columns — wiping authored YAML on every click. Preserve them when
+    // the previous version had columns and the type stays `table`.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-table-preserve',
+      name: 'ow-table-preserve',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [
+          { name: 'headline', type: 'text', label: 'Summary' },
+          {
+            name: 'matches', type: 'table', label: 'Matches',
+            columns: [
+              { name: 'company', label: 'Company' },
+              { name: 'url', label: 'Apply', format: 'link', href: 'url', text: 'Apply →' },
+            ],
+          },
+        ],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-table-preserve/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'headline', fieldType_0: 'text', fieldLabel_0: 'Summary',
+        fieldName_1: 'matches', fieldType_1: 'table', fieldLabel_1: 'Matches',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-table-preserve');
+    const matchField = saved?.outputWidget?.fields?.find((f) => f.name === 'matches');
+    expect(matchField?.type).toBe('table');
+    expect(matchField?.columns).toHaveLength(2);
+    expect(matchField?.columns?.[1]).toMatchObject({ name: 'url', format: 'link', href: 'url', text: 'Apply →' });
+  });
+
+  it('POST /output-widget/update preserves top-level controls across saves', async () => {
+    // Same shape of regression for `controls:` — the editor form doesn't
+    // surface them, so a Save would drop sort/filter/paginate/replay/etc.
+    // Only preserved when the widget type is unchanged (a type switch
+    // implies "start over").
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-controls-preserve',
+      name: 'ow-controls-preserve',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{ name: 'rows', type: 'text' }],
+        controls: [
+          { type: 'sort', field: 'rows', columns: ['name'], default: 'name asc' },
+          { type: 'replay', label: 'Re-run' },
+        ],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-controls-preserve/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'rows', fieldType_0: 'text',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-controls-preserve');
+    expect(saved?.outputWidget?.controls).toHaveLength(2);
+    expect(saved?.outputWidget?.controls?.[0]).toMatchObject({ type: 'sort', field: 'rows' });
+    expect(saved?.outputWidget?.controls?.[1]).toMatchObject({ type: 'replay' });
+  });
+
+  it('POST /output-widget/update drops controls when the widget type changes', async () => {
+    // Type switch = "start over". sort/filter/paginate target arrays that
+    // the new widget type may not surface, so carrying them forward would
+    // produce broken control rows.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-controls-typeswitch',
+      name: 'ow-controls-typeswitch',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{ name: 'rows', type: 'text' }],
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'] }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-controls-typeswitch/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'key-value',
+        fieldName_0: 'rows', fieldType_0: 'text',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-controls-typeswitch');
+    expect(saved?.outputWidget?.type).toBe('key-value');
+    expect(saved?.outputWidget?.controls ?? []).toHaveLength(0);
+  });
+
+  it('POST /output-widget/update strips columns when the field type changes away from table', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-table-typeswitch',
+      name: 'ow-table-typeswitch',
+      status: 'active',
+      source: 'local',
+      mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{
+          name: 'rows', type: 'table',
+          columns: [{ name: 'a' }, { name: 'b' }],
+        }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-table-typeswitch/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'rows', fieldType_0: 'text',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-table-typeswitch');
+    const field = saved?.outputWidget?.fields?.[0];
+    expect(field?.type).toBe('text');
+    expect(field?.columns).toBeUndefined();
+  });
+
   it('POST /output-widget/generate returns 400 with no prompt', async () => {
     const app = await makeApp();
     agentStore.createAgent({
