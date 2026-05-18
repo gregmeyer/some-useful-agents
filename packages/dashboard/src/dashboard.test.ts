@@ -2520,6 +2520,121 @@ describe('Output widget editor UI', () => {
     expect(field?.columns).toBeUndefined();
   });
 
+  it('POST /output-widget/update saves columns posted from the editor form', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-col-create', name: 'ow-col-create', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-col-create/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'matches', fieldType_0: 'table', fieldLabel_0: 'Matches',
+        columnName_0_0: 'company', columnLabel_0_0: 'Company',
+        columnFormat_0_0: 'text',
+        columnName_0_1: 'url', columnLabel_0_1: 'Apply',
+        columnFormat_0_1: 'link', columnHref_0_1: 'url', columnText_0_1: 'Apply →',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-col-create');
+    const field = saved?.outputWidget?.fields?.[0];
+    expect(field?.type).toBe('table');
+    expect(field?.columns).toHaveLength(2);
+    expect(field?.columns?.[0]).toEqual({ name: 'company', label: 'Company' });
+    expect(field?.columns?.[1]).toEqual({ name: 'url', label: 'Apply', format: 'link', href: 'url', text: 'Apply →' });
+  });
+
+  it('POST /output-widget/update strips href/text from non-link columns', async () => {
+    // Schema validator would reject href/text on a non-link column; the
+    // parser drops them server-side so the user can switch format=link →
+    // text without having to first clear the href input.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-col-strip', name: 'ow-col-strip', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-col-strip/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'rows', fieldType_0: 'table',
+        columnName_0_0: 'name',
+        columnFormat_0_0: 'text', columnHref_0_0: 'leftover_href', columnText_0_0: 'leftover_text',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-col-strip');
+    const col = saved?.outputWidget?.fields?.[0]?.columns?.[0];
+    expect(col).toEqual({ name: 'name' }); // no format/href/text
+  });
+
+  it('POST /output-widget/update column-edit overrides the prev-version fallback', async () => {
+    // #287 carries previous columns forward when the form is silent.
+    // Verify the form-posted columns WIN when both are present (i.e. the
+    // editor actually edits, not just preserves).
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-col-override', name: 'ow-col-override', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{
+          name: 'rows', type: 'table',
+          columns: [{ name: 'OLD_COL' }, { name: 'OLD_COL_2' }],
+        }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-col-override/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'rows', fieldType_0: 'table',
+        columnName_0_0: 'NEW_COL',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-col-override');
+    expect(saved?.outputWidget?.fields?.[0]?.columns).toEqual([{ name: 'NEW_COL' }]);
+  });
+
+  it('POST /output-widget/update tolerates gaps in column indices', async () => {
+    // Removing a column in the UI doesn't reshuffle indices — the row
+    // just disappears. Make sure the parser skips missing indices and
+    // returns a clean array.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-col-gaps', name: 'ow-col-gaps', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-col-gaps/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        fieldName_0: 'rows', fieldType_0: 'table',
+        columnName_0_0: 'a',
+        // gap at index 1 — author removed it via UI
+        columnName_0_2: 'c',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-col-gaps');
+    expect(saved?.outputWidget?.fields?.[0]?.columns).toEqual([{ name: 'a' }, { name: 'c' }]);
+  });
+
   it('POST /output-widget/generate returns 400 with no prompt', async () => {
     const app = await makeApp();
     agentStore.createAgent({

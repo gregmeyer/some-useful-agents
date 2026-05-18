@@ -190,6 +190,41 @@ agentInputsRouter.get('/agents/:name/output-widget', (req: Request, res: Respons
 
 const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-apply', 'raw', 'ai-template']);
 const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview', 'table']);
+const VALID_COLUMN_FORMATS = new Set<string>(['text', 'link']);
+
+/**
+ * Pull column rows posted by the editor's table-field sub-table.
+ * Form names follow `columnName_<fieldIdx>_<colIdx>` (plus Label / Format
+ * / Href / Text). Walks 0..49 colIdx and skips gaps so removing a column
+ * via the UI (which doesn't reshuffle indices) still parses cleanly.
+ *
+ * `href` / `text` only carry through when `format === 'link'` — the
+ * schema validator rejects them on non-link columns and we'd otherwise
+ * smuggle stale form values into a failed save.
+ */
+function parseColumnsFromBody(body: Record<string, unknown>, fieldIdx: number): Array<{
+  name: string; label?: string; format?: 'text' | 'link'; href?: string; text?: string;
+}> {
+  const cols: Array<{ name: string; label?: string; format?: 'text' | 'link'; href?: string; text?: string }> = [];
+  for (let j = 0; j < 50; j++) {
+    const name = body[`columnName_${fieldIdx}_${j}`];
+    if (typeof name !== 'string' || !name.trim()) continue;
+    const label = body[`columnLabel_${fieldIdx}_${j}`];
+    const rawFormat = body[`columnFormat_${fieldIdx}_${j}`];
+    const format = typeof rawFormat === 'string' && VALID_COLUMN_FORMATS.has(rawFormat) ? (rawFormat as 'text' | 'link') : 'text';
+    const href = body[`columnHref_${fieldIdx}_${j}`];
+    const text = body[`columnText_${fieldIdx}_${j}`];
+    cols.push({
+      name: name.trim(),
+      ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
+      // Omit format when it's the default to keep the saved schema concise.
+      ...(format !== 'text' ? { format } : {}),
+      ...(format === 'link' && typeof href === 'string' && href.trim() ? { href: href.trim() } : {}),
+      ...(format === 'link' && typeof text === 'string' && text.trim() ? { text: text.trim() } : {}),
+    });
+  }
+  return cols;
+}
 
 agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -247,14 +282,28 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     const ft = typeof fieldType === 'string' && VALID_FIELD_TYPES.has(fieldType) ? fieldType : 'text';
     const name = fieldName.trim();
     const prev = prevFieldsByName.get(name);
+
+    // For table fields: read columns from the form. The editor now has
+    // editable column sub-rows (`columnName_<fieldIdx>_<colIdx>` etc).
+    // Fall back to the previous version's columns ONLY when the form
+    // carried no columns AND the field name+type are unchanged — keeps
+    // the no-UI-change save flow non-destructive for callers that don't
+    // yet post column inputs (CLI/MCP, custom integrations).
+    let columns: NonNullable<NonNullable<OutputWidgetSchema['fields']>[number]['columns']> | undefined;
+    if (ft === 'table') {
+      const parsed = parseColumnsFromBody(body, i);
+      if (parsed.length > 0) {
+        columns = parsed;
+      } else if (prev?.type === 'table' && prev.columns) {
+        columns = prev.columns;
+      }
+    }
+
     fields.push({
       name,
       ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
       type: ft as WidgetFieldType,
-      // Carry `columns` forward when the type still wants them (only `table`
-      // today). Stripped on type changes so e.g. switching table → text
-      // doesn't smuggle a stale `columns` array into a field that can't use it.
-      ...(ft === 'table' && prev?.type === 'table' && prev.columns ? { columns: prev.columns } : {}),
+      ...(columns ? { columns } : {}),
     });
   }
 
@@ -407,10 +456,12 @@ agentInputsRouter.post('/agents/:name/output-widget/preview', (req: Request, res
     const fieldType = body[`fieldType_${i}`];
     if (typeof fieldName !== 'string' || !fieldName.trim()) continue;
     const ft = typeof fieldType === 'string' && VALID_FIELD_TYPES.has(fieldType) ? fieldType : 'text';
+    const columns = ft === 'table' ? parseColumnsFromBody(body, i) : [];
     fields.push({
       name: fieldName.trim(),
       ...(typeof fieldLabel === 'string' && fieldLabel.trim() ? { label: fieldLabel.trim() } : {}),
       type: ft as WidgetFieldType,
+      ...(columns.length > 0 ? { columns } : {}),
     });
   }
 
