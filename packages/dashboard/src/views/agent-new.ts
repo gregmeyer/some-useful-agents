@@ -11,14 +11,23 @@ export interface AgentNewFormValues {
   prompt?: string;
 }
 
+function formatInstalled(providers: string[]): string {
+  if (providers.length === 0) return 'no LLM CLIs detected on PATH';
+  if (providers.length === 1) return `you have ${providers[0]} installed`;
+  if (providers.length === 2) return `you have ${providers[0]} and ${providers[1]} installed`;
+  return `you have ${providers.slice(0, -1).join(', ')}, and ${providers[providers.length - 1]} installed`;
+}
+
 export function renderAgentNew(args: {
   values?: AgentNewFormValues;
   error?: string;
+  installedProviders?: string[];
 }): string {
   const v = args.values ?? {};
   const type = v.type ?? 'shell';
   const isShell = type === 'shell';
   const isClaude = type === 'claude-code';
+  const installedSuffix = formatInstalled(args.installedProviders ?? []);
 
   const errorBlock = args.error ? html`<div class="flash flash--error">${args.error}</div>` : html``;
 
@@ -57,7 +66,7 @@ export function renderAgentNew(args: {
         </label>
         <label class="radio-option">
           <input type="radio" name="type" value="claude-code" ${isClaude ? 'checked' : ''}>
-          <span><strong>Claude Code</strong> <span class="dim">\u2014 runs a Claude Code prompt</span></span>
+          <span><strong>LLM Prompt</strong> <span class="dim">\u2014 runs an LLM prompt \u2014 ${installedSuffix}</span></span>
         </label>
       </fieldset>
 
@@ -67,7 +76,7 @@ export function renderAgentNew(args: {
       </div>
 
       <div class="form-field mb-4">
-        <strong>Prompt <span class="dim text-xs">(claude-code agents only)</span></strong>
+        <strong>Prompt <span class="dim text-xs">(LLM Prompt agents only)</span></strong>
         <textarea name="prompt" rows="4" placeholder="Summarise the attached text." class="form-field__textarea">${v.prompt ?? ''}</textarea>
       </div>
 

@@ -1,8 +1,19 @@
 import { Router, type Request, type Response } from 'express';
+import { detectLlms, PROVIDERS, PROVIDER_IDS } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentNew, type AgentNewFormValues } from '../../views/agent-new.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+let cachedProviders: string[] | null = null;
+function getInstalledProviders(): string[] {
+  if (cachedProviders) return cachedProviders;
+  const avail = detectLlms();
+  cachedProviders = PROVIDER_IDS
+    .filter((id) => avail[id].installed)
+    .map((id) => PROVIDERS[id].displayName);
+  return cachedProviders;
+}
 
 /**
  * GET  /agents/new — show the create-agent form.
@@ -14,7 +25,7 @@ const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 export const agentNewRouter: Router = Router();
 
 agentNewRouter.get('/agents/new', (_req: Request, res: Response) => {
-  res.type('html').send(renderAgentNew({}));
+  res.type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),}));
 });
 
 agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
@@ -33,35 +44,35 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
   // Validate in order of what the user typed top-to-bottom so the error
   // points at the first thing wrong rather than a buried field.
   if (!values.id || !AGENT_ID_RE.test(values.id)) {
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: 'Id must be lowercase letters, digits, or hyphens, starting with a letter or digit.',
     }));
     return;
   }
   if (!values.name) {
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: 'Name is required.',
     }));
     return;
   }
   if (ctx.agentStore.getAgent(values.id)) {
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: `An agent with id "${values.id}" already exists.`,
     }));
     return;
   }
   if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: 'Shell agents need a command.',
     }));
     return;
   }
   if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: 'Claude-Code agents need a prompt.',
     }));
@@ -89,7 +100,7 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
     res.redirect(303, `/agents/${encodeURIComponent(values.id)}/add-node?fromCreate=1`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(400).type('html').send(renderAgentNew({
+    res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
       error: `Create failed: ${msg}`,
     }));
