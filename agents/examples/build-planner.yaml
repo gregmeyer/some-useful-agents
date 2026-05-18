@@ -50,7 +50,7 @@ inputs:
 
 nodes:
   - id: plan
-    type: claude-code
+    type: llm-prompt
     prompt: |
       You are the multi-flavor build planner for the sua agent platform.
 
@@ -151,7 +151,7 @@ nodes:
                 COMPANY_SLUG: "$item.slug"
                 JOB_QUERY: "«inputs.JOB_QUERY»"   # emit double-braces inputs.JOB_QUERY
           - id: summarise
-            type: claude-code
+            type: llm-prompt
             dependsOn: [search]
             prompt: |
               Summarise the per-company results in «upstream.search.result».

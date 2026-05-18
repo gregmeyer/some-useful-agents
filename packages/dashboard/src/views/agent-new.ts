@@ -6,7 +6,7 @@ export interface AgentNewFormValues {
   id?: string;
   name?: string;
   description?: string;
-  type?: 'shell' | 'claude-code';
+  type?: 'shell' | 'llm-prompt';
   command?: string;
   prompt?: string;
 }
@@ -26,7 +26,7 @@ export function renderAgentNew(args: {
   const v = args.values ?? {};
   const type = v.type ?? 'shell';
   const isShell = type === 'shell';
-  const isClaude = type === 'claude-code';
+  const isClaude = type === 'llm-prompt';
   const installedSuffix = formatInstalled(args.installedProviders ?? []);
 
   const errorBlock = args.error ? html`<div class="flash flash--error">${args.error}</div>` : html``;
@@ -65,7 +65,7 @@ export function renderAgentNew(args: {
           <span><strong>Shell</strong> <span class="dim">\u2014 runs an arbitrary command locally</span></span>
         </label>
         <label class="radio-option">
-          <input type="radio" name="type" value="claude-code" ${isClaude ? 'checked' : ''}>
+          <input type="radio" name="type" value="llm-prompt" ${isClaude ? 'checked' : ''}>
           <span><strong>LLM Prompt</strong> <span class="dim">\u2014 runs an LLM prompt \u2014 ${installedSuffix}</span></span>
         </label>
       </fieldset>
@@ -76,7 +76,7 @@ export function renderAgentNew(args: {
       </div>
 
       <div class="form-field mb-4">
-        <strong>Prompt <span class="dim text-xs">(LLM Prompt agents only)</span></strong>
+        <strong>Prompt <span class="dim text-xs">(llm-prompt agents only)</span></strong>
         <textarea name="prompt" rows="4" placeholder="Summarise the attached text." class="form-field__textarea">${v.prompt ?? ''}</textarea>
       </div>
 

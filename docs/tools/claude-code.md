@@ -37,7 +37,7 @@ Inline form on a node:
 
 ```yaml
 - id: summarize
-  type: claude-code
+  type: llm-prompt
   prompt: "Summarise: {{upstream.fetch.result}}"
   maxTurns: 3
 ```
@@ -51,7 +51,7 @@ provider: codex              # agent-level
 
 nodes:
   - id: refactor
-    type: claude-code
+    type: llm-prompt
     provider: claude         # override per-node
     prompt: ...
 ```

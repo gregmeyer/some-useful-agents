@@ -30,7 +30,7 @@ inputs:
 
 nodes:
   - id: analyze
-    type: claude-code
+    type: llm-prompt
     prompt: |
       You are an expert agent architect reviewing a sua DAG agent.
 
@@ -48,7 +48,7 @@ nodes:
       - Missing error handling, timeouts, or retry logic
       - Opportunities to split or merge nodes for clarity
       - Unused or redundant dependencies between nodes
-      - Prompt improvements for claude-code nodes
+      - Prompt improvements for llm-prompt nodes
       - Missing or improvable outputWidget declarations
       - Whether the agent would benefit from control-flow nodes (conditional, switch, loop, agent-invoke)
       - Whether a richer signal template would better showcase the output on Pulse
@@ -151,7 +151,7 @@ nodes:
     timeout: 15
 
   - id: fix
-    type: claude-code
+    type: llm-prompt
     dependsOn:
       - analyze
       - validate

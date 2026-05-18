@@ -67,7 +67,7 @@ Imported tools look like any other. A node references them by the local id:
 
 ```yaml
 - id: hero
-  type: claude-code
+  type: llm-prompt
   tool: modern-graphics-generate-graphic
   toolInputs:
     layout: hero

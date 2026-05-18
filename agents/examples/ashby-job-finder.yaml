@@ -103,7 +103,7 @@ nodes:
       fi
     timeout: 30
   - id: filter-and-summarize
-    type: claude-code
+    type: llm-prompt
     prompt: |
       I'm looking for "{{inputs.JOB_QUERY}}" roles at the company with Ashby slug "{{inputs.COMPANY_SLUG}}".
 

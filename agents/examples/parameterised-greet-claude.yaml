@@ -20,5 +20,5 @@ inputs:
   STYLE: { type: enum, values: [formal, casual], default: casual }
 nodes:
   - id: greet
-    type: claude-code
+    type: llm-prompt
     prompt: "Greet {{inputs.NAME}} in a {{inputs.STYLE}} style. One sentence only."

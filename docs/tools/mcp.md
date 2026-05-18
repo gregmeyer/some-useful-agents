@@ -56,7 +56,7 @@ Exactly like any other tool:
 
 ```yaml
 - id: hero
-  type: claude-code
+  type: llm-prompt
   tool: modern-graphics-generate-graphic
   toolInputs:
     layout: hero
