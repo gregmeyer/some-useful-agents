@@ -1,4 +1,5 @@
 import type { ToolDefinition } from '@some-useful-agents/core';
+import type { ProviderUsageRow } from '../lib/provider-usage.js';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -12,6 +13,7 @@ export function renderToolsList(args: {
   tab?: Tab;
   limit?: number;
   offset?: number;
+  providerUsage?: ProviderUsageRow[];
 }): string {
   const f = args.filter ?? {};
   const limit = args.limit ?? 12;
@@ -91,6 +93,8 @@ export function renderToolsList(args: {
       cta: html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
     })}
 
+    ${renderProvidersSection(args.providerUsage ?? [])}
+
     ${tabStrip}
     ${filterBar}
 
@@ -106,6 +110,42 @@ export function renderToolsList(args: {
   `;
 
   return render(layout({ title: 'Tools', activeNav: 'tools' }, body));
+}
+
+function renderProvidersSection(rows: ProviderUsageRow[]): SafeHtml {
+  if (rows.length === 0) return html``;
+
+  const cards = rows.map((r) => {
+    const statusBadge = r.installed
+      ? html`<span class="badge badge--ok">installed</span>`
+      : html`<span class="badge badge--muted">not on PATH</span>`;
+    const usage = r.agentCount === 0
+      ? html`<span class="dim">used by 0 agents</span>`
+      : html`<a href="/agents?provider=${r.id}" class="dim">used by ${String(r.agentCount)} agent${r.agentCount === 1 ? '' : 's'}</a>`;
+    const versionLine = r.installed && r.version
+      ? html`<p class="dim text-xs mb-0">${r.version}</p>`
+      : html`<p class="dim text-xs mb-0">Install <code>${r.binary}</code> on PATH to enable this provider.</p>`;
+    return html`
+      <article class="agent-card" style="opacity: ${r.installed ? '1' : '0.7'};">
+        <div class="agent-card__header">
+          <h3 class="agent-card__title">${r.displayName}</h3>
+          ${statusBadge}
+        </div>
+        <p class="dim text-xs" style="margin: var(--space-1) 0 var(--space-2);"><code>${r.binary}</code> &middot; ${usage}</p>
+        ${versionLine}
+      </article>
+    `;
+  });
+
+  return html`
+    <section class="mb-4">
+      <h2 style="font-size: var(--font-size-md); margin: 0 0 var(--space-2);">LLM providers</h2>
+      <p class="dim text-xs mb-3">Detected at startup from <code>$PATH</code>. To use a provider, set <code>provider:</code> on an <code>llm-prompt</code> node (or at the agent level).</p>
+      <div class="agent-grid">
+        ${cards as unknown as SafeHtml[]}
+      </div>
+    </section>
+  `;
 }
 
 function renderToolCard(t: ToolDefinition): SafeHtml {
