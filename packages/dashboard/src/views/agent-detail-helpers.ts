@@ -178,6 +178,25 @@ const CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', '
 type ControlType = typeof CONTROL_TYPES[number];
 
 /**
+ * Render one editable action row (POST button on diff-apply widgets).
+ * Schema requires `id`, `label`, `endpoint`; `payloadField` is optional
+ * (names a declared field whose value gets sent as the POST body).
+ * `method` is locked to POST per the schema — not exposed in the UI.
+ */
+function renderActionRow(idx: number, action?: { id?: string; label?: string; endpoint?: string; payloadField?: string }): string {
+  const a = action ?? {};
+  return `
+    <tr data-action-row data-action-idx="${idx}">
+      <td><input type="text" name="actionId_${idx}" value="${escapeAttr(a.id ?? '')}" placeholder="apply" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;"></td>
+      <td><input type="text" name="actionLabel_${idx}" value="${escapeAttr(a.label ?? '')}" placeholder="Apply" style="${COL_INPUT} width: 100%;"></td>
+      <td><input type="text" name="actionEndpoint_${idx}" value="${escapeAttr(a.endpoint ?? '')}" placeholder="/agents/{agentId}/apply" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;"></td>
+      <td><input type="text" name="actionPayloadField_${idx}" value="${escapeAttr(a.payloadField ?? '')}" placeholder="yaml" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;"></td>
+      <td><button type="button" class="btn btn--ghost btn--sm ow-remove-action" style="padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);">×</button></td>
+    </tr>
+  `;
+}
+
+/**
  * Render one editable control row. Carries all per-type input groups in
  * the DOM so JS only has to toggle visibility on type change — no
  * rebuilds. Each input is namespaced by `_<idx>` so the server can scan
@@ -384,6 +403,34 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
             ${unsafeHtml((widget?.controls ?? []).map((c, i) => renderControlRow(i, c as Parameters<typeof renderControlRow>[1])).join(''))}
           </div>
           <button type="button" class="btn btn--ghost btn--sm" id="ow-add-control" style="font-size: var(--font-size-xs);">+ Add control</button>
+        </details>
+      </div>
+
+      <input type="hidden" name="widget_actions_edited" value="1">
+      <div id="ow-actions-block" style="margin-bottom: var(--space-3);">
+        <details ${widget?.actions?.length ? 'open' : ''} style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2);">
+          <summary style="cursor: pointer; font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">
+            Actions
+            <span class="dim" style="font-weight: var(--weight-regular); margin-left: var(--space-2);">
+              ${widget?.actions?.length ? `${String(widget.actions.length)} declared` : 'none — POST buttons used by diff-apply widgets'}
+            </span>
+          </summary>
+          <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0;">
+            POST buttons rendered with the widget. <code>endpoint</code> may include <code>{agentId}</code>, which is substituted at render time. <code>payloadField</code> names a declared widget field whose value is sent as the request body. Method is always POST.
+          </p>
+          <table class="table" style="font-size: var(--font-size-xs); margin: 0;">
+            <thead><tr>
+              <th style="width: 8rem;">Id</th>
+              <th style="width: 8rem;">Label</th>
+              <th>Endpoint</th>
+              <th style="width: 9rem;" title="Optional: declared widget field whose value gets POSTed">Payload field</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="ow-actions-list">
+              ${unsafeHtml((widget?.actions ?? []).map((a, i) => renderActionRow(i, a)).join(''))}
+            </tbody>
+          </table>
+          <button type="button" class="btn btn--ghost btn--sm" id="ow-add-action" style="font-size: var(--font-size-xs); margin-top: var(--space-2);">+ Add action</button>
         </details>
       </div>
 
@@ -792,6 +839,37 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
           refreshPreview();
         });
         controlsList.addEventListener('input', refreshPreview);
+      }
+
+      // ── Actions editor wiring ─────────────────────────────────────────
+      var actionsList = document.getElementById('ow-actions-list');
+      var addActionBtn = document.getElementById('ow-add-action');
+      var nextActionIdx = actionsList ? actionsList.querySelectorAll('[data-action-row]').length : 0;
+
+      function actionRowHtml(idx) {
+        return '<tr data-action-row data-action-idx="' + idx + '">' +
+          '<td><input type="text" name="actionId_' + idx + '" placeholder="apply" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></td>' +
+          '<td><input type="text" name="actionLabel_' + idx + '" placeholder="Apply" style="' + COL_INPUT_STYLE + 'width:100%;"></td>' +
+          '<td><input type="text" name="actionEndpoint_' + idx + '" placeholder="/agents/{agentId}/apply" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></td>' +
+          '<td><input type="text" name="actionPayloadField_' + idx + '" placeholder="yaml" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></td>' +
+          '<td><button type="button" class="btn btn--ghost btn--sm ow-remove-action" style="padding:2px 6px;font-size:var(--font-size-xs);color:var(--color-err);">\\u00D7</button></td>' +
+        '</tr>';
+      }
+
+      if (addActionBtn && actionsList) {
+        addActionBtn.addEventListener('click', function () {
+          var wrap = document.createElement('tbody');
+          wrap.innerHTML = actionRowHtml(nextActionIdx++);
+          actionsList.appendChild(wrap.firstElementChild);
+          refreshPreview();
+        });
+        actionsList.addEventListener('click', function (e) {
+          if (e.target && e.target.classList && e.target.classList.contains('ow-remove-action')) {
+            var tr = e.target.closest('tr[data-action-row]');
+            if (tr) { tr.parentNode.removeChild(tr); refreshPreview(); }
+          }
+        });
+        actionsList.addEventListener('input', refreshPreview);
       }
 
       // ai-template generate button

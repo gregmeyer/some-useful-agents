@@ -6,7 +6,7 @@
 "@some-useful-agents/dashboard": minor
 ---
 
-Output Widget editor: edit all 6 `controls` types inline (sort / filter / paginate / replay / field-toggle / view-switch).
+Output Widget editor: edit all 6 `controls` types inline (sort / filter / paginate / replay / field-toggle / view-switch) plus the `actions` array.
 
 Phase 2 of the editor-UI-for-table-things work after #288 (columns editor). A new collapsible Controls section between Fields and Interactive renders one bordered row per control with the type-select up top and per-type inputs below. The active type's inputs show; the rest are hidden but still SSR'd so toggling the type select via JS just swaps visibility (no rebuilds).
 
@@ -15,6 +15,10 @@ Phase 2 of the editor-UI-for-table-things work after #288 (columns editor). A ne
 - **field-toggle**: label + toggleable fields (csv) + default (shown / hidden).
 - **view-switch**: label + views JSON (rarest type — nested `[{id, fields[]}]` edited as JSON in a textarea for now) + default view id.
 
-The editor now posts a hidden `widget_controls_edited=1` sentinel so the server can distinguish "user deleted all controls" (honour deletion) from "non-editor caller silent on controls" (keep #287's prev-version preservation). Empty / half-built control rows skip silently instead of failing schema validation. Malformed view-switch JSON drops just that row.
+Also adds an Actions editor (POST buttons used by `diff-apply` widgets) with `id` / `label` / `endpoint` / optional `payloadField` inputs per row. Method is locked to POST per the schema.
 
-Tests cover all 6 types parsing, the empty-edit sentinel path, the non-editor preservation path, and the malformed-JSON skip.
+The editor now posts hidden `widget_controls_edited=1` and `widget_actions_edited=1` sentinels so the server can distinguish "user deleted all controls/actions" (honour deletion) from "non-editor caller silent" (keep #287's prev-version preservation). Empty / half-built control or action rows skip silently instead of failing schema validation. Malformed view-switch JSON drops just that row.
+
+After this PR the editor handles fields + columns + controls + actions end-to-end — no remaining YAML-only widget shapes.
+
+Tests cover all 6 control types parsing, the empty-edit sentinel path, the non-editor preservation path, malformed-JSON skip, plus action create / skip-on-missing-required / empty-edit / non-editor preservation.

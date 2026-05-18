@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType, WidgetControl, NotifyConfig } from '@some-useful-agents/core';
+import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType, WidgetControl, WidgetAction, NotifyConfig } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { mergeNewInput, parseEnumValues } from './agent-nodes.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
@@ -280,6 +280,33 @@ function parseControlsFromBody(body: Record<string, unknown>): WidgetControl[] {
 }
 
 /**
+ * Pull action rows posted by the editor. Each action is a POST button
+ * (schema locks `method` to POST). Rows missing required fields
+ * (`id`, `label`, `endpoint`) skip silently so half-built rows don't
+ * fail the schema validator at save time.
+ */
+function parseActionsFromBody(body: Record<string, unknown>): WidgetAction[] {
+  const out: WidgetAction[] = [];
+  for (let i = 0; i < 50; i++) {
+    const id = body[`actionId_${i}`];
+    const label = body[`actionLabel_${i}`];
+    const endpoint = body[`actionEndpoint_${i}`];
+    const payloadField = body[`actionPayloadField_${i}`];
+    if (typeof id !== 'string' || !id.trim()) continue;
+    if (typeof label !== 'string' || !label.trim()) continue;
+    if (typeof endpoint !== 'string' || !endpoint.trim()) continue;
+    out.push({
+      id: id.trim(),
+      label: label.trim(),
+      method: 'POST',
+      endpoint: endpoint.trim(),
+      ...(typeof payloadField === 'string' && payloadField.trim() ? { payloadField: payloadField.trim() } : {}),
+    });
+  }
+  return out;
+}
+
+/**
  * Pull column rows posted by the editor's table-field sub-table.
  * Form names follow `columnName_<fieldIdx>_<colIdx>` (plus Label / Format
  * / Href / Text). Walks 0..49 colIdx and skips gaps so removing a column
@@ -418,13 +445,18 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   // `actions` is still YAML-only to edit, preserved via the prev-version
   // pattern from #287 (same-type only).
   const parsedControls = parseControlsFromBody(body);
+  const parsedActions = parseActionsFromBody(body);
   const sameType = agent.outputWidget?.type === widgetType;
   const prevControls = sameType ? agent.outputWidget?.controls : undefined;
   const prevActions = sameType ? agent.outputWidget?.actions : undefined;
   const controlsEdited = body.widget_controls_edited === '1';
+  const actionsEdited = body.widget_actions_edited === '1';
   const controls = parsedControls.length > 0
     ? parsedControls
     : controlsEdited ? [] : prevControls;
+  const actions = parsedActions.length > 0
+    ? parsedActions
+    : actionsEdited ? [] : prevActions;
 
   let outputWidget: OutputWidgetSchema;
   if (widgetType === 'ai-template') {
@@ -445,7 +477,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
       ...(controls?.length ? { controls } : {}),
-      ...(prevActions?.length ? { actions: prevActions } : {}),
+      ...(actions?.length ? { actions } : {}),
     };
   } else {
     // Typed widgets (dashboard / key-value / diff-apply / raw) are
@@ -478,7 +510,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
       ...(controls?.length ? { controls } : {}),
-      ...(prevActions?.length ? { actions: prevActions } : {}),
+      ...(actions?.length ? { actions } : {}),
     };
   }
 

@@ -2820,6 +2820,119 @@ describe('Output widget editor UI', () => {
     expect(saved?.outputWidget?.controls ?? []).toHaveLength(0);
   });
 
+  it('POST /output-widget/update saves actions posted from the editor', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-act-create', name: 'ow-act-create', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-act-create/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'diff-apply',
+        widget_actions_edited: '1',
+        fieldName_0: 'classification', fieldType_0: 'badge',
+        fieldName_1: 'yaml', fieldType_1: 'code',
+        actionId_0: 'apply',
+        actionLabel_0: 'Apply patch',
+        actionEndpoint_0: '/agents/{agentId}/diff/apply',
+        actionPayloadField_0: 'yaml',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-act-create');
+    expect(saved?.outputWidget?.actions).toHaveLength(1);
+    expect(saved?.outputWidget?.actions?.[0]).toEqual({
+      id: 'apply',
+      label: 'Apply patch',
+      method: 'POST',
+      endpoint: '/agents/{agentId}/diff/apply',
+      payloadField: 'yaml',
+    });
+  });
+
+  it('POST /output-widget/update skips action rows missing required fields', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-act-skip', name: 'ow-act-skip', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-act-skip/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'diff-apply',
+        widget_actions_edited: '1',
+        fieldName_0: 'classification', fieldType_0: 'badge',
+        // Half-built — has id but no label / endpoint
+        actionId_0: 'apply',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-act-skip');
+    expect(saved?.outputWidget?.actions ?? []).toHaveLength(0);
+  });
+
+  it('POST /output-widget/update honours an empty-actions edit via sentinel', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-act-empty', name: 'ow-act-empty', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'diff-apply',
+        fields: [{ name: 'classification', type: 'badge' }],
+        actions: [{ id: 'apply', label: 'Apply', method: 'POST', endpoint: '/x' }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-act-empty/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'diff-apply',
+        widget_actions_edited: '1',
+        fieldName_0: 'classification', fieldType_0: 'badge',
+        // No actionId_N posted — user deleted all actions in the UI.
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-act-empty');
+    expect(saved?.outputWidget?.actions ?? []).toHaveLength(0);
+  });
+
+  it('POST /output-widget/update without the actions sentinel preserves actions (non-editor caller)', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-act-cli', name: 'ow-act-cli', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'diff-apply',
+        fields: [{ name: 'classification', type: 'badge' }],
+        actions: [{ id: 'apply', label: 'Apply', method: 'POST', endpoint: '/x' }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-act-cli/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'diff-apply',
+        // No widget_actions_edited sentinel + no action rows — non-editor caller
+        fieldName_0: 'classification', fieldType_0: 'badge',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-act-cli');
+    expect(saved?.outputWidget?.actions).toHaveLength(1);
+  });
+
   it('POST /output-widget/generate returns 400 with no prompt', async () => {
     const app = await makeApp();
     agentStore.createAgent({
