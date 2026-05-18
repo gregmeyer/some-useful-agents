@@ -125,7 +125,7 @@ nodes:
     dependsOn:
       - discover
   - id: explain
-    type: claude-code
+    type: llm-prompt
     prompt: |
       Filter and summarise job postings across multiple companies.
 

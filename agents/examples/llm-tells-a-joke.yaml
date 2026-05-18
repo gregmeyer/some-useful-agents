@@ -28,7 +28,7 @@ signal:
 
 nodes:
   - id: main
-    type: claude-code
+    type: llm-prompt
     prompt: |
       You are a world-class dad-joke comedian. Tell exactly one groan-worthy dad joke.
 

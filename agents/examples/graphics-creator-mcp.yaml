@@ -67,7 +67,7 @@ inputs:
 
 nodes:
   - id: render
-    type: claude-code
+    type: llm-prompt
     timeout: 120
     maxTurns: 6
     prompt: |

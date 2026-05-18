@@ -628,16 +628,27 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
     expect(res.text).toMatch(/already exists/);
   });
 
-  it('POST /agents/new for claude-code type requires prompt', async () => {
+  it('POST /agents/new for llm-prompt type requires prompt', async () => {
     const app = await makeApp();
     const res = await request(app)
       .post('/agents/new')
       .type('form')
-      .send({ id: 'needs-prompt', name: 'x', type: 'claude-code', prompt: '' })
+      .send({ id: 'needs-prompt', name: 'x', type: 'llm-prompt', prompt: '' })
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(400);
-    expect(res.text).toMatch(/Claude-Code agents need a prompt/);
+    expect(res.text).toMatch(/LLM-prompt agents need a prompt/);
+  });
+
+  it('POST /agents/new accepts legacy claude-code spelling and normalizes to llm-prompt', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'legacy-spelling', name: 'x', type: 'claude-code', prompt: 'hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
   });
 });
 

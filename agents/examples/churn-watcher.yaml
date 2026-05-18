@@ -78,7 +78,7 @@ nodes:
   #    is a JSON object so the dashboard widget can read `total_churned`,
   #    `recent_count`, and `summary` fields.
   - id: summarise
-    type: claude-code
+    type: llm-prompt
     dependsOn: [recent, total]
     prompt: |
       You are reviewing today's churn batch for a SaaS company.

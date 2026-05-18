@@ -136,7 +136,7 @@ nodes:
       PYEOF
     timeout: 180
   - id: summarise
-    type: claude-code
+    type: llm-prompt
     dependsOn: [fetch-and-filter]
     prompt: |
       Frame already-filtered Ashby job-search results as a structured response.

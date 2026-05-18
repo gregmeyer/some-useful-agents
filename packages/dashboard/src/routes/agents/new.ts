@@ -36,7 +36,7 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
     id: typeof body.id === 'string' ? body.id.trim() : undefined,
     name: typeof body.name === 'string' ? body.name.trim() : undefined,
     description: typeof body.description === 'string' ? body.description.trim() : undefined,
-    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    type: (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell',
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
   };
@@ -71,10 +71,10 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
     }));
     return;
   }
-  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+  if (values.type === 'llm-prompt' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
-      error: 'Claude-Code agents need a prompt.',
+      error: 'LLM-prompt agents need a prompt.',
     }));
     return;
   }
@@ -91,7 +91,7 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
         nodes: [
           values.type === 'shell'
             ? { id: 'main', type: 'shell', command: values.command! }
-            : { id: 'main', type: 'claude-code', prompt: values.prompt! },
+            : { id: 'main', type: 'llm-prompt', prompt: values.prompt! },
         ],
       },
       'dashboard',

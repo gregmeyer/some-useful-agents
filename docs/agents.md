@@ -168,7 +168,7 @@ Every agent has at least one node. Each node declares:
 | Type | Purpose | Key fields |
 |---|---|---|
 | `shell` | Run a shell command | `command`, `tool`, `toolInputs` |
-| `claude-code` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `allowedTools` |
+| `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `allowedTools`, `provider` |
 | `conditional` | Branch based on a predicate | `conditionalConfig` |
 | `switch` | Multi-way branch | `switchConfig` |
 | `loop` | Iterate over a list or sub-agent invocations | `loopConfig` |
@@ -177,7 +177,9 @@ Every agent has at least one node. Each node declares:
 
 Full flow control reference: [flows.md](flows.md).
 
-### `shell` and `claude-code` with tools
+> **Alias:** `type: claude-code` is the legacy spelling of `type: llm-prompt`. Both load identically and dispatch through the same code path; the CLI binary is chosen by the `provider:` field (`claude` or `codex`). New agents should use `llm-prompt`; existing agents continue to work unchanged.
+
+### `shell` and `llm-prompt` with tools
 
 Instead of an inline `command:` or `prompt:`, a node can reference a **tool** by id:
 
@@ -331,7 +333,7 @@ nodes:
       headers: { Accept: "application/json" }
 
   - id: extract
-    type: claude-code
+    type: llm-prompt
     dependsOn: [fetch]
     prompt: |
       Extract the joke from this JSON response and return just the joke text:
