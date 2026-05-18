@@ -163,6 +163,20 @@ export {
   type PlanCriticContext,
 } from './build-plan-critic.js';
 export {
+  PlannerLoopRunner,
+  type PlannerLoopRunnerDeps,
+  autofixPlanYamls,
+  evaluatePlan,
+  observePlan,
+  reflectOnEval,
+  type ObserveResult,
+  type ObserveStatus,
+  type ReflectDecision,
+  type LoopOutcome,
+  type LoopPhase,
+  type LoopStepRecord,
+} from './planner-loop/index.js';
+export {
   policyDocumentSchema,
   policyRuleSchema,
   loadPolicyDocument,
