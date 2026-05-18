@@ -41,7 +41,7 @@ export interface ToolOutputField {
   properties?: Record<string, ToolOutputField>;
 }
 
-export type ToolImplementationType = 'shell' | 'claude-code' | 'builtin' | 'mcp';
+export type ToolImplementationType = 'shell' | 'claude-code' | 'llm-prompt' | 'builtin' | 'mcp';
 
 export type McpTransport = 'stdio' | 'http';
 

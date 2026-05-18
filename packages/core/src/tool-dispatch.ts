@@ -32,7 +32,7 @@ export function resolveToolInputs(
   if (node.type === 'shell' && node.command) {
     return { command: node.command };
   }
-  if (node.type === 'claude-code' && node.prompt) {
+  if ((node.type === 'claude-code' || node.type === 'llm-prompt') && node.prompt) {
     return {
       prompt: node.prompt,
       model: node.model,

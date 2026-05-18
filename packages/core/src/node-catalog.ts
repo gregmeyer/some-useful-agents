@@ -78,6 +78,39 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
   timeout: 30`,
   },
 
+  'llm-prompt': {
+    type: 'llm-prompt',
+    description: 'Run an LLM (Claude or Codex) with a prompt. Optional tool access via allowedTools. Alias: claude-code.',
+    inputs: [
+      { name: 'prompt', type: 'string', required: true, description: 'Prompt text. References inputs via {{inputs.X}}, upstreams via {{upstream.<id>.result}}.' },
+      { name: 'provider', type: "'claude' | 'codex'", description: 'Which CLI to spawn. Defaults to the agent-level provider, then to claude.' },
+      { name: 'model', type: 'string', description: 'Override the default model for this node only.' },
+      { name: 'maxTurns', type: 'number', description: 'Cap on tool-use turns. Default 5.' },
+      { name: 'allowedTools', type: 'string[]', description: 'Tools the LLM may call. Built-ins: file-read, file-write, Edit, Write, web-search, etc. MCP tools when configured.' },
+      { name: 'timeout', type: 'number', description: 'Seconds before the LLM call is killed. Default 300.' },
+      { name: 'env', type: 'object', description: 'Extra env vars (rarely needed for llm-prompt).' },
+      { name: 'secrets', type: 'string[]', description: 'Secret names injected as env vars (visible to allowed shell commands the LLM runs).' },
+      { name: 'dependsOn', type: 'string[]', description: 'Upstream node ids this node waits on.' },
+      { name: 'onlyIf', type: 'OnlyIfCondition', description: 'Per-edge predicate.' },
+    ],
+    outputs: [
+      { name: 'result', type: 'string', description: "The LLM's final assistant message. Plain text unless you ask for JSON in the prompt." },
+    ],
+    use_when: [
+      'You need free-form analysis, summarization, classification, or generation.',
+      'The output shape is hard to specify with jq/regex (e.g. extracting structured data from messy HTML).',
+      'You want the LLM to make decisions inside the DAG (route, score, draft).',
+      "Don't reach for it for deterministic data shaping — shell + jq is faster, cheaper, and reproducible.",
+    ],
+    example: `- id: summarise
+  type: llm-prompt
+  prompt: |
+    Summarise this in 3 bullets:
+    {{upstream.fetch.result}}
+  maxTurns: 1
+  timeout: 60`,
+  },
+
   'claude-code': {
     type: 'claude-code',
     description: 'Run an LLM (Claude or Codex) with a prompt. Optional tool access via allowedTools.',

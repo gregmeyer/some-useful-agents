@@ -30,8 +30,8 @@ export function renderToolDetail(args: {
 
   const implBadge = tool.implementation.type === 'shell'
     ? html`<span class="badge badge--ok">shell</span>`
-    : tool.implementation.type === 'claude-code'
-      ? html`<span class="badge badge--info">claude-code</span>`
+    : (tool.implementation.type === 'claude-code' || tool.implementation.type === 'llm-prompt')
+      ? html`<span class="badge badge--info">${tool.implementation.type}</span>`
       : tool.implementation.type === 'mcp'
         ? html`<span class="badge badge--info">mcp</span>`
         : html`<span class="badge badge--muted">${tool.implementation.type}</span>`;

@@ -27,7 +27,7 @@ export function renderAgentEditNode(args: {
   const v: EditNodeFormValues = {
     type: submitted?.type ?? node.type,
     command: submitted?.command ?? (node.type === 'shell' ? node.command : ''),
-    prompt: submitted?.prompt ?? (node.type === 'claude-code' ? node.prompt : ''),
+    prompt: submitted?.prompt ?? ((node.type === 'claude-code' || node.type === 'llm-prompt') ? node.prompt : ''),
     dependsOn: submitted?.dependsOn ?? node.dependsOn ?? [],
   };
   const selectedDeps = new Set(v.dependsOn);
@@ -70,10 +70,10 @@ export function renderAgentEditNode(args: {
         ? renderControlFlowSection(agent, node)
         : html`
           ${renderToolPicker({ tools: allTools, selectedTool: node.tool, currentType: v.type })}
-          ${renderToolInputsSection(node.tool ?? (v.type === 'claude-code' ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
+          ${renderToolInputsSection(node.tool ?? ((v.type === 'claude-code' || v.type === 'llm-prompt') ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
         `}
 
-      ${node.type === 'claude-code' || v.type === 'claude-code' ? html`
+      ${node.type === 'claude-code' || node.type === 'llm-prompt' || v.type === 'claude-code' || v.type === 'llm-prompt' ? html`
         <fieldset class="fieldset">
           <legend class="fieldset__legend">LLM Provider</legend>
           <select name="provider" class="form-field__input" style="width: auto;">

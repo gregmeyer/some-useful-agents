@@ -40,7 +40,7 @@ export const auditCommand = new Command('audit')
       console.log(chalk.bold('command:'));
       const commandColor = sourceLabel === 'community' ? chalk.red : chalk.white;
       console.log('  ' + commandColor(agent.command ?? ''));
-    } else if (agent.type === 'claude-code') {
+    } else if (agent.type === 'claude-code' || agent.type === 'llm-prompt') {
       console.log('');
       console.log(chalk.bold('prompt:'));
       console.log('  ' + (agent.prompt ?? ''));

@@ -838,7 +838,7 @@ export async function executeAgentDag(
           const spawnFn = deps.spawnNode ?? spawnNodeReal;
           const synthNode: AgentNode = {
             ...node,
-            type: userTool.implementation.type === 'claude-code' ? 'claude-code' : 'shell',
+            type: (userTool.implementation.type === 'claude-code' || userTool.implementation.type === 'llm-prompt') ? 'claude-code' : 'shell',
             command: userTool.implementation.command,
             prompt: userTool.implementation.prompt,
             provider: node.provider ?? agent.provider,

@@ -268,7 +268,7 @@ workflowCommand
         if (node.type === 'shell' && node.command) {
           console.log('    ' + ui.dim(oneLine(node.command)));
         }
-        if (node.type === 'claude-code' && node.prompt) {
+        if ((node.type === 'claude-code' || node.type === 'llm-prompt') && node.prompt) {
           console.log('    ' + ui.dim(oneLine(node.prompt)));
         }
         if (node.secrets?.length) {

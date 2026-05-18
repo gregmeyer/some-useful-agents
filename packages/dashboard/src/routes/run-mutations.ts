@@ -52,8 +52,8 @@ runMutationsRouter.get('/runs/:id/replay-check', (req: Request, res: Response) =
   if (pivotNode.type === 'shell' && !pivotNode.command) {
     configErrors.push(`Node "${fromNodeId}" is a shell node but has no command.`);
   }
-  if (pivotNode.type === 'claude-code' && !pivotNode.prompt) {
-    configErrors.push(`Node "${fromNodeId}" is a claude-code node but has no prompt.`);
+  if ((pivotNode.type === 'claude-code' || pivotNode.type === 'llm-prompt') && !pivotNode.prompt) {
+    configErrors.push(`Node "${fromNodeId}" is an LLM-prompt node but has no prompt.`);
   }
 
   // Check which upstream nodes have stored outputs in the prior run.

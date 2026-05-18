@@ -60,6 +60,7 @@ export function renderToolsList(args: {
         <option value="">All types</option>
         <option value="shell"${f.type === 'shell' ? ' selected' : ''}>shell</option>
         <option value="claude-code"${f.type === 'claude-code' ? ' selected' : ''}>claude-code</option>
+        <option value="llm-prompt"${f.type === 'llm-prompt' ? ' selected' : ''}>llm-prompt</option>
         <option value="builtin"${f.type === 'builtin' ? ' selected' : ''}>builtin</option>
         <option value="mcp"${f.type === 'mcp' ? ' selected' : ''}>mcp</option>
       </select>
@@ -116,8 +117,8 @@ function renderToolCard(t: ToolDefinition): SafeHtml {
 
   const implBadge = t.implementation.type === 'shell'
     ? html`<span class="badge badge--ok">shell</span>`
-    : t.implementation.type === 'claude-code'
-      ? html`<span class="badge badge--info">claude-code</span>`
+    : (t.implementation.type === 'claude-code' || t.implementation.type === 'llm-prompt')
+      ? html`<span class="badge badge--info">${t.implementation.type}</span>`
       : t.implementation.type === 'mcp'
         ? html`<span class="badge badge--info">mcp</span>`
         : html`<span class="badge badge--muted">${t.implementation.type}</span>`;
