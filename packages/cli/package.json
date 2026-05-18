@@ -8,7 +8,7 @@
     "sua": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "clean": "rm -rf dist"
   },
   "dependencies": {
