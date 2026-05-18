@@ -85,7 +85,7 @@ const agentInvokeConfigSchema = z.object({
 export const agentNodeSchema = z.object({
   id: z.string().regex(NODE_ID_RE, 'Node ids must be lowercase with hyphens/underscores only'),
   type: z.enum([
-    'shell', 'claude-code', 'file-write',
+    'shell', 'claude-code', 'llm-prompt', 'file-write',
     'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
   ]),
 
@@ -129,9 +129,9 @@ export const agentNodeSchema = z.object({
     if (CONTROL_FLOW_TYPES.has(data.type)) return true;
     // When a named tool is set, the tool provides the implementation.
     if (data.tool) return true;
-    // v0.15 compat: shell needs command, claude-code needs prompt.
+    // v0.15 compat: shell needs command, llm-prompt (alias: claude-code) needs prompt.
     if (data.type === 'shell') return !!data.command;
-    if (data.type === 'claude-code') return !!data.prompt;
+    if (data.type === 'claude-code' || data.type === 'llm-prompt') return !!data.prompt;
     // file-write needs path + content (or toolInputs if author preferred that form).
     if (data.type === 'file-write') return !!data.path && !!data.content;
     return false;
@@ -548,7 +548,7 @@ export const agentV2Schema = z.object({
       }
     }
 
-    if (node.type === 'claude-code') {
+    if (node.type === 'claude-code' || node.type === 'llm-prompt') {
       checkText(node.prompt, ['prompt']);
     }
 

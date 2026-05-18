@@ -115,7 +115,7 @@ function collectFromNode(
   // no tool; skip them silently.
   const explicitTool = typeof node.tool === 'string' && node.tool ? node.tool : undefined;
   const desugaredTool = node.type === 'shell' ? 'shell-exec'
-    : node.type === 'claude-code' ? 'claude-code'
+    : (node.type === 'claude-code' || node.type === 'llm-prompt') ? 'claude-code'
     : node.type === 'file-write' ? 'file-write'
     : undefined;
   const primaryTool = explicitTool ?? desugaredTool;

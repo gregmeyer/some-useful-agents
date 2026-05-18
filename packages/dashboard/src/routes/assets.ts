@@ -302,7 +302,7 @@ const GRAPH_RENDER_JS = `
 
     typeEl.innerHTML = '';
     if (data.type) {
-      var tKind = data.type === 'shell' ? 'ok' : data.type === 'claude-code' ? 'info' : 'muted';
+      var tKind = data.type === 'shell' ? 'ok' : (data.type === 'claude-code' || data.type === 'llm-prompt') ? 'info' : 'muted';
       typeEl.appendChild(badge(tKind, data.type));
     }
 

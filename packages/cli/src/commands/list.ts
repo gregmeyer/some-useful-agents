@@ -26,7 +26,7 @@ export const listCommand = new Command('list')
       for (const a of paused) {
         table.push([
           ui.agent(a.name),
-          a.type === 'shell' ? chalk.green('shell') : a.type === 'claude-code' ? chalk.magenta('claude-code') : ui.dim('?'),
+          a.type === 'shell' ? chalk.green('shell') : (a.type === 'claude-code' || a.type === 'llm-prompt') ? chalk.magenta(a.type) : ui.dim('?'),
           ui.dim(a.source),
           a.description ?? ui.dim('(no description)'),
         ]);
@@ -62,7 +62,7 @@ export const listCommand = new Command('list')
     for (const [, agent] of agents) {
       table.push([
         ui.agent(agent.name),
-        agent.type === 'shell' ? chalk.green('shell') : chalk.magenta('claude-code'),
+        agent.type === 'shell' ? chalk.green('shell') : chalk.magenta(agent.type),
         agent.description ?? ui.dim('(no description)'),
       ]);
     }

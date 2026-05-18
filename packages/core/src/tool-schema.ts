@@ -19,7 +19,7 @@ const toolOutputFieldSchema = z.object({
 });
 
 const toolImplementationSchema = z.object({
-  type: z.enum(['shell', 'claude-code', 'builtin', 'mcp']),
+  type: z.enum(['shell', 'claude-code', 'llm-prompt', 'builtin', 'mcp']),
   command: z.string().optional(),
   prompt: z.string().optional(),
   builtinName: z.string().optional(),
@@ -32,7 +32,7 @@ const toolImplementationSchema = z.object({
 }).refine(
   (data) => {
     if (data.type === 'shell') return !!data.command;
-    if (data.type === 'claude-code') return !!data.prompt;
+    if (data.type === 'claude-code' || data.type === 'llm-prompt') return !!data.prompt;
     if (data.type === 'builtin') return !!data.builtinName;
     if (data.type === 'mcp') {
       if (!data.mcpToolName) return false;

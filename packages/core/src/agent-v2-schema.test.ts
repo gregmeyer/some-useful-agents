@@ -231,6 +231,22 @@ describe('agentV2Schema — rejections', () => {
     expect(r.success).toBe(false);
   });
 
+  it('accepts llm-prompt node (new canonical spelling) with prompt', () => {
+    const r = agentV2Schema.safeParse({
+      id: 'x', name: 'X',
+      nodes: [{ id: 'main', type: 'llm-prompt', prompt: 'hi' }],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects llm-prompt node without prompt', () => {
+    const r = agentV2Schema.safeParse({
+      id: 'x', name: 'X',
+      nodes: [{ id: 'main', type: 'llm-prompt' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('rejects UPPERCASE output names (must be lowercase_snake_case)', () => {
     const r = agentV2Schema.safeParse(validSingleNode({
       outputs: { ARTICLES: { type: 'array' } },

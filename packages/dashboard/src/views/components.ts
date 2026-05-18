@@ -16,7 +16,7 @@ export function statusBadge(status: string): SafeHtml {
 }
 
 export function typeBadge(type: string): SafeHtml {
-  const kind = type === 'shell' ? 'badge--ok' : type === 'claude-code' ? 'badge--info' : 'badge--muted';
+  const kind = type === 'shell' ? 'badge--ok' : (type === 'claude-code' || type === 'llm-prompt') ? 'badge--info' : 'badge--muted';
   return html`<span class="badge ${kind}">${type}</span>`;
 }
 

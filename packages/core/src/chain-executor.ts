@@ -115,7 +115,7 @@ export async function executeChain(
             SUA_CHAIN_INPUT_TRUST: isUntrusted ? 'untrusted' : 'trusted',
           },
         };
-      } else if (agent.type === 'claude-code' && agent.prompt) {
+      } else if ((agent.type === 'claude-code' || agent.type === 'llm-prompt') && agent.prompt) {
         const note = isUntrusted ? COMMUNITY_SYSTEM_NOTE : '';
         resolvedAgent = {
           ...agent,

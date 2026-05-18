@@ -20,14 +20,16 @@ import type { AgentSource } from './agent-loader.js';
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 
 /**
- * Node types. `shell` and `claude-code` are the original v0.15 execution
- * types. Control-flow types (conditional, switch, loop, etc.) are first-class
- * node types added in the flow-control PR series — they dispatch to dedicated
- * executor logic rather than spawning a child process.
+ * Node types. `shell` was the original v0.15 execution type. `claude-code`
+ * is the legacy alias for `llm-prompt` — both spellings load equivalently
+ * and dispatch through the LLM-invoker (which picks the CLI based on the
+ * node's `provider` field). Control-flow types (conditional, switch, loop,
+ * etc.) are first-class node types added in the flow-control PR series.
  */
 export type NodeType =
   | 'shell'
   | 'claude-code'
+  | 'llm-prompt'
   | 'file-write'
   | 'conditional'
   | 'switch'
@@ -36,6 +38,15 @@ export type NodeType =
   | 'branch'
   | 'end'
   | 'break';
+
+/**
+ * True when the node runs an LLM prompt. Accepts both the canonical
+ * `'llm-prompt'` and the legacy `'claude-code'` spelling. Use this at
+ * every dispatch / display site instead of `node.type === 'claude-code'`.
+ */
+export function isLlmPromptType(type: string | undefined | null): boolean {
+  return type === 'llm-prompt' || type === 'claude-code';
+}
 
 export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
 

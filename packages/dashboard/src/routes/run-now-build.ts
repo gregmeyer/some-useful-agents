@@ -147,7 +147,7 @@ export function autoFixYaml(yaml: string): string {
       s.replace(/\{ \{/g, '{{').replace(/\} \}/g, '}}');
     if (raw.nodes && Array.isArray(raw.nodes)) {
       for (const n of raw.nodes) {
-        if (n.type === 'claude-code' && typeof n.prompt === 'string') {
+        if ((n.type === 'claude-code' || n.type === 'llm-prompt') && typeof n.prompt === 'string') {
           const fixed = n.prompt
             .replace(/\{ \{upstream\./g, '{{upstream.')
             .replace(/\{ \{inputs\./g, '{{inputs.')
