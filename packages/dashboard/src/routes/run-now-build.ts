@@ -13,9 +13,7 @@ import {
   parseAgent,
   buildDiscoveryCatalog,
   buildPlanSchema,
-  extractPlanJson,
-  critiquePlan,
-  formatCriticFeedback,
+  PlannerLoopRunner,
   type BuildPlan,
   type PlanCriticError,
   type RunStatus,
@@ -818,134 +816,56 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
   const ranPlanner = run.agentName === PLANNER_AGENT_ID;
 
   if (ranPlanner) {
-    // Telemetry timing — measure from the run's startedAt to its completedAt.
+    // The extract → autofix → critic → maybe-retry sequence used to live
+    // inline here. It's now driven by PlannerLoopRunner (in core) so the
+    // phases are named (observe / evaluate / reflect / compose), the step
+    // log is uniform, and PR 2 can drop a smoke-run eval next to the
+    // critic without churning the dashboard route. Behaviour is
+    // byte-equivalent to the pre-refactor block.
     const planMs = run.completedAt && run.startedAt
       ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
       : 0;
-    // Extract + validate the plan JSON.
-    let resultText = run.result;
-    if (!resultText.includes('<plan>')) {
-      const execs = ctx.runStore.listNodeExecutions(runId);
-      const planExec = execs.find((e) => e.nodeId === 'plan' && e.status === 'completed');
-      if (planExec?.result) resultText = planExec.result;
-    }
-    const planText = extractPlanJson(resultText);
-    if (!planText) {
-      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'no-json', autofixCount: 0, timeToPlanMs: planMs }); } catch { /* swallow */ }
-      res.json({ ok: true, status: 'failed', error: 'Planner did not produce a <plan>…</plan> block.' });
-      return;
-    }
-    let parsed: unknown;
-    try { parsed = JSON.parse(planText); }
-    catch (e) {
-      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'no-json', autofixCount: 0, timeToPlanMs: planMs }); } catch { /* swallow */ }
-      res.json({ ok: true, status: 'failed', error: `Plan JSON parse failed: ${(e as Error).message}` });
-      return;
-    }
-    const result = buildPlanSchema.safeParse(parsed);
-    if (!result.success) {
-      const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-      try { ctx.plannerTelemetryStore?.recordExtract({ runId, status: 'schema-invalid', autofixCount: 0, validationErrors: result.error.issues.length, timeToPlanMs: planMs }); } catch { /* swallow */ }
-      res.json({ ok: true, status: 'failed', error: `Plan validation failed: ${issues}`, rawPlan: parsed });
-      return;
-    }
+    const execs = ctx.runStore.listNodeExecutions(runId);
+    const planExec = execs.find((e) => e.nodeId === 'plan' && e.status === 'completed');
 
-    // Apply autoFixYaml to each newAgent's YAML so we surface a clean
-    // form to the user (mirrors what /create did before). Count how many
-    // YAMLs were actually modified by autoFix so /metrics/planner can
-    // surface "how often did the planner generate clean YAML on its own".
-    let autofixCount = 0;
-    const cleanedNewAgents = result.data.newAgents.map((a) => {
-      const fixed = autoFixYaml(a.yaml);
-      if (fixed !== a.yaml) autofixCount++;
-      return { ...a, yaml: fixed };
+    const loopRunner = new PlannerLoopRunner({
+      telemetryStore: ctx.plannerTelemetryStore,
+      kickoffPlannerRun: ({ goal, criticFeedback }) => kickoffPlannerRun({ ctx, goal, criticFeedback }),
+      autoFixYaml,
+      loadExistingAgentIds: () => loadExistingAgentIds(ctx),
+      maxRetries: MAX_CRITIC_RETRIES,
     });
-    const plan: BuildPlan = { ...result.data, newAgents: cleanedNewAgents };
 
-    // Critic loop: structurally validate the plan against catalog reality
-    // (newAgent YAMLs parse, cross-refs resolve, dashboard refs land, etc.).
-    // On failure, retry up to MAX_CRITIC_RETRIES times by spawning a fresh
-    // planner run with the critic feedback appended to the goal.
-    const critic = critiquePlan(plan, { existingAgentIds: loadExistingAgentIds(ctx) });
+    const outcome = await loopRunner.advance({
+      runId,
+      runResult: run.result,
+      nodeExecResult: planExec?.result,
+      planMs,
+    });
 
-    // The runId we got polled with may be a retry alias; resolve to root
-    // for telemetry + attempt-counting, and look the goal up there.
-    const rootRunId = ctx.plannerTelemetryStore?.resolveOriginalRunId(runId) ?? runId;
-    const rootRow = ctx.plannerTelemetryStore?.get(rootRunId) ?? null;
-    const attemptsSoFar = rootRow?.planAttempts ?? 1;
-
-    if (!critic.ok && attemptsSoFar <= MAX_CRITIC_RETRIES) {
-      // Spawn a retry with the critic feedback. Increment attempts on the
-      // root telemetry row so the next pass can stop after MAX retries.
-      try { ctx.plannerTelemetryStore?.incrementAttempts(runId); } catch { /* swallow */ }
-      const goal = rootRow?.goal ?? '';
-      const feedback = formatCriticFeedback(critic.errors);
-      const retryRunId = await kickoffPlannerRun({ ctx, goal, criticFeedback: feedback });
-      if (retryRunId && ctx.plannerTelemetryStore) {
-        try { ctx.plannerTelemetryStore.recordRetrySpawn(rootRunId, retryRunId); } catch { /* swallow */ }
-      }
-      // Telemetry: stamp this attempt's extract status as schema-valid (the
-      // schema accepted it; only the critic rejected). Record validation
-      // errors as the critic-error count so the metrics page reflects them.
-      try {
-        ctx.plannerTelemetryStore?.recordExtract({
-          runId,
-          status: 'ok',
-          autofixCount,
-          validationErrors: critic.errors.length,
-          timeToPlanMs: planMs,
-          intent: plan.intent,
-        });
-      } catch { /* swallow */ }
-
-      if (!retryRunId) {
-        // Couldn't spawn a retry — surface what we have with the critic errors.
-        res.json({
-          ok: true,
-          status: 'done',
-          plan,
-          criticErrors: critic.errors,
-          criticWarning: 'Plan has unresolved structural issues; retry could not be started. You can commit anyway or dismiss.',
-        });
-        return;
-      }
-
+    if (outcome.kind === 'failed') {
+      res.json({ ok: true, status: 'failed', error: outcome.error, ...(outcome.rawPlan !== undefined ? { rawPlan: outcome.rawPlan } : {}) });
+      return;
+    }
+    if (outcome.kind === 'retrying') {
       res.json({
         ok: true,
         status: 'retrying',
-        runId: retryRunId,
-        attempt: attemptsSoFar + 1,
-        criticErrors: critic.errors,
-        phase: `Refining plan (attempt ${attemptsSoFar + 1})...`,
+        runId: outcome.retryRunId,
+        attempt: outcome.attempt,
+        criticErrors: outcome.criticErrors,
+        phase: outcome.phase,
       });
       return;
     }
-
-    // Either critic passed, or we've exhausted retries — return the plan.
-    // When the critic is still failing, surface its errors so the wizard
-    // can show "Continue anyway" with eyes-open consent.
-    try {
-      ctx.plannerTelemetryStore?.recordExtract({
-        runId,
-        status: 'ok',
-        autofixCount,
-        validationErrors: critic.ok ? 0 : critic.errors.length,
-        timeToPlanMs: planMs,
-        intent: plan.intent,
-      });
-    } catch { /* swallow */ }
-
-    if (critic.ok) {
-      res.json({ ok: true, status: 'done', plan });
-    } else {
-      res.json({
-        ok: true,
-        status: 'done',
-        plan,
-        criticErrors: critic.errors,
-        criticWarning: `Planner could not produce a clean plan after ${attemptsSoFar} attempts. Review the issues below and either fix the YAML inline or commit anyway.`,
-      });
-    }
+    // 'done'
+    res.json({
+      ok: true,
+      status: 'done',
+      plan: outcome.plan,
+      ...(outcome.criticErrors ? { criticErrors: outcome.criticErrors } : {}),
+      ...(outcome.criticWarning ? { criticWarning: outcome.criticWarning } : {}),
+    });
     return;
   }
 
