@@ -14,6 +14,7 @@ const TRIVIAL_PLAN: BuildPlan = {
   survey: { matchedAgents: [], missingFor: [], existingDashboards: [] },
   newAgents: [{ id: 'noop', purpose: 'noop', yaml: 'id: noop\nname: noop\nnodes:\n  - id: a\n    type: shell\n    command: echo\n' }],
   questions: [],
+  dashboard: null,
 };
 
 function wrapInPlan(plan: BuildPlan): string {
