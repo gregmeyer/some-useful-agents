@@ -15,7 +15,7 @@ function shell(overrides: Partial<AgentAnswers> = {}): AgentAnswers {
 function claude(overrides: Partial<AgentAnswers> = {}): AgentAnswers {
   return {
     name: 'my-claude-agent',
-    type: 'claude-code',
+    type: 'llm-prompt',
     prompt: 'Say hi.',
     ...overrides,
   };
@@ -28,10 +28,10 @@ describe('buildAgentYaml', () => {
     expect(parsed).toEqual({ name: 'my-agent', type: 'shell', command: 'echo hi' });
   });
 
-  it('emits a minimum-viable claude-code agent', () => {
+  it('emits a minimum-viable llm-prompt agent', () => {
     const yaml = buildAgentYaml(claude());
     const parsed = yamlParse(yaml);
-    expect(parsed).toEqual({ name: 'my-claude-agent', type: 'claude-code', prompt: 'Say hi.' });
+    expect(parsed).toEqual({ name: 'my-claude-agent', type: 'llm-prompt', prompt: 'Say hi.' });
   });
 
   it('orders keys: identity → type → execution → schedule → capabilities', () => {
@@ -77,21 +77,21 @@ describe('buildAgentYaml', () => {
     expect(yaml).not.toContain('redactSecrets');
   });
 
-  it('includes model only for claude-code agents that specify one', () => {
+  it('includes model only for llm-prompt agents that specify one', () => {
     const withModel = buildAgentYaml(claude({ model: 'claude-sonnet-4-20250514' }));
     expect(withModel).toContain('model: claude-sonnet-4-20250514');
     const withoutModel = buildAgentYaml(claude({ model: undefined }));
     expect(withoutModel).not.toContain('model:');
   });
 
-  it('does not leak shell fields into a claude-code agent', () => {
+  it('does not leak shell fields into a llm-prompt agent', () => {
     const yaml = buildAgentYaml(claude({ command: 'oops', prompt: 'do X' }));
     const parsed = yamlParse(yaml);
     expect(parsed.command).toBeUndefined();
     expect(parsed.prompt).toBe('do X');
   });
 
-  it('does not leak claude-code fields into a shell agent', () => {
+  it('does not leak llm-prompt fields into a shell agent', () => {
     const yaml = buildAgentYaml(shell({ prompt: 'oops', model: 'oops', command: 'echo hi' }));
     const parsed = yamlParse(yaml);
     expect(parsed.prompt).toBeUndefined();
@@ -113,7 +113,7 @@ describe('buildAgentYaml → agentDefinitionSchema round-trip', () => {
 
   it.each<[string, AgentAnswers]>([
     ['minimum shell', shell()],
-    ['minimum claude-code', claude()],
+    ['minimum llm-prompt', claude()],
     ['shell with everything', shell({
       description: 'kitchen sink',
       timeout: 45,
@@ -122,7 +122,7 @@ describe('buildAgentYaml → agentDefinitionSchema round-trip', () => {
       mcp: true,
       redactSecrets: true,
     })],
-    ['claude-code with model + schedule', claude({
+    ['llm-prompt with model + schedule', claude({
       model: 'claude-sonnet-4-20250514',
       timeout: 120,
       schedule: '0 8 * * 1-5',

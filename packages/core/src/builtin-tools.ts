@@ -154,48 +154,6 @@ const BUILTINS: BuiltinToolEntry[] = [
   ),
 
   def(
-    'claude-code',
-    'Claude Code',
-    'Run a Claude Code prompt. Backcompat tool for v0.15 type:claude-code nodes.',
-    {
-      prompt: { type: 'string', description: 'Prompt text.' },
-      model: { type: 'string', description: 'Model override.' },
-      maxTurns: { type: 'number', description: 'Max conversation turns.', default: 10 },
-      allowedTools: { type: 'json', description: 'Allowed tool names (JSON array).' },
-    },
-    {
-      text: { type: 'string', description: 'Assistant final text.' },
-      result: { type: 'string', description: 'Alias for text (v0.15 compat).' },
-    },
-    async (inputs, ctx) => {
-      const prompt = String(inputs.prompt ?? '');
-      const args = ['--print', prompt];
-      if (inputs.model) args.push('--model', String(inputs.model));
-      if (inputs.maxTurns) args.push('--max-turns', String(inputs.maxTurns));
-      const allowedTools = inputs.allowedTools;
-      if (Array.isArray(allowedTools)) {
-        for (const t of allowedTools) args.push('--allowedTools', String(t));
-      }
-      const opts: ExecSyncOptions = {
-        cwd: ctx.workingDirectory,
-        env: { ...process.env, ...ctx.env },
-        timeout: (ctx.timeout ?? 600) * 1000,
-        maxBuffer: 10 * 1024 * 1024,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      };
-      try {
-        const stdout = execSync(`claude ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`, opts) as unknown as string;
-        return { text: stdout, result: stdout };
-      } catch (err: unknown) {
-        const e = err as { stdout?: string; status?: number };
-        const text = String(e.stdout ?? '');
-        return { text, result: text, exit_code: e.status ?? 1 };
-      }
-    },
-  ),
-
-  def(
     'http-get',
     'HTTP GET',
     'Issue an HTTP GET and return the response. JSON bodies are auto-parsed.',

@@ -11,7 +11,7 @@ import * as ui from '../ui.js';
 export interface AgentAnswers {
   name: string;
   description?: string;
-  type: 'shell' | 'claude-code';
+  type: 'shell' | 'llm-prompt';
   command?: string;
   prompt?: string;
   model?: string;
@@ -37,7 +37,7 @@ export function buildAgentYaml(answers: AgentAnswers): string {
   if (answers.type === 'shell' && answers.command) {
     doc.command = answers.command;
   }
-  if (answers.type === 'claude-code' && answers.prompt) {
+  if (answers.type === 'llm-prompt' && answers.prompt) {
     doc.prompt = answers.prompt;
     if (answers.model) doc.model = answers.model;
   }
@@ -86,12 +86,12 @@ async function runInteractive(rl: Rl): Promise<void> {
   // 1. Type
   const typeRaw = (await rl.question(
     'Agent type:\n' +
-      '  [1] shell        — runs a bash command\n' +
-      '  [2] claude-code  — runs a Claude Code prompt (requires claude CLI)\n' +
+      '  [1] shell       — runs a bash command\n' +
+      '  [2] llm-prompt  — runs an LLM prompt (claude or codex CLI)\n' +
       chalk.dim('  Choice (1/2) [1]: '),
   )).trim();
   const type: AgentAnswers['type'] =
-    typeRaw === '2' || typeRaw.startsWith('c') ? 'claude-code' : 'shell';
+    typeRaw === '2' || typeRaw.startsWith('l') || typeRaw.startsWith('c') ? 'llm-prompt' : 'shell';
   console.log(chalk.dim(`  → ${type}`));
   console.log('');
 

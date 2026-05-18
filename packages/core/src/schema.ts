@@ -54,7 +54,7 @@ export const outputSpecSchema = z.preprocess(
 export const agentDefinitionSchema = z.object({
   name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Must be lowercase with hyphens only'),
   description: z.string().optional(),
-  type: z.enum(['claude-code', 'shell']),
+  type: z.enum(['claude-code', 'llm-prompt', 'shell']),
 
   // Shell agents
   command: z.string().optional(),
@@ -131,7 +131,7 @@ export const agentDefinitionSchema = z.object({
 }).refine(
   (data) => {
     if (data.type === 'shell') return !!data.command;
-    if (data.type === 'claude-code') return !!data.prompt;
+    if (data.type === 'claude-code' || data.type === 'llm-prompt') return !!data.prompt;
     return false;
   },
   { message: 'Shell agents require "command", claude-code agents require "prompt"' }
