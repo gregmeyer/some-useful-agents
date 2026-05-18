@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -97,6 +97,12 @@ export interface DashboardContext {
    * mirrors packsStore).
    */
   plannerTelemetryStore?: PlannerTelemetryStore;
+  /**
+   * Append-only step log for the planner loop (PR 2). One row per
+   * primitive invocation per attempt. Optional like the telemetry store
+   * — booting without it keeps the loop running, just without observability.
+   */
+  plannerLoopStepLogStore?: PlannerLoopStepLogStore;
   /**
    * Active DAG runs with their AbortControllers. Used by POST /runs/:id/cancel
    * to signal cancellation to the executor. Entries are added when a run starts

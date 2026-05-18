@@ -23,13 +23,14 @@ function wrapInPlan(plan: BuildPlan): string {
 
 /** Stub telemetry store — records calls so tests can assert side effects. */
 function stubTelemetry(): PlannerTelemetryStore & {
-  calls: { extract: unknown[]; retrySpawn: unknown[]; incrementAttempts: string[]; resolve: string[] };
+  calls: { extract: unknown[]; retrySpawn: unknown[]; incrementAttempts: string[]; resolve: string[]; smoke: unknown[] };
 } {
-  const calls = { extract: [] as unknown[], retrySpawn: [] as unknown[], incrementAttempts: [] as string[], resolve: [] as string[] };
+  const calls = { extract: [] as unknown[], retrySpawn: [] as unknown[], incrementAttempts: [] as string[], resolve: [] as string[], smoke: [] as unknown[] };
   const planAttempts = new Map<string, number>();
   return {
     calls,
     recordExtract: (args: unknown) => { calls.extract.push(args); },
+    recordSmoke: (args: unknown) => { calls.smoke.push(args); },
     recordRetrySpawn: (originalRunId: string, retryRunId: string) => { calls.retrySpawn.push({ originalRunId, retryRunId }); },
     incrementAttempts: (runId: string) => {
       calls.incrementAttempts.push(runId);
@@ -49,6 +50,7 @@ describe('PlannerLoopRunner', () => {
     kickoff: ReturnType<typeof vi.fn>;
     autofix: ReturnType<typeof vi.fn>;
     existingIds: Set<string>;
+    knownToolIds: Set<string>;
     telemetry: ReturnType<typeof stubTelemetry>;
     maxRetries: number;
   }> = {}) {
@@ -60,6 +62,7 @@ describe('PlannerLoopRunner', () => {
       kickoffPlannerRun: kickoff,
       autoFixYaml: autofix,
       loadExistingAgentIds: () => overrides.existingIds ?? new Set<string>(),
+      ...(overrides.knownToolIds ? { loadKnownToolIds: () => overrides.knownToolIds! } : {}),
       maxRetries: overrides.maxRetries ?? 2,
     });
     return { runner, telemetry, kickoff, autofix };
@@ -123,7 +126,8 @@ describe('PlannerLoopRunner', () => {
       expect(out.criticErrors).toBeUndefined();
       expect(out.criticWarning).toBeUndefined();
       const phases = out.steps.map((s) => s.phase);
-      expect(phases).toEqual(['observe', 'observe', 'evaluate', 'reflect']);
+      // observe(extract) + observe(autofix) + evaluate(critic) + evaluate(smoke) + reflect
+      expect(phases).toEqual(['observe', 'observe', 'evaluate', 'evaluate', 'reflect']);
     }
     expect(telemetry.calls.extract[0]).toMatchObject({ status: 'ok', validationErrors: 0 });
   });
@@ -203,5 +207,81 @@ describe('PlannerLoopRunner', () => {
       const autofixStep = out.steps.find((s) => s.primitive === 'autofixPlanYamls');
       expect(autofixStep?.summary).toContain('1 of 1');
     }
+  });
+
+  // ── smoke-run integration (PR 2) ───────────────────────────────────
+  it('emits a smoke evaluate step and records smoke telemetry on a clean plan', async () => {
+    const { runner, telemetry } = makeRunner({ existingIds: new Set(['noop']) });
+    const out = await runner.advance({
+      runId: 'r10',
+      runResult: wrapInPlan(TRIVIAL_PLAN),
+      planMs: 1,
+    });
+    expect(out.kind).toBe('done');
+    const smokeStep = out.steps.find((s) => s.primitive === 'smokeRunNewAgents');
+    expect(smokeStep).toBeDefined();
+    expect(smokeStep!.ok).toBe(true);
+    expect(telemetry.calls.smoke).toEqual([{ runId: 'r10', status: 'ok', errors: 0 }]);
+  });
+
+  it('triggers retry when critic passes but smoke fails (unknown tool ref)', async () => {
+    // Plan: a newAgent with a shell tool the catalog doesn't expose. Schema
+    // accepts (tool is a free string), critic passes (no cross-newAgent
+    // issues), smoke flags it.
+    const planWithUnknownTool: BuildPlan = {
+      ...TRIVIAL_PLAN,
+      newAgents: [{
+        id: 'unknown-tool', purpose: 'p',
+        yaml: 'id: unknown-tool\nname: unknown-tool\nnodes:\n  - id: a\n    type: shell\n    tool: not-a-real-tool\n',
+      }],
+    };
+    const kickoff = vi.fn(async () => 'retry-xyz');
+    const { runner, telemetry } = makeRunner({
+      kickoff,
+      existingIds: new Set(['unknown-tool']),
+      knownToolIds: new Set(['file-read']),
+    });
+    const out = await runner.advance({
+      runId: 'r11',
+      runResult: wrapInPlan(planWithUnknownTool),
+      planMs: 1,
+    });
+    expect(out.kind).toBe('retrying');
+    if (out.kind === 'retrying') {
+      expect(out.smoke).toBeDefined();
+      expect(out.smoke!.ok).toBe(false);
+      // No critic errors — smoke is the only thing that flagged.
+      expect(out.criticErrors).toEqual([]);
+    }
+    expect(kickoff).toHaveBeenCalledOnce();
+    // Retry feedback combines critic + smoke; with no critic errors, only
+    // the smoke feedback block ends up in the call.
+    const feedbackArg = (kickoff.mock.calls[0] as unknown as [{ criticFeedback: string }])[0].criticFeedback;
+    expect(feedbackArg).toContain('Smoke-run feedback');
+    expect(feedbackArg).toContain('not-a-real-tool');
+    expect(telemetry.calls.smoke[0]).toMatchObject({ status: 'failed', errors: 1 });
+  });
+
+  it('combines critic + smoke feedback when both fail', async () => {
+    // Plan: newAgent YAML doesn't parse (critic catches via parseAgent) AND
+    // we'd flag a tool issue — but since parse fails, smoke's tool check
+    // doesn't run. Still expect retry with both feedback blocks aggregated
+    // by the runner (only critic since smoke fell back to parse error).
+    const planWithBadYaml: BuildPlan = {
+      ...TRIVIAL_PLAN,
+      newAgents: [{ id: 'broken', purpose: 'p', yaml: '!!!not valid yaml at all' }],
+    };
+    const kickoff = vi.fn(async () => 'retry-abc');
+    const { runner } = makeRunner({ kickoff });
+    const out = await runner.advance({
+      runId: 'r12',
+      runResult: wrapInPlan(planWithBadYaml),
+      planMs: 1,
+    });
+    expect(out.kind).toBe('retrying');
+    const feedbackArg = (kickoff.mock.calls[0] as unknown as [{ criticFeedback: string }])[0].criticFeedback;
+    expect(feedbackArg).toContain('Critic feedback');
+    // Smoke also catches parse errors via its own path, so feedback block present.
+    expect(feedbackArg).toContain('Smoke-run feedback');
   });
 });

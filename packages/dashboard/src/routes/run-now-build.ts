@@ -816,12 +816,10 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
   const ranPlanner = run.agentName === PLANNER_AGENT_ID;
 
   if (ranPlanner) {
-    // The extract → autofix → critic → maybe-retry sequence used to live
-    // inline here. It's now driven by PlannerLoopRunner (in core) so the
-    // phases are named (observe / evaluate / reflect / compose), the step
-    // log is uniform, and PR 2 can drop a smoke-run eval next to the
-    // critic without churning the dashboard route. Behaviour is
-    // byte-equivalent to the pre-refactor block.
+    // The extract → autofix → critic → smoke → maybe-retry sequence is
+    // driven by PlannerLoopRunner. PR 2 added the smoke-run eval and
+    // persists per-step records to the planner_loop_steps table for
+    // observability.
     const planMs = run.completedAt && run.startedAt
       ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
       : 0;
@@ -833,6 +831,13 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
       kickoffPlannerRun: ({ goal, criticFeedback }) => kickoffPlannerRun({ ctx, goal, criticFeedback }),
       autoFixYaml,
       loadExistingAgentIds: () => loadExistingAgentIds(ctx),
+      loadKnownToolIds: () => {
+        const builtinIds = new Set(listBuiltinTools().map((t) => t.id));
+        try {
+          if (ctx.toolStore) for (const t of ctx.toolStore.listTools()) builtinIds.add(t.id);
+        } catch { /* tool store unavailable */ }
+        return builtinIds;
+      },
       maxRetries: MAX_CRITIC_RETRIES,
     });
 
@@ -842,6 +847,17 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
       nodeExecResult: planExec?.result,
       planMs,
     });
+
+    // Persist the loop's step log. Attempt number = planAttempts at the
+    // root telemetry row (advance() incremented it before spawning a retry,
+    // so this captures the just-completed attempt's number cleanly).
+    if (ctx.plannerLoopStepLogStore) {
+      try {
+        const rootRunId = ctx.plannerTelemetryStore?.resolveOriginalRunId(runId) ?? runId;
+        const attempt = ctx.plannerTelemetryStore?.get(rootRunId)?.planAttempts ?? 1;
+        ctx.plannerLoopStepLogStore.appendSteps({ runId: rootRunId, attempt, steps: outcome.steps });
+      } catch { /* swallow */ }
+    }
 
     if (outcome.kind === 'failed') {
       res.json({ ok: true, status: 'failed', error: outcome.error, ...(outcome.rawPlan !== undefined ? { rawPlan: outcome.rawPlan } : {}) });
@@ -854,6 +870,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
         runId: outcome.retryRunId,
         attempt: outcome.attempt,
         criticErrors: outcome.criticErrors,
+        ...(outcome.smoke && !outcome.smoke.ok ? { smokeErrors: outcome.smoke.perAgent } : {}),
         phase: outcome.phase,
       });
       return;
@@ -864,6 +881,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
       status: 'done',
       plan: outcome.plan,
       ...(outcome.criticErrors ? { criticErrors: outcome.criticErrors } : {}),
+      ...(outcome.smoke && !outcome.smoke.ok ? { smokeErrors: outcome.smoke.perAgent } : {}),
       ...(outcome.criticWarning ? { criticWarning: outcome.criticWarning } : {}),
     });
     return;

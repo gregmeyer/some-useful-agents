@@ -1,8 +1,22 @@
-import { formatCriticFeedback } from '../build-plan-critic.js';
+import { formatCriticFeedback, type PlanCriticError } from '../build-plan-critic.js';
 import type { BuildPlan } from '../build-plan-schema.js';
 import type { PlannerTelemetryStore } from '../planner-telemetry-store.js';
+import { formatSmokeFeedback, smokeRunNewAgents, type SmokeRunContext, type SmokeRunResult } from './eval-smoke-run.js';
 import { autofixPlanYamls, evaluatePlan, observePlan, reflectOnEval, step } from './primitives.js';
 import type { LoopOutcome, LoopStepRecord } from './types.js';
+
+/**
+ * Join critic + smoke feedback into a single block the planner can read
+ * on retry. When only one of the two failed, only that block is included.
+ * The planner prompt is already trained to handle critic feedback, so
+ * smoke feedback follows the same prefix-line convention.
+ */
+function combinedFeedback(criticErrors: PlanCriticError[], smoke: SmokeRunResult): string {
+  const parts: string[] = [];
+  if (criticErrors.length > 0) parts.push(formatCriticFeedback(criticErrors));
+  if (!smoke.ok) parts.push(formatSmokeFeedback(smoke));
+  return parts.join('\n\n');
+}
 
 /**
  * Drives one *post-run* iteration of the planner loop. The HTTP wizard
@@ -25,21 +39,22 @@ export interface PlannerLoopRunnerDeps {
   autoFixYaml: (yaml: string) => string;
   /** Snapshot of agent-ids the catalog knows about, for critic cross-ref checks. */
   loadExistingAgentIds: () => Set<string>;
+  /**
+   * Snapshot of tool-ids the dispatcher can resolve. Threaded into the
+   * smoke-run eval (PR 2) so shell nodes referencing unknown tools fail
+   * smoke even when the schema accepted the YAML. Optional — when omitted
+   * the smoke eval skips its tool-id check.
+   */
+  loadKnownToolIds?: () => Set<string>;
   /** Max *additional* retries after the initial attempt. Default 2 (total 3 tries). */
   maxRetries?: number;
 }
 
 export class PlannerLoopRunner {
-  private readonly deps: Required<Pick<PlannerLoopRunnerDeps, 'telemetryStore' | 'kickoffPlannerRun' | 'autoFixYaml' | 'loadExistingAgentIds' | 'maxRetries'>>;
+  private readonly deps: PlannerLoopRunnerDeps & { maxRetries: number };
 
   constructor(deps: PlannerLoopRunnerDeps) {
-    this.deps = {
-      telemetryStore: deps.telemetryStore,
-      kickoffPlannerRun: deps.kickoffPlannerRun,
-      autoFixYaml: deps.autoFixYaml,
-      loadExistingAgentIds: deps.loadExistingAgentIds,
-      maxRetries: deps.maxRetries ?? 2,
-    };
+    this.deps = { ...deps, maxRetries: deps.maxRetries ?? 2 };
   }
 
   /**
@@ -96,7 +111,7 @@ export class PlannerLoopRunner {
       tookMs: Date.now() - fixStart,
     }));
 
-    // ── evaluate ─────────────────────────────────────────────────────
+    // ── evaluate (critic + smoke) ────────────────────────────────────
     const evalStart = Date.now();
     const critic = evaluatePlan(plan, this.deps.loadExistingAgentIds());
     steps.push(step({
@@ -108,11 +123,35 @@ export class PlannerLoopRunner {
       tookMs: Date.now() - evalStart,
     }));
 
+    // Smoke: per-newAgent "would this load & run cleanly" check beyond
+    // what the structural critic flags. When the critic already failed
+    // we still smoke — the planner gets a combined feedback block.
+    const smokeStart = Date.now();
+    const smokeCtx: SmokeRunContext = this.deps.loadKnownToolIds ? { knownToolIds: this.deps.loadKnownToolIds() } : {};
+    const smoke = smokeRunNewAgents(plan, smokeCtx);
+    const smokeErrorCount = smoke.perAgent.reduce((n, a) => n + a.errors.length, 0);
+    steps.push(step({
+      phase: 'evaluate',
+      primitive: 'smokeRunNewAgents',
+      runId: input.runId,
+      ok: smoke.ok,
+      summary: smoke.ok ? 'smoke passed' : `smoke flagged ${smokeErrorCount} issue(s) across ${smoke.perAgent.length} newAgent(s)`,
+      tookMs: Date.now() - smokeStart,
+    }));
+    try {
+      this.deps.telemetryStore?.recordSmoke({
+        runId: input.runId,
+        status: smoke.ok ? 'ok' : 'failed',
+        errors: smokeErrorCount,
+      });
+    } catch { /* swallow */ }
+
     // ── reflect (decide) ─────────────────────────────────────────────
+    const evalOk = critic.ok && smoke.ok;
     const rootRunId = this.deps.telemetryStore?.resolveOriginalRunId(input.runId) ?? input.runId;
     const rootRow = this.deps.telemetryStore?.get(rootRunId) ?? null;
     const attemptsSoFar = rootRow?.planAttempts ?? 1;
-    const decision = reflectOnEval({ criticOk: critic.ok, attemptsSoFar, maxRetries: this.deps.maxRetries });
+    const decision = reflectOnEval({ criticOk: evalOk, attemptsSoFar, maxRetries: this.deps.maxRetries });
     steps.push(step({
       phase: 'reflect',
       primitive: 'reflectOnEval',
@@ -128,7 +167,7 @@ export class PlannerLoopRunner {
     if (decision.kind === 'retry') {
       try { this.deps.telemetryStore?.incrementAttempts(input.runId); } catch { /* swallow */ }
       const goal = rootRow?.goal ?? '';
-      const feedback = formatCriticFeedback(critic.errors);
+      const feedback = combinedFeedback(critic.errors, smoke);
       const composeStart = Date.now();
       const retryRunId = await this.deps.kickoffPlannerRun({ goal, criticFeedback: feedback });
       steps.push(step({
@@ -142,7 +181,9 @@ export class PlannerLoopRunner {
       if (retryRunId && this.deps.telemetryStore) {
         try { this.deps.telemetryStore.recordRetrySpawn(rootRunId, retryRunId); } catch { /* swallow */ }
       }
-      // Record THIS attempt's extract telemetry as ok (schema accepted; only critic rejected).
+      // Record THIS attempt's extract telemetry as ok (schema accepted; the
+      // critic or smoke is what rejected). validationErrors counts critic
+      // issues (smoke errors are tracked separately via recordSmoke above).
       this.recordExtractOk(input.runId, autofixCount, critic.errors.length, input.planMs, plan);
 
       if (!retryRunId) {
@@ -151,6 +192,7 @@ export class PlannerLoopRunner {
           kind: 'done',
           plan,
           criticErrors: critic.errors,
+          smoke,
           criticWarning: 'Plan has unresolved structural issues; retry could not be started. You can commit anyway or dismiss.',
           steps,
         };
@@ -160,21 +202,23 @@ export class PlannerLoopRunner {
         retryRunId,
         attempt: attemptsSoFar + 1,
         criticErrors: critic.errors,
+        smoke,
         phase: `Refining plan (attempt ${attemptsSoFar + 1})...`,
         steps,
       };
     }
 
-    // ── done (critic passed, or retries exhausted) ───────────────────
-    this.recordExtractOk(input.runId, autofixCount, critic.ok ? 0 : critic.errors.length, input.planMs, plan);
+    // ── done (eval passed, or retries exhausted) ─────────────────────
+    this.recordExtractOk(input.runId, autofixCount, evalOk ? 0 : critic.errors.length, input.planMs, plan);
 
-    if (critic.ok) {
+    if (evalOk) {
       return { kind: 'done', plan, steps };
     }
     return {
       kind: 'done',
       plan,
       criticErrors: critic.errors,
+      smoke,
       criticWarning: `Planner could not produce a clean plan after ${attemptsSoFar} attempts. Review the issues below and either fix the YAML inline or commit anyway.`,
       steps,
     };
