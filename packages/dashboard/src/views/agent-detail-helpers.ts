@@ -174,6 +174,68 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+const CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch'] as const;
+type ControlType = typeof CONTROL_TYPES[number];
+
+/**
+ * Render one editable control row. Carries all per-type input groups in
+ * the DOM so JS only has to toggle visibility on type change — no
+ * rebuilds. Each input is namespaced by `_<idx>` so the server can scan
+ * `controlType_0`..`controlType_49` and pull the matching siblings.
+ *
+ * View-switch's nested `views: [{id, fields[]}]` is edited as JSON in a
+ * single textarea (rarest control type; nested editing would be a UI
+ * project of its own). Server validates the JSON before save.
+ */
+function renderControlRow(idx: number, control?: { type?: string; label?: string; field?: string; columns?: string[]; default?: string; placeholder?: string; pageSize?: number; inputs?: string[]; fields?: string[]; views?: Array<{ id: string; fields: string[] }> }): string {
+  const c = control ?? {};
+  const currentType = (typeof c.type === 'string' && (CONTROL_TYPES as readonly string[]).includes(c.type)) ? c.type as ControlType : 'sort';
+  const csv = (arr?: string[]) => Array.isArray(arr) ? arr.join(', ') : '';
+  const typeOpts = CONTROL_TYPES.map((t) => `<option value="${t}"${t === currentType ? ' selected' : ''}>${t}</option>`).join('');
+  const viewsJson = Array.isArray(c.views) ? JSON.stringify(c.views, null, 2) : '';
+  const show = (t: ControlType) => `display: ${t === currentType ? 'flex' : 'none'};`;
+  const ROW = 'display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: flex-end;';
+  const LBL = 'display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted);';
+  return `
+    <div data-control-row data-control-idx="${idx}" style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2); margin-bottom: var(--space-2); background: var(--color-surface);">
+      <div style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2);">
+        <select name="controlType_${idx}" data-control-type style="${COL_INPUT}">${typeOpts}</select>
+        <button type="button" class="btn btn--ghost btn--sm ow-remove-control" style="margin-left: auto; padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);">×</button>
+      </div>
+      <div data-control-inputs="sort" style="${ROW} ${show('sort')}">
+        <label style="${LBL}">Label <input type="text" name="controlLabel_${idx}_sort" value="${escapeAttr(c.label ?? '')}" placeholder="Sort" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL}">Array field <input type="text" name="controlField_${idx}_sort" value="${escapeAttr(c.field ?? '')}" placeholder="matches" style="${COL_INPUT} font-family: var(--font-mono); width: 10rem;"></label>
+        <label style="${LBL}">Sortable columns (csv) <input type="text" name="controlColumns_${idx}_sort" value="${escapeAttr(csv(c.columns))}" placeholder="company, title, cost" style="${COL_INPUT} width: 16rem;"></label>
+        <label style="${LBL}">Default (col [asc|desc]) <input type="text" name="controlDefault_${idx}_sort" value="${escapeAttr(c.default ?? '')}" placeholder="cost desc" style="${COL_INPUT} width: 10rem;"></label>
+      </div>
+      <div data-control-inputs="filter" style="${ROW} ${show('filter')}">
+        <label style="${LBL}">Label <input type="text" name="controlLabel_${idx}_filter" value="${escapeAttr(c.label ?? '')}" placeholder="Filter" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL}">Array field <input type="text" name="controlField_${idx}_filter" value="${escapeAttr(c.field ?? '')}" placeholder="matches" style="${COL_INPUT} font-family: var(--font-mono); width: 10rem;"></label>
+        <label style="${LBL}">Filterable columns (csv) <input type="text" name="controlColumns_${idx}_filter" value="${escapeAttr(csv(c.columns))}" placeholder="company, title" style="${COL_INPUT} width: 16rem;"></label>
+        <label style="${LBL}">Placeholder <input type="text" name="controlPlaceholder_${idx}" value="${escapeAttr(c.placeholder ?? '')}" placeholder="Filter…" style="${COL_INPUT} width: 12rem;"></label>
+      </div>
+      <div data-control-inputs="paginate" style="${ROW} ${show('paginate')}">
+        <label style="${LBL}">Array field <input type="text" name="controlField_${idx}_paginate" value="${escapeAttr(c.field ?? '')}" placeholder="matches" style="${COL_INPUT} font-family: var(--font-mono); width: 10rem;"></label>
+        <label style="${LBL}">Page size <input type="number" min="1" max="1000" name="controlPageSize_${idx}" value="${escapeAttr(c.pageSize != null ? String(c.pageSize) : '25')}" style="${COL_INPUT} width: 6rem;"></label>
+      </div>
+      <div data-control-inputs="replay" style="${ROW} ${show('replay')}">
+        <label style="${LBL}">Label <input type="text" name="controlLabel_${idx}_replay" value="${escapeAttr(c.label ?? '')}" placeholder="Re-run" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL}">Inputs to expose (csv, blank = all) <input type="text" name="controlInputs_${idx}" value="${escapeAttr(csv(c.inputs))}" placeholder="JOB_QUERY, TOPIC" style="${COL_INPUT} width: 20rem;"></label>
+      </div>
+      <div data-control-inputs="field-toggle" style="${ROW} ${show('field-toggle')}">
+        <label style="${LBL}">Label <input type="text" name="controlLabel_${idx}_field-toggle" value="${escapeAttr(c.label ?? '')}" placeholder="Show" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL}">Toggleable fields (csv) <input type="text" name="controlFields_${idx}" value="${escapeAttr(csv(c.fields))}" placeholder="uv, sunrise, sunset" style="${COL_INPUT} width: 16rem;"></label>
+        <label style="${LBL}">Default <select name="controlDefault_${idx}_field-toggle" style="${COL_INPUT}"><option value="shown"${c.default === 'shown' ? ' selected' : ''}>shown</option><option value="hidden"${c.default === 'hidden' ? ' selected' : ''}>hidden</option></select></label>
+      </div>
+      <div data-control-inputs="view-switch" style="${ROW} ${show('view-switch')}">
+        <label style="${LBL} flex: 1; min-width: 100%;">Label <input type="text" name="controlLabel_${idx}_view-switch" value="${escapeAttr(c.label ?? '')}" placeholder="Units" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL} flex: 1; min-width: 100%;">Views (JSON: <code>[{id, fields:[...]}]</code>) <textarea name="controlViews_${idx}" rows="4" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;">${escapeAttr(viewsJson)}</textarea></label>
+        <label style="${LBL}">Default view id <input type="text" name="controlDefault_${idx}_view-switch" value="${escapeAttr(c.default ?? '')}" placeholder="metric" style="${COL_INPUT} width: 10rem;"></label>
+      </div>
+    </div>
+  `;
+}
+
 export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
   const widget = agent.outputWidget;
   const currentType: OutputWidgetType = widget?.type ?? 'raw';
@@ -304,6 +366,25 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
         <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">
           Reference output values via <code>{{outputs.NAME}}</code> or <code>{{result}}</code>. Sanitized to a tag/attribute allowlist before save.
         </p>
+      </div>
+
+      <input type="hidden" name="widget_controls_edited" value="1">
+      <div id="ow-controls-block" style="margin-bottom: var(--space-3);">
+        <details ${widget?.controls?.length ? 'open' : ''} style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2);">
+          <summary style="cursor: pointer; font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">
+            Controls
+            <span class="dim" style="font-weight: var(--weight-regular); margin-left: var(--space-2);">
+              ${widget?.controls?.length ? `${String(widget.controls.length)} declared` : 'none — add sort / filter / paginate / replay / field-toggle / view-switch'}
+            </span>
+          </summary>
+          <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0;">
+            Rendered above the widget body. URL-driven (no client JS), so refresh resets to default. Sort / filter / paginate target a top-level array; replay re-runs the agent; field-toggle / view-switch toggle declared fields.
+          </p>
+          <div id="ow-controls-list">
+            ${unsafeHtml((widget?.controls ?? []).map((c, i) => renderControlRow(i, c as Parameters<typeof renderControlRow>[1])).join(''))}
+          </div>
+          <button type="button" class="btn btn--ghost btn--sm" id="ow-add-control" style="font-size: var(--font-size-xs);">+ Add control</button>
+        </details>
       </div>
 
       <div id="ow-interactive-block" style="margin-bottom: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
@@ -622,6 +703,96 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       exampleSel.addEventListener('change', function () {
         if (this.value) { loadExample(this.value); this.value = ''; }
       });
+
+      // ── Controls editor wiring ────────────────────────────────────────
+      var controlsList = document.getElementById('ow-controls-list');
+      var addControlBtn = document.getElementById('ow-add-control');
+      var nextControlIdx = controlsList ? controlsList.querySelectorAll('[data-control-row]').length : 0;
+      var CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch'];
+
+      function controlRowHtml(idx) {
+        // Bare scaffold for new rows; matches the SSR template above but
+        // with empty values. Default type = sort (paired with table fields,
+        // the most common pairing for new controls today).
+        var typeOpts = CONTROL_TYPES.map(function (t) {
+          return '<option value="' + t + '"' + (t === 'sort' ? ' selected' : '') + '>' + t + '</option>';
+        }).join('');
+        var ROW = 'display:flex;gap:var(--space-2);flex-wrap:wrap;align-items:flex-end;';
+        var LBL = 'display:flex;flex-direction:column;gap:2px;font-size:var(--font-size-xs);color:var(--color-text-muted);';
+        function block(t, body) {
+          return '<div data-control-inputs="' + t + '" style="' + ROW + 'display:' + (t === 'sort' ? 'flex' : 'none') + ';">' + body + '</div>';
+        }
+        function input(n, ph, extra) {
+          return '<input type="text" name="' + n + '" placeholder="' + ph + '" style="' + COL_INPUT_STYLE + (extra || '') + '">';
+        }
+        return '<div data-control-row data-control-idx="' + idx + '" style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--space-2);margin-bottom:var(--space-2);background:var(--color-surface);">' +
+          '<div style="display:flex;gap:var(--space-2);align-items:center;margin-bottom:var(--space-2);">' +
+            '<select name="controlType_' + idx + '" data-control-type style="' + COL_INPUT_STYLE + '">' + typeOpts + '</select>' +
+            '<button type="button" class="btn btn--ghost btn--sm ow-remove-control" style="margin-left:auto;padding:2px 6px;font-size:var(--font-size-xs);color:var(--color-err);">\\u00D7</button>' +
+          '</div>' +
+          block('sort',
+            '<label style="' + LBL + '">Label ' + input('controlLabel_' + idx + '_sort', 'Sort', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Array field ' + input('controlField_' + idx + '_sort', 'matches', 'font-family:var(--font-mono);width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Sortable columns (csv) ' + input('controlColumns_' + idx + '_sort', 'company, title', 'width:16rem;') + '</label>' +
+            '<label style="' + LBL + '">Default (col [asc|desc]) ' + input('controlDefault_' + idx + '_sort', 'cost desc', 'width:10rem;') + '</label>'
+          ) +
+          block('filter',
+            '<label style="' + LBL + '">Label ' + input('controlLabel_' + idx + '_filter', 'Filter', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Array field ' + input('controlField_' + idx + '_filter', 'matches', 'font-family:var(--font-mono);width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Filterable columns (csv) ' + input('controlColumns_' + idx + '_filter', 'company, title', 'width:16rem;') + '</label>' +
+            '<label style="' + LBL + '">Placeholder ' + input('controlPlaceholder_' + idx, 'Filter\\u2026', 'width:12rem;') + '</label>'
+          ) +
+          block('paginate',
+            '<label style="' + LBL + '">Array field ' + input('controlField_' + idx + '_paginate', 'matches', 'font-family:var(--font-mono);width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Page size <input type="number" min="1" max="1000" name="controlPageSize_' + idx + '" value="25" style="' + COL_INPUT_STYLE + 'width:6rem;"></label></label>'
+          ) +
+          block('replay',
+            '<label style="' + LBL + '">Label ' + input('controlLabel_' + idx + '_replay', 'Re-run', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Inputs to expose (csv, blank = all) ' + input('controlInputs_' + idx, 'JOB_QUERY, TOPIC', 'width:20rem;') + '</label>'
+          ) +
+          block('field-toggle',
+            '<label style="' + LBL + '">Label ' + input('controlLabel_' + idx + '_field-toggle', 'Show', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Toggleable fields (csv) ' + input('controlFields_' + idx, 'uv, sunrise', 'width:16rem;') + '</label>' +
+            '<label style="' + LBL + '">Default <select name="controlDefault_' + idx + '_field-toggle" style="' + COL_INPUT_STYLE + '"><option value="shown">shown</option><option value="hidden">hidden</option></select></label>'
+          ) +
+          block('view-switch',
+            '<label style="' + LBL + 'flex:1;min-width:100%;">Label ' + input('controlLabel_' + idx + '_view-switch', 'Units', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + 'flex:1;min-width:100%;">Views (JSON) <textarea name="controlViews_' + idx + '" rows="4" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></textarea></label>' +
+            '<label style="' + LBL + '">Default view id ' + input('controlDefault_' + idx + '_view-switch', 'metric', 'width:10rem;') + '</label>'
+          ) +
+        '</div>';
+      }
+
+      function setControlInputsVisibility(row, type) {
+        var blocks = row.querySelectorAll('[data-control-inputs]');
+        for (var i = 0; i < blocks.length; i++) {
+          blocks[i].style.display = blocks[i].getAttribute('data-control-inputs') === type ? 'flex' : 'none';
+        }
+      }
+
+      if (addControlBtn && controlsList) {
+        addControlBtn.addEventListener('click', function () {
+          var wrap = document.createElement('div');
+          wrap.innerHTML = controlRowHtml(nextControlIdx++);
+          controlsList.appendChild(wrap.firstElementChild);
+          refreshPreview();
+        });
+        controlsList.addEventListener('click', function (e) {
+          if (e.target && e.target.classList && e.target.classList.contains('ow-remove-control')) {
+            var row = e.target.closest('[data-control-row]');
+            if (row) { row.parentNode.removeChild(row); refreshPreview(); }
+          }
+        });
+        controlsList.addEventListener('change', function (e) {
+          var t = e.target;
+          if (t && t.tagName === 'SELECT' && t.hasAttribute('data-control-type')) {
+            var row = t.closest('[data-control-row]');
+            if (row) setControlInputsVisibility(row, t.value);
+          }
+          refreshPreview();
+        });
+        controlsList.addEventListener('input', refreshPreview);
+      }
 
       // ai-template generate button
       var aiGenBtn = document.getElementById('ow-ai-generate');

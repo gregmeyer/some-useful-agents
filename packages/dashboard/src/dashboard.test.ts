@@ -2635,6 +2635,191 @@ describe('Output widget editor UI', () => {
     expect(saved?.outputWidget?.fields?.[0]?.columns).toEqual([{ name: 'a' }, { name: 'c' }]);
   });
 
+  it('POST /output-widget/update saves all 6 control types posted from the editor', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ctl-all', name: 'ow-ctl-all', status: 'active', source: 'local', mcp: false,
+      inputs: { Q: { type: 'string' } },
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-ctl-all/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        widget_controls_edited: '1',
+        fieldName_0: 'matches', fieldType_0: 'table',
+        columnName_0_0: 'company',
+        fieldName_1: 'detail', fieldType_1: 'text',
+        // sort
+        controlType_0: 'sort',
+        controlLabel_0_sort: 'Sort by',
+        controlField_0_sort: 'matches',
+        controlColumns_0_sort: 'company, title',
+        controlDefault_0_sort: 'company asc',
+        // filter
+        controlType_1: 'filter',
+        controlField_1_filter: 'matches',
+        controlColumns_1_filter: 'company',
+        controlPlaceholder_1: 'Find a match…',
+        // paginate
+        controlType_2: 'paginate',
+        controlField_2_paginate: 'matches',
+        controlPageSize_2: '25',
+        // replay
+        controlType_3: 'replay',
+        controlLabel_3_replay: 'Re-run',
+        controlInputs_3: 'Q',
+        // field-toggle
+        controlType_4: 'field-toggle',
+        controlLabel_4_field_toggle: 'Show',
+        // (note: the form name uses a hyphen; tests must match. The
+        // editor JS reads the type string, so use the exact key.)
+        ['controlLabel_4_field-toggle']: 'Show',
+        controlFields_4: 'detail',
+        ['controlDefault_4_field-toggle']: 'hidden',
+        // view-switch
+        controlType_5: 'view-switch',
+        ['controlLabel_5_view-switch']: 'Units',
+        controlViews_5: JSON.stringify([
+          { id: 'metric', fields: ['matches'] },
+          { id: 'imperial', fields: ['detail'] },
+        ]),
+        ['controlDefault_5_view-switch']: 'metric',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ctl-all');
+    const controls = saved?.outputWidget?.controls ?? [];
+    expect(controls).toHaveLength(6);
+    expect(controls[0]).toMatchObject({ type: 'sort', label: 'Sort by', field: 'matches', columns: ['company', 'title'], default: 'company asc' });
+    expect(controls[1]).toMatchObject({ type: 'filter', field: 'matches', columns: ['company'], placeholder: 'Find a match…' });
+    expect(controls[2]).toMatchObject({ type: 'paginate', field: 'matches', pageSize: 25 });
+    expect(controls[3]).toMatchObject({ type: 'replay', label: 'Re-run', inputs: ['Q'] });
+    expect(controls[4]).toMatchObject({ type: 'field-toggle', label: 'Show', fields: ['detail'], default: 'hidden' });
+    expect(controls[5]).toMatchObject({ type: 'view-switch', label: 'Units', default: 'metric' });
+    expect((controls[5] as { views: Array<{ id: string }> }).views.map((v) => v.id)).toEqual(['metric', 'imperial']);
+  });
+
+  it('POST /output-widget/update skips a control row whose required-by-type fields are missing', async () => {
+    // sort needs both field AND columns — a row with only the type
+    // dropdown set (e.g. user clicked "+ Add control" then Save without
+    // filling it in) should be silently dropped, not saved as a broken
+    // control that fails schema validation.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ctl-skip', name: 'ow-ctl-skip', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-ctl-skip/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        widget_controls_edited: '1',
+        fieldName_0: 'rows', fieldType_0: 'text',
+        controlType_0: 'sort',
+        // no field / no columns — should be dropped silently
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ctl-skip');
+    expect(saved?.outputWidget?.controls ?? []).toHaveLength(0);
+  });
+
+  it('POST /output-widget/update honours an explicit "delete all controls" via the editor sentinel', async () => {
+    // Without the sentinel, the prev-version fallback would silently
+    // re-add the controls after the user emptied the list. Verify the
+    // editor's `widget_controls_edited=1` hidden input distinguishes
+    // "user emptied" from "non-editor caller silent on controls".
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ctl-empty', name: 'ow-ctl-empty', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{ name: 'rows', type: 'text' }],
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'] }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-ctl-empty/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        widget_controls_edited: '1',
+        fieldName_0: 'rows', fieldType_0: 'text',
+        // No controlType_N posted — user deleted them all in the UI.
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ctl-empty');
+    expect(saved?.outputWidget?.controls ?? []).toHaveLength(0);
+  });
+
+  it('POST /output-widget/update without the editor sentinel preserves controls (non-editor caller)', async () => {
+    // CLI/MCP/custom POSTs don't know about the editor's hidden input.
+    // They should still benefit from the #287 prev-version preservation
+    // so a CLI save that's silent on controls doesn't wipe them.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ctl-cli', name: 'ow-ctl-cli', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+      outputWidget: {
+        type: 'dashboard',
+        fields: [{ name: 'rows', type: 'text' }],
+        controls: [{ type: 'sort', field: 'rows', columns: ['name'] }],
+      },
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-ctl-cli/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        // No widget_controls_edited sentinel + no controlType_N — non-editor caller.
+        fieldName_0: 'rows', fieldType_0: 'text',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ctl-cli');
+    expect(saved?.outputWidget?.controls).toHaveLength(1);
+    expect(saved?.outputWidget?.controls?.[0]).toMatchObject({ type: 'sort' });
+  });
+
+  it('POST /output-widget/update drops a view-switch row with malformed views JSON', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'ow-ctl-badjson', name: 'ow-ctl-badjson', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'a', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/ow-ctl-badjson/output-widget/update')
+      .type('form').send({
+        action: 'save',
+        widgetType: 'dashboard',
+        widget_controls_edited: '1',
+        fieldName_0: 'rows', fieldType_0: 'text',
+        controlType_0: 'view-switch',
+        ['controlLabel_0_view-switch']: 'Units',
+        controlViews_0: '[{not valid json',
+        ['controlDefault_0_view-switch']: 'metric',
+      })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    const saved = agentStore.getAgent('ow-ctl-badjson');
+    expect(saved?.outputWidget?.controls ?? []).toHaveLength(0);
+  });
+
   it('POST /output-widget/generate returns 400 with no prompt', async () => {
     const app = await makeApp();
     agentStore.createAgent({
