@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType, NotifyConfig } from '@some-useful-agents/core';
+import type { AgentInputSpec, OutputWidgetSchema, OutputWidgetType, WidgetFieldType, WidgetControl, WidgetAction, NotifyConfig } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { mergeNewInput, parseEnumValues } from './agent-nodes.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
@@ -192,6 +192,120 @@ const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-appl
 const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview', 'table']);
 const VALID_COLUMN_FORMATS = new Set<string>(['text', 'link']);
 
+const VALID_CONTROL_TYPES = new Set<string>(['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch']);
+
+/**
+ * Pull a comma-separated list of bare tokens, dropping blanks. Used for
+ * sort.columns / filter.columns / replay.inputs / field-toggle.fields
+ * — all "csv of identifiers" inputs that share the same trim/split shape.
+ */
+function csv(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Pull control rows posted by the editor. Each row is a discriminated
+ * union — the form carries all per-type inputs (only the active one is
+ * visible in the UI) and this parser picks the matching sibling inputs
+ * based on `controlType_N`. Inputs for other types are ignored.
+ *
+ * Skips rows whose required-by-type fields are missing (e.g. sort
+ * without a field name) instead of returning a half-built control —
+ * the schema validator would reject those at save time anyway, but a
+ * silent skip lets a half-edited new row coexist with valid ones.
+ *
+ * view-switch's nested `views: [{id, fields[]}]` is parsed as JSON; an
+ * invalid JSON string skips the row.
+ */
+function parseControlsFromBody(body: Record<string, unknown>): WidgetControl[] {
+  const out: WidgetControl[] = [];
+  for (let i = 0; i < 50; i++) {
+    const rawType = body[`controlType_${i}`];
+    if (typeof rawType !== 'string' || !VALID_CONTROL_TYPES.has(rawType)) continue;
+    const type = rawType as 'sort' | 'filter' | 'paginate' | 'replay' | 'field-toggle' | 'view-switch';
+    const labelRaw = body[`controlLabel_${i}_${type}`];
+    const label = typeof labelRaw === 'string' && labelRaw.trim() ? labelRaw.trim() : undefined;
+
+    if (type === 'sort') {
+      const field = typeof body[`controlField_${i}_sort`] === 'string' ? (body[`controlField_${i}_sort`] as string).trim() : '';
+      const columns = csv(body[`controlColumns_${i}_sort`]);
+      const def = typeof body[`controlDefault_${i}_sort`] === 'string' ? (body[`controlDefault_${i}_sort`] as string).trim() : '';
+      if (!field || columns.length === 0) continue;
+      out.push({
+        type, field, columns,
+        ...(label ? { label } : {}),
+        ...(def ? { default: def } : {}),
+      });
+    } else if (type === 'filter') {
+      const field = typeof body[`controlField_${i}_filter`] === 'string' ? (body[`controlField_${i}_filter`] as string).trim() : '';
+      const columns = csv(body[`controlColumns_${i}_filter`]);
+      const placeholder = typeof body[`controlPlaceholder_${i}`] === 'string' ? (body[`controlPlaceholder_${i}`] as string).trim() : '';
+      if (!field || columns.length === 0) continue;
+      out.push({
+        type, field, columns,
+        ...(label ? { label } : {}),
+        ...(placeholder ? { placeholder } : {}),
+      });
+    } else if (type === 'paginate') {
+      const field = typeof body[`controlField_${i}_paginate`] === 'string' ? (body[`controlField_${i}_paginate`] as string).trim() : '';
+      const sizeRaw = body[`controlPageSize_${i}`];
+      const pageSize = typeof sizeRaw === 'string' ? parseInt(sizeRaw, 10) : (typeof sizeRaw === 'number' ? sizeRaw : NaN);
+      if (!field || !Number.isFinite(pageSize) || pageSize < 1) continue;
+      out.push({ type, field, pageSize });
+    } else if (type === 'replay') {
+      const inputs = csv(body[`controlInputs_${i}`]);
+      out.push({
+        type,
+        ...(label ? { label } : {}),
+        ...(inputs.length > 0 ? { inputs } : {}),
+      });
+    } else if (type === 'field-toggle') {
+      const fields = csv(body[`controlFields_${i}`]);
+      const def = body[`controlDefault_${i}_field-toggle`];
+      const defStr = def === 'shown' || def === 'hidden' ? def : 'shown';
+      if (fields.length === 0 || !label) continue; // label is required by schema
+      out.push({ type, label, fields, default: defStr });
+    } else if (type === 'view-switch') {
+      const rawJson = body[`controlViews_${i}`];
+      const defView = typeof body[`controlDefault_${i}_view-switch`] === 'string' ? (body[`controlDefault_${i}_view-switch`] as string).trim() : '';
+      if (typeof rawJson !== 'string' || !rawJson.trim() || !label || !defView) continue;
+      let views: unknown;
+      try { views = JSON.parse(rawJson); } catch { continue; }
+      if (!Array.isArray(views)) continue;
+      out.push({ type, label, views, default: defView });
+    }
+  }
+  return out;
+}
+
+/**
+ * Pull action rows posted by the editor. Each action is a POST button
+ * (schema locks `method` to POST). Rows missing required fields
+ * (`id`, `label`, `endpoint`) skip silently so half-built rows don't
+ * fail the schema validator at save time.
+ */
+function parseActionsFromBody(body: Record<string, unknown>): WidgetAction[] {
+  const out: WidgetAction[] = [];
+  for (let i = 0; i < 50; i++) {
+    const id = body[`actionId_${i}`];
+    const label = body[`actionLabel_${i}`];
+    const endpoint = body[`actionEndpoint_${i}`];
+    const payloadField = body[`actionPayloadField_${i}`];
+    if (typeof id !== 'string' || !id.trim()) continue;
+    if (typeof label !== 'string' || !label.trim()) continue;
+    if (typeof endpoint !== 'string' || !endpoint.trim()) continue;
+    out.push({
+      id: id.trim(),
+      label: label.trim(),
+      method: 'POST',
+      endpoint: endpoint.trim(),
+      ...(typeof payloadField === 'string' && payloadField.trim() ? { payloadField: payloadField.trim() } : {}),
+    });
+  }
+  return out;
+}
+
 /**
  * Pull column rows posted by the editor's table-field sub-table.
  * Form names follow `columnName_<fieldIdx>_<colIdx>` (plus Label / Format
@@ -322,13 +436,27 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
   const replayLabel = typeof body.widget_replay_label === 'string' && body.widget_replay_label.trim()
     ? body.widget_replay_label.trim() : undefined;
 
-  // Carry over schema shapes the editor form doesn't surface, but only
-  // when staying on the same widget type — a type change implies "start
-  // over", so `actions` (diff-apply only) and `controls` (per-type
-  // semantics) shouldn't survive a switch.
+  // Parse controls from the form (editor now has UI for all 6 types).
+  // The editor injects `widget_controls_edited=1` so the server can
+  // distinguish "form is silent on controls" (non-editor caller — fall
+  // back to prev) from "user explicitly emptied the list" (editor —
+  // honour the deletion). Without the sentinel, deleting the last
+  // control via the UI would silently re-add the prev controls.
+  // `actions` is still YAML-only to edit, preserved via the prev-version
+  // pattern from #287 (same-type only).
+  const parsedControls = parseControlsFromBody(body);
+  const parsedActions = parseActionsFromBody(body);
   const sameType = agent.outputWidget?.type === widgetType;
   const prevControls = sameType ? agent.outputWidget?.controls : undefined;
   const prevActions = sameType ? agent.outputWidget?.actions : undefined;
+  const controlsEdited = body.widget_controls_edited === '1';
+  const actionsEdited = body.widget_actions_edited === '1';
+  const controls = parsedControls.length > 0
+    ? parsedControls
+    : controlsEdited ? [] : prevControls;
+  const actions = parsedActions.length > 0
+    ? parsedActions
+    : actionsEdited ? [] : prevActions;
 
   let outputWidget: OutputWidgetSchema;
   if (widgetType === 'ai-template') {
@@ -348,8 +476,8 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && runInputs ? { runInputs } : {}),
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
-      ...(prevControls?.length ? { controls: prevControls } : {}),
-      ...(prevActions?.length ? { actions: prevActions } : {}),
+      ...(controls?.length ? { controls } : {}),
+      ...(actions?.length ? { actions } : {}),
     };
   } else {
     // Typed widgets (dashboard / key-value / diff-apply / raw) are
@@ -381,8 +509,8 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && runInputs ? { runInputs } : {}),
       ...(interactive && askLabel ? { askLabel } : {}),
       ...(interactive && replayLabel ? { replayLabel } : {}),
-      ...(prevControls?.length ? { controls: prevControls } : {}),
-      ...(prevActions?.length ? { actions: prevActions } : {}),
+      ...(controls?.length ? { controls } : {}),
+      ...(actions?.length ? { actions } : {}),
     };
   }
 
