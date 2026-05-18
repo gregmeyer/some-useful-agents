@@ -71,6 +71,14 @@ nodes:
       {{inputs.DISCOVERY_CATALOG}}
       ════════════════════════════════════════════════════════════════
 
+      The GOAL block above may also contain a `<priorPlans>` block —
+      compact summaries of plans that were successfully committed for
+      similar goals in the past, plus their score / attempts / intent.
+      When the intent matches and the prior pattern fits, reuse those
+      patterns rather than inventing a new shape (cheaper for the user,
+      more consistent across builds). When the prior pattern doesn't
+      fit, ignore them — they're hints, not constraints.
+
       STEP 1 — CLASSIFY INTENT.
       One of:
         - "agent"               : the goal is one agent, no dashboard.

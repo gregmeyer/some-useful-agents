@@ -22,4 +22,14 @@ export {
   PlannerLoopStepLogStore,
   type StoredLoopStep,
 } from './step-log-store.js';
+export {
+  PlannerMemoryStore,
+  tokeniseGoal,
+  type PlannerMemoryRow,
+} from './memory-store.js';
+export {
+  findSimilarCommittedPlans,
+  formatPriorPlansBlock,
+  type PriorPlanCandidate,
+} from './memory-retrieval.js';
 export type { LoopOutcome, LoopPhase, LoopStepRecord } from './types.js';

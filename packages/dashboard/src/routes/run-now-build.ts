@@ -14,6 +14,9 @@ import {
   buildDiscoveryCatalog,
   buildPlanSchema,
   PlannerLoopRunner,
+  findSimilarCommittedPlans,
+  formatPriorPlansBlock,
+  type PriorPlanCandidate,
   type BuildPlan,
   type PlanCriticError,
   type RunStatus,
@@ -293,6 +296,13 @@ interface PlannerKickoffArgs {
    * goal so the planner sees *exactly* which structural mistakes to fix.
    */
   criticFeedback?: string;
+  /**
+   * Optional prior-plan examples to inject as a `<priorPlans>` block.
+   * Retrieved by `findSimilarCommittedPlans` from `plannerMemoryStore`.
+   * Empty / undefined → no injection (the planner's prompt acknowledges
+   * the absence gracefully).
+   */
+  priorPlans?: PriorPlanCandidate[];
 }
 
 /**
@@ -302,7 +312,7 @@ interface PlannerKickoffArgs {
  * (caller surfaces an error to the user).
  */
 async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | null> {
-  const { ctx, goal, focus, criticFeedback } = args;
+  const { ctx, goal, focus, criticFeedback, priorPlans } = args;
 
   let planner: ReturnType<typeof ctx.agentStore.getAgent> = null;
   try {
@@ -328,9 +338,15 @@ async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | nul
     packs: ctx.packsStore?.listPacks(),
   });
 
-  // Append critic feedback to the goal on retry. Keeps the rest of the
-  // input pipeline unchanged — the planner prompt already speaks <plan>.
-  const effectiveGoal = criticFeedback ? `${goal}\n${criticFeedback}` : goal;
+  // Append critic feedback + prior-plan examples to the goal. Keeps the
+  // rest of the input pipeline unchanged — the planner prompt
+  // acknowledges both <plan> and <priorPlans>.
+  const priorBlock = priorPlans && priorPlans.length > 0 ? formatPriorPlansBlock(priorPlans) : '';
+  const memoryDisabled = process.env.SUA_PLANNER_MEMORY_DISABLED === '1';
+  const parts = [goal];
+  if (priorBlock && !memoryDisabled) parts.push(priorBlock);
+  if (criticFeedback) parts.push(criticFeedback);
+  const effectiveGoal = parts.join('\n');
 
   const runPromise = executeAgentDag(
     planner,
@@ -761,7 +777,13 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
-  const runId = await kickoffPlannerRun({ ctx, goal, focus });
+  // First-attempt memory retrieval: intent is unknown yet, so Jaccard
+  // alone picks candidates. Empty result is a no-op.
+  const priorPlans = ctx.plannerMemoryStore
+    ? findSimilarCommittedPlans(ctx.plannerMemoryStore, { goal })
+    : [];
+
+  const runId = await kickoffPlannerRun({ ctx, goal, focus, priorPlans });
   if (!runId) {
     res.json({ ok: false, error: 'Build planner agent not found. Ensure build-planner.yaml exists in agents/examples/.' });
     return;
@@ -828,7 +850,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
 
     const loopRunner = new PlannerLoopRunner({
       telemetryStore: ctx.plannerTelemetryStore,
-      kickoffPlannerRun: ({ goal, criticFeedback }) => kickoffPlannerRun({ ctx, goal, criticFeedback }),
+      kickoffPlannerRun: ({ goal, criticFeedback, priorPlans }) => kickoffPlannerRun({ ctx, goal, criticFeedback, priorPlans }),
       autoFixYaml,
       loadExistingAgentIds: () => loadExistingAgentIds(ctx),
       loadKnownToolIds: () => {
@@ -838,6 +860,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
         } catch { /* tool store unavailable */ }
         return builtinIds;
       },
+      memoryStore: ctx.plannerMemoryStore,
       maxRetries: MAX_CRITIC_RETRIES,
     });
 
@@ -1103,6 +1126,32 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
       if (plannerRun?.startedAt) {
         const ms = Date.now() - new Date(plannerRun.startedAt).getTime();
         ctx.plannerTelemetryStore.recordCommit(plannerRunId, ms);
+      }
+    } catch { /* swallow */ }
+  }
+
+  // Cross-run memory write (PR 3): record this committed plan so future
+  // planner runs for similar goals see it as a `<priorPlans>` example.
+  // Only when something actually landed AND the wizard supplied the
+  // plannerRunId AND we have telemetry context to read the original goal
+  // + intent + attempts back from.
+  if (
+    plannerRunId
+    && somethingLanded
+    && ctx.plannerMemoryStore
+    && ctx.plannerTelemetryStore
+  ) {
+    try {
+      const rootRunId = ctx.plannerTelemetryStore.resolveOriginalRunId(plannerRunId);
+      const row = ctx.plannerTelemetryStore.get(rootRunId);
+      if (row?.goal && row.intent) {
+        ctx.plannerMemoryStore.recordCommit({
+          runId: rootRunId,
+          goal: row.goal,
+          intent: row.intent,
+          plan,
+          attempts: row.planAttempts,
+        });
       }
     } catch { /* swallow */ }
   }

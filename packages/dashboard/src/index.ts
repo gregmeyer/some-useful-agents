@@ -11,6 +11,7 @@ import {
   IntegrationsStore,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
+  PlannerMemoryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
   VariablesStore,
@@ -338,6 +339,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: step log stays absent if the table can't be created.
   }
 
+  // Cross-run planner memory (PR 3). Read by the `understand` phase to
+  // surface prior committed plans for similar goals.
+  let plannerMemoryStore: PlannerMemoryStore | undefined;
+  try {
+    plannerMemoryStore = new PlannerMemoryStore(opts.dbPath);
+  } catch {
+    // Non-fatal: planner just doesn't see prior plans.
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -360,6 +370,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,
+    plannerMemoryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),
