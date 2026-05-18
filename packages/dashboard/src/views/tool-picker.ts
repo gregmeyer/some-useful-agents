@@ -2,9 +2,25 @@ import { listBuiltinTools, type Agent, type ToolDefinition, type ToolStore } fro
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 /**
- * All available tools for the node-form dropdown. Built-ins first, then
- * user tools. The two backcompat tools (shell-exec, claude-code) are
- * listed at the top since they're the most common.
+ * Synthetic dropdown entry for LLM-prompt nodes. Not a real built-in tool —
+ * selecting this in the picker just sets the hidden node-type field to
+ * `llm-prompt` so the form submits an inline-prompt node (no `tool:` field).
+ * The actual CLI is chosen at runtime by the node's `provider:`.
+ */
+const LLM_PROMPT_PICKER_ENTRY: ToolDefinition = {
+  id: 'llm-prompt',
+  name: 'LLM Prompt',
+  description: 'Run an LLM (Claude or Codex) with an inline prompt. Provider chosen by the agent or node `provider:` field.',
+  source: 'builtin',
+  inputs: {},
+  outputs: { result: { type: 'string', description: 'Final assistant text.' } },
+  implementation: { type: 'llm-prompt' },
+};
+
+/**
+ * All available tools for the node-form dropdown. Built-ins first (with
+ * the synthetic `llm-prompt` entry pinned alongside shell-exec), then
+ * user tools.
  */
 export function getAvailableTools(toolStore?: ToolStore): ToolDefinition[] {
   const builtins = listBuiltinTools();
@@ -12,7 +28,7 @@ export function getAvailableTools(toolStore?: ToolStore): ToolDefinition[] {
   try {
     if (toolStore) userTools = toolStore.listTools();
   } catch { /* store not available */ }
-  return [...builtins, ...userTools];
+  return [...builtins, LLM_PROMPT_PICKER_ENTRY, ...userTools];
 }
 
 /**
@@ -33,15 +49,17 @@ export function renderToolPicker(args: {
   const { tools, agents = [], selectedTool, currentType, currentAgentId } = args;
 
   // Derive the effective selection. When editing a v0.15 node that
-  // has no explicit `tool:`, default to its implicit tool.
+  // has no explicit `tool:`, default to its implicit tool. Legacy
+  // `claude-code` node type maps to the synthetic `llm-prompt` entry.
   const effective = selectedTool
-    ?? (currentType === 'shell' ? 'shell-exec' : currentType === 'claude-code' ? 'claude-code'
+    ?? ((currentType === 'claude-code' || currentType === 'llm-prompt') ? 'llm-prompt'
+      : currentType === 'shell' ? 'shell-exec'
       : currentType === 'agent-invoke' && selectedTool ? selectedTool : 'shell-exec');
 
   const toolOptions = tools.map((t) => {
     const selected = t.id === effective ? ' selected' : '';
     const label = t.id === 'shell-exec' ? 'Shell (shell-exec)'
-      : t.id === 'claude-code' ? 'Claude Code (claude-code)'
+      : t.id === 'llm-prompt' ? 'LLM Prompt (llm-prompt)'
       : `${t.id} — ${t.name}`;
     return html`<option value="${t.id}"${unsafeHtml(selected)}>${label}</option>`;
   });
@@ -87,7 +105,8 @@ export function renderToolPicker(args: {
   const schemasPayload = JSON.stringify(schemas).replace(/<\/script/gi, '<\\/script');
 
   const hiddenType = effective.startsWith('agent:') ? 'agent-invoke'
-    : effective === 'claude-code' ? 'claude-code' : 'shell';
+    : (effective === 'llm-prompt' || effective === 'claude-code') ? 'llm-prompt'
+    : 'shell';
 
   return html`
     <fieldset class="fieldset">
@@ -104,9 +123,10 @@ export function renderToolPicker(args: {
 }
 
 /**
- * Render the dynamic tool-inputs section. For shell-exec/claude-code,
- * this is empty (those tools use the existing command/prompt textareas).
- * For other tools, generate one field per declared input.
+ * Render the dynamic tool-inputs section. For shell-exec / llm-prompt
+ * (and the legacy claude-code spelling), this is empty — those node
+ * shapes use the existing command/prompt textareas. For other tools,
+ * generate one field per declared input.
  *
  * The section is server-rendered for the initially-selected tool; JS
  * swaps it when the dropdown changes. The `id="tool-inputs-section"`
@@ -117,8 +137,8 @@ export function renderToolInputsSection(
   tools: ToolDefinition[],
   existingInputs?: Record<string, unknown>,
 ): SafeHtml {
-  // shell-exec and claude-code use the existing command/prompt fields.
-  if (selectedTool === 'shell-exec' || selectedTool === 'claude-code') {
+  // shell-exec, llm-prompt (and legacy claude-code) use the inline command/prompt fields.
+  if (selectedTool === 'shell-exec' || selectedTool === 'llm-prompt' || selectedTool === 'claude-code') {
     return html`<div id="tool-inputs-section"></div>`;
   }
 

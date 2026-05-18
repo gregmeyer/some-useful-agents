@@ -24,8 +24,8 @@ export const NODE_PATTERNS: NodePattern[] = [
   {
     id: 'analyze-with-llm',
     name: 'Analyze with LLM',
-    description: 'Send upstream output to Claude for analysis or summarization.',
-    tool: 'claude-code',
+    description: 'Send upstream output to an LLM for analysis or summarization.',
+    tool: 'llm-prompt',
     defaults: { prompt: 'Analyze this data and summarize the key findings:\n{{upstream.CHANGE_ME.result}}', maxTurns: '1' },
   },
   {

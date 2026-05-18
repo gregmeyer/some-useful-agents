@@ -53,7 +53,7 @@ function availableVariablesPanel(agent: Agent): SafeHtml {
 
 export interface AddNodeFormValues {
   id?: string;
-  type?: 'shell' | 'claude-code';
+  type?: 'shell' | 'llm-prompt' | 'claude-code';
   command?: string;
   prompt?: string;
   dependsOn?: string[];
@@ -72,7 +72,7 @@ export function renderAgentAddNode(args: {
   const { agent, values: v = {}, error, flash, fromCreate, toolStore, agentStore, variablesStore } = args;
   const allTools = getAvailableTools(toolStore);
   const allAgents = agentStore ? agentStore.listAgents() : [];
-  const selectedTool = v.type === 'claude-code' ? 'claude-code' : 'shell-exec';
+  const selectedTool = (v.type === 'llm-prompt' || v.type === 'claude-code') ? 'llm-prompt' : 'shell-exec';
   const selectedDeps = new Set(v.dependsOn ?? []);
   const suggestedId = v.id ?? suggestNextNodeId(agent);
 
@@ -160,7 +160,7 @@ export function renderAgentAddNode(args: {
           </div>
         </div>
 
-        <div class="node-field" data-node-field="claude-code">
+        <div class="node-field" data-node-field="llm-prompt">
           <div class="form-field">
             <strong>Prompt</strong>
             <textarea name="prompt" rows="4" placeholder='Summarise: {{upstream.fetch.result}}'

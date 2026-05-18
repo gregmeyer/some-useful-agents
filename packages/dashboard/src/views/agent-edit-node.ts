@@ -70,7 +70,7 @@ export function renderAgentEditNode(args: {
         ? renderControlFlowSection(agent, node)
         : html`
           ${renderToolPicker({ tools: allTools, selectedTool: node.tool, currentType: v.type })}
-          ${renderToolInputsSection(node.tool ?? ((v.type === 'claude-code' || v.type === 'llm-prompt') ? 'claude-code' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
+          ${renderToolInputsSection(node.tool ?? ((v.type === 'claude-code' || v.type === 'llm-prompt') ? 'llm-prompt' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
         `}
 
       ${node.type === 'claude-code' || node.type === 'llm-prompt' || v.type === 'claude-code' || v.type === 'llm-prompt' ? html`
@@ -108,7 +108,7 @@ export function renderAgentEditNode(args: {
           </div>
         </div>
 
-        <div class="node-field" data-node-field="claude-code">
+        <div class="node-field" data-node-field="llm-prompt">
           <div class="form-field">
             <strong>Prompt</strong>
             <textarea name="prompt" rows="4"

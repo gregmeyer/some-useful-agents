@@ -18,12 +18,12 @@ export interface AgentOutputSpec {
 export interface AgentDefinition {
   name: string;
   description?: string;
-  type: 'claude-code' | 'shell';
+  type: 'claude-code' | 'llm-prompt' | 'shell';
 
   // Shell agents
   command?: string;
 
-  // Claude-code agents
+  // LLM-prompt agents (legacy alias: claude-code)
   prompt?: string;
   model?: string;
   maxTurns?: number;

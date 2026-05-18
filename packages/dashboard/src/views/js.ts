@@ -35,8 +35,9 @@ export const DASHBOARD_JS = `
 
   // ── Tool-picker dropdown ───────────────────────────────────────────
   // Swap visible input fields when the tool changes.
-  // shell-exec → Command textarea, claude-code → Prompt textarea, other →
+  // shell-exec → Command textarea, llm-prompt → Prompt textarea, other →
   // dynamically generated fields from the tool's declared inputs schema.
+  // Legacy claude-code spelling is accepted everywhere llm-prompt is.
   (function () {
     var select = document.getElementById('node-tool-select');
     var schemasEl = document.getElementById('tool-schemas');
@@ -57,23 +58,26 @@ export const DASHBOARD_JS = `
       if (!typeHidden || !schemas[toolId]) return;
       var implType = schemas[toolId].implType;
       typeHidden.value = implType === 'agent-invoke' ? 'agent-invoke'
-        : implType === 'claude-code' ? 'claude-code' : 'shell';
+        : (implType === 'llm-prompt' || implType === 'claude-code') ? 'llm-prompt'
+        : 'shell';
     }
 
     function updateFields(toolId) {
       var isAgent = toolId.indexOf('agent:') === 0;
+      var isLlmPrompt = toolId === 'llm-prompt' || toolId === 'claude-code';
       // Show/hide the built-in command/prompt textareas.
       var shellField = document.querySelector('[data-node-field="shell"]');
-      var claudeField = document.querySelector('[data-node-field="claude-code"]');
+      var claudeField = document.querySelector('[data-node-field="llm-prompt"]')
+        || document.querySelector('[data-node-field="claude-code"]');
       if (shellField) shellField.style.display = (!isAgent && toolId === 'shell-exec') ? '' : 'none';
-      if (claudeField) claudeField.style.display = (!isAgent && toolId === 'claude-code') ? '' : 'none';
+      if (claudeField) claudeField.style.display = (!isAgent && isLlmPrompt) ? '' : 'none';
       // Hide the Implementation fieldset entirely for agent-invoke nodes.
       var implFieldset = shellField && shellField.closest('fieldset');
       if (implFieldset) implFieldset.style.display = isAgent ? 'none' : '';
 
       // For non-builtin tools, generate inputs from the schema.
       if (!inputsSection) return;
-      if (toolId === 'shell-exec' || toolId === 'claude-code') {
+      if (toolId === 'shell-exec' || isLlmPrompt) {
         inputsSection.innerHTML = '';
         return;
       }
@@ -81,7 +85,7 @@ export const DASHBOARD_JS = `
       if (!schema || !schema.inputs) { inputsSection.innerHTML = ''; return; }
 
       // Determine palette mode from tool's implementation type.
-      var paletteMode = schema.implType === 'claude-code' ? 'claude' : 'shell';
+      var paletteMode = (schema.implType === 'llm-prompt' || schema.implType === 'claude-code') ? 'claude' : 'shell';
 
       // For agent-invoke, show an info card above the input mapping fields.
       var agentInfoHtml = '';

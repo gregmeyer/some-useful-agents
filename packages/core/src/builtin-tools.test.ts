@@ -5,12 +5,12 @@ import { join } from 'node:path';
 import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from './builtin-tools.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 10 built-in tools', () => {
+  it('lists all 9 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(9);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
-      'claude-code', 'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
+      'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
       'http-post', 'json-parse', 'json-path', 'shell-exec', 'template',
     ]);
   });
@@ -24,8 +24,12 @@ describe('Builtin tool registry', () => {
 
   it('isBuiltinTool returns true for known ids', () => {
     expect(isBuiltinTool('shell-exec')).toBe(true);
-    expect(isBuiltinTool('claude-code')).toBe(true);
     expect(isBuiltinTool('http-get')).toBe(true);
+  });
+
+  it('claude-code was removed in v0.21 — use type: llm-prompt instead', () => {
+    expect(isBuiltinTool('claude-code')).toBe(false);
+    expect(getBuiltinTool('claude-code')).toBeUndefined();
   });
 
   it('isBuiltinTool returns false for unknown ids', () => {

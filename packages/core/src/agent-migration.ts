@@ -291,7 +291,7 @@ function v1ToNode({ agent }: V1Input): AgentNode {
   if (agent.type === 'shell' && agent.command) {
     node.command = agent.command;
   }
-  if (agent.type === 'claude-code' && agent.prompt) {
+  if ((agent.type === 'claude-code' || agent.type === 'llm-prompt') && agent.prompt) {
     let prompt = agent.prompt;
     // If the v1 agent had `input: "{{outputs.X.result}}"`, stitch that
     // value into the prompt at the end. Otherwise Claude would never see

@@ -59,11 +59,11 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   const isAgentInvoke = rawTool.startsWith('agent:');
   const nodeType = body.type === 'agent-invoke' || isAgentInvoke
     ? 'agent-invoke'
-    : body.type === 'claude-code' ? 'claude-code' : 'shell';
+    : (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell';
 
   const values: AddNodeFormValues = {
     id: typeof body.id === 'string' ? body.id.trim() : undefined,
-    type: nodeType === 'agent-invoke' ? 'shell' : (nodeType as 'shell' | 'claude-code'), // form compat
+    type: nodeType === 'agent-invoke' ? 'shell' : (nodeType as 'shell' | 'llm-prompt'), // form compat
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
@@ -106,9 +106,9 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
       agent, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
     }));
     return;
-  } else if (nodeType === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+  } else if (nodeType === 'llm-prompt' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: 'Claude-Code nodes need a prompt.',
+      agent, values, variablesStore: ctx.variablesStore, error: 'LLM-prompt nodes need a prompt.',
     }));
     return;
   }
@@ -136,7 +136,7 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   } else {
     newNode = nodeType === 'shell'
       ? { id: values.id!, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) }
-      : { id: values.id!, type: 'claude-code' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+      : { id: values.id!, type: 'llm-prompt' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
   }
 
   try {
@@ -195,7 +195,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     : typeof rawDeps === 'string' ? [rawDeps] : [];
 
   const values: EditNodeFormValues = {
-    type: body.type === 'claude-code' ? 'claude-code' : 'shell',
+    type: (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell',
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
@@ -231,9 +231,9 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     }));
     return;
   }
-  if (values.type === 'claude-code' && (!values.prompt || values.prompt.trim() === '')) {
+  if (values.type === 'llm-prompt' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: 'Claude-Code nodes need a prompt.',
+      agent, node, values, variablesStore: ctx.variablesStore, error: 'LLM-prompt nodes need a prompt.',
     }));
     return;
   }
@@ -248,7 +248,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
 
   const updatedNode = values.type === 'shell'
     ? { ...node, type: 'shell' as const, command: values.command!, prompt: undefined, provider: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) }
-    : { ...node, type: 'claude-code' as const, prompt: values.prompt!, command: undefined, ...(provider ? { provider } : {}), ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
+    : { ...node, type: 'llm-prompt' as const, prompt: values.prompt!, command: undefined, ...(provider ? { provider } : {}), ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
 
   const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? updatedNode : n);
 

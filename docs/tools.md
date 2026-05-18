@@ -18,18 +18,17 @@ This page is the index. Each builtin, plus the MCP tool type, has its own page b
 | Type | Runs as | Typical use |
 |---|---|---|
 | `shell` | Child process via `bash -c` | Calling shell utilities, local binaries, `curl`, `jq` |
-| `claude-code` | `claude --print` (or Codex if provider=codex) | Prompting an LLM with run context |
+| `llm-prompt` | LLM CLI selected by `provider:` (`claude --print` or `codex exec`) | Prompting an LLM with run context. Legacy alias: `claude-code`. |
 | `builtin` | Direct in-process function call | Performance-critical things the runtime ships |
 | `mcp` | Pooled MCP client → remote server | Integrating third-party MCP servers |
 
 ## Built-in tools
 
-Ten tools ship with the runtime. Each is trusted (source: `builtin`) and bypasses the community-shell gate.
+Nine tools ship with the runtime. Each is trusted (source: `builtin`) and bypasses the community-shell gate. To run an LLM prompt, use `type: llm-prompt` on the node (not a `tool:` reference) — see [agents.md](agents.md#node-types).
 
 | Tool | Purpose |
 |---|---|
 | [`shell-exec`](tools/shell-exec.md) | Run an arbitrary shell command |
-| [`claude-code`](tools/claude-code.md) | Run a Claude / Codex prompt |
 | [`http-get`](tools/http-get.md) | HTTP GET with SSRF protection |
 | [`http-post`](tools/http-post.md) | HTTP POST with SSRF protection |
 | [`file-read`](tools/file-read.md) | Read a file within the project root |
@@ -75,7 +74,7 @@ Import with `sua tool import <file>` or via the dashboard.
 - **Inputs** come from the node's `toolInputs:` block (or `config:` for project defaults). Values flow through template resolution (`{{upstream.*}}`, `{{vars.*}}`) before reaching the tool.
 - **Outputs** are extracted from the tool's result — JSON keys at the top level, or XML tags in the stdout. Downstream nodes reach them via `{{upstream.<nodeId>.<field>}}`.
 
-Every tool also produces a synthetic `result` field (full stdout for shell, assistant text for claude-code) for v0.15 backcompat.
+Every tool also produces a synthetic `result` field (full stdout for shell, assistant text for llm-prompt) for v0.15 backcompat.
 
 ## `config` vs `toolInputs`
 
