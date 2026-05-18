@@ -8,6 +8,7 @@ import {
   type McpServerConfig,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { computeProviderUsage } from '../lib/provider-usage.js';
 import { renderToolsList } from '../views/tools-list.js';
 import { renderToolDetail } from '../views/tool-detail.js';
 import {
@@ -36,7 +37,18 @@ toolsRouter.get('/tools', (req: Request, res: Response) => {
   const tab = req.query.tab === 'builtin' ? 'builtin' : 'user';
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
   const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
-  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type }, tab, limit, offset }));
+
+  // LLM providers section: derived view of which CLIs are on PATH and
+  // how many agents use each one. Not invocable — pure discoverability.
+  let providerUsage: ReturnType<typeof computeProviderUsage> = [];
+  try {
+    providerUsage = computeProviderUsage(ctx.agentStore.listAgents());
+  } catch {
+    // Agent store unavailable — show providers without usage counts.
+    providerUsage = computeProviderUsage([]);
+  }
+
+  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type }, tab, limit, offset, providerUsage }));
 });
 
 toolsRouter.get('/tools/mcp/import', (_req: Request, res: Response) => {
