@@ -1,4 +1,5 @@
 import type { BuildPlan, PlanCriticError } from '../index.js';
+import type { SmokeRunResult } from './eval-smoke-run.js';
 
 /**
  * Phases of the planner loop, matching the refactor principles
@@ -39,6 +40,7 @@ export type LoopOutcome =
       plan: BuildPlan;
       criticErrors?: PlanCriticError[];
       criticWarning?: string;
+      smoke?: SmokeRunResult;
       steps: LoopStepRecord[];
     }
   | {
@@ -52,6 +54,7 @@ export type LoopOutcome =
       retryRunId: string;
       attempt: number;
       criticErrors: PlanCriticError[];
+      smoke?: SmokeRunResult;
       phase: string;
       steps: LoopStepRecord[];
     };

@@ -10,6 +10,7 @@ import {
   DashboardsStore,
   IntegrationsStore,
   PlannerTelemetryStore,
+  PlannerLoopStepLogStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
   VariablesStore,
@@ -327,6 +328,16 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: telemetry stays absent if the table can't be created.
   }
 
+  // Planner-loop step log (PR 2). Append-only per-primitive record so the
+  // graph of "what the planner actually did this run" can be reconstructed
+  // for debugging and metrics.
+  let plannerLoopStepLogStore: PlannerLoopStepLogStore | undefined;
+  try {
+    plannerLoopStepLogStore = new PlannerLoopStepLogStore(opts.dbPath);
+  } catch {
+    // Non-fatal: step log stays absent if the table can't be created.
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -348,6 +359,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     dashboardsStore,
     integrationsStore,
     plannerTelemetryStore,
+    plannerLoopStepLogStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),

@@ -124,6 +124,18 @@ export class PlannerTelemetryStore {
       CREATE INDEX IF NOT EXISTS idx_planner_telemetry_committed
         ON planner_telemetry(committed_at) WHERE committed_at IS NOT NULL
     `);
+
+    // Smoke-run columns added by the planner loop refactor (PR 2). Guarded
+    // ALTERs so existing DBs don't blow up — re-running ensureSchema on a
+    // newer schema is safe.
+    const existing = this.db.prepare("PRAGMA table_info(planner_telemetry)").all() as Array<{ name: string }>;
+    const cols = new Set(existing.map((c) => c.name));
+    if (!cols.has('smoke_run_status')) {
+      this.db.exec(`ALTER TABLE planner_telemetry ADD COLUMN smoke_run_status TEXT`);
+    }
+    if (!cols.has('smoke_run_errors')) {
+      this.db.exec(`ALTER TABLE planner_telemetry ADD COLUMN smoke_run_errors INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 
   /**
@@ -184,6 +196,20 @@ export class PlannerTelemetryStore {
       args.intent ?? null,
       this.resolveOriginalRunId(args.runId),
     );
+  }
+
+  /**
+   * Record the smoke-run eval status for this attempt (added by PR 2 of
+   * the planner refactor). `status` mirrors the loop's outcome: 'ok' when
+   * smoke passed, 'failed' when it caught issues beyond what the critic
+   * flagged. `errors` is the total count across all newAgents.
+   */
+  recordSmoke(args: { runId: string; status: 'ok' | 'failed' | 'skipped'; errors: number }): void {
+    this.db.prepare(`
+      UPDATE planner_telemetry
+      SET smoke_run_status = ?, smoke_run_errors = ?
+      WHERE run_id = ?
+    `).run(args.status, args.errors, this.resolveOriginalRunId(args.runId));
   }
 
   /**
