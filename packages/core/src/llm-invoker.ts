@@ -1,6 +1,5 @@
 import { spawn, execSync } from 'node:child_process';
-
-export type LlmProvider = 'claude' | 'codex';
+import { PROVIDERS, PROVIDER_IDS, type LlmProvider } from './llm-providers.js';
 
 export interface LlmInvokeOptions {
   prompt: string;
@@ -26,18 +25,17 @@ export function detectLlms(): LlmAvailability {
     codex: { installed: false },
   };
 
-  try {
-    const v = execSync('claude --version', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    result.claude = { installed: true, version: v };
-  } catch {
-    // not installed or not on PATH
-  }
-
-  try {
-    const v = execSync('codex --version', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    result.codex = { installed: true, version: v };
-  } catch {
-    // not installed
+  for (const id of PROVIDER_IDS) {
+    const def = PROVIDERS[id];
+    try {
+      const v = execSync(
+        `${def.binary} ${def.versionArgv.join(' ')}`,
+        { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+      ).trim();
+      result[id] = { installed: true, version: v };
+    } catch {
+      // not installed or not on PATH
+    }
   }
 
   return result;
@@ -45,17 +43,14 @@ export function detectLlms(): LlmAvailability {
 
 /**
  * Invoke an LLM CLI with a prompt, return its stdout.
- * Uses --print (claude) / exec -s read-only (codex).
+ * Argv shape is provider-specific (see PROVIDERS in llm-providers.ts).
  */
 export function invokeLlm(options: LlmInvokeOptions): Promise<LlmInvokeResult> {
   const { prompt, provider, timeoutMs = 60_000 } = options;
+  const def = PROVIDERS[provider];
 
   return new Promise((resolve) => {
-    const args = provider === 'claude'
-      ? ['--print', prompt]
-      : ['exec', '-s', 'read-only', prompt];
-
-    const child = spawn(provider, args, {
+    const child = spawn(def.binary, def.promptArgv(prompt), {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
