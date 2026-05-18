@@ -12,6 +12,7 @@ import {
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
   PlannerMemoryStore,
+  AgentMemoryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
   VariablesStore,
@@ -348,6 +349,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: planner just doesn't see prior plans.
   }
 
+  // Per-iteration agent memory (PR 4). Written by AgentLoopRunner when
+  // an agent declares successCriteria. Non-fatal if unavailable.
+  let agentMemoryStore: AgentMemoryStore | undefined;
+  try {
+    agentMemoryStore = new AgentMemoryStore(opts.dbPath);
+  } catch {
+    // Non-fatal: agent loop still runs, just doesn't persist iterations.
+  }
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
@@ -371,6 +381,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     plannerTelemetryStore,
     plannerLoopStepLogStore,
     plannerMemoryStore,
+    agentMemoryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     dataDir: dirname(opts.dbPath),

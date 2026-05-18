@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { executeAgentDag, executeAgentWithRetry, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentDag, executeAgentLoop, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 
 export const runMutationsRouter: Router = Router();
@@ -265,7 +265,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
   const nextAttempt = maxAttempt + 1;
 
   const abortController = new AbortController();
-  const runPromise = executeAgentWithRetry(
+  const runPromise = executeAgentLoop(
     agent,
     {
       triggeredBy: 'dashboard',
@@ -284,6 +284,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
       dashboardBaseUrl: ctx.dashboardBaseUrl,
       dataRoot: ctx.agentStore.dataRoot,
     },
+    { memoryStore: ctx.agentMemoryStore },
   );
 
   // Track for cancel.

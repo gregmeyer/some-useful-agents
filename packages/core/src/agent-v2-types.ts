@@ -373,10 +373,37 @@ export interface Agent {
    */
   retry?: RetryPolicy;
 
+  /**
+   * Agent-loop success criteria (PR 4 of the planner refactor). When
+   * supplied, the agent runs inside `AgentLoopRunner` — after each DAG
+   * execution the runner evaluates these and re-runs (up to
+   * `maxLoopIterations`) when any fail. Author-declared validation
+   * acceptance, separate from the `retry:` transient-failure policy.
+   */
+  successCriteria?: AgentSuccessCriterion[];
+
+  /**
+   * Cap on agent-loop iterations when `successCriteria` is supplied.
+   * 1 = single-shot (criteria still evaluated; no retry on failure).
+   * Defaults to 1 — explicit opt-in (≥2) required for retry behaviour.
+   */
+  maxLoopIterations?: number;
+
   // Metadata
   author?: string;
   tags?: string[];
 }
+
+/**
+ * Discriminated union of supported success-criterion shapes. Kept narrow
+ * for the MVP — each kind is something the executor or filesystem can
+ * answer without a separate LLM call.
+ */
+export type AgentSuccessCriterion =
+  | { kind: 'shellExitZero'; nodeId: string }
+  | { kind: 'fileExists'; pathTemplate: string }
+  | { kind: 'jsonPathEquals'; nodeId: string; path: string; equals: unknown }
+  | { kind: 'regexMatch'; nodeId: string; pattern: string };
 
 // -- Pulse signal --
 
