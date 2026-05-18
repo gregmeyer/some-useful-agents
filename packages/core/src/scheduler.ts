@@ -15,7 +15,8 @@ import type { VariablesStore } from './variables-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
 import type { AgentStore } from './agent-store.js';
 import type { ToolStore } from './tool-store.js';
-import { executeAgentWithRetry } from './retry.js';
+import { executeAgentLoop } from './agent-loop/runner.js';
+import type { AgentMemoryStore } from './agent-loop/memory-store.js';
 
 export interface ScheduledAgentEntry {
   agent: AgentDefinition;
@@ -45,6 +46,13 @@ export interface V2SchedulerDeps {
   dashboardBaseUrl?: string;
   /** Same semantics as DagExecutorDeps.dataRoot. */
   dataRoot?: string;
+  /**
+   * Agent-loop memory store (PR 4 of the planner refactor). Threaded
+   * through so per-iteration observations + eval status get persisted
+   * when an agent declares `successCriteria`. Optional — without it the
+   * agent loop still runs, just silently.
+   */
+  agentMemoryStore?: AgentMemoryStore;
 }
 
 export interface LocalSchedulerOptions {
@@ -295,10 +303,12 @@ export class LocalScheduler {
     }
 
     this.inFlight.add(key);
-    // executeAgentWithRetry resolves only after the agent finishes (or
-    // its retry budget is exhausted). Run it without awaiting here so a
-    // long agent doesn't block the cron tick — fire-and-track instead.
-    executeAgentWithRetry(
+    // executeAgentLoop wraps executeAgentWithRetry with the agent-loop
+    // eval gate (PR 4 of the planner refactor). When the agent declares
+    // no `successCriteria` it's a pure pass-through — byte-equivalent to
+    // the prior executeAgentWithRetry call. When criteria are declared,
+    // each iteration's pass/fail + observations land in agent_memory.
+    executeAgentLoop(
       agent,
       { triggeredBy: 'schedule', inputs: this.inputs },
       {
@@ -312,6 +322,7 @@ export class LocalScheduler {
         dashboardBaseUrl: this.v2Deps.dashboardBaseUrl,
         dataRoot: this.v2Deps.dataRoot,
       },
+      { memoryStore: this.v2Deps.agentMemoryStore },
     ).then(
       (run) => {
         this.onFire?.(agent, run.id);

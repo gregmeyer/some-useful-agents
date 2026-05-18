@@ -192,6 +192,19 @@ export {
   type LoopStepRecord,
 } from './planner-loop/index.js';
 export {
+  executeAgentLoop,
+  type AgentLoopRunnerDeps,
+  type AgentLoopHooks,
+  evaluateCriteria,
+  formatCriterionFailures,
+  type CriterionResult,
+  type EvaluateCriteriaResult,
+  type EvaluateCriteriaInput,
+  AgentMemoryStore,
+  type AgentMemoryRow,
+  type AgentMemoryEvalStatus,
+} from './agent-loop/index.js';
+export {
   policyDocumentSchema,
   policyRuleSchema,
   loadPolicyDocument,

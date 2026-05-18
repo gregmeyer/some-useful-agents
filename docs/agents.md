@@ -345,4 +345,6 @@ nodes:
 - [Tools](tools.md) — built-in + MCP + user-authored
 - [Templating](templating.md) — placeholder reference
 - [Output widgets](output-widgets.md) — render run output as UI
+- [Success criteria + agent loop](success-criteria.md) — author-declared eval gate, re-runs on failure
+- [Retry policy](retry.md) — transient-failure backoff (separate from success criteria)
 - [Security model](SECURITY.md) — trust rings, shell gate, env filter

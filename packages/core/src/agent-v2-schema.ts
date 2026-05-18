@@ -327,6 +327,34 @@ export const agentV2Schema = z.object({
     ])).optional(),
   }).optional(),
 
+  /**
+   * Agent-loop success criteria (PR 4 of the planner refactor). When
+   * supplied, the agent runs inside an `AgentLoopRunner` that evaluates
+   * these criteria after each DAG execution and re-runs with reflection
+   * feedback when any fail. Absent / empty array = single-shot pass-through
+   * (no behaviour change for existing agents).
+   *
+   * Criterion kinds:
+   *  - `shellExitZero`: target shell node must have exited 0.
+   *  - `fileExists`: a path (template-expanded) must exist on disk.
+   *  - `jsonPathEquals`: target node's JSON output, dot-pathed, equals value.
+   *  - `regexMatch`: target node's stringified output matches the regex.
+   */
+  successCriteria: z.array(z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('shellExitZero'), nodeId: z.string().min(1) }),
+    z.object({ kind: z.literal('fileExists'), pathTemplate: z.string().min(1) }),
+    z.object({ kind: z.literal('jsonPathEquals'), nodeId: z.string().min(1), path: z.string().min(1), equals: z.unknown() }),
+    z.object({ kind: z.literal('regexMatch'), nodeId: z.string().min(1), pattern: z.string().min(1) }),
+  ])).optional(),
+
+  /**
+   * Cap on agent-loop iterations when `successCriteria` is supplied.
+   * 1 = single-shot (criteria still evaluated; no retry on failure).
+   * Defaults to 1 so adding `successCriteria` without `maxLoopIterations`
+   * is observe-only — explicit opt-in required for retry behaviour.
+   */
+  maxLoopIterations: z.number().int().min(1).max(5).optional(),
+
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {

@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -110,6 +110,12 @@ export interface DashboardContext {
    * prior plans).
    */
   plannerMemoryStore?: PlannerMemoryStore;
+  /**
+   * Per-iteration log for agents that declare `successCriteria` (PR 4 of
+   * the planner refactor). Written by `AgentLoopRunner` after each
+   * iteration. Optional — agent loop runs without it, just doesn't persist.
+   */
+  agentMemoryStore?: AgentMemoryStore;
   /**
    * Active DAG runs with their AbortControllers. Used by POST /runs/:id/cancel
    * to signal cancellation to the executor. Entries are added when a run starts

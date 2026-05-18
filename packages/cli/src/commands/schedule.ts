@@ -12,6 +12,7 @@ import {
   AgentStore,
   VariablesStore,
   IntegrationsStore,
+  AgentMemoryStore,
   EncryptedFileStore,
   cronToHuman,
   getSchedulerStatus,
@@ -250,6 +251,10 @@ scheduleCommand
       try { return new IntegrationsStore(getDbPath(config)); }
       catch { return undefined; }
     })();
+    const agentMemoryStore = (() => {
+      try { return new AgentMemoryStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
     const secretsStore = (() => {
       try { return new EncryptedFileStore(getSecretsPath(config)); }
       catch { return undefined; }
@@ -265,6 +270,7 @@ scheduleCommand
         variablesStore,
         integrationsStore,
         agentStore,
+        agentMemoryStore,
         allowUntrustedShell: new Set(options.allowUntrustedShell),
         dashboardBaseUrl: getDashboardBaseUrl(config),
         dataRoot: agentStore.dataRoot,
