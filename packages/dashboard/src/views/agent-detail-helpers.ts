@@ -148,6 +148,32 @@ function fieldTypeSelect(name: string, current: string): string {
   return `<select name="${name}" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">${opts}</select>`;
 }
 
+const COL_INPUT = 'padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
+
+/** One column row inside a table-field's columns sub-table. */
+function renderColumnRow(fieldIdx: number, colIdx: number, col?: { name?: string; label?: string; format?: string; href?: string; text?: string }): string {
+  const name = col?.name ?? '';
+  const label = col?.label ?? '';
+  const format = col?.format ?? 'text';
+  const href = col?.href ?? '';
+  const text = col?.text ?? '';
+  const formatOpts = ['text', 'link'].map((f) => `<option value="${f}"${f === format ? ' selected' : ''}>${f}</option>`).join('');
+  return `
+    <tr data-column-row data-field-idx="${fieldIdx}" data-col-idx="${colIdx}">
+      <td><input type="text" name="columnName_${fieldIdx}_${colIdx}" value="${escapeAttr(name)}" placeholder="key" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;"></td>
+      <td><input type="text" name="columnLabel_${fieldIdx}_${colIdx}" value="${escapeAttr(label)}" placeholder="${escapeAttr(name)}" style="${COL_INPUT} width: 100%;"></td>
+      <td><select name="columnFormat_${fieldIdx}_${colIdx}" style="${COL_INPUT}">${formatOpts}</select></td>
+      <td><input type="text" name="columnHref_${fieldIdx}_${colIdx}" value="${escapeAttr(href)}" placeholder="url_key" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;"></td>
+      <td><input type="text" name="columnText_${fieldIdx}_${colIdx}" value="${escapeAttr(text)}" placeholder='text_key OR "Apply →"' style="${COL_INPUT} width: 100%;"></td>
+      <td><button type="button" class="btn btn--ghost btn--sm ow-remove-column" style="padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);">×</button></td>
+    </tr>
+  `;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
   const widget = agent.outputWidget;
   const currentType: OutputWidgetType = widget?.type ?? 'raw';
@@ -181,15 +207,46 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
     ([key, ex]) => `<option value="${key}">${ex.label} — ${ex.description}</option>`,
   ).join('');
 
-  // Field rows
-  const fieldRows = (widget?.fields ?? []).map((f, i) => unsafeHtml(`
-    <tr data-row="${i}">
-      <td><input type="text" name="fieldName_${i}" value="${f.name}" style="${FIELD} font-family: var(--font-mono); width: 8rem;"></td>
-      <td><input type="text" name="fieldLabel_${i}" value="${f.label ?? ''}" placeholder="${f.name}" style="${FIELD} width: 8rem;"></td>
-      <td>${fieldTypeSelectWithTooltip(`fieldType_${i}`, f.type, currentType)}</td>
-      <td><button type="button" class="btn btn--ghost btn--sm ow-remove-row" style="padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);">\u00D7</button></td>
-    </tr>
-  `));
+  // Field rows. Each field gets a second <tr> for its columns sub-table
+  // (shown only when type === 'table'). Column names follow the
+  // `columnName_<fieldIdx>_<colIdx>` convention so the server can parse
+  // them in a per-field inner loop without ordering assumptions.
+  const fieldRows = (widget?.fields ?? []).flatMap((f, i) => {
+    const cols = f.type === 'table' ? (f.columns ?? []) : [];
+    const colsRowsHtml = cols.map((c, j) => renderColumnRow(i, j, c)).join('');
+    const colsBlockVisible = f.type === 'table';
+    return [
+      unsafeHtml(`
+        <tr data-field-row data-field-idx="${i}">
+          <td><input type="text" name="fieldName_${i}" value="${f.name}" style="${FIELD} font-family: var(--font-mono); width: 8rem;"></td>
+          <td><input type="text" name="fieldLabel_${i}" value="${f.label ?? ''}" placeholder="${f.name}" style="${FIELD} width: 8rem;"></td>
+          <td>${fieldTypeSelectWithTooltip(`fieldType_${i}`, f.type, currentType)}</td>
+          <td><button type="button" class="btn btn--ghost btn--sm ow-remove-row" style="padding: 2px 6px; font-size: var(--font-size-xs); color: var(--color-err);">\u00D7</button></td>
+        </tr>
+      `),
+      unsafeHtml(`
+        <tr data-columns-row data-field-idx="${i}" style="display: ${colsBlockVisible ? 'table-row' : 'none'};">
+          <td colspan="4" style="padding: 0 0 var(--space-3) var(--space-4); background: var(--color-surface);">
+            <div style="font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: var(--space-1) 0;">Columns</div>
+            <table class="table" style="font-size: var(--font-size-xs); width: 100%; margin: 0;">
+              <thead><tr>
+                <th style="width: 7rem;">Column key</th>
+                <th style="width: 7rem;">Label</th>
+                <th style="width: 5rem;">Format</th>
+                <th style="width: 7rem;" title="Per-row JSON key holding the URL (format=link only)">Href key</th>
+                <th title="Per-row JSON key for cell text, OR a literal string fallback (format=link only)">Text key / literal</th>
+                <th></th>
+              </tr></thead>
+              <tbody data-columns-tbody data-field-idx="${i}">
+                ${colsRowsHtml}
+              </tbody>
+            </table>
+            <button type="button" class="btn btn--ghost btn--sm ow-add-column" data-field-idx="${i}" style="margin-top: var(--space-2); font-size: var(--font-size-xs);">+ Add column</button>
+          </td>
+        </tr>
+      `),
+    ];
+  });
 
   const helperCopyJson = JSON.stringify(
     Object.fromEntries(WIDGET_TYPES.map((t) => [t, WIDGET_TYPE_INFO[t].helperCopy])),
@@ -389,18 +446,94 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
         }).join('');
       }
 
+      // Tracks "next column index" per field so deleted columns don't
+      // reuse names — server iterates 0..49 and skips gaps, so we just
+      // never recycle. Keyed by field idx; defaults to existing length on
+      // first lookup so server-rendered columns aren't clobbered.
+      var nextColIdx = {};
+
+      function getNextColIdx(fieldIdx) {
+        if (nextColIdx[fieldIdx] == null) {
+          var colTbody = document.querySelector('tbody[data-columns-tbody][data-field-idx="' + fieldIdx + '"]');
+          nextColIdx[fieldIdx] = colTbody ? colTbody.rows.length : 0;
+        }
+        return nextColIdx[fieldIdx]++;
+      }
+
+      var COL_INPUT_STYLE = 'padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);';
+
+      function columnRowHtml(fieldIdx, colIdx, data) {
+        data = data || {};
+        var format = data.format || 'text';
+        var formatOpts = ['text', 'link'].map(function (f) {
+          return '<option value="' + f + '"' + (f === format ? ' selected' : '') + '>' + f + '</option>';
+        }).join('');
+        return '<td><input type="text" name="columnName_' + fieldIdx + '_' + colIdx + '" value="' + esc(data.name || '') + '" placeholder="key" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></td>' +
+          '<td><input type="text" name="columnLabel_' + fieldIdx + '_' + colIdx + '" value="' + esc(data.label || '') + '" placeholder="Label" style="' + COL_INPUT_STYLE + 'width:100%;"></td>' +
+          '<td><select name="columnFormat_' + fieldIdx + '_' + colIdx + '" style="' + COL_INPUT_STYLE + '">' + formatOpts + '</select></td>' +
+          '<td><input type="text" name="columnHref_' + fieldIdx + '_' + colIdx + '" value="' + esc(data.href || '') + '" placeholder="url_key" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></td>' +
+          '<td><input type="text" name="columnText_' + fieldIdx + '_' + colIdx + '" value="' + esc(data.text || '') + '" placeholder=\\'text_key OR "Apply →"\\' style="' + COL_INPUT_STYLE + 'width:100%;"></td>' +
+          '<td><button type="button" class="btn btn--ghost btn--sm ow-remove-column" style="padding:2px 6px;font-size:var(--font-size-xs);color:var(--color-err);">\\u00D7</button></td>';
+      }
+
+      function appendColumnRow(fieldIdx, data) {
+        var colTbody = document.querySelector('tbody[data-columns-tbody][data-field-idx="' + fieldIdx + '"]');
+        if (!colTbody) return;
+        var colIdx = getNextColIdx(fieldIdx);
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-column-row', '');
+        tr.setAttribute('data-field-idx', String(fieldIdx));
+        tr.setAttribute('data-col-idx', String(colIdx));
+        tr.innerHTML = columnRowHtml(fieldIdx, colIdx, data);
+        colTbody.appendChild(tr);
+      }
+
+      function setColumnsVisibility(fieldIdx, visible) {
+        var row = document.querySelector('tr[data-columns-row][data-field-idx="' + fieldIdx + '"]');
+        if (row) row.style.display = visible ? 'table-row' : 'none';
+        if (visible) {
+          var colTbody = document.querySelector('tbody[data-columns-tbody][data-field-idx="' + fieldIdx + '"]');
+          if (colTbody && colTbody.rows.length === 0) {
+            // table fields need at least one column to pass schema validation;
+            // seed one empty row so the author has something to fill in.
+            appendColumnRow(fieldIdx);
+          }
+        }
+      }
+
       function addRow(data) {
         data = data || {};
-        var idx = tbody.rows.length;
-        var tr = document.createElement('tr');
-        tr.setAttribute('data-row', String(idx));
+        var idx = tbody.rows.length / 2; // each field is 2 trs (field row + columns row)
         var tip = FIELD_DESCS[data.type || 'text'] || '';
-        tr.innerHTML =
+        var type = data.type || 'text';
+        var fieldTr = document.createElement('tr');
+        fieldTr.setAttribute('data-field-row', '');
+        fieldTr.setAttribute('data-field-idx', String(idx));
+        fieldTr.innerHTML =
           '<td><input type="text" name="fieldName_' + idx + '" value="' + esc(data.name || '') + '" placeholder="field_name" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);font-family:var(--font-mono);width:8rem;"></td>' +
           '<td><input type="text" name="fieldLabel_' + idx + '" value="' + esc(data.label || '') + '" placeholder="Label" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);width:8rem;"></td>' +
-          '<td><select name="fieldType_' + idx + '" title="' + esc(tip) + '" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);">' + typeOptionsHtml(data.type || 'text') + '</select></td>' +
+          '<td><select name="fieldType_' + idx + '" title="' + esc(tip) + '" style="padding:var(--space-1) var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-xs);">' + typeOptionsHtml(type) + '</select></td>' +
           '<td><button type="button" class="btn btn--ghost btn--sm ow-remove-row" style="padding:2px 6px;font-size:var(--font-size-xs);color:var(--color-err);">\\u00D7</button></td>';
-        tbody.appendChild(tr);
+        tbody.appendChild(fieldTr);
+
+        var colsTr = document.createElement('tr');
+        colsTr.setAttribute('data-columns-row', '');
+        colsTr.setAttribute('data-field-idx', String(idx));
+        colsTr.style.display = type === 'table' ? 'table-row' : 'none';
+        colsTr.innerHTML =
+          '<td colspan="4" style="padding:0 0 var(--space-3) var(--space-4);background:var(--color-surface);">' +
+            '<div style="font-size:10px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-1) 0;">Columns</div>' +
+            '<table class="table" style="font-size:var(--font-size-xs);width:100%;margin:0;">' +
+              '<thead><tr><th style="width:7rem;">Column key</th><th style="width:7rem;">Label</th><th style="width:5rem;">Format</th><th style="width:7rem;">Href key</th><th>Text key / literal</th><th></th></tr></thead>' +
+              '<tbody data-columns-tbody data-field-idx="' + idx + '"></tbody>' +
+            '</table>' +
+            '<button type="button" class="btn btn--ghost btn--sm ow-add-column" data-field-idx="' + idx + '" style="margin-top:var(--space-2);font-size:var(--font-size-xs);">+ Add column</button>' +
+          '</td>';
+        tbody.appendChild(colsTr);
+
+        // If the row was seeded as a table field with no columns, drop in a
+        // placeholder so the row is editable immediately.
+        if (type === 'table') setColumnsVisibility(idx, true);
       }
 
       function esc(s) { return String(s).replace(/[&<>"\\']/g, function (c) { return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"\\'":'&#39;' }[c]; }); }
@@ -456,13 +589,36 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       });
       addBtn.addEventListener('click', function () { addRow(); refreshFieldDimming(); refreshPreview(); });
       tbody.addEventListener('click', function (e) {
-        if (e.target && e.target.classList && e.target.classList.contains('ow-remove-row')) {
-          var tr = e.target.closest('tr');
-          if (tr) { tr.parentNode.removeChild(tr); refreshPreview(); }
+        var t = e.target;
+        if (!t || !t.classList) return;
+        if (t.classList.contains('ow-remove-row')) {
+          // Field row delete: also remove the matching columns sub-row.
+          var tr = t.closest('tr[data-field-row]');
+          if (tr) {
+            var idx = tr.getAttribute('data-field-idx');
+            var colsRow = document.querySelector('tr[data-columns-row][data-field-idx="' + idx + '"]');
+            tr.parentNode.removeChild(tr);
+            if (colsRow) colsRow.parentNode.removeChild(colsRow);
+            refreshPreview();
+          }
+        } else if (t.classList.contains('ow-add-column')) {
+          appendColumnRow(parseInt(t.getAttribute('data-field-idx'), 10));
+          refreshPreview();
+        } else if (t.classList.contains('ow-remove-column')) {
+          var colTr = t.closest('tr[data-column-row]');
+          if (colTr) { colTr.parentNode.removeChild(colTr); refreshPreview(); }
         }
       });
+      tbody.addEventListener('change', function (e) {
+        var t = e.target;
+        // Type select changed → show/hide the columns sub-row beneath it.
+        if (t && t.tagName === 'SELECT' && /^fieldType_(\\d+)$/.test(t.name)) {
+          var idx = parseInt(t.name.split('_')[1], 10);
+          setColumnsVisibility(idx, t.value === 'table');
+        }
+        refreshPreview();
+      });
       tbody.addEventListener('input', refreshPreview);
-      tbody.addEventListener('change', refreshPreview);
       exampleSel.addEventListener('change', function () {
         if (this.value) { loadExample(this.value); this.value = ''; }
       });
