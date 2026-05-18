@@ -2,6 +2,8 @@ import { formatCriticFeedback, type PlanCriticError } from '../build-plan-critic
 import type { BuildPlan } from '../build-plan-schema.js';
 import type { PlannerTelemetryStore } from '../planner-telemetry-store.js';
 import { formatSmokeFeedback, smokeRunNewAgents, type SmokeRunContext, type SmokeRunResult } from './eval-smoke-run.js';
+import { findSimilarCommittedPlans, type PriorPlanCandidate } from './memory-retrieval.js';
+import type { PlannerMemoryStore } from './memory-store.js';
 import { autofixPlanYamls, evaluatePlan, observePlan, reflectOnEval, step } from './primitives.js';
 import type { LoopOutcome, LoopStepRecord } from './types.js';
 
@@ -33,8 +35,13 @@ function combinedFeedback(criticErrors: PlanCriticError[], smoke: SmokeRunResult
 export interface PlannerLoopRunnerDeps {
   /** Look up the root telemetry row (aliased-runId → root) to count attempts. */
   telemetryStore: PlannerTelemetryStore | undefined;
-  /** Spawn a fresh planner run; returns the new runId or null on failure. */
-  kickoffPlannerRun: (args: { goal: string; criticFeedback: string }) => Promise<string | null>;
+  /**
+   * Spawn a fresh planner run; returns the new runId or null on failure.
+   * Accepts `priorPlans` so the runner's compose step can re-inject memory
+   * on retries (the initial kickoff retrieves on the dashboard route side
+   * before the runner exists).
+   */
+  kickoffPlannerRun: (args: { goal: string; criticFeedback: string; priorPlans?: PriorPlanCandidate[] }) => Promise<string | null>;
   /** Apply the dashboard's YAML autofixer to a single newAgent YAML. */
   autoFixYaml: (yaml: string) => string;
   /** Snapshot of agent-ids the catalog knows about, for critic cross-ref checks. */
@@ -46,6 +53,13 @@ export interface PlannerLoopRunnerDeps {
    * the smoke eval skips its tool-id check.
    */
   loadKnownToolIds?: () => Set<string>;
+  /**
+   * Cross-run planner memory (PR 3). When supplied, the runner's compose
+   * step re-retrieves similar prior plans for the retry — now that the
+   * intent is known via telemetry, retrieval can filter by intent.
+   * Optional — booting without it just skips the understand phase.
+   */
+  memoryStore?: PlannerMemoryStore;
   /** Max *additional* retries after the initial attempt. Default 2 (total 3 tries). */
   maxRetries?: number;
 }
@@ -168,8 +182,28 @@ export class PlannerLoopRunner {
       try { this.deps.telemetryStore?.incrementAttempts(input.runId); } catch { /* swallow */ }
       const goal = rootRow?.goal ?? '';
       const feedback = combinedFeedback(critic.errors, smoke);
+
+      // understand: pull prior committed plans for the *now-known* intent
+      // and inject them on the retry. Skipped silently when memory store
+      // wasn't supplied or no candidates pass the similarity floor.
+      let priorPlans: PriorPlanCandidate[] = [];
+      if (this.deps.memoryStore && goal) {
+        const understandStart = Date.now();
+        priorPlans = findSimilarCommittedPlans(this.deps.memoryStore, { goal, intent: plan.intent });
+        steps.push(step({
+          phase: 'understand',
+          primitive: 'findSimilarCommittedPlans',
+          runId: input.runId,
+          ok: true,
+          summary: priorPlans.length > 0
+            ? `retrieved ${priorPlans.length} prior plan(s) for intent=${plan.intent}`
+            : `no prior plans matched (intent=${plan.intent})`,
+          tookMs: Date.now() - understandStart,
+        }));
+      }
+
       const composeStart = Date.now();
-      const retryRunId = await this.deps.kickoffPlannerRun({ goal, criticFeedback: feedback });
+      const retryRunId = await this.deps.kickoffPlannerRun({ goal, criticFeedback: feedback, priorPlans });
       steps.push(step({
         phase: 'compose',
         primitive: 'kickoffPlannerRun',

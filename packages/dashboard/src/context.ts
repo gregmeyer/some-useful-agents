@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -103,6 +103,13 @@ export interface DashboardContext {
    * — booting without it keeps the loop running, just without observability.
    */
   plannerLoopStepLogStore?: PlannerLoopStepLogStore;
+  /**
+   * Cross-run planner memory (PR 3 of the planner refactor). One row per
+   * committed plan. Feeds the `understand` phase via Jaccard retrieval.
+   * Optional — booting without it is a no-op (planner just doesn't see
+   * prior plans).
+   */
+  plannerMemoryStore?: PlannerMemoryStore;
   /**
    * Active DAG runs with their AbortControllers. Used by POST /runs/:id/cancel
    * to signal cancellation to the executor. Entries are added when a run starts

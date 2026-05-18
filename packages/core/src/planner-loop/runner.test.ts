@@ -262,6 +262,64 @@ describe('PlannerLoopRunner', () => {
     expect(telemetry.calls.smoke[0]).toMatchObject({ status: 'failed', errors: 1 });
   });
 
+  it('records an understand step + retrieves prior plans before retrying', async () => {
+    // Use a memory store seeded with a similar prior plan; the runner's
+    // compose phase should retrieve it and pass it through to kickoff.
+    const { PlannerMemoryStore } = await import('./memory-store.js');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'runner-mem-'));
+    const memoryStore = new PlannerMemoryStore(join(dir, 'mem.db'));
+    try {
+      memoryStore.recordCommit({
+        runId: 'prior-1',
+        goal: 'broken yaml agent',
+        intent: 'agent',
+        plan: { ...TRIVIAL_PLAN, newAgents: [] },
+        attempts: 1,
+      });
+      const planWithBadYaml: BuildPlan = {
+        ...TRIVIAL_PLAN,
+        newAgents: [{ id: 'broken', purpose: 'p', yaml: '!!!not valid yaml at all' }],
+      };
+      // Telemetry returns a goal that overlaps with the prior memory entry.
+      const tele = stubTelemetry();
+      // Seed telemetry's get() to surface 'broken yaml agent' as the goal.
+      tele.get = ((runId: string) => ({
+        runId, planAttempts: 1, goal: 'broken yaml agent', intent: 'agent',
+        createdAt: new Date().toISOString(),
+        planExtractStatus: 'pending', planValidationErrors: 0, planAutofixCount: 0,
+        timeToPlanMs: null, timeToCommitMs: null, committedAt: null,
+      })) as typeof tele.get;
+      const kickoff = vi.fn(async () => 'retry-mem');
+      const runner = new PlannerLoopRunner({
+        telemetryStore: tele,
+        kickoffPlannerRun: kickoff,
+        autoFixYaml: (yaml: string) => yaml,
+        loadExistingAgentIds: () => new Set(),
+        memoryStore,
+        maxRetries: 2,
+      });
+      const out = await runner.advance({
+        runId: 'r-mem-1',
+        runResult: wrapInPlan(planWithBadYaml),
+        planMs: 1,
+      });
+      expect(out.kind).toBe('retrying');
+      const understandStep = out.steps.find((s) => s.phase === 'understand');
+      expect(understandStep).toBeDefined();
+      expect(understandStep!.summary).toContain('retrieved 1 prior plan');
+      // Kickoff received the priorPlans candidates.
+      const arg = (kickoff.mock.calls[0] as unknown as [{ priorPlans?: unknown[] }])[0];
+      expect(Array.isArray(arg.priorPlans)).toBe(true);
+      expect(arg.priorPlans).toHaveLength(1);
+    } finally {
+      memoryStore.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('combines critic + smoke feedback when both fail', async () => {
     // Plan: newAgent YAML doesn't parse (critic catches via parseAgent) AND
     // we'd flag a tool issue — but since parse fails, smoke's tool check
