@@ -126,6 +126,33 @@ describe('layoutPlanSchema', () => {
     expect(r.success).toBe(false);
   });
 
+  it('accepts system-tile ids (leading underscore) in container.tiles', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      containers: [
+        { label: 'Health', tiles: ['_system-runs-today', '_system-failure-rate'] },
+        { label: 'Agents', tiles: ['api-monitor', 'weather-forecast'] },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('still rejects malformed tile ids that are neither agents nor system tiles', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      containers: [{ label: 'Bad', tiles: ['Has Spaces'] }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects leading underscore in topAgents.id (real agents only)', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [{ id: '_system-runs-today', rationale: 'a' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('requires a non-empty summary', () => {
     const r = layoutPlanSchema.safeParse({ ...validPlan, summary: '' });
     expect(r.success).toBe(false);
