@@ -59,7 +59,13 @@ function isVisibleOnPulse(agent: Agent): boolean {
  * for typical installs.
  */
 function gatherAgentMetadata(ctx: ReturnType<typeof getContext>, now: number): LayoutSuggestionAgent[] {
-  const agents = ctx.agentStore.listAgents().filter(isVisibleOnPulse);
+  const all = ctx.agentStore.listAgents();
+  const agents = all.filter(isVisibleOnPulse);
+  // Available = installed agents that COULD render on Pulse (have a
+  // signal block) but are currently hidden. The planner can surface
+  // them via `toAdd`. Agents with no signal block are skipped — they
+  // can't render as Pulse tiles regardless.
+  const availableAgents = all.filter((a) => a.signal && !isVisibleOnPulse(a));
   // Pull the recent run window once.
   let recent: Array<{ agentName: string; status: string; startedAt: string }> = [];
   try {
@@ -96,7 +102,7 @@ function gatherAgentMetadata(ctx: ReturnType<typeof getContext>, now: number): L
     /* run store unavailable */
   }
 
-  return agents.map((a) => {
+  const members = agents.map((a) => {
     const cell = byAgent.get(a.id);
     const allTime = allTimeLast.get(a.id);
     const lastTs = cell?.last ?? allTime;
@@ -113,6 +119,20 @@ function gatherAgentMetadata(ctx: ReturnType<typeof getContext>, now: number): L
     }
     return out;
   });
+
+  const available = availableAgents.map((a) => {
+    const row: LayoutSuggestionAgent = {
+      id: a.id,
+      title: a.signal?.title,
+      available: true,
+    };
+    if (a.description) row.description = a.description;
+    const allTime = allTimeLast.get(a.id);
+    if (allTime !== undefined) row.lastRunAt = new Date(allTime).toISOString();
+    return row;
+  });
+
+  return [...members, ...available];
 }
 
 function parseCurrentLayout(body: Record<string, unknown>): CurrentLayout | null {
@@ -227,7 +247,7 @@ pulseLayoutPlanRouter.post('/pulse/layout-plan', async (req: Request, res: Respo
   }
 
   if (agentMetadata.length === 0) {
-    res.json({ ok: false, error: 'No visible agents on Pulse — nothing to lay out. Create an agent first.' });
+    res.json({ ok: false, error: 'No agents installed — nothing to lay out. Create an agent first.' });
     return;
   }
 
@@ -322,6 +342,9 @@ pulseLayoutPlanRouter.get('/pulse/layout-plan/:runId', (req: Request, res: Respo
  *
  * Body: { containers: Array<{ label, tiles: string[] }> }
  * Returns: { ok, hidden: string[], unhidden: string[] }
+ *
+ * `unhidden` doubles as the "added to surface" list — Path A surfaces
+ * installed-but-hidden agents by flipping pulseVisible:true.
  */
 pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);

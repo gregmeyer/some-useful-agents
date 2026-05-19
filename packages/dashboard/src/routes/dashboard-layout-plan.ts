@@ -71,7 +71,8 @@ function gatherDashboardAgentMetadata(
   for (const section of dashboard.layout.sections) {
     for (const id of section.agentIds) memberIds.add(id);
   }
-  if (memberIds.size === 0) return [];
+  // No early return on empty dashboards — the planner can still suggest
+  // adding installed agents via `toAdd`.
 
   // Pull recent run window once and aggregate by agent.
   let recent: Array<{ agentName: string; status: string; startedAt: string }> = [];
@@ -129,6 +130,21 @@ function gatherDashboardAgentMetadata(
     } else {
       row.runCount30d = 0;
     }
+    out.push(row);
+  }
+
+  // Available agents: installed and renderable (have a signal block) but
+  // not currently a member of this dashboard. The planner may surface
+  // them via `toAdd`; the commit step appends them into containers.
+  for (const agent of ctx.agentStore.listAgents()) {
+    if (memberIds.has(agent.id)) continue;
+    if (!agent.signal) continue;
+    const row: LayoutSuggestionAgent = {
+      id: agent.id,
+      title: agent.signal.title,
+      available: true,
+    };
+    if (agent.description) row.description = agent.description;
     out.push(row);
   }
   return out;
@@ -239,7 +255,7 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan', async (req: Reques
   }
 
   if (agentMetadata.length === 0) {
-    res.json({ ok: false, error: 'This dashboard has no renderable agents to lay out. Add tiles first via the Add tile button.' });
+    res.json({ ok: false, error: 'No installed agents with a Pulse signal — create one before planning a layout.' });
     return;
   }
 
@@ -337,8 +353,10 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
   const containersRaw = Array.isArray(body.containers) ? body.containers : [];
 
   // Build the new section list from the plan's containers, filtering
-  // out system tiles and de-duplicating ids.
+  // out system tiles, de-duplicating ids, and dropping ids that don't
+  // resolve to a real installed agent (phantom suggestions from the LLM).
   const seenIds = new Set<string>();
+  const skippedUnknown: string[] = [];
   const newSections: Array<{ title: string; agentIds: string[] }> = [];
   for (const c of containersRaw) {
     if (!c || typeof c !== 'object') continue;
@@ -354,22 +372,32 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
       if (typeof t !== 'string') continue;
       if (t.startsWith('_')) continue; // skip Pulse system tiles
       if (seenIds.has(t)) continue;
+      if (!ctx.agentStore.getAgent(t)) {
+        skippedUnknown.push(t);
+        continue;
+      }
       seenIds.add(t);
       ids.push(t);
     }
     if (ids.length > 0) newSections.push({ title: label, agentIds: ids });
   }
 
-  // Compute removed/retained vs the prior membership for the response.
+  // Compute removed/retained/added vs the prior membership for the
+  // response. `added` is the newly-surfaced delta (installed agents
+  // that weren't on this dashboard before but are now).
   const priorIds = new Set<string>();
   for (const s of dashboard.layout.sections) {
     for (const id of s.agentIds) priorIds.add(id);
   }
   const retained: string[] = [];
   const removed: string[] = [];
+  const added: string[] = [];
   for (const id of priorIds) {
     if (seenIds.has(id)) retained.push(id);
     else removed.push(id);
+  }
+  for (const id of seenIds) {
+    if (!priorIds.has(id)) added.push(id);
   }
 
   if (newSections.length === 0) {
@@ -389,7 +417,7 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
     return;
   }
 
-  res.json({ ok: true, removed, retained });
+  res.json({ ok: true, removed, retained, added, skippedUnknown });
 });
 
 // Reference unused imports defensively to keep tsc-clean if a future

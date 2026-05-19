@@ -68,6 +68,16 @@ export const layoutPlanSchema = z.object({
     /** When set, render as a select instead of a free-form textarea. */
     options: z.array(z.string().min(1)).optional(),
   })).default([]),
+
+  /**
+   * Installed-but-not-yet-on-this-surface agents the planner is bringing
+   * onto the surface. Declarative signal — the commit step also infers
+   * the same agents from container membership, so this field is for UI
+   * affordance ("Will add N agents") and contract clarity. Every id here
+   * MUST also appear in some container's `tiles[]`.
+   */
+  toAdd: z.array(z.string().regex(AGENT_ID_RE, 'toAdd[] must be a valid agent id'))
+    .default([]),
 }).superRefine((plan, ctx) => {
   // Tiles must reference agents declared in topAgents OR be marked as
   // additional context (full agent metadata reaches the planner; the
@@ -120,6 +130,30 @@ export const layoutPlanSchema = z.object({
       });
     } else {
       seenAgents.set(a.id, aIdx);
+    }
+  });
+
+  // toAdd entries must be unique AND must be placed in some container —
+  // declaring an agent in toAdd but not placing it would leave it
+  // unsurfaced even though the planner said it wanted to add it.
+  const seenToAdd = new Map<string, number>();
+  plan.toAdd.forEach((id, idx) => {
+    const prev = seenToAdd.get(id);
+    if (prev !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['toAdd', idx],
+        message: `toAdd[${idx}] "${id}" duplicates toAdd[${prev}]`,
+      });
+      return;
+    }
+    seenToAdd.set(id, idx);
+    if (!seenTiles.has(id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['toAdd', idx],
+        message: `toAdd[${idx}] "${id}" is not placed in any container — every added agent must be assigned to a container`,
+      });
     }
   });
 });

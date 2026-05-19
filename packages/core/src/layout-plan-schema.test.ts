@@ -157,4 +157,45 @@ describe('layoutPlanSchema', () => {
     const r = layoutPlanSchema.safeParse({ ...validPlan, summary: '' });
     expect(r.success).toBe(false);
   });
+
+  it('defaults toAdd to an empty array when omitted', () => {
+    const r = layoutPlanSchema.safeParse(validPlan);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.toAdd).toEqual([]);
+  });
+
+  it('accepts toAdd when every id is placed in a container', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      containers: [
+        { label: 'Monitoring', tiles: ['api-monitor'] },
+        { label: 'Personal', tiles: ['weather-forecast', 'stock-ticker'] },
+      ],
+      toAdd: ['stock-ticker'],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects toAdd ids that are not placed in any container', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      toAdd: ['phantom-agent'],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.message.includes('not placed in any container'))).toBe(true);
+    }
+  });
+
+  it('rejects duplicate toAdd ids', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      containers: [
+        { label: 'Monitoring', tiles: ['api-monitor', 'stock-ticker'] },
+        { label: 'Personal', tiles: ['weather-forecast'] },
+      ],
+      toAdd: ['stock-ticker', 'stock-ticker'],
+    });
+    expect(r.success).toBe(false);
+  });
 });
