@@ -129,13 +129,15 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   // pulseVisible takes precedence when set.
   for (const agent of agents) {
     if (!agent.signal) continue;
-    const tile = buildTile(agent as Agent & { signal: AgentSignal }, ctx);
     const pulseHidden = agent.pulseVisible === false
       || (agent.pulseVisible === undefined && agent.signal.hidden === true);
     if (pulseHidden) {
-      hiddenTiles.push(tile);
+      // Hidden agents are surfaced only as a count + bulk-restore link
+      // in the view — skip the (expensive) buildTile call so the page
+      // doesn't load their data needlessly.
+      hiddenTiles.push({} as unknown as typeof tiles[number]);
     } else {
-      tiles.push(tile);
+      tiles.push(buildTile(agent as Agent & { signal: AgentSignal }, ctx));
     }
   }
 

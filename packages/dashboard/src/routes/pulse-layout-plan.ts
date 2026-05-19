@@ -39,13 +39,17 @@ const STALE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /**
- * True when the agent should be considered by the layout planner.
- * Excludes archived/draft agents and any explicitly hidden from Pulse.
+ * True when the agent currently renders as a tile on the Pulse grid.
+ * Mirrors the filter in the /pulse route exactly — anything that route
+ * shows, curation should be able to hide; anything it doesn't show,
+ * curation has nothing to do with. Notably: status (archived/draft) is
+ * NOT a filter in the Pulse route, so we don't filter on it here.
+ * Agents without a signal are skipped because they can't render at all.
  */
 function isVisibleOnPulse(agent: Agent): boolean {
-  if (agent.status === 'archived' || agent.status === 'draft') return false;
+  if (!agent.signal) return false;
   if (agent.pulseVisible === false) return false;
-  if (agent.signal?.hidden === true) return false;
+  if (agent.pulseVisible === undefined && agent.signal.hidden === true) return false;
   return true;
 }
 
@@ -340,10 +344,11 @@ pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Resp
   try { agents = ctx.agentStore.listAgents(); } catch { agents = []; }
 
   for (const agent of agents) {
-    // Skip agents without a signal — they're not eligible for Pulse anyway.
+    // Agents without a signal can never render on Pulse — nothing to do.
+    // We deliberately DO NOT skip archived/draft here: the Pulse route's
+    // visibility filter is (signal && pulseVisible), not status, so
+    // curation needs to be able to hide them just like any other tile.
     if (!agent.signal) continue;
-    // Skip archived/draft — same reason.
-    if (agent.status === 'archived' || agent.status === 'draft') continue;
 
     const currentlyVisible = agent.pulseVisible !== false
       && !(agent.pulseVisible === undefined && agent.signal.hidden === true);
