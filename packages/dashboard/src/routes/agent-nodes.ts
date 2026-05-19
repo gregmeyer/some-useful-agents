@@ -18,6 +18,7 @@ import { renderAgentYaml } from '../views/agent-detail-v2.js';
 import { getContext } from '../context.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
 import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
+import { parseLlmOptions } from '../views/llm-options.js';
 import { autoFixYaml } from './run-now-build.js';
 
 export const agentNodesRouter: Router = Router();
@@ -67,6 +68,10 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
+    provider: typeof body.provider === 'string' ? body.provider : undefined,
+    model: typeof body.model === 'string' ? body.model : undefined,
+    maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
+    allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
   };
 
   // Validate.
@@ -133,10 +138,20 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
       },
       ...(dependsOn.length > 0 ? { dependsOn } : {}),
     };
+  } else if (nodeType === 'shell') {
+    newNode = { id: values.id!, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
   } else {
-    newNode = nodeType === 'shell'
-      ? { id: values.id!, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) }
-      : { id: values.id!, type: 'llm-prompt' as const, prompt: values.prompt!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+    const llm = parseLlmOptions(body);
+    newNode = {
+      id: values.id!,
+      type: 'llm-prompt' as const,
+      prompt: values.prompt!,
+      ...(dependsOn.length > 0 ? { dependsOn } : {}),
+      ...(llm.provider ? { provider: llm.provider } : {}),
+      ...(llm.model ? { model: llm.model } : {}),
+      ...(llm.maxTurns ? { maxTurns: llm.maxTurns } : {}),
+      ...(llm.allowedTools ? { allowedTools: llm.allowedTools } : {}),
+    };
   }
 
   try {
@@ -199,6 +214,10 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
+    provider: typeof body.provider === 'string' ? body.provider : undefined,
+    model: typeof body.model === 'string' ? body.model : undefined,
+    maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
+    allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
   };
 
   // Every declared dependency must be a node that's not the current
@@ -239,16 +258,34 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   }
 
   // Build the updated node. Preserve any fields we don't let the form
-  // edit (inputs, secrets, env, envAllowlist, allowedTools, model,
-  // maxTurns, timeout, redactSecrets, position) — those come back in
-  // a follow-up when the inspector can render them.
-  const provider = typeof body.provider === 'string' && ['claude', 'codex'].includes(body.provider)
-    ? body.provider as 'claude' | 'codex'
-    : undefined;
+  // edit (inputs, secrets, env, envAllowlist, timeout, redactSecrets,
+  // position) — those come back in a follow-up when the inspector can
+  // render them.
+  const llm = parseLlmOptions(body);
 
   const updatedNode = values.type === 'shell'
-    ? { ...node, type: 'shell' as const, command: values.command!, prompt: undefined, provider: undefined, ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) }
-    : { ...node, type: 'llm-prompt' as const, prompt: values.prompt!, command: undefined, ...(provider ? { provider } : {}), ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }) };
+    ? {
+        ...node,
+        type: 'shell' as const,
+        command: values.command!,
+        prompt: undefined,
+        provider: undefined,
+        model: undefined,
+        maxTurns: undefined,
+        allowedTools: undefined,
+        ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
+      }
+    : {
+        ...node,
+        type: 'llm-prompt' as const,
+        prompt: values.prompt!,
+        command: undefined,
+        provider: llm.provider,
+        model: llm.model,
+        maxTurns: llm.maxTurns,
+        allowedTools: llm.allowedTools,
+        ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
+      };
 
   const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? updatedNode : n);
 
