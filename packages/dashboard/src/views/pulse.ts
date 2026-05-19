@@ -209,20 +209,13 @@ export function renderPulsePage(input: PulsePageInput): string {
     </div>
 
     ${hiddenCount > 0 ? html`
-      <details class="pulse-hidden-section" style="margin-top: var(--space-6);">
-        <summary style="cursor: pointer; font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted);">
-          ${String(hiddenCount)} hidden signal${hiddenCount !== 1 ? 's' : ''}
-        </summary>
-        <div style="display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3);">
-          ${hiddenTiles.map((t) => html`
-            <form method="POST" action="/agents/${t.agent.id}/signal/toggle" style="margin: 0; display: inline;">
-              <button type="submit" class="btn btn--ghost btn--sm" style="font-family: var(--font-mono);">
-                ${t.signal.icon ?? ''} ${t.signal.title} (${t.agent.id})
-              </button>
-            </form>
-          `) as unknown as SafeHtml[]}
-        </div>
-      </details>
+      <div class="pulse-hidden-section" style="margin-top: var(--space-6); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted);">
+        <span>${String(hiddenCount)} signal${hiddenCount !== 1 ? 's' : ''} hidden from Pulse.</span>
+        <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;">
+          <button type="submit" class="btn btn--ghost btn--sm">Show all</button>
+        </form>
+        <a class="btn btn--ghost btn--sm" href="/agents">Manage in /agents</a>
+      </div>
     ` : html``}
 
     ${improveLayoutModal()}
