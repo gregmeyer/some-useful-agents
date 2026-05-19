@@ -156,6 +156,15 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
 
       for (var ci = 0; ci < layout.containers.length; ci++) {
         var c = layout.containers[ci];
+        // Skip containers whose every tile is missing from the rendered
+        // set (e.g. agents the planner included but which have no
+        // signal, or now-hidden agents whose ids linger in the saved
+        // layout). Edit mode keeps them visible so the user can drag.
+        if (!editMode) {
+          var anyRendered = false;
+          for (var ck = 0; ck < c.tiles.length; ck++) { if (tileEls[c.tiles[ck]]) { anyRendered = true; break; } }
+          if (!anyRendered) continue;
+        }
         var section = document.createElement('section');
         section.className = 'pulse-container';
         section.setAttribute('data-container-id', c.id);

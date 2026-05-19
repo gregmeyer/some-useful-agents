@@ -118,6 +118,18 @@ nodes:
         container that scoops up the leftovers. Agents not assigned to
         a real container will be hidden. If you want an agent visible,
         put it in a container with a meaningful label.
+      - **ORDER CONTAINERS BY GLANCE-VALUE — TOP TO BOTTOM.** The wizard
+        renders containers in array order. Put the things the user wants
+        to see *first thing* near the top: daily digests, news, weather,
+        anything they check every morning. Engineering / admin / infra
+        containers go LOWER. System tiles (Pulse synthetics) usually
+        anchor either the very top OR the very bottom — pick one based
+        on whether the user's FOCUS reads "I want stats first" or "I
+        want content first". Don't bury system tiles in the middle.
+      - **NEVER include an agent id in a container if its AGENT_METADATA
+        entry is absent OR has no `title`.** Those agents don't have a
+        Pulse signal block and can't render as tiles — placing them in a
+        container leaves it visually empty.
       - Tiles can be EITHER agent ids (lowercase-with-dashes, from
         AGENT_METADATA) OR system tiles (Pulse-synthetic widgets in
         CURRENT_LAYOUT with a leading underscore: "_system-runs-today",
