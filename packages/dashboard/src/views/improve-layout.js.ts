@@ -305,8 +305,10 @@ export const IMPROVE_LAYOUT_JS = `
         '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="improve-update-btn">Update plan</button></div></div>';
     }
 
-    // Compute which agents will be hidden: every visible agent that
+    // Compute which agents will be hidden: every MEMBER agent that
     // isn't referenced by any container (system tiles excluded).
+    // Available agents aren't "hidden" if un-surfaced — they were
+    // never on this surface to begin with.
     var surfacedSet = {};
     (plan.containers || []).forEach(function (c) {
       (c.tiles || []).forEach(function (t) {
@@ -317,9 +319,38 @@ export const IMPROVE_LAYOUT_JS = `
     if (Array.isArray(cachedAgentMetadata)) {
       for (var hi = 0; hi < cachedAgentMetadata.length; hi++) {
         var ai = cachedAgentMetadata[hi];
-        if (ai && ai.id && !surfacedSet[ai.id]) willHide.push(ai.id);
+        if (!ai || !ai.id || ai.available) continue;
+        if (!surfacedSet[ai.id]) willHide.push(ai.id);
       }
     }
+
+    // willAdd: the plan's toAdd[] — installed-but-not-here agents
+    // being brought onto this surface. Falls back to inferring from
+    // container membership when toAdd is empty (older plans).
+    var willAdd = [];
+    if (Array.isArray(plan.toAdd) && plan.toAdd.length > 0) {
+      willAdd = plan.toAdd.filter(function (id) { return typeof id === 'string' && id.charAt(0) !== '_'; });
+    } else if (Array.isArray(cachedAgentMetadata)) {
+      for (var ai2 = 0; ai2 < cachedAgentMetadata.length; ai2++) {
+        var m = cachedAgentMetadata[ai2];
+        if (m && m.available && m.id && surfacedSet[m.id]) willAdd.push(m.id);
+      }
+    }
+    var willAddHtml = '';
+    if (willAdd.length > 0) {
+      var addList = willAdd.map(function (id) { return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(id) + '</code>'; }).join(' ');
+      var addBucket = CURATE_VERB === 'remove' ? 'this dashboard' : 'Pulse';
+      willAddHtml =
+        '<details style="margin:var(--space-3) 0;padding:var(--space-2) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+        '<summary style="cursor:pointer;font-size:var(--font-size-sm);">' +
+        '<strong>Will add ' + willAdd.length + ' agent' + (willAdd.length === 1 ? '' : 's') + ' to ' + addBucket + '</strong> ' +
+        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">' +
+          '(installed but not yet on this surface)' +
+        '</span>' +
+        '</summary>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2);">' + addList + '</div></details>';
+    }
+
     var willHideHtml = '';
     if (willHide.length > 0) {
       var hideList = willHide.map(function (id) { return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(id) + '</code>'; }).join(' ');
@@ -344,6 +375,7 @@ export const IMPROVE_LAYOUT_JS = `
       '<div style="margin-bottom:var(--space-4);">' + topRows + '</div>' +
       '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Containers</div>' +
       '<div style="margin-bottom:var(--space-2);">' + containerRows + '</div>' +
+      willAddHtml +
       willHideHtml +
       questionsHtml +
       '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;">' +

@@ -22,6 +22,15 @@ export interface LayoutSuggestionAgent {
   successRate?: number | null;
   /** Count of runs in the last 30 days. */
   runCount30d?: number | null;
+  /**
+   * True when this agent is installed but not yet on the current surface —
+   * the planner may surface it via `toAdd`. False/omitted means already
+   * on this surface (a "member"). Pill heuristics ignore available
+   * agents; only the LLM planner sees them.
+   */
+  available?: boolean;
+  /** Short description from the agent metadata, used by the planner to match available agents against FOCUS. */
+  description?: string;
 }
 
 export interface CurrentLayout {
@@ -183,7 +192,10 @@ export function computeLayoutSuggestions(
   layout: CurrentLayout | null,
   now: number = Date.now(),
 ): LayoutSuggestion[] {
-  const dynamic = computeDynamicSuggestions(agents, layout, now);
+  // Pill heuristics only consider members (already on this surface).
+  // Available-but-not-here agents are LLM-only signal.
+  const members = agents.filter((a) => !a.available);
+  const dynamic = computeDynamicSuggestions(members, layout, now);
   const remaining = MAX_SUGGESTIONS - dynamic.length;
   const fillers = STATIC_SUGGESTIONS.slice(0, Math.max(0, remaining));
   return [...dynamic, ...fillers];
