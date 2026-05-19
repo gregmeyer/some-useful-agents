@@ -136,7 +136,7 @@ export const IMPROVE_LAYOUT_JS = `
     .then(function (start) {
       if (!start.ok || !start.runId) {
         clearInterval(tickTimer);
-        renderError(start.error || 'Failed to start layout planner');
+        renderError({ message: start.error || 'Failed to start layout planner' });
         return;
       }
       runId = start.runId;
@@ -161,35 +161,100 @@ export const IMPROVE_LAYOUT_JS = `
             if (data.status === 'done' && data.plan) {
               renderPlan(data.plan);
             } else {
-              var bits = [data.error || 'Layout planner failed'];
-              if (Array.isArray(data.validationErrors) && data.validationErrors.length) {
-                bits.push('Schema issues:');
-                for (var i = 0; i < data.validationErrors.length; i++) bits.push('  - ' + data.validationErrors[i]);
-              }
-              renderError(bits.join('\\n'));
+              renderError({
+                message: data.error || 'Layout planner failed',
+                validationErrors: Array.isArray(data.validationErrors) ? data.validationErrors : [],
+                rawResult: typeof data.rawResult === 'string' ? data.rawResult : '',
+              });
             }
           })
           .catch(function (e) {
             clearInterval(tickTimer);
-            renderError('Network error: ' + (e && e.message ? e.message : 'unknown'));
+            renderError({ message: 'Network error: ' + (e && e.message ? e.message : 'unknown') });
           });
       }
       pollTimer = setTimeout(poll, 800);
     })
     .catch(function (e) {
       clearInterval(tickTimer);
-      renderError('Network error: ' + (e && e.message ? e.message : 'unknown'));
+      renderError({ message: 'Network error: ' + (e && e.message ? e.message : 'unknown') });
     });
   }
 
-  function renderError(msg) {
+  /**
+   * Render the failure screen with a feedback textarea + Retry button.
+   * \`info\` shape: { message, validationErrors?: string[], rawResult?: string }
+   * On retry, the focus passed to the next planner run is:
+   *   lastFocus
+   *   + "Previous attempt failed validation:\\n  - <error>\\n  - <error>"
+   *   + "User feedback:\\n  <textarea value>"
+   * so the LLM sees exactly which schema rules it broke + the user's
+   * suggested correction.
+   */
+  function renderError(info) {
+    if (typeof info === 'string') info = { message: info };
+    var validation = Array.isArray(info.validationErrors) ? info.validationErrors : [];
+    var rawResult = typeof info.rawResult === 'string' ? info.rawResult : '';
+
+    var errorBlock =
+      '<pre style="white-space:pre-wrap;font-size:var(--font-size-xs);color:var(--color-text-muted);background:var(--color-surface-raised);padding:var(--space-3);border-radius:var(--radius-sm);max-height:30vh;overflow:auto;margin:0;">' + esc(info.message || 'Layout planner failed') + '</pre>';
+
+    var validationBlock = '';
+    if (validation.length > 0) {
+      var listItems = validation.map(function (v) { return '<li style="margin:0;">' + esc(v) + '</li>'; }).join('');
+      validationBlock =
+        '<div style="margin-top:var(--space-3);">' +
+        '<div style="font-size:var(--font-size-xs);font-weight:var(--weight-semibold);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Schema issues</div>' +
+        '<ul style="margin:0;padding-left:var(--space-4);font-family:var(--font-mono);font-size:var(--font-size-xs);">' + listItems + '</ul></div>';
+    }
+
+    var rawBlock = '';
+    if (rawResult) {
+      rawBlock =
+        '<details style="margin-top:var(--space-3);">' +
+        '<summary class="dim" style="cursor:pointer;font-size:var(--font-size-xs);">Show raw planner output</summary>' +
+        '<pre style="white-space:pre-wrap;font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:var(--space-2);border-radius:var(--radius-sm);max-height:30vh;overflow:auto;margin-top:var(--space-1);">' + esc(rawResult) + '</pre></details>';
+    }
+
+    // Pre-fill the feedback textarea with the validation issues as a hint
+    // so the user has signal about what to ask the planner to change.
+    var prefill = validation.length > 0
+      ? 'The previous plan had these schema issues:\\n' + validation.map(function (v) { return '  - ' + v; }).join('\\n') + '\\n\\nFix them by '
+      : '';
+
     content.innerHTML =
       '<div style="padding:var(--space-4);">' +
       '<h3 style="margin:0 0 var(--space-3);">Layout planning failed</h3>' +
-      '<pre style="white-space:pre-wrap;font-size:var(--font-size-xs);color:var(--color-text-muted);background:var(--color-surface-raised);padding:var(--space-3);border-radius:var(--radius-sm);max-height:40vh;overflow:auto;">' + esc(msg) + '</pre>' +
-      '<div style="margin-top:var(--space-3);text-align:right;">' +
-        '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Close</button>' +
-      '</div></div>';
+      errorBlock +
+      validationBlock +
+      rawBlock +
+      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);">' +
+      '<label style="display:flex;flex-direction:column;gap:var(--space-1);">' +
+      '<strong style="font-size:var(--font-size-sm);">Feedback for the planner <span class="dim" style="font-weight:var(--weight-regular);">(optional)</span></strong>' +
+      '<textarea id="improve-retry-feedback" rows="4" style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);resize:vertical;font-family:inherit;" placeholder="Tell the planner what to fix or do differently...">' + esc(prefill) + '</textarea>' +
+      '</label>' +
+      '<div style="display:flex;gap:var(--space-2);justify-content:flex-end;margin-top:var(--space-3);">' +
+      '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Close</button>' +
+      '<button type="button" class="btn btn--primary btn--sm" id="improve-retry-btn">Retry with feedback</button>' +
+      '</div></div></div>';
+
+    var retryBtn = document.getElementById('improve-retry-btn');
+    if (retryBtn) retryBtn.addEventListener('click', function () {
+      var ta = document.getElementById('improve-retry-feedback');
+      var feedback = ta ? (ta.value || '').trim() : '';
+      // Build the next focus: original + validation context + user feedback.
+      // Skip the validation block if the original error wasn't validation-shaped.
+      var parts = [];
+      if (lastFocus) parts.push(lastFocus);
+      if (validation.length > 0) {
+        parts.push('Previous attempt failed validation. Issues:\\n' + validation.map(function (v) { return '  - ' + v; }).join('\\n'));
+      } else if (info.message) {
+        parts.push('Previous attempt failed: ' + info.message);
+      }
+      if (feedback) parts.push('User feedback:\\n' + feedback);
+      var combined = parts.join('\\n\\n');
+      runPlanner(combined);
+    });
   }
 
   function renderPlan(plan) {
