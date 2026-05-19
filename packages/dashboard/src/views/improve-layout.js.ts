@@ -297,6 +297,33 @@ export const IMPROVE_LAYOUT_JS = `
         '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="improve-update-btn">Update plan</button></div></div>';
     }
 
+    // Compute which agents will be hidden: every visible agent that
+    // isn't referenced by any container (system tiles excluded).
+    var surfacedSet = {};
+    (plan.containers || []).forEach(function (c) {
+      (c.tiles || []).forEach(function (t) {
+        if (typeof t === 'string' && t.charAt(0) !== '_') surfacedSet[t] = true;
+      });
+    });
+    var willHide = [];
+    if (Array.isArray(cachedAgentMetadata)) {
+      for (var hi = 0; hi < cachedAgentMetadata.length; hi++) {
+        var ai = cachedAgentMetadata[hi];
+        if (ai && ai.id && !surfacedSet[ai.id]) willHide.push(ai.id);
+      }
+    }
+    var willHideHtml = '';
+    if (willHide.length > 0) {
+      var hideList = willHide.map(function (id) { return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(id) + '</code>'; }).join(' ');
+      willHideHtml =
+        '<details style="margin:var(--space-3) 0;padding:var(--space-2) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+        '<summary style="cursor:pointer;font-size:var(--font-size-sm);">' +
+        '<strong>Will hide ' + willHide.length + ' agent' + (willHide.length === 1 ? '' : 's') + '</strong> ' +
+        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(restore from the "hidden signals" section after applying)</span>' +
+        '</summary>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2);">' + hideList + '</div></details>';
+    }
+
     content.innerHTML =
       '<div style="padding:var(--space-4);">' +
       '<h3 style="margin:0 0 var(--space-2);">Proposed layout</h3>' +
@@ -305,6 +332,7 @@ export const IMPROVE_LAYOUT_JS = `
       '<div style="margin-bottom:var(--space-4);">' + topRows + '</div>' +
       '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Containers</div>' +
       '<div style="margin-bottom:var(--space-2);">' + containerRows + '</div>' +
+      willHideHtml +
       questionsHtml +
       '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;">' +
         '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Cancel</button>' +
@@ -332,7 +360,8 @@ export const IMPROVE_LAYOUT_JS = `
   }
 
   function applyPlan(plan) {
-    // Convert plan.containers → sua-pulse-layout shape, write, reload.
+    // Build the localStorage layout JSON from the plan, preserving any
+    // container ids that already existed under a matching label.
     var existing;
     try { existing = JSON.parse(readLayout() || '{}'); } catch (e) { existing = {}; }
     var containerMap = {};
@@ -351,13 +380,25 @@ export const IMPROVE_LAYOUT_JS = `
       }),
     };
 
-    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch (e) { /* */ }
+    // Tell the server to flip pulseVisible: hide anything not surfaced,
+    // unhide anything previously hidden that's now in a container. This
+    // is the curation half of "Apply". The layout (containers + tile
+    // order) stays client-side in localStorage.
+    var applyBtn = document.getElementById('improve-apply-btn');
+    if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Applying...'; }
 
-    // Best-effort telemetry; ignore the response.
-    fetch('/pulse/layout-plan/commit', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
-
-    closeModal();
-    window.location.reload();
+    fetch('/pulse/layout-plan/commit', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ containers: plan.containers || [] }),
+    })
+    .then(function (r) { return r.json(); })
+    .catch(function () { return {}; })
+    .then(function () {
+      try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch (e) { /* */ }
+      closeModal();
+      window.location.reload();
+    });
   }
 })();
 `;

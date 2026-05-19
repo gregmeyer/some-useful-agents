@@ -90,11 +90,16 @@ nodes:
       - Otherwise, rank by a combination of recency + reliability +
         frequency. Agents that have never run or haven't run in 30+ days
         rank lower.
-      - Emit at most 10 topAgents. Each MUST have a one-line `rationale`
+      - Emit at most 12 topAgents. Each MUST have a one-line `rationale`
         explaining why it's there ("daily run, 98% success" / "matches
         FOCUS=API monitors" / "user-pinned in current layout"). The
         rationale is rendered next to the agent in the UI — keep it
         concise and concrete.
+      - This is a CURATED top list. Agents that don't make the cut will
+        be HIDDEN from Pulse on Apply (their `pulseVisible` flag flips
+        to false; users can restore them from the "hidden signals"
+        section below the grid). Be deliberate — choose the agents
+        worth showing today, not "everything that exists".
       - `suggestedSize` is optional. Default to the agent's existing
         size if set; otherwise pick a size that fits the content:
         - "metric" / "status" templates → 1x1
@@ -109,6 +114,10 @@ nodes:
         agent.
       - Container labels are short, human-readable nouns ("Monitoring",
         "Daily news", "Personal projects"). Capitalize.
+      - DO NOT emit a catch-all "Other" / "Misc" / "Everything else"
+        container that scoops up the leftovers. Agents not assigned to
+        a real container will be hidden. If you want an agent visible,
+        put it in a container with a meaningful label.
       - Tiles can be EITHER agent ids (lowercase-with-dashes, from
         AGENT_METADATA) OR system tiles (Pulse-synthetic widgets in
         CURRENT_LAYOUT with a leading underscore: "_system-runs-today",
@@ -120,10 +129,12 @@ nodes:
       - Each tile belongs to EXACTLY ONE container. Tiles appearing in
         two containers is an error.
       - Container labels must be unique (case-insensitive).
-      - Every agent in topAgents SHOULD be assigned to a container. You
-        MAY also include lower-ranked agents in containers without
-        promoting them to topAgents (e.g. a "Misc" container at the
-        bottom catches everything else).
+      - Every agent in topAgents MUST be assigned to a container.
+      - You MAY include lower-ranked agents (not in topAgents) in
+        containers if they fit the theme — they'll be surfaced too.
+        But keep the total container-tile count modest (~12 agents,
+        plus the four system tiles when present). Anything you omit
+        from containers will be hidden.
       - Honor CURRENT_LAYOUT's container structure when it's clearly
         intentional. If the user already has a "Monitoring" container,
         keep it; don't rename to "Health" for no reason.
@@ -160,7 +171,7 @@ nodes:
           { "label": "Health", "tiles": ["_system-runs-today", "_system-failure-rate", "_system-agent-count", "_system-avg-duration"] },
           { "label": "Monitoring", "tiles": ["api-monitor", "system-health"] },
           { "label": "Daily news", "tiles": ["hn-top-3", "weather-forecast"] },
-          { "label": "Misc", "tiles": ["daily-joke", "cat-video-finder"] }
+          { "label": "Light reading", "tiles": ["daily-joke"] }
         ],
         "questions": [
           {

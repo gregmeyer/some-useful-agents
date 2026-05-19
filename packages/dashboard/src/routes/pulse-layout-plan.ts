@@ -308,11 +308,59 @@ pulseLayoutPlanRouter.get('/pulse/layout-plan/:runId', (req: Request, res: Respo
 });
 
 /**
- * POST /pulse/layout-plan/commit — telemetry no-op. The real "commit"
- * happens client-side when the user clicks Apply (writes to localStorage).
- * Endpoint exists so a future PR can add server-side layout persistence
- * without changing the client contract.
+ * POST /pulse/layout-plan/commit — apply the visibility side of a
+ * LayoutPlan. The CONTAINERS side (which tile lives where) is still
+ * persisted client-side in localStorage; this endpoint handles the
+ * curation side: any agent NOT referenced by any container has its
+ * `pulseVisible` flipped to false; any agent IN a container that was
+ * previously hidden has it flipped back to true. System tiles
+ * (leading-underscore ids) are skipped — they're synthetic.
+ *
+ * Body: { containers: Array<{ label, tiles: string[] }> }
+ * Returns: { ok, hidden: string[], unhidden: string[] }
  */
-pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (_req: Request, res: Response) => {
-  res.json({ ok: true });
+pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const containersRaw = Array.isArray(body.containers) ? body.containers : [];
+
+  const surfacedIds = new Set<string>();
+  for (const c of containersRaw) {
+    if (c && Array.isArray((c as { tiles?: unknown }).tiles)) {
+      for (const t of (c as { tiles: unknown[] }).tiles) {
+        if (typeof t === 'string' && !t.startsWith('_')) surfacedIds.add(t);
+      }
+    }
+  }
+
+  const hidden: string[] = [];
+  const unhidden: string[] = [];
+
+  let agents: Agent[];
+  try { agents = ctx.agentStore.listAgents(); } catch { agents = []; }
+
+  for (const agent of agents) {
+    // Skip agents without a signal — they're not eligible for Pulse anyway.
+    if (!agent.signal) continue;
+    // Skip archived/draft — same reason.
+    if (agent.status === 'archived' || agent.status === 'draft') continue;
+
+    const currentlyVisible = agent.pulseVisible !== false
+      && !(agent.pulseVisible === undefined && agent.signal.hidden === true);
+    const shouldBeVisible = surfacedIds.has(agent.id);
+
+    if (currentlyVisible && !shouldBeVisible) {
+      try {
+        ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
+        hidden.push(agent.id);
+      } catch { /* swallow — best-effort */ }
+    } else if (!currentlyVisible && shouldBeVisible) {
+      try {
+        ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
+        unhidden.push(agent.id);
+      } catch { /* swallow */ }
+    }
+  }
+
+  res.json({ ok: true, hidden, unhidden });
 });
