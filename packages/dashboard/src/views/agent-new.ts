@@ -83,9 +83,12 @@ export function renderAgentNew(args: {
         <textarea name="prompt" rows="4" placeholder="Summarise the attached text." class="form-field__textarea">${v.prompt ?? ''}</textarea>
       </div>
 
-      <details class="mb-4" ${(v.provider || v.model || v.maxTurns || v.allowedTools) ? 'open' : ''}>
-        <summary class="dim text-xs" style="cursor: pointer; padding: var(--space-2) 0;">Advanced LLM options <span class="dim">(llm-prompt agents only)</span></summary>
-        <div style="padding-top: var(--space-2);">
+      <details class="card mb-4" style="padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm);" ${(v.provider || v.model || v.maxTurns || v.allowedTools) ? 'open' : ''}>
+        <summary style="cursor: pointer; font-weight: var(--weight-semibold); padding: var(--space-1) 0;">
+          Advanced LLM options
+          <span class="dim text-xs" style="font-weight: var(--weight-normal); margin-left: var(--space-2);">provider, model, max turns, allowed tools — llm-prompt only</span>
+        </summary>
+        <div style="padding-top: var(--space-3); margin-top: var(--space-2); border-top: 1px solid var(--color-border);">
           ${renderLlmOptions({
             provider: v.provider,
             model: v.model,
