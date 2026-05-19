@@ -5,12 +5,17 @@ import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 import { renderControlFlowSection, isControlFlowNode } from './controlflow-edit.js';
+import { renderLlmOptions } from './llm-options.js';
 
 export interface EditNodeFormValues {
   type?: string;
   command?: string;
   prompt?: string;
   dependsOn?: string[];
+  provider?: string;
+  model?: string;
+  maxTurns?: number | string;
+  allowedTools?: string[] | string;
 }
 
 export function renderAgentEditNode(args: {
@@ -73,16 +78,6 @@ export function renderAgentEditNode(args: {
           ${renderToolInputsSection(node.tool ?? ((v.type === 'claude-code' || v.type === 'llm-prompt') ? 'llm-prompt' : 'shell-exec'), allTools, node.toolInputs as Record<string, unknown> | undefined)}
         `}
 
-      ${node.type === 'claude-code' || node.type === 'llm-prompt' || v.type === 'claude-code' || v.type === 'llm-prompt' ? html`
-        <fieldset class="fieldset">
-          <legend class="fieldset__legend">LLM Provider</legend>
-          <select name="provider" class="form-field__input" style="width: auto;">
-            <option value="claude" ${node.provider !== 'codex' ? 'selected' : ''}>Claude</option>
-            <option value="codex" ${node.provider === 'codex' ? 'selected' : ''}>Codex</option>
-          </select>
-          <span class="dim text-xs" style="margin-left: var(--space-2);">Which LLM CLI to use for this node.</span>
-        </fieldset>
-      ` : html``}
 
       <fieldset class="fieldset">
         <legend class="fieldset__legend">Depends on</legend>
@@ -117,6 +112,12 @@ export function renderAgentEditNode(args: {
               data-palette-source="palette-edit-node">${v.prompt ?? ''}</textarea>
             <span class="form-field__hint">Type <code>{{</code> for available template refs.</span>
           </div>
+          ${renderLlmOptions({
+            provider: submitted?.provider ?? node.provider,
+            model: submitted?.model ?? node.model,
+            maxTurns: submitted?.maxTurns ?? node.maxTurns,
+            allowedTools: submitted?.allowedTools ?? node.allowedTools,
+          })}
         </div>
       </fieldset>
 

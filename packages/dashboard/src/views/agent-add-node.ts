@@ -4,6 +4,7 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
+import { renderLlmOptions } from './llm-options.js';
 import { NODE_PATTERNS } from './node-patterns.js';
 
 function availableVariablesPanel(agent: Agent): SafeHtml {
@@ -57,6 +58,10 @@ export interface AddNodeFormValues {
   command?: string;
   prompt?: string;
   dependsOn?: string[];
+  provider?: string;
+  model?: string;
+  maxTurns?: number | string;
+  allowedTools?: string[] | string;
 }
 
 export function renderAgentAddNode(args: {
@@ -169,6 +174,12 @@ export function renderAgentAddNode(args: {
               data-palette-source="palette-add-node">${v.prompt ?? ''}</textarea>
             <span class="form-field__hint">Type <code>{{</code> for available template refs.</span>
           </div>
+          ${renderLlmOptions({
+            provider: v.provider,
+            model: v.model,
+            maxTurns: v.maxTurns,
+            allowedTools: v.allowedTools,
+          })}
         </div>
       </fieldset>
 
