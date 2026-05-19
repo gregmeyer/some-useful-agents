@@ -157,6 +157,13 @@ export {
   type BuildPlanInput,
 } from './build-plan-schema.js';
 export {
+  layoutPlanSchema,
+  SIGNAL_SIZES,
+  type LayoutPlan,
+  type LayoutPlanInput,
+  type SignalSize,
+} from './layout-plan-schema.js';
+export {
   critiquePlan,
   formatCriticFeedback,
   type PlanCriticError,
