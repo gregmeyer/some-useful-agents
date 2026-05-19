@@ -1,5 +1,967 @@
 # @some-useful-agents/dashboard
 
+## 0.21.0
+
+### Minor Changes
+
+- c1f605a: dashboard: add-tile modal offers two paths to create a new agent
+
+  The add-tile modal on /dashboards/:id now ends with a footer that
+  exposes both paths: **+ Blank agent** (links to /agents/new) and
+  **Build from goal** (opens the existing AI wizard). Picking
+  "Build from goal" closes the add-tile modal and opens the goal
+  wizard on top — the dashboard view now renders the wizard's modal
+  (it was previously only on /agents and /).
+
+- 6459542: Planner refactor PR 4 — generated agents can declare `successCriteria` and run inside an eval loop.
+
+  Closes the 4-PR planner refactor. After PRs 1-3 brought the loop/eval/memory model to the planner itself, this PR extends the same shape to every agent: when an agent declares `successCriteria`, its execution is wrapped in `AgentLoopRunner`, which re-runs the DAG (up to `maxLoopIterations`) with prior-iteration eval feedback in `LOOP_FEEDBACK` until either eval passes or the budget is exhausted.
+
+  **Schema additions** (both optional; absence = single-shot pass-through, no behaviour change for existing agents):
+
+  - `successCriteria: [Criterion]` — discriminated union of `shellExitZero` / `fileExists` / `jsonPathEquals` / `regexMatch`.
+  - `maxLoopIterations: 1..5` — defaults to 1 (criteria evaluated but no retry on failure). Explicit opt-in (≥2) required for retry behaviour.
+
+  **Wiring**:
+
+  - `LocalScheduler.v2Deps` accepts `agentMemoryStore`; scheduled fires go through `executeAgentLoop`.
+  - Dashboard `run-mutations` route (manual retry) routes through `executeAgentLoop`.
+  - CLI `sua schedule start` instantiates `AgentMemoryStore` and threads it in.
+
+  **Each iteration writes one row to `agent_memory`** (root_run_id + iteration as the grouping key), capturing inputs / observations / eval status / failure list.
+
+  **`LOOP_FEEDBACK`** input is automatically populated on iteration 2+; iteration 1 sees an empty string. Agents opt in by referencing `{{inputs.LOOP_FEEDBACK}}` (claude-code) or `$LOOP_FEEDBACK` (shell).
+
+  30 new tests (20 eval-criteria + 3 memory-store + 7 runner). Docs added at `docs/success-criteria.md`. Total of 1420 passing across the 4-PR refactor.
+
+- d72d4e6: agents: declare CSP image-host allowlists via `permissions.imgSrc`
+
+  Agents can now opt their tile widgets into rendering images from external
+  hosts by declaring them in YAML:
+
+  ```yaml
+  permissions:
+    imgSrc:
+      - images.unsplash.com
+      - "*.unsplash.com"
+  ```
+
+  The dashboard middleware merges every active agent's `imgSrc` hosts
+  (prefixed with `https://`) into the page-wide CSP `img-src` directive
+  on each request, with a 5s in-memory cache so the recompute is cheap.
+  Wildcards (`*.example.com`) pass through unchanged — CSP supports them
+  natively. Uninstalling an agent automatically tightens the CSP. Hosts
+  are validated as lowercase host names; schemes/ports aren't accepted.
+
+  Also fixes a Cytoscape deprecation warning on the run-detail DAG view:
+  `width: label` was replaced with a function that sizes nodes from the
+  label length, dropping the console noise.
+
+- 1da69c4: Surface Advanced LLM options on `/agents/new` and tighten the radio copy.
+
+  PR #300 added per-node LLM options (`provider`, `model`, `maxTurns`, `allowedTools`) to the add-node and edit-node forms but missed the initial-create page. This release fills the gap. The four fields sit under a collapsed `<details>` block ("Advanced LLM options") so the common case — a quick prompt, no extras — stays terse, but power users can set allowedTools / model / maxTurns at create time without round-tripping through an edit page.
+
+  Radio copy on `/agents/new` tightened from _"runs an LLM prompt — you have Claude Code and Codex installed"_ to _"runs an LLM prompt (Claude Code, Codex installed)"_. The em-dash sandwich was redundant.
+
+- 6fa5149: dashboard: Build-from-goal wizard asks where to land the result
+
+  The wizard now opens with a target picker:
+
+  1. Just create the agent(s) (default — backwards-compatible)
+  2. Create agent(s) + a new dashboard
+  3. Add to an existing dashboard (with a dropdown of user dashboards)
+
+  The commit endpoint honors the choice: agents-only drops any planner-proposed dashboard, new-dashboard synthesizes one with the created agents if needed, and existing-dashboard appends the new agents to section 0 of the chosen user dashboard (pack-owned dashboards aren't selectable). On `/dashboards/:id`, the current dashboard is pre-selected as the target so you can iterate on it without picking again. Available on every surface that runs the wizard (/, /agents, /dashboards/:id).
+
+- 63db5d1: `sua agent audit` now falls back to the project DB when no on-disk YAML matches.
+
+  Agents created via the dashboard's Build-from-Goal flow live in the project SQLite store, not in `agents/local/*.yaml`. Previously running `sua agent audit <id>` against them printed "not found". This release adds a DB lookup as the second-pass resolver: if `loadAgents()` doesn't find the id on disk, the CLI opens the project DB read-only, fetches the agent, and prints its canonical YAML via `exportAgent()` with a banner noting the storage location.
+
+  Side effect: v2-only on-disk YAMLs (which `loadAgents` didn't surface because that loader is v1-shaped) now audit successfully too via the same path. The on-disk v1 audit path is unchanged for v1 agents.
+
+- 7686abb: Remove the relic `claude-code` built-in tool. Use `type: llm-prompt` (or legacy `type: claude-code`) instead.
+
+  The `claude-code` built-in tool was marked in-source as "Backcompat tool for v0.15 type:claude-code nodes" and had zero callers in any in-tree agent. It only existed as a UX device — the dashboard tool picker used `'claude-code'` as a sentinel string to drive a hidden `type` field on the form. This release deletes the built-in tool registration and replaces the picker entry with a synthetic `llm-prompt` option that submits `type: llm-prompt` directly. The "Analyze with LLM" Quick Start pattern follows.
+
+  CLI `sua agent new` and `sua agent audit` now use the canonical `llm-prompt` spelling in prompts and output. The v1 agent schema accepts `'llm-prompt'` alongside the existing `'claude-code'` and `'shell'`. `docs/tools/claude-code.md` was removed (it's a node type, not a tool); `docs/tools.md` points readers at `type: llm-prompt` on the node.
+
+  Authors who wrote `tool: 'claude-code'` in YAML by hand will now see a "Tool not found in registry" error at run time. Mitigation: replace with `type: llm-prompt` (or `type: claude-code` legacy alias) and an inline `prompt:`.
+
+  Closes the LLM-prompt unification plan (PR 3 of 5). PR 5 will surface installed providers in the tool catalog.
+
+- d6f9872: Output Widget editor: edit `table` field columns inline (no more YAML-only round-trip).
+
+  Each `type: table` field now expands a sub-table with one row per column (Column key / Label / Format / Href key / Text key-or-literal / delete). The Format dropdown toggles between `text` and `link`; switching a field's type to `table` seeds an empty column row so the schema validator doesn't immediately reject. Removing a column doesn't reshuffle indices — the parser skips gaps. `href`/`text` are only saved when format=link (schema would reject them on text columns).
+
+  The previous-version preservation from #287 still kicks in when the form posts no columns for an existing table field (so non-dashboard callers — CLI/MCP/custom integrations — don't get destroyed), but form-posted columns now win whenever they're present, which is what makes the editor actually editable.
+
+  Controls (`sort` / `filter` / `paginate` / `replay`) and `actions` are still YAML-only to edit; those get their own follow-up. They're still preserved across saves per #287.
+
+- be43277: Output Widget editor: edit all 6 `controls` types inline (sort / filter / paginate / replay / field-toggle / view-switch) plus the `actions` array.
+
+  Phase 2 of the editor-UI-for-table-things work after #288 (columns editor). A new collapsible Controls section between Fields and Interactive renders one bordered row per control with the type-select up top and per-type inputs below. The active type's inputs show; the rest are hidden but still SSR'd so toggling the type select via JS just swaps visibility (no rebuilds).
+
+  - **sort** / **filter** / **paginate**: array name + columns (csv) + per-type knobs (default `col asc`, placeholder, pageSize). Pair with `type: table` fields by sharing the array name.
+  - **replay**: optional label + optional inputs subset (csv). Re-runs the agent inline. The auto-synthesised replay from interactive mode still applies when none is declared.
+  - **field-toggle**: label + toggleable fields (csv) + default (shown / hidden).
+  - **view-switch**: label + views JSON (rarest type — nested `[{id, fields[]}]` edited as JSON in a textarea for now) + default view id.
+
+  Also adds an Actions editor (POST buttons used by `diff-apply` widgets) with `id` / `label` / `endpoint` / optional `payloadField` inputs per row. Method is locked to POST per the schema.
+
+  The editor now posts hidden `widget_controls_edited=1` and `widget_actions_edited=1` sentinels so the server can distinguish "user deleted all controls/actions" (honour deletion) from "non-editor caller silent" (keep #287's prev-version preservation). Empty / half-built control or action rows skip silently instead of failing schema validation. Malformed view-switch JSON drops just that row.
+
+  After this PR the editor handles fields + columns + controls + actions end-to-end — no remaining YAML-only widget shapes.
+
+  Tests cover all 6 control types parsing, the empty-edit sentinel path, the non-editor preservation path, malformed-JSON skip, plus action create / skip-on-missing-required / empty-edit / non-editor preservation.
+
+- 9aec459: Home-page tiles get palette + collapse parity with pulse + dashboard tiles.
+
+  The root home page (`/`) renders system widgets via a separate code path (`renderHomeWidget`) that stripped the tile chrome — no palette button, no collapse chevron — so users in edit mode couldn't change tile appearance the way they can on `/pulse` or `/dashboards/<id>`. Now both are rendered on home tiles too. The configure (⚙) and × delete buttons remain omitted: system widgets are hardcoded renderers (Scheduled, Recent Activity, etc.), not template-driven — the template picker / slot mapping in the configure modal don't apply, and these tiles are persistent by design.
+
+  The collapse click handler moved from `pulse-layout.js.ts` (which used a hardcoded `sua-pulse-collapsed` storage key) into `widget-layout.js.ts` so each surface scopes its persistence correctly. The duplicate handler in `dashboards-layout.js.ts` was also removed to avoid double-toggle. Net result: pulse, home, and per-dashboard collapse state all persist under their own keys.
+
+- 60aa32f: Extend the "Improve layout" wizard to named user-dashboards (`/dashboards/<id>`).
+
+  The wizard now appears on every named dashboard page alongside the existing Pulse surface. Same flow (suggestion pills → focus textarea → planner → clarifying questions → Apply), scoped to that dashboard's agent pool.
+
+  Differences from Pulse:
+
+  - **Curation rewrites dashboard config**, not `pulseVisible` flags. Named dashboards have no per-tile hide switch — agent membership is declared in `dashboard.layout.sections[].agentIds[]`. Apply replaces the section list with one derived from the plan's containers. Agents the planner didn't choose are REMOVED from the dashboard config. They stay in `/agents`; the **Add tile** button can re-add them.
+  - **Agent metadata is filtered to the dashboard's pool.** The planner only sees agents currently in `sections[].agentIds`, not the whole catalog. Ranking and grouping happen within the dashboard's scope.
+  - **localStorage key is per-dashboard.** Each dashboard's container arrangement persists under `sua-dashboard-layout-<id>`, isolated from Pulse and other dashboards.
+  - **Copy adjusted.** "Will hide N agents" reads "Will remove N agents" with the recovery hint ("restore via Add tile"). The pre-plan blurb explains that agents not chosen will be removed from this dashboard.
+
+  New routes (`packages/dashboard/src/routes/dashboard-layout-plan.ts`):
+
+  - `POST /dashboards/:id/layout-plan/suggestions` — pills + dashboard-scoped agent metadata
+  - `POST /dashboards/:id/layout-plan` — kicks off the layout-planner
+  - `GET /dashboards/:id/layout-plan/:runId` — poll
+  - `POST /dashboards/:id/layout-plan/commit` — rewrite `sections[].agentIds`; returns `{ removed, retained }`
+
+  The shared `improve-layout-modal.ts` + `improve-layout.js.ts` now take a config (`endpointBase`, `storageKey`, `curateVerb`) so one modal serves both surfaces.
+
+- 5aa3853: Add "Retry with feedback" on the Improve-layout error screen.
+
+  When the layout-planner emits an invalid plan (or the run fails for any other reason), the modal's error screen now offers:
+
+  - The error message (plus a `<details>` block exposing the raw planner output, if any)
+  - A bulleted list of schema-validation issues when applicable
+  - A **Feedback for the planner** textarea, pre-filled with the validation issues as a hint
+  - A **Retry with feedback** button
+
+  Clicking retry re-runs the planner with the combined focus:
+
+  ```
+  <original focus>
+
+  Previous attempt failed validation. Issues:
+    - <issue>
+    - <issue>
+
+  User feedback:
+    <textarea value>
+  ```
+
+  So the LLM sees exactly what schema rules it broke + the user's correction. Same mechanism the post-plan questions UI uses for clarifying answers.
+
+- c7221dd: Wire the "Improve layout" wizard on `/pulse` — routes + modal UI + button.
+
+  A new ✨ Improve layout button sits next to Edit layout on the Pulse page. Clicking it opens a modal that:
+
+  1. Fetches state-derived suggestion pills (from PR #307's `computeLayoutSuggestions`) plus pre-computed agent metadata.
+  2. Renders pills above a free-form FOCUS textarea — clicking a pill prefills the textarea so the user can edit before submitting.
+  3. Submits to the new `layout-planner` agent (from PR #306), polls the run, then renders the structured `LayoutPlan` (from PR #305) inline: top agents with rationales, proposed containers, and optional clarifying questions.
+  4. Lets the user answer questions to refine the plan ("Update plan" re-runs with appended context), or click **Apply layout** to write the proposed containers to `localStorage` and reload `/pulse`.
+
+  Four new endpoints under `/pulse/layout-plan/`:
+
+  - `POST /suggestions` — pills + agent metadata for the modal.
+  - `POST /` — kicks off the layout-planner agent with `focus`, `currentLayout`, optional `agentMetadata`. Returns `{ runId }`.
+  - `GET /:runId` — polls the run; extracts `<plan>{...}</plan>`, validates against `layoutPlanSchema`, returns the typed plan or validation errors.
+  - `POST /commit` — telemetry no-op for parity with `/agents/build/commit`. Reserved for future server-side layout persistence.
+
+  No critic-retry loop in v1 (PlannerLoopRunner is build-plan-shaped); if the planner emits invalid YAML the modal shows validation issues and the user re-submits.
+
+  Closes the dashboard-layout-improvement plan at `~/.claude/plans/how-would-you-improve-joyful-wadler.md` (PR 4 of 4).
+
+- ab118ec: dashboard: in-place "+ Add tile" modal on /dashboards/:id
+
+  When a user dashboard is in Edit Layout mode, each section grows a "+ Add tile" button next to its title. Clicking it opens a searchable picker: a "Suggested" row ranked by last-fired recency, then the full grid of signal-bearing agents. Picking one POSTs to the existing tile-append route with returnTo=live and lands back on the live dashboard. Empty sections now render in edit mode so users can fill them in place without bouncing to /edit.
+
+- 94e607b: CSV integration kind with auto-generated read + count tools (PR 4.A)
+
+  First slice of PR 4 of the Settings → Integrations workstream. Replaces
+  the connectors-v0.17 plan's "CSV connector" with a `kind: csv`
+  integration backed by sua's existing tool dispatch.
+
+  How it works:
+
+  1. Add a CSV integration at `/settings/integrations?tab=csv` pointing
+     at a file. On save, sua reads the header + first 200 rows, infers
+     per-column types (number / boolean / date / timestamp / string),
+     and stores the snapshot on the integration row.
+
+  2. Two tools are auto-generated per CSV integration:
+
+     - `csv.<id>.read` — fetch matching rows (optional `where` filter,
+       `limit` cap), returns coerced values + row count.
+     - `csv.<id>.count` — count matching rows without fetching.
+
+  3. Agents reference them via the standard `tool:` field on a node.
+     The executor finds them through the same lookup chain as built-in
+     tools (built-in → connector-generated → user/MCP), so no new
+     dispatch branch.
+
+  Constraints in this slice:
+
+  - File size capped at 16 MiB; bigger CSVs should land as `kind: postgres`
+    in PR 4.B.
+  - No streaming yet — full file read per tool call.
+  - Output schemas declare `array` / `object` types but don't carry
+    per-column item schemas; rich schema-aware template validation lands
+    in PR 4.C.
+
+  Tests: +22 across 3 new files (parser, driver, generated tools, route).
+  Total 1228 → 1230 passing.
+
+- c05f260: Postgres integration kind with auto-generated find/find-one/count tools (PR 4.B)
+
+  Second slice of PR 4 of the Settings → Integrations workstream.
+  Adds a `kind: postgres` integration that introspects
+  `information_schema` once at add-time and synthesises three read-only
+  tools per table:
+
+  - `postgres.<id>.<table>.find` — typed `where` / `order_by` / `limit`
+  - `postgres.<id>.<table>.find-one` — single row
+  - `postgres.<id>.<table>.count` — `COUNT(*)` with optional `where`
+
+  How it works:
+
+  1. Paste the DSN into Settings → Secrets (e.g. `DATABASE_URL`).
+  2. Add a Postgres integration at `/settings/integrations?tab=postgres`
+     referencing that secret name + the schemas to introspect (default
+     `public`).
+  3. On save, sua opens a connection, walks `information_schema.columns`
+     - the primary-key view, builds a typed snapshot, stores it on the
+       integration row, and closes the probe pool.
+  4. At run time, agents reference any synthesised tool via the standard
+     `tool:` field. The DSN is re-read from the encrypted secrets store
+     per execute call; a pooled `pg.Pool` (1 per integration, 2 conns
+     max, 30s idle) handles the actual queries.
+
+  Trust posture:
+
+  - Identifiers (schema, table, column, order_by direction) are
+    validated against the snapshot before splicing into SQL — no quoted
+    or mixed-case identifiers in this slice.
+  - `where` keys are checked against the table's column list before any
+    query runs; values are bound, never interpolated.
+  - DSN never leaves the encrypted secrets store + the per-integration
+    pool's memory.
+  - Read-only: no insert / update / delete tools. Writes deferred to
+    PR 4.D.
+
+  Adds `pg ^8.20.0` as a runtime dependency. ~200 KB, well-maintained,
+  zero new transitive secret-shaped strings.
+
+  Tests: +18 (mapColumnType unit cases, generated-tool synthesis +
+  resolution + execute error path, dashboard tab render + missing-DSN
+  error). Plus 3 live tests that exercise introspection +
+  parameterised reads against a real Postgres — gated by `PG_TEST_URL`,
+  skipped without it.
+
+  Total 1230 → 1242 passing (12 net new actually run; 3 skipped pending
+  CI Postgres service).
+
+- 021f499: Schema-aware save-time template validation (PR 4.C of Integrations).
+
+  Catches typos in `{{upstream.<node>.<path>}}` references at agent save
+  time instead of resolving silently to "" at run time. `ToolOutputField`
+  now carries optional `items` / `properties`, and the CSV / Postgres
+  generated tools populate per-row column schemas from their snapshots —
+  so `{{upstream.fetch.rows.0.emial}}` fails save in the dashboard YAML
+  editor with "Property 'emial' not found … Did you mean 'email'?".
+
+  The validator is lenient: when a tool's output schema doesn't declare
+  `items` / `properties` (legacy user tools, untyped built-ins), the
+  walker stops without reporting. Field paths are only flagged when the
+  schema is rich enough to disprove them.
+
+  `parseAgent()` keeps its single-argument signature — the new
+  `validateAgentTemplatePaths(agent, { resolveTool })` is opt-in and
+  runs from the dashboard's YAML save handler, which already has the
+  integrations + tool registries in scope.
+
+- 1295333: `kind: sqlite` integration with auto-generated find / find-one / count tools (PR 4.E of Integrations).
+
+  Point at a local SQLite file from Settings → Integrations → SQLite. sua
+  introspects every base table via `sqlite_master` + `PRAGMA table_info`
+  and synthesises three read-only tools per table:
+
+  - `sqlite.<id>.<table>.find` — typed `where` / `order_by` / `limit`
+  - `sqlite.<id>.<table>.find-one` — single row (or null)
+  - `sqlite.<id>.<table>.count` — COUNT(\*) with optional `where`
+
+  Mirrors PR 4.B's Postgres connector but with no DSN, secret, or pool —
+  the file path is the whole config and `node:sqlite` (Node 22+ built-in,
+  already used throughout) is the driver. Per-row schemas populate
+  `rows.items.properties` so PR 4.C's save-time template validation
+  catches column typos on SQLite-backed agents the same way it does on
+  Postgres-backed ones.
+
+  Read-only by default. Tables whose names don't match the safe
+  identifier rule (lowercase letters/digits/underscores) are skipped at
+  introspection time so no SQL injection vector reaches the generated
+  tools.
+
+- 16e9a9a: Settings → Integrations (PR 1 of 4): storage + UI for slack/webhook/file
+
+  Adds the `integrations` SQLite table + `IntegrationsStore` (core),
+  context wiring (dashboard), and a real `/settings/integrations` page
+  that replaces the "coming in a later release" placeholder. Today
+  covers three kinds — `slack`, `webhook`, `file` — lifted from the
+  per-agent notify handlers so the model carries over unchanged.
+
+  Each integration row stores names only: kind-specific config (URL,
+  path, channel, mention, method) and `secretRefs` pointing at the
+  encrypted secrets store. Actual secret values never touch the
+  integrations table.
+
+  Per-agent notify still reads its existing inline handlers; PR 2 of
+  this series adds the `handlers[].integration: <id>` form so agents
+  can reference these by id. PR 3 adds OAuth (loopback callback + Gmail
+  kind). PR 4 folds the connectors-v0.17 plan in as `kind: csv` /
+  `kind: postgres`.
+
+  Includes 8 store tests (round-trip, slug validation, list-by-kind /
+  by-user / pack ownership, cascade-delete, JSON corruption fallback)
+  and 5 dashboard route tests (render, add, slug rejection, duplicate
+  guard, delete). Pack-owned integrations show but their Delete button
+  is disabled — pack uninstall remains the path to remove them.
+
+- 75763e6: Layout curation now correctly handles draft/archived agents and stops loading hidden signals on Pulse.
+
+  Three connected fixes after live-testing the curation flow:
+
+  - **Curation reaches draft/archived agents.** The commit endpoint previously skipped agents whose status was `draft` or `archived`, so any draft agent with `pulseVisible !== false` slipped through curation and re-appeared on Pulse via the auto-"Other" container in `widget-layout.js.ts`. The Pulse view itself doesn't filter by status — only by signal + pulseVisible — so curation now matches that exactly.
+  - **Planner sees the same set Pulse renders.** `gatherAgentMetadata` lost its archived/draft filter for the same reason; it now agrees with the Pulse route's actual visibility rule. The planner no longer wastes `topAgents` slots on agents that can never render (those without a `signal:` block — `build-planner`, `agent-analyzer`, `agent-builder`, etc. — already got excluded via the `!signal` skip; this PR just keeps that invariant clean).
+  - **Hidden-signals section is compact.** Previously every hidden agent rendered as a full tile inside a `<details>` block. Now the section is a one-line summary (`N signals hidden from Pulse`) with **Show all** + **Manage in /agents** buttons. The route also skips the expensive `buildTile()` call for hidden agents — they only contribute to a count.
+
+- f60a468: Layout planner becomes curation, not just rearrangement.
+
+  Previously the planner bucketed every visible agent — typically dumping the long tail into an "Other" container. That's not what users actually want when they invoke "Improve layout": they want the top ~12 agents surfaced and the rest hidden. This release makes that the default behaviour.
+
+  Changes:
+
+  - **Prompt** (`agents/examples/layout-planner.yaml`): capped \`topAgents\` at 12, explicitly told the LLM that anything not in a container will have its \`pulseVisible\` set to false, and forbade catch-all "Other" / "Misc" containers.
+  - **Commit endpoint** (`POST /pulse/layout-plan/commit`): no longer a no-op. Walks the agent store, sets \`pulseVisible=false\` on any visible agent absent from the plan's containers, and \`pulseVisible=true\` on any container-mentioned agent that was previously hidden. System tiles (`_system-*`) are skipped. Returns \`{ hidden: string[], unhidden: string[] }\`.
+  - **Modal UI**: the proposed-layout screen now shows a "Will hide N agents" `<details>` block listing the agent ids that will be hidden, between the containers and the Apply button. Apply waits for the server commit before reloading.
+
+  Hidden agents remain restorable from the "hidden signals" details section below the Pulse grid — single click brings them back.
+
+- 9d99976: Three layout-planner fixes after live testing.
+
+  1. **Empty containers no longer render.** `widget-layout.js.ts` skips a container at render time if none of its tile ids resolve to a rendered tile in the DOM (e.g. the planner included no-signal agents, or a tile was hidden between sessions and its id lingers in the saved layout). Edit mode still shows empty containers so the user can drag.
+  2. **Planner orders containers by glance-value.** Prompt updated: high-frequency / daily containers go near the top of the array (containers render top-to-bottom); engineering/admin/infra containers go lower; system tiles anchor either the very top or the very bottom, not the middle.
+  3. **Planner explicitly told not to include no-signal agents in containers.** Belt-and-suspenders: even though `gatherAgentMetadata` already filters them, the prompt now spells out that an AGENT_METADATA entry without a `title` means the agent has no Pulse signal and placing it in a container leaves the container empty.
+
+- ed71f4c: Add the `LayoutPlan` zod schema for the upcoming layout-planner agent.
+
+  Parallel to `BuildPlan` from `build-plan-schema.ts`. Defines the structured output the layout-planner emits in a `<plan>…</plan>` wrapper: a `summary`, a ranked `topAgents[]` with one-line rationales and optional `suggestedSize`, proposed `containers[]` (label + tiles) that mirror the `sua-pulse-layout` localStorage shape, and post-plan clarifying `questions[]`.
+
+  Strict-mode validation catches the common LLM mistakes: duplicate tiles across containers, duplicate container labels (case-insensitive), duplicate topAgent ids. Loose enough that container tiles can reference any agent (not just topAgents) so lower-ranked agents can be placed without promotion.
+
+  This PR is schema-only — no agent or UI yet. Part 1 of 4 in the dashboard-layout-improvement plan at `~/.claude/plans/how-would-you-improve-joyful-wadler.md`.
+
+- 8a09dab: Allow system tiles (Pulse-synthetic widgets) in `LayoutPlan.containers.tiles`.
+
+  The schema's tile regex was `/^[a-z0-9][a-z0-9_-]*$/` — letter/digit first. But Pulse's system tiles (Runs Today, Failure Rate, Avg Duration, Agent Count) use a leading underscore by convention (`_system-runs-today`, etc.) to mark them as synthetic. When the layout-planner saw them in `CURRENT_LAYOUT` it correctly placed them in containers, but validation rejected the plan.
+
+  Tiles now match `/^_?[a-z0-9][a-z0-9_-]*$/` — the leading underscore is optional. The `topAgents.id` regex stays unchanged: that field is real agents only.
+
+  The layout-planner prompt was also updated to teach the LLM the new rule explicitly (and to include a system-tile container in its in-prompt example).
+
+- 621939d: Layout planner can now surface installed agents that aren't on the current dashboard.
+
+  The Improve-layout wizard previously only rearranged agents already on the surface (curation-only). It now also sees the rest of your installed catalog as `available` agents and can bring them onto Pulse or a named dashboard. The `LayoutPlan` schema gains an optional `toAdd[]` field; the wizard shows a "Will add N agents" details panel alongside the existing "Will hide/remove N agents" panel. Drafting brand-new agents that don't exist yet is still the job of build-planner / "Build from goal".
+
+- 3a0f43d: Add the `layout-planner` agent.
+
+  Single-node `type: llm-prompt` agent at `agents/examples/layout-planner.yaml` that reads `CURRENT_LAYOUT` + `AGENT_METADATA` + an optional `FOCUS` statement and emits a structured `LayoutPlan` JSON (introduced in the previous PR) wrapped in `<plan>...</plan>` tags. The prompt teaches the LLM the ranking rules (FOCUS-first, then a recency × reliability × frequency combination), the container grouping rules (1–6 containers, unique labels, each tile in exactly one container), and when to emit clarifying questions (FOCUS empty → ask about ranking heuristic).
+
+  The route handler + UI come in a later PR; this commit is the agent and a regression test that locks the prompt's embedded `<plan>` example to the schema. Editing the prompt's example out of sync with the schema fails the test.
+
+- 0a88b2e: Constrain the layout-planner to curation-only and require plain-text question fields.
+
+  Two prompt fixes after live testing:
+
+  1. **Scope.** The planner was hallucinating a "suggest new agents" capability. It would list agents from training data (or from the prompt's own example agent ids) and claim to be adding them to the dashboard — but the commit endpoint can only curate within the agents already on the surface (`AGENT_METADATA`). The prompt now explicitly says: _you cannot suggest agents that aren't in `AGENT_METADATA`_. If the user's FOCUS asks for new agents, the planner emits a question redirecting them to Add tile / Build from goal. The `summary` field is also constrained — never claim to "suggest N new agents".
+  2. **Question format.** Clarifying questions were rendering as raw `**markdown**` and unbroken text because the LLM was stuffing multi-line bulleted catalogs into a single question's `text` field. The renderer (correctly) escapes HTML. Prompt now requires: one short plain-text question per entry, no markdown, no line breaks, alternatives live in `options[]` for select-style rendering — not enumerated inside `text`.
+
+- ec676a1: Add `computeLayoutSuggestions()` helper for the Pulse "Improve layout" wizard.
+
+  Pure heuristic — no LLM. Takes agent metadata + the current layout JSON and returns up to 5 suggestion pills for the modal's pill row. Three dynamic (state-derived) pills come first when triggered:
+
+  - **Surface failing agents** — when one or more agents have `successRate < 0.5` and have run in the last 30 days.
+  - **Group ungrouped agents** — when two or more agents aren't in any container.
+  - **Hide stale agents** — when one or more agents haven't run in 30+ days.
+  - **Combine monitoring agents** — when two or more agents match `monitor|health|uptime|watch|alert|status|ping|check` in their id or title.
+
+  Dynamic pills are capped at 3 (ordered by signal strength); static fillers (Group by topic, Rank by reliability, Surface daily-run, Pin top 5 reliable) fill the remaining slots up to a 5-pill cap. Each pill has a short `label` for the chip and a longer `prompt` that fills the FOCUS textarea on click — dynamic pills include the affected agent ids inline so the downstream layout-planner can act directly.
+
+  Routes and modal UI come in the next PR; this commit is unit-test-only.
+
+- 5d10f71: Expose per-node LLM options (provider, model, maxTurns, allowedTools) on the add-node and edit-node forms.
+
+  The schema has always honored these fields, but the dashboard only exposed `provider` (and only on the edit-node page). Authors who wanted to allowlist tools the LLM could invoke (Read, Write, Edit, web-search, MCP tools) or override the model had to drop to YAML. The deleted `claude-code` built-in tool used to surface them via its `toolInputs` schema; PR #297 inadvertently took that affordance with it.
+
+  A new `renderLlmOptions()` helper sits alongside the Prompt textarea on both forms, inside the same `data-node-field="llm-prompt"` container so the existing tool-picker show/hide logic catches it. A matching `parseLlmOptions()` reads the form body and persists fields on the node. Empty fields are omitted (no spurious `model: ''` in YAML).
+
+- af5edb9: Add `llm-prompt` as the canonical node type for LLM-prompt steps; keep `claude-code` as a legacy alias.
+
+  The `claude-code` spelling was load-bearing in agent YAML even though the field has always been provider-agnostic (the actual CLI is chosen by `provider:`). This release teaches the schema, dispatcher, and UI to accept both spellings interchangeably. A new `isLlmPromptType()` helper consolidates the recognition logic. Every existing agent loads byte-identically — no migration required.
+
+  Authors writing new agents can use either spelling. Future releases will migrate the example agents and docs to `llm-prompt`.
+
+- 81dd182: Single source of truth for LLM provider metadata.
+
+  Adds `PROVIDERS` registry + `ProviderDef` type in `@some-useful-agents/core`, with one entry per supported CLI (display name, binary, version argv, prompt argv). `detectLlms()` and `invokeLlm()` now iterate the registry instead of hard-coding two branches. The dashboard's "New Agent" form reads provider display names from the same registry, and its TYPE radio is relabeled "LLM Prompt — runs an LLM prompt — you have {list} installed" so users see which CLIs are actually on PATH. Public API of `detectLlms` / `invokeLlm` is unchanged; this PR is preparation for adding more providers without a parallel call path.
+
+- 262ffa9: Replace Gmail OAuth with a generic `mcp-tool` integration kind
+
+  Reverses #264 (OAuth + Gmail) in favour of delegating OAuth-backed
+  services to already-connected MCP servers. Claude (and Claude Desktop)
+  already handles the OAuth handshake for Gmail, Calendar, Drive, Notion,
+  Linear, etc.; sua doesn't need to re-broker.
+
+  **Removed:** every Gmail / OAuth code path — `packages/core/src/oauth/`
+  (PKCE + state store + Google driver), the `/oauth/callback` +
+  connect/disconnect routes, the `gmail` notify handler, the Gmail setup
+  guide in the integrations UI, and all the supporting tests. No
+  external API surface left.
+
+  **Added:** an `mcp-tool` integration kind that pairs an MCP server
+  (from `/settings/mcp-servers`) with a specific tool name + optional
+  default inputs. Notify handlers reference it via:
+
+  ```yaml
+  notify:
+    on: [failure]
+    handlers:
+      - type: mcp-tool
+        integration: user:gmail-via-mcp
+        inputs:
+          body: "Run {{run.id}} failed: {{run.error}}"
+  ```
+
+  The dispatcher merges `default_inputs` from the integration row with
+  the handler's `inputs` (inline wins), runs template substitution for
+  `{{vars.X}}`, `{{agent.id}}`, `{{run.id}}` etc., and calls
+  `callMcpTool()` against sua's existing pooled MCP client — the same
+  primitive in-DAG MCP tool nodes use, so notify dispatch reuses the
+  connection pool.
+
+  **Trust model:** zero new secret surface. The MCP server's auth lives
+  in `mcp_servers.env_json` / `url` already; sua never touches the
+  underlying credentials.
+
+- 7f41ba0: Migrate example agents, docs, and the `/agents/new` form to the canonical `type: llm-prompt` spelling.
+
+  All eleven `agents/examples/*.yaml` (and `agents/local/claude-hello.yaml`) now use `type: llm-prompt` instead of the legacy `type: claude-code`. The dashboard "New Agent" form, its POST handler, and the related copy emit `llm-prompt` for newly-created agents. `build-planner.yaml`'s prompt template and `agent-builder.yaml` / `agent-analyzer.yaml`'s in-prompt guidance text were updated so generated/reviewed agents also use the new spelling.
+
+  Existing agents on disk that say `type: claude-code` continue to load byte-identically (alias preserved from PR 2). ADR-0023 records the decision and consequences. `docs/agents.md` carries the one-paragraph alias note.
+
+  No runtime behavior changes.
+
+- ee8cd9c: notify: handlers can reference a saved integration by id
+
+  PR 2 of 4 of the Settings → Integrations workstream. Notify handlers
+  gain an optional `integration: <id>` field. When set, the dispatcher
+  resolves the named integration from #262's store at fire time, merges
+  its config (webhook URL secret, channel, path, etc.) into the handler,
+  and unions the integration's `secretRefs` into the resolution bag so
+  agents no longer need to repeat them in `notify.secrets`.
+
+  Inline fields on the handler still override the integration's config
+  — useful when one agent wants a different channel than the saved
+  default. Missing or wrong-kind integration logs and skips the
+  handler, never failing the run (matches the existing reliability
+  contract).
+
+  YAML schema gates: each handler must EITHER reference an integration
+  OR carry its kind-specific required inline fields (webhook_secret /
+  url / path). Existing YAML keeps working unchanged.
+
+  Dashboard: the per-agent Notify card now shows a per-handler
+  "Integration" dropdown listing matching kinds (with a link to manage),
+  plus a fall-through "Inline config (legacy)" option.
+
+  Tests: +5 dispatcher tests covering successful resolution, inline
+  overrides, missing-integration skip, kind-mismatch skip, and the
+  integration-driven secret union.
+
+- 68174cc: OAuth infrastructure + Gmail integration kind (PR 3 of 4)
+
+  Third PR of the Settings → Integrations workstream. Adds a generic
+  OAuth flow (PKCE + S256 challenge, in-memory state map, single-use
+  state consumption, stable `/oauth/callback` redirect_uri on the
+  dashboard's existing port) and uses it to land the first OAuth-backed
+  integration kind: `gmail`.
+
+  How it works:
+
+  - User creates a Google Cloud OAuth client (type "Desktop app"),
+    registers `http://127.0.0.1:3000/oauth/callback` as a redirect URI.
+  - User adds the client_id + client_secret in `/settings/secrets`.
+  - User creates a Gmail integration in `/settings/integrations` and
+    clicks **Connect Google**. The dashboard generates state + PKCE
+    verifier, redirects to Google consent, and on callback exchanges
+    the code for tokens.
+  - Refresh token is stored in the encrypted secrets store as
+    `<INTEGRATION_ID>__REFRESH_TOKEN`. The integration row gains
+    `connected_account` (the user's email), `connected_at`, and
+    `refresh_token_secret` so handlers know what to read.
+  - Notify handlers of type `gmail` reference the integration by id +
+    the inline per-message fields (`to`, `subject`, `body`). The
+    dispatcher refreshes the access token per send and calls Gmail's
+    messages.send API. Disconnect deletes the refresh token + clears
+    the connected state.
+
+  Tests: +18 (PKCE, state store, OAuth route flow, dispatcher Gmail
+  handler success + missing-connection failure). Total 1218 passing.
+
+- 2c82a16: dashboard: Permissions card on agent Config tab
+
+  Surfaces the `permissions.imgSrc` allowlist (added in #256) on the
+  agent detail Config tab. New POST /agents/:id/permissions route accepts
+  a newline / comma / space-separated host list, normalises (lowercases,
+  strips https:// + paths + ports so users can paste full URLs), dedupes,
+  validates each entry against the host regex, and creates a new agent
+  version. Empty input clears the allowlist. Pack-installed agents pick
+  up the same UI — edits become a local user-version on top of the pack.
+
+- d83b9ce: Planner refactor PR 3 — cross-run memory.
+
+  The planner now reads prior committed plans for similar goals before composing a new one. Implements the `understand` phase of the loop principles: before reaching for the LLM, retrieve what worked last time and pass it as context.
+
+  - **`PlannerMemoryStore`** — new SQLite table `planner_memory` (one row per committed plan with goal + tokens + intent + plan_json + attempts).
+  - **`findSimilarCommittedPlans`** — bag-of-words Jaccard retrieval; intent equality as a hard filter when known. Ranked by similarity DESC then attempts ASC (prefer plans that took fewer planner tries — cheap quality signal). MVP-level; embeddings replace this when N grows.
+  - **`formatPriorPlansBlock`** — renders top-K candidates as a `<priorPlans>` block (score / attempts / intent / goal / newAgent ids). Compact summary, not full plan JSON.
+  - **Initial kickoff retrieves by goal only** (intent not yet known); **retries retrieve by goal AND intent** (sharpest signal once classified).
+  - **Commit hook writes** to memory when the user clicks Commit on the wizard. Only when something actually landed AND telemetry has goal+intent.
+  - **Build-planner prompt** acknowledges `<priorPlans>` — prefer reuse when patterns match, ignore when they don't.
+  - **Escape hatch**: `SUA_PLANNER_MEMORY_DISABLED=1` env var skips memory injection without a redeploy.
+
+  15 new tests across memory-store, retrieval, and runner. Third of a planned 4-PR refactor.
+
+- a1f854f: Planner refactor PR 1 — extract the inline critic-retry from run-now-build into a `PlannerLoopRunner` class with named phases (observe / evaluate / reflect / compose / done / failed). Behaviour-equivalent.
+
+  The extract → parse → schema-validate → autofix → critic → maybe-retry sequence used to live inline at run-now-build.ts:820-950. It's now in `packages/core/src/planner-loop/{types,primitives,runner}.ts`. Each primitive is a small TS function; the runner orchestrates them and emits a uniform `LoopStepRecord` per phase so PR 2 can drop a smoke-run eval next to the critic and PR 3 can add cross-run memory without churning the dashboard route.
+
+  No user-visible change. Tests cover the 9 distinct paths through the runner (no plan, JSON parse fail, schema invalid, fallback to nodeExecResult, critic pass, critic fail with retry, critic fail with budget exhausted, retry-spawn-fails, autofix invocation). First of a planned 4-PR sequence (see plan).
+
+- bd29502: Planner refactor PR 2 — smoke-run eval + structured step log.
+
+  After PR 1 named the planner's loop phases, this PR makes "validated, not just produced" real:
+
+  - **`smokeRunNewAgents(plan, ctx)`** — runs `parseAgent` on each newAgent then a per-agent `validateOnly()` that catches runtime gotchas the structural critic and zod schema can't see: shell `tool:` refs that aren't in the known-tools catalog, `signal.mapping` fields naming an output key the agent doesn't declare, typed-widget field names not matching declared outputs.
+  - **`PlannerLoopStepLogStore`** — append-only SQLite table `planner_loop_steps` (one row per primitive invocation per attempt). Persisted from the dashboard route after each `loopRunner.advance()` so per-run "what did the planner actually do" can be reconstructed from a single SELECT.
+  - **Telemetry columns** — `smoke_run_status` and `smoke_run_errors` added to `planner_telemetry` (PRAGMA-guarded ALTER, safe on existing DBs).
+  - **Combined feedback** — when both critic and smoke flag issues, both blocks are appended to the GOAL on retry so the planner sees the full picture.
+
+  The dashboard route now threads `loadKnownToolIds` (builtins + user tools) into the runner. Smoke-flagged retries surface as `smokeErrors: [{ agentId, errors[] }]` alongside `criticErrors` in the wizard's polling response.
+
+  19 new tests across smoke-eval, step-log-store, and runner. Second of a planned 4-PR refactor (see [plan](/.claude/plans/i-need-to-refactor-peaceful-salamander.md)).
+
+- 05b87a6: dashboard: schedule preset chips on agent → Config → Schedule
+
+  The cron input stays as the source of truth, but a row of preset chips
+  (Every 5m, Every 15m, Hourly, Daily 8am, Weekdays 9am, Mon 9am, Disable)
+  sits above it. Click a chip to fill the input. The chip matching the
+  current value highlights so it's obvious which preset is active. Typing
+  a custom expression still works and the existing English preview
+  ("Currently: Every day at 8:00 AM") validates the result.
+
+- d2e3771: Layout planner: system tiles first, daily second. Pulse count differentiates agents from system widgets.
+
+  Two clarifications after live testing:
+
+  - **Canonical container order.** The prompt previously offered the LLM a choice between system-tiles-top and system-tiles-bottom. Made it prescriptive: system tiles always anchor the first container ("Health" / "Overview"), daily-glance content second, lower-frequency containers below. FOCUS can still override ("hide system stats"), but the default is now opinionated.
+  - **Page count differentiates tile kinds.** The Pulse header previously read "16 signals, 28 hidden" which conflated 12 agent tiles with 4 synthetic system widgets. Now reads "12 agents + 4 system · 28 hidden" so the cap that matters to the user (agent count) is visible directly.
+
+- 97a8c7a: First-class `table` field type for `dashboard` widgets — declare columns inline instead of writing `<table>` markup in an ai-template.
+
+  A `table` field reads a top-level JSON array from the run output and renders a row-per-item HTML table over it. Columns are declared as `[{ name, label?, format?, href?, text? }]`; `format: link` columns wrap the cell in `<a href>` driven by `href` (per-row JSON key holding the URL) and `text` (per-row key OR literal label fallback like `"Apply →"`). Empty / missing arrays still render the header row plus a "No rows" caption so the column structure stays visible.
+
+  Sort / filter / paginate `WidgetControl`s attach by sharing the field's `name` — same grammar and per-field URL state (`?ws_<field>=`, `?wf_<field>=`, `?wp_<field>=`) as ai-template widgets. Discovery catalog updated with the new field type, schema, and a complete example. Editor preview synthesises three sample rows so authors can see the column layout immediately.
+
+- 8259154: ai-template `{{#each}}` blocks now support item-scoped `{{#if item.field}}` and `{{#unless item.field}}` conditionals.
+
+  LLMs reach for the per-row form constantly when describing "show a link if the row has a url, else show a dash." Previously only `{{#if outputs.NAME}}` was supported, so authors who wrote `{{#if item.url}}` inside an `{{#each}}` got both branches rendered with raw `{{#if …}}` / `{{/if}}` tokens leaking to the page. The `#each` body rewriter now evaluates item-scoped conditionals per-iteration. Bare `{{#if item}}` (testing the whole item) also works, useful for primitive arrays. Single-level only, matching the `#each` body's non-greedy match. Discovery catalog updated to advertise the syntax.
+
+- 9664423: Tool-usage visibility on `/tools/:id` and the agent overview.
+
+  The `/tools/:id` detail page now has a "Used by" section listing every agent in the catalog that statically references this tool — sourced from the parse-time `agent.capabilities.tools_used` (covers explicit `tool:`, type-based desugaring, and node-level `allowedTools`). Empty state renders an explicit "no agents reference this tool yet" line.
+
+  Agent overview's tool badges now use the same canonical source, so badges include `allowedTools` entries that the previous inline derivation missed. Claude-code-native tools (`Bash`, `Edit`, `NotebookEdit`) render as plain badges instead of dead links to `/tools`.
+
+  This is the first slice of the tool-policies feature (PR A: visibility surface). The policy file shape, enforcement engine, and CLI/dashboard rule editor land in PRs B–D.
+
+- 99c9f5a: Surface installed LLM providers on the `/tools` catalog page.
+
+  A new "LLM providers" section above the user / built-in tabs lists every entry in the provider registry with its installed status (resolved from `$PATH` at request time), version string, and "used by N agents" count. Counts walk every active agent's nodes, resolve each LLM-prompt node's effective provider (`node.provider ?? agent.provider ?? 'claude'`), and tally agents (not nodes) per provider — an agent with five Claude nodes counts once.
+
+  Cards are read-only — no invoke button. The intent is _discoverability_: it gives back what the deleted `claude-code` built-in tool used to provide (a visible entry on the tools page) without re-introducing a parallel call path. Providers that aren't on PATH render with a "not on PATH" badge and the install hint instead of a version.
+
+  Closes the LLM-prompt unification plan (PR 5 of 5). Adding a third provider in the future remains one entry in `PROVIDERS` from PR 1 — the catalog row appears automatically.
+
+- 43f84c8: Widget controls (`sort` / `filter` / `paginate` / `view-switch` / `field-toggle` / `replay`) now render everywhere a widget appears — Pulse, home dashboard, interactive tiles, run detail, agent detail — and look-and-feel is owned by the widget author's `<style>` block instead of hardcoded inline styles.
+
+  **Previously**: Pulse / home / interactive callers passed `controlState=undefined`, which short-circuited both the data-transform step (schema defaults like `sort.default: date desc` and `pageSize: 5` never applied) and the controls-row rendering. Tables looked unsorted/unpaged on every surface except the agent detail page.
+
+  **Now**: those callers pass an empty `controlState ({})`. Schema defaults take effect on every surface; the interactive controls (chips, filter input, page nav) appear on every surface and respond to URL state the same way everywhere.
+
+  **Styling contract**: control renderers emit semantic CSS classes (`.wc-row`, `.wc-group`, `.wc-chip`, `.wc-chip--active`, `.wc-clear`, `.wc-input`, `.wc-button`, `.wc-page-info`, etc.) with no inline `style="…"` attributes. The dashboard ships sensible defaults in `components.css`. Agent `<style>` blocks can override appearance — e.g. `<style>.wc-chip { background: var(--my-brand); }</style>` inside an `ai-template` template restyles the chips on that widget specifically.
+
+  Two PRs ago (#278) we made the sanitizer preserve `<style>` blocks specifically so this pattern would work; this PR completes the loop.
+
+- e1d0cf9: Per-field state for the `sort` / `filter` / `paginate` widget controls (PR #279 follow-up).
+
+  **URL grammar changed**:
+
+  - `?ws=<col>-<dir>` → `?ws_<field>=<col>-<dir>`
+  - `?wf=<query>` → `?wf_<field>=<query>`
+  - `?wp=<n>` → `?wp_<field>=<n>`
+
+  Previously the global params applied to every control whose column list matched the named column. A widget with two `sort` controls on different arrays (e.g. `daily` + `models`, both with a `tokens` column) couldn't be sorted independently — `?ws=tokens-asc` re-shaped both. URL params now scope to the control's `field`, so each table keeps its own state.
+
+  Also tightens the numeric-sort detector to handle common display formatting:
+
+  - Currency prefixes (`$`, `€`, `£`, `¥`) — `"$711.63"` now sorts as `711.63`
+  - Percent suffix (`%`) — `"95%"` sorts as `95`
+  - Thousands commas (`"$1,234.56"`) — sorts as `1234.56`
+
+  SI suffixes (`K`/`M`/`B`) are still treated as strings — those need magnitude logic that's a separate design call. Agents that want SI-formatted display + numeric sort should surface a parallel `<col>_raw` numeric column.
+
+  **Breaking**: callers that hand-built `WidgetControlState` with scalar `sort` / `filter` / `page` fields must switch to `ReadonlyMap<field, …>`. Only the two dashboard route handlers and the test suite have this shape internally; agent YAML / outputWidget schemas are unaffected.
+
+- 670a46e: Three new output-widget controls: `sort`, `filter`, `paginate`. They operate on top-level arrays in the agent's JSON output (e.g. `outputs.rows`, `outputs.daily`) and slot into the existing URL-driven control system — no client JS, full SSR.
+
+  ```yaml
+  outputWidget:
+    type: ai-template
+    template: <table>{{#each outputs.daily as d}}<tr>…</tr>{{/each}}</table>
+    controls:
+      - type: filter
+        field: daily
+        columns: [date, top_model]
+      - type: sort
+        field: daily
+        columns: [date, cost, tokens]
+        default: date desc
+      - type: paginate
+        field: daily
+        pageSize: 10
+  ```
+
+  URL grammar:
+
+  - `?ws=<column>-<asc|desc>` — sort
+  - `?wf=<query>` — case-insensitive substring filter across the listed columns
+  - `?wp=<n>` — 1-based page index
+
+  Order applied per field: filter → sort → paginate. Changing sort or filter resets the page to 1; pagination preserves the active filter + sort. Empty arrays / non-array fields no-op gracefully. Stable sort, nulls last, numeric vs string sort inferred from the data.
+
+  Only takes effect on `ai-template` widgets today — the typed widget renderers (`dashboard`, `key-value`, `raw`, `diff-apply`) don't surface array data yet. Coming next: a first-class `table` field type on `dashboard` widgets.
+
+- dd4b78a: dashboard: Build-from-goal Plan-ready stage gets an "Update plan" form
+
+  The Questions block now renders a textarea + **Update plan** button. Typing
+  clarifications and clicking Update plan re-runs the planner with the
+  original goal plus the appended answer, instead of asking the user to
+  copy-paste their reply into the (now-hidden) goal field and start over.
+
+  Also fixes a long-standing bug where clicking **Commit** threw
+  `ReferenceError: runId is not defined` because `wireCommit` referenced a
+  variable that lived inside an inner `.then` scope. The planner runId is
+  now lifted to the outer planner-run scope so commit-time telemetry
+  correlation works.
+
+### Patch Changes
+
+- c788a70: dashboard: + Add tile button is always visible on /dashboards/:id
+
+  Previously the button was CSS-gated to edit mode, which made it
+  invisible to users who hadn't clicked Edit Layout first. Adding a
+  tile is non-destructive, so the gate was friction without payoff.
+  The button (and the empty-section "no tiles yet" hint) now show
+  without entering edit mode.
+
+- eb7eff3: dashboard: + Add tile moves to the top action bar (was being DOM-wiped)
+
+  The previous per-section + Add tile buttons were rendered server-side
+  inside #dashboard-containers, but widget-layout.js.ts wipes that host
+  on load and re-renders sections from a client-side layout. So the
+  buttons disappeared the moment the page hydrated.
+
+  Move to a single + Add tile primary button in the top action bar
+  alongside Edit layout / Edit sections / Save as pack. Modal still
+  posts to section 0 (server-side section structure isn't visible in
+  the live view anyway).
+
+- a53adad: dashboard: pin "Create new" tiles at the top of the add-tile modal
+
+  Replaced the small footer link with two full tile cards pinned at the
+  top of the modal: **+ Blank agent** (links to /agents/new) and
+  **✨ Build from goal** (opens the AI wizard). Cards use a dashed
+  border to distinguish from existing-agent tiles, then turn solid +
+  primary-accented on hover. Search filter only affects the agent grid
+  below — the create tiles stay visible regardless of query.
+
+- f55afe7: Make the Advanced LLM options disclosure on `/agents/new` visually prominent.
+
+  PR #301 added the disclosure but styled it `dim text-xs`, which made it nearly invisible to anyone scanning the form. Now it renders as a bordered card with a semibold summary, an inline secondary hint listing the four fields it expands, and a divider above the expanded content.
+
+- f336d0f: `ai-template` widgets now populate `{{#each}}` blocks from JSON wrapped in prose or a markdown fence — the common shape for claude-code summarisers that lead with a note and emit their JSON inside a ```json fence.
+
+  `renderAiTemplate` previously did a bare `JSON.parse(output)` to seed top-level arrays / objects into the outputs map. Anything other than pure JSON threw, the outputs map stayed empty for top-level keys, and `{{#each outputs.rows as r}}` blocks rendered to nothing. Scalar fields (`{{outputs.total}}`) survived via the existing `extractField` backfill, but arrays didn't — extractField returns stringified JSON, which breaks `Array.isArray()` inside `#each`.
+
+  Switching to `parseJsonFromOutput` (same recovery logic PR #274 added for scalar extraction) closes the asymmetry: arrays + objects now reach the template from prose-wrapped JSON the same way scalars already did.
+
+- 4b3087c: dashboard: clear edit-mode flag on pagehide
+
+  Followup to #258. Edit mode persisted across navigations (from #242)
+  so returning to a layout surface re-entered edit mode unexpectedly.
+  `pagehide` now clears the flag — edit mode still survives drags
+  within a page session, but resets when you actually leave.
+
+- 1a993ed: Preserve the execute bit on `dist/index.js` across rebuilds so `sua` stays runnable when the package is `npm link`-ed.
+
+  `tsc` emits plain files without `+x`, so a clean rebuild against a globally-linked install (`npm link @some-useful-agents/cli`) silently breaks the `sua` shim until the next `npm install`. The build script now chmods the bin file after compilation. No effect on fresh installs (npm sets the bit itself during install) or published tarballs (npm preserves it).
+
+- 1d128d9: Wire `integrationsStore` / `variablesStore` / `toolStore` into the `sua workflow run` CLI so one-shot CLI runs can resolve csv/postgres/sqlite generated tools, user MCP tools, and `{{vars.*}}` references.
+
+  Previously only the daemon's schedule path and the dashboard run-now path opened these stores; the CLI runner skipped them and any v2 agent that referenced a generated tool failed setup with "Shell node 'X' has no command" (the executor falls through to legacy shell dispatch when the tool can't be resolved). Mirrors the existing wiring in `cli/src/commands/schedule.ts`. Each store opens best-effort — absence just means that feature doesn't resolve, same as the schedule path.
+
+- e0cc472: Harden the dashboard CSS bundler against the foot-gun where bare `tsc --build` skips `scripts/copy-assets.mjs` and leaves `dist/assets/` empty, causing the dashboard to serve five `/* missing */` stubs and a styleless page.
+
+  Two changes in `routes/assets.ts`:
+
+  - `loadDashboardCss()` now falls back to `<pkg>/src/assets/<name>.css` when `<pkg>/dist/assets/<name>.css` is absent. Dev workflows that build with bare `tsc` still get a fully-styled dashboard.
+  - If _both_ locations are missing for every source file, the loader throws on startup with a message naming the most common cause ("re-run `npm run build`") rather than silently serving stubs.
+
+  Plus a new vitest assertion (`serves a real /assets/dashboard.css`) that fetches the route and rejects any `/* missing */` content. CI now catches the regression at test time instead of at the user's hard-refresh.
+
+- 6f76270: dashboard: prompt before navigating away from edit mode
+
+  Adds a `beforeunload` guard while a layout surface (Pulse, Home, or
+  /dashboards/:id) is in edit mode, so accidentally closing the tab or
+  clicking a nav link mid-arrange triggers the browser's "leave site?"
+  dialog. Drag/resize/palette changes already persist to localStorage
+  instantly — this is purely a guardrail against losing your visual focus
+  while still in the middle of arranging tiles. Browsers ignore the
+  returned string and show their own generic dialog text.
+
+- bd5f9f7: Scheduled agents fire their first window on daemon start, even with no prior `triggered_by='schedule'` run.
+
+  Freshly registered scheduled agents used to silently skip their first window: `hasMissedFire(expr, undefined)` returned `false` for any agent that had never fired on schedule before, so the daemon's start-up catch-up logic skipped them. Manual fires (`triggered_by='cli'|'dashboard'`) didn't count toward seeding. Net effect: installing `daily-greeting` at 10 AM and starting the daemon meant nothing fired until 8 AM **the next day** — and only then because that fire seeded the catch-up for future windows.
+
+  Now: when `since` is undefined, catch up if the most recent past cron tick is within the past 24 hours. Daily/hourly/sub-day crons fire on first daemon start as users expect. Weekly/monthly/yearly crons whose most recent tick is older than 24h aren't surprise-fired on daemon restart.
+
+- e308131: Fix the × button on pulse tiles — it was toggling the legacy `signal.hidden` field, but the pulse-visibility filter has preferred `pulseVisible` since v0.19. Once any agent had `pulseVisible` set (which the Config-tab visibility toggle does on first click), clicking × posted successfully but the tile stayed visible.
+
+  `POST /agents/:id/signal/toggle` now flips `pulseVisible` instead. The hide-all / show-all handlers + the Config-tab toggles all use the same field, so behaviour is consistent across surfaces.
+
+- f53d2bf: ci: gitleaks secret-scan on push + PR
+
+  Adds `.github/workflows/secret-scan.yml` running gitleaks on every
+  push + pull request. Catches secret-shaped strings (`xoxb-…`,
+  `ghp_…`, `AIza…`, base64 RSA keys, …) before they hit main on a
+  public repo. Config in `.gitleaks.toml` extends the upstream default
+  ruleset and allowlists test fixtures that intentionally hold
+  secret-shaped strings (redactor self-tests, env-builder fixtures,
+  ADR examples).
+
+  `scripts/install-hooks.sh` is an opt-in local pre-commit hook that
+  runs the same scan against staged changes so leaks die at commit
+  time rather than after a force-push. Not auto-installed by
+  `npm install` — explicit by design. Documented in docs/SECURITY.md.
+
+- 06c86a1: dashboard: tabs on Settings → Integrations + Gmail setup guide
+
+  The integrations page is now tabbed by kind (All, Slack, Webhook, File,
+  Gmail) so the surface stays scannable as more kinds land. The active
+  tab is in the URL (`?tab=slack`), so deep links and form-error
+  redirects land on the right card.
+
+  The Gmail tab opens with a step-by-step setup guide pointing at
+  `console.cloud.google.com` (not `admin.google.com`, which is a
+  different surface that doesn't expose OAuth client creation), with
+  direct links to each console page: create project, enable Gmail API,
+  configure consent screen with the right scope, create the OAuth 2.0
+  Client ID with the redirect URI registered. Also explains why sua
+  asks the user to bring their own credentials (no embedded client →
+  no Google verification gate → trust-clean for an open-source tool).
+
+- dff8738: Edit mode on Pulse + dashboards now persists across page reloads.
+
+  Edit Layout was a JS-only toggle that reset to off on every full page reload. Since most edit actions (configure tile, change palette, hide signal, drag-and-drop save, container delete) trigger a form POST + redirect, every tweak kicked the user out of edit mode and they had to click Edit Layout again before the next change.
+
+  Persisted now in localStorage under `${storageKey}-edit-mode` (matched the existing `-palettes` / `-sizes` / `-collapsed` keys). Per-dashboard isolation is automatic via the runtime key suffix already used for the other keys.
+
+- 9004048: Move the `chmod +x packages/cli/dist/index.js` from the cli package's build script into the root `npm run build` script.
+
+  PR #299 added the chmod to `packages/cli/package.json`'s `build` script, intending to restore the execute bit on every CLI rebuild. But the root `npm run build` uses `tsc --build` (the TypeScript composite-project orchestrator), which compiles every workspace package but doesn't execute per-package npm scripts. So the chmod was bypassed on every full root rebuild — which is the workflow contributors actually use after a clean (per `CLAUDE.md` / `feedback_clean_build_before_push.md`).
+
+  Symptom: `sua --version` started printing `permission denied: sua` again after any `rm -rf packages/*/dist && npm run build` cycle. Now the chmod is in the root build script so it's guaranteed to run after every full build, regardless of which entry point was used.
+
+- ffb85c6: `sanitizeHtml` now preserves `<style>` blocks (with their bodies scrubbed for `javascript:` / `expression()` / `behavior:` / external `@import`) instead of stripping them entirely. ai-template widgets that rely on CSS-grid or flex layout — e.g. hero stat cards, dashboard hero sections — render with their intended layout instead of falling back to vertical block stacking.
+
+  Threat model unchanged in practice: the dashboard's CSP already permits `'unsafe-inline'` styles, and the new `sanitizeStyleBlock` helper applies the same scrubbing the existing inline-`style="…"` sanitizer uses (kills `javascript:`/`expression()`) plus stylesheet-specific defenses (`behavior:`, external `@import`). `<script>` and other dangerous block constructs still get stripped.
+
+- 040f530: Fix pulse tile footer being overlapped by tall interactive widgets.
+
+  When a tile renders an interactive widget whose inputs form is taller than the tile's `max-height: 400px`, the footer (agent link + run age) used to scroll with the content and end up visually overlapped by the form fields — making the agent link unreachable and the timestamp invisible.
+
+  `.pulse-tile__footer` now uses `position: sticky; bottom: 0; background: var(--color-surface)` so it pins to the bottom of the visible tile area regardless of how tall the body is. `margin-top: auto` is preserved so it still sits at the bottom of the flex column when content is short.
+
+- 153306b: Template renderer drops leftover handlebars block tokens instead of leaking them to rendered widgets.
+
+  When an ai-template uses an unsupported handlebars form (helpers like `{{#if (eq …)}}`, `{{else}}` branches, or item-scoped `{{#if item.field}}` inside an `{{#each}}` body), the renderer previously left the raw `{{#if …}}` / `{{/if}}` tokens in the output. A safety net now strips any remaining `{{#X}}…{{/X}}` blocks (and bare `{{else}}` / `{{#X}}` / `{{/X}}` tokens) after all supported substitution passes, so unsupported syntax fails closed rather than dumping handlebars source to the page.
+
+- 80442ba: Fix ai-template renderer truncating tables when `{{#if outputs.X}}` wraps an `{{#each}}` whose body contains item-scoped `{{#if item.X}}…{{/if}}`.
+
+  Outer `{{#if outputs.X}}` was processed first with a non-greedy body match, so it terminated at the FIRST `{{/if}}` — the inner item-scoped closer — truncating the wrapped table after the first cell and dropping every row. Reorder the passes so `{{#each}}` runs before outer `#if`/`#unless`: per-iteration rewriting consumes item-scoped `{{/if}}` tokens first, leaving the outer block with a balanced body. The wrapping pattern is the natural LLM-authored form (`{{#if outputs.X}}…table…{{/if}}{{#unless outputs.X}}…empty…{{/unless}}`) and now renders correctly. Regression caught by the greenhouse-search-discovered widget showing zero table rows.
+
+- c1cc536: Pulse tile body now scrolls; chrome (header + footer) stays pinned.
+
+  The previous fix for tall interactive-widget tiles used a sticky footer, which sat on top of the form's last input and obscured it because both used the same surface colour. New layout splits the tile into a static frame (header + footer + resize handle) and a `.pulse-tile__body` wrapper that owns the scroll. The agent link in the footer now stays reachable AND visually separate from the form, regardless of widget content height.
+
+  Same `.pulse-tile__body` class the home widgets already used; CSS adds `flex: 1; min-height: 0; overflow-y: auto` plus a flex column with the existing gap so renderers don't have to think about it.
+
+- 5a98732: Tool-policies PR B: file shape, loader, executor seam (always-allow stub).
+
+  Defines the on-disk schema for `.sua/policies.json` (`version: 1`, `defaultAction`, `rules[]`) plus `loadPolicyDocument(dataDir)` which reads the file when present and returns the default allow-all document otherwise. Malformed JSON or schema-invalid files throw `PolicyLoadError` rather than falling back silently — operators want a loud failure on configuration bugs.
+
+  The dag-executor now runs every tool dispatch through `evaluatePolicy()` before calling `tool.execute()`. **No behaviour change today**: the function is a stub that always returns `{effect: 'allow'}`. PR C drops in real glob matching + condition evaluation here without touching downstream dispatch.
+
+  New `'policy_denied'` value on `NodeErrorCategory` and a corresponding `PolicyDeniedError` class. The executor's tool-dispatch catch is special-cased so a thrown `PolicyDeniedError` lands in `node_executions.errorCategory` as `policy_denied` instead of the generic `setup`. Policy denials are intentionally NOT in the default retryable-categories list — denying is a stable signal.
+
+  `extractPrimaryResource(node, toolId)` extracts the URL/path/command the tool would touch, ready for PR C's matcher to glob against. Templated values are returned as-is (the seam runs before substitution, by design — authors can write deny rules against literal template strings).
+
+- 09eadbd: Output Widget editor's Save no longer wipes `columns:` on table fields, `controls:`, or `actions:` — schema shapes the form doesn't yet surface are now carried forward from the previous version.
+
+  The dashboard's Output Widget editor only has form fields for `name` / `label` / `type` per field plus the interactive-mode flags. Save used to rebuild `outputWidget` from scratch using only those inputs, silently dropping anything else — so any author who set up `controls:` / `actions:` via the YAML editor, or used the new `type: table` field (which requires `columns:`), would lose them on the next Save click. Preservation rules:
+
+  - Per-field `columns:` carry forward when the field name AND type are both unchanged from the previous version. Switching a field's type away from `table` strips its `columns` (the new type can't use them).
+  - Top-level `controls:` and `actions:` carry forward when the widget type is unchanged. A type switch implies "start over" — controls target arrays the new widget may not surface.
+
+  Also adds `table` to the editor's `VALID_FIELD_TYPES` set (was missed in #286), so the type dropdown's `table` option actually saves through instead of being silently coerced to `text`.
+
+- bc0ebfd: Output-widget editor now rejects a save that would silently wipe `outputWidget.fields` for typed widgets (`dashboard`, `key-value`, `diff-apply`, `raw`).
+
+  Regression path: switching widget type from `ai-template` back to a typed widget via the editor cards shows an empty field table (the JS doesn't restore the prior rows). Clicking Save used to store `{ type: 'dashboard', fields: [] }`, which renders three blank divs AND silently dropped the previously-saved fields.
+
+  POST `/agents/:id/output-widget/update` now returns a 303 redirect with a flash error like _"Add at least one field for 'dashboard', or click Remove output widget to delete it entirely. The previous version had 3 fields — they were dropped because the form posted no rows."_ — and leaves the stored widget untouched. The user either adds a row or uses the explicit Remove button.
+
+- 215cb13: Dashboard widget extractor now recovers a trailing JSON object embedded inside human prose. claude-code summarisers commonly emit a human-readable narrative followed by a final `{…}` line that drives the widget — the prior extractor only handled pure-JSON output or XML tags, so the widget rendered empty for any agent that produced both kinds of output.
+
+  `extractField()` is now exported from `views/output-widgets.ts` and unit-tested. The recovery strategy walks `{` positions from rightmost to leftmost and slices to the last `}`, preferring the smallest trailing object so we don't accidentally engulf earlier prose that contains brace characters.
+
+- 7037a35: Planner prompts: teach the LLM to use `signal.template: widget` when the agent has an `outputWidget`.
+
+  Pulse tile rendering is dispatched by `signal.template`, NOT by `outputWidget.type`. An agent with `outputWidget: { type: ai-template, template: <rich HTML> }` and `signal.template: text-headline` will silently render the bare headline on Pulse — the ai-template work is wasted.
+
+  Both planner prompts (`agents/examples/agent-builder.yaml` and `agents/examples/build-planner.yaml`) previously omitted `widget` from the allowed `signal.template` list, so wizard-built rich-output agents could never reach Pulse with their template. Both now:
+
+  - Include `widget` in the allowed list
+  - Explicitly recommend `signal.template: widget` whenever the agent declares an `outputWidget`
+  - Note that `signal.mapping` should be omitted in that case (the widget drives layout)
+
+  The schema, autoFix, and Pulse Configure dialog have always accepted `widget` correctly — this PR closes the prompt gap that was preventing wizard-built agents from emitting it.
+
+- 07d24c1: dashboard: fix wizard JS bundle parse error from #254
+
+  The runPlanner refactor in #254 left the trailing `});` from the
+  addEventListener it replaced — that produced an unbalanced `)` in the
+  inlined script and broke parse for the entire build-from-goal bundle
+  (`Uncaught SyntaxError: Unexpected token ')'`). Wizard didn't open at
+  all on any page. Closes runPlanner with `}` and the IIFE with `})()`.
+
+- Updated dependencies [c788a70]
+- Updated dependencies [c1f605a]
+- Updated dependencies [eb7eff3]
+- Updated dependencies [a53adad]
+- Updated dependencies [f55afe7]
+- Updated dependencies [6459542]
+- Updated dependencies [d72d4e6]
+- Updated dependencies [1da69c4]
+- Updated dependencies [f336d0f]
+- Updated dependencies [6fa5149]
+- Updated dependencies [4b3087c]
+- Updated dependencies [63db5d1]
+- Updated dependencies [1a993ed]
+- Updated dependencies [1d128d9]
+- Updated dependencies [e0cc472]
+- Updated dependencies [7686abb]
+- Updated dependencies [6f76270]
+- Updated dependencies [d6f9872]
+- Updated dependencies [be43277]
+- Updated dependencies [bd5f9f7]
+- Updated dependencies [f53d2bf]
+- Updated dependencies [60aa32f]
+- Updated dependencies [5aa3853]
+- Updated dependencies [c7221dd]
+- Updated dependencies [ab118ec]
+- Updated dependencies [94e607b]
+- Updated dependencies [c05f260]
+- Updated dependencies [021f499]
+- Updated dependencies [1295333]
+- Updated dependencies [16e9a9a]
+- Updated dependencies [06c86a1]
+- Updated dependencies [75763e6]
+- Updated dependencies [f60a468]
+- Updated dependencies [9d99976]
+- Updated dependencies [ed71f4c]
+- Updated dependencies [8a09dab]
+- Updated dependencies [621939d]
+- Updated dependencies [3a0f43d]
+- Updated dependencies [0a88b2e]
+- Updated dependencies [ec676a1]
+- Updated dependencies [5d10f71]
+- Updated dependencies [af5edb9]
+- Updated dependencies [81dd182]
+- Updated dependencies [262ffa9]
+- Updated dependencies [7f41ba0]
+- Updated dependencies [ee8cd9c]
+- Updated dependencies [68174cc]
+- Updated dependencies [2c82a16]
+- Updated dependencies [d83b9ce]
+- Updated dependencies [a1f854f]
+- Updated dependencies [bd29502]
+- Updated dependencies [9004048]
+- Updated dependencies [ffb85c6]
+- Updated dependencies [05b87a6]
+- Updated dependencies [040f530]
+- Updated dependencies [d2e3771]
+- Updated dependencies [97a8c7a]
+- Updated dependencies [8259154]
+- Updated dependencies [153306b]
+- Updated dependencies [80442ba]
+- Updated dependencies [9664423]
+- Updated dependencies [5a98732]
+- Updated dependencies [99c9f5a]
+- Updated dependencies [43f84c8]
+- Updated dependencies [e1d0cf9]
+- Updated dependencies [09eadbd]
+- Updated dependencies [bc0ebfd]
+- Updated dependencies [215cb13]
+- Updated dependencies [7037a35]
+- Updated dependencies [670a46e]
+- Updated dependencies [07d24c1]
+- Updated dependencies [dd4b78a]
+  - @some-useful-agents/core@0.21.0
+
 ## 0.20.0
 
 ### Minor Changes
