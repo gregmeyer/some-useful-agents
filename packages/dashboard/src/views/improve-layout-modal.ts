@@ -1,33 +1,69 @@
 /**
- * Shared markup for the "Improve layout" wizard modal on Pulse.
+ * Shared markup for the "Improve layout" wizard modal.
  *
- * Wizard JS is in improve-layout.js.ts and is wired in via layout.ts.
- * Binds to:
+ * Used on Pulse AND on each named dashboard page. The two surfaces
+ * differ in: which endpoints to hit, which localStorage key to read/
+ * write, and what "Apply" means (Pulse flips pulseVisible; dashboards
+ * rewrite section.agentIds).
+ *
+ * The differences are passed via `ImproveLayoutConfig`, serialised to
+ * data-* attributes on the modal element. The shared JS in
+ * `improve-layout.js.ts` reads them at open time.
+ *
+ * Wizard JS binds to:
  *   - #improve-layout-btn — opens the modal
- *   - #improve-layout-modal — backdrop
+ *   - #improve-layout-modal — backdrop (carries the data-* config)
  *   - #improve-layout-content — replaceable inner panel for stage swaps
  *   - #improve-layout-pills — pill row populated on open
  *   - #improve-layout-focus — free-form textarea
  *   - #improve-layout-submit — submit button
- *
- * Pulse page renders `improveLayoutButton()` next to the edit toggle
- * and `improveLayoutModal()` once at the bottom of the body.
  */
 
-import { html, type SafeHtml } from './html.js';
+import { html, unsafeHtml, type SafeHtml } from './html.js';
+
+/**
+ * Surface-specific configuration the modal JS needs at open time.
+ * Serialised onto data-attributes of the modal backdrop element.
+ */
+export interface ImproveLayoutConfig {
+  /** Endpoint base, e.g. "/pulse/layout-plan" or "/dashboards/<id>/layout-plan". */
+  endpointBase: string;
+  /** localStorage key, e.g. "sua-pulse-layout" or "sua-dashboard-layout-<id>". */
+  storageKey: string;
+  /**
+   * Verb shown to the user in the "Will N agents" details on the proposed
+   * plan ("hide" for Pulse, "remove" for named dashboards). The matching
+   * past-tense / restoration UX copy is wired up in the JS based on this.
+   */
+  curateVerb: 'hide' | 'remove';
+}
+
+/** Default config — Pulse. Keeps the existing caller signature working. */
+const PULSE_CONFIG: ImproveLayoutConfig = {
+  endpointBase: '/pulse/layout-plan',
+  storageKey: 'sua-pulse-layout',
+  curateVerb: 'hide',
+};
 
 export function improveLayoutButton(): SafeHtml {
   return html`<button type="button" class="btn btn--ghost btn--sm" id="improve-layout-btn">✨ Improve layout</button>`;
 }
 
-export function improveLayoutModal(): SafeHtml {
+export function improveLayoutModal(config: ImproveLayoutConfig = PULSE_CONFIG): SafeHtml {
+  // Data attributes are HTML-escaped by the html`` tag.
+  const attrs = unsafeHtml(
+    ` data-endpoint-base="${escapeAttr(config.endpointBase)}"`
+    + ` data-storage-key="${escapeAttr(config.storageKey)}"`
+    + ` data-curate-verb="${escapeAttr(config.curateVerb)}"`,
+  );
+  const verbNoun = config.curateVerb === 'remove' ? 'remove from this dashboard' : 'hide from Pulse';
   return html`
-    <div id="improve-layout-modal" class="modal-backdrop">
+    <div id="improve-layout-modal" class="modal-backdrop"${attrs}>
       <div class="modal" style="max-width: 640px; max-height: 85vh; overflow-y: auto;">
         <div id="improve-layout-content">
           <h3 style="margin: 0 0 var(--space-3);">Improve layout</h3>
           <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-            Pick a suggestion or describe your own focus. The planner ranks your agents, groups them into containers, and asks clarifying questions before anything is applied.
+            Pick a suggestion or describe your own focus. The planner ranks your agents, groups them into containers, and asks clarifying questions before anything is applied. Agents not chosen will ${unsafeHtml(verbNoun)}.
           </p>
 
           <div style="margin-bottom: var(--space-3);">
@@ -51,4 +87,8 @@ export function improveLayoutModal(): SafeHtml {
       </div>
     </div>
   `;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }

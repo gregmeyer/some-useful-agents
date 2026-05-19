@@ -19,7 +19,15 @@ export const IMPROVE_LAYOUT_JS = `
   var content = document.getElementById('improve-layout-content');
   if (!btn || !modal || !content) return;
 
-  var LAYOUT_KEY = 'sua-pulse-layout';
+  // Surface-specific config — set on the modal element by the view
+  // helper. Pulse uses /pulse/layout-plan + sua-pulse-layout + "hide".
+  // Each named dashboard uses /dashboards/<id>/layout-plan +
+  // sua-dashboard-layout-<id> + "remove".
+  var ENDPOINT_BASE = modal.getAttribute('data-endpoint-base') || '/pulse/layout-plan';
+  var LAYOUT_KEY = modal.getAttribute('data-storage-key') || 'sua-pulse-layout';
+  var CURATE_VERB = modal.getAttribute('data-curate-verb') || 'hide';
+  var CURATE_PAST = CURATE_VERB === 'remove' ? 'removed' : 'hidden';
+  var CURATE_BUCKET = CURATE_VERB === 'remove' ? 'this dashboard' : 'Pulse';
   var cachedAgentMetadata = null;
   var lastFocus = '';
 
@@ -41,7 +49,7 @@ export const IMPROVE_LAYOUT_JS = `
   function loadSuggestions() {
     var pills = document.getElementById('improve-layout-pills');
     if (!pills) return;
-    fetch('/pulse/layout-plan/suggestions', {
+    fetch(ENDPOINT_BASE + '/suggestions', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currentLayout: readLayout() }),
@@ -123,7 +131,7 @@ export const IMPROVE_LAYOUT_JS = `
       cancelled = true; clearInterval(tickTimer); clearTimeout(pollTimer); closeModal();
     });
 
-    fetch('/pulse/layout-plan', {
+    fetch(ENDPOINT_BASE, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -143,7 +151,7 @@ export const IMPROVE_LAYOUT_JS = `
 
       function poll() {
         if (cancelled) return;
-        fetch('/pulse/layout-plan/' + encodeURIComponent(runId), { credentials: 'same-origin' })
+        fetch(ENDPOINT_BASE + '/' + encodeURIComponent(runId), { credentials: 'same-origin' })
           .then(function (r) { return r.json(); })
           .then(function (data) {
             if (!data.ok) {
@@ -318,8 +326,12 @@ export const IMPROVE_LAYOUT_JS = `
       willHideHtml =
         '<details style="margin:var(--space-3) 0;padding:var(--space-2) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
         '<summary style="cursor:pointer;font-size:var(--font-size-sm);">' +
-        '<strong>Will hide ' + willHide.length + ' agent' + (willHide.length === 1 ? '' : 's') + '</strong> ' +
-        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(restore from the "hidden signals" section after applying)</span>' +
+        '<strong>Will ' + CURATE_VERB + ' ' + willHide.length + ' agent' + (willHide.length === 1 ? '' : 's') + '</strong> ' +
+        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">' +
+          (CURATE_VERB === 'remove'
+            ? '(removed from this dashboard\\'s sections — restore with the Add tile button)'
+            : '(restore from the "hidden signals" section after applying)') +
+        '</span>' +
         '</summary>' +
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2);">' + hideList + '</div></details>';
     }
@@ -387,7 +399,7 @@ export const IMPROVE_LAYOUT_JS = `
     var applyBtn = document.getElementById('improve-apply-btn');
     if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Applying...'; }
 
-    fetch('/pulse/layout-plan/commit', {
+    fetch(ENDPOINT_BASE + '/commit', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ containers: plan.containers || [] }),
