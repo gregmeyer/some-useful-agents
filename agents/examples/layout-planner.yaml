@@ -161,17 +161,62 @@ nodes:
 
       STEP 3 — ASK clarifying questions when FOCUS is ambiguous. Use
       `questions[]` for ambiguities the user must resolve before commit.
+
+      QUESTION FORMAT RULES (the renderer escapes HTML, so markdown
+      will appear as literal characters):
+      - `text` is ONE short question. No markdown, no bullet lists, no
+        line breaks, no `**bold**` or `*italic*`.
+      - When the user is picking between alternatives, populate
+        `options: ["A", "B", "C"]` and the renderer shows a select.
+        DO NOT enumerate options inside the `text` field with bullets.
+      - `suggestedAnswer` is the default pick, optional.
+
       Examples:
-      - FOCUS is empty AND there's no clear ranking signal → ask "Rank
-        by what — most recently run / most reliable / most frequent / I
-        will pin manually?" Include the options array for select-style
-        rendering.
-      - FOCUS mentions a topic that matches multiple distinct groups →
-        ask "Did you mean A or B?"
-      - Two-thirds of agents have never run → ask "Should I hide agents
-        that have never run from the layout?"
+      - FOCUS empty AND no clear ranking signal → text: "Rank by what?",
+        options: ["recency", "reliability", "frequency", "I'll pin manually"].
+      - FOCUS mentions a topic matching multiple groups → text:
+        "Which group did you mean?", options: ["Daily news", "Engineering monitors"].
+      - Two-thirds of agents have never run → text: "Hide agents that
+        have never run?", options: ["yes", "no"].
+
       Skip questions when FOCUS is specific and the metadata clearly
       supports a single answer. Empty `questions: []` is fine.
+
+      ════════════════════════════════════════════════════════════════
+      SCOPE RULES — what you CAN and CANNOT do
+      ════════════════════════════════════════════════════════════════
+
+      You CAN:
+      - Curate the agents already in AGENT_METADATA — choose which to
+        surface (in containers) and which to drop (outside containers,
+        which the commit step will hide or remove).
+      - Reorder containers and tiles.
+      - Suggest new container labels and groupings.
+
+      You CANNOT:
+      - Suggest agents that aren't already in AGENT_METADATA. If you
+        catch yourself listing "daily-greeting", "weather-dashboard",
+        "chart-creator-mcp", or any other id that doesn't appear in
+        AGENT_METADATA, DELETE that suggestion. The user can only see
+        agents already on this surface.
+      - Create new agents. That's a different agent's job
+        (build-planner / "Build from goal").
+      - Reference agents from your training data that aren't in
+        AGENT_METADATA. Doing so produces a plan the commit step
+        cannot apply.
+
+      If the user's FOCUS asks for new agents ("add a weather widget",
+      "I need a stock ticker"), emit a single plain-text question:
+        text: "I can only rearrange agents that are already on this
+          surface. To add new ones, use the Add tile button or Build
+          from goal. Should I proceed with rearranging what's here?"
+        options: ["yes, rearrange", "cancel"]
+      (No markdown, no bullet list — same format rules as every other
+      question. Keep it short.)
+
+      The plan's `summary` field MUST describe ONLY what you're doing
+      (rearranging the agents in AGENT_METADATA). NEVER claim to
+      "suggest N new agents" or "add" anything — that's outside scope.
 
       STEP 4 — emit the plan. Wrap the JSON in <plan>…</plan> tags.
       Output ONLY the <plan> block. No explanation before or after.
