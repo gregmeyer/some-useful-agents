@@ -1,6 +1,7 @@
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { renderLlmOptions } from './llm-options.js';
 
 export interface AgentNewFormValues {
   id?: string;
@@ -9,13 +10,15 @@ export interface AgentNewFormValues {
   type?: 'shell' | 'llm-prompt';
   command?: string;
   prompt?: string;
+  provider?: string;
+  model?: string;
+  maxTurns?: number | string;
+  allowedTools?: string[] | string;
 }
 
 function formatInstalled(providers: string[]): string {
-  if (providers.length === 0) return 'no LLM CLIs detected on PATH';
-  if (providers.length === 1) return `you have ${providers[0]} installed`;
-  if (providers.length === 2) return `you have ${providers[0]} and ${providers[1]} installed`;
-  return `you have ${providers.slice(0, -1).join(', ')}, and ${providers[providers.length - 1]} installed`;
+  if (providers.length === 0) return 'no LLM CLIs on PATH';
+  return `${providers.join(', ')} installed`;
 }
 
 export function renderAgentNew(args: {
@@ -66,7 +69,7 @@ export function renderAgentNew(args: {
         </label>
         <label class="radio-option">
           <input type="radio" name="type" value="llm-prompt" ${isClaude ? 'checked' : ''}>
-          <span><strong>LLM Prompt</strong> <span class="dim">\u2014 runs an LLM prompt \u2014 ${installedSuffix}</span></span>
+          <span><strong>LLM Prompt</strong> <span class="dim">\u2014 runs an LLM prompt (${installedSuffix})</span></span>
         </label>
       </fieldset>
 
@@ -75,10 +78,22 @@ export function renderAgentNew(args: {
         <textarea name="command" rows="4" placeholder="echo hello" class="form-field__textarea">${v.command ?? ''}</textarea>
       </div>
 
-      <div class="form-field mb-4">
+      <div class="form-field">
         <strong>Prompt <span class="dim text-xs">(llm-prompt agents only)</span></strong>
         <textarea name="prompt" rows="4" placeholder="Summarise the attached text." class="form-field__textarea">${v.prompt ?? ''}</textarea>
       </div>
+
+      <details class="mb-4" ${(v.provider || v.model || v.maxTurns || v.allowedTools) ? 'open' : ''}>
+        <summary class="dim text-xs" style="cursor: pointer; padding: var(--space-2) 0;">Advanced LLM options <span class="dim">(llm-prompt agents only)</span></summary>
+        <div style="padding-top: var(--space-2);">
+          ${renderLlmOptions({
+            provider: v.provider,
+            model: v.model,
+            maxTurns: v.maxTurns,
+            allowedTools: v.allowedTools,
+          })}
+        </div>
+      </details>
 
       <div class="flex-end">
         <a class="btn" href="/agents">Cancel</a>

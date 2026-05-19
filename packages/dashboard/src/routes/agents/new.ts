@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { detectLlms, PROVIDERS, PROVIDER_IDS } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentNew, type AgentNewFormValues } from '../../views/agent-new.js';
+import { parseLlmOptions } from '../../views/llm-options.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -39,6 +40,10 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
     type: (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell',
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+    provider: typeof body.provider === 'string' ? body.provider : undefined,
+    model: typeof body.model === 'string' ? body.model : undefined,
+    maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
+    allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
   };
 
   // Validate in order of what the user typed top-to-bottom so the error
@@ -79,6 +84,8 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
     return;
   }
 
+  const llm = values.type === 'llm-prompt' ? parseLlmOptions(body) : {};
+
   try {
     ctx.agentStore.createAgent(
       {
@@ -91,7 +98,15 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
         nodes: [
           values.type === 'shell'
             ? { id: 'main', type: 'shell', command: values.command! }
-            : { id: 'main', type: 'llm-prompt', prompt: values.prompt! },
+            : {
+                id: 'main',
+                type: 'llm-prompt',
+                prompt: values.prompt!,
+                ...(llm.provider ? { provider: llm.provider } : {}),
+                ...(llm.model ? { model: llm.model } : {}),
+                ...(llm.maxTurns ? { maxTurns: llm.maxTurns } : {}),
+                ...(llm.allowedTools ? { allowedTools: llm.allowedTools } : {}),
+              },
         ],
       },
       'dashboard',
