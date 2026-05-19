@@ -1,8 +1,48 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { loadAgents } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs } from '../config.js';
+import { DatabaseSync } from 'node:sqlite';
+import { existsSync } from 'node:fs';
+import { AgentStore, exportAgent, loadAgents } from '@some-useful-agents/core';
+import { loadConfig, getAgentDirs, getDbPath } from '../config.js';
 import * as ui from '../ui.js';
+
+/**
+ * Look up a v2 agent in the project DB and print its canonical YAML.
+ * Used as a fallback when the agent isn't present in any on-disk
+ * `agents/*` directory — e.g. agents created via the dashboard's
+ * Build-from-Goal flow, which writes to the DB but not to disk.
+ */
+function tryAuditFromDb(name: string): boolean {
+  const config = loadConfig();
+  const dbPath = getDbPath(config);
+  if (!existsSync(dbPath)) return false;
+
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return false;
+  }
+
+  let agent;
+  try {
+    const store = AgentStore.fromHandle(db);
+    agent = store.getAgent(name);
+  } finally {
+    db.close();
+  }
+
+  if (!agent) return false;
+
+  const sourceLabel = agent.source ?? 'local';
+  const headerColor = sourceLabel === 'community' ? chalk.red.bold : chalk.cyan.bold;
+  console.log('');
+  console.log(headerColor(`Agent: ${agent.id}  [source=${sourceLabel}, storage=db]`));
+  console.log(ui.dim('  (loaded from project DB. Use `sua agent export` to write a YAML file.)'));
+  console.log('');
+  console.log(exportAgent(agent));
+  return true;
+}
 
 /**
  * Read-only inspection of an agent. Prints the full resolved YAML including
@@ -19,6 +59,9 @@ export const auditCommand = new Command('audit')
 
     const agent = agents.get(name);
     if (!agent) {
+      // No on-disk YAML matched. Try the DB — dashboard-created agents
+      // live there only.
+      if (tryAuditFromDb(name)) return;
       ui.fail(`Agent "${name}" not found.`);
       console.error(ui.dim('Run "sua agent list" or "sua agent list --catalog" to see options.'));
       process.exit(1);
