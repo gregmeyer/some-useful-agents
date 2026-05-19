@@ -118,14 +118,22 @@ nodes:
         container that scoops up the leftovers. Agents not assigned to
         a real container will be hidden. If you want an agent visible,
         put it in a container with a meaningful label.
-      - **ORDER CONTAINERS BY GLANCE-VALUE — TOP TO BOTTOM.** The wizard
-        renders containers in array order. Put the things the user wants
-        to see *first thing* near the top: daily digests, news, weather,
-        anything they check every morning. Engineering / admin / infra
-        containers go LOWER. System tiles (Pulse synthetics) usually
-        anchor either the very top OR the very bottom — pick one based
-        on whether the user's FOCUS reads "I want stats first" or "I
-        want content first". Don't bury system tiles in the middle.
+      - **ORDER CONTAINERS — SYSTEM TILES FIRST, DAILY SECOND.** The
+        wizard renders containers in array order, top to bottom. The
+        canonical order is:
+          1. A "Health" or "Overview" container holding the four system
+            tiles (_system-runs-today, _system-failure-rate,
+            _system-agent-count, _system-avg-duration) — first because
+            they're the at-a-glance status row the user wants to see
+            before anything else.
+          2. Daily-glance content next: daily digests, news, weather,
+            anything checked every morning.
+          3. Lower-frequency containers (engineering, admin, infra,
+            jobs) below that.
+        Don't bury system tiles in the middle. Don't put daily content
+        below engineering. FOCUS may override these defaults — e.g.
+        "I don't care about system stats, hide them" — but absent a
+        contrary signal, system first, daily second.
       - **NEVER include an agent id in a container if its AGENT_METADATA
         entry is absent OR has no `title`.** Those agents don't have a
         Pulse signal block and can't render as tiles — placing them in a

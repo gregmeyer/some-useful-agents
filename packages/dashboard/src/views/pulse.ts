@@ -159,6 +159,8 @@ function tileFooter(tile: PulseTile): SafeHtml {
 export function renderPulsePage(input: PulsePageInput): string {
   const { systemTiles, tiles, hiddenTiles } = input;
   const allTileCount = systemTiles.length + tiles.length;
+  const agentTileCount = tiles.length;
+  const systemTileCount = systemTiles.length;
   const hiddenCount = hiddenTiles.length;
 
   const allTileIds = [...systemTiles.map((t) => t.agent.id), ...tiles.map((t) => t.agent.id)];
@@ -180,7 +182,7 @@ export function renderPulsePage(input: PulsePageInput): string {
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       <h1 style="margin: 0;">Pulse</h1>
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
-        ${String(allTileCount)} signal${allTileCount !== 1 ? 's' : ''}${hiddenCount > 0 ? html`, ${String(hiddenCount)} hidden` : html``}
+        ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
       </span>
       <div style="margin-left: auto; display: flex; gap: var(--space-2);">
         ${tiles.length > 0 ? html`
