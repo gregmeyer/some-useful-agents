@@ -1,0 +1,184 @@
+# Layout Planner — picks top agents and proposes a Pulse container layout.
+#
+# The Pulse "Improve layout" wizard sends current localStorage layout +
+# per-agent metadata (signal.size, signal.title, run frequency, success
+# rate, last-run timestamp) + optional FOCUS text. The planner returns
+# a structured LayoutPlan JSON with:
+#   - summary: one-line description of the proposal
+#   - topAgents: ranked list with rationales + suggestedSize hints
+#   - containers: proposed grouping (label + tiles) for sua-pulse-layout
+#   - questions: post-plan clarifying questions when FOCUS is vague
+#
+# The wizard renders the plan, lets the user answer questions to refine
+# (re-runs with appended context), then applies — the apply step writes
+# the proposed containers to localStorage and reloads the Pulse view.
+
+id: layout-planner
+name: Layout Planner
+description: >
+  Picks the most-important agents from your installed catalog and proposes
+  a grouped Pulse layout. Reads current layout + agent run history + an
+  optional focus statement; emits a structured LayoutPlan JSON that the
+  wizard renders and applies. Run via "Improve layout" on /pulse.
+status: active
+source: examples
+
+inputs:
+  CURRENT_LAYOUT:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Current sua-pulse-layout JSON from the user's localStorage, e.g.
+      {"containers":[{"id":"default","label":"Default","tiles":["a","b"]}]}.
+      Empty string means no custom layout yet (default ordering).
+  AGENT_METADATA:
+    type: string
+    required: true
+    description: >
+      JSON array of every visible agent with metadata used for ranking:
+      [{ "id", "title", "size"?, "lastRunAt"?, "successRate"?, "runCount30d"? }].
+      Injected at request time by the route handler.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Optional user focus statement. Examples: "I care about API monitors",
+      "group by topic", "surface my failing agents". Blank is fine — the
+      planner will ask a clarifying question about the ranking heuristic.
+
+nodes:
+  - id: plan
+    type: llm-prompt
+    prompt: |
+      You are the Pulse layout planner for the sua agent platform.
+
+      Read the user's installed agents + current layout + optional focus,
+      then emit a structured LayoutPlan JSON describing how to rearrange
+      the Pulse page.
+
+      ════════════════════════════════════════════════════════════════
+      WHAT YOU RECEIVE
+      ════════════════════════════════════════════════════════════════
+
+      FOCUS:
+      {{inputs.FOCUS}}
+
+      CURRENT_LAYOUT (JSON, may be empty string):
+      {{inputs.CURRENT_LAYOUT}}
+
+      AGENT_METADATA (JSON array, one row per visible agent):
+      {{inputs.AGENT_METADATA}}
+
+      Each AGENT_METADATA row may have:
+      - id: lowercase-with-dashes
+      - title: human-readable signal.title
+      - size: signal.size hint (1x1 / 2x1 / 1x2 / 2x2) — optional
+      - lastRunAt: ISO timestamp of the most recent run — optional
+      - successRate: 0-1 fraction over recent runs — optional
+      - runCount30d: count of runs in the last 30 days — optional
+
+      ════════════════════════════════════════════════════════════════
+      WHAT YOU DO
+      ════════════════════════════════════════════════════════════════
+
+      STEP 1 — RANK. Pick the agents that should be most prominent on
+      Pulse. Use these signals (FOCUS overrides everything else):
+      - If FOCUS names a topic ("API monitors", "weather"), match agent
+        titles + ids to it and rank those first.
+      - Otherwise, rank by a combination of recency + reliability +
+        frequency. Agents that have never run or haven't run in 30+ days
+        rank lower.
+      - Emit at most 10 topAgents. Each MUST have a one-line `rationale`
+        explaining why it's there ("daily run, 98% success" / "matches
+        FOCUS=API monitors" / "user-pinned in current layout"). The
+        rationale is rendered next to the agent in the UI — keep it
+        concise and concrete.
+      - `suggestedSize` is optional. Default to the agent's existing
+        size if set; otherwise pick a size that fits the content:
+        - "metric" / "status" templates → 1x1
+        - "text-headline" / "comparison" → 2x1
+        - "table" / "story" / "widget" → 2x2
+
+      STEP 2 — GROUP into containers. The layout JSON the wizard writes
+      to localStorage looks like:
+        {"containers":[{"label":"...","tiles":["agent-id-1","agent-id-2"]}]}
+      Rules:
+      - 1 to 6 containers. Fewer is better. Don't make a container per
+        agent.
+      - Container labels are short, human-readable nouns ("Monitoring",
+        "Daily news", "Personal projects"). Capitalize.
+      - Each tile (agent id) belongs to EXACTLY ONE container. Tiles
+        appearing in two containers is an error.
+      - Container labels must be unique (case-insensitive).
+      - Every agent in topAgents SHOULD be assigned to a container. You
+        MAY also include lower-ranked agents in containers without
+        promoting them to topAgents (e.g. a "Misc" container at the
+        bottom catches everything else).
+      - Honor CURRENT_LAYOUT's container structure when it's clearly
+        intentional. If the user already has a "Monitoring" container,
+        keep it; don't rename to "Health" for no reason.
+
+      STEP 3 — ASK clarifying questions when FOCUS is ambiguous. Use
+      `questions[]` for ambiguities the user must resolve before commit.
+      Examples:
+      - FOCUS is empty AND there's no clear ranking signal → ask "Rank
+        by what — most recently run / most reliable / most frequent / I
+        will pin manually?" Include the options array for select-style
+        rendering.
+      - FOCUS mentions a topic that matches multiple distinct groups →
+        ask "Did you mean A or B?"
+      - Two-thirds of agents have never run → ask "Should I hide agents
+        that have never run from the layout?"
+      Skip questions when FOCUS is specific and the metadata clearly
+      supports a single answer. Empty `questions: []` is fine.
+
+      STEP 4 — emit the plan. Wrap the JSON in <plan>…</plan> tags.
+      Output ONLY the <plan> block. No explanation before or after.
+
+      ════════════════════════════════════════════════════════════════
+      OUTPUT FORMAT — exact shape
+      ════════════════════════════════════════════════════════════════
+
+      <plan>
+      {
+        "summary": "Grouped 12 agents into 3 containers: Monitoring, Daily news, Misc. Topped by api-monitor and hn-top-3.",
+        "topAgents": [
+          { "id": "api-monitor", "rationale": "runs every 5 minutes, 100% success last 30d", "suggestedSize": "2x1" },
+          { "id": "hn-top-3", "rationale": "matches FOCUS=news, ran successfully today", "suggestedSize": "2x2" }
+        ],
+        "containers": [
+          { "label": "Monitoring", "tiles": ["api-monitor", "system-health"] },
+          { "label": "Daily news", "tiles": ["hn-top-3", "weather-forecast"] },
+          { "label": "Misc", "tiles": ["daily-joke", "cat-video-finder"] }
+        ],
+        "questions": [
+          {
+            "text": "Rank by what?",
+            "suggestedAnswer": "recency",
+            "options": ["recency", "reliability", "frequency", "I'll pin manually"]
+          }
+        ]
+      }
+      </plan>
+
+      ════════════════════════════════════════════════════════════════
+      VALIDATION RULES (failing these means the plan is rejected)
+      ════════════════════════════════════════════════════════════════
+
+      - `summary` is required and non-empty.
+      - `topAgents` has at least one entry. Each has id (lowercase-with-
+        dashes-or-underscores) and a non-empty rationale.
+      - `containers` has at least one entry. Each has a non-empty label
+        and at least one tile.
+      - No tile appears in two containers.
+      - No two container labels are the same (case-insensitive).
+      - No two topAgents share an id.
+      - `suggestedSize` if set must be one of "1x1", "2x1", "1x2", "2x2".
+      - `questions[]` may be empty. When set, each entry has non-empty
+        `text`; `suggestedAnswer` and `options` are optional.
+
+      Output ONLY the <plan>…</plan> block. No explanation before or after.
+    maxTurns: 3
+    timeout: 180
