@@ -109,8 +109,16 @@ nodes:
         agent.
       - Container labels are short, human-readable nouns ("Monitoring",
         "Daily news", "Personal projects"). Capitalize.
-      - Each tile (agent id) belongs to EXACTLY ONE container. Tiles
-        appearing in two containers is an error.
+      - Tiles can be EITHER agent ids (lowercase-with-dashes, from
+        AGENT_METADATA) OR system tiles (Pulse-synthetic widgets in
+        CURRENT_LAYOUT with a leading underscore: "_system-runs-today",
+        "_system-failure-rate", "_system-agent-count",
+        "_system-avg-duration"). Preserve system tiles when they're in
+        CURRENT_LAYOUT; place them in a sensible container (e.g. one
+        labeled "Health" or "Overview"). NEVER include system tiles in
+        `topAgents` — that field is real agents only.
+      - Each tile belongs to EXACTLY ONE container. Tiles appearing in
+        two containers is an error.
       - Container labels must be unique (case-insensitive).
       - Every agent in topAgents SHOULD be assigned to a container. You
         MAY also include lower-ranked agents in containers without
@@ -149,6 +157,7 @@ nodes:
           { "id": "hn-top-3", "rationale": "matches FOCUS=news, ran successfully today", "suggestedSize": "2x2" }
         ],
         "containers": [
+          { "label": "Health", "tiles": ["_system-runs-today", "_system-failure-rate", "_system-agent-count", "_system-avg-duration"] },
           { "label": "Monitoring", "tiles": ["api-monitor", "system-health"] },
           { "label": "Daily news", "tiles": ["hn-top-3", "weather-forecast"] },
           { "label": "Misc", "tiles": ["daily-joke", "cat-video-finder"] }

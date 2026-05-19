@@ -20,6 +20,13 @@
 import { z } from 'zod';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
+/**
+ * Tile ids include both real agent ids AND system tiles (Pulse's synthetic
+ * widgets: `_system-runs-today`, `_system-failure-rate`, etc.). System
+ * tiles use a leading underscore. Containers reference both kinds, so the
+ * tile regex permits one optional leading underscore.
+ */
+const TILE_ID_RE = /^_?[a-z0-9][a-z0-9_-]*$/;
 
 export const SIGNAL_SIZES = ['1x1', '2x1', '1x2', '2x2'] as const;
 export type SignalSize = typeof SIGNAL_SIZES[number];
@@ -45,7 +52,7 @@ export const layoutPlanSchema = z.object({
    */
   containers: z.array(z.object({
     label: z.string().min(1, 'containers.label is required'),
-    tiles: z.array(z.string().regex(AGENT_ID_RE, 'containers.tiles[] must be a valid agent id'))
+    tiles: z.array(z.string().regex(TILE_ID_RE, 'containers.tiles[] must be a valid tile id (agent id, or system tile starting with "_")'))
       .min(1, 'containers.tiles must have at least one entry'),
   })).min(1, 'layout must have at least one container'),
 
