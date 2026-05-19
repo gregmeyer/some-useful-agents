@@ -15,6 +15,7 @@ import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
+import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -192,6 +193,7 @@ export function renderPulsePage(input: PulsePageInput): string {
             <button type="submit" class="btn btn--ghost btn--sm">Show all</button>
           </form>
         ` : html``}
+        ${improveLayoutButton()}
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-edit-toggle">\u270E Edit layout</button>
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
       </div>
@@ -222,6 +224,8 @@ export function renderPulsePage(input: PulsePageInput): string {
         </div>
       </details>
     ` : html``}
+
+    ${improveLayoutModal()}
 
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
