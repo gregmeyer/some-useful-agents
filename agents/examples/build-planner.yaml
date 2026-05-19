@@ -103,6 +103,9 @@ nodes:
       - DO NOT propose modifying any existing agent. (The user does that via /agents/<id>/yaml.)
       - Each new agent's YAML should include both signal: and outputWidget: blocks so dashboard
         tiles render correctly.
+      - **signal.title is REQUIRED** when the signal block is present. It's a literal short string
+        used as the chrome label on the Pulse tile (e.g. "HN Top Stories", "Daily Joke"). Omitting
+        it causes schema validation to fail with "signal.title: Required".
       - **When the agent declares an `outputWidget`, set `signal.template: widget`.** Pulse tile
         rendering is dispatched by `signal.template`, NOT `outputWidget.type` — so an agent with
         `outputWidget: { type: ai-template, template: <rich HTML> }` and `signal.template:
