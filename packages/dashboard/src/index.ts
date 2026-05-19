@@ -52,6 +52,7 @@ import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
+import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
 import { packsRouter } from './routes/packs.js';
 import { dashboardsRouter } from './routes/dashboards.js';
 import { dashboardsEditRouter } from './routes/dashboards-edit.js';
@@ -245,6 +246,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(nodesRouter);
   app.use(pulseRouter);
   app.use(pulseLayoutPlanRouter);
+  app.use(dashboardLayoutPlanRouter);
   app.use(packsRouter);
   app.use(dashboardsEditRouter);
   app.use(dashboardsRouter);

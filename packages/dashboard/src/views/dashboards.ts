@@ -14,6 +14,7 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { renderTile } from './pulse-renderers.js';
 import { tileWrap, type PulseTile } from './pulse.js';
+import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
 import {
   buildDashboardOptions,
   renderDashboardsDropdown,
@@ -79,6 +80,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
           data-section-idx="0"
           data-section-agent-ids="${input.sections.flatMap((s) => s.agentIds).join(',')}"
           title="Add a tile to this dashboard">+ Add tile</button>
+        ${improveLayoutButton()}
         <button type="button" class="btn btn--ghost btn--sm" id="dashboard-edit-toggle">✎ Edit layout</button>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit sections</a>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
@@ -108,6 +110,11 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
     ${buildFromGoalModal({
       availableDashboards: input.installedDashboards.filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name })),
       defaultDashboardId: input.dashboard.packId ? undefined : input.dashboard.id,
+    })}
+    ${improveLayoutModal({
+      endpointBase: `/dashboards/${encodeURIComponent(input.dashboard.id)}/layout-plan`,
+      storageKey: `sua-dashboard-layout-${input.dashboard.id}`,
+      curateVerb: 'remove',
     })}
   `;
 
