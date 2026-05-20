@@ -233,5 +233,5 @@ nodes:
       - newAgents[].id and matchedAgents[].id must be lowercase-with-hyphens.
 
       Output ONLY the <plan>…</plan> block. No explanation before or after.
-    maxTurns: 3
-    timeout: 180
+    maxTurns: 5
+    timeout: 360
