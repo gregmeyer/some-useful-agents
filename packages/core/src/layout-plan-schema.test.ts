@@ -187,6 +187,63 @@ describe('layoutPlanSchema', () => {
     }
   });
 
+  it('defaults needsNew to an empty array when omitted', () => {
+    const r = layoutPlanSchema.safeParse(validPlan);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.needsNew).toEqual([]);
+  });
+
+  it('accepts needsNew specs with a purpose and optional suggestedName', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      needsNew: [
+        { purpose: 'Show stock prices.', suggestedName: 'stock-ticker' },
+        { purpose: 'Track crypto prices.' },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects needsNew entries with an empty purpose', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      needsNew: [{ purpose: '', suggestedName: 'stock-ticker' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects needsNew.suggestedName that collides with a container tile', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      needsNew: [{ purpose: 'fake', suggestedName: 'api-monitor' }],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.message.includes("appears in a container"))).toBe(true);
+    }
+  });
+
+  it('rejects needsNew.suggestedName that collides with toAdd', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      containers: [
+        { label: 'Monitoring', tiles: ['api-monitor'] },
+        { label: 'Personal', tiles: ['weather-forecast', 'stock-ticker'] },
+      ],
+      toAdd: ['stock-ticker'],
+      needsNew: [{ purpose: 'fake', suggestedName: 'stock-ticker' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects malformed needsNew.suggestedName', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      needsNew: [{ purpose: 'fake', suggestedName: 'Has Spaces' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('rejects duplicate toAdd ids', () => {
     const r = layoutPlanSchema.safeParse({
       ...validPlan,

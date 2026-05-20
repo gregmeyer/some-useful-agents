@@ -336,6 +336,28 @@ export const IMPROVE_LAYOUT_JS = `
         if (m && m.available && m.id && surfacedSet[m.id]) willAdd.push(m.id);
       }
     }
+    // needsNew: brand-new agents the planner thinks should exist but
+    // don't. These can't be committed inline — the user has to draft
+    // them in Build from goal. Render a "Draft these agents" section
+    // with a link out to /agents.
+    var needsNew = Array.isArray(plan.needsNew) ? plan.needsNew.filter(function (n) {
+      return n && typeof n === 'object' && typeof n.purpose === 'string' && n.purpose.length > 0;
+    }) : [];
+    var needsNewHtml = '';
+    if (needsNew.length > 0) {
+      var needsNewRows = needsNew.map(function (n) {
+        var name = n.suggestedName ? '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(n.suggestedName) + '</code> ' : '';
+        return '<li style="margin-bottom:var(--space-2);">' + name + '<span style="font-size:var(--font-size-sm);">' + esc(n.purpose) + '</span></li>';
+      }).join('');
+      needsNewHtml =
+        '<div style="margin:var(--space-3) 0;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+        '<div style="font-weight:var(--weight-semibold);font-size:var(--font-size-sm);margin-bottom:var(--space-2);">Draft ' + needsNew.length + ' new agent' + (needsNew.length === 1 ? '' : 's') + ' <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(these don\\'t exist yet)</span></div>' +
+        '<ul style="margin:0 0 var(--space-3);padding-left:var(--space-4);">' + needsNewRows + '</ul>' +
+        '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:var(--space-2);">Drafting happens in Build from goal. Re-run Improve layout afterward to surface the new agent(s).</div>' +
+        '<a href="/agents" class="btn btn--ghost btn--sm" style="text-decoration:none;display:inline-block;">Open Build from goal →</a>' +
+        '</div>';
+    }
+
     var willAddHtml = '';
     if (willAdd.length > 0) {
       var addList = willAdd.map(function (id) { return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(id) + '</code>'; }).join(' ');
@@ -377,6 +399,7 @@ export const IMPROVE_LAYOUT_JS = `
       '<div style="margin-bottom:var(--space-2);">' + containerRows + '</div>' +
       willAddHtml +
       willHideHtml +
+      needsNewHtml +
       questionsHtml +
       '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;">' +
         '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Cancel</button>' +

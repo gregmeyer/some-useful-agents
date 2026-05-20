@@ -12,6 +12,11 @@
 # The wizard renders the plan, lets the user answer questions to refine
 # (re-runs with appended context), then applies — the apply step writes
 # the proposed containers to localStorage and reloads the Pulse view.
+#
+# The planner can also suggest brand-new agents that don't exist yet
+# via `needsNew[]`. The wizard surfaces these as a "Draft these agents"
+# link to Build from goal; nothing is committed inline — the user re-runs
+# Improve layout after drafting and the new agents appear as `available`.
 
 id: layout-planner
 name: Layout Planner
@@ -205,23 +210,33 @@ nodes:
       - Curate members of this surface — choose which to keep in
         containers and which to drop (un-surfaced agents get hidden on
         Pulse or removed from this dashboard's sections).
-      - Bring AVAILABLE agents onto this surface. To add an available
-        agent, place it in a container AND list its id in `toAdd[]`.
-        Both are required: the container placement gives it a slot;
+      - Bring AVAILABLE agents (already installed, not yet on this
+        surface) onto this surface. To surface an available agent,
+        place it in a container AND list its id in `toAdd[]`. Both
+        are required: the container placement gives it a slot;
         `toAdd[]` declares your intent so the UI can show "Will add N".
+      - Suggest agents that DO NOT exist yet, by listing short specs
+        in `needsNew[]`. The user will be sent to Build from goal to
+        draft them; they re-run Improve layout afterward and the new
+        agent appears as available.
       - Reorder containers and tiles.
       - Suggest new container labels and groupings.
 
       You CANNOT:
-      - Suggest agents that aren't anywhere in AGENT_METADATA. If you
-        catch yourself listing "daily-greeting", "weather-dashboard",
-        "chart-creator-mcp", or any other id that doesn't appear in
-        AGENT_METADATA, DELETE that suggestion. Drafting brand-new
-        agents is a different agent's job (build-planner / "Build from
-        goal").
+      - Invent agent ids and place them in containers or `toAdd[]`.
+        Every id in containers and `toAdd[]` MUST appear in
+        AGENT_METADATA. Brand-new agents go in `needsNew[]` ONLY
+        — they're specs, not ids; the commit step ignores them.
       - Reference agents from your training data that aren't in
         AGENT_METADATA. Doing so produces a plan the commit step
         cannot apply.
+
+      VOCABULARY: NEVER call an installed-but-not-here agent "new".
+      Available agents are "installed", "from your catalog", or
+      "already installed". The word "new" is reserved for agents
+      that don't exist yet (the `needsNew[]` list). Mis-labeling
+      breaks user trust — they think they're getting fresh code
+      when you're actually just surfacing what they already had.
 
       When to use `toAdd`:
       - FOCUS mentions a topic and an `available` agent matches it
@@ -234,19 +249,30 @@ nodes:
         is destructive (hides un-surfaced members), so don't bury the
         change in a flood of additions.
 
-      If FOCUS asks for an agent that does NOT exist in AGENT_METADATA
-      ("add a stock ticker" when no stock agent is installed or
-      available), emit a single plain-text question:
-        text: "No stock ticker agent is installed yet. I can only
-          surface agents you already have. Want me to proceed with
-          what's here, or cancel so you can draft a new agent with
-          Build from goal?"
-        options: ["proceed with installed agents", "cancel"]
-      (No markdown, no bullet list. Keep it short.)
+      When to use `needsNew`:
+      - FOCUS names an agent that does NOT exist in AGENT_METADATA
+        ("add a stock ticker" when no stock agent is installed or
+        available) — emit a `needsNew[]` entry instead of pretending
+        the agent exists.
+      - Each entry is `{ purpose, suggestedName? }`. `purpose` is one
+        plain sentence describing what the agent should do ("Show the
+        current price of a configurable stock ticker"). `suggestedName`
+        is optional lowercase-with-dashes ("stock-ticker") — the
+        build-planner may rename it.
+      - Cap at 3 per run. The user has to draft each one manually in
+        Build from goal; long lists are wasted suggestions.
+      - NEVER include a needsNew id in containers or `toAdd[]` — those
+        agents don't exist yet. They appear in the layout only after
+        the user drafts them and re-runs Improve layout.
 
-      The plan's `summary` field SHOULD reflect what you actually did
-      ("Rearranged 8 agents and added 2 from your catalog"). Don't
-      claim to draft new agents — that's not in scope.
+      The plan's `summary` field SHOULD reflect what you actually did,
+      using the right vocabulary:
+      - "Rearranged 8 agents and added 2 from your catalog."
+      - "Surfaced weather-forecast and api-monitor (already installed)."
+      - "Suggested 1 agent to draft (stock-ticker) — see Build from
+        goal."
+      Never write "Suggesting 2 new agents" when you mean two already-
+      installed agents. That phrasing implies fresh code.
 
       STEP 4 — emit the plan. Wrap the JSON in <plan>…</plan> tags.
       Output ONLY the <plan> block. No explanation before or after.
@@ -257,7 +283,7 @@ nodes:
 
       <plan>
       {
-        "summary": "Grouped 12 agents into 3 containers and surfaced 1 available agent (weather-forecast) to match FOCUS=daily.",
+        "summary": "Grouped 12 agents into 3 containers and surfaced 1 from your catalog (weather-forecast) to match FOCUS=daily. Suggested 1 agent to draft (stock-ticker).",
         "topAgents": [
           { "id": "api-monitor", "rationale": "runs every 5 minutes, 100% success last 30d", "suggestedSize": "2x1" },
           { "id": "hn-top-3", "rationale": "matches FOCUS=news, ran successfully today", "suggestedSize": "2x2" }
@@ -269,6 +295,9 @@ nodes:
           { "label": "Light reading", "tiles": ["daily-joke"] }
         ],
         "toAdd": ["weather-forecast"],
+        "needsNew": [
+          { "purpose": "Show the current price and 24h change for a configurable stock ticker.", "suggestedName": "stock-ticker" }
+        ],
         "questions": [
           {
             "text": "Rank by what?",
@@ -297,6 +326,10 @@ nodes:
       - `toAdd[]` may be empty (the common case). When set, every id
         MUST also appear in some container's `tiles[]` — declaring an
         add without placing it is a validation error. No duplicates.
+      - `needsNew[]` may be empty. When set, each entry has a non-empty
+        `purpose`; `suggestedName` (if set) must be valid
+        lowercase-with-dashes. Never reference a needsNew name from
+        containers or `toAdd[]`.
 
       Output ONLY the <plan>…</plan> block. No explanation before or after.
     maxTurns: 3
