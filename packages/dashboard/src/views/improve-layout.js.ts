@@ -43,85 +43,18 @@ export const IMPROVE_LAYOUT_JS = `
     try { return localStorage.getItem(LAYOUT_KEY) || ''; } catch (e) { return ''; }
   }
 
-  // ── Build-from-goal hand-off ────────────────────────────────────────
+  // ── Inline parallel drafting ────────────────────────────────────────
   //
-  // When the planner emits needsNew[], the wizard hands off to
-  // build-from-goal so the user gets the full critic loop. We persist
-  // enough state in sessionStorage that build-from-goal can call us
-  // back when its commit succeeds; on resume, the user sees the
-  // original plan with the freshly drafted agents merged in and only
-  // needs to click Apply layout.
-  var HANDOFF_KEY = 'sua-layout-handoff-v1';
-  var HANDOFF_TTL_MS = 60 * 60 * 1000; // 1h
-
-  function buildGoalFromNeedsNew(needsNew) {
-    var lines = needsNew.map(function (n, i) {
-      var name = n.suggestedName ? n.suggestedName + ' — ' : '';
-      return (i + 1) + '. ' + name + n.purpose;
-    }).join('\\n');
-    var bucket = CURATE_VERB === 'remove' ? 'this dashboard' : 'my Pulse layout';
-    return 'Create these agents for ' + bucket + ':\\n\\n' + lines +
-      '\\n\\nEach agent must declare a Pulse signal (metric, status, or another template) so it can render as a tile.';
-  }
-
-  function handoffToBuildFromGoal(plan, needsNew) {
-    if (!Array.isArray(needsNew) || needsNew.length === 0) return;
-    try {
-      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
-        endpointBase: ENDPOINT_BASE,
-        storageKey: LAYOUT_KEY,
-        curateVerb: CURATE_VERB,
-        originalPlan: plan,
-        originalFocus: lastFocus || '',
-        createdAt: Date.now(),
-      }));
-    } catch (e) { /* sessionStorage may be unavailable */ }
-
-    closeModal();
-
-    // Open the build-from-goal modal. The button is rendered hidden
-    // on /pulse and /dashboards/:id pages — click it to open the modal,
-    // then fill in the goal + force agents-only target.
-    var trigger = document.getElementById('build-from-goal-btn');
-    if (!trigger) {
-      // Page doesn't host the build modal — fall back to navigation.
-      // Shouldn't happen on Pulse/dashboard pages, but be defensive.
-      window.location.href = '/agents';
-      return;
-    }
-    trigger.click();
-
-    // Defer DOM mutation so the modal markup is fully visible first.
-    setTimeout(function () {
-      var ta = document.getElementById('build-goal');
-      if (ta) ta.value = buildGoalFromNeedsNew(needsNew);
-      // Force "Just create the agent(s)" — we're not making a new
-      // dashboard from this flow.
-      var radio = document.querySelector('input[name="build-target"][value="agents"]');
-      if (radio) {
-        radio.checked = true;
-        // Trigger any UI sync (e.g. hiding the dashboard-picker row).
-        try { radio.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
-      }
-      if (ta) ta.focus();
-    }, 50);
-  }
-
-  function readHandoff() {
-    var raw = null;
-    try { raw = sessionStorage.getItem(HANDOFF_KEY); } catch (e) { return null; }
-    if (!raw) return null;
-    try {
-      var parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') return null;
-      if (Date.now() - (parsed.createdAt || 0) > HANDOFF_TTL_MS) return null;
-      return parsed;
-    } catch (e) { return null; }
-  }
-
-  function clearHandoff() {
-    try { sessionStorage.removeItem(HANDOFF_KEY); } catch (e) {}
-  }
+  // When the planner emits needsNew[], the wizard drives N parallel
+  // /agents/draft-one runs inline — no hand-off to build-from-goal.
+  // Each draft renders as a card with independent progress. When all
+  // drafters finish, the original plan is re-rendered with the new
+  // agents merged into a "Newly drafted" container, ready for Apply.
+  //
+  // Each /agents/draft-one runId is polled independently; when all
+  // resolve, we POST the assembled agents to /agents/build/commit
+  // (agents-only target) and then post the layout commit. The user
+  // never leaves this modal.
 
   function mergePlanWithDraftedAgents(plan, createdIds) {
     if (!createdIds.length) return plan;
@@ -130,10 +63,6 @@ export const IMPROVE_LAYOUT_JS = `
     for (var i = 0; i < createdIds.length; i++) {
       if (p.toAdd.indexOf(createdIds[i]) === -1) p.toAdd.push(createdIds[i]);
     }
-    // Place freshly drafted agents in a new container at the end so the
-    // user can see exactly what was added and shuffle them later via
-    // edit-layout. Don't try to be clever about which existing container
-    // they "belong" to — that's the next planner run's job.
     p.containers = (p.containers || []).slice();
     p.containers.push({ label: 'Newly drafted', tiles: createdIds.slice() });
     p.needsNew = [];
@@ -142,20 +71,176 @@ export const IMPROVE_LAYOUT_JS = `
     return p;
   }
 
-  // Listen for build-from-goal's resume signal. The event fires on the
-  // current page (we never navigate during hand-off), so we just
-  // re-open and re-render.
-  window.addEventListener('sua:resume-layout', function (ev) {
-    var detail = (ev && ev.detail) || {};
-    var handoff = detail.handoff;
-    var created = Array.isArray(detail.agentsCreated) ? detail.agentsCreated : [];
-    if (!handoff || handoff.endpointBase !== ENDPOINT_BASE) return;
-    var merged = mergePlanWithDraftedAgents(handoff.originalPlan, created);
-    lastFocus = handoff.originalFocus || '';
-    modal.classList.add('is-open');
-    renderPlan(merged);
-    clearHandoff();
-  });
+  function startInlineDrafting(plan, needsNew) {
+    if (!Array.isArray(needsNew) || needsNew.length === 0) return;
+
+    // Render the drafting stage. N cards, one per spec, each starting
+    // in "starting" state and transitioning through "running" → "done"
+    // / "failed" as polls return.
+    var cardsHtml = needsNew.map(function (n, i) {
+      var name = n.suggestedName || ('agent-' + (i + 1));
+      return '<div class="improve-draft-card" data-card-index="' + i + '" style="padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+        '<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1);">' +
+          '<span class="improve-draft-status" data-card-index="' + i + '" style="font-family:var(--font-mono);font-size:var(--font-size-xs);">⏳</span>' +
+          '<code class="improve-draft-id" data-card-index="' + i + '" style="font-size:var(--font-size-sm);">' + esc(name) + '</code>' +
+          '<span class="dim improve-draft-phase" data-card-index="' + i + '" style="font-size:var(--font-size-xs);margin-left:auto;">Starting...</span>' +
+        '</div>' +
+        '<div class="dim" style="font-size:var(--font-size-xs);">' + esc(n.purpose) + '</div>' +
+      '</div>';
+    }).join('');
+
+    content.innerHTML =
+      '<div style="padding:var(--space-4);">' +
+      '<h3 style="margin:0 0 var(--space-2);">Drafting ' + needsNew.length + ' agent' + (needsNew.length === 1 ? '' : 's') + '</h3>' +
+      '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Each draft is its own LLM call so they run in parallel. The layout will apply after they all finish.</p>' +
+      '<div style="display:flex;flex-direction:column;gap:var(--space-2);">' + cardsHtml + '</div>' +
+      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);text-align:right;">' +
+        '<button type="button" class="btn btn--ghost btn--sm" id="improve-draft-cancel">Cancel</button>' +
+      '</div>' +
+      '</div>';
+
+    var cancelled = false;
+    var draftCancelBtn = document.getElementById('improve-draft-cancel');
+    if (draftCancelBtn) draftCancelBtn.addEventListener('click', function () {
+      cancelled = true;
+      closeModal();
+    });
+
+    var results = new Array(needsNew.length);   // index → { id, yaml, purpose } | { error }
+    var doneCount = 0;
+    var failedCount = 0;
+
+    function updateCard(i, opts) {
+      var statusEl = document.querySelector('.improve-draft-status[data-card-index="' + i + '"]');
+      var idEl = document.querySelector('.improve-draft-id[data-card-index="' + i + '"]');
+      var phaseEl = document.querySelector('.improve-draft-phase[data-card-index="' + i + '"]');
+      if (opts.status === 'done' && statusEl) { statusEl.textContent = '✓'; statusEl.style.color = 'var(--color-success, #0a0)'; }
+      if (opts.status === 'failed' && statusEl) { statusEl.textContent = '✗'; statusEl.style.color = 'var(--color-danger, #a00)'; }
+      if (opts.id && idEl) idEl.textContent = opts.id;
+      if (opts.phase && phaseEl) phaseEl.textContent = opts.phase;
+    }
+
+    function maybeFinish() {
+      if (cancelled) return;
+      if (doneCount + failedCount < needsNew.length) return;
+      if (failedCount > 0) {
+        // Show a soft error state — user can retry the whole flow.
+        var failedSummaries = [];
+        for (var ri = 0; ri < results.length; ri++) {
+          if (results[ri] && results[ri].error) failedSummaries.push('agent ' + (ri + 1) + ': ' + results[ri].error);
+        }
+        renderError({
+          message: failedCount + ' of ' + needsNew.length + ' drafts failed.\\n\\n' + failedSummaries.join('\\n'),
+        });
+        return;
+      }
+      finishApply(plan, results);
+    }
+
+    for (var i = 0; i < needsNew.length; i++) {
+      (function (idx) {
+        var spec = needsNew[idx];
+        var body = { purpose: spec.purpose, focus: lastFocus || '' };
+        if (spec.suggestedName) body.suggestedName = spec.suggestedName;
+
+        fetch('/agents/draft-one', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (start) {
+          if (cancelled) return;
+          if (!start.ok || !start.runId) {
+            results[idx] = { error: start.error || 'Failed to start drafter.' };
+            failedCount += 1;
+            updateCard(idx, { status: 'failed', phase: start.error || 'Failed to start' });
+            maybeFinish();
+            return;
+          }
+          updateCard(idx, { phase: 'Drafting...' });
+          var runId = start.runId;
+
+          function pollDrafter() {
+            if (cancelled) return;
+            fetch('/agents/build/' + encodeURIComponent(runId), { credentials: 'same-origin' })
+              .then(function (r) { return r.json(); })
+              .then(function (data) {
+                if (cancelled) return;
+                if (data.status === 'running') {
+                  if (data.phase) updateCard(idx, { phase: data.phase });
+                  setTimeout(pollDrafter, 1500);
+                } else if (data.status === 'done' && data.plan && Array.isArray(data.plan.newAgents) && data.plan.newAgents[0]) {
+                  var draft = data.plan.newAgents[0];
+                  results[idx] = { id: draft.id, yaml: draft.yaml, purpose: draft.purpose };
+                  doneCount += 1;
+                  updateCard(idx, { status: 'done', id: draft.id, phase: 'Done' });
+                  maybeFinish();
+                } else {
+                  results[idx] = { error: data.error || 'Drafter failed.' };
+                  failedCount += 1;
+                  updateCard(idx, { status: 'failed', phase: data.error || 'Failed' });
+                  maybeFinish();
+                }
+              })
+              .catch(function () { if (!cancelled) setTimeout(pollDrafter, 3000); });
+          }
+          setTimeout(pollDrafter, 800);
+        })
+        .catch(function (e) {
+          if (cancelled) return;
+          results[idx] = { error: 'Network: ' + (e && e.message ? e.message : 'unknown') };
+          failedCount += 1;
+          updateCard(idx, { status: 'failed', phase: 'Network error' });
+          maybeFinish();
+        });
+      })(i);
+    }
+  }
+
+  function finishApply(originalPlan, results) {
+    // Commit the drafted agents first via /agents/build/commit (agents-only),
+    // then apply the layout with the original plan merged with the new ids.
+    var newAgents = results.map(function (r) {
+      return { id: r.id, purpose: r.purpose, yaml: r.yaml };
+    });
+    var draftedIds = newAgents.map(function (a) { return a.id; });
+
+    var commitPlan = {
+      intent: 'agent',
+      summary: 'Drafted ' + draftedIds.length + ' agent' + (draftedIds.length === 1 ? '' : 's') + ' for layout.',
+      survey: { matchedAgents: [], missingFor: newAgents.map(function (a) { return a.purpose; }), existingDashboards: [] },
+      newAgents: newAgents,
+      dashboard: null,
+      questions: [],
+    };
+
+    content.innerHTML =
+      '<div style="padding:var(--space-4);">' +
+      '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
+        '<div class="spinner"></div>' +
+        '<div style="font-size:var(--font-size-sm);">Committing ' + draftedIds.length + ' new agent' + (draftedIds.length === 1 ? '' : 's') + '...</div>' +
+      '</div></div>';
+
+    fetch('/agents/build/commit', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: commitPlan, target: { kind: 'agents-only' } }),
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data.ok) {
+        renderError({ message: 'Failed to commit agents: ' + (data.error || 'unknown') });
+        return;
+      }
+      var actuallyCreated = Array.isArray(data.agentsCreated) ? data.agentsCreated : draftedIds;
+      var merged = mergePlanWithDraftedAgents(originalPlan, actuallyCreated);
+      renderPlan(merged);
+    })
+    .catch(function (e) {
+      renderError({ message: 'Network error committing agents: ' + (e && e.message ? e.message : 'unknown') });
+    });
+  }
 
   btn.addEventListener('click', function () {
     modal.classList.add('is-open');
@@ -571,7 +656,7 @@ export const IMPROVE_LAYOUT_JS = `
     if (applyBtn) applyBtn.addEventListener('click', function () { applyPlan(plan); });
 
     var draftBtn = document.getElementById('improve-draft-btn');
-    if (draftBtn) draftBtn.addEventListener('click', function () { handoffToBuildFromGoal(plan, needsNew); });
+    if (draftBtn) draftBtn.addEventListener('click', function () { startInlineDrafting(plan, needsNew); });
 
     var updateBtn = document.getElementById('improve-update-btn');
     if (updateBtn) updateBtn.addEventListener('click', function () {

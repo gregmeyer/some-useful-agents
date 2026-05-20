@@ -1,0 +1,177 @@
+# Agent Drafter — drafts ONE agent from ONE fragment.
+#
+# Stage 2 of 3 in the build orchestrator. The surveyor passes one
+# fragment at a time; the orchestrator fans out N instances of this
+# in parallel. Each drafter focuses on a single purpose — clearer
+# prompt, smaller context, independent timeout/retry.
+#
+# The improve-layout wizard's Path B hand-off also uses this directly
+# via /agents/draft-one, skipping the surveyor entirely.
+
+id: agent-drafter
+name: Agent Drafter
+description: >
+  Drafts a single sua agent YAML from a one-sentence purpose. Reused
+  by the build orchestrator (one instance per missing fragment) and
+  by the Improve-layout wizard for inline drafting of needsNew specs.
+status: active
+source: examples
+
+inputs:
+  PURPOSE:
+    type: string
+    required: true
+    description: One-sentence description of what this agent should do.
+  SUGGESTED_NAME:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Optional preferred id (lowercase-with-hyphens). The drafter may
+      rename to avoid collisions with EXISTING_AGENT_IDS.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: Optional constraints (e.g. "schedule daily", "shell only").
+  EXISTING_AGENT_IDS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Comma-separated list of agent ids already installed OR already drafted
+      by sibling drafters in this build session. Prevents id collisions.
+  AVAILABLE_TOOLS:
+    type: string
+    required: false
+    default: ""
+    description: Dynamically injected tool catalog. Populated at build time.
+  DISCOVERY_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Node types, signal templates, output widgets, INSTALLED AGENTS, and
+      architecture patterns. Injected at build time.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    prompt: |
+      You are the agent drafter for the sua agent platform.
+
+      Draft ONE complete agent YAML from the given purpose. The orchestrator
+      called you with exactly one purpose to keep the prompt focused — don't
+      try to anticipate other agents; another drafter is handling those.
+
+      ════════════════════════════════════════════════════════════════
+      PURPOSE:
+      {{inputs.PURPOSE}}
+
+      SUGGESTED NAME (preferred id, may be empty):
+      {{inputs.SUGGESTED_NAME}}
+
+      OPTIONAL FOCUS / CONSTRAINTS:
+      {{inputs.FOCUS}}
+
+      EXISTING AGENT IDS (must NOT collide):
+      {{inputs.EXISTING_AGENT_IDS}}
+
+      AVAILABLE TOOLS:
+      {{inputs.AVAILABLE_TOOLS}}
+
+      DISCOVERY CATALOG:
+      {{inputs.DISCOVERY_CATALOG}}
+      ════════════════════════════════════════════════════════════════
+
+      AGENT ID FORMAT — STRICT. The id you emit MUST match
+      `^[a-z0-9][a-z0-9_-]*$`: lowercase ASCII letters, digits,
+      hyphens, underscores. No spaces, no capitals.
+        ✓ stock-ticker
+        ✓ notes-list-daily
+        ✗ Stock Ticker
+        ✗ stockTicker
+
+      ID COLLISION RULE — the id you emit MUST NOT appear in EXISTING_AGENT_IDS.
+      If SUGGESTED_NAME is given and not already taken, use it. Otherwise pick
+      a sensible alternative ("stock-ticker" → "stock-ticker-v2" / "stock-watch").
+
+      YAML CONTENT — the agent's YAML must be a complete, parseable sua agent:
+      - source: must be "local".
+      - inputs: an object/map. Input names UPPERCASE_WITH_UNDERSCORES.
+      - outputs: object. Names lowercase_snake_case (NOT camelCase). Each value
+        is a type (string|number|boolean|object|array) OR an object {type, description}.
+        NEVER a bare description string in the value slot.
+      - Shell nodes: use $ENV_VARS for inputs, never double-brace templates.
+      - llm-prompt / claude-code nodes: use double-brace inputs.NAME syntax in prompts.
+      - signal block REQUIRED. signal.title is REQUIRED and is a short literal
+        string used as the Pulse tile chrome label.
+      - When the agent declares an outputWidget, set signal.template: widget.
+        Pulse tile rendering is dispatched by signal.template, not outputWidget.type.
+        Omit signal.mapping when template is "widget" — the widget drives layout.
+      - When the agent declares any inputs:, set outputWidget.interactive: true so
+        Pulse renders an inline inputs form. Skip this flag for purely scheduled
+        agents that take no runtime inputs.
+      - outputWidget.type: one of dashboard, key-value, diff-apply, raw, ai-template.
+      - outputWidget.fields[].type: one of text, code, badge, action, metric, stat.
+      - If FOCUS mentions "daily" / "every morning" / cron-style timing, add a
+        `schedule:` field (cron format).
+
+      COMPOSE OVER EXISTING AGENTS (the `loop + agent-invoke` pattern).
+      Before drafting a brand-new monolithic agent, ask: is this purpose a
+      list × primitive? (e.g. "jobs across companies", "weather in 5 cities").
+      If YES AND DISCOVERY CATALOG shows an existing primitive that already does
+      the per-item work, draft an ORCHESTRATOR that loops over the list and
+      invokes the existing primitive — do NOT re-implement the primitive.
+
+      Orchestrator recipe (3 nodes — parse → loop → summarise). The angle-
+      bracket placeholders below are PSEUDOCODE — replace «X» with real
+      double-brace template syntax in the emitted YAML.
+
+        nodes:
+          - id: parse
+            type: shell
+            command: |
+              # split the input into a JSON array, one entry per item.
+              # Output: {"items":[{"slug":"x"},{"slug":"y"}]}
+              python3 -c '...'
+          - id: search
+            type: loop
+            dependsOn: [parse]
+            loopConfig:
+              over: items
+              agentId: <existing-primitive-id>
+              maxIterations: 10
+              inputMapping:
+                COMPANY_SLUG: "$item.slug"
+                JOB_QUERY: "«inputs.JOB_QUERY»"
+          - id: summarise
+            type: llm-prompt
+            dependsOn: [search]
+            prompt: |
+              Summarise per-company results in «upstream.search.result».
+
+      Skip composition (just draft a normal multi-node agent) when:
+      - The purpose is one-off, not list-shaped.
+      - No matching primitive exists yet.
+      - The per-item operation is trivial (one curl + jq) — inline it.
+
+      OUTPUT FORMAT — wrap in <plan>…</plan> tags. Body MUST be valid JSON
+      matching this exact shape:
+
+      <plan>
+      {
+        "id": "stock-ticker",
+        "purpose": "Show the current price and daily change for a configurable stock symbol.",
+        "yaml": "id: stock-ticker\nname: Stock Ticker\n... (full YAML)"
+      }
+      </plan>
+
+      VALIDATION:
+      - `id` is required, matches the agent-id regex, does not collide with EXISTING_AGENT_IDS.
+      - `purpose` is required, non-empty.
+      - `yaml` is required, parses as a complete sua agent, and `parsed.id === plan.id`.
+
+      Output ONLY the <plan>…</plan> block. No explanation before or after.
+    maxTurns: 4
+    timeout: 180

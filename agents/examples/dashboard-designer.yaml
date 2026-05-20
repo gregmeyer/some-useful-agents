@@ -1,0 +1,102 @@
+# Dashboard Designer — designs the layout for a build-time dashboard.
+#
+# Stage 3 of 3 in the build orchestrator. Only invoked when the
+# surveyor classified intent as dashboard-existing / dashboard-new /
+# dashboard-mixed. Receives the finalized list of agent ids (existing
+# + freshly drafted) and emits the dashboard's sections.
+#
+# Distinct from the in-app layout-planner — that one curates an
+# existing dashboard's tiles. Dashboard-designer bootstraps the
+# initial layout when the user is building from a goal.
+
+id: dashboard-designer
+name: Dashboard Designer
+description: >
+  Designs the section layout for a brand-new dashboard given the agents
+  that should appear on it. Stage 3 of 3 in the build orchestrator;
+  skipped for agent-only builds.
+status: active
+source: examples
+
+inputs:
+  INTENT:
+    type: string
+    required: true
+    description: One of dashboard-existing, dashboard-new, dashboard-mixed.
+  GOAL:
+    type: string
+    required: true
+    description: The original user goal, for context (naming, theme).
+  AGENT_IDS:
+    type: string
+    required: true
+    description: >
+      Comma-separated list of agent ids that should appear on the dashboard.
+      Mix of existing (matched by surveyor) + freshly drafted (from drafters).
+  AGENT_DESCRIPTIONS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Optional JSON array of { id, purpose } for the agents the designer is
+      laying out, so it can group them by theme intelligently.
+
+nodes:
+  - id: design
+    type: llm-prompt
+    prompt: |
+      You are the dashboard designer for the sua agent platform.
+
+      Given a set of agents that should appear on a brand-new dashboard,
+      design the section layout — group them by topic into 1-3 sections,
+      pick a Title Case dashboard name, and emit a structured dashboard
+      JSON. Do NOT propose any new agents — that's already done.
+
+      ════════════════════════════════════════════════════════════════
+      INTENT:
+      {{inputs.INTENT}}
+
+      ORIGINAL GOAL (for naming + theme):
+      {{inputs.GOAL}}
+
+      AGENT IDS (all must appear in dashboard.sections):
+      {{inputs.AGENT_IDS}}
+
+      AGENT DESCRIPTIONS (optional, for grouping):
+      {{inputs.AGENT_DESCRIPTIONS}}
+      ════════════════════════════════════════════════════════════════
+
+      RULES:
+      - Dashboard id MUST start with `user:` followed by lowercase-with-hyphens
+        (e.g. `user:morning-briefing`).
+      - Pick a Title Case `name` (e.g. "Morning Briefing", "Job Hunt Hub").
+      - Group tiles into 1-3 sections by topic. Fewer is better; don't make
+        a section per agent.
+      - Section titles: short, human-readable nouns ("News", "Weather", "Notes").
+      - EVERY id in AGENT_IDS must appear in exactly one section's `agentIds[]`.
+        No duplicates across sections. No omissions.
+
+      OUTPUT FORMAT — wrap in <plan>…</plan> tags. Body MUST be valid JSON:
+
+      <plan>
+      {
+        "id": "user:morning-briefing",
+        "name": "Morning Briefing",
+        "sections": [
+          { "title": "News", "agentIds": ["hn-top-stories"] },
+          { "title": "Weather", "agentIds": ["weather-forecast"] },
+          { "title": "Notes", "agentIds": ["notes-list-daily"] }
+        ]
+      }
+      </plan>
+
+      VALIDATION:
+      - `id` starts with "user:" and the rest is lowercase-with-dashes-or-underscores.
+      - `name` is non-empty.
+      - `sections[]` has at least 1 entry. Each has a non-empty `title` and
+        at least 1 entry in `agentIds[]`.
+      - Every id in AGENT_IDS appears in exactly one section's agentIds[].
+
+      Output ONLY the <plan>…</plan> block. No explanation before or after.
+    maxTurns: 2
+    timeout: 120

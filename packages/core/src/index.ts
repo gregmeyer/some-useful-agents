@@ -157,6 +157,16 @@ export {
   type BuildPlanInput,
 } from './build-plan-schema.js';
 export {
+  surveySchema,
+  draftSchema,
+  dashboardDesignSchema,
+  extractSurveyJson,
+  type Survey,
+  type SurveyInput,
+  type Draft,
+  type DashboardDesign,
+} from './survey-schema.js';
+export {
   layoutPlanSchema,
   SIGNAL_SIZES,
   type LayoutPlan,
