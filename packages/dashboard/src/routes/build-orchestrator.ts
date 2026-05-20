@@ -149,7 +149,7 @@ import {
   type ToolDefinition,
 } from '@some-useful-agents/core';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
-import { formatToolCatalog } from './run-now-build.js';
+import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
 
 function buildCatalogs(ctx: Ctx): { tools: string; discovery: string } {
   const builtins = listBuiltinTools();
@@ -433,9 +433,12 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
       failedFragments.push(`${key}: schema — ${issues}`);
       continue;
     }
-    // Sanity: yaml parses + id matches.
+    // Sanity: yaml parses + id matches. Run autoFixYaml first to absorb
+    // common LLM mistakes (camelCase outputs, double-braces in shell nodes,
+    // etc.) — same pre-processing the commit endpoint uses.
+    const fixedYaml = autoFixYaml(validated.data.yaml);
     try {
-      const a = parseAgent(validated.data.yaml);
+      const a = parseAgent(fixedYaml);
       if (a.id !== validated.data.id) {
         failedFragments.push(`${key}: parsed YAML id "${a.id}" ≠ plan id "${validated.data.id}"`);
         continue;
@@ -445,7 +448,9 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
       continue;
     }
 
-    session.drafts.set(key, validated.data);
+    // Persist the autofixed YAML so the commit endpoint doesn't re-fix
+    // (or, worse, accept a draft we already fixed and stored as-is).
+    session.drafts.set(key, { ...validated.data, yaml: fixedYaml });
   }
 
   session.phaseMessage = `Drafting agents... (${session.drafts.size}/${session.drafterRunIds.size} done)`;

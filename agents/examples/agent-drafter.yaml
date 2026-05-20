@@ -103,6 +103,21 @@ nodes:
         is a type (string|number|boolean|object|array) OR an object {type, description}.
         NEVER a bare description string in the value slot.
       - Shell nodes: use $ENV_VARS for inputs, never double-brace templates.
+      - **Shell command YAML format — STRICT.** Multi-line shell commands
+        MUST use the YAML literal block scalar syntax `command: |` with the
+        body indented uniformly underneath. Do NOT put a bare multi-line
+        string after `command:` on the same line — it breaks YAML parsing
+        with "Implicit keys need to be on a single line".
+          ✓ command: |
+              echo "$DATA" | python3 -c "
+              import sys, json
+              print(json.loads(sys.stdin.read()))
+              "
+          ✗ command: echo "$DATA" | python3 -c "
+              import sys, json
+              ...
+        Same rule for any heredoc, inline Python, or multi-line jq filter —
+        always use `|` and indent the body.
       - llm-prompt / claude-code nodes: use double-brace inputs.NAME syntax in prompts.
       - signal block REQUIRED. signal.title is REQUIRED and is a short literal
         string used as the Pulse tile chrome label.
