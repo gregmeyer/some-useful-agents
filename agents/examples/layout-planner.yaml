@@ -98,6 +98,23 @@ nodes:
       WHAT YOU DO
       ════════════════════════════════════════════════════════════════
 
+      AGENT ID FORMAT — STRICT. Every agent id you emit (in
+      `topAgents[].id`, `containers[].tiles[]`, `toAdd[]`,
+      `needsNew[].suggestedName`) MUST match `^[a-z0-9][a-z0-9_-]*$`:
+      lowercase ASCII letters, digits, hyphens, underscores. No
+      spaces, no capitals, no slashes, no dots. Examples:
+        ✓ stock-ticker
+        ✓ api_monitor_v2
+        ✓ hn-top-3
+        ✗ Stock Ticker        (spaces + caps)
+        ✗ stockTicker         (camelCase)
+        ✗ Stock-Ticker        (caps)
+        ✗ stock.ticker        (dot)
+      System tiles (only in `containers[].tiles[]`) additionally
+      allow a single leading underscore: `_system-runs-today`.
+      Violating this rule fails schema validation and the whole plan
+      is rejected.
+
       STEP 1 — RANK. Pick the agents that should be most prominent on
       Pulse. You're ranking BOTH members and selected available agents
       together — an available agent that perfectly matches FOCUS should
