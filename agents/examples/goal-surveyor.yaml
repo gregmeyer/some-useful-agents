@@ -1,0 +1,131 @@
+# Goal Surveyor — first stage of the per-agent build flow.
+#
+# Reads a free-form goal + the live discovery catalog, classifies the
+# user's intent, decomposes the goal into fragments, and matches each
+# fragment against installed agents. Emits a structured survey that
+# the build orchestrator uses to fan out per-fragment drafters.
+#
+# Replaces STEPS 1-2 of the legacy monolithic build-planner. The
+# downstream pieces (agent-drafter, dashboard-designer) consume this
+# survey but don't re-run intent classification — each does one job.
+
+id: goal-surveyor
+name: Goal Surveyor
+description: >
+  Classifies build-from-goal intent and decomposes the goal into
+  fragments matched against installed agents. Stage 1 of 3 in the
+  build orchestrator.
+status: active
+source: examples
+
+inputs:
+  GOAL:
+    type: string
+    required: true
+    description: Natural language description of what the user wants built.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: Optional constraints or preferences (e.g. "schedule daily", "shell only").
+  DISCOVERY_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Node types, signal templates, output widgets, INSTALLED AGENTS,
+      INSTALLED DASHBOARDS, INSTALLED + AVAILABLE PACKS, and architecture
+      patterns. Injected at build time.
+
+nodes:
+  - id: survey
+    type: llm-prompt
+    prompt: |
+      You are the goal surveyor for the sua agent platform.
+
+      Read the user's goal + the catalog of installed agents/dashboards/packs.
+      Classify the intent, decompose the goal into fragments, and match each
+      fragment against installed agents. Do NOT draft any YAML — that's the
+      next stage's job.
+
+      ════════════════════════════════════════════════════════════════
+      GOAL:
+      {{inputs.GOAL}}
+
+      OPTIONAL FOCUS / CONSTRAINTS:
+      {{inputs.FOCUS}}
+
+      DISCOVERY CATALOG:
+      {{inputs.DISCOVERY_CATALOG}}
+      ════════════════════════════════════════════════════════════════
+
+      STEP 1 — CLASSIFY INTENT.
+      One of:
+        - "agent"              : the goal is one agent, no dashboard.
+        - "dashboard-existing" : the goal is a dashboard composed entirely of existing agents.
+        - "dashboard-new"      : the goal is a dashboard composed entirely of new agents.
+        - "dashboard-mixed"    : the goal is a dashboard mixing existing + new agents.
+
+      STEP 2 — DECOMPOSE THE GOAL INTO FRAGMENTS.
+      A fragment is one logical thing the goal needs ("today's weather",
+      "HN top stories", "my notes list"). For each fragment:
+        - Search INSTALLED AGENTS for a fuzzy id+description match.
+        - Match found → add to `matchedAgents` with the fragment text in `matchedFor`.
+        - No match → add a fragment entry to `fragments[]` with `purpose` set to
+          a clean one-sentence description of what the missing agent should do,
+          and an optional `suggestedName` (lowercase-with-hyphens) for it. This
+          is what the next stage drafts.
+
+      Also scan INSTALLED DASHBOARDS. If any look like overlap (same theme),
+      mention them in `existingDashboards` so the orchestrator can warn the user.
+
+      STEP 3 — PACK SUGGESTIONS (optional).
+      If a pack labelled "available" in the catalog already covers a fragment,
+      add a `packSuggestions[]` entry with the pack id and the fragment it covers.
+      The orchestrator surfaces these as suggestions, not auto-installs.
+
+      STEP 4 — CLARIFYING QUESTIONS.
+      Anything ambiguous (file paths, frequency, region, units, source URL) goes
+      in `questions[]`. Provide `suggestedAnswer` when reasonable. The orchestrator
+      passes these through to the drafters as part of each fragment's purpose.
+
+      AGENT ID FORMAT — STRICT. Every id in `matchedAgents[].id` and every
+      `suggestedName` MUST match `^[a-z0-9][a-z0-9_-]*$`: lowercase ASCII
+      letters, digits, hyphens, underscores. No spaces, no capitals.
+        ✓ weather-forecast
+        ✓ hn-top-stories
+        ✗ Weather Forecast
+        ✗ weatherForecast
+
+      OUTPUT FORMAT — wrap in <survey>…</survey> tags. Body MUST be valid JSON:
+
+      <survey>
+      {
+        "intent": "agent" | "dashboard-existing" | "dashboard-new" | "dashboard-mixed",
+        "summary": "one-line description of what the build needs",
+        "matchedAgents": [
+          { "id": "weather-forecast", "matchedFor": "today's weather" }
+        ],
+        "fragments": [
+          { "purpose": "Read markdown files from a notes folder and return the latest 10 titles.", "suggestedName": "notes-list-daily" }
+        ],
+        "existingDashboards": [],
+        "packSuggestions": [],
+        "questions": [
+          { "text": "Which folder should the notes agent read from?", "suggestedAnswer": "~/Documents/Notes" }
+        ]
+      }
+      </survey>
+
+      VALIDATION RULES:
+      - `intent` is required and one of the four enum values.
+      - `summary` is required and non-empty.
+      - `matchedAgents[].id` and `fragments[].suggestedName` must be lowercase-with-dashes-or-underscores.
+      - intent="agent" → `fragments` has exactly one entry, `matchedAgents` may be empty.
+      - intent="dashboard-existing" → `fragments` is empty.
+      - intent="dashboard-new" → `matchedAgents` is empty, `fragments` has 1+ entries.
+      - intent="dashboard-mixed" → both `matchedAgents` and `fragments` have 1+ entries.
+
+      Output ONLY the <survey>…</survey> block. No explanation before or after.
+    maxTurns: 2
+    timeout: 90

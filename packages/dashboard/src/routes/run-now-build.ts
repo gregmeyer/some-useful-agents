@@ -27,6 +27,13 @@ import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
+import {
+  startBuildSession,
+  startDraftOneSession,
+  getSession,
+  advanceSession,
+  drafterProgress,
+} from './build-orchestrator.js';
 
 export const buildRouter: Router = Router();
 
@@ -268,7 +275,7 @@ export function autoFixYaml(yaml: string): string {
  * Format a list of tool definitions into a human-readable catalog string
  * for injection into the builder agent prompt.
  */
-function formatToolCatalog(tools: ToolDefinition[]): string {
+export function formatToolCatalog(tools: ToolDefinition[]): string {
   return tools
     .map((t) => {
       const inputNames = Object.keys(t.inputs ?? {}).join(', ');
@@ -763,8 +770,9 @@ Output ONLY the complete fixed YAML. Nothing else.`,
 // ── Agent Builder (goal-driven wizard) ─────────────────────────────────
 
 /**
- * POST /agents/build — run the agent-builder with a goal prompt.
- * Returns { runId } immediately for polling.
+ * POST /agents/build — run the multi-stage build orchestrator
+ * (goal-surveyor → agent-drafter × N → dashboard-designer).
+ * Returns a session id (used as runId) for polling.
  */
 buildRouter.post('/agents/build', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -777,35 +785,95 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
     return;
   }
 
-  // First-attempt memory retrieval: intent is unknown yet, so Jaccard
-  // alone picks candidates. Empty result is a no-op.
-  const priorPlans = ctx.plannerMemoryStore
-    ? findSimilarCommittedPlans(ctx.plannerMemoryStore, { goal })
-    : [];
-
-  const runId = await kickoffPlannerRun({ ctx, goal, focus, priorPlans });
-  if (!runId) {
-    res.json({ ok: false, error: 'Build planner agent not found. Ensure build-planner.yaml exists in agents/examples/.' });
+  const sessionId = await startBuildSession({ ctx, goal, focus });
+  if (!sessionId) {
+    res.json({
+      ok: false,
+      error: 'Goal surveyor agent not found. Ensure goal-surveyor.yaml exists in agents/examples/.',
+    });
     return;
   }
 
-  res.json({ ok: true, status: 'started', runId });
+  res.json({ ok: true, status: 'started', runId: sessionId });
 
-  // Telemetry: record this planner run with its goal so /metrics/planner
-  // can correlate timing + outcome later. Best-effort — failure is silent.
+  // Telemetry: record the session as a planner run for /metrics/planner
+  // continuity. Best-effort — failure is silent.
   if (ctx.plannerTelemetryStore) {
-    try { ctx.plannerTelemetryStore.recordStart(runId, goal); } catch { /* swallow */ }
+    try { ctx.plannerTelemetryStore.recordStart(sessionId, goal); } catch { /* swallow */ }
   }
 });
 
 /**
- * GET /agents/build/:runId — poll builder run status.
- * Returns YAML when done so the client can preview + create.
+ * POST /agents/draft-one — single-spec drafter for the Improve-layout
+ * Path B inline-drafting flow. Skips the goal-surveyor (the layout
+ * planner already produced the spec) and the dashboard-designer (the
+ * layout planner owns dashboard layout). Just runs one agent-drafter
+ * and assembles a single-agent BuildPlan when it completes.
+ *
+ * Body: { purpose: string, suggestedName?: string, focus?: string }
+ * Returns: { ok, runId } where runId is a session-id polled via
+ * GET /agents/build/:runId — the orchestrator state machine handles both.
+ */
+buildRouter.post('/agents/draft-one', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const purpose = typeof body.purpose === 'string' ? body.purpose.trim() : '';
+  const suggestedName = typeof body.suggestedName === 'string' && body.suggestedName.trim()
+    ? body.suggestedName.trim()
+    : undefined;
+  const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
+
+  if (!purpose) {
+    res.json({ ok: false, error: 'purpose is required.' });
+    return;
+  }
+
+  const sessionId = await startDraftOneSession({ ctx, purpose, suggestedName, focus });
+  if (!sessionId) {
+    res.json({
+      ok: false,
+      error: 'Agent drafter not found. Ensure agent-drafter.yaml exists in agents/examples/.',
+    });
+    return;
+  }
+  res.json({ ok: true, status: 'started', runId: sessionId });
+});
+
+/**
+ * GET /agents/build/:runId — poll the orchestrator session.
+ * Drives the session state machine on each poll, then formats the
+ * current phase for the wizard.
  */
 buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const runId = Array.isArray(req.params.runId) ? req.params.runId[0] : req.params.runId;
 
+  // Orchestrator session: dispatch state machine on each poll.
+  const session = getSession(runId);
+  if (session) {
+    await advanceSession(ctx, session);
+    if (session.phase === 'failed') {
+      res.json({ ok: true, status: 'failed', error: session.error ?? 'Build failed.' });
+      return;
+    }
+    if (session.phase === 'done' && session.plan) {
+      res.json({ ok: true, status: 'done', plan: session.plan });
+      return;
+    }
+    // Still running. Surface per-drafter progress when present.
+    const progress = drafterProgress(ctx, session);
+    res.json({
+      ok: true,
+      status: 'running',
+      phase: session.phaseMessage,
+      ...(progress ? { progress } : {}),
+    });
+    return;
+  }
+
+  // Fall-through: a legacy raw runId (no session). Preserved for
+  // backward compat with any external script polling a planner runId
+  // directly — should be unused in the wizard now.
   const run = ctx.runStore.getRun(runId);
   if (!run) {
     res.json({ ok: false, status: 'not_found' });
