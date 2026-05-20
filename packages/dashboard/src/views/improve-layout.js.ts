@@ -199,47 +199,76 @@ export const IMPROVE_LAYOUT_JS = `
   }
 
   function finishApply(originalPlan, results) {
-    // Commit the drafted agents first via /agents/build/commit (agents-only),
-    // then apply the layout with the original plan merged with the new ids.
+    // Commit each drafted agent as its own single-agent BuildPlan. The
+    // commit endpoint's schema requires intent='agent' to have exactly
+    // one newAgents entry, so batching into one commit fails validation.
+    // Sequential commits also avoid id-collision races.
     var newAgents = results.map(function (r) {
       return { id: r.id, purpose: r.purpose, yaml: r.yaml };
     });
     var draftedIds = newAgents.map(function (a) { return a.id; });
 
-    var commitPlan = {
-      intent: 'agent',
-      summary: 'Drafted ' + draftedIds.length + ' agent' + (draftedIds.length === 1 ? '' : 's') + ' for layout.',
-      survey: { matchedAgents: [], missingFor: newAgents.map(function (a) { return a.purpose; }), existingDashboards: [] },
-      newAgents: newAgents,
-      dashboard: null,
-      questions: [],
-    };
-
     content.innerHTML =
       '<div style="padding:var(--space-4);">' +
       '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
         '<div class="spinner"></div>' +
-        '<div style="font-size:var(--font-size-sm);">Committing ' + draftedIds.length + ' new agent' + (draftedIds.length === 1 ? '' : 's') + '...</div>' +
+        '<div style="font-size:var(--font-size-sm);" id="improve-commit-phase">Committing ' + draftedIds.length + ' new agent' + (draftedIds.length === 1 ? '' : 's') + '...</div>' +
       '</div></div>';
 
-    fetch('/agents/build/commit', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan: commitPlan, target: { kind: 'agents-only' } }),
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      if (!data.ok) {
-        renderError({ message: 'Failed to commit agents: ' + (data.error || 'unknown') });
+    var actuallyCreated = [];
+    var commitErrors = [];
+
+    function commitOne(idx) {
+      if (idx >= newAgents.length) {
+        if (commitErrors.length > 0 && actuallyCreated.length === 0) {
+          renderError({ message: 'Failed to commit agents:\\n' + commitErrors.join('\\n') });
+          return;
+        }
+        var merged = mergePlanWithDraftedAgents(originalPlan, actuallyCreated);
+        if (commitErrors.length > 0) {
+          merged.summary = (merged.summary || '') + ' (' + commitErrors.length + ' failed: ' + commitErrors.join('; ') + ')';
+        }
+        renderPlan(merged);
         return;
       }
-      var actuallyCreated = Array.isArray(data.agentsCreated) ? data.agentsCreated : draftedIds;
-      var merged = mergePlanWithDraftedAgents(originalPlan, actuallyCreated);
-      renderPlan(merged);
-    })
-    .catch(function (e) {
-      renderError({ message: 'Network error committing agents: ' + (e && e.message ? e.message : 'unknown') });
-    });
+      var agent = newAgents[idx];
+      var phaseEl = document.getElementById('improve-commit-phase');
+      if (phaseEl) phaseEl.textContent = 'Committing ' + agent.id + ' (' + (idx + 1) + '/' + newAgents.length + ')...';
+
+      var singlePlan = {
+        intent: 'agent',
+        summary: 'Drafted ' + agent.id + ': ' + agent.purpose,
+        survey: { matchedAgents: [], missingFor: [agent.purpose], existingDashboards: [] },
+        newAgents: [agent],
+        dashboard: null,
+        questions: [],
+      };
+
+      fetch('/agents/build/commit', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: singlePlan, target: { kind: 'agents-only' } }),
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          commitErrors.push(agent.id + ': ' + (data.error || 'unknown'));
+        } else {
+          var created = Array.isArray(data.agentsCreated) ? data.agentsCreated : [];
+          for (var c = 0; c < created.length; c++) actuallyCreated.push(created[c]);
+          var skipped = Array.isArray(data.agentsSkipped) ? data.agentsSkipped : [];
+          for (var s = 0; s < skipped.length; s++) {
+            commitErrors.push(skipped[s].id + ': ' + (skipped[s].reason || 'skipped'));
+          }
+        }
+        commitOne(idx + 1);
+      })
+      .catch(function (e) {
+        commitErrors.push(agent.id + ': network ' + (e && e.message ? e.message : 'unknown'));
+        commitOne(idx + 1);
+      });
+    }
+    commitOne(0);
   }
 
   btn.addEventListener('click', function () {
