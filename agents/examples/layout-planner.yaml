@@ -138,22 +138,29 @@ nodes:
         container that scoops up the leftovers. Agents not assigned to
         a real container will be hidden. If you want an agent visible,
         put it in a container with a meaningful label.
-      - **ORDER CONTAINERS — SYSTEM TILES FIRST, DAILY SECOND.** The
-        wizard renders containers in array order, top to bottom. The
-        canonical order is:
-          1. A "Health" or "Overview" container holding the four system
-            tiles (_system-runs-today, _system-failure-rate,
-            _system-agent-count, _system-avg-duration) — first because
-            they're the at-a-glance status row the user wants to see
-            before anything else.
+      - **NEVER emit a container with zero tiles.** Every container
+        MUST have at least one tile. If a themed grouping (Health,
+        Monitoring, etc.) has no agents that fit, OMIT that container
+        — don't emit it as an empty placeholder. The schema rejects
+        empty containers and the whole plan fails.
+      - **ORDER CONTAINERS — SYSTEM TILES FIRST (Pulse only), DAILY
+        SECOND.** The wizard renders containers in array order, top to
+        bottom. Canonical order:
+          1. **Only if CURRENT_LAYOUT actually contains system tiles**
+            (`_system-runs-today`, `_system-failure-rate`,
+            `_system-agent-count`, `_system-avg-duration`): a "Health"
+            or "Overview" container holding them — first because
+            they're the at-a-glance status row. **Named dashboards have
+            NO system tiles — do not emit a Health container there.**
           2. Daily-glance content next: daily digests, news, weather,
             anything checked every morning.
           3. Lower-frequency containers (engineering, admin, infra,
             jobs) below that.
-        Don't bury system tiles in the middle. Don't put daily content
-        below engineering. FOCUS may override these defaults — e.g.
-        "I don't care about system stats, hide them" — but absent a
-        contrary signal, system first, daily second.
+        If CURRENT_LAYOUT has no system tiles, skip step 1 entirely
+        and start with daily content. FOCUS may override these
+        defaults — e.g. "I don't care about system stats, hide them"
+        — but absent a contrary signal, system first (when present),
+        daily second.
       - **NEVER include an agent id in a container if its AGENT_METADATA
         entry is absent OR has no `title`.** Those agents don't have a
         Pulse signal block and can't render as tiles — placing them in a
