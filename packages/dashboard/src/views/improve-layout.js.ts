@@ -30,6 +30,12 @@ export const IMPROVE_LAYOUT_JS = `
   var CURATE_BUCKET = CURATE_VERB === 'remove' ? 'this dashboard' : 'Pulse';
   var cachedAgentMetadata = null;
   var lastFocus = '';
+  // Auto-retry budget for schema-validation failures. Reset each time
+  // the user explicitly invokes the planner (submit / refine / draft
+  // hand-off); we only auto-retry inside the same user-initiated run
+  // to avoid infinite loops when the LLM can't satisfy the schema.
+  var validationRetriesLeft = 0;
+  var AUTO_RETRY_BUDGET = 1;
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   function closeModal() { modal.classList.remove('is-open'); }
@@ -214,6 +220,7 @@ export const IMPROVE_LAYOUT_JS = `
     submitBtn.addEventListener('click', function () {
       var ta = document.getElementById('improve-layout-focus');
       var focus = ta ? ta.value.trim() : '';
+      validationRetriesLeft = AUTO_RETRY_BUDGET;
       runPlanner(focus);
     });
   }
@@ -283,9 +290,22 @@ export const IMPROVE_LAYOUT_JS = `
             if (data.status === 'done' && data.plan) {
               renderPlan(data.plan);
             } else {
+              var ve = Array.isArray(data.validationErrors) ? data.validationErrors : [];
+              // Auto-retry once on schema-validation failures: append the
+              // errors as feedback and re-run silently. Saves the user
+              // from seeing the error UI when the planner can fix the
+              // issue itself (typo'd ids, missing rationales, etc.).
+              if (ve.length > 0 && validationRetriesLeft > 0) {
+                validationRetriesLeft -= 1;
+                var nextFocus = lastFocus
+                  ? lastFocus + '\\n\\nPrevious attempt failed validation. Fix these issues:\\n' + ve.map(function (m) { return '  - ' + m; }).join('\\n')
+                  : 'Previous attempt failed validation. Fix these issues:\\n' + ve.map(function (m) { return '  - ' + m; }).join('\\n');
+                runPlanner(nextFocus);
+                return;
+              }
               renderError({
                 message: data.error || 'Layout planner failed',
-                validationErrors: Array.isArray(data.validationErrors) ? data.validationErrors : [],
+                validationErrors: ve,
                 rawResult: typeof data.rawResult === 'string' ? data.rawResult : '',
               });
             }
@@ -375,6 +395,7 @@ export const IMPROVE_LAYOUT_JS = `
       }
       if (feedback) parts.push('User feedback:\\n' + feedback);
       var combined = parts.join('\\n\\n');
+      validationRetriesLeft = AUTO_RETRY_BUDGET;
       runPlanner(combined);
     });
   }
@@ -570,6 +591,7 @@ export const IMPROVE_LAYOUT_JS = `
       if (lastFocus) parts.push(lastFocus);
       if (lines.length) parts.push('Clarifications:\\n' + lines.join('\\n\\n'));
       if (refine) parts.push('Refinement:\\n' + refine);
+      validationRetriesLeft = AUTO_RETRY_BUDGET;
       runPlanner(parts.join('\\n\\n'));
     });
   }
