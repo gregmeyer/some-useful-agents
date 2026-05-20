@@ -359,10 +359,18 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
 
   const { tools, discovery } = buildCatalogs(ctx);
 
-  // Fire all kickoffs concurrently; collect run-ids.
-  const kickoffs = session.survey.fragments.map(async (fragment, i) => {
-    // Each drafter sees: existing agents + matched agents + sibling-reserved suggestions
-    // (minus its own reservation). Prevents collisions.
+  // Fire kickoffs SEQUENTIALLY (NOT Promise.all). kickoffAgentRun
+  // identifies the run-id via queryRuns(agentName=…, limit:1) — racy
+  // when multiple parallel kickoffs target the same agent: all three
+  // queries would return the same most-recent run-id and downstream
+  // polling would observe the SAME run thrice. Symptom: 3 "drafts"
+  // produce identical output (same id, agent-id-already-exists
+  // collisions). Serializing the kickoffs makes each queryRuns see
+  // its own just-created run as most-recent. The LLM calls themselves
+  // still run in parallel because executeAgentDag returns a promise
+  // we don't await for completion.
+  for (let i = 0; i < session.survey.fragments.length; i++) {
+    const fragment = session.survey.fragments[i];
     const own = fragment.suggestedName;
     const blocked = new Set(knownIds);
     reservedSuggestions.forEach((s) => {
@@ -380,16 +388,11 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
         DISCOVERY_CATALOG: discovery,
       },
     });
-    return [`fragment-${i}`, runId] as const;
-  });
-  const results = await Promise.all(kickoffs);
-
-  for (const [key, runId] of results) {
     if (!runId) {
-      fail(session, `Failed to kick off drafter for ${key}.`);
+      fail(session, `Failed to kick off drafter for fragment-${i}.`);
       return;
     }
-    session.drafterRunIds.set(key, runId);
+    session.drafterRunIds.set(`fragment-${i}`, runId);
   }
   session.phase = 'drafting';
   session.phaseMessage = `Drafting ${session.drafterRunIds.size} agents in parallel...`;

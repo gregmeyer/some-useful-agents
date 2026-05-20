@@ -262,22 +262,46 @@ nodes:
       breaks user trust — they think they're getting fresh code
       when you're actually just surfacing what they already had.
 
-      When to use `toAdd`:
-      - ONLY when FOCUS explicitly asks. The user said "surface my
-        weather agents" or "bring my monitors over" or named a
-        specific available agent — add the matching ones. Otherwise
-        leave `toAdd` empty.
-      - NEVER speculatively add an available agent because it "looks
-        useful" or "fills a gap" or "complements the layout". That
-        produces unwanted additions like surfacing `system-health`
-        whenever the user is looking at a monitoring dashboard. The
-        user didn't ask for it — don't add it.
-      - The user can always re-run Improve layout with a more specific
-        FOCUS if they want more agents surfaced. Being conservative is
-        the right default.
-      - Cap `toAdd` at ~8 agents per run. Each Apply is destructive
-        (hides un-surfaced members), so don't bury the change in a
-        flood of additions.
+      When to use `toAdd` — THE DEFAULT IS EMPTY.
+
+      `toAdd[]` is ONLY for cases where FOCUS literally names an agent
+      id OR uses a topic word that obviously matches the available
+      agent's title/id/description. Examples of when it's allowed:
+
+        FOCUS = "surface my weather agents"
+          → ✓ toAdd may include `weather-forecast` (topic match)
+        FOCUS = "add system-health"
+          → ✓ toAdd may include `system-health` (id literally named)
+        FOCUS = "bring my monitors over"
+          → ✓ toAdd may include `api-monitor`, `uptime-watch` (topic match)
+
+      Examples of when toAdd MUST stay empty (even if available agents
+      look tempting):
+
+        FOCUS = "add a stock ticker"
+          → toAdd = [] (stock-ticker doesn't exist, use needsNew)
+        FOCUS = "create 3 new agents to complement my weather"
+          → toAdd = [] (user asked for NEW agents, not existing ones)
+        FOCUS = "improve this dashboard"
+          → toAdd = [] (vague, nothing named)
+        FOCUS = "" (empty)
+          → toAdd = [] (no signal at all)
+
+      RULE OF THUMB: before putting an id into toAdd, point to the
+      exact substring of FOCUS that justified it. If you can't quote
+      a substring that names the topic or id, the entry doesn't belong
+      in toAdd. "It complements the layout" / "it's a useful default"
+      / "it pairs well with X" are NOT valid justifications and produce
+      unwanted additions like `system-health` showing up whenever the
+      user looks at a monitoring-themed dashboard.
+
+      The user can always re-run Improve layout with a more specific
+      FOCUS if they want more agents surfaced. Empty toAdd is the
+      right default.
+
+      Cap `toAdd` at ~8 entries when the rule above does allow it.
+      Each Apply is destructive (hides un-surfaced members) so don't
+      bury the change in a flood of additions.
 
       When to use `needsNew`:
       - FOCUS names an agent that does NOT exist in AGENT_METADATA
