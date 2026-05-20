@@ -16,6 +16,7 @@ import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
+import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -221,6 +222,15 @@ export function renderPulsePage(input: PulsePageInput): string {
     ` : html``}
 
     ${improveLayoutModal()}
+
+    <!-- Build-from-goal modal: hidden, opened programmatically by the
+         improve-layout wizard when the planner emits needsNew[] specs.
+         The hidden button is the public handle the wizard JS clicks
+         to open it. -->
+    <span style="display: none;">${buildFromGoalButton()}</span>
+    ${buildFromGoalModal({
+      availableDashboards: (input.installedDashboards ?? []).filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name })),
+    })}
 
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}

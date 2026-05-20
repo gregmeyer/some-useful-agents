@@ -20,7 +20,13 @@ export const BUILD_FROM_GOAL_JS = `
     if (!btn || !modal || !content) return;
 
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
-    function closeModal() { modal.classList.remove('is-open'); }
+    function closeModal() {
+      modal.classList.remove('is-open');
+      // Closing/cancelling build-from-goal abandons any improve-layout
+      // handoff. The success path captures the handoff before calling
+      // closeModal, so this clear only affects cancel/backdrop paths.
+      try { sessionStorage.removeItem('sua-layout-handoff-v1'); } catch (e) {}
+    }
 
     btn.addEventListener('click', function () { modal.classList.add('is-open'); });
 
@@ -372,12 +378,49 @@ export const BUILD_FROM_GOAL_JS = `
             if (result.dashboardError) {
               summary += '<div class="dim" style="color:var(--color-danger,#a00);">Dashboard error: ' + esc(result.dashboardError) + '</div>';
             }
+            // If the improve-layout wizard handed off to us, don't
+            // redirect — close this modal and dispatch a resume event
+            // so the wizard re-opens with the freshly drafted agents
+            // merged in. The handoff has a 1h TTL; stale entries fall
+            // through to the normal redirect.
+            var handoffRaw = null;
+            try { handoffRaw = sessionStorage.getItem('sua-layout-handoff-v1'); } catch (e) {}
+            var handoff = null;
+            if (handoffRaw) {
+              try {
+                var parsed = JSON.parse(handoffRaw);
+                if (parsed && typeof parsed === 'object' && Date.now() - (parsed.createdAt || 0) < 60*60*1000) {
+                  handoff = parsed;
+                }
+              } catch (e) {}
+              if (!handoff) {
+                try { sessionStorage.removeItem('sua-layout-handoff-v1'); } catch (e) {}
+              }
+            }
+
             content.innerHTML = '<div style="padding:var(--space-3);">' +
               '<h3 style="margin:0 0 var(--space-2);">Done</h3>' +
               '<div style="font-size:var(--font-size-sm);">' + summary + '</div>' +
-              '<div class="dim" style="margin-top:var(--space-3);font-size:var(--font-size-xs);">Redirecting in 1.5s...</div>' +
+              '<div class="dim" style="margin-top:var(--space-3);font-size:var(--font-size-xs);">' +
+              (handoff ? 'Returning to layout planner...' : 'Redirecting in 1.5s...') + '</div>' +
               '</div>';
-            setTimeout(function () { window.location.href = result.redirectUrl || '/agents'; }, 1500);
+
+            if (handoff) {
+              setTimeout(function () {
+                closeModal();
+                try { sessionStorage.removeItem('sua-layout-handoff-v1'); } catch (e) {}
+                try {
+                  window.dispatchEvent(new CustomEvent('sua:resume-layout', {
+                    detail: { handoff: handoff, agentsCreated: result.agentsCreated || [] },
+                  }));
+                } catch (e) {
+                  // Older browsers without CustomEvent constructor — fall back to navigation.
+                  window.location.href = '/pulse';
+                }
+              }, 1200);
+            } else {
+              setTimeout(function () { window.location.href = result.redirectUrl || '/agents'; }, 1500);
+            }
           })
           .catch(function (err) {
             commitBtn.disabled = false;

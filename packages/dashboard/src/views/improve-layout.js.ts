@@ -37,6 +37,120 @@ export const IMPROVE_LAYOUT_JS = `
     try { return localStorage.getItem(LAYOUT_KEY) || ''; } catch (e) { return ''; }
   }
 
+  // ── Build-from-goal hand-off ────────────────────────────────────────
+  //
+  // When the planner emits needsNew[], the wizard hands off to
+  // build-from-goal so the user gets the full critic loop. We persist
+  // enough state in sessionStorage that build-from-goal can call us
+  // back when its commit succeeds; on resume, the user sees the
+  // original plan with the freshly drafted agents merged in and only
+  // needs to click Apply layout.
+  var HANDOFF_KEY = 'sua-layout-handoff-v1';
+  var HANDOFF_TTL_MS = 60 * 60 * 1000; // 1h
+
+  function buildGoalFromNeedsNew(needsNew) {
+    var lines = needsNew.map(function (n, i) {
+      var name = n.suggestedName ? n.suggestedName + ' — ' : '';
+      return (i + 1) + '. ' + name + n.purpose;
+    }).join('\\n');
+    var bucket = CURATE_VERB === 'remove' ? 'this dashboard' : 'my Pulse layout';
+    return 'Create these agents for ' + bucket + ':\\n\\n' + lines +
+      '\\n\\nEach agent must declare a Pulse signal (metric, status, or another template) so it can render as a tile.';
+  }
+
+  function handoffToBuildFromGoal(plan, needsNew) {
+    if (!Array.isArray(needsNew) || needsNew.length === 0) return;
+    try {
+      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
+        endpointBase: ENDPOINT_BASE,
+        storageKey: LAYOUT_KEY,
+        curateVerb: CURATE_VERB,
+        originalPlan: plan,
+        originalFocus: lastFocus || '',
+        createdAt: Date.now(),
+      }));
+    } catch (e) { /* sessionStorage may be unavailable */ }
+
+    closeModal();
+
+    // Open the build-from-goal modal. The button is rendered hidden
+    // on /pulse and /dashboards/:id pages — click it to open the modal,
+    // then fill in the goal + force agents-only target.
+    var trigger = document.getElementById('build-from-goal-btn');
+    if (!trigger) {
+      // Page doesn't host the build modal — fall back to navigation.
+      // Shouldn't happen on Pulse/dashboard pages, but be defensive.
+      window.location.href = '/agents';
+      return;
+    }
+    trigger.click();
+
+    // Defer DOM mutation so the modal markup is fully visible first.
+    setTimeout(function () {
+      var ta = document.getElementById('build-goal');
+      if (ta) ta.value = buildGoalFromNeedsNew(needsNew);
+      // Force "Just create the agent(s)" — we're not making a new
+      // dashboard from this flow.
+      var radio = document.querySelector('input[name="build-target"][value="agents"]');
+      if (radio) {
+        radio.checked = true;
+        // Trigger any UI sync (e.g. hiding the dashboard-picker row).
+        try { radio.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+      }
+      if (ta) ta.focus();
+    }, 50);
+  }
+
+  function readHandoff() {
+    var raw = null;
+    try { raw = sessionStorage.getItem(HANDOFF_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    try {
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (Date.now() - (parsed.createdAt || 0) > HANDOFF_TTL_MS) return null;
+      return parsed;
+    } catch (e) { return null; }
+  }
+
+  function clearHandoff() {
+    try { sessionStorage.removeItem(HANDOFF_KEY); } catch (e) {}
+  }
+
+  function mergePlanWithDraftedAgents(plan, createdIds) {
+    if (!createdIds.length) return plan;
+    var p = JSON.parse(JSON.stringify(plan));
+    p.toAdd = (p.toAdd || []).slice();
+    for (var i = 0; i < createdIds.length; i++) {
+      if (p.toAdd.indexOf(createdIds[i]) === -1) p.toAdd.push(createdIds[i]);
+    }
+    // Place freshly drafted agents in a new container at the end so the
+    // user can see exactly what was added and shuffle them later via
+    // edit-layout. Don't try to be clever about which existing container
+    // they "belong" to — that's the next planner run's job.
+    p.containers = (p.containers || []).slice();
+    p.containers.push({ label: 'Newly drafted', tiles: createdIds.slice() });
+    p.needsNew = [];
+    p.summary = (p.summary || '') + ' Drafted ' + createdIds.length + ' new agent' +
+      (createdIds.length === 1 ? '' : 's') + ' (' + createdIds.join(', ') + ').';
+    return p;
+  }
+
+  // Listen for build-from-goal's resume signal. The event fires on the
+  // current page (we never navigate during hand-off), so we just
+  // re-open and re-render.
+  window.addEventListener('sua:resume-layout', function (ev) {
+    var detail = (ev && ev.detail) || {};
+    var handoff = detail.handoff;
+    var created = Array.isArray(detail.agentsCreated) ? detail.agentsCreated : [];
+    if (!handoff || handoff.endpointBase !== ENDPOINT_BASE) return;
+    var merged = mergePlanWithDraftedAgents(handoff.originalPlan, created);
+    lastFocus = handoff.originalFocus || '';
+    modal.classList.add('is-open');
+    renderPlan(merged);
+    clearHandoff();
+  });
+
   btn.addEventListener('click', function () {
     modal.classList.add('is-open');
     loadSuggestions();
@@ -353,8 +467,8 @@ export const IMPROVE_LAYOUT_JS = `
         '<div style="margin:var(--space-3) 0;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
         '<div style="font-weight:var(--weight-semibold);font-size:var(--font-size-sm);margin-bottom:var(--space-2);">Draft ' + needsNew.length + ' new agent' + (needsNew.length === 1 ? '' : 's') + ' <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(these don\\'t exist yet)</span></div>' +
         '<ul style="margin:0 0 var(--space-3);padding-left:var(--space-4);">' + needsNewRows + '</ul>' +
-        '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:var(--space-2);">Drafting happens in Build from goal. Re-run Improve layout afterward to surface the new agent(s).</div>' +
-        '<a href="/agents" class="btn btn--ghost btn--sm" style="text-decoration:none;display:inline-block;">Open Build from goal →</a>' +
+        '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:var(--space-2);">Drafting opens Build from goal with the full critic loop. When you commit there, you\\'ll come back here to apply the layout.</div>' +
+        '<button type="button" class="btn btn--ghost btn--sm" id="improve-draft-btn">Draft these agents</button>' +
         '</div>';
     }
 
@@ -408,6 +522,9 @@ export const IMPROVE_LAYOUT_JS = `
 
     var applyBtn = document.getElementById('improve-apply-btn');
     if (applyBtn) applyBtn.addEventListener('click', function () { applyPlan(plan); });
+
+    var draftBtn = document.getElementById('improve-draft-btn');
+    if (draftBtn) draftBtn.addEventListener('click', function () { handoffToBuildFromGoal(plan, needsNew); });
 
     var updateBtn = document.getElementById('improve-update-btn');
     if (updateBtn) updateBtn.addEventListener('click', function () {
