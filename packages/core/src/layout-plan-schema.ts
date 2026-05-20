@@ -78,6 +78,21 @@ export const layoutPlanSchema = z.object({
    */
   toAdd: z.array(z.string().regex(AGENT_ID_RE, 'toAdd[] must be a valid agent id'))
     .default([]),
+
+  /**
+   * Brand-new agents the planner thinks the user should draft, but
+   * which don't exist anywhere yet. The wizard surfaces these as a
+   * "Draft these agents" link to Build from goal — drafting happens
+   * out-of-band; nothing is committed inline. After the user drafts
+   * + saves, they re-run Improve layout and the new agent appears as
+   * `available`. `purpose` is a one-sentence description; `suggestedName`
+   * is an optional lowercase-with-dashes proposal that build-planner
+   * may rename.
+   */
+  needsNew: z.array(z.object({
+    purpose: z.string().min(1, 'needsNew.purpose is required'),
+    suggestedName: z.string().regex(AGENT_ID_RE, 'needsNew.suggestedName must be lowercase-with-dashes-or-underscores').optional(),
+  })).default([]),
 }).superRefine((plan, ctx) => {
   // Tiles must reference agents declared in topAgents OR be marked as
   // additional context (full agent metadata reaches the planner; the
@@ -153,6 +168,39 @@ export const layoutPlanSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ['toAdd', idx],
         message: `toAdd[${idx}] "${id}" is not placed in any container — every added agent must be assigned to a container`,
+      });
+    }
+  });
+
+  // needsNew entries are specs, not ids — they MUST NOT appear in any
+  // container or in toAdd[]. A suggestedName matching a container tile
+  // means the planner is conflating an existing-id placement with a
+  // draft-this-agent suggestion.
+  const seenNeedsNew = new Map<string, number>();
+  plan.needsNew.forEach((entry, idx) => {
+    if (!entry.suggestedName) return;
+    const prev = seenNeedsNew.get(entry.suggestedName);
+    if (prev !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['needsNew', idx, 'suggestedName'],
+        message: `needsNew[${idx}].suggestedName "${entry.suggestedName}" duplicates needsNew[${prev}].suggestedName`,
+      });
+      return;
+    }
+    seenNeedsNew.set(entry.suggestedName, idx);
+    if (seenTiles.has(entry.suggestedName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['needsNew', idx, 'suggestedName'],
+        message: `needsNew[${idx}].suggestedName "${entry.suggestedName}" also appears in a container — needsNew is for agents that DON'T exist yet`,
+      });
+    }
+    if (seenToAdd.has(entry.suggestedName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['needsNew', idx, 'suggestedName'],
+        message: `needsNew[${idx}].suggestedName "${entry.suggestedName}" also appears in toAdd[] — pick one: brand-new (needsNew) or surface existing (toAdd)`,
       });
     }
   });
