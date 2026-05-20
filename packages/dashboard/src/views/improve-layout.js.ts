@@ -416,8 +416,23 @@ export const IMPROVE_LAYOUT_JS = `
         '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);">' +
         '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-2);">Clarifying questions</div>' +
         qRows +
-        '<div style="text-align:right;"><button type="button" class="btn btn--ghost btn--sm" id="improve-update-btn">Update plan</button></div></div>';
+        '</div>';
     }
+
+    // Always-available "refine this plan" block. Lets the user redirect
+    // the planner ("don't suggest stock-ticker", "go more educational",
+    // "drop crypto") without backing out to the original FOCUS textarea.
+    // Sits just above the action row. The button re-runs the planner
+    // with combined context: original FOCUS + answered questions +
+    // freeform refinement.
+    var refineHtml =
+      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);">' +
+      '<label style="display:flex;flex-direction:column;gap:var(--space-1);">' +
+        '<strong style="font-size:var(--font-size-sm);">Refine this plan <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(optional — redirect the planner before applying)</span></strong>' +
+        '<textarea id="improve-refine-feedback" rows="2" style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);resize:vertical;font-family:inherit;" placeholder="e.g. drop stock-ticker, suggest educational agents instead"></textarea>' +
+      '</label>' +
+      '<div style="text-align:right;margin-top:var(--space-2);"><button type="button" class="btn btn--ghost btn--sm" id="improve-update-btn">Update plan</button></div>' +
+      '</div>';
 
     // Compute which agents will be hidden: every MEMBER agent that
     // isn't referenced by any container (system tiles excluded).
@@ -524,6 +539,7 @@ export const IMPROVE_LAYOUT_JS = `
       willHideHtml +
       needsNewHtml +
       questionsHtml +
+      refineHtml +
       '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;align-items:center;">' +
         '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Cancel</button>' +
         '<button type="button" class="' + applyBtnClass + '" id="improve-apply-btn">Apply layout' + (hasNeedsNew ? ' only' : '') + '</button>' +
@@ -538,7 +554,7 @@ export const IMPROVE_LAYOUT_JS = `
 
     var updateBtn = document.getElementById('improve-update-btn');
     if (updateBtn) updateBtn.addEventListener('click', function () {
-      // Append answered questions to lastFocus and re-run.
+      // Append answered questions + freeform refinement to lastFocus and re-run.
       var inputs = content.querySelectorAll('.improve-q-input');
       var lines = [];
       for (var i = 0; i < inputs.length; i++) {
@@ -548,8 +564,13 @@ export const IMPROVE_LAYOUT_JS = `
         var qText = (plan.questions && plan.questions[qIdx] && plan.questions[qIdx].text) || '';
         lines.push('Q: ' + qText + '\\nA: ' + v);
       }
-      var combined = lastFocus + (lines.length ? '\\n\\nClarifications:\\n' + lines.join('\\n\\n') : '');
-      runPlanner(combined);
+      var refineEl = document.getElementById('improve-refine-feedback');
+      var refine = refineEl ? (refineEl.value || '').trim() : '';
+      var parts = [];
+      if (lastFocus) parts.push(lastFocus);
+      if (lines.length) parts.push('Clarifications:\\n' + lines.join('\\n\\n'));
+      if (refine) parts.push('Refinement:\\n' + refine);
+      runPlanner(parts.join('\\n\\n'));
     });
   }
 
