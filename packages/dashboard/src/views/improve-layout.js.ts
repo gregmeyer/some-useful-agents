@@ -625,13 +625,20 @@ export const IMPROVE_LAYOUT_JS = `
     if (willAdd.length > 0) {
       var addList = willAdd.map(function (id) { return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(id) + '</code>'; }).join(' ');
       var addBucket = CURATE_VERB === 'remove' ? 'this dashboard' : 'Pulse';
+      // Distinguish "already-installed" adds from "draft + add". When the
+      // plan also has needsNew specs, surface the total ("1 installed + 3
+      // new") so the user knows Apply layout-only would land just the 1.
+      var headline = needsNew.length > 0
+        ? 'Will add ' + willAdd.length + ' installed agent' + (willAdd.length === 1 ? '' : 's') + ' + ' + needsNew.length + ' new'
+        : 'Will add ' + willAdd.length + ' agent' + (willAdd.length === 1 ? '' : 's') + ' to ' + addBucket;
+      var hint = needsNew.length > 0
+        ? '(the ' + needsNew.length + ' new ones are drafted via the button below)'
+        : '(installed but not yet on this surface)';
       willAddHtml =
         '<details style="margin:var(--space-3) 0;padding:var(--space-2) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
         '<summary style="cursor:pointer;font-size:var(--font-size-sm);">' +
-        '<strong>Will add ' + willAdd.length + ' agent' + (willAdd.length === 1 ? '' : 's') + ' to ' + addBucket + '</strong> ' +
-        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">' +
-          '(installed but not yet on this surface)' +
-        '</span>' +
+        '<strong>' + headline + '</strong> ' +
+        '<span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">' + hint + '</span>' +
         '</summary>' +
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2);">' + addList + '</div></details>';
     }
