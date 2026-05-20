@@ -465,10 +465,9 @@ export const IMPROVE_LAYOUT_JS = `
       }).join('');
       needsNewHtml =
         '<div style="margin:var(--space-3) 0;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
-        '<div style="font-weight:var(--weight-semibold);font-size:var(--font-size-sm);margin-bottom:var(--space-2);">Draft ' + needsNew.length + ' new agent' + (needsNew.length === 1 ? '' : 's') + ' <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(these don\\'t exist yet)</span></div>' +
-        '<ul style="margin:0 0 var(--space-3);padding-left:var(--space-4);">' + needsNewRows + '</ul>' +
-        '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:var(--space-2);">Drafting opens Build from goal with the full critic loop. When you commit there, you\\'ll come back here to apply the layout.</div>' +
-        '<button type="button" class="btn btn--ghost btn--sm" id="improve-draft-btn">Draft these agents</button>' +
+        '<div style="font-weight:var(--weight-semibold);font-size:var(--font-size-sm);margin-bottom:var(--space-2);">' + needsNew.length + ' new agent' + (needsNew.length === 1 ? '' : 's') + ' to draft <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(these don\\'t exist yet)</span></div>' +
+        '<ul style="margin:0;padding-left:var(--space-4);">' + needsNewRows + '</ul>' +
+        '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:var(--space-2);">Choose "Draft + apply" below to open Build from goal (full critic loop); you\\'ll come back here to apply the layout.</div>' +
         '</div>';
     }
 
@@ -503,6 +502,16 @@ export const IMPROVE_LAYOUT_JS = `
         '<div style="display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2);">' + hideList + '</div></details>';
     }
 
+    // When the planner emits needsNew[], Draft+apply becomes the primary
+    // CTA (the user explicitly asked for new agents — Apply layout
+    // alone would skip them). Apply layout stays as the escape hatch
+    // for users who decide to skip drafting.
+    var hasNeedsNew = needsNew.length > 0;
+    var draftBtnHtml = hasNeedsNew
+      ? '<button type="button" class="btn btn--primary btn--sm" id="improve-draft-btn">Draft ' + needsNew.length + ' agent' + (needsNew.length === 1 ? '' : 's') + ' + apply</button>'
+      : '';
+    var applyBtnClass = hasNeedsNew ? 'btn btn--ghost btn--sm' : 'btn btn--primary btn--sm';
+
     content.innerHTML =
       '<div style="padding:var(--space-4);">' +
       '<h3 style="margin:0 0 var(--space-2);">Proposed layout</h3>' +
@@ -515,9 +524,10 @@ export const IMPROVE_LAYOUT_JS = `
       willHideHtml +
       needsNewHtml +
       questionsHtml +
-      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;">' +
+      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;align-items:center;">' +
         '<button type="button" class="btn btn--ghost btn--sm" data-close-improve-layout="1">Cancel</button>' +
-        '<button type="button" class="btn btn--primary btn--sm" id="improve-apply-btn">Apply layout</button>' +
+        '<button type="button" class="' + applyBtnClass + '" id="improve-apply-btn">Apply layout' + (hasNeedsNew ? ' only' : '') + '</button>' +
+        draftBtnHtml +
       '</div></div>';
 
     var applyBtn = document.getElementById('improve-apply-btn');
