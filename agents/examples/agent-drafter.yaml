@@ -114,6 +114,14 @@ nodes:
         agents that take no runtime inputs.
       - outputWidget.type: one of dashboard, key-value, diff-apply, raw, ai-template.
       - outputWidget.fields[].type: one of text, code, badge, action, metric, stat.
+      - **ai-template + controls — NOT ALLOWED.** When outputWidget.type is
+        `ai-template`, the HTML template you write controls visibility and
+        layout directly — `field-toggle` and `view-switch` controls have
+        nothing to operate on and schema validation rejects them.
+          ✗ outputWidget: { type: ai-template, controls: [{type: field-toggle, ...}] }
+          ✓ outputWidget: { type: ai-template, template: "<div>...</div>" }
+        Use controls only with `dashboard` or `key-value` widgets where the
+        declared `fields[]` give the toggle something to show/hide.
       - If FOCUS mentions "daily" / "every morning" / cron-style timing, add a
         `schedule:` field (cron format).
 
