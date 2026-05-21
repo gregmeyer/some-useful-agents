@@ -1085,6 +1085,28 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
         `Created via Build from goal wizard (intent: ${plan.intent})`,
       );
       agentsCreated.push(ref.id);
+      // Auto-run the freshly created agent once so its Pulse tile
+      // shows actual output instead of empty placeholders the first
+      // time the user opens the dashboard. Fire-and-forget: errors
+      // surface as a failed run in /runs that the user can re-trigger
+      // with inputs if needed (e.g. agents that require user-supplied
+      // values). The agentStore.getAgent() round-trip is intentional —
+      // it picks up any normalization the store applies on insert.
+      try {
+        const stored = ctx.agentStore.getAgent(ref.id);
+        if (stored) {
+          executeAgentDag(
+            stored,
+            { triggeredBy: 'dashboard', inputs: {} },
+            {
+              runStore: ctx.runStore,
+              secretsStore: ctx.secretsStore,
+              variablesStore: ctx.variablesStore,
+              dataRoot: ctx.agentStore.dataRoot,
+            },
+          ).catch(() => { /* surfaced as a failed run row */ });
+        }
+      } catch { /* best-effort — don't let auto-run failures block the commit */ }
     } catch (e) {
       agentsSkipped.push({ id: ref.id, reason: (e as Error).message });
     }

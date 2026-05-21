@@ -59,7 +59,7 @@ export function improveLayoutModal(config: ImproveLayoutConfig = PULSE_CONFIG): 
   const verbNoun = config.curateVerb === 'remove' ? 'remove from this dashboard' : 'hide from Pulse';
   return html`
     <div id="improve-layout-modal" class="modal-backdrop"${attrs}>
-      <div class="modal" style="max-width: 640px; max-height: 85vh; overflow-y: auto;">
+      <div class="modal" style="max-width: min(960px, 95vw); width: 100%; max-height: 90vh; overflow-y: auto;">
         <div id="improve-layout-content">
           <h3 style="margin: 0 0 var(--space-3);">Improve layout</h3>
           <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
