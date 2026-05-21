@@ -142,8 +142,19 @@ export const IMPROVE_LAYOUT_JS = `
     function maybeFinish() {
       if (cancelled) return;
       if (doneCount + failedCount < needsNew.length) return;
-      if (failedCount > 0) {
-        // Show a soft error state — user can retry the whole flow.
+      // All drafts done. Four cases:
+      //   - all succeeded → proceed straight to commit.
+      //   - all failed → original error screen (Close + Retry-all).
+      //   - mixed → render the partial-success screen with per-draft
+      //     retry buttons + an "Apply the N that succeeded" action.
+      //     Without this branch the user was stuck choosing between
+      //     Close (lose the successes) and Retry-all (re-run the ones
+      //     that already worked); reported as confusing UX.
+      if (failedCount === 0) {
+        finishApply(plan, results);
+        return;
+      }
+      if (doneCount === 0) {
         var failedSummaries = [];
         for (var ri = 0; ri < results.length; ri++) {
           if (results[ri] && results[ri].error) failedSummaries.push('agent ' + (ri + 1) + ': ' + results[ri].error);
@@ -153,7 +164,142 @@ export const IMPROVE_LAYOUT_JS = `
         });
         return;
       }
-      finishApply(plan, results);
+      renderPartialDrafts();
+    }
+
+    function renderPartialDrafts() {
+      // Snapshot the current results so retries can replace failed
+      // entries in place. needsNew is the source of truth for indices.
+      var rowsHtml = needsNew.map(function (n, idx) {
+        var r = results[idx];
+        var ok = r && !r.error && r.id;
+        var name = ok ? r.id : (n.suggestedName || ('agent-' + (idx + 1)));
+        var status = ok
+          ? '<span style="font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--color-success, #0a0);">✓</span>'
+          : '<span style="font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--color-danger, #a00);">✗</span>';
+        var detail = ok
+          ? '<div class="dim" style="font-size:var(--font-size-xs);">Ready to apply</div>'
+          : '<div class="dim" style="font-size:var(--font-size-xs);color:var(--color-danger, #a00);">' + esc(r ? (r.error || 'Failed') : 'Failed') + '</div>';
+        var retryBtn = ok ? '' : '<button type="button" class="btn btn--ghost btn--sm improve-partial-retry" data-card-index="' + idx + '" style="margin-left:auto;">Retry</button>';
+        return '<div class="improve-partial-row" data-card-index="' + idx + '" style="padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+          '<div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1);">' +
+            status +
+            '<code style="font-size:var(--font-size-sm);">' + esc(name) + '</code>' +
+            retryBtn +
+          '</div>' +
+          '<div class="dim" style="font-size:var(--font-size-xs);">' + esc(n.purpose) + '</div>' +
+          detail +
+        '</div>';
+      }).join('');
+
+      var applyLabel = 'Apply ' + doneCount + ' ' + (doneCount === 1 ? 'draft' : 'drafts') + ' + layout';
+      var canRetryAll = failedCount > 0;
+      content.innerHTML =
+        '<div style="padding:var(--space-4);">' +
+        '<h3 style="margin:0 0 var(--space-2);">' + doneCount + ' of ' + needsNew.length + ' drafted</h3>' +
+        '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Apply the layout with just the agents that succeeded, retry the failed ones individually, or cancel.</p>' +
+        '<div style="display:flex;flex-direction:column;gap:var(--space-2);">' + rowsHtml + '</div>' +
+        '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);display:flex;gap:var(--space-2);justify-content:flex-end;">' +
+          '<button type="button" class="btn btn--ghost btn--sm" id="improve-partial-cancel">Cancel</button>' +
+          (canRetryAll ? '<button type="button" class="btn btn--ghost btn--sm" id="improve-partial-retry-all">Retry all failed</button>' : '') +
+          '<button type="button" class="btn btn--primary btn--sm" id="improve-partial-apply"' + (doneCount === 0 ? ' disabled' : '') + '>' + applyLabel + '</button>' +
+        '</div></div>';
+
+      var cancelBtn = document.getElementById('improve-partial-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', function () { cancelled = true; closeModal(); });
+
+      var applyPartialBtn = document.getElementById('improve-partial-apply');
+      if (applyPartialBtn) applyPartialBtn.addEventListener('click', function () {
+        var successes = results.filter(function (r) { return r && !r.error && r.id; });
+        finishApply(plan, successes);
+      });
+
+      var retryAllBtn = document.getElementById('improve-partial-retry-all');
+      if (retryAllBtn) retryAllBtn.addEventListener('click', function () {
+        var failedIndices = [];
+        for (var fi = 0; fi < results.length; fi++) {
+          if (!results[fi] || results[fi].error) failedIndices.push(fi);
+        }
+        retryFailedDrafts(failedIndices);
+      });
+
+      var perRetryBtns = content.querySelectorAll('.improve-partial-retry');
+      for (var pr = 0; pr < perRetryBtns.length; pr++) {
+        (function (btn) {
+          btn.addEventListener('click', function () {
+            var idx = parseInt(btn.getAttribute('data-card-index') || '0', 10);
+            retryFailedDrafts([idx]);
+          });
+        })(perRetryBtns[pr]);
+      }
+    }
+
+    function retryFailedDrafts(indices) {
+      // Re-fire /agents/draft-one for the failed specs; update results
+      // and re-render the partial-success screen as each one resolves.
+      // Decrement failedCount as retries succeed so the apply label
+      // and "all done" check stay in sync.
+      indices.forEach(function (idx) {
+        // Reset the result slot — counts as "in-flight" again.
+        if (results[idx] && results[idx].error) failedCount -= 1;
+        results[idx] = undefined;
+      });
+      // Re-render with retrying state — show the in-flight rows as
+      // spinners so the user sees progress instead of a frozen screen.
+      content.innerHTML =
+        '<div style="padding:var(--space-4);">' +
+        '<div style="display:flex;align-items:center;gap:var(--space-3);">' +
+          '<div class="spinner"></div>' +
+          '<div style="font-size:var(--font-size-sm);">Retrying ' + indices.length + ' draft' + (indices.length === 1 ? '' : 's') + '...</div>' +
+        '</div></div>';
+
+      indices.forEach(function (idx) {
+        var spec = needsNew[idx];
+        var body = { purpose: spec.purpose, focus: lastFocus || '' };
+        if (spec.suggestedName) body.suggestedName = spec.suggestedName;
+        fetch('/agents/draft-one', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (start) {
+          if (cancelled) return;
+          if (!start.ok || !start.runId) {
+            results[idx] = { error: start.error || 'Failed to start drafter.' };
+            failedCount += 1;
+            renderPartialDrafts();
+            return;
+          }
+          var runId = start.runId;
+          function pollRetry() {
+            if (cancelled) return;
+            fetch('/agents/build/' + encodeURIComponent(runId), { credentials: 'same-origin' })
+              .then(function (r) { return r.json(); })
+              .then(function (data) {
+                if (cancelled) return;
+                if (data.status === 'running') { setTimeout(pollRetry, 1500); return; }
+                if (data.status === 'done' && data.plan && Array.isArray(data.plan.newAgents) && data.plan.newAgents[0]) {
+                  var draft = data.plan.newAgents[0];
+                  results[idx] = { id: draft.id, yaml: draft.yaml, purpose: draft.purpose };
+                  doneCount += 1;
+                } else {
+                  results[idx] = { error: data.error || 'Drafter failed.' };
+                  failedCount += 1;
+                }
+                renderPartialDrafts();
+              })
+              .catch(function () { if (!cancelled) setTimeout(pollRetry, 3000); });
+          }
+          setTimeout(pollRetry, 800);
+        })
+        .catch(function (e) {
+          if (cancelled) return;
+          results[idx] = { error: 'Network: ' + (e && e.message ? e.message : 'unknown') };
+          failedCount += 1;
+          renderPartialDrafts();
+        });
+      });
     }
 
     for (var i = 0; i < needsNew.length; i++) {
