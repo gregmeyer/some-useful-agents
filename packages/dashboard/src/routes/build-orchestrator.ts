@@ -481,11 +481,36 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
     try {
       const a = parseAgent(fixedYaml);
       if (a.id !== validated.data.id) {
-        failedFragments.push(`${key}: parsed YAML id "${a.id}" ≠ plan id "${validated.data.id}"`);
+        // Treat id mismatch as a retry-able critique-style issue so the
+        // drafter gets a chance to fix it (same retry budget as critic
+        // failures). Common when the LLM drifts on its own SUGGESTED_NAME.
+        const attempts = session.drafterAttempts.get(key) ?? 1;
+        if (attempts < MAX_DRAFT_ATTEMPTS) {
+          retries.push({
+            key,
+            feedback: `Critic feedback:\n- newAgents[0].yaml: declared id="${validated.data.id}" but the YAML's id field is "${a.id}". They MUST match exactly. Emit the id "${validated.data.id}" in both places.`,
+          });
+          continue;
+        }
+        failedFragments.push(`${key}: parsed YAML id "${a.id}" ≠ plan id "${validated.data.id}" (after ${attempts} attempts)`);
         continue;
       }
     } catch (e) {
-      failedFragments.push(`${key}: YAML parse — ${e instanceof Error ? e.message : String(e)}`);
+      // YAML parse failure: the LLM produced text that doesn't even parse
+      // as YAML (typically a multi-line shell command without `|` block
+      // scalar, or unbalanced quotes inside an inline python -c). Feed
+      // the parser's exact error back as critic-style feedback so the
+      // retry has a concrete target.
+      const parseError = e instanceof Error ? e.message : String(e);
+      const attempts = session.drafterAttempts.get(key) ?? 1;
+      if (attempts < MAX_DRAFT_ATTEMPTS) {
+        retries.push({
+          key,
+          feedback: `Critic feedback:\n- newAgents[0].yaml: failed to parse as YAML — ${parseError}\n  Common cause: a multi-line shell command body (e.g. inline \`python3 -c "..."\`) without the YAML literal block scalar. Wrap the body in \`command: |\` with the script indented uniformly underneath. NEVER put a multi-line string after \`command:\` on the same line.`,
+        });
+        continue;
+      }
+      failedFragments.push(`${key}: YAML parse (after ${attempts} attempts) — ${parseError}`);
       continue;
     }
 
