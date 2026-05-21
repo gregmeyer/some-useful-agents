@@ -188,6 +188,15 @@ export interface DagExecuteOptions {
    * unset and get per-call notify dispatch as before.
    */
   suppressNotify?: boolean;
+  /**
+   * Pre-generated run id. When set, the executor uses this instead of
+   * generating a fresh UUID. Lets callers know the run-id BEFORE the
+   * promise resolves — eliminates the race in patterns that try to
+   * "look up the run by agent name + most-recent" right after kickoff
+   * (multiple parallel kickoffs targeting the same agent would
+   * otherwise collide on the same most-recent row).
+   */
+  runId?: string;
 }
 
 
@@ -205,7 +214,7 @@ export async function executeAgentDag(
   options: DagExecuteOptions,
   deps: DagExecutorDeps,
 ): Promise<Run> {
-  const runId = randomUUID();
+  const runId = options.runId ?? randomUUID();
   const startedAt = new Date().toISOString();
 
   // Parent run row created up-front in 'running' state. Lets anyone polling
