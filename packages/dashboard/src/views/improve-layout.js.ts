@@ -579,11 +579,18 @@ export const IMPROVE_LAYOUT_JS = `
     // Sits just above the action row. The button re-runs the planner
     // with combined context: original FOCUS + answered questions +
     // freeform refinement.
+    // "Refine this plan" sits in its own boxed region above the action
+    // row. The Update plan button sits INSIDE that box so it visually
+    // belongs to the textarea, not the Apply/Cancel cluster — repeated
+    // user-reported mis-clicks where they hit Apply layout instead of
+    // Update plan when iterating. When the textarea has content, the
+    // button also gets primary styling (matches the user's actual
+    // intent: iterate, not commit).
     var refineHtml =
-      '<div style="margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--color-border);">' +
+      '<div style="margin-top:var(--space-5);padding:var(--space-3) var(--space-3) var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
       '<label style="display:flex;flex-direction:column;gap:var(--space-1);">' +
         '<strong style="font-size:var(--font-size-sm);">Refine this plan <span class="dim" style="font-weight:var(--weight-regular);font-size:var(--font-size-xs);">(optional — redirect the planner before applying)</span></strong>' +
-        '<textarea id="improve-refine-feedback" rows="2" style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);resize:vertical;font-family:inherit;" placeholder="e.g. drop stock-ticker, suggest educational agents instead"></textarea>' +
+        '<textarea id="improve-refine-feedback" rows="3" style="padding:var(--space-2) var(--space-3);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);font-size:var(--font-size-sm);resize:vertical;font-family:inherit;background:var(--color-surface);" placeholder="e.g. drop stock-ticker, suggest educational agents instead"></textarea>' +
       '</label>' +
       '<div style="text-align:right;margin-top:var(--space-2);"><button type="button" class="btn btn--ghost btn--sm" id="improve-update-btn">Update plan</button></div>' +
       '</div>';
@@ -734,6 +741,42 @@ export const IMPROVE_LAYOUT_JS = `
       validationRetriesLeft = AUTO_RETRY_BUDGET;
       runPlanner(parts.join('\\n\\n'));
     });
+
+    // Dynamic CTA emphasis: while the user is typing into the refine
+    // textarea (or has answered a clarifying question), promote
+    // "Update plan" to primary and demote Apply/Draft to ghost. Matches
+    // the user's actual intent — if you're typing feedback, you mean
+    // to iterate, not commit. Repeated mis-clicks on Apply during
+    // refinement were the trigger for this rule.
+    var refineEl = document.getElementById('improve-refine-feedback');
+    function syncCtaEmphasis() {
+      var hasRefinement = false;
+      if (refineEl && (refineEl.value || '').trim().length > 0) hasRefinement = true;
+      if (!hasRefinement) {
+        var qInputs = content.querySelectorAll('.improve-q-input');
+        for (var qi = 0; qi < qInputs.length; qi++) {
+          if ((qInputs[qi].value || '').trim().length > 0) { hasRefinement = true; break; }
+        }
+      }
+      if (updateBtn) {
+        updateBtn.className = hasRefinement ? 'btn btn--primary btn--sm' : 'btn btn--ghost btn--sm';
+      }
+      if (applyBtn) {
+        // When the user is iterating, demote Apply to ghost so it doesn't
+        // catch a hurried click. Don't touch the draft button — its
+        // primary-ness is determined by needsNew presence.
+        applyBtn.className = hasRefinement
+          ? 'btn btn--ghost btn--sm'
+          : applyBtnClass;
+      }
+    }
+    if (refineEl) refineEl.addEventListener('input', syncCtaEmphasis);
+    var qInputs = content.querySelectorAll('.improve-q-input');
+    for (var qi = 0; qi < qInputs.length; qi++) {
+      qInputs[qi].addEventListener('input', syncCtaEmphasis);
+      qInputs[qi].addEventListener('change', syncCtaEmphasis);
+    }
+    syncCtaEmphasis();
   }
 
   function applyPlan(plan) {
