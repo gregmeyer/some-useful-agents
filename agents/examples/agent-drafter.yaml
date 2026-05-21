@@ -129,6 +129,24 @@ nodes:
         agents that take no runtime inputs.
       - outputWidget.type: one of dashboard, key-value, diff-apply, raw, ai-template.
       - outputWidget.fields[].type: one of text, code, badge, action, metric, stat.
+      - **External images need permissions.imgSrc.** When an ai-template
+        references `<img src="https://HOST/...">` for a host other than
+        `img.youtube.com` / `i.vimeocdn.com` (the baseline CSP allowlist),
+        the agent MUST declare each external host in
+        `permissions.imgSrc`. The dashboard's page CSP otherwise blocks
+        the load with "violates ... img-src" and the widget renders
+        with broken images.
+          ✓ permissions:
+              imgSrc:
+                - www.thecocktaildb.com
+                - "*.unsplash.com"   # wildcard subdomain
+            outputWidget:
+              type: ai-template
+              template: |
+                <img src="https://www.thecocktaildb.com/images/drink.jpg">
+        Use a wildcard (`*.example.com`) when the URL host varies (CDN
+        rotations). `data:` image URIs and the YouTube/Vimeo thumbnail
+        CDNs are already allowed — no declaration needed for those.
       - **ai-template + controls — NOT ALLOWED.** When outputWidget.type is
         `ai-template`, the HTML template you write controls visibility and
         layout directly — `field-toggle` and `view-switch` controls have
