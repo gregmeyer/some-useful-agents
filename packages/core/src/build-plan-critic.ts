@@ -134,6 +134,43 @@ export function critiquePlan(plan: BuildPlan, ctx: PlanCriticContext): PlanCriti
         }
       }
     });
+
+    // ai-template path check: the placeholder substituter ONLY supports
+    // single-level paths (`{{outputs.NAME}}`, `{{item.FIELD}}`). Nested
+    // paths like `outputs.featured_duel.title` or `item.away_pitcher.name`
+    // leak the literal placeholder into the rendered widget. Flag them so
+    // the drafter can flatten on retry.
+    const widget = (agent as { outputWidget?: { type?: string; template?: string } }).outputWidget;
+    if (widget?.type === 'ai-template' && typeof widget.template === 'string') {
+      const tpl = widget.template;
+      // Outer outputs.X.Y — match anything past the first dot-segment.
+      const outerNestedRe = /\{\{\{?\s*outputs\.[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*/g;
+      let m: RegExpExecArray | null;
+      const outerHits = new Set<string>();
+      while ((m = outerNestedRe.exec(tpl)) !== null) outerHits.add(m[0]);
+      for (const hit of outerHits) {
+        errors.push({
+          path: `newAgents[${i}].yaml.outputWidget.template`,
+          message: `ai-template uses nested path "${hit.replace(/^\{\{\{?\s*/, '').trim()}…}}" — the substituter only supports single-level outputs.NAME. Flatten the value into a top-level scalar output (e.g. featured_duel_title) and reference it without nesting.`,
+        });
+      }
+      // Inner item.X.Y inside #each blocks. Match across all #each bodies.
+      const eachRe = /\{\{\s*#each\s+outputs\.[a-zA-Z_][a-zA-Z0-9_]*\s+as\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/g;
+      const innerHits = new Set<string>();
+      while ((m = eachRe.exec(tpl)) !== null) {
+        const itemName = m[1];
+        const body = m[2];
+        const innerRe = new RegExp(`\\{\\{\\{?\\s*${itemName}\\.[a-zA-Z_][a-zA-Z0-9_]*\\.[a-zA-Z_][a-zA-Z0-9_]*`, 'g');
+        let im: RegExpExecArray | null;
+        while ((im = innerRe.exec(body)) !== null) innerHits.add(im[0]);
+      }
+      for (const hit of innerHits) {
+        errors.push({
+          path: `newAgents[${i}].yaml.outputWidget.template`,
+          message: `ai-template uses nested item path "${hit.replace(/^\{\{\{?\s*/, '').trim()}…}}" inside an #each block — only single-level item.FIELD is supported. Flatten the per-row value into a scalar (e.g. away_pitcher_name) on each array element.`,
+        });
+      }
+    }
   });
 
   return { ok: errors.length === 0, errors };

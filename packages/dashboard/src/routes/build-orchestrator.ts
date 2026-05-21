@@ -29,6 +29,8 @@ import {
   draftSchema,
   dashboardDesignSchema,
   buildPlanSchema,
+  critiquePlan,
+  formatCriticFeedback,
   type Agent,
   type BuildPlan,
   type Draft,
@@ -44,6 +46,13 @@ const DRAFTER_AGENT_ID = 'agent-drafter';
 const DESIGNER_AGENT_ID = 'dashboard-designer';
 
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1h
+/**
+ * How many TIMES each drafter is allowed to run (initial + N-1 retries).
+ * On critic failure within budget the orchestrator kicks off a new drafter
+ * run with the critic feedback appended to FOCUS. Mirrors the
+ * MAX_CRITIC_RETRIES constant the legacy build-planner used.
+ */
+const MAX_DRAFT_ATTEMPTS = 3;
 
 export type SessionPhase = 'survey' | 'drafting' | 'design' | 'assembling' | 'done' | 'failed';
 
@@ -58,6 +67,7 @@ interface BuildSession {
 
   surveyorRunId?: string;
   drafterRunIds: Map<string, string>; // fragmentKey -> runId
+  drafterAttempts: Map<string, number>; // fragmentKey -> attempt count (1-indexed)
   designerRunId?: string;
 
   survey?: Survey;
@@ -174,6 +184,32 @@ function existingAgentIds(ctx: Ctx): Set<string> {
   }
 }
 
+/**
+ * Look up the original fragment spec ({ purpose, suggestedName? }) for a
+ * given fragmentKey. Reads from session.survey.fragments for build sessions
+ * or session.draftOnlySpec for /agents/draft-one sessions. Used during
+ * critic-retry to re-kick a drafter with the same intent + fresh feedback.
+ */
+function resolveFragment(session: BuildSession, key: string): { purpose: string; suggestedName?: string } | null {
+  if (session.draftOnly) {
+    return session.draftOnlySpec ?? null;
+  }
+  if (!session.survey) return null;
+  const match = /^fragment-(\d+)$/.exec(key);
+  if (!match) return null;
+  const idx = Number(match[1]);
+  const fragment = session.survey.fragments[idx];
+  if (!fragment) return null;
+  return {
+    purpose: fragment.purpose,
+    ...(fragment.suggestedName ? { suggestedName: fragment.suggestedName } : {}),
+  };
+}
+
+function appendFeedback(focus: string, feedback: string): string {
+  return focus ? `${focus}\n\n${feedback}` : feedback;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
@@ -215,6 +251,7 @@ export async function startBuildSession(args: {
     phaseMessage: 'Surveying your goal...',
     surveyorRunId: runId,
     drafterRunIds: new Map(),
+    drafterAttempts: new Map(),
     drafts: new Map(),
     draftOnly: false,
   });
@@ -258,6 +295,8 @@ export async function startDraftOneSession(args: {
   const sessionId = newSessionId('draft');
   const drafterRunIds = new Map<string, string>();
   drafterRunIds.set('fragment-0', runId);
+  const drafterAttempts = new Map<string, number>();
+  drafterAttempts.set('fragment-0', 1);
   sessions.set(sessionId, {
     id: sessionId,
     goal: purpose,
@@ -266,6 +305,7 @@ export async function startDraftOneSession(args: {
     phase: 'drafting',
     phaseMessage: 'Drafting agent...',
     drafterRunIds,
+    drafterAttempts,
     drafts: new Map(),
     draftOnly: true,
     draftOnlySpec: { purpose, ...(suggestedName ? { suggestedName } : {}) },
@@ -386,6 +426,7 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
       return;
     }
     session.drafterRunIds.set(key, runId);
+    session.drafterAttempts.set(key, 1);
   }
   session.phase = 'drafting';
   session.phaseMessage = `Drafting ${session.drafterRunIds.size} agents in parallel...`;
@@ -394,6 +435,10 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
 async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
   let stillRunning = 0;
   const failedFragments: string[] = [];
+  // Drafts that failed the critic AND still have retry budget. Queued so
+  // we can fire fresh drafter kickoffs at the end of the pass.
+  const retries: Array<{ key: string; feedback: string }> = [];
+
   for (const [key, runId] of session.drafterRunIds) {
     if (session.drafts.has(key)) continue; // already collected
 
@@ -444,14 +489,86 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
       continue;
     }
 
+    // Structural critic pass. We wrap this drafter's output in a synthetic
+    // single-agent BuildPlan so critiquePlan can apply its newAgent walk
+    // (cross-refs + ai-template path checks). When the critic finds issues
+    // AND we still have retry budget, queue a fresh drafter kickoff with
+    // criticFeedback appended to FOCUS instead of accepting the draft.
+    const candidateDraft = { ...validated.data, yaml: fixedYaml };
+    const synthetic = buildPlanSchema.safeParse({
+      intent: 'agent' as const,
+      summary: candidateDraft.purpose,
+      survey: { matchedAgents: [], missingFor: [candidateDraft.purpose], existingDashboards: [] },
+      newAgents: [candidateDraft],
+      dashboard: null,
+      questions: [],
+    });
+    if (synthetic.success) {
+      const critique = critiquePlan(synthetic.data, { existingAgentIds: existingAgentIds(ctx) });
+      if (!critique.ok) {
+        const attempts = session.drafterAttempts.get(key) ?? 1;
+        if (attempts < MAX_DRAFT_ATTEMPTS) {
+          retries.push({ key, feedback: formatCriticFeedback(critique.errors) });
+          continue;
+        }
+        // Exhausted budget — surface the critic errors as the failure.
+        failedFragments.push(`${key}: critic (after ${attempts} attempts) — ${critique.errors.map((e) => e.message).join(' | ')}`);
+        continue;
+      }
+    }
+
     // Persist the autofixed YAML so the commit endpoint doesn't re-fix
     // (or, worse, accept a draft we already fixed and stored as-is).
-    session.drafts.set(key, { ...validated.data, yaml: fixedYaml });
+    session.drafts.set(key, candidateDraft);
   }
 
-  session.phaseMessage = `Drafting agents... (${session.drafts.size}/${session.drafterRunIds.size} done)`;
+  // Fire retries (parallel — kickoffAgentRun uses caller-supplied runIds
+  // now so the old race is gone).
+  if (retries.length > 0) {
+    const drafter = loadExampleAgent(ctx, DRAFTER_AGENT_ID);
+    if (!drafter) {
+      fail(session, 'Agent-drafter not found while attempting retry.');
+      return;
+    }
+    const { tools, discovery } = buildCatalogs(ctx);
+    const knownIds = existingAgentIds(ctx);
+    // Reserve sibling drafted ids so the retry doesn't collide.
+    for (const d of session.drafts.values()) knownIds.add(d.id);
 
-  if (stillRunning > 0) return;
+    const retryKickoffs = retries.map(async ({ key, feedback }) => {
+      const spec = resolveFragment(session, key);
+      if (!spec) return [key, null] as const;
+      const blocked = new Set(knownIds);
+      const newRunId = await kickoffAgentRun({
+        ctx,
+        agent: drafter,
+        inputs: {
+          PURPOSE: spec.purpose,
+          SUGGESTED_NAME: spec.suggestedName ?? '',
+          FOCUS: appendFeedback(session.focus, feedback),
+          EXISTING_AGENT_IDS: Array.from(blocked).join(', '),
+          AVAILABLE_TOOLS: tools,
+          DISCOVERY_CATALOG: discovery,
+        },
+      });
+      return [key, newRunId] as const;
+    });
+    const retryResults = await Promise.all(retryKickoffs);
+    for (const [key, newRunId] of retryResults) {
+      if (!newRunId) {
+        failedFragments.push(`${key}: failed to start retry`);
+        continue;
+      }
+      session.drafterRunIds.set(key, newRunId);
+      session.drafterAttempts.set(key, (session.drafterAttempts.get(key) ?? 1) + 1);
+    }
+  }
+
+  session.phaseMessage = retries.length > 0
+    ? `Retrying ${retries.length} drafter${retries.length === 1 ? '' : 's'} with critic feedback...`
+    : `Drafting agents... (${session.drafts.size}/${session.drafterRunIds.size} done)`;
+
+  if (stillRunning > 0 || retries.length > 0) return;
 
   if (failedFragments.length > 0) {
     fail(session, `Drafter(s) failed: ${failedFragments.join(' | ')}`);
