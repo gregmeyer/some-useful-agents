@@ -64,7 +64,26 @@ export const IMPROVE_LAYOUT_JS = `
       if (p.toAdd.indexOf(createdIds[i]) === -1) p.toAdd.push(createdIds[i]);
     }
     p.containers = (p.containers || []).slice();
-    p.containers.push({ label: 'Newly drafted', tiles: createdIds.slice() });
+    // Find an existing "Newly drafted" container (case-insensitive). On
+    // repeat runs the planner often keeps the prior session's container
+    // around — appending a second container with the same label creates
+    // a duplicate section header that visually overlaps in the rendered
+    // dashboard. Reuse the existing slot and merge ids into it.
+    var existing = null;
+    for (var ci = 0; ci < p.containers.length; ci++) {
+      if ((p.containers[ci].label || '').toLowerCase().trim() === 'newly drafted') {
+        existing = p.containers[ci];
+        break;
+      }
+    }
+    if (existing) {
+      existing.tiles = (existing.tiles || []).slice();
+      for (var ti = 0; ti < createdIds.length; ti++) {
+        if (existing.tiles.indexOf(createdIds[ti]) === -1) existing.tiles.push(createdIds[ti]);
+      }
+    } else {
+      p.containers.push({ label: 'Newly drafted', tiles: createdIds.slice() });
+    }
     p.needsNew = [];
     p.summary = (p.summary || '') + ' Drafted ' + createdIds.length + ' new agent' +
       (createdIds.length === 1 ? '' : 's') + ' (' + createdIds.join(', ') + ').';
@@ -726,14 +745,35 @@ export const IMPROVE_LAYOUT_JS = `
     if (existing && Array.isArray(existing.containers)) {
       existing.containers.forEach(function (c) { containerMap[(c.label || '').toLowerCase().trim()] = c; });
     }
+    // Dedupe plan.containers by label (case-insensitive). If a plan
+    // somehow carries two containers with the same label (e.g. the
+    // planner kept a prior "Newly drafted" AND our merge added one too),
+    // collapse them into a single entry so we don't write two sections
+    // with the same id+label into localStorage — which the dashboard
+    // renderer would draw on top of itself.
+    var byLabel = {};
+    var orderedKeys = [];
+    (plan.containers || []).forEach(function (c) {
+      var key = (c.label || '').toLowerCase().trim();
+      if (!key) return;
+      if (byLabel[key]) {
+        var prev = byLabel[key];
+        var tiles = prev.tiles.slice();
+        (c.tiles || []).forEach(function (t) { if (tiles.indexOf(t) === -1) tiles.push(t); });
+        prev.tiles = tiles;
+      } else {
+        byLabel[key] = { label: c.label, tiles: Array.from(c.tiles || []) };
+        orderedKeys.push(key);
+      }
+    });
     var next = {
-      containers: (plan.containers || []).map(function (c, idx) {
-        var key = (c.label || '').toLowerCase().trim();
+      containers: orderedKeys.map(function (key, idx) {
+        var c = byLabel[key];
         var prev = containerMap[key] || {};
         return {
           id: prev.id || ('c-' + key.replace(/[^a-z0-9]+/g, '-') + '-' + idx),
           label: c.label,
-          tiles: Array.from(c.tiles || []),
+          tiles: c.tiles,
         };
       }),
     };

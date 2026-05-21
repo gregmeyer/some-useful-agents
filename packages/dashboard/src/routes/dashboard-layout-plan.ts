@@ -355,15 +355,22 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
   // Build the new section list from the plan's containers, filtering
   // out system tiles, de-duplicating ids, and dropping ids that don't
   // resolve to a real installed agent (phantom suggestions from the LLM).
+  // Section TITLES are also deduped (case-insensitive): if two containers
+  // share a title, their agent ids are merged into a single section. This
+  // prevents the dashboard renderer from drawing two sections with the
+  // same header on top of each other (e.g. after a "Newly drafted" merge
+  // where the planner kept a prior session's container).
   const seenIds = new Set<string>();
   const skippedUnknown: string[] = [];
-  const newSections: Array<{ title: string; agentIds: string[] }> = [];
+  const sectionsByTitle = new Map<string, { title: string; agentIds: string[] }>();
+  const sectionOrder: string[] = [];
   for (const c of containersRaw) {
     if (!c || typeof c !== 'object') continue;
     const label = typeof (c as { label?: unknown }).label === 'string'
       ? (c as { label: string }).label.trim()
       : '';
     if (!label) continue;
+    const titleKey = label.toLowerCase();
     const tilesRaw = Array.isArray((c as { tiles?: unknown }).tiles)
       ? (c as { tiles: unknown[] }).tiles
       : [];
@@ -379,8 +386,18 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
       seenIds.add(t);
       ids.push(t);
     }
-    if (ids.length > 0) newSections.push({ title: label, agentIds: ids });
+    if (ids.length === 0) continue;
+    const existing = sectionsByTitle.get(titleKey);
+    if (existing) {
+      for (const id of ids) {
+        if (!existing.agentIds.includes(id)) existing.agentIds.push(id);
+      }
+    } else {
+      sectionsByTitle.set(titleKey, { title: label, agentIds: ids });
+      sectionOrder.push(titleKey);
+    }
   }
+  const newSections: Array<{ title: string; agentIds: string[] }> = sectionOrder.map((k) => sectionsByTitle.get(k)!);
 
   // Compute removed/retained/added vs the prior membership for the
   // response. `added` is the newly-surfaced delta (installed agents
