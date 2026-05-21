@@ -137,6 +137,31 @@ nodes:
           ✓ outputWidget: { type: ai-template, template: "<div>...</div>" }
         Use controls only with `dashboard` or `key-value` widgets where the
         declared `fields[]` give the toggle something to show/hide.
+      - **ai-template path syntax — SINGLE LEVEL ONLY.** The placeholder
+        substituter supports ONLY:
+          - `{{outputs.NAME}}` and `{{{outputs.NAME}}}` — single-level path.
+          - `{{result}}` — raw run output.
+          - `{{#each outputs.NAME as item}}…{{/each}}` — iterate an array.
+            Inside the each block, `{{item}}` / `{{item.FIELD}}` /
+            `{{@index}}`. FIELD is also single-level — `item.x.y` does NOT
+            work.
+          - `{{#if outputs.NAME}}…{{/if}}` / `{{#unless outputs.NAME}}…{{/unless}}`
+            (also `{{#if item.FIELD}}` inside an #each).
+        NESTED dot paths are NOT substituted — the literal placeholder
+        leaks into the rendered widget. If your output has nested objects,
+        FLATTEN them into top-level scalar outputs in the agent's
+        post-processing node before declaring the widget.
+          ✗ template: "<h2>{{outputs.featured_duel.title}}</h2>"
+            (outputs.featured_duel.title — TWO levels, won't substitute)
+          ✗ template: "{{#each outputs.games as item}}{{item.away_pitcher.name}}{{/each}}"
+            (item.away_pitcher.name — TWO levels inside each)
+          ✓ template: "<h2>{{outputs.featured_duel_title}}</h2>"
+            (single-level flat output)
+          ✓ template: "{{#each outputs.games as item}}{{item.away_pitcher_name}}{{/each}}"
+            (item.away_pitcher_name — flat per-row field)
+        When designing the agent, plan the outputs as a flat object whose
+        top-level scalar fields match every placeholder in the template;
+        for `#each`, plan an array of flat objects.
       - If FOCUS mentions "daily" / "every morning" / cron-style timing, add a
         `schedule:` field (cron format).
 
