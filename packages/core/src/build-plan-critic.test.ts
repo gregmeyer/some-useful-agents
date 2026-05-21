@@ -124,6 +124,47 @@ describe('critiquePlan', () => {
   });
 });
 
+describe('critiquePlan ai-template path checks', () => {
+  const yamlWithTemplate = (template: string) =>
+    `id: pitching\nname: Pitching\nnodes:\n  - id: n1\n    type: shell\n    command: echo hi\noutputWidget:\n  type: ai-template\n  template: |\n    ${template.replace(/\n/g, '\n    ')}\n`;
+
+  it('flags outer nested outputs.X.Y paths', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{ id: 'pitching', purpose: 'p', yaml: yamlWithTemplate('<h2>{{outputs.featured_duel.title}}</h2>') }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.message.includes('outputs.featured_duel.title'))).toBe(true);
+  });
+
+  it('flags nested item.X.Y paths inside #each', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{ id: 'pitching', purpose: 'p', yaml: yamlWithTemplate(
+          '{{#each outputs.games as item}}<td>{{item.away_pitcher.name}}</td>{{/each}}',
+        ) }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.message.includes('item.away_pitcher.name'))).toBe(true);
+  });
+
+  it('passes single-level outputs and item paths', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{ id: 'pitching', purpose: 'p', yaml: yamlWithTemplate(
+          '<h2>{{outputs.title}}</h2>{{#each outputs.games as item}}<td>{{item.away_pitcher_name}}</td>{{/each}}',
+        ) }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('formatCriticFeedback', () => {
   it('returns empty string when no errors', () => {
     expect(formatCriticFeedback([])).toBe('');
