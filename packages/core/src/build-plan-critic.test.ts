@@ -165,6 +165,80 @@ describe('critiquePlan ai-template path checks', () => {
   });
 });
 
+describe('critiquePlan CSP img-src checks', () => {
+  const yamlWithImgTemplate = (template: string, declaredHosts: string[] = []) => {
+    // Wildcard hosts begin with `*.` which YAML reads as an alias unless
+    // single-quoted. Always quote to keep the test fixture predictable.
+    const permissions = declaredHosts.length === 0
+      ? ''
+      : `permissions:\n  imgSrc:\n${declaredHosts.map((h) => `    - '${h}'`).join('\n')}\n`;
+    return `id: drinks\nname: Drinks\nnodes:\n  - id: n1\n    type: shell\n    command: echo hi\n${permissions}outputWidget:\n  type: ai-template\n  template: |\n    ${template.replace(/\n/g, '\n    ')}\n`;
+  };
+
+  it('flags an <img> host not declared in permissions.imgSrc', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{
+          id: 'drinks',
+          purpose: 'p',
+          yaml: yamlWithImgTemplate('<img src="https://www.thecocktaildb.com/images/drink.jpg">'),
+        }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.message.includes('www.thecocktaildb.com') && e.path.endsWith('permissions.imgSrc'))).toBe(true);
+  });
+
+  it('accepts an <img> host that IS declared in permissions.imgSrc', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{
+          id: 'drinks',
+          purpose: 'p',
+          yaml: yamlWithImgTemplate(
+            '<img src="https://www.thecocktaildb.com/images/drink.jpg">',
+            ['www.thecocktaildb.com'],
+          ),
+        }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a host matched by a wildcard subdomain declaration', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{
+          id: 'drinks',
+          purpose: 'p',
+          yaml: yamlWithImgTemplate(
+            '<img src="https://www.thecocktaildb.com/img.jpg">',
+            ['*.thecocktaildb.com'],
+          ),
+        }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not flag data: image URIs (already allowed by baseline CSP)', () => {
+    const result = critiquePlan(
+      planFor({
+        newAgents: [{
+          id: 'drinks',
+          purpose: 'p',
+          yaml: yamlWithImgTemplate('<img src="data:image/png;base64,iVBORw0KGgo=">'),
+        }],
+      }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('formatCriticFeedback', () => {
   it('returns empty string when no errors', () => {
     expect(formatCriticFeedback([])).toBe('');

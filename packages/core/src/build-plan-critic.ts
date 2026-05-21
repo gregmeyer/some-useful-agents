@@ -170,6 +170,34 @@ export function critiquePlan(plan: BuildPlan, ctx: PlanCriticContext): PlanCriti
           message: `ai-template uses nested item path "${hit.replace(/^\{\{\{?\s*/, '').trim()}…}}" inside an #each block — only single-level item.FIELD is supported. Flatten the per-row value into a scalar (e.g. away_pitcher_name) on each array element.`,
         });
       }
+
+      // CSP img-src check: every external <img> host referenced by the
+      // template must be declared in the agent's permissions.imgSrc.
+      // Otherwise the page CSP blocks the load and the widget renders
+      // with broken images (browser console: "violates ... img-src").
+      const declaredHosts = new Set<string>(
+        ((agent as { permissions?: { imgSrc?: string[] } }).permissions?.imgSrc ?? []).map((h) => h.toLowerCase()),
+      );
+      // Wildcards (`*.example.com`) match any subdomain of `example.com`.
+      const matchesDeclared = (host: string): boolean => {
+        if (declaredHosts.has(host)) return true;
+        for (const d of declaredHosts) {
+          if (d.startsWith('*.') && host.endsWith(d.slice(1))) return true;
+        }
+        return false;
+      };
+      const imgRe = /<img\b[^>]*\bsrc\s*=\s*["']https?:\/\/([^/'"\s]+)/gi;
+      const missingHosts = new Set<string>();
+      while ((m = imgRe.exec(tpl)) !== null) {
+        const host = m[1].toLowerCase();
+        if (!matchesDeclared(host)) missingHosts.add(host);
+      }
+      for (const host of missingHosts) {
+        errors.push({
+          path: `newAgents[${i}].yaml.permissions.imgSrc`,
+          message: `Template references <img src="https://${host}/..."> but "${host}" is not in permissions.imgSrc — the page CSP will block the image. Add "${host}" to the agent's permissions.imgSrc array (or "*.${host.split('.').slice(-2).join('.')}" for a wildcard if the host varies).`,
+        });
+      }
     }
   });
 
