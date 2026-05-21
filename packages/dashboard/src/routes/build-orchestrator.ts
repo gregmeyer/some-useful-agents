@@ -18,6 +18,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import {
   executeAgentDag,
@@ -33,7 +34,6 @@ import {
   type Draft,
   type Survey,
   type DashboardDesign,
-  type RunStatus,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 
@@ -111,11 +111,22 @@ async function kickoffAgentRun(args: {
   inputs: Record<string, string>;
 }): Promise<string | null> {
   const { ctx, agent, inputs } = args;
-  const runPromise = executeAgentDag(
+  // Pre-generate the run-id. Eliminates the race in the old code path
+  // (which queried runStore for "most-recent run by agentName" — when
+  // N parallel kickoffs target the same agent, the query returns the
+  // same row for all N callers, so all N orchestrator sessions end up
+  // polling the same drafter run). Passing runId in via DagExecuteOptions
+  // means we know the id without ever needing the query.
+  const runId = randomUUID();
+  // Fire-and-forget: don't await the run completion here; callers poll
+  // runStore later. Swallow errors so a startup failure doesn't reject
+  // the kickoff promise — the polling path surfaces the failed run.
+  executeAgentDag(
     agent,
     {
       triggeredBy: 'dashboard',
       inputs,
+      runId,
     },
     {
       runStore: ctx.runStore,
@@ -123,22 +134,8 @@ async function kickoffAgentRun(args: {
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
     },
-  );
-  // Race the run-record creation; we only need the id, not the result.
-  await Promise.race([runPromise, new Promise((r) => setTimeout(r, 200))]);
-  const { rows } = ctx.runStore.queryRuns({
-    agentName: agent.id,
-    statuses: ['running', 'completed', 'failed'] as RunStatus[],
-    limit: 1,
-    offset: 0,
-  });
-  if (rows.length > 0) return rows[0].id;
-  try {
-    const run = await runPromise;
-    return run.id;
-  } catch {
-    return null;
-  }
+  ).catch(() => { /* failure surfaces via runStore.getRun(runId).status */ });
+  return runId;
 }
 
 // ── Catalog helpers ────────────────────────────────────────────────────
@@ -359,18 +356,10 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
 
   const { tools, discovery } = buildCatalogs(ctx);
 
-  // Fire kickoffs SEQUENTIALLY (NOT Promise.all). kickoffAgentRun
-  // identifies the run-id via queryRuns(agentName=…, limit:1) — racy
-  // when multiple parallel kickoffs target the same agent: all three
-  // queries would return the same most-recent run-id and downstream
-  // polling would observe the SAME run thrice. Symptom: 3 "drafts"
-  // produce identical output (same id, agent-id-already-exists
-  // collisions). Serializing the kickoffs makes each queryRuns see
-  // its own just-created run as most-recent. The LLM calls themselves
-  // still run in parallel because executeAgentDag returns a promise
-  // we don't await for completion.
-  for (let i = 0; i < session.survey.fragments.length; i++) {
-    const fragment = session.survey.fragments[i];
+  // Kickoffs run in parallel. kickoffAgentRun now pre-generates the
+  // run-id via randomUUID() + passes it to executeAgentDag, so each
+  // caller gets a unique id without any runStore round-trip race.
+  const kickoffs = session.survey.fragments.map(async (fragment, i) => {
     const own = fragment.suggestedName;
     const blocked = new Set(knownIds);
     reservedSuggestions.forEach((s) => {
@@ -388,11 +377,15 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
         DISCOVERY_CATALOG: discovery,
       },
     });
+    return [`fragment-${i}`, runId] as const;
+  });
+  const results = await Promise.all(kickoffs);
+  for (const [key, runId] of results) {
     if (!runId) {
-      fail(session, `Failed to kick off drafter for fragment-${i}.`);
+      fail(session, `Failed to kick off drafter for ${key}.`);
       return;
     }
-    session.drafterRunIds.set(`fragment-${i}`, runId);
+    session.drafterRunIds.set(key, runId);
   }
   session.phase = 'drafting';
   session.phaseMessage = `Drafting ${session.drafterRunIds.size} agents in parallel...`;
