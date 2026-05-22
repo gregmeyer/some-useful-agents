@@ -135,7 +135,13 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles/:tileIdx/delete',
     // /dashboards/<id>/edit. The flash carries through to either page.
     const returnTo = typeof req.body?.returnTo === 'string' ? req.body.returnTo : '';
     if (returnTo === 'dashboard') {
-      res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=${encodeURIComponent('Tile removed.')}`);
+      // If that was the last tile, flag the redirect so the dashboard
+      // view can offer to delete the now-empty dashboard. Only for
+      // user-owned dashboards — pack-owned ones can't be deleted here.
+      const remainingTiles = sections.reduce((n, s) => n + s.agentIds.length, 0);
+      const offerDelete = remainingTiles === 0 && dashboard.packId === null;
+      const suffix = offerDelete ? '&emptyDashboard=1' : '';
+      res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=${encodeURIComponent('Tile removed.')}${suffix}`);
       return;
     }
     redirectOk(res, id, `Tile removed.`);

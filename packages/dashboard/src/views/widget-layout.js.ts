@@ -413,7 +413,7 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     // we show a styled modal, and only submit on confirm (setting
     // intentionalNav so the beforeunload guard doesn't double-prompt).
     var confirmModal = null;
-    var pendingForm = null;
+    var confirmOnOk = null;
     function ensureConfirmModal() {
       if (confirmModal) return confirmModal;
       confirmModal = document.createElement('div');
@@ -434,41 +434,78 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
           '</div>' +
         '</div>';
       document.body.appendChild(confirmModal);
-      function close() { confirmModal.style.display = 'none'; pendingForm = null; }
+      function close() { confirmModal.style.display = 'none'; confirmOnOk = null; }
       confirmModal.addEventListener('click', function (e) { if (e.target === confirmModal) close(); });
       confirmModal.querySelector('.pulse-configure-modal__close').addEventListener('click', close);
       document.getElementById('wl-confirm-cancel').addEventListener('click', close);
       document.getElementById('wl-confirm-ok').addEventListener('click', function () {
-        var form = pendingForm;
+        var cb = confirmOnOk;
         close();
-        if (form) {
-          // Bypass the edit-mode beforeunload guard — the user just
-          // confirmed this navigation.
-          intentionalNav = true;
-          form.submit();
-        }
+        if (cb) cb();
       });
       return confirmModal;
+    }
+    // Programmatic confirm. opts: { message, title?, label?, onConfirm }.
+    function showConfirm(opts) {
+      var modal = ensureConfirmModal();
+      document.getElementById('wl-confirm-message').textContent = opts.message || 'Are you sure?';
+      var label = opts.label || 'Remove';
+      document.getElementById('wl-confirm-ok').textContent = label;
+      document.getElementById('wl-confirm-title').textContent = opts.title || (label + '?');
+      confirmOnOk = opts.onConfirm || null;
+      modal.style.display = 'flex';
     }
     document.addEventListener('submit', function (e) {
       var form = e.target;
       if (!form || !form.matches) return;
       if (form.matches('form[data-confirm-modal]')) {
         e.preventDefault();
-        pendingForm = form;
-        var modal = ensureConfirmModal();
-        document.getElementById('wl-confirm-message').textContent = form.getAttribute('data-confirm-modal') || 'Are you sure?';
-        // Per-form confirm button label + title (Remove vs Hide etc.).
         var okLabel = form.getAttribute('data-confirm-label') || 'Remove';
-        document.getElementById('wl-confirm-ok').textContent = okLabel;
-        document.getElementById('wl-confirm-title').textContent = form.getAttribute('data-confirm-title') || (okLabel + ' tile?');
-        modal.style.display = 'flex';
+        showConfirm({
+          message: form.getAttribute('data-confirm-modal') || 'Are you sure?',
+          label: okLabel,
+          title: form.getAttribute('data-confirm-title') || (okLabel + ' tile?'),
+          onConfirm: function () {
+            // Bypass the edit-mode beforeunload guard — confirmed nav.
+            intentionalNav = true;
+            form.submit();
+          },
+        });
         return;
       }
       // Any other form submission is a deliberate server action — let it
       // through without the edit-mode "Leave site?" guard stacking on top.
       intentionalNav = true;
     });
+
+    // ── Offer to delete an emptied dashboard ────────────────────────
+    // The tile-delete route appends ?emptyDashboard=1 when the last tile
+    // of a user-owned dashboard was just removed. Prompt to delete the
+    // now-empty dashboard (or keep it). dashboardId comes from the
+    // host's data-dashboard-id (named dashboards only — Pulse's host
+    // has no such attribute, so this no-ops there).
+    (function () {
+      var params;
+      try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+      if (params.get('emptyDashboard') !== '1') return;
+      var dashId = host.getAttribute('data-dashboard-id');
+      if (!dashId) return;
+      setTimeout(function () {
+        showConfirm({
+          message: 'That was the last tile on this dashboard. Delete the empty dashboard, or keep it to add tiles later?',
+          title: 'Delete empty dashboard?',
+          label: 'Delete dashboard',
+          onConfirm: function () {
+            intentionalNav = true;
+            var f = document.createElement('form');
+            f.method = 'POST';
+            f.action = '/dashboards/' + encodeURIComponent(dashId) + '/delete';
+            document.body.appendChild(f);
+            f.submit();
+          },
+        });
+      }, 300);
+    })();
 
     // Leaving the page exits edit mode so a return visit lands on the
     // normal view — EXCEPT when the navigation is a deliberate in-app
