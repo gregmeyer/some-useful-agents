@@ -126,13 +126,13 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
         <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
         ${isSystem ? html`` : (ctx.kind === 'dashboard'
           ? html`
-              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title.replace(/"/g, "&quot;")} from this dashboard? You can add it back later from the Add tile button.">
+              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title} from this dashboard? You can add it back later from the Add tile button." data-confirm-label="Remove" data-confirm-title="Remove tile?">
                 <input type="hidden" name="returnTo" value="dashboard">
                 <button type="submit" class="pulse-tile__toggle" title="Remove from this dashboard">\u00D7</button>
               </form>
             `
           : html`
-              <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;">
+              <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;" data-confirm-modal="Hide ${tile.signal.title} from Pulse? You can restore it from the hidden signals section below the grid." data-confirm-label="Hide" data-confirm-title="Hide tile?">
                 <button type="submit" class="pulse-tile__toggle" title="Hide from Pulse">\u00D7</button>
               </form>
             `)}

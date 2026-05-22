@@ -458,6 +458,10 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
         pendingForm = form;
         var modal = ensureConfirmModal();
         document.getElementById('wl-confirm-message').textContent = form.getAttribute('data-confirm-modal') || 'Are you sure?';
+        // Per-form confirm button label + title (Remove vs Hide etc.).
+        var okLabel = form.getAttribute('data-confirm-label') || 'Remove';
+        document.getElementById('wl-confirm-ok').textContent = okLabel;
+        document.getElementById('wl-confirm-title').textContent = form.getAttribute('data-confirm-title') || (okLabel + ' tile?');
         modal.style.display = 'flex';
         return;
       }
@@ -466,11 +470,15 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       intentionalNav = true;
     });
 
-    // Whether the user confirms or refreshes, exit edit mode on the way
-    // out so coming back lands on the normal view. Edit mode is meant
-    // to be a focused arranging session, not a sticky surface state —
-    // re-entering edit mode unexpectedly on a return visit was confusing.
+    // Leaving the page exits edit mode so a return visit lands on the
+    // normal view — EXCEPT when the navigation is a deliberate in-app
+    // action (tile delete / hide), where the user is mid-arranging and
+    // expects to stay in edit mode after the page round-trips. The
+    // intentionalNav flag distinguishes the two: set on confirmed
+    // delete + plain form submits, left false for back-button / tab
+    // close / typing a URL.
     window.addEventListener('pagehide', function () {
+      if (intentionalNav) return;
       saveEditMode(false);
     });
 
