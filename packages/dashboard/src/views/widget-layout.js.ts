@@ -54,6 +54,42 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     var dataEl = document.getElementById('${config.dataId}');
     if (!host || !dataEl) return;
 
+    // ── Offer to delete an emptied dashboard ────────────────────────
+    // The server sets data-offer-delete="1" on the host when the last
+    // tile of a user-owned dashboard was just removed (it reads the
+    // ?emptyDashboard=1 redirect flag and confirms the dashboard is
+    // genuinely empty). We read the attribute directly — more reliable
+    // than re-parsing window.location.search on the client. Run this
+    // FIRST, before any layout/drag machinery below, so it still fires
+    // even if that setup throws on an empty dashboard. showConfirm /
+    // ensureConfirmModal / intentionalNav are hoisted.
+    (function () {
+      var dashId = host.getAttribute('data-dashboard-id');
+      if (!dashId) return;
+      var offer = host.getAttribute('data-offer-delete') === '1';
+      // Fallback: also honor the raw query flag in case an older page
+      // render didn't emit the attribute.
+      if (!offer) {
+        try { offer = new URLSearchParams(window.location.search).get('emptyDashboard') === '1'; } catch (e) { offer = false; }
+      }
+      if (!offer) return;
+      setTimeout(function () {
+        showConfirm({
+          message: 'That was the last tile on this dashboard. Delete the empty dashboard, or keep it to add tiles later?',
+          title: 'Delete empty dashboard?',
+          label: 'Delete dashboard',
+          onConfirm: function () {
+            intentionalNav = true;
+            var f = document.createElement('form');
+            f.method = 'POST';
+            f.action = '/dashboards/' + encodeURIComponent(dashId) + '/delete';
+            document.body.appendChild(f);
+            f.submit();
+          },
+        });
+      }, 300);
+    })();
+
     var tileData = JSON.parse(dataEl.textContent || '{}');
     var allIds = tileData.allTileIds || [];
     var systemIds = tileData.systemTileIds || [];
@@ -477,35 +513,6 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       // through without the edit-mode "Leave site?" guard stacking on top.
       intentionalNav = true;
     });
-
-    // ── Offer to delete an emptied dashboard ────────────────────────
-    // The tile-delete route appends ?emptyDashboard=1 when the last tile
-    // of a user-owned dashboard was just removed. Prompt to delete the
-    // now-empty dashboard (or keep it). dashboardId comes from the
-    // host's data-dashboard-id (named dashboards only — Pulse's host
-    // has no such attribute, so this no-ops there).
-    (function () {
-      var params;
-      try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
-      if (params.get('emptyDashboard') !== '1') return;
-      var dashId = host.getAttribute('data-dashboard-id');
-      if (!dashId) return;
-      setTimeout(function () {
-        showConfirm({
-          message: 'That was the last tile on this dashboard. Delete the empty dashboard, or keep it to add tiles later?',
-          title: 'Delete empty dashboard?',
-          label: 'Delete dashboard',
-          onConfirm: function () {
-            intentionalNav = true;
-            var f = document.createElement('form');
-            f.method = 'POST';
-            f.action = '/dashboards/' + encodeURIComponent(dashId) + '/delete';
-            document.body.appendChild(f);
-            f.submit();
-          },
-        });
-      }, 300);
-    })();
 
     // Leaving the page exits edit mode so a return visit lands on the
     // normal view — EXCEPT when the navigation is a deliberate in-app

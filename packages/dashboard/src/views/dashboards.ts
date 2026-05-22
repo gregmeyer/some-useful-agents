@@ -54,6 +54,14 @@ export interface RenderDashboardPageInput {
   /** Pool of signal-bearing agents for the in-place add-tile modal. */
   availableAgents: AvailableAgent[];
   flash?: { kind: 'ok' | 'error' | 'info'; message: string };
+  /**
+   * True when the page should offer to delete this (now-empty) dashboard
+   * — set by the route when the tile-delete redirect carried
+   * `emptyDashboard=1` and the dashboard is user-owned + empty. Rendered
+   * as `data-offer-delete="1"` so the client reads it directly instead
+   * of re-parsing the query string.
+   */
+  offerDeleteEmpty?: boolean;
 }
 
 export function renderDashboardPage(input: RenderDashboardPageInput): string {
@@ -95,7 +103,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
     ${input.sections.length === 0
       ? html`<p class="dim" style="padding: var(--space-4); text-align: center;">No sections in this dashboard.</p>`
       : html`
-        <div id="dashboard-containers" data-dashboard-id="${input.dashboard.id}">
+        <div id="dashboard-containers" data-dashboard-id="${input.dashboard.id}"${unsafeHtml(input.offerDeleteEmpty ? ' data-offer-delete="1"' : '')}>
           ${input.sections.map((s, idx) => renderSection(input.dashboard.id, s, idx)) as unknown as SafeHtml[]}
         </div>
         ${unsafeHtml(`<script type="application/json" id="dashboard-tile-data">${JSON.stringify({
