@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { getSchedulerStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { getBuildInfo } from '../build-info.js';
 
 const startedAt = Date.now();
 
@@ -37,10 +38,13 @@ healthRouter.get('/health', (req: Request, res: Response) => {
     } : {}),
   };
 
+  const build = getBuildInfo();
   res.json({
     status: 'ok',
     uptime_s: uptimeSeconds,
     runs_last_hour: runsLastHour,
     scheduler,
+    commit: build.commit,
+    builtAt: build.builtAt,
   });
 });
