@@ -129,6 +129,15 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles/:tileIdx/delete',
       arr[idx] = { ...arr[idx], agentIds };
     });
     ctx.dashboardsStore!.updateLayout(id, { sections });
+    // The × button on a tile in the dashboard view (not the
+    // edit-sections page) passes returnTo=dashboard so we land the
+    // user back where they were, instead of bouncing them to
+    // /dashboards/<id>/edit. The flash carries through to either page.
+    const returnTo = typeof req.body?.returnTo === 'string' ? req.body.returnTo : '';
+    if (returnTo === 'dashboard') {
+      res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=${encodeURIComponent('Tile removed.')}`);
+      return;
+    }
     redirectOk(res, id, `Tile removed.`);
   });
 });
