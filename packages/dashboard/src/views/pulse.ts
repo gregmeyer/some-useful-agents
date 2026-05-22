@@ -126,7 +126,7 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
         <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
         ${isSystem ? html`` : (ctx.kind === 'dashboard'
           ? html`
-              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" onsubmit="return confirm('Remove ${tile.signal.title.replace(/'/g, "&#39;")} from this dashboard?');">
+              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title.replace(/"/g, "&quot;")} from this dashboard? You can add it back later from the Add tile button.">
                 <input type="hidden" name="returnTo" value="dashboard">
                 <button type="submit" class="pulse-tile__toggle" title="Remove from this dashboard">\u00D7</button>
               </form>

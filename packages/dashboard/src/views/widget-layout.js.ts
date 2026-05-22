@@ -394,11 +394,76 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
     // still arranging tiles. Browsers ignore the returned string and
     // show their own generic dialog text; presence of a return value
     // is what triggers the prompt.
+    //
+    // intentionalNav is set right before a deliberate same-app submit
+    // (e.g. confirming a tile delete via the in-app modal) so we don't
+    // stack the browser's "Leave site?" dialog on top of an action the
+    // user already confirmed.
+    var intentionalNav = false;
     window.addEventListener('beforeunload', function (e) {
-      if (!editMode) return;
+      if (!editMode || intentionalNav) return;
       e.preventDefault();
       e.returnValue = '';
       return '';
+    });
+
+    // ── In-app confirm modal ────────────────────────────────────────
+    // Replaces native confirm() for destructive tile actions. Forms
+    // tagged with data-confirm-modal="message" are intercepted here:
+    // we show a styled modal, and only submit on confirm (setting
+    // intentionalNav so the beforeunload guard doesn't double-prompt).
+    var confirmModal = null;
+    var pendingForm = null;
+    function ensureConfirmModal() {
+      if (confirmModal) return confirmModal;
+      confirmModal = document.createElement('div');
+      confirmModal.className = 'pulse-configure-modal';
+      confirmModal.style.display = 'none';
+      confirmModal.innerHTML =
+        '<div class="pulse-configure-modal__content" style="max-width: 360px;">' +
+          '<div class="pulse-configure-modal__header">' +
+            '<h3 style="margin: 0;" id="wl-confirm-title">Remove tile?</h3>' +
+            '<button type="button" class="pulse-configure-modal__close" title="Close">\\u00D7</button>' +
+          '</div>' +
+          '<div class="pulse-configure-modal__section">' +
+            '<p style="margin: 0; font-size: var(--font-size-sm);" id="wl-confirm-message"></p>' +
+          '</div>' +
+          '<div class="pulse-configure-modal__footer">' +
+            '<button type="button" class="btn btn--ghost btn--sm" id="wl-confirm-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn--primary btn--sm" id="wl-confirm-ok">Remove</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(confirmModal);
+      function close() { confirmModal.style.display = 'none'; pendingForm = null; }
+      confirmModal.addEventListener('click', function (e) { if (e.target === confirmModal) close(); });
+      confirmModal.querySelector('.pulse-configure-modal__close').addEventListener('click', close);
+      document.getElementById('wl-confirm-cancel').addEventListener('click', close);
+      document.getElementById('wl-confirm-ok').addEventListener('click', function () {
+        var form = pendingForm;
+        close();
+        if (form) {
+          // Bypass the edit-mode beforeunload guard — the user just
+          // confirmed this navigation.
+          intentionalNav = true;
+          form.submit();
+        }
+      });
+      return confirmModal;
+    }
+    document.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!form || !form.matches) return;
+      if (form.matches('form[data-confirm-modal]')) {
+        e.preventDefault();
+        pendingForm = form;
+        var modal = ensureConfirmModal();
+        document.getElementById('wl-confirm-message').textContent = form.getAttribute('data-confirm-modal') || 'Are you sure?';
+        modal.style.display = 'flex';
+        return;
+      }
+      // Any other form submission is a deliberate server action — let it
+      // through without the edit-mode "Leave site?" guard stacking on top.
+      intentionalNav = true;
     });
 
     // Whether the user confirms or refreshes, exit edit mode on the way
