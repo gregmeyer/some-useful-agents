@@ -399,3 +399,48 @@ versionsRouter.post('/agents/:id/permissions', (req: Request, res: Response) => 
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Permissions update failed: ${msg}`)}`);
   }
 });
+
+/**
+ * POST /agents/:id/permissions/allow-host — MERGE a single img-src host
+ * into the agent's allowlist (creating a new version), as opposed to the
+ * replace-everything /permissions form. Powers the one-click "Allow this
+ * host" affordance when a widget image is blocked by the page CSP.
+ *
+ * Body: { host: string } (a bare host or full URL — normalised here).
+ * Returns JSON { ok, host, imgSrc } so the caller can reload.
+ */
+versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = typeof body.host === 'string' ? body.host : '';
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).json({ ok: false, error: 'Agent not found.' });
+    return;
+  }
+
+  // Normalise: strip scheme/path/port, lowercase. Same rules as the
+  // replace form so a pasted full URL works.
+  const host = raw.trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+  if (!host || !IMG_SRC_HOST_RE.test(host)) {
+    res.status(400).json({ ok: false, error: `Invalid host: ${raw || '(empty)'}` });
+    return;
+  }
+
+  const current = agent.permissions?.imgSrc ?? [];
+  if (current.includes(host)) {
+    res.json({ ok: true, host, imgSrc: current, unchanged: true });
+    return;
+  }
+  const imgSrc = [...current, host].sort();
+  try {
+    const updated = { ...agent, permissions: { ...agent.permissions, imgSrc } };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', `Allowed img-src host ${host}`);
+    res.json({ ok: true, host, imgSrc });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
