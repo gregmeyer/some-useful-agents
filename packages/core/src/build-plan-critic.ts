@@ -199,6 +199,21 @@ export function critiquePlan(plan: BuildPlan, ctx: PlanCriticContext): PlanCriti
         });
       }
     }
+
+    // Pulse dispatches tile rendering on signal.template, NOT
+    // outputWidget.type. An agent that declares an outputWidget but sets
+    // signal.template to a named slot template (e.g. "text-image",
+    // "metric") renders that slot template on the Pulse tile — with no
+    // mapping — instead of the rich widget, so the tile shows up empty
+    // or broken. When an outputWidget is present, signal.template MUST be
+    // "widget" so Pulse mirrors it.
+    const signal = (agent as { signal?: { template?: string } }).signal;
+    if (widget && signal && signal.template && signal.template !== 'widget') {
+      errors.push({
+        path: `newAgents[${i}].yaml.signal.template`,
+        message: `Agent declares an outputWidget but signal.template is "${signal.template}". Pulse renders the tile from signal.template (not outputWidget.type), so the rich widget never shows. Set signal.template: widget (and drop signal.mapping — the widget drives layout).`,
+      });
+    }
   });
 
   return { ok: errors.length === 0, errors };
