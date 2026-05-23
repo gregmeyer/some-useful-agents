@@ -860,6 +860,16 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
       res.json({ ok: true, status: 'done', plan: session.plan });
       return;
     }
+    if (session.phase === 'nothing_to_build') {
+      // Goal already covered by installed agents — nothing new to draft.
+      res.json({
+        ok: true,
+        status: 'nothing_to_build',
+        summary: session.survey?.summary ?? 'Your goal is already covered by existing agents.',
+        matchedAgents: session.survey?.matchedAgents ?? [],
+      });
+      return;
+    }
     // Still running. Surface per-drafter progress when present.
     const progress = drafterProgress(ctx, session);
     res.json({
