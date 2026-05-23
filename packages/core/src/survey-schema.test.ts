@@ -43,43 +43,29 @@ describe('surveySchema', () => {
     }
   });
 
-  it('rejects intent="agent" with multiple fragments', () => {
+  it('accepts intent="agent" fully covered by an existing match (zero fragments)', () => {
+    // Legit "nothing to build" survey — the goal maps entirely to an
+    // installed agent. Intent is a hint, not a contract; the orchestrator
+    // decides what to do. This used to be rejected and crashed the flow.
     const r = surveySchema.safeParse({
       intent: 'agent',
-      summary: 's',
-      fragments: [{ purpose: 'a' }, { purpose: 'b' }],
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('rejects intent="dashboard-existing" with non-empty fragments', () => {
-    const r = surveySchema.safeParse({
-      intent: 'dashboard-existing',
-      summary: 's',
-      fragments: [{ purpose: 'a' }],
-      matchedAgents: [{ id: 'a-b', matchedFor: 'x' }],
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('rejects intent="dashboard-new" with non-empty matchedAgents', () => {
-    const r = surveySchema.safeParse({
-      intent: 'dashboard-new',
-      summary: 's',
-      fragments: [{ purpose: 'a' }],
-      matchedAgents: [{ id: 'a-b', matchedFor: 'x' }],
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('rejects intent="dashboard-mixed" with empty fragments', () => {
-    const r = surveySchema.safeParse({
-      intent: 'dashboard-mixed',
-      summary: 's',
-      matchedAgents: [{ id: 'a-b', matchedFor: 'x' }],
+      summary: 'already covered by cocktail-of-the-day',
+      matchedAgents: [{ id: 'cocktail-of-the-day', matchedFor: 'daily drink recipe' }],
       fragments: [],
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts intent/content combinations without cross-validation', () => {
+    // intent is advisory — these shapes all parse; the orchestrator
+    // acts on the actual fragments + matchedAgents.
+    expect(surveySchema.safeParse({
+      intent: 'agent', summary: 's', fragments: [{ purpose: 'a' }, { purpose: 'b' }],
+    }).success).toBe(true);
+    expect(surveySchema.safeParse({
+      intent: 'dashboard-new', summary: 's', fragments: [{ purpose: 'a' }],
+      matchedAgents: [{ id: 'a-b', matchedFor: 'x' }],
+    }).success).toBe(true);
   });
 
   it('rejects malformed matchedAgents.id', () => {

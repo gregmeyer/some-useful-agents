@@ -75,48 +75,15 @@ export const surveySchema = z.object({
     suggestedAnswer: z.string().optional(),
     options: z.array(z.string().min(1)).optional(),
   })).default([]),
-}).superRefine((survey, ctx) => {
-  // Intent vs. content consistency. These mirror the validator rules
-  // in build-plan-schema.ts, but applied to the survey shape so the
-  // orchestrator can fail fast before fanning out drafters.
-  if (survey.intent === 'agent' && survey.fragments.length !== 1) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fragments'],
-      message: `intent="agent" requires exactly one fragment, got ${survey.fragments.length}`,
-    });
-  }
-  if (survey.intent === 'dashboard-existing' && survey.fragments.length !== 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fragments'],
-      message: `intent="dashboard-existing" requires zero fragments, got ${survey.fragments.length}`,
-    });
-  }
-  if (survey.intent === 'dashboard-new' && survey.matchedAgents.length !== 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['matchedAgents'],
-      message: `intent="dashboard-new" requires zero matchedAgents, got ${survey.matchedAgents.length}`,
-    });
-  }
-  if (survey.intent === 'dashboard-mixed') {
-    if (survey.matchedAgents.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['matchedAgents'],
-        message: `intent="dashboard-mixed" requires at least one matchedAgent`,
-      });
-    }
-    if (survey.fragments.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['fragments'],
-        message: `intent="dashboard-mixed" requires at least one fragment`,
-      });
-    }
-  }
 });
+// NOTE: intent is treated as a HINT, not a strict contract. We deliberately
+// do NOT cross-validate intent against fragment/matchedAgent counts here —
+// that brittleness rejected legitimate surveys (e.g. intent="agent" with the
+// goal fully covered by an existing matched agent and zero fragments to
+// draft, which is a valid "nothing to build" outcome). The build orchestrator
+// decides what to do from the actual fragments + matchedAgents + whether a
+// dashboard is wanted. Field-shape validation (id formats, non-empty
+// purpose) still applies above.
 
 export type Survey = z.output<typeof surveySchema>;
 export type SurveyInput = z.input<typeof surveySchema>;

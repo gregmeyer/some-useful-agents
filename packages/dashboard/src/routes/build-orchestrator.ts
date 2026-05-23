@@ -54,7 +54,7 @@ const SESSION_TTL_MS = 60 * 60 * 1000; // 1h
  */
 const MAX_DRAFT_ATTEMPTS = 3;
 
-export type SessionPhase = 'survey' | 'drafting' | 'design' | 'assembling' | 'done' | 'failed';
+export type SessionPhase = 'survey' | 'drafting' | 'design' | 'assembling' | 'done' | 'failed' | 'nothing_to_build';
 
 interface BuildSession {
   id: string;
@@ -322,7 +322,7 @@ export function getSession(sessionId: string): BuildSession | undefined {
  * Idempotent — calling twice while in the same phase is a no-op.
  */
 export async function advanceSession(ctx: Ctx, session: BuildSession): Promise<void> {
-  if (session.phase === 'done' || session.phase === 'failed') return;
+  if (session.phase === 'done' || session.phase === 'failed' || session.phase === 'nothing_to_build') return;
 
   if (session.phase === 'survey') return advanceSurvey(ctx, session);
   if (session.phase === 'drafting') return advanceDrafting(ctx, session);
@@ -366,13 +366,24 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
   }
   session.survey = validated.data;
 
-  // No fragments → skip drafting. If intent is dashboard-existing, jump to
-  // designer; if it's somehow "agent" with zero fragments, fail.
+  // No fragments → nothing to draft. Decide based on what the survey
+  // DID find, not the (advisory) intent label:
+  //   - wants a dashboard + has matched agents → designer over existing.
+  //   - has matched agents, no dashboard → the goal is already covered
+  //     by installed agents. Terminal "nothing to build" (friendly), not
+  //     an error.
+  //   - nothing matched either → genuinely empty; fail with guidance.
   if (session.survey.fragments.length === 0) {
-    if (session.survey.intent === 'dashboard-existing') {
+    const wantsDashboard = session.survey.intent === 'dashboard-existing'
+      || session.survey.intent === 'dashboard-new'
+      || session.survey.intent === 'dashboard-mixed';
+    if (wantsDashboard && session.survey.matchedAgents.length > 0) {
       await startDesignerStage(ctx, session);
+    } else if (session.survey.matchedAgents.length > 0) {
+      session.phase = 'nothing_to_build';
+      session.phaseMessage = 'Already covered by existing agents.';
     } else {
-      fail(session, `Survey returned intent=${session.survey.intent} with no fragments to draft.`);
+      fail(session, 'Nothing to build — the goal didn\'t match any installed agent and produced no new agents to draft. Try rephrasing with more specifics.');
     }
     return;
   }
