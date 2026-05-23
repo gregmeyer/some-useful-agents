@@ -82,12 +82,22 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
       };
     });
 
+  // Offer to delete the dashboard when the tile-delete redirect flagged
+  // it empty (?emptyDashboard=1), it's user-owned, and it really has no
+  // tiles left. Server-driven so the client doesn't depend on parsing
+  // the query string itself.
+  const totalTiles = sections.reduce((n, s) => n + s.tiles.length + s.missingAgentIds.length, 0);
+  const offerDeleteEmpty = req.query.emptyDashboard === '1'
+    && dashboard.packId === null
+    && totalTiles === 0;
+
   res.type('html').send(renderDashboardPage({
     dashboard,
     sections,
     installedDashboards,
     availableAgents,
     flash,
+    offerDeleteEmpty,
   }));
 });
 
