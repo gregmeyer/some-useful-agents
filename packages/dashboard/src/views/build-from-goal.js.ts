@@ -155,6 +155,9 @@ export const BUILD_FROM_GOAL_JS = `
                   if (per) per.textContent = data.phase;
                 }
                 pollTimer = setTimeout(poll, 2000);
+              } else if (data.status === 'nothing_to_build') {
+                clearInterval(tickTimer);
+                renderNothingToBuild(data.summary, data.matchedAgents || []);
               } else if (data.status === 'done' && data.plan) {
                 clearInterval(tickTimer);
                 renderPlanReview(data.plan, data.criticErrors, data.criticWarning);
@@ -183,6 +186,21 @@ export const BUILD_FROM_GOAL_JS = `
         clearInterval(tickTimer);
         renderError(String(err));
       });
+
+      function renderNothingToBuild(summary, matched) {
+        var rows = (matched || []).map(function (m) {
+          return '<li style="margin-bottom:var(--space-1);"><a href="/agents/' + encodeURIComponent(m.id) + '"><code>' + esc(m.id) + '</code></a>' +
+            (m.matchedFor ? ' <span class="dim" style="font-size:var(--font-size-xs);">— ' + esc(m.matchedFor) + '</span>' : '') + '</li>';
+        }).join('');
+        content.innerHTML =
+          '<div style="padding:var(--space-3);">' +
+          '<h3 style="margin:0 0 var(--space-2);">Nothing to build</h3>' +
+          '<p class="dim" style="font-size:var(--font-size-sm);margin:0 0 var(--space-3);">' + esc(summary || 'Your goal is already covered by existing agents.') + '</p>' +
+          (rows ? '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Already covers this</div><ul style="margin:0 0 var(--space-3);padding-left:var(--space-4);">' + rows + '</ul>' : '') +
+          '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">Want something different? Close and re-run with a more specific goal (e.g. a distinct data source, format, or schedule).</p>' +
+          '<div style="text-align:right;"><button type="button" class="btn btn--primary btn--sm" data-close-build="1">Got it</button></div>' +
+          '</div>';
+      }
 
       function renderError(msg) {
         content.innerHTML = '<div class="flash flash--error">' + esc(msg) + '</div>' +

@@ -239,6 +239,28 @@ describe('critiquePlan CSP img-src checks', () => {
   });
 });
 
+describe('critiquePlan signal.template vs outputWidget', () => {
+  const yamlWidgetSignal = (signalTemplate: string) =>
+    `id: drinks\nname: Drinks\nnodes:\n  - id: n1\n    type: shell\n    command: echo hi\nsignal:\n  title: Drinks\n  template: ${signalTemplate}\noutputWidget:\n  type: ai-template\n  template: |\n    <h2>{{outputs.name}}</h2>\n`;
+
+  it('flags an outputWidget agent whose signal.template is not "widget"', () => {
+    const result = critiquePlan(
+      planFor({ newAgents: [{ id: 'drinks', purpose: 'p', yaml: yamlWidgetSignal('text-image') }] }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((e) => e.path.endsWith('signal.template') && e.message.includes('widget'))).toBe(true);
+  });
+
+  it('accepts an outputWidget agent with signal.template: widget', () => {
+    const result = critiquePlan(
+      planFor({ newAgents: [{ id: 'drinks', purpose: 'p', yaml: yamlWidgetSignal('widget') }] }),
+      { existingAgentIds: new Set() },
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('formatCriticFeedback', () => {
   it('returns empty string when no errors', () => {
     expect(formatCriticFeedback([])).toBe('');

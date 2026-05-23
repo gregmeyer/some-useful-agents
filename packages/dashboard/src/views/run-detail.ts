@@ -119,8 +119,11 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         back,
       });
 
+  // data-csp-agent lets the CSP-allow helper attribute any blocked widget
+  // image to this run's agent and offer a one-click "Allow host".
+  const cspAttr = unsafeHtml(` data-csp-agent="${run.agentName.replace(/"/g, '&quot;')}"`);
   const fragment = html`
-    <div data-run-container${pollAttr}>
+    <div data-run-container${pollAttr}${cspAttr}>
       ${header}
 
       <div class="card" style="margin-bottom: var(--space-6);">

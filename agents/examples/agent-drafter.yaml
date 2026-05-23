@@ -121,8 +121,15 @@ nodes:
       - llm-prompt / claude-code nodes: use double-brace inputs.NAME syntax in prompts.
       - signal block REQUIRED. signal.title is REQUIRED and is a short literal
         string used as the Pulse tile chrome label.
-      - When the agent declares an outputWidget, set signal.template: widget.
-        Pulse tile rendering is dispatched by signal.template, not outputWidget.type.
+      - **When the agent declares an outputWidget, signal.template MUST be
+        `widget` — never a named slot template like `text-image`, `metric`,
+        `text-headline`, etc.** Pulse renders the tile from signal.template,
+        NOT outputWidget.type. If you set signal.template to a slot template
+        while also declaring an outputWidget, Pulse renders that empty slot
+        template and the rich widget never shows (the tile looks broken).
+          ✓ signal: { title: "Cocktail of the Day", template: widget }
+            outputWidget: { type: ai-template, template: "<div>...</div>" }
+          ✗ signal: { template: text-image }   # with an outputWidget present
         Omit signal.mapping when template is "widget" — the widget drives layout.
       - When the agent declares any inputs:, set outputWidget.interactive: true so
         Pulse renders an inline inputs form. Skip this flag for purely scheduled
