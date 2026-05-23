@@ -25,7 +25,7 @@ export function renderSettingsVariables(args: SettingsVariablesArgs): SafeHtml {
       <p class="dim">
         Plain-text values available to every agent. Reference as
         <code>$NAME</code> in shell commands or <code>{{vars.NAME}}</code>
-        in claude-code prompts. For sensitive values, use
+        in llm-prompt nodes. For sensitive values, use
         <a href="/settings/secrets">Secrets</a> instead.
       </p>
       ${renderVariablesTable(args.variables)}

@@ -12,7 +12,7 @@ export async function renderAgentNodes(args: AgentDetailArgs): Promise<string> {
     return html`
       <tr id="node-${n.id}">
         <td class="mono">${n.id}</td>
-        <td>${n.type === 'shell' ? html`<span class="badge badge--ok">shell</span>` : html`<span class="badge badge--info">claude-code</span>`}</td>
+        <td>${n.type === 'shell' ? html`<span class="badge badge--ok">shell</span>` : html`<span class="badge badge--info">${n.type === 'claude-code' ? 'llm-prompt' : n.type}</span>`}</td>
         <td class="mono">${deps}</td>
         <td class="mono">${secrets}</td>
         <td class="dim">${body}</td>

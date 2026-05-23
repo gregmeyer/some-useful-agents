@@ -24,7 +24,7 @@ const CATEGORIES: CategoryDef[] = [
     id: 'execution',
     label: 'Execution',
     blurb: 'Nodes that do work — run a command, call an LLM, write a file.',
-    types: ['shell', 'claude-code', 'file-write'],
+    types: ['shell', 'llm-prompt', 'file-write'],
   },
   {
     id: 'control-flow',
