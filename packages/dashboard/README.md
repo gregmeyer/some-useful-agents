@@ -4,7 +4,10 @@ Web dashboard for some-useful-agents. Server-rendered HTML, no bundler, no frame
 
 ## Features
 
-- **Pulse** — information radiator at `/pulse`. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop layout, edit mode, widget palette, auto-theming. System metric tiles. Markdown rendering, YouTube media player, tile collapse/expand.
+- **Pulse & dashboards** — information radiator at `/pulse` plus named, sectioned `/dashboards/:id`. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop layout, edit mode (persists across reloads, with a navigate-away guard), in-place "+ Add tile" modal, widget palette, auto-theming. System metric tiles. Markdown rendering, YouTube media player, tile collapse/expand.
+- **Tiles that run themselves** — an agent runs once automatically when first added to a dashboard, "Run again" refreshes the tile in place, and a one-click modal allows CSP-blocked widget image hosts.
+- **Improve layout wizard** — on `/pulse` or any named dashboard: proposes what to surface, which installed agents to add (Path A), and which new agents to draft inline (Path B).
+- **Integrations** (`/settings/integrations`) — tabbed UI for CSV / Postgres / SQLite / Gmail (OAuth) kinds and Slack / webhook / file destinations; data-source kinds auto-generate query tools.
 - **Agents** — card grid with **User / Examples / Community tabs**, filtering (status, search), sorting (name, status, recent, starred), pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (variables, output widget, signal, secrets, status), Runs (history), YAML (editor).
 - **Output widget editor** — at `/agents/:id/config`: visual cards for 5 widget types (raw, key-value, diff-apply, dashboard, **ai-template**), 5 load-example starters, live preview, per-type helper copy, and an **AI template** flow that calls Claude to generate sanitized HTML from a plain-English prompt.
 - **Tools** — **User / Built-in tabs** with per-tab counts, filtering, pagination.
@@ -14,7 +17,7 @@ Web dashboard for some-useful-agents. Server-rendered HTML, no bundler, no frame
 - **Suggest improvements** — AI-powered agent review. "Apply now" saves directly, auto-fixes shell template mistakes. Available from failed run pages with the error pre-filled.
 - **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes
 - **Settings** — secrets CRUD with passphrase unlock, global variables, MCP servers, MCP token rotation
-- **LLM defaults** — agent-level provider (Claude/Codex) and model selection with dropdown UI
+- **LLM options** — agent-level provider (Claude/Codex) and model defaults, plus per-node `model` / `maxTurns` / `allowedTools` on the forms (`llm-prompt` nodes; `claude-code` alias still accepted)
 - **Design system** — DESIGN.md source of truth. Dark mode default, JetBrains Mono headings, warm stone neutrals, teal accent.
 
 ## Start

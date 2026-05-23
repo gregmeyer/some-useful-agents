@@ -48,7 +48,7 @@ Each kind is checked without an LLM call — fast, deterministic, free.
 
 When `maxLoopIterations > 1` and the first iteration fails, the agent re-runs with an extra `LOOP_FEEDBACK` input containing the failure list. Agents opt in by referencing it:
 
-- **claude-code** node: `{{inputs.LOOP_FEEDBACK}}` in the prompt
+- **llm-prompt** node: `{{inputs.LOOP_FEEDBACK}}` in the prompt
 - **shell** node: `$LOOP_FEEDBACK` env var in the command
 
 Iteration 1 gets the input set to an empty string, so no template-resolution drama for agents that always reference it.

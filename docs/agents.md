@@ -22,9 +22,14 @@ inputs:                       # optional — runtime values users can supply
   TOPIC: { type: string, required: true }
 
 schedule: "0 9 * * *"         # optional cron — daily at 9am
+allowHighFrequency: false     # optional — permit sub-minute cron cadences (default: false)
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
+pulseVisible: true            # optional — show this agent's tile on the default /pulse grid
+
+permissions:                  # optional — per-agent CSP allowances for widget rendering
+  imgSrc: ["https://images.example.com"]
 
 signal:                       # optional — Pulse tile config
   title: "Today's data"
@@ -70,7 +75,7 @@ Agents that need to persist data across runs (diff-over-time, caches, last-fired
 
 Available as:
 - **`$STATE_DIR`** env var in shell nodes (and as a top-level template variable in built-in tool inputs)
-- **`{{state}}`** template token in claude-code prompts and built-in tool inputs (e.g. `file-write`'s `path:`)
+- **`{{state}}`** template token in llm-prompt prompts and built-in tool inputs (e.g. `file-write`'s `path:`)
 
 Example — README change watcher:
 
@@ -265,11 +270,19 @@ schedule: "*/15 * * * *"       # every 15 minutes
 schedule: "0 18 * * 1-5"       # 6pm weekdays
 ```
 
-A minimum-frequency cap is enforced to prevent runaway loops — see [ADR-0012](adr/0012-local-cron-scheduler-node-cron.md).
+A minimum-frequency cap is enforced to prevent runaway loops — see [ADR-0012](adr/0012-local-cron-scheduler-node-cron.md). Expressions finer than once a minute are rejected unless the agent opts in with `allowHighFrequency: true`. The dashboard's Schedule card validates the same rules server-side.
+
+## `pulseVisible`
+
+Whether this agent's `signal` tile appears on the default `/pulse` grid (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
+
+## `permissions`
+
+Per-agent allowances that widen what the agent's output widget may do under the dashboard's Content-Security-Policy. Today this carries `imgSrc` — the external image hosts an `ai-template` widget is allowed to load `<img>` from. When a widget references a blocked host, the tile shows a one-click "allow" modal that appends the host here. See [Output widgets → Security](output-widgets.md#security).
 
 ## `secrets` and `envAllowlist`
 
-Controls what environment the shell and claude-code subprocesses see. By default the executor filters to a safe allowlist. Per-agent (or per-node) additions merge in.
+Controls what environment the shell and llm-prompt subprocesses see. By default the executor filters to a safe allowlist. Per-agent (or per-node) additions merge in.
 
 ```yaml
 # Agent-level — every node in this agent sees these
@@ -302,7 +315,7 @@ The `run-agent` tool accepts an optional `inputs` map for agents that declare an
 
 Values are validated against each input's declared `type`, `required`, default, and (for enums) `values`. Undeclared keys are rejected. Per-value payloads are capped at 8 KB (64 KB total across all inputs) — the cap applies only to the MCP boundary, not to dashboard or CLI runs. Call `list-agents` to introspect each agent's `inputs` schema.
 
-> **Trust:** MCP callers carry the same authority as the bearer-token holder. A shell agent that interpolates raw inputs into its command string with `{{inputs.X}}` (or env-var expansion without quoting) is exposing a code-execution path to anyone with the token. Quote inputs at substitution time, prefer `claude-code` agents over `shell` for free-form text inputs, and rotate the token under [Settings → General](http://127.0.0.1:3000/settings/general) if you suspect compromise.
+> **Trust:** MCP callers carry the same authority as the bearer-token holder. A shell agent that interpolates raw inputs into its command string with `{{inputs.X}}` (or env-var expansion without quoting) is exposing a code-execution path to anyone with the token. Quote inputs at substitution time, prefer `llm-prompt` agents over `shell` for free-form text inputs, and rotate the token under [Settings → General](http://127.0.0.1:3000/settings/general) if you suspect compromise.
 
 See [MCP server (outbound)](../packages/mcp-server/README.md) for the connection details.
 
