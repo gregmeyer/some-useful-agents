@@ -30,6 +30,7 @@ This directory captures the **why** behind architectural choices in
 | [0021](0021-html-allowlist-sanitizer.md) | HTML allowlist sanitizer (zero-deps) | Accepted |
 | [0022](0022-output-widget-schema-v2.md) | Output widget schema extension for ai-template | Accepted |
 | [0023](0023-llm-prompt-unification.md) | Unify `claude-code` and `llm-prompt` node types | Accepted |
+| [0024](0024-build-planner-split-orchestrator.md) | Split the build-planner into orchestrated specialist agents | Accepted |
 
 ## Template
 

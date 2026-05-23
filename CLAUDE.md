@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## Docs map
-- **User-facing docs**: [docs/](docs/) — quickstart, agents, flows, tools, mcp, output-widgets, templating, dashboard, security
+- **User-facing docs**: [docs/](docs/) — quickstart, agents, flows, tools, mcp, output-widgets, templating, dashboard, build-from-goal, security
 - **Architecture decisions**: [docs/adr/](docs/adr/) — MADR-lite records for load-bearing choices
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md) (produced by `changeset version` at release time)
 - **Roadmap**: [ROADMAP.md](ROADMAP.md)

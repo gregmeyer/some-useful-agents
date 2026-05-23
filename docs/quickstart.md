@@ -90,7 +90,7 @@ From here you can:
 3. Add more nodes, wire `dependsOn`, save
 4. Click ▶ on the card to run
 
-Or use **Build from goal** — describe what you want in plain English and Claude designs the whole agent YAML for you.
+Or use **Build from goal** — describe what you want in plain English and sua designs the agent YAML (and dashboard tiles, for bigger goals) for you, with a structural critic checking each draft before you see it. See [Build from a goal](build-from-goal.md).
 
 ### From a YAML file
 
