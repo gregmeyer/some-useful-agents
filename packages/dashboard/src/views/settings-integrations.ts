@@ -35,9 +35,12 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     <div class="card">
       <p class="card__title">Integrations</p>
       <p class="dim">
-        Named external-service configurations. Agents reference these by
-        id in notify handlers (and later, connectors) instead of declaring
-        raw secret names per-agent.
+        Saved connections to outside systems, defined once and referenced by id
+        instead of repeating connection details per agent. <strong>Notify
+        destinations</strong> (Slack, webhook, file, MCP tool) are where an agent
+        sends a message when a run finishes. <strong>Data sources</strong> (CSV,
+        Postgres, SQLite) auto-generate query tools your nodes can call like a
+        built-in. <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/integrations.md" target="_blank" rel="noopener">Learn more →</a>
       </p>
       ${args.inlineNote ? html`<div class="flash flash--${args.inlineNote.kind} mb-3">${args.inlineNote.message}</div>` : unsafeHtml('')}
       ${renderTabStrip(tab, args.integrations)}

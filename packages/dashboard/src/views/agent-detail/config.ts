@@ -219,7 +219,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       <div style="display: flex; justify-content: flex-end;">
         <button type="submit" class="btn btn--sm">Save</button>
       </div>
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Applies to all claude-code nodes. Individual nodes can override in YAML.</p>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Applies to all llm-prompt nodes. Individual nodes can override in YAML.</p>
     </form>
   `);
 

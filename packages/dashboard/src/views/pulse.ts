@@ -16,6 +16,7 @@ import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
+import { pageIntro } from './page-intro.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -201,6 +202,12 @@ export function renderPulsePage(input: PulsePageInput): string {
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
       </div>
     </div>
+
+    ${pageIntro({
+      key: 'pulse',
+      text: 'Pulse is your live information radiator — each tile shows an agent\'s latest output. Drag to reorder, or use Improve layout to curate what shows.',
+      learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
+    })}
 
     <div id="pulse-containers">
       <section class="pulse-container" data-container-id="_default">

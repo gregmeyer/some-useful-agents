@@ -17,7 +17,9 @@ export function statusBadge(status: string): SafeHtml {
 
 export function typeBadge(type: string): SafeHtml {
   const kind = type === 'shell' ? 'badge--ok' : (type === 'claude-code' || type === 'llm-prompt') ? 'badge--info' : 'badge--muted';
-  return html`<span class="badge ${kind}">${type}</span>`;
+  // `claude-code` is the legacy alias of `llm-prompt`; show the canonical name.
+  const label = type === 'claude-code' ? 'llm-prompt' : type;
+  return html`<span class="badge ${kind}">${label}</span>`;
 }
 
 export function sourceBadge(source: string): SafeHtml {
