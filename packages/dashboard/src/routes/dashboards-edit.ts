@@ -7,12 +7,44 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import type { DashboardLayout, DashboardSection } from '@some-useful-agents/core';
-import { getContext } from '../context.js';
+import { executeAgentWithRetry, type DashboardLayout, type DashboardSection } from '@some-useful-agents/core';
+import { getContext, type DashboardContext } from '../context.js';
 import { renderDashboardEditPage } from '../views/dashboard-edit.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 
 export const dashboardsEditRouter: Router = Router();
+
+/**
+ * First-add courtesy run: a tile renders blank until its agent has produced
+ * output, so a freshly added agent that has never run shows an empty card.
+ * Fire one fire-and-forget run so the tile populates in place on the next
+ * render. No-op when the agent has already run (avoids redundant work when an
+ * agent is re-added or shared across dashboards) and for agents that require
+ * explicit community-shell audit confirmation (those must be run by hand).
+ */
+function maybeKickoffFirstRun(ctx: DashboardContext, agentId: string): void {
+  const agent = ctx.agentStore.getAgent(agentId);
+  if (!agent || !agent.signal) return;
+  if (ctx.runStore.listRuns({ agentName: agentId, limit: 1 }).length > 0) return;
+  if (agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell')) return;
+
+  const abortController = new AbortController();
+  executeAgentWithRetry(
+    agent,
+    { triggeredBy: 'dashboard', inputs: {}, signal: abortController.signal },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      integrationsStore: ctx.integrationsStore,
+      toolStore: ctx.toolStore,
+      agentStore: ctx.agentStore,
+      allowUntrustedShell: ctx.allowUntrustedShell,
+      dashboardBaseUrl: ctx.dashboardBaseUrl,
+      dataRoot: ctx.agentStore.dataRoot,
+    },
+  ).catch(() => {});
+}
 
 const DASHBOARD_ID_RE = /^[a-z0-9][a-z0-9:_-]*$/;
 
@@ -102,12 +134,17 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles', (req: Request, 
     const idx = parseInt(pickParam(req, 'idx'), 10);
     const agentId = pickString(req.body, 'agentId');
     if (!agentId) return redirectErr(res, id, 'agentId is required.');
+    const alreadyPresent = dashboard.layout.sections[idx]?.agentIds.includes(agentId) ?? false;
     const sections = mutateSections(dashboard.layout, (arr) => {
       if (!arr[idx]) throw new Error('Section index out of range.');
       if (arr[idx].agentIds.includes(agentId)) return; // already there
       arr[idx] = { ...arr[idx], agentIds: [...arr[idx].agentIds, agentId] };
     });
     ctx.dashboardsStore!.updateLayout(id, { sections });
+    // Newly added tile renders blank until its agent has output — fire a
+    // courtesy run so it populates in place. Skip if it was already in the
+    // section (no-op add).
+    if (!alreadyPresent) maybeKickoffFirstRun(ctx, agentId);
     // returnTo=live = in-place add-tile modal on /dashboards/:id; default
     // is the editor at /dashboards/:id/edit.
     if (pickString(req.body, 'returnTo') === 'live') {

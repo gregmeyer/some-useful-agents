@@ -97,6 +97,17 @@ afterEach(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
+/** Poll until the agent has at least `min` runs (courtesy run is fire-and-forget). */
+async function waitForRunCount(agentId: string, min: number, timeoutMs = 3000): Promise<number> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const n = runStore.listRuns({ agentName: agentId, limit: 10 }).length;
+    if (n >= min) return n;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return runStore.listRuns({ agentName: agentId, limit: 10 }).length;
+}
+
 function seed(): { id: string } {
   const id = 'user:test';
   dashboardsStore.upsertDashboard({
@@ -174,6 +185,36 @@ describe('dashboards editor', () => {
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
       .type('form').send({ agentId: 'world' });
     expect(dashboardsStore.getDashboard(id)?.layout.sections[0].agentIds).toEqual(['hello', 'world']);
+  });
+
+  it('adding a never-run agent fires a courtesy run so the tile renders in place', async () => {
+    const app = await makeApp();
+    const { id } = seed();
+    expect(runStore.listRuns({ agentName: 'world', limit: 1 }).length).toBe(0);
+    await request(app).post(`/dashboards/${id}/sections/0/tiles`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ agentId: 'world' });
+    expect(await waitForRunCount('world', 1)).toBe(1);
+  });
+
+  it('does not re-run an agent that already has a run when added to another section', async () => {
+    const app = await makeApp();
+    const { id } = seed();
+    dashboardsStore.upsertDashboard({
+      id, packId: null, name: 'Test',
+      layout: { sections: [{ title: 'A', agentIds: ['hello'] }, { title: 'B', agentIds: [] }] },
+    });
+    // First add fires the courtesy run.
+    await request(app).post(`/dashboards/${id}/sections/0/tiles`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ agentId: 'world' });
+    expect(await waitForRunCount('world', 1)).toBe(1);
+    // Adding it elsewhere now that it has a run must NOT fire a second.
+    await request(app).post(`/dashboards/${id}/sections/1/tiles`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ agentId: 'world' });
+    await new Promise((r) => setTimeout(r, 250));
+    expect(runStore.listRuns({ agentName: 'world', limit: 10 }).length).toBe(1);
   });
 
   it('POST /sections/:idx/tiles with returnTo=live redirects to the live view', async () => {
