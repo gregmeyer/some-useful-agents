@@ -140,6 +140,9 @@ See the [AI template workflow](#ai-template-workflow) below for the full loop.
 | `metric` | Hero number + label (rendered large) | dashboard only |
 | `stat` | Compact stat card in a grid row | dashboard only |
 | `preview` | Iframe for HTML paths, `<img>` for images | raw, dashboard |
+| `table` | Rows + columns from a top-level JSON array; pairs with `sort` / `filter` / `paginate` controls | dashboard |
+
+For a `table` field, declare its columns in the editor (each maps to a key in the array's row objects); the field name must match a top-level array in the run output.
 
 Types outside a widget's "Valid in" column are allowed but have no visual effect — the editor dims them with `(n/a)` to guide you.
 
@@ -169,6 +172,7 @@ At run time, `renderAiTemplate()`:
 - **Allowlist lives in core** — [packages/core/src/html-sanitizer.ts](../packages/core/src/html-sanitizer.ts). Full list of allowed tags + attrs is documented there.
 - **SVG preserved** — the allowlist includes SVG shapes and presentation attrs (`viewBox`, `fill`, `stroke`, etc.) so generators can emit inline charts.
 - **`on*` handlers, `<script>`, `<iframe>`, `<form>`, `javascript:` URLs are always dropped.** `data:image/*` is allowed; other `data:` URLs are not.
+- **External image hosts are gated by CSP.** When a generated template references an `<img>` from a host the dashboard's CSP doesn't allow, the tile surfaces a one-click "allow" modal that adds the host to the agent's `permissions` `img-src` allowlist. The build-from-goal critic also flags external `<img>` hosts and nested placeholder paths (e.g. `{{outputs.a.b}}`) in `ai-template` widgets so drafted agents render cleanly.
 
 See [Security → HTML sanitizer](SECURITY.md#html-sanitizer-v018) for the full treatment.
 
@@ -188,15 +192,20 @@ Pick one, tweak the field names to match your agent, save.
 
 ## Interactive controls
 
-Add a `controls:` array on `outputWidget` to render an interactive controls row above the widget body on the agent detail and run detail pages. State lives entirely in URL query params (no client JS), so refresh resets to defaults and links can be shared.
+Add a `controls:` array on `outputWidget` to render an interactive controls row above the widget body. State lives entirely in URL query params (no client JS), so refresh resets to defaults and links can be shared.
 
-Three control types:
+Six control types:
 
 | Type | Purpose | Notes |
 |---|---|---|
 | `replay` | Re-run the agent inline | `inputs: []` (or omitted) = same-inputs replay; `inputs: [NAME]` exposes those agent inputs as inline form fields the user can tweak before re-running |
 | `field-toggle` | Hide/show optional fields via chip toggles | `fields: [NAMES]` must reference declared widget fields; `default: shown` or `hidden` |
 | `view-switch` | Tab-style switch between named subsets of fields | `views: [{id, fields: [...]}]`; `default:` names the active view's id |
+| `sort` | Sort an array/`table` field | `field:` names the array; sort direction toggles via URL state |
+| `filter` | Filter rows of an array/`table` field | substring/value filter, per-field URL state |
+| `paginate` | Page through a long array/`table` field | `pageSize:` sets rows per page |
+
+A synthesized `replay` control ("Run again") is added automatically when an agent declares inputs but no explicit `replay` control, so most widgets get a re-run button for free.
 
 Example — weather agent with all three controls:
 
@@ -231,7 +240,11 @@ URL grammar:
 
 `field-toggle` and `view-switch` are not supported on `ai-template` widgets — the template author controls layout directly. `replay` works on any widget type.
 
-Controls render only on the agent detail and run detail pages. Pulse tiles render the widget statically — they're too small for inline controls in v1.
+Controls render **everywhere the widget renders** — agent detail, run detail, and Pulse / dashboard tiles. Appearance is owned by the dashboard's default widget-controls CSS plus any `<style>` block the widget author adds, so a widget can restyle (or hide) its own controls.
+
+### Interactive widgets
+
+Set `interactive: true` on `outputWidget` to turn the tile into a self-contained mini-app: it shows an inputs form + Run button and runs the agent **in place** (polling for completion) without navigating to the run detail page — even before any prior run exists. Use `runInputs: [NAMES]` to limit which agent inputs the form exposes. Non-interactive tiles with a synthesized "Run again" button also re-run in place; the form falls back to a full-page run if JavaScript is unavailable.
 
 ## Pulse integration
 
@@ -250,7 +263,7 @@ The tile on `/pulse` then renders the same HTML the agent detail page shows for 
 ## Related
 
 - [Dashboard tour](dashboard.md#output-widget-editor) — how the editor UI works step-by-step
-- [Templating](templating.md) — placeholder substitution in shell + claude-code
+- [Templating](templating.md) — placeholder substitution in shell + llm-prompt
 - [Security model](SECURITY.md#html-sanitizer-v018) — sanitizer allowlist
 - [ADR 0020: AI template widget](adr/0020-ai-template-widget.md) — design tradeoffs
 - [ADR 0021: HTML allowlist sanitizer](adr/0021-html-allowlist-sanitizer.md) — why zero-deps over DOMPurify

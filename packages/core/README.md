@@ -4,7 +4,7 @@ Core library for some-useful-agents. Types, schemas, stores, DAG executor, tool 
 
 ## What's inside
 
-- **Agent types + Zod schemas** — `Agent`, `AgentNode`, `AgentSignal`, `SignalTemplate`, `NodeType` (shell, claude-code, conditional, switch, loop, agent-invoke, branch, end, break)
+- **Agent types + Zod schemas** — `Agent`, `AgentNode`, `AgentSignal`, `SignalTemplate`, `NodeType` (shell, llm-prompt — with `claude-code` accepted as an alias — conditional, switch, loop, agent-invoke, branch, end, break)
 - **DAG executor** — topological walk with flow control, onlyIf conditional edges, nested agent-invoke, loop iteration, AbortSignal cancellation, MCP server enable/disable gate
 - **LlmSpawner** — multi-provider abstraction for Claude and Codex CLIs with stream-json progress tracking
 - **Tool system** — 10 built-in tools + `ToolStore` for user-defined tools + `type: mcp` implementation for MCP-imported tools
