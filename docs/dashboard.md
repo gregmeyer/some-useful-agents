@@ -6,6 +6,8 @@ Start the dashboard with `sua dashboard start`. The first startup prints a one-t
 
 Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESIGN.md](../DESIGN.md).
 
+The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`. See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
+
 ## `/` — Home feed
 
 What's happening right now. Shows:
@@ -25,7 +27,7 @@ Each card shows: status badge, source, optional `mcp` badge, "used by N" badge i
 
 **Filters** — search (id/name/description), status (active/paused/draft/archived), sort (name / status / recently run / starred first). Pagination with 12/24/48/100 page sizes.
 
-**Build from goal** — describe an agent in plain English, Claude designs the full YAML. Opens a modal.
+**Build from goal** — describe what you want in plain English; an orchestrator runs goal-surveyor → agent-drafter(s) → dashboard-designer to design the full YAML and tiles. Opens a modal. See [Build from a goal](build-from-goal.md).
 
 **New agent** — interactive scaffolder at `/agents/new`.
 
@@ -118,6 +120,8 @@ Information radiator with draggable signal tiles. Each agent with a `signal:` bl
 
 Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon. System metric tiles (runs today, avg duration, failure rate, agent count) pin to the top.
 
+**Improve layout** — wizard button on Pulse and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
+
 ## `/settings`
 
 Tabs: Secrets, Variables, **MCP Servers**, Integrations, Appearance, General.
@@ -145,6 +149,7 @@ CLI reference grouped by purpose. Each command shows a "Where in the UI" link wh
 ## Related
 
 - [Quickstart](quickstart.md) — first-touch walkthrough
+- [Build from a goal](build-from-goal.md) — Build + Improve-layout wizards
 - [Agents reference](agents.md) — every YAML field
 - [Output widgets](output-widgets.md) — widget types + AI templates
 - [MCP servers](mcp.md) — import + lifecycle
