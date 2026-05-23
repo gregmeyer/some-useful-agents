@@ -140,14 +140,15 @@ export function renderHelp(): string {
         </li>
         <li>
           <strong>Pick your tools.</strong> Browse built-in tools (<code>http-get</code>,
-          <code>claude-code</code>, <code>csv-to-chart-json</code>, etc.) on
+          <code>file-read</code>, <code>csv-to-chart-json</code>, etc.) plus the
+          <code>llm-prompt</code> node type on
           <a href="/tools?tab=builtin">/tools \u2192 Built-in</a>.
           Need something third-party? Paste a Claude-Desktop <code>mcpServers</code> config at
           <a href="/tools/mcp/import">/tools/mcp/import</a> and pick which tools to import.
         </li>
         <li>
           <strong>Write the agent.</strong> Chain nodes with <code>dependsOn</code>. Pass upstream
-          data via <code>{{upstream.&lt;id&gt;.result}}</code> (claude-code) or
+          data via <code>{{upstream.&lt;id&gt;.result}}</code> (llm-prompt) or
           <code>$UPSTREAM_&lt;ID&gt;_RESULT</code> (shell). Edit nodes directly on
           <a href="/agents">agent detail \u2192 Nodes tab</a>, or author YAML and
           <code>sua workflow import-yaml</code>.

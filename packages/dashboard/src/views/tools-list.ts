@@ -61,8 +61,8 @@ export function renderToolsList(args: {
       <select name="type" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
         <option value="">All types</option>
         <option value="shell"${f.type === 'shell' ? ' selected' : ''}>shell</option>
-        <option value="claude-code"${f.type === 'claude-code' ? ' selected' : ''}>claude-code</option>
         <option value="llm-prompt"${f.type === 'llm-prompt' ? ' selected' : ''}>llm-prompt</option>
+        <option value="claude-code"${f.type === 'claude-code' ? ' selected' : ''}>claude-code (legacy)</option>
         <option value="builtin"${f.type === 'builtin' ? ' selected' : ''}>builtin</option>
         <option value="mcp"${f.type === 'mcp' ? ' selected' : ''}>mcp</option>
       </select>

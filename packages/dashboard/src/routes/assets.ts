@@ -140,6 +140,7 @@ const GRAPH_RENDER_JS = `
   // viz blends with the rest of the dashboard chrome.
   var typeStyle = {
     shell:           { fill: '#dcfce7', border: '#15803d', text: '#166534' },
+    'llm-prompt':    { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
     'claude-code':   { fill: '#dbeafe', border: '#2563eb', text: '#1d4ed8' },
     'conditional':   { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
     'switch':        { fill: '#fef3c7', border: '#b45309', text: '#92400e' },

@@ -179,7 +179,7 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
             <span class="badge badge--info text-xs">if ${condition}</span>
             <span>\u2192</span>
             <a href="/agents/${agent.id}/nodes/${d.id}/edit" class="mono">${d.id}</a>
-            <span class="badge badge--${d.type === 'shell' ? 'ok' : (d.type === 'claude-code' || d.type === 'llm-prompt') ? 'info' : 'muted'}">${d.type}</span>
+            <span class="badge badge--${d.type === 'shell' ? 'ok' : (d.type === 'claude-code' || d.type === 'llm-prompt') ? 'info' : 'muted'}">${d.type === 'claude-code' ? 'llm-prompt' : d.type}</span>
           </div>
         `);
       } else {
@@ -206,7 +206,7 @@ function renderGoesToDisplay(agent: Agent, node: AgentNode): SafeHtml {
     <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0;">
       <span>\u2192</span>
       <a href="/agents/${agent.id}/nodes/${d.id}/edit" class="mono">${d.id}</a>
-      <span class="badge badge--${d.type === 'shell' ? 'ok' : (d.type === 'claude-code' || d.type === 'llm-prompt') ? 'info' : 'muted'}">${d.type}</span>
+      <span class="badge badge--${d.type === 'shell' ? 'ok' : (d.type === 'claude-code' || d.type === 'llm-prompt') ? 'info' : 'muted'}">${d.type === 'claude-code' ? 'llm-prompt' : d.type}</span>
     </div>
   `);
 

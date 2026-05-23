@@ -18,7 +18,13 @@ export function renderAgentRuns(args: AgentDetailArgs): string {
   const content = html`
     <h2>Run history</h2>
     ${recentRuns.length === 0
-      ? html`<p class="dim">No runs yet.</p>`
+      ? html`
+        <div class="settings-empty">
+          <h3 style="margin-top: 0;">No runs yet</h3>
+          <p class="dim">Run this agent from the <a href="/agents/${agent.id}">Overview tab</a> with <strong>Run now</strong>, or from the CLI:</p>
+          <p class="mono dim" style="margin: 0;">sua agent run ${agent.id}</p>
+        </div>
+      `
       : html`
         <table class="table">
           <thead><tr><th>ID</th><th>Status</th><th>Started</th><th>Duration</th><th>Triggered</th></tr></thead>

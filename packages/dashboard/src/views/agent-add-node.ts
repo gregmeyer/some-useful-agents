@@ -37,7 +37,7 @@ function availableVariablesPanel(agent: Agent): SafeHtml {
           <thead>
             <tr>
               <th>Upstream</th>
-              <th>Claude-code template</th>
+              <th>llm-prompt template</th>
               <th>Shell env var</th>
             </tr>
           </thead>
