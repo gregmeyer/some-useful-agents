@@ -14,6 +14,7 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { renderTile } from './pulse-renderers.js';
 import { tileWrap, type PulseTile } from './pulse.js';
+import { TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
 import {
   buildDashboardOptions,
@@ -114,6 +115,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
     ${unsafeHtml(`<script type="application/json" id="dashboard-available-agents">${
       JSON.stringify(input.availableAgents).replace(/</g, '\\u003c')
     }</script>`)}
+    ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
     <span style="display: none;">${buildFromGoalButton()}</span>
     ${buildFromGoalModal({
       availableDashboards: input.installedDashboards.filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name })),
