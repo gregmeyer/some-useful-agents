@@ -1,10 +1,34 @@
 import { Command } from 'commander';
 import { startDashboardServer } from '@some-useful-agents/dashboard';
+import { getMcpTokenPath, readMcpToken } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getRetentionDays, getDashboardBaseUrl } from '../config.js';
 import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+/** Wildcard bind hosts aren't dialable — map them to loopback for probe/print. */
+export function dialableHost(host: string): string {
+  return host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+}
+
+/**
+ * Probe a port that refused to bind, to tell "our dashboard is already running"
+ * apart from "the port is taken by something else". Returns true only when
+ * /health answers with the sua-dashboard signature.
+ */
+export async function isDashboardServing(host: string, port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://${dialableHost(host)}:${port}/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { status?: string; scheduler?: unknown };
+    return body.status === 'ok' && 'scheduler' in body;
+  } catch {
+    return false;
+  }
 }
 
 export const dashboardCommand = new Command('dashboard')
@@ -61,6 +85,29 @@ of scope for this release — wrap in launchd / systemd if you need it.
         dashboardBaseUrl: getDashboardBaseUrl(config),
       });
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        const urlHost = dialableHost(options.host);
+        if (await isDashboardServing(options.host, port)) {
+          const token = readMcpToken(getMcpTokenPath());
+          ui.banner(
+            `Dashboard already running on ${urlHost}:${port}`,
+            [
+              `Another dashboard is already serving this port — no need to start a second one.`,
+              ``,
+              ...(token
+                ? [`Sign-in URL:`, `http://${urlHost}:${port}/auth#token=${token}`, ``]
+                : []),
+              `Open http://${urlHost}:${port}/`,
+            ],
+          );
+          process.exit(0);
+        }
+        ui.fail(
+          `Port ${port} is already in use by another process. Stop it, or start on a ` +
+            `different port: sua dashboard start --port <port>.`,
+        );
+        process.exit(1);
+      }
       ui.fail((err as Error).message);
       process.exit(1);
     }

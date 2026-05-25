@@ -260,6 +260,28 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   return app;
 }
 
+/**
+ * Bind an Express app, resolving only on a genuinely successful listen.
+ *
+ * Express's `app.listen(port, host, cb)` invokes the callback even when the
+ * underlying bind fails (e.g. EADDRINUSE) — the returned server is left
+ * unbound (`listening === false`, `address() === null`), and depending on
+ * timing the failure can also surface as an uncaught `error` event. Keying
+ * off the `listening` event instead means a port conflict reliably rejects,
+ * so callers can handle it (see the EADDRINUSE branch in the CLI) rather than
+ * appearing to start against a server that never bound.
+ */
+export function listenWithErrors(app: Application, port: number, host: string): Promise<Server> {
+  return new Promise<Server>((resolve, reject) => {
+    const s = app.listen(port, host);
+    s.once('error', reject);
+    s.once('listening', () => {
+      s.removeListener('error', reject);
+      resolve(s);
+    });
+  });
+}
+
 export async function startDashboardServer(opts: StartDashboardOptions): Promise<DashboardHandle> {
   const host = opts.host ?? '127.0.0.1';
   const tokenPath = opts.tokenPath ?? getMcpTokenPath();
@@ -401,16 +423,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     );
   }
 
-  const server = await new Promise<Server>((resolve, reject) => {
-    const s = app.listen(opts.port, host, () => {
-      s.removeListener('error', reject);
-      resolve(s);
-    });
-    // Without this, EADDRINUSE (and other listen failures) emit on the
-    // server but never reach the awaiter — the promise hangs and the
-    // caller prints its banner against a server that didn't actually bind.
-    s.once('error', (err) => reject(err));
-  });
+  const server = await listenWithErrors(app, opts.port, host);
 
   const authUrl = `http://${host}:${opts.port}/auth#token=${token}`;
 
