@@ -242,6 +242,51 @@ export const DASHBOARD_JS = `
   if (runDetail) {
     var runId = runDetail.getAttribute('data-run-in-progress');
     var finalPollCount = 0;
+
+    // Reconcile only the regions that changed instead of replacing the whole
+    // [data-run-container]. Replacing the container nuked transient client
+    // state every 2s — the cytoscape canvas, focused inputs, the node filter,
+    // scroll position. Each updatable area is tagged data-poll-region="<name>";
+    // we swap a region only when its content actually changed, skip any region
+    // the user is interacting with, and special-case the DAG (data-poll-preserve)
+    // so its canvas element is kept and only its #dag-data is refreshed.
+    var reconcileRun = function (current, fresh) {
+      var regions = fresh.querySelectorAll('[data-poll-region]');
+      for (var i = 0; i < regions.length; i++) {
+        var fr = regions[i];
+        var name = fr.getAttribute('data-poll-region');
+        var cur = current.querySelector('[data-poll-region="' + name + '"]');
+        if (!cur) continue;
+        if (cur.hasAttribute('data-poll-preserve')) {
+          // DAG: keep the canvas (and its cytoscape instance); just refresh the
+          // embedded #dag-data and let renderDagViz re-render on data change.
+          var curData = cur.querySelector('#dag-data');
+          var frData = fr.querySelector('#dag-data');
+          if (curData && frData && curData.textContent !== frData.textContent) {
+            curData.textContent = frData.textContent;
+          }
+          if (typeof window.renderDagViz === 'function') window.renderDagViz();
+          continue;
+        }
+        // Don't disrupt a region the user is actively interacting with (e.g.
+        // typing in the node search box that lives next to the cards).
+        if (document.activeElement && cur.contains(document.activeElement)) continue;
+        if (cur.isEqualNode(fr)) continue; // unchanged — preserve the DOM
+        cur.replaceWith(fr);
+        // The node filter's listeners live on the (non-swapped) controls; after
+        // swapping in new cards, re-apply the active filter so they obey it.
+        if (name === 'nodes' && typeof window.__suaApplyNodeFilter === 'function') {
+          window.__suaApplyNodeFilter();
+        }
+      }
+      // Keep the container's own in-progress marker current for the next tick.
+      if (fresh.hasAttribute('data-run-in-progress')) {
+        current.setAttribute('data-run-in-progress', fresh.getAttribute('data-run-in-progress'));
+      } else {
+        current.removeAttribute('data-run-in-progress');
+      }
+    };
+
     var poll = function () {
       fetch('/runs/' + encodeURIComponent(runId) + '?partial=1', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
@@ -251,8 +296,12 @@ export const DASHBOARD_JS = `
           var fresh = placeholder.querySelector('[data-run-container]');
           var current = document.querySelector('[data-run-container]');
           if (fresh && current) {
-            current.replaceWith(fresh);
-            if (fresh.querySelector('[data-run-in-progress]')) {
+            reconcileRun(current, fresh);
+            // Pause live updates once a CSP image violation has been detected:
+            // re-rendering can't fix it (needs an Allow + reload) and would just
+            // re-fire the violation every 2s.
+            if (window.__suaCspPaused) return;
+            if (fresh.hasAttribute('data-run-in-progress')) {
               // Still in progress — keep polling.
               finalPollCount = 0;
               setTimeout(poll, 2000);

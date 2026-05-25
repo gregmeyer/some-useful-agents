@@ -31,6 +31,10 @@ import {
   buildPlanSchema,
   critiquePlan,
   formatCriticFeedback,
+  extractImageUrls,
+  findDeadImageUrls,
+  defaultCheckImageUrl,
+  formatDeadImageFeedback,
   type Agent,
   type BuildPlan,
   type Draft,
@@ -541,14 +545,28 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
     });
     if (synthetic.success) {
       const critique = critiquePlan(synthetic.data, { existingAgentIds: existingAgentIds(ctx) });
-      if (!critique.ok) {
+      // Image-link check: HEAD every hardcoded image URL the drafter baked
+      // into this agent. Dead links (404/410) sail past the structural critic
+      // — the host is CSP-allowlisted — but render broken images at runtime,
+      // so they retry on the same footing as structural errors. Inconclusive
+      // results (network error / 403 / 429) are not flagged.
+      const deadImages = await findDeadImageUrls(extractImageUrls(fixedYaml), { checkUrl: defaultCheckImageUrl });
+      if (!critique.ok || deadImages.length > 0) {
         const attempts = session.drafterAttempts.get(key) ?? 1;
         if (attempts < MAX_DRAFT_ATTEMPTS) {
-          retries.push({ key, feedback: formatCriticFeedback(critique.errors) });
+          const feedback = [
+            critique.ok ? '' : formatCriticFeedback(critique.errors),
+            deadImages.length > 0 ? formatDeadImageFeedback(deadImages) : '',
+          ].filter(Boolean).join('\n\n');
+          retries.push({ key, feedback });
           continue;
         }
-        // Exhausted budget — surface the critic errors as the failure.
-        failedFragments.push(`${key}: critic (after ${attempts} attempts) — ${critique.errors.map((e) => e.message).join(' | ')}`);
+        // Exhausted budget — surface whatever rejected the draft.
+        const reasons = [
+          ...(critique.ok ? [] : critique.errors.map((e) => e.message)),
+          ...deadImages.map((d) => `dead image ${d.url} (HTTP ${d.status})`),
+        ];
+        failedFragments.push(`${key}: critic (after ${attempts} attempts) — ${reasons.join(' | ')}`);
         continue;
       }
     }

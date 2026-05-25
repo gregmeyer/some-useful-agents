@@ -375,6 +375,117 @@ describe('Dashboard /runs/:id per-node table', () => {
     expect(res.text).toContain('Non-zero exit code');
     // The DAG viz should render here too
     expect(res.text).toContain('id="dag-canvas"');
+    // Poll-reconciliation regions: the live poll updates these by name instead
+    // of replacing the whole container. The DAG is a preserve region (canvas
+    // kept across polls); the node cards are their own region so the search
+    // controls (outside it) keep their listeners.
+    expect(res.text).toContain('data-poll-region="dag"');
+    expect(res.text).toContain('data-poll-preserve');
+    expect(res.text).toContain('data-poll-region="nodes"');
+    expect(res.text).toContain('data-poll-region="meta"');
+    expect(res.text).toContain('data-poll-region="status"');
+  });
+
+  it('wires the live poll to re-render the DAG for a running run', async () => {
+    // Regression: the DAG canvas went blank ~2s into a run because the poll
+    // swaps in a fresh fragment via innerHTML (whose <script> tags never
+    // execute), so the cytoscape bootstrap never re-ran. The page must (a)
+    // arm the poll and (b) re-invoke the persisted renderDagViz after the swap.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'live', name: 'Live', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo 1' },
+        { id: 'b', type: 'shell', command: 'echo 2', dependsOn: ['a'] },
+      ],
+    }, 'cli');
+    const now = new Date().toISOString();
+    runStore.createRun({
+      id: 'run-live', agentName: 'live', status: 'running', startedAt: now, triggeredBy: 'cli',
+      workflowId: 'live', workflowVersion: 1,
+    });
+
+    const res = await request(app).get('/runs/run-live')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('id="dag-canvas"');
+    // Poll is armed for the in-progress run.
+    expect(res.text).toContain('data-run-in-progress="run-live"');
+    // The poll re-invokes the persisted bootstrap after replacing the container.
+    expect(res.text).toContain('window.renderDagViz()');
+    // The CSP-allow banner must mount OUTSIDE [data-run-container] (a sibling in
+    // the stable parent), so the poll's replaceWith doesn't destroy the "Allow"
+    // button mid-run. Guards against re-introducing the inside-container mount.
+    expect(res.text).toContain('data-csp-agent="live"');
+    expect(res.text).toContain('container.parentNode.insertBefore(banner, container)');
+  });
+
+  it('hides the widget and renders a server-side Allow form when output references a blocked image host', async () => {
+    // Root-cause path: the executor fails such a run; the view must hide the
+    // widget (so the blocked <img> never renders / re-fires the CSP violation)
+    // and render a server-side one-click Allow form for the known host — not
+    // relying on client JS, since the hidden widget fires no CSP violation.
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'blocked', name: 'Blocked', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+      outputWidget: { type: 'ai-template', template: '<div><img src="{{outputs.image_url}}"></div>' },
+      permissions: { imgSrc: ['allowed.example'] },
+    }, 'cli');
+    const now = new Date().toISOString();
+    runStore.createRun({
+      id: 'run-blocked', agentName: 'blocked', status: 'failed', startedAt: now, completedAt: now,
+      triggeredBy: 'cli', workflowId: 'blocked', workflowVersion: 1,
+      result: JSON.stringify({ image_url: 'https://blocked.example/portrait.jpg' }),
+      error: 'Widget output references image host not allowed by the page security policy: blocked.example.',
+    });
+
+    const res = await request(app).get('/runs/run-blocked')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // The widget (and its blocked <img>) must NOT be rendered.
+    expect(res.text).not.toContain('blocked.example/portrait.jpg');
+    expect(res.text).toContain('Output widget hidden');
+    // A server-rendered Allow form targets the allow-host endpoint with the host.
+    expect(res.text).toContain('action="/agents/blocked/permissions/allow-host"');
+    expect(res.text).toContain('value="blocked.example"');
+    expect(res.text).toContain('Allow blocked.example');
+  });
+
+  it('allow-host form POST adds the host and redirects back to the run', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'allowme', name: 'AllowMe', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+      outputWidget: { type: 'ai-template', template: '<img src="{{outputs.u}}">' },
+    }, 'cli');
+    const res = await request(app).post('/agents/allowme/permissions/allow-host')
+      .type('form')
+      .send({ host: 'apod.nasa.gov', redirect: '/runs/whatever' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/runs/whatever');
+    const updated = agentStore.getAgent('allowme');
+    expect(updated?.permissions?.imgSrc).toContain('apod.nasa.gov');
+  });
+
+  it('allow-host form POST refuses an off-site redirect', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'allowme2', name: 'AllowMe2', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    const res = await request(app).post('/agents/allowme2/permissions/allow-host')
+      .type('form')
+      .send({ host: 'apod.nasa.gov', redirect: 'https://evil.example/' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    // Non-`/` redirect is ignored → falls back to the JSON contract.
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
   });
 
   it('does not render the per-node table for a v1 run', async () => {
@@ -424,6 +535,11 @@ describe('Dashboard static assets', () => {
     expect(res.headers['content-type']).toMatch(/javascript/);
     expect(res.text).toContain('cytoscape');
     expect(res.text).toContain('dag-canvas');
+    // The bootstrap must be a re-callable global (not a bare IIFE) and invoke
+    // itself once on load, so the run-detail auto-poll can re-render the DAG
+    // after each DOM swap. Regression guard for the "blank DAG mid-run" bug.
+    expect(res.text).toContain('window.renderDagViz = function');
+    expect(res.text).toContain('window.renderDagViz();');
   });
 
   it('serves /assets/cytoscape.min.js', async () => {

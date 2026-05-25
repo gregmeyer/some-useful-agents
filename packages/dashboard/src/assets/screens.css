@@ -982,6 +982,24 @@ main.main--wide {
 .pulse-tile--1x2 { grid-row: span 2; }
 .pulse-tile--2x2 { grid-column: span 2; grid-row: span 2; }
 
+/* ── Widget tile fit (outputWidget.tileFit) ───────────────────────────────
+ * Controls a widget tile's HEIGHT when its content is taller than the slot.
+ * Width is always the dashboard-defined grid column. The full run/agent view
+ * is unaffected (it never gets these classes). */
+
+/* grow (default): the tile is as tall as its widget — no cap, no scroll. */
+.pulse-tile--fit-grow { max-height: none; }
+.pulse-tile--fit-grow .pulse-tile__body { overflow: visible; }
+
+/* scroll: cap the tile height and scroll the overflow — the base .pulse-tile
+ * (max-height + .pulse-tile__body overflow-y:auto) already does this, so no
+ * extra rules are needed. */
+
+/* fixed-h: the tile was given an explicit dragged height (snapped to a grid
+ * unit) via the resize handle. The inline height/max-height pins it and the
+ * body scrolls anything taller. Overrides the grow body's overflow:visible. */
+.pulse-tile--fixed-h .pulse-tile__body { overflow-y: auto; }
+
 .pulse-tile__header {
   display: flex;
   align-items: center;
