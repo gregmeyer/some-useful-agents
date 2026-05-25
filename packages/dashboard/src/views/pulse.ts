@@ -185,15 +185,13 @@ export function renderPulsePage(input: PulsePageInput): string {
     : html``;
 
   const body = html`
-    ${dropdownOptions.length > 1
-      ? html`<div style="margin-bottom: var(--space-3);">${dropdown}</div>`
-      : html``}
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       <h1 style="margin: 0;">Pulse</h1>
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
       </span>
-      <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+      <div style="margin-left: auto; display: flex; align-items: center; gap: var(--space-2);">
+        ${dropdownOptions.length > 1 ? dropdown : html``}
         ${tiles.length > 0 ? html`
           <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" onsubmit="return confirm('Hide all ${String(tiles.length)} signal${tiles.length !== 1 ? 's' : ''} from Pulse? They\\'ll move to the hidden section and can be restored individually.');">
             <button type="submit" class="btn btn--ghost btn--sm" title="Move every visible tile to the hidden section. Useful before installing packs.">Hide all</button>

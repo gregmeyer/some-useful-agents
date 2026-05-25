@@ -58,12 +58,8 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <header class="topbar">
   <a class="topbar__brand" href="/">sua</a>
   <nav class="topbar__nav">
-    <a href="/agents" class="${opts.activeNav === 'agents' ? 'is-active' : ''}">Agents</a>
-    <a href="/tools" class="${opts.activeNav === 'tools' ? 'is-active' : ''}">Tools</a>
-    <a href="/nodes" class="${opts.activeNav === 'nodes' ? 'is-active' : ''}">Nodes</a>
-    <a href="/runs" class="${opts.activeNav === 'runs' ? 'is-active' : ''}">Runs</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
-    <a href="/packs" class="${opts.activeNav === 'packs' ? 'is-active' : ''}">Packs</a>
+    <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>

@@ -2,6 +2,7 @@ import type { Pack } from '@some-useful-agents/core';
 import { html, render } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { sectionTabs } from './section-tabs.js';
 
 /**
  * Render `/packs` — the browse-all-packs page. Cards split into two
@@ -58,6 +59,7 @@ export function renderPacksList(args: { packs: Pack[]; flash?: { kind: 'ok' | 'e
       title: 'Packs',
       description: 'Curated bundles of agents and dashboards. Install a pack to register its dashboards and contributed agents in one step.',
     })}
+    ${sectionTabs('packs')}
     ${section('Installed', installed)}
     ${section('Available', available)}
     ${empty}

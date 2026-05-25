@@ -194,6 +194,68 @@ describe('Dashboard auth', () => {
   });
 });
 
+describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
+  const authed = (app: unknown, path: string) =>
+    request(app as Parameters<typeof request>[0]).get(path)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+  // The Agents-section tab strip mirrors the Settings shell: an in-page
+  // `.tab-strip` aria-labelled "Agents section". There is no global subnav bar.
+  const sectionTabMatch = (res: { text: string }) =>
+    res.text.match(/<nav class="tab-strip" aria-label="Agents section">[\s\S]*?<\/nav>/)?.[0] ?? '';
+
+  it('top row is Pulse · Agents · Settings · Help; brand links to root', async () => {
+    const app = await makeApp();
+    const res = await authed(app, '/pulse');
+    expect(res.status).toBe(200);
+    // Brand stays on the home feed at root.
+    expect(res.text).toContain('class="topbar__brand" href="/"');
+    // Top-level nav no longer surfaces the building blocks directly.
+    expect(res.text).toContain('<nav class="topbar__nav">');
+    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/tools"/);
+    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/nodes"/);
+    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/packs"/);
+  });
+
+  it('has no global subnav bar anywhere', async () => {
+    const app = await makeApp();
+    for (const path of ['/pulse', '/settings/secrets', '/help', '/agents', '/tools']) {
+      const res = await authed(app, path);
+      expect(res.status, path).toBe(200);
+      expect(res.text, path).not.toContain('topbar__subnav');
+    }
+  });
+
+  it('renders no section tabs on Pulse, Settings, or Help', async () => {
+    const app = await makeApp();
+    for (const path of ['/pulse', '/settings/secrets', '/help']) {
+      const res = await authed(app, path);
+      expect(res.status, path).toBe(200);
+      expect(res.text, path).not.toContain('aria-label="Agents section"');
+    }
+  });
+
+  it('renders in-page section tabs with the active item in the Agents section', async () => {
+    const app = await makeApp();
+    const cases: Array<[string, string]> = [
+      ['/agents', '/agents'],
+      ['/tools', '/tools'],
+      ['/runs', '/runs'],
+    ];
+    for (const [path, activeHref] of cases) {
+      const res = await authed(app, path);
+      expect(res.status, path).toBe(200);
+      const strip = sectionTabMatch(res);
+      expect(strip, path).not.toBe('');
+      // The tab for the current page is highlighted.
+      expect(strip, path).toMatch(new RegExp(`href="${activeHref}" class="is-active"`));
+      // The top-level "Agents" item is active for the whole section.
+      expect(res.text, path).toMatch(/topbar__nav[\s\S]*?href="\/agents" class="is-active"/);
+    }
+  });
+});
+
 describe('Dashboard /runs + filters', () => {
   it('returns empty state when no runs exist', async () => {
     const app = await makeApp();

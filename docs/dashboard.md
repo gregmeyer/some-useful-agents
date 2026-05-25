@@ -8,6 +8,10 @@ Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESI
 
 The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`. See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
 
+## Navigation
+
+The top bar leads with the daily-driver surfaces: `sua · Pulse · Agents · Settings · Help`. The `sua` brand links to the **Home feed** (`/`). **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`); the grouping just keeps the top bar uncluttered.
+
 ## `/` — Home feed
 
 What's happening right now. Shows:

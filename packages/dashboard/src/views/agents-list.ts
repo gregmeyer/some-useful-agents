@@ -2,6 +2,7 @@ import type { Agent, AgentDefinition, Run } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { sectionTabs } from './section-tabs.js';
 import { typeBadge, sourceBadge, formatAge, cronToHuman } from './components.js';
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
@@ -70,6 +71,8 @@ export function renderAgentsList(input: AgentsListInput): string {
         </span>
       `,
     })}
+
+    ${sectionTabs('agents')}
 
     ${empty ? renderEmptyState() : renderStatStrip(input.stats)}
 
