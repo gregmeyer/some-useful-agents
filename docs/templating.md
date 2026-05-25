@@ -4,7 +4,7 @@ This page defines the template variables sua substitutes into node commands and 
 
 - Agents declare nodes; nodes declare dependencies.
 - At run time, each node's body is substituted with values from **agent inputs** (supplied at `sua workflow run --input`) and **upstream node outputs** (the stdout of each `dependsOn` node).
-- Two syntaxes coexist: **`{{handlebars}}`** for claude-code prompts, **`$ENV_VARS`** for shell commands.
+- Two syntaxes coexist: **`{{handlebars}}`** for llm-prompt prompts, **`$ENV_VARS`** for shell commands.
 
 ## Agent-level inputs
 
@@ -12,7 +12,7 @@ Passed to `sua workflow run <agent> --input KEY=value`.
 
 | Node type | Syntax | Example |
 |---|---|---|
-| `claude-code` | `{{inputs.KEY}}` | `Summarise the {{inputs.TOPIC}} headlines.` |
+| `llm-prompt` | `{{inputs.KEY}}` | `Summarise the {{inputs.TOPIC}} headlines.` |
 | `shell` | `$KEY` (as regular env var) | `curl -s "$BASE_URL/items"` |
 
 Every `{{inputs.X}}` reference must match a declared input on the agent — typos fail the schema at save time.
@@ -23,7 +23,7 @@ Every node in the current node's `dependsOn` list exposes its stdout under `upst
 
 | Node type | Syntax | Example |
 |---|---|---|
-| `claude-code` | `{{upstream.<nodeId>.result}}` | `Summarise: {{upstream.fetch.result}}` |
+| `llm-prompt` | `{{upstream.<nodeId>.result}}` | `Summarise: {{upstream.fetch.result}}` |
 | `shell` | `$UPSTREAM_<NODEID>_RESULT` (uppercase, hyphens → underscores) | `echo "got: $UPSTREAM_FETCH_RESULT"` |
 
 Notes:
@@ -38,16 +38,16 @@ Notes:
 For every node, the runtime provides:
 
 - **Shell nodes:** `$UPSTREAM_<ID>_RESULT` per declared upstream + `$<INPUT_NAME>` per declared agent input. The rest of the env is filtered to the `envAllowlist` plus the node's explicit `env:` + `secrets:` lists.
-- **Claude-code nodes:** `{{inputs.X}}` and `{{upstream.X.result}}` interpolated in the prompt before the call. `allowedTools` gates which tools Claude can invoke.
+- **`llm-prompt` nodes:** `{{inputs.X}}` and `{{upstream.X.result}}` interpolated in the prompt before the call. `allowedTools` gates which tools the model can invoke.
 
 ## Execution vocabulary — current surface
 
 What's available today:
 
 ```
-{{inputs.<NAME>}}              # agent-level runtime input (claude-code)
+{{inputs.<NAME>}}              # agent-level runtime input (llm-prompt)
 $<NAME>                        # same, as env var (shell)
-{{upstream.<nodeId>.result}}   # upstream stdout (claude-code)
+{{upstream.<nodeId>.result}}   # upstream stdout (llm-prompt)
 $UPSTREAM_<NODEID>_RESULT      # same, as env var (shell)
 ```
 
@@ -59,7 +59,7 @@ Non-sensitive, project-wide values. Set via `/settings/variables` or `sua vars s
 
 | Node type | Syntax | Example |
 |---|---|---|
-| `claude-code` | `{{vars.NAME}}` | `Publish to {{vars.SLACK_CHANNEL}}` |
+| `llm-prompt` | `{{vars.NAME}}` | `Publish to {{vars.SLACK_CHANNEL}}` |
 | `shell` | `$NAME` (same as inputs — env var) | `echo "deploying to $DEPLOY_ENV"` |
 
 Variables lose to agent inputs with the same name, so agents can selectively override.
@@ -96,11 +96,11 @@ Run output is extracted first, HTML-escaped, then substituted into the (sanitize
 ## Quick reference
 
 ```
-{{inputs.<NAME>}}              # agent-level runtime input (claude-code)
+{{inputs.<NAME>}}              # agent-level runtime input (llm-prompt)
 $<NAME>                        # same, as env var (shell)
-{{vars.<NAME>}}                # global variable (claude-code)
+{{vars.<NAME>}}                # global variable (llm-prompt)
 $<NAME>                        # same — inputs win if the name collides (shell)
-{{upstream.<nodeId>.result}}   # upstream stdout (claude-code)
+{{upstream.<nodeId>.result}}   # upstream stdout (llm-prompt)
 $UPSTREAM_<NODEID>_RESULT      # same, as env var (shell)
 {{outputs.<NAME>}}             # output widget placeholder (ai-template widgets only)
 {{result}}                     # raw run output (ai-template widgets only)

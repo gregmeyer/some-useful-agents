@@ -1,5 +1,57 @@
 # Changelog
 
+## 2026-05-23
+
+### Integrations (v0.21.0, PRs #262-#272)
+- `Settings → Integrations` tab: store and manage Slack / webhook / file destinations, then reference them by id from `notify` handlers
+- Integration *kinds* that auto-generate tools: **CSV** (read/count), **Postgres** (find/count), **SQLite** (find/count) — connect a data source and get query tools for free
+- Gmail via OAuth, exposed through the generic `mcp-tool` integration kind
+- Schema-aware, save-time template validation against an integration's shape
+- New `churn-watcher` example: SQLite integration → `llm-prompt` → metric widget
+
+### LLM prompt unification (v0.21.0, PRs #294-#298)
+- `llm-prompt` is now the canonical node/tool type; `claude-code` is preserved as an alias (existing agents keep working — see ADR 0023)
+- Provider registry is the single source of truth for installed LLM providers; the Tools catalog surfaces them
+- Bundled examples migrated to `type: llm-prompt`
+
+### Per-node LLM options (v0.21.0, PRs #300-#302)
+- Expose `model`, `maxTurns`, and `allowedTools` per node on the agent forms
+- Advanced LLM options available on `/agents/new`, with a more prominent disclosure
+
+### Output widgets (v0.21.0, PRs #278-#289)
+- Controls render **everywhere** a widget renders, and the widget author owns their appearance via a `<style>` block
+- New array controls: `sort`, `filter`, `paginate` — with per-field URL state
+- First-class `table` field type for dashboard widgets, editable column-by-column in the Output Widget editor
+- Edit all six control types + actions inline in the editor; Save preserves columns / controls / actions
+- Templates: `{{#if item.X}}` / `{{#unless item.X}}` inside `{{#each}}`; leftover block tokens stripped instead of leaking; `<style>` blocks preserved with scrubbed bodies
+
+### Improve layout wizard (v0.21.0, PRs #305-#324)
+- New `LayoutPlan` schema + `layout-planner` agent + `computeLayoutSuggestions()` heuristic
+- Wizard on `/pulse` **and any named dashboard** — starts from the current layout
+- **Path A**: surface installed-but-absent agents (`toAdd`). **Path B**: draft brand-new agents inline (`needsNew`), reusing the build-from-goal drafter
+- Curation mode (top agents visible, rest hidden on Apply), retry-with-feedback, "Refine this plan", parallel Cancel / Apply only / Draft+apply CTAs, schema auto-retry
+
+### Build from a goal — orchestrator split (v0.21.0, PRs #326-#347)
+- `build-planner` split into a server-side orchestrator: `goal-surveyor` → one `agent-drafter` per fragment (parallel, each behind its own structural critic) → `dashboard-designer`
+- Per-drafter critic retry loop (re-fires the drafter on validation failure); ai-template path critic; external `<img>` host critic
+- Pre-generated runId eliminates the kickoff race; YAML-parse retry + auto-run on land; partial-success screen for mixed draft outcomes; "Nothing to build" instead of a crash when the goal is already covered
+- Planner loop internals: `PlannerLoopRunner`, smoke-run eval + telemetry, cross-run memory; `successCriteria` + `AgentLoopRunner` for generated agents
+
+### Dashboards & Pulse (v0.21.0, PRs #236-#350)
+- Run an agent **once automatically** when it's first added to a dashboard (no blank tiles)
+- In-place "Run again" on tiles, one-click **allow** for CSP-blocked widget images, build stamp in `/health` + footer
+- In-place "+ Add tile" modal on `/dashboards/:id` (offers a blank agent or build-from-goal); add-tile preset chips; choose where a build-from-goal result lands
+- Edit-mode persists across reloads with a navigate-away guard; empty-dashboard delete prompt; in-app modals for tile removal
+- Pulse tile chrome pinned with a scrollable body and sticky footer; `×` toggles `pulseVisible`; home tiles get palette + collapse parity
+- Permissions card on the agent Config tab; agents declare CSP `img-src` allowlists via `permissions`; tool-usage visibility ("Used by" + canonical badges)
+
+### Core / CLI / infra (v0.21.0)
+- Scheduled agents fire on first daemon start instead of waiting until the next day (#244)
+- `mcp-server` supports `port=0` and returns the bound port on its handle (#245)
+- `sua agent audit` falls back to the project DB for dashboard-created agents (#304); execute bit preserved on `dist/index.js` across rebuilds (#299)
+- Tool-policies groundwork: file shape + executor seam (always-allow stub) (#238)
+- CI: gitleaks secret scan on push + PR (#261)
+
 ## 2026-04-21
 
 ### Security fixes (v0.17.0)

@@ -33,13 +33,14 @@ sua dashboard start              # open the web dashboard
 
 ## Recent highlights
 
-- **MCP servers as first-class (v0.18)** — paste a `mcpServers` config at `/tools/mcp/import`, sua discovers tools and imports them in bulk. Manage + enable/disable + delete from `/settings/mcp-servers`.
-- **AI-generated output widgets (v0.18)** — `ai-template` widget type: describe a layout in English, Claude generates sanitized HTML; per-run values substitute at render time.
-- **Build from goal** — `sua dashboard start`, click "Build from goal". The builder designs a complete agent YAML with the right nodes, tools, and wiring.
+- **Integrations (v0.21)** — connect a data source at `/settings/integrations` and get tools for free: CSV / Postgres / SQLite kinds auto-generate find/count tools, Gmail connects via OAuth, and `notify` handlers reference saved Slack / webhook / file destinations by id.
+- **Improve layout wizard (v0.21)** — on `/pulse` or any named dashboard, sua proposes what to surface, which installed agents to add (Path A), and which new agents to draft inline (Path B).
+- **Build from goal, orchestrated (v0.21)** — a `goal-surveyor` + per-fragment `agent-drafter` (each behind its own critic) + `dashboard-designer` design a complete plan from a plain-language goal; already-covered goals return "Nothing to build", partial failures show a partial-success screen.
+- **`llm-prompt` node type (v0.21)** — canonical rename of `claude-code` (alias preserved). Set `provider` (claude/codex), `model`, `maxTurns`, and `allowedTools` per node, or as agent-level defaults nodes inherit.
+- **Output widgets (v0.21)** — `replay` / `field-toggle` / `view-switch` / `sort` / `filter` / `paginate` controls render everywhere and are restylable; first-class `table` field type; `interactive` widgets re-run in place.
+- **MCP servers as first-class** — paste a `mcpServers` config at `/tools/mcp/import`, sua discovers tools and imports them in bulk. Manage + enable/disable + delete from `/settings/mcp-servers`.
 - **Pulse dashboard** — `/pulse` shows a live information radiator with signal tiles from your agents. 10 display templates including `widget` (mirrors the agent's outputWidget).
-- **Agent-level LLM defaults** — set `provider: codex` and `model: o4-mini` at the agent level. Nodes inherit unless they override.
 - **Flow control** — conditional, switch, loop, agent-invoke, branch, end, break nodes.
-- **10 built-in tools** — shell-exec, claude-code, http-get/post, file-read/write, json-parse/path, template, csv-to-chart-json.
 - **15 example agents** — from hello world to MCP-driven graphics generation.
 
 See the [main repo README](https://github.com/gregmeyer/some-useful-agents) and [docs/](https://github.com/gregmeyer/some-useful-agents/tree/main/docs) for full documentation.

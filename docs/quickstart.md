@@ -151,7 +151,7 @@ sua workflow import-yaml agents/local/two-step.yaml
 sua workflow run two-step
 ```
 
-Same pattern with claude-code nodes uses `{{upstream.fetch.result}}`. See [Templating](templating.md) for the reference.
+Same pattern with llm-prompt nodes uses `{{upstream.fetch.result}}`. See [Templating](templating.md) for the reference.
 
 ## Try a bundled MCP example
 
@@ -173,5 +173,5 @@ sua workflow run graphics-creator-mcp \
 - [Tools](tools.md) — built-in tools + MCP + user-authored
 - [Output widgets](output-widgets.md) — make runs render as polished UI
 - [Dashboard tour](dashboard.md) — every page explained
-- [Templating](templating.md) — placeholders in shell and claude-code
+- [Templating](templating.md) — placeholders in shell and llm-prompt
 - [MCP servers](mcp.md) — import, manage, delete
