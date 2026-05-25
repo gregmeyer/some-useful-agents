@@ -14,6 +14,7 @@ import {
   buildDiscoveryCatalog,
   buildPlanSchema,
   PlannerLoopRunner,
+  defaultCheckImageUrl,
   findSimilarCommittedPlans,
   formatPriorPlansBlock,
   type PriorPlanCandidate,
@@ -938,6 +939,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
         } catch { /* tool store unavailable */ }
         return builtinIds;
       },
+      checkImageUrl: defaultCheckImageUrl,
       memoryStore: ctx.plannerMemoryStore,
       maxRetries: MAX_CRITIC_RETRIES,
     });

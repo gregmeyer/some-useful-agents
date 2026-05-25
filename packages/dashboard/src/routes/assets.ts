@@ -117,13 +117,28 @@ const DASHBOARD_CSS = loadDashboardCss();
  *     pattern, status colors override type.
  */
 const GRAPH_RENDER_JS = `
-(function () {
+// Exposed as a named global (not a bare IIFE) so the run-detail auto-poll can
+// re-run it after it swaps in a fresh [data-run-container] fragment. Scripts
+// injected via innerHTML never execute, so without an explicit re-invocation
+// the freshly-swapped #dag-canvas would stay blank for the rest of the run.
+window.renderDagViz = function () {
   var el = document.getElementById('dag-canvas');
   var dataEl = document.getElementById('dag-data');
   if (!el || !dataEl || typeof window.cytoscape !== 'function') return;
 
+  // Re-render only when the data actually changed. The run-detail poll keeps
+  // the SAME #dag-canvas element across updates and just refreshes #dag-data,
+  // so we signature-check the data: identical → no-op (no flicker), changed →
+  // tear down the prior cytoscape instance and re-render into the same element.
+  var sig = dataEl.textContent || '';
+  if (el.__dagSig === sig) return;
+  el.__dagSig = sig;
+  if (el.__pulseTimer) { clearInterval(el.__pulseTimer); el.__pulseTimer = null; }
+  if (el.__ro) { try { el.__ro.disconnect(); } catch (e) { /* ignore */ } el.__ro = null; }
+  if (el.__cy) { try { el.__cy.destroy(); } catch (e) { /* ignore */ } el.__cy = null; }
+
   var payload;
-  try { payload = JSON.parse(dataEl.textContent); } catch (e) { return; }
+  try { payload = JSON.parse(sig); } catch (e) { return; }
 
   // Status tints — mirror tokens.css (--color-*-soft for fill, --color-*
   // for border + text). Run-detail nodes use these.
@@ -229,7 +244,42 @@ const GRAPH_RENDER_JS = `
     userPanningEnabled: false,
     boxSelectionEnabled: false,
   });
+  el.__cy = cy;
   cy.fit(undefined, 18);
+
+  // Cytoscape does NOT auto-resize. If the initial fit ran before the canvas
+  // reached its final size (sticky grid settling, fonts loading, a parent
+  // <details> opening, window resize), the viewport stays zoomed to a stale box
+  // and the outer nodes get clipped — the classic "only the middle node shows"
+  // symptom. Re-fit whenever the canvas resizes. The observer fires once on
+  // observe(), which also corrects a too-early initial fit.
+  if (typeof ResizeObserver === 'function') {
+    el.__ro = new ResizeObserver(function () {
+      if (!el.__cy || (el.__cy.destroyed && el.__cy.destroyed())) return;
+      el.__cy.resize();
+      el.__cy.fit(undefined, 18);
+    });
+    el.__ro.observe(el);
+  }
+
+  // Pulse any node that's currently running so it's obvious at a glance which
+  // step is live. A glowing halo (underlay) + breathing border loops via an
+  // interval owned by this canvas; it's cleared when renderDagViz re-renders
+  // (e.g. when the node finishes and the run-detail poll refreshes #dag-data),
+  // so the pulse always tracks the node that's actually running right now.
+  var runningNodes = cy.nodes().filter(function (n) { return n.data('status') === 'running'; });
+  if (runningNodes.length > 0) {
+    runningNodes.style({ 'underlay-color': '#2563eb', 'underlay-padding': 6, 'underlay-opacity': 0.15 });
+    var pulseBig = false;
+    el.__pulseTimer = setInterval(function () {
+      if (!el.__cy || (el.__cy.destroyed && el.__cy.destroyed())) { clearInterval(el.__pulseTimer); el.__pulseTimer = null; return; }
+      pulseBig = !pulseBig;
+      runningNodes.animate(
+        { style: { 'underlay-opacity': pulseBig ? 0.4 : 0.12, 'border-width': pulseBig ? 4 : 1 } },
+        { duration: 600, easing: 'ease-in-out-sine' },
+      );
+    }, 700);
+  }
 
   // Click a node → open the node-action dialog with Edit + Replay buttons
   // and metadata pulled from the same Cytoscape payload. When no dialog
@@ -530,7 +580,11 @@ const GRAPH_RENDER_JS = `
       if (navBase) window.location.hash = 'node-' + encodeURIComponent(data.id);
     }
   });
-})();
+};
+
+// Render once on initial page load. On the auto-polled run-detail page the
+// poll calls window.renderDagViz() again after each DOM swap (see js.ts).
+window.renderDagViz();
 `;
 
 export const assetsRouter: Router = Router();
@@ -545,14 +599,19 @@ assetsRouter.get('/assets/cytoscape.min.js', (_req: Request, res: Response) => {
 });
 
 assetsRouter.get('/assets/graph-render.js', (_req: Request, res: Response) => {
-  // Short cache (5m) for our own bootstrap — during local dev we tweak
-  // node styling and want changes visible on refresh without a hard
-  // reload. Cytoscape itself stays on immutable since it's vendored.
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  // `no-cache` = revalidate on every load (Express still sends an ETag, so an
+  // unchanged file 304s — cheap). max-age=300 previously served a stale copy
+  // for up to 5 minutes after a deploy, so DAG behaviour fixes appeared not to
+  // land without a hard reload. The file is tiny; correctness beats caching it.
+  res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(GRAPH_RENDER_JS);
 });
 
 assetsRouter.get('/assets/dashboard.css', (_req: Request, res: Response) => {
-  res.setHeader('Cache-Control', 'public, max-age=300');
+  // `no-cache` (revalidate every load; Express sends an ETag so unchanged = 304).
+  // max-age=300 served stale CSS for up to 5 min after a deploy, so layout
+  // fixes appeared not to land — and a stale stylesheet against fresh markup
+  // (e.g. new tile-fit classes without their rules) can break the grid.
+  res.setHeader('Cache-Control', 'no-cache');
   res.type('text/css').send(DASHBOARD_CSS);
 });

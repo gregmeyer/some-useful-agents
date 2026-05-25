@@ -460,6 +460,17 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
             </label>
           </div>
         </div>
+
+        <div style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border);">
+          <label style="font-size: var(--font-size-xs); display: flex; flex-direction: column; gap: 2px; max-width: 30rem;">
+            <strong>Tile fit</strong>
+            <span class="dim">How this widget fits a Pulse/dashboard tile when it's taller than the slot. The full run/agent view always shows it at 100%.</span>
+            <select name="widget_tileFit" style="${FIELD} width: 22rem; margin-top: 4px;">
+              <option value="grow" ${(widget?.tileFit ?? 'grow') === 'grow' ? 'selected' : ''}>Grow (default) — tile grows vertically to the widget's height</option>
+              <option value="scroll" ${widget?.tileFit === 'scroll' ? 'selected' : ''}>Scroll — cap tile height, scroll the overflow</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       <div style="display: flex; gap: var(--space-2); justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: var(--space-3);">

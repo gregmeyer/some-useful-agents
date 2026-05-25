@@ -181,6 +181,24 @@ export {
   type PlanCriticContext,
 } from './build-plan-critic.js';
 export {
+  extractImageUrls,
+  findDeadImageUrls,
+  checkPlanImageUrls,
+  defaultCheckImageUrl,
+  formatDeadImageFeedback,
+  formatImageCheckFeedback,
+  type CheckUrlFn,
+  type DeadImageUrl,
+  type ImageCheckAgentResult,
+  type ImageCheckResult,
+} from './build-plan-image-check.js';
+export {
+  extractImgTagHosts,
+  unallowedWidgetImageHosts,
+  formatBlockedImageError,
+  type WidgetImageHostInput,
+} from './widget-image-hosts.js';
+export {
   PlannerLoopRunner,
   type PlannerLoopRunnerDeps,
   autofixPlanYamls,

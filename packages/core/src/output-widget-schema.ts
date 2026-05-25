@@ -161,6 +161,13 @@ export const outputWidgetSchema = z.object({
    * named views. State is URL-driven (no client JS) so refresh = default view.
    */
   controls: z.array(widgetControlSchema).optional(),
+  /**
+   * Tile HEIGHT behavior when the widget is taller than its Pulse/dashboard
+   * slot (width is always the dashboard-defined column). Tiles only — the full
+   * run/agent view always renders at natural height. `grow` (default) grows the
+   * tile vertically; `scroll` caps + scrolls. Unset = grow.
+   */
+  tileFit: z.enum(['grow', 'scroll']).optional(),
 }).superRefine((schema, ctx) => {
   if (schema.type === 'ai-template') {
     if (!schema.template || schema.template.trim() === '') {

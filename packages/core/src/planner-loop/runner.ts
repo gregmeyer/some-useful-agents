@@ -1,4 +1,5 @@
 import { formatCriticFeedback, type PlanCriticError } from '../build-plan-critic.js';
+import { checkPlanImageUrls, formatImageCheckFeedback, type CheckUrlFn, type ImageCheckResult } from '../build-plan-image-check.js';
 import type { BuildPlan } from '../build-plan-schema.js';
 import type { PlannerTelemetryStore } from '../planner-telemetry-store.js';
 import { formatSmokeFeedback, smokeRunNewAgents, type SmokeRunContext, type SmokeRunResult } from './eval-smoke-run.js';
@@ -13,10 +14,11 @@ import type { LoopOutcome, LoopStepRecord } from './types.js';
  * The planner prompt is already trained to handle critic feedback, so
  * smoke feedback follows the same prefix-line convention.
  */
-function combinedFeedback(criticErrors: PlanCriticError[], smoke: SmokeRunResult): string {
+function combinedFeedback(criticErrors: PlanCriticError[], smoke: SmokeRunResult, imageCheck?: ImageCheckResult): string {
   const parts: string[] = [];
   if (criticErrors.length > 0) parts.push(formatCriticFeedback(criticErrors));
   if (!smoke.ok) parts.push(formatSmokeFeedback(smoke));
+  if (imageCheck && !imageCheck.ok) parts.push(formatImageCheckFeedback(imageCheck));
   return parts.join('\n\n');
 }
 
@@ -53,6 +55,16 @@ export interface PlannerLoopRunnerDeps {
    * the smoke eval skips its tool-id check.
    */
   loadKnownToolIds?: () => Set<string>;
+  /**
+   * Per-URL image-link checker. When supplied, the evaluate phase extracts
+   * every hardcoded http(s) image URL from each newAgent and HEAD-checks it;
+   * dead links (404/410) become retry feedback so the planner fixes the
+   * source instead of committing an agent that renders broken images.
+   * Returns the HTTP status or `null` on a network/timeout error (treated as
+   * inconclusive, never as dead). Optional — omitting it skips the check, so
+   * tests and offline builds stay deterministic and network-free.
+   */
+  checkImageUrl?: CheckUrlFn;
   /**
    * Cross-run planner memory (PR 3). When supplied, the runner's compose
    * step re-retrieves similar prior plans for the retry — now that the
@@ -160,8 +172,29 @@ export class PlannerLoopRunner {
       });
     } catch { /* swallow */ }
 
+    // Image-link check: HEAD every hardcoded image URL baked into a newAgent
+    // and flag dead ones (404/410). Drafter LLMs hand-write asset URLs that
+    // pass the CSP host check but 404 at render time; this catches them before
+    // commit. Skipped entirely when no checker dep was supplied (tests/offline).
+    let imageCheck: ImageCheckResult | undefined;
+    if (this.deps.checkImageUrl) {
+      const imgStart = Date.now();
+      imageCheck = await checkPlanImageUrls(plan, { checkUrl: this.deps.checkImageUrl });
+      const deadCount = imageCheck.perAgent.reduce((n, a) => n + a.dead.length, 0);
+      steps.push(step({
+        phase: 'evaluate',
+        primitive: 'checkPlanImageUrls',
+        runId: input.runId,
+        ok: imageCheck.ok,
+        summary: imageCheck.ok
+          ? 'image links ok'
+          : `${deadCount} dead image link(s) across ${imageCheck.perAgent.length} newAgent(s)`,
+        tookMs: Date.now() - imgStart,
+      }));
+    }
+
     // ── reflect (decide) ─────────────────────────────────────────────
-    const evalOk = critic.ok && smoke.ok;
+    const evalOk = critic.ok && smoke.ok && (imageCheck?.ok ?? true);
     const rootRunId = this.deps.telemetryStore?.resolveOriginalRunId(input.runId) ?? input.runId;
     const rootRow = this.deps.telemetryStore?.get(rootRunId) ?? null;
     const attemptsSoFar = rootRow?.planAttempts ?? 1;
@@ -181,7 +214,7 @@ export class PlannerLoopRunner {
     if (decision.kind === 'retry') {
       try { this.deps.telemetryStore?.incrementAttempts(input.runId); } catch { /* swallow */ }
       const goal = rootRow?.goal ?? '';
-      const feedback = combinedFeedback(critic.errors, smoke);
+      const feedback = combinedFeedback(critic.errors, smoke, imageCheck);
 
       // understand: pull prior committed plans for the *now-known* intent
       // and inject them on the retry. Skipped silently when memory store
@@ -227,6 +260,7 @@ export class PlannerLoopRunner {
           plan,
           criticErrors: critic.errors,
           smoke,
+          imageCheck,
           criticWarning: 'Plan has unresolved structural issues; retry could not be started. You can commit anyway or dismiss.',
           steps,
         };
@@ -237,6 +271,7 @@ export class PlannerLoopRunner {
         attempt: attemptsSoFar + 1,
         criticErrors: critic.errors,
         smoke,
+        imageCheck,
         phase: `Refining plan (attempt ${attemptsSoFar + 1})...`,
         steps,
       };
@@ -253,6 +288,7 @@ export class PlannerLoopRunner {
       plan,
       criticErrors: critic.errors,
       smoke,
+      imageCheck,
       criticWarning: `Planner could not produce a clean plan after ${attemptsSoFar} attempts. Review the issues below and either fix the YAML inline or commit anyway.`,
       steps,
     };

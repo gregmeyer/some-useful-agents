@@ -1,4 +1,5 @@
 import type { Agent, NodeExecutionRecord, Run } from '@some-useful-agents/core';
+import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
@@ -30,6 +31,41 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   const pollAttr = inProgress ? unsafeHtml(` data-run-in-progress="${run.id}"`) : unsafeHtml('');
 
   const isDagRun = run.workflowId && nodeExecutions && agent;
+
+  // Image hosts the widget would render that aren't in permissions.imgSrc.
+  // When non-empty, the executor failed the run for exactly this reason. We
+  // hide the widget here so the blocked <img> never renders (and never
+  // re-fires the CSP violation the poll would otherwise spam), and render a
+  // server-side one-click "Allow" form per host. Server-rendered (not the
+  // client CSP banner) so it works even though the hidden widget fires no
+  // violation — the failed run already knows the exact hosts.
+  const blockedImageHosts = agent
+    ? unallowedWidgetImageHosts({
+        outputWidget: agent.outputWidget,
+        permissions: agent.permissions,
+        result: run.result,
+      })
+    : [];
+  const widgetBlocked = blockedImageHosts.length > 0;
+  const allowForms = blockedImageHosts.map((host) => html`
+    <form method="POST" action="/agents/${run.agentName}/permissions/allow-host" style="display: inline; margin: 0;">
+      <input type="hidden" name="host" value="${host}">
+      <input type="hidden" name="redirect" value="/runs/${run.id}">
+      <button type="submit" class="btn btn--sm btn--primary">Allow ${host}</button>
+    </form>
+  `);
+  const widgetHiddenNotice = html`
+    <div class="flash flash--error">
+      <div style="font-size: var(--font-size-xs); margin-bottom: var(--space-2);">
+        Output widget hidden — it references ${String(blockedImageHosts.length)} image host${blockedImageHosts.length === 1 ? '' : 's'}
+        not allowed by the page security policy. Allow ${blockedImageHosts.length === 1 ? 'it' : 'them'}
+        (adds to the agent's <code>permissions.imgSrc</code> as a new version), then <strong>Retry run</strong>.
+      </div>
+      <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+        ${allowForms as unknown as SafeHtml[]}
+      </div>
+    </div>
+  `;
 
   const replayedFrom = run.replayedFromRunId ? html`
     <dt>Replayed from</dt>
@@ -110,12 +146,17 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     ? html`<span class="badge badge--muted" title="This run is a retry of an earlier attempt">attempt ${String(run.attempt)}</span>`
     : html``;
 
+  // The live poll reconciles by `data-poll-region`, replacing only changed
+  // regions instead of nuking the whole container — so the DAG canvas, focused
+  // inputs, the node filter, and scroll position survive an update. The status
+  // badge is wrapped identically in both header shapes so the poll can swap it
+  // in place regardless of full-page vs partial chrome.
+  const statusRegion = html`<span data-poll-region="status">${statusBadge(run.status)} ${cancelButton}</span>`;
   const header = partial
-    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusBadge(run.status)} ${attemptBadge} ${cancelButton}</h1>`
+    ? html`<h1>Run <span class="mono">${run.id.slice(0, 8)}</span> ${statusRegion} ${attemptBadge}</h1>`
     : pageHeader({
         title: `Run ${run.id.slice(0, 8)}`,
-        meta: [statusBadge(run.status), attemptBadge],
-        cta: cancelButton,
+        meta: [statusRegion, attemptBadge],
         back,
       });
 
@@ -126,7 +167,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     <div data-run-container${pollAttr}${cspAttr}>
       ${header}
 
-      <div class="card" style="margin-bottom: var(--space-6);">
+      <div class="card" data-poll-region="meta" style="margin-bottom: var(--space-6);">
         <dl class="kv">
           <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
           <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
@@ -139,7 +180,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         </dl>
       </div>
 
-      ${run.error ? html`
+      <div data-poll-region="error">${run.error ? html`
         <h2>Error</h2>
         <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
           <span>${run.error}</span>
@@ -153,21 +194,23 @@ export function renderRunDetail(opts: RunDetailOptions): string {
               class="btn btn--sm btn--ghost">Suggest improvements</a>
           </span>
         </div>
-      ` : html``}
+      ` : html``}</div>
 
       ${isDagRun ? html`
         <!-- Top: DAG + Result side-by-side, sticky while node logs scroll. -->
         <div class="run-detail-grid run-detail-grid--sticky">
-          <div class="run-detail-grid__dag">
+          <div class="run-detail-grid__dag" data-poll-region="dag" data-poll-preserve>
             ${dagSection}
             ${canReplay ? renderReplayFallback(run, agent!) : html``}
           </div>
-          <div class="run-detail-grid__result">
+          <div class="run-detail-grid__result" data-poll-region="result">
             <h2 style="margin-top: 0;">Result</h2>
             ${!inProgress && run.result
-              ? (agent?.outputWidget
-                  ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result)
-                  : outputFrame(run.result))
+              ? (widgetBlocked
+                  ? widgetHiddenNotice
+                  : agent?.outputWidget
+                    ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result)
+                    : outputFrame(run.result))
               : inProgress
                 ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
                 : html`<p class="dim" style="font-size: var(--font-size-xs);">No output yet.</p>`}
@@ -189,13 +232,15 @@ export function renderRunDetail(opts: RunDetailOptions): string {
               <option value="skipped">Skipped</option>
             </select>
           </div>
-          ${renderNodeCards(nodeExecutions!, run.id, canReplay)}
+          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay)}</div>
         </section>
       ` : html`
         <h2>Output</h2>
-        ${run.result
-          ? (agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result) : outputFrame(run.result))
-          : html`<p class="dim">No output yet.</p>`}
+        <div data-poll-region="result">${run.result
+          ? (widgetBlocked
+              ? widgetHiddenNotice
+              : agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result) : outputFrame(run.result))
+          : html`<p class="dim">No output yet.</p>`}</div>
       `}
       ${cancelModal}
     </div>

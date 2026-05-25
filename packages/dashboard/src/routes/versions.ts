@@ -415,9 +415,20 @@ versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Re
   const body = (req.body ?? {}) as Record<string, unknown>;
   const raw = typeof body.host === 'string' ? body.host : '';
 
+  // Two callers: the client banner's `fetch` (wants JSON) and the
+  // server-rendered Allow form on a failed run (a plain POST that needs a
+  // redirect back). When the form supplies a same-origin `redirect` path we
+  // answer with a 303; otherwise we keep the JSON contract. Only `/`-relative
+  // paths are honoured (no open redirect).
+  const redirectTo = typeof body.redirect === 'string' && body.redirect.startsWith('/') ? body.redirect : null;
+  const fail = (status: number, error: string): void => {
+    if (redirectTo) { res.redirect(303, redirectTo); return; }
+    res.status(status).json({ ok: false, error });
+  };
+
   const agent = ctx.agentStore.getAgent(id);
   if (!agent) {
-    res.status(404).json({ ok: false, error: 'Agent not found.' });
+    fail(404, 'Agent not found.');
     return;
   }
 
@@ -426,12 +437,13 @@ versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Re
   const host = raw.trim().toLowerCase()
     .replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
   if (!host || !IMG_SRC_HOST_RE.test(host)) {
-    res.status(400).json({ ok: false, error: `Invalid host: ${raw || '(empty)'}` });
+    fail(400, `Invalid host: ${raw || '(empty)'}`);
     return;
   }
 
   const current = agent.permissions?.imgSrc ?? [];
   if (current.includes(host)) {
+    if (redirectTo) { res.redirect(303, redirectTo); return; }
     res.json({ ok: true, host, imgSrc: current, unchanged: true });
     return;
   }
@@ -439,8 +451,9 @@ versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Re
   try {
     const updated = { ...agent, permissions: { ...agent.permissions, imgSrc } };
     ctx.agentStore.upsertAgent(updated, 'dashboard', `Allowed img-src host ${host}`);
+    if (redirectTo) { res.redirect(303, redirectTo); return; }
     res.json({ ok: true, host, imgSrc });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    fail(500, err instanceof Error ? err.message : String(err));
   }
 });

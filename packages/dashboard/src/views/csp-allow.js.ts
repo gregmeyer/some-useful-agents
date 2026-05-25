@@ -42,9 +42,19 @@ export const CSP_ALLOW_JS = `
       banner = document.createElement('div');
       banner.className = 'flash flash--info';
       banner.style.cssText = 'margin: var(--space-3) 0; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;';
-      // Mount just above the run container so it's visible near the result.
-      var anchor = document.querySelector('[data-run-container]') || document.body;
-      anchor.insertBefore(banner, anchor.firstChild);
+      // Mount just ABOVE the run container, as a sibling in its stable parent
+      // — NOT inside it. The run-detail auto-poll replaces the entire
+      // [data-run-container] every ~2s (replaceWith); a banner mounted inside
+      // would be destroyed on the first poll, and the violation listener's
+      // host-dedupe (blockedHosts) then suppresses re-rendering — so the Allow
+      // button would vanish mid-run and never return. Mounting outside the
+      // swapped subtree keeps it alive across polls.
+      var container = document.querySelector('[data-run-container]');
+      if (container && container.parentNode) {
+        container.parentNode.insertBefore(banner, container);
+      } else {
+        document.body.insertBefore(banner, document.body.firstChild);
+      }
     }
     var chips = hosts.map(function (h) {
       return '<code style="font-size:var(--font-size-xs);background:var(--color-surface-raised);padding:0 var(--space-1);border-radius:var(--radius-sm);">' + esc(h) + '</code>';
@@ -104,7 +114,16 @@ export const CSP_ALLOW_JS = `
     var host = hostFromUri(e.blockedURI);
     if (!host || blockedHosts[host]) return;
     blockedHosts[host] = true;
+    // Signal the run-detail auto-poll to pause — re-rendering won't help until
+    // the host is allowed (a reload), and continuing would re-fire this
+    // violation on every 2s refresh (the "recursive content fail" spam).
+    window.__suaCspPaused = true;
     renderBanner();
   });
+
+  // NOTE: when a run is *failed* because its widget references blocked image
+  // hosts, the widget is hidden server-side (so no violation fires here) and
+  // the run-detail view renders its own one-click "Allow host" form. This
+  // listener handles only live violations on rendered widgets (residual cases).
 })();
 `;

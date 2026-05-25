@@ -458,6 +458,11 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     ? parsedActions
     : actionsEdited ? [] : prevActions;
 
+  // Tile fit: how the widget tile's height behaves when taller than its slot.
+  // `grow` is the default, so only persist `scroll` to keep the YAML clean.
+  const tileFit: 'grow' | 'scroll' = body.widget_tileFit === 'scroll' ? 'scroll' : 'grow';
+  const tileFitField = tileFit !== 'grow' ? { tileFit } : {};
+
   let outputWidget: OutputWidgetSchema;
   if (widgetType === 'ai-template') {
     const rawTemplate = typeof body.template === 'string' ? body.template : '';
@@ -478,6 +483,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && replayLabel ? { replayLabel } : {}),
       ...(controls?.length ? { controls } : {}),
       ...(actions?.length ? { actions } : {}),
+      ...tileFitField,
     };
   } else {
     // Typed widgets (dashboard / key-value / diff-apply / raw) are
@@ -511,6 +517,7 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
       ...(interactive && replayLabel ? { replayLabel } : {}),
       ...(controls?.length ? { controls } : {}),
       ...(actions?.length ? { actions } : {}),
+      ...tileFitField,
     };
   }
 

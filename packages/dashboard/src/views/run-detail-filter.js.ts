@@ -42,5 +42,10 @@ export const RUN_DETAIL_FILTER_JS = `
 
     if (searchInput) searchInput.addEventListener('input', filterNodes);
     if (statusSelect) statusSelect.addEventListener('change', filterNodes);
+
+    // The search/select controls live OUTSIDE the swapped node-cards region, so
+    // these listeners survive a live poll. Expose the filter so the poll can
+    // re-apply the active query/status to freshly-swapped cards.
+    window.__suaApplyNodeFilter = filterNodes;
   })();
 `;

@@ -94,6 +94,16 @@ export interface OutputWidgetSchema {
    * named views. State is URL-driven (no client JS).
    */
   controls?: WidgetControl[];
+  /**
+   * How the widget tile's HEIGHT behaves on a Pulse/dashboard when its content
+   * is taller than the slot. Width is always the dashboard-defined grid column.
+   * Only affects tiles — the full run/agent view always renders at natural
+   * height.
+   *   - `grow` (default): the tile grows vertically to the widget's height — no
+   *     scroll, fully readable; the grid row sizes to it.
+   *   - `scroll`: cap the tile height and scroll the overflow.
+   */
+  tileFit?: 'grow' | 'scroll';
 }
 
 /** A named subset of widget fields used by `view-switch` controls. */

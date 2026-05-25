@@ -1,4 +1,5 @@
 import type { BuildPlan, PlanCriticError } from '../index.js';
+import type { ImageCheckResult } from '../build-plan-image-check.js';
 import type { SmokeRunResult } from './eval-smoke-run.js';
 
 /**
@@ -41,6 +42,7 @@ export type LoopOutcome =
       criticErrors?: PlanCriticError[];
       criticWarning?: string;
       smoke?: SmokeRunResult;
+      imageCheck?: ImageCheckResult;
       steps: LoopStepRecord[];
     }
   | {
@@ -55,6 +57,7 @@ export type LoopOutcome =
       attempt: number;
       criticErrors: PlanCriticError[];
       smoke?: SmokeRunResult;
+      imageCheck?: ImageCheckResult;
       phase: string;
       steps: LoopStepRecord[];
     };

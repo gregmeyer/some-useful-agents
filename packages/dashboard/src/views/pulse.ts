@@ -53,8 +53,15 @@ export function tileWrap(
   // visible bottom edge. The `pulse-tile__body` wrapper is the same
   // class the home widgets already use; the CSS lets it `flex: 1` and
   // own the overflow.
+  // Tile fit: how a widget taller than its slot behaves. Width is always the
+  // dashboard-defined grid column; tileFit only controls height.
+  //   `grow` (default) — the tile grows vertically to the widget's height.
+  //   `scroll` — cap the tile height and scroll the overflow.
+  const fit = tile.agent.outputWidget ? (tile.agent.outputWidget.tileFit ?? 'grow') : null;
+  const fitClass = fit ? ` pulse-tile--fit-${fit}` : '';
+
   return unsafeHtml(
-    `<div class="pulse-tile ${sizeClass(sizeAttr)}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
+    `<div class="pulse-tile ${sizeClass(sizeAttr)}${fitClass}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
     tileHeader(tile, isSystem, ctx).toString() +
     `<div class="pulse-tile__body">` +
     content.toString() +

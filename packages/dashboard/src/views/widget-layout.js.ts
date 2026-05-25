@@ -735,9 +735,22 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
         var s = sizes[id];
         if (s) {
           allT[i].style.gridColumn = 'span ' + (s.cols || 1);
-          allT[i].style.gridRow = 'span ' + (s.rows || 1);
           // Remove preset size classes — inline style takes over.
           allT[i].classList.remove('pulse-tile--2x1', 'pulse-tile--1x2', 'pulse-tile--2x2');
+          // Height: an explicit dragged height pins the tile and scrolls any
+          // overflow (so dragging it shorter than the widget = scroll). With no
+          // explicit height the tile keeps growing to its content. Width stays
+          // the dashboard-defined column span above.
+          if (s.h) {
+            allT[i].style.height = s.h + 'px';
+            allT[i].style.maxHeight = s.h + 'px';
+            allT[i].classList.add('pulse-tile--fixed-h');
+            var b = allT[i].querySelector('.pulse-tile__body');
+            if (b) b.style.overflowY = 'auto';   // scroll content taller than the set height
+          } else if (s.rows) {
+            // Legacy {cols,rows} entries — keep the row span for back-compat.
+            allT[i].style.gridRow = 'span ' + s.rows;
+          }
         }
       }
     }
@@ -767,22 +780,25 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
 
       var tileRect = tile.getBoundingClientRect();
       var currentCols = Math.round(tileRect.width / (gridCellW + gap)) || 1;
-      var currentRows = Math.max(1, Math.round(tileRect.height / (gridCellH + gap)));
 
       tile.classList.add('pulse-tile--resizing');
 
       resizing = {
         tile: tile,
+        body: tile.querySelector('.pulse-tile__body'),
         agentId: tile.getAttribute('data-agent-id'),
         startX: e.clientX,
         startY: e.clientY,
         startCols: currentCols,
-        startRows: currentRows,
+        startHeight: tileRect.height,
         gridCellW: gridCellW,
-        gridCellH: gridCellH,
         gap: gap
       };
     });
+
+    // Vertical snap unit — the "grid height". Shorter than a full grid cell so
+    // height can be tuned finely. Width still snaps to dashboard columns.
+    var ROW_UNIT = 80;
 
     document.addEventListener('mousemove', function(e) {
       if (!resizing) return;
@@ -792,12 +808,16 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       var dy = e.clientY - resizing.startY;
 
       var newCols = Math.max(1, Math.min(4, resizing.startCols + Math.round(dx / (resizing.gridCellW + resizing.gap))));
-      var newRows = Math.max(1, Math.min(4, resizing.startRows + Math.round(dy / (resizing.gridCellH + resizing.gap))));
+      // Height snaps to the nearest ROW_UNIT; min one unit.
+      var newH = Math.max(ROW_UNIT, Math.round((resizing.startHeight + dy) / ROW_UNIT) * ROW_UNIT);
 
       resizing.tile.style.gridColumn = 'span ' + newCols;
-      resizing.tile.style.gridRow = 'span ' + newRows;
+      resizing.tile.style.gridRow = '';
+      resizing.tile.style.height = newH + 'px';
+      resizing.tile.style.maxHeight = newH + 'px';
+      if (resizing.body) resizing.body.style.overflowY = 'auto';
       resizing.newCols = newCols;
-      resizing.newRows = newRows;
+      resizing.newH = newH;
     });
 
     document.addEventListener('mouseup', function() {
@@ -807,15 +827,17 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       resizing.tile.classList.remove('pulse-tile--2x1', 'pulse-tile--1x2', 'pulse-tile--2x2');
 
       var newCols = resizing.newCols || resizing.startCols;
-      var newRows = resizing.newRows || resizing.startRows;
+      var newH = resizing.newH || 0;
 
       var sizes = getSizes();
-      if (newCols === 1 && newRows === 1) {
+      if (newCols === 1 && !newH) {
         delete sizes[resizing.agentId];
         resizing.tile.style.gridColumn = '';
-        resizing.tile.style.gridRow = '';
+        resizing.tile.style.height = '';
+        resizing.tile.style.maxHeight = '';
       } else {
-        sizes[resizing.agentId] = { cols: newCols, rows: newRows };
+        sizes[resizing.agentId] = { cols: newCols };
+        if (newH) { sizes[resizing.agentId].h = newH; resizing.tile.classList.add('pulse-tile--fixed-h'); }
       }
       saveSizes(sizes);
       resizing = null;

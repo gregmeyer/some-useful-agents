@@ -71,6 +71,14 @@ saved. Current checks include:
   template grammar only resolves one level, so nested paths render blank.
 - **img-src hosts** — external `<img>` hosts must be declared in
   `permissions.imgSrc`; the critic prompts to allow the host.
+- **dead image links** — every hardcoded `http(s)` image URL baked into an agent
+  (in a shell command or an ai-template) is HEAD-checked
+  (`build-plan-image-check.ts`). URLs returning HTTP 404/410 are fed back to the
+  drafter for a retry — a host can be allowlisted *and* still 404 because the LLM
+  hallucinated the path. Inconclusive results (network error, 403, 429, 5xx) are
+  never flagged, and template placeholders (`{{outputs.image_url}}`) and data
+  URIs are skipped. This check makes outbound requests, so it's a no-op when the
+  planner runs without the `checkImageUrl` dependency (e.g. tests, offline).
 - **signal.template = widget** — an agent that declares an `outputWidget` must use
   `signal.template: widget` so its Pulse tile mirrors the widget. A mismatch
   (e.g. `text-image`) produces a broken tile, so the critic flags it.
