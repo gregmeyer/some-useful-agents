@@ -186,6 +186,55 @@ describe('executeAgentDag — single node', () => {
   });
 });
 
+describe('executeAgentDag — widget image-host guard', () => {
+  const tmpl = '<div><img src="{{outputs.image_url}}" alt="x"></div>';
+
+  it('fails a completed run whose ai-template image host is not allowlisted', async () => {
+    const agent = makeAgent({
+      outputWidget: { type: 'ai-template', template: tmpl },
+      permissions: { imgSrc: ['allowed.example'] },
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: JSON.stringify({ image_url: 'https://blocked.example/p.jpg' }) } }) },
+    );
+    expect(run.status).toBe('failed');
+    expect(run.error).toMatch(/blocked\.example/);
+    expect(run.error).toMatch(/permissions\.imgSrc/);
+    // Result is still persisted so the dashboard can offer one-click "Allow".
+    expect(run.result).toContain('blocked.example');
+  });
+
+  it('keeps a run completed when the image host IS allowlisted', async () => {
+    const agent = makeAgent({
+      outputWidget: { type: 'ai-template', template: tmpl },
+      permissions: { imgSrc: ['ok.example'] },
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: JSON.stringify({ image_url: 'https://ok.example/p.jpg' }) } }) },
+    );
+    expect(run.status).toBe('completed');
+    expect(run.error).toBeFalsy();
+  });
+
+  it('does not second-guess a run that already failed at a node', async () => {
+    const agent = makeAgent({
+      outputWidget: { type: 'ai-template', template: tmpl },
+      permissions: { imgSrc: [] },
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 2, error: 'boom' } }) },
+    );
+    expect(run.status).toBe('failed');
+    expect(run.error).toContain('exit_nonzero'); // node failure wins, not the image guard
+  });
+});
+
 describe('executeAgentDag — multi-node DAG', () => {
   const threeNodeAgent: Agent = {
     id: 'news', name: 'News', status: 'active', source: 'local', mcp: false, version: 1,

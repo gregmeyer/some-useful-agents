@@ -39,6 +39,7 @@ import { substituteInputs } from './input-resolver.js';
 import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
+import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
@@ -938,14 +939,33 @@ export async function executeAgentDag(
     }
   }
 
-  const finalStatus: RunStatus = firstFailure ? 'failed' : 'completed';
+  let finalStatus: RunStatus = firstFailure ? 'failed' : 'completed';
   // Final result = last completed node's output. Keeps `sua agent status`
   // readable for single-node agents where "the run's result" is obvious,
   // and gives multi-node agents a meaningful summary string.
   const lastCompleted = [...outputs.values()].pop();
-  const finalError = firstFailure
+  let finalError = firstFailure
     ? `Failed at node "${firstFailure.nodeId}" (${firstFailure.category})`
     : undefined;
+
+  // Root-cause guard for CSP-blocked widget images: an agent whose ai-template
+  // widget renders an image from a host not in permissions.imgSrc produces
+  // output the browser will refuse to render (and the run-detail poll re-fires
+  // the violation on every refresh). Fail the run here with an actionable
+  // error instead of shipping un-renderable output. Result is still persisted
+  // so the dashboard can name the blocked host(s) and offer one-click "Allow".
+  if (finalStatus === 'completed') {
+    const blockedHosts = unallowedWidgetImageHosts({
+      outputWidget: agent.outputWidget,
+      permissions: agent.permissions,
+      result: lastCompleted?.result,
+    });
+    if (blockedHosts.length > 0) {
+      finalStatus = 'failed';
+      finalError = formatBlockedImageError(blockedHosts);
+    }
+  }
+
   deps.runStore.updateRun(runId, {
     status: finalStatus,
     completedAt: new Date().toISOString(),
