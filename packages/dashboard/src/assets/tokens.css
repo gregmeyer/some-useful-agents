@@ -81,8 +81,8 @@
   --shadow-focus: 0 0 0 3px rgba(45, 212, 191, 0.25);
 
   /* Layout */
-  --content-max: 1200px;
-  --content-max-wide: 1400px;
+  --content-max: 1600px;
+  --content-max-wide: 1760px;
   --topbar-height: 3rem;
   --breakpoint-md: 900px;
 }

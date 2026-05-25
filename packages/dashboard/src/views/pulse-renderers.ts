@@ -325,6 +325,15 @@ function renderFunnel(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  // An INTERACTIVE outputWidget is a tile-level mini-app (inputs form + run
+  // button) and renders without a prior run, so it must own the tile even when
+  // signal.template wasn't set to 'widget'. Pulse dispatches on signal.template,
+  // so an interactive-widget agent with e.g. signal.template: 'text-headline'
+  // would otherwise fall through to a slot template and render empty on first
+  // view — the mismatch build-plan-critic warns about. (Non-interactive widgets
+  // are left to signal.template so a compact metric/status tile paired with a
+  // richer widget, e.g. churn-watcher, keeps its intended compact tile.)
+  if (tile.agent.outputWidget?.interactive) return renderWidgetTile(tile, wrap);
   const { template } = normalizeSignal(tile.signal);
   switch (template as SignalTemplate) {
     case 'metric': return renderMetric(tile, wrap);
