@@ -319,6 +319,19 @@ export interface Agent {
   stateMaxBytes?: number;
 
   /**
+   * Agent-level wall-clock ceiling in seconds. When the run exceeds this
+   * the executor aborts the in-flight node (SIGTERM, then SIGKILL after 5s)
+   * and marks remaining nodes as cancelled with category `cancelled`.
+   * Independent of per-node `timeout` — covers the "10 nodes at 60s each
+   * legitimately runs 10 minutes" gap that per-node timeouts can't see.
+   *
+   * Unset = no agent-level ceiling (existing behavior). Set to 0 to disable
+   * explicitly. Authors typically pick something like 2-3× expected runtime
+   * (e.g. layout-planner normally runs ~20s → set 60 as the safety net).
+   */
+  timeoutSec?: number;
+
+  /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
    * Content-Security-Policy on each request. Currently only `imgSrc` is
    * honored — declared hosts (e.g. "images.unsplash.com" or "*.unsplash.com")
@@ -576,6 +589,22 @@ export interface NodeExecutionRecord {
    * state by X bytes."
    */
   stateBytesAfter?: number;
+  /**
+   * PR C (orphan-kill): OS process id of the child spawned for this node.
+   * Set the moment `child_process.spawn()` returns (before any pipe wiring)
+   * so a dashboard restart can SIGKILL the orphan instead of just closing
+   * the state row. NULL on non-spawning paths (MCP, built-in tools, replay-
+   * copied prior outputs). PID is OS-scoped, not portable across machines.
+   */
+  childPid?: number;
+  /**
+   * Wall-clock ms-since-epoch when the child was spawned. Paired with
+   * `childPid` to defend against PID reuse: before killing, the reaper
+   * ps-cross-checks the running process's actual start time against this
+   * value and skips the kill if they've drifted apart (the original child
+   * died, PID got reassigned to something unrelated).
+   */
+  childStartedAtMs?: number;
 }
 
 /**
