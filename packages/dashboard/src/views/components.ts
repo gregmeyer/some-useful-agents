@@ -27,8 +27,20 @@ export function sourceBadge(source: string): SafeHtml {
   return html`<span class="badge ${kind}">${source}</span>`;
 }
 
+/**
+ * Strip a single enclosing Markdown code fence. LLM nodes routinely wrap their
+ * whole output in ```json … ``` (or ```), which renders as literal backticks in
+ * the stdout frame. When the entire (trimmed) text is one fenced block, return
+ * its inner content; otherwise leave the text untouched.
+ */
+export function stripEnclosingCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const match = /^```[a-zA-Z0-9_-]*\n([\s\S]*?)\n?```$/.exec(trimmed);
+  return match ? match[1] : text;
+}
+
 export function outputFrame(text: string): SafeHtml {
-  return html`<div class="output-frame">${text}</div>`;
+  return html`<div class="output-frame">${stripEnclosingCodeFence(text)}</div>`;
 }
 
 export function kv(key: string, value: SafeHtml | string): SafeHtml {
@@ -71,8 +83,10 @@ const EXIT_CODE_LABELS: Record<number, string> = {
   143: 'terminated (SIGTERM)',
 };
 
-export function formatExitCode(code: number | undefined): string {
-  if (code === undefined) return '';
+export function formatExitCode(code: number | null | undefined): string {
+  // DAG/multi-node runs (and some legacy v1 runs) have no run-level exit code —
+  // the store returns null, which must render as "no exit code", not "exit null".
+  if (code == null) return '';
   const label = EXIT_CODE_LABELS[code];
   if (code >= 129 && code <= 165 && !label) {
     const signal = code - 128;

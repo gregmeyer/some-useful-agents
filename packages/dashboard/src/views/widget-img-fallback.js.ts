@@ -47,6 +47,9 @@ export const WIDGET_IMG_FALLBACK_JS = `
     img.removeAttribute('srcset');
     img.src = PLACEHOLDER;
     img.style.objectFit = 'contain';
+    // Keep the broken-image state compact: a tall hero <img> shouldn't leave a
+    // giant placeholder box. Cap the height; the SVG stays centered via contain.
+    img.style.maxHeight = '200px';
     img.title = failed ? ('Image failed to load: ' + failed) : 'Image failed to load';
   }, true);
 })();
