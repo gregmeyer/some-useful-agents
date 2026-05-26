@@ -7,7 +7,7 @@
  * pulse-renderers.ts.
  */
 
-import type { Agent, AgentSignal, Run, RunStore } from '@some-useful-agents/core';
+import type { Agent, AgentSignal, LayoutHintsStore, Run, RunStore } from '@some-useful-agents/core';
 import type { PulseTile } from './pulse-types.js';
 import { normalizeSignal, extractMappedValues } from './pulse-templates.js';
 
@@ -72,4 +72,33 @@ export function buildPulseTile(
   outputFields.push(...Array.from(fieldSet).sort());
 
   return { agent, signal, lastRun, slots, outputFields, previousInputs };
+}
+
+/**
+ * Attach layout hints to a list of already-built tiles in one batch
+ * lookup. Tiles whose agent has no hint row are left untouched (the
+ * renderer falls back to signal.size / outputWidget.tileFit). System
+ * tiles (leading-underscore ids) are skipped — they're synthetic and
+ * never have hints. Failures are swallowed: rendering must not break
+ * because the hints table is unavailable.
+ */
+export function attachLayoutHints(
+  tiles: PulseTile[],
+  store: LayoutHintsStore | undefined,
+): void {
+  if (!store || tiles.length === 0) return;
+  const ids = tiles
+    .map((t) => t.agent.id)
+    .filter((id) => id && !id.startsWith('_'));
+  if (ids.length === 0) return;
+  let hints: Map<string, import('@some-useful-agents/core').LayoutHint>;
+  try {
+    hints = store.getHintsFor(ids);
+  } catch {
+    return;
+  }
+  for (const tile of tiles) {
+    const hint = hints.get(tile.agent.id);
+    if (hint) tile.layoutHint = hint;
+  }
 }

@@ -350,6 +350,7 @@ pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Resp
   const ctx = getContext(req.app.locals);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const containersRaw = Array.isArray(body.containers) ? body.containers : [];
+  const topAgentsRaw = Array.isArray(body.topAgents) ? body.topAgents : [];
 
   const surfacedIds = new Set<string>();
   for (const c of containersRaw) {
@@ -365,6 +366,7 @@ pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Resp
 
   let agents: Agent[];
   try { agents = ctx.agentStore.listAgents(); } catch { agents = []; }
+  const installedIds = new Set(agents.map((a) => a.id));
 
   for (const agent of agents) {
     // Agents without a signal can never render on Pulse — nothing to do.
@@ -390,5 +392,36 @@ pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Resp
     }
   }
 
-  res.json({ ok: true, hidden, unhidden });
+  // Persist the planner's per-agent layout hints into LayoutHintsStore.
+  // Each topAgents entry may carry suggestedSize / suggestedTileFit /
+  // suggestedHeight. Unknown ids (not in the agent store, or system
+  // tiles) are skipped. The store's setHint is patch-style: undefined
+  // fields are left untouched, so re-running Improve layout only
+  // overwrites what the planner actually emitted this time.
+  const hintsWritten: string[] = [];
+  if (ctx.layoutHintsStore) {
+    for (const entry of topAgentsRaw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      const id = typeof e.id === 'string' ? e.id : '';
+      if (!id || id.startsWith('_') || !installedIds.has(id)) continue;
+      const patch: { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number } = {};
+      if (typeof e.suggestedSize === 'string' && (e.suggestedSize === '1x1' || e.suggestedSize === '2x1' || e.suggestedSize === '1x2' || e.suggestedSize === '2x2')) {
+        patch.size = e.suggestedSize;
+      }
+      if (typeof e.suggestedTileFit === 'string' && (e.suggestedTileFit === 'grow' || e.suggestedTileFit === 'scroll')) {
+        patch.tileFit = e.suggestedTileFit;
+      }
+      if (typeof e.suggestedHeight === 'number' && Number.isInteger(e.suggestedHeight) && e.suggestedHeight >= 80 && e.suggestedHeight <= 1200) {
+        patch.height = e.suggestedHeight;
+      }
+      if (Object.keys(patch).length === 0) continue;
+      try {
+        ctx.layoutHintsStore.setHint(id, patch);
+        hintsWritten.push(id);
+      } catch { /* swallow — best-effort, hints are non-fatal */ }
+    }
+  }
+
+  res.json({ ok: true, hidden, unhidden, hintsWritten });
 });

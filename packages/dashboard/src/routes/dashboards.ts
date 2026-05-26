@@ -16,7 +16,8 @@ import {
   type AvailableAgent,
   type DashboardSectionRender,
 } from '../views/dashboards.js';
-import { buildPulseTile } from '../views/pulse-tile-builder.js';
+import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
+import type { PulseTile } from '../views/pulse-types.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 
 export const dashboardsRouter: Router = Router();
@@ -43,7 +44,7 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
   // Build tiles for each section. Agents that aren't installed render
   // as muted placeholder cards so the user knows what's missing.
   const sections: DashboardSectionRender[] = dashboard.layout.sections.map((s) => {
-    const tiles = [];
+    const tiles: PulseTile[] = [];
     const missingAgentIds: string[] = [];
     for (const agentId of s.agentIds) {
       const agent = ctx.agentStore.getAgent(agentId);
@@ -53,6 +54,10 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
       }
       tiles.push(buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore }));
     }
+    // Decorate with any agent-global layout hints from LayoutHintsStore.
+    // Per-placement overrides land in PR 3; for now dashboards share the
+    // same hint as Pulse for a given agent.
+    attachLayoutHints(tiles, ctx.layoutHintsStore);
     return { title: s.title, tiles, missingAgentIds, agentIds: [...s.agentIds] };
   });
 
