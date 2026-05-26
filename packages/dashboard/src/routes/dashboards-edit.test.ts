@@ -129,6 +129,27 @@ describe('dashboards editor', () => {
     expect(res.text).toContain('action="/dashboards/user%3Atest/sections"');
   });
 
+  it('edit page: user-created shows Delete; pack-owned explains uninstall + links to the pack', async () => {
+    const app = await makeApp();
+    seed(); // user:test, packId null
+    dashboardsStore.upsertDashboard({
+      id: 'starter:media', packId: 'starter', name: 'Media',
+      layout: { sections: [{ title: 'A', agentIds: ['hello'] }] },
+    });
+
+    const user = await request(app).get('/dashboards/user:test/edit')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(user.text).toContain('action="/dashboards/user%3Atest/delete"');
+    expect(user.text).not.toContain('owned by the');
+
+    const pack = await request(app).get('/dashboards/starter:media/edit')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // No direct delete for pack-owned; instead an explanation + a link to the pack.
+    expect(pack.text).not.toContain('action="/dashboards/starter%3Amedia/delete"');
+    expect(pack.text).toContain('owned by the');
+    expect(pack.text).toContain('href="/packs/starter"');
+  });
+
   it('POST /dashboards creates a user dashboard and redirects to edit', async () => {
     const app = await makeApp();
     const res = await request(app).post('/dashboards')
@@ -137,6 +158,50 @@ describe('dashboards editor', () => {
     expect(res.status).toBe(303);
     expect(res.headers.location).toMatch(/\/dashboards\/user%3Amy-dash\/edit/);
     expect(dashboardsStore.getDashboard('user:my-dash')?.name).toBe('My Dash');
+  });
+
+  it('POST /dashboards/:id/rename changes the name, preserving the layout', async () => {
+    const app = await makeApp();
+    const { id } = seed();
+    const res = await request(app).post(`/dashboards/${id}/rename`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ name: 'Mornings' });
+    expect(res.status).toBe(303);
+    const after = dashboardsStore.getDashboard(id);
+    expect(after?.name).toBe('Mornings');
+    // The id is stable across rename — no new row, still findable for
+    // delete/uninstall after the display name changes.
+    expect(after?.id).toBe(id);
+    expect(dashboardsStore.listDashboards().filter((d) => d.id === id)).toHaveLength(1);
+    // Layout (sections + tiles) is untouched by the rename.
+    expect(after?.layout.sections).toEqual([{ title: 'A', agentIds: ['hello'] }]);
+  });
+
+  it('POST /dashboards/:id/rename preserves packId so pack uninstall still matches', async () => {
+    const app = await makeApp();
+    const id = 'starter:media';
+    dashboardsStore.upsertDashboard({
+      id, packId: 'starter', name: 'Media',
+      layout: { sections: [{ title: 'A', agentIds: ['hello'] }] },
+    });
+    await request(app).post(`/dashboards/${encodeURIComponent(id)}/rename`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ name: 'My Media' });
+    const after = dashboardsStore.getDashboard(id);
+    expect(after?.name).toBe('My Media');
+    expect(after?.id).toBe(id);
+    expect(after?.packId).toBe('starter');
+  });
+
+  it('POST /dashboards/:id/rename rejects an empty name', async () => {
+    const app = await makeApp();
+    const { id } = seed();
+    const res = await request(app).post(`/dashboards/${id}/rename`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ name: '' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/error=/);
+    expect(dashboardsStore.getDashboard(id)?.name).toBe('Test');
   });
 
   it('POST /sections appends a section', async () => {

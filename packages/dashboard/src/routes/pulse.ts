@@ -143,12 +143,14 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
 
   const flash = parsePulseFlash(req);
   const installedDashboards = ctx.dashboardsStore?.listDashboards() ?? [];
+  const availablePacks = (ctx.packsStore?.listPacks() ?? []).filter((p) => p.installedAt === null);
   res.type('html').send(renderPulsePage({
     systemTiles,
     tiles,
     hiddenTiles,
     flash,
     installedDashboards,
+    availablePacks,
   }));
 });
 

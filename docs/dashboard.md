@@ -8,6 +8,10 @@ Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESI
 
 The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`. See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
 
+## Navigation
+
+The top bar leads with the daily-driver surfaces: `sua · Pulse · Agents · Settings · Help`. The `sua` brand links to the **Home feed** (`/`). **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`); the grouping just keeps the top bar uncluttered.
+
 ## `/` — Home feed
 
 What's happening right now. Shows:
@@ -124,9 +128,11 @@ Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon
 
 **Improve layout** — wizard button on Pulse and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
 
+**Dashboards dropdown** — switches between the Default (Pulse) view and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on Pulse), plus a "Browse all packs →" link to the full [/packs](#packs--widget-packs) page.
+
 ## `/dashboards/:id` — Named dashboards
 
-Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (add / remove / reorder sections and tiles, all server-rendered). The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack); user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
+Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (the Pulse view) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
 
 ## `/settings`
 

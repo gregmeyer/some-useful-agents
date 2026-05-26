@@ -2,6 +2,7 @@ import type { Run, RunStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { sectionTabs } from './section-tabs.js';
 import { statusBadge, formatDuration, formatAge } from './components.js';
 
 export interface RunsListOptions {
@@ -144,6 +145,7 @@ export function renderRunsList(opts: RunsListOptions): string {
 
   const body = html`
     ${pageHeader({ title: 'Runs' })}
+    ${sectionTabs('runs')}
     ${filterBar}
     ${table}
     ${pager}

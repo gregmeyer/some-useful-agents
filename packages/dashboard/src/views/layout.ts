@@ -16,6 +16,7 @@ import { PAGE_INTRO_JS } from './page-intro.js.js';
 import { ADD_TILE_MODAL_JS } from './add-tile-modal.js.js';
 import { CSP_ALLOW_JS } from './csp-allow.js.js';
 import { WIDGET_IMG_FALLBACK_JS } from './widget-img-fallback.js.js';
+import { INSTALL_PACKS_MODAL_JS } from './install-packs-modal.js.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
@@ -58,12 +59,8 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <header class="topbar">
   <a class="topbar__brand" href="/">sua</a>
   <nav class="topbar__nav">
-    <a href="/agents" class="${opts.activeNav === 'agents' ? 'is-active' : ''}">Agents</a>
-    <a href="/tools" class="${opts.activeNav === 'tools' ? 'is-active' : ''}">Tools</a>
-    <a href="/nodes" class="${opts.activeNav === 'nodes' ? 'is-active' : ''}">Nodes</a>
-    <a href="/runs" class="${opts.activeNav === 'runs' ? 'is-active' : ''}">Runs</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
-    <a href="/packs" class="${opts.activeNav === 'packs' ? 'is-active' : ''}">Packs</a>
+    <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>
@@ -76,7 +73,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + WIDGET_IMG_FALLBACK_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS)}</script>
 </body>
 </html>`;
 }

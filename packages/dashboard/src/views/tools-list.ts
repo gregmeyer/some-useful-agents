@@ -3,6 +3,7 @@ import type { ProviderUsageRow } from '../lib/provider-usage.js';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { sectionTabs } from './section-tabs.js';
 
 type Tab = 'user' | 'builtin';
 
@@ -92,6 +93,8 @@ export function renderToolsList(args: {
       title: 'Tools',
       cta: html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
     })}
+
+    ${sectionTabs('tools')}
 
     ${renderProvidersSection(args.providerUsage ?? [])}
 

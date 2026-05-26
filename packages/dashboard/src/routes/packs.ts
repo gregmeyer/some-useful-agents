@@ -49,6 +49,13 @@ packsRouter.post('/packs/:id/install', (req: Request, res: Response) => {
     return;
   }
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // Optional returnTo lets callers (e.g. the Install-from-Packs modal on
+  // /pulse) come back to where they were instead of the pack detail page.
+  const rawReturn = Array.isArray(req.body?.returnTo) ? req.body.returnTo[0] : req.body?.returnTo;
+  const returnTo = typeof rawReturn === 'string' && rawReturn.startsWith('/') ? rawReturn : null;
+  const back = (params: string) => returnTo
+    ? `${returnTo}${returnTo.includes('?') ? '&' : '?'}${params}`
+    : `/packs/${encodeURIComponent(id)}?${params}`;
   try {
     const result = installPack(id, {
       packsStore: ctx.packsStore,
@@ -59,10 +66,10 @@ packsRouter.post('/packs/:id/install', (req: Request, res: Response) => {
     if (result.dashboardsCreated.length) parts.push(`${result.dashboardsCreated.length} dashboard${result.dashboardsCreated.length === 1 ? '' : 's'}`);
     if (result.agentsCreated.length) parts.push(`${result.agentsCreated.length} agent${result.agentsCreated.length === 1 ? '' : 's'}`);
     const detail = parts.length ? ` (${parts.join(', ')})` : '';
-    res.redirect(303, `/packs/${encodeURIComponent(id)}?ok=${encodeURIComponent('Installed' + detail + '.')}`);
+    res.redirect(303, back(`ok=${encodeURIComponent('Installed ' + (ctx.packsStore.getPack(id)?.name ?? id) + detail + '.')}`));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/packs/${encodeURIComponent(id)}?error=${encodeURIComponent('Install failed: ' + msg)}`);
+    res.redirect(303, back(`error=${encodeURIComponent('Install failed: ' + msg)}`));
   }
 });
 

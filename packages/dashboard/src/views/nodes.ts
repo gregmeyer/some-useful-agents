@@ -8,6 +8,7 @@ import type { NodeContract, NodeContractField, NodeType } from '@some-useful-age
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
+import { sectionTabs } from './section-tabs.js';
 
 interface CategoryDef {
   id: string;
@@ -84,6 +85,8 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
         'node takes in, what it emits, when to reach for it. The planner-fronted agent-builder reads ' +
         'this same catalog via /api/nodes when designing new agents.',
     })}
+
+    ${sectionTabs('nodes')}
 
     <div class="node-toolbar">
       <input type="search" id="node-filter" class="node-toolbar__search"
