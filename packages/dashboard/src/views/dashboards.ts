@@ -91,7 +91,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
           title="Add a tile to this dashboard">+ Add tile</button>
         ${improveLayoutButton()}
         <button type="button" class="btn btn--ghost btn--sm" id="dashboard-edit-toggle">✎ Edit layout</button>
-        <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit sections</a>
+        <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/edit">Edit dashboard</a>
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
       </div>
     </div>
