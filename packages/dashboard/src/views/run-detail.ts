@@ -217,14 +217,16 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           </div>
         </div>
 
-        <!-- Bottom: Node execution (full width, searchable) -->
-        <section class="run-detail-nodes" style="margin-top: var(--space-6);">
-          <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap;">
-            <h2 style="margin: 0;">Node execution</h2>
-            <input type="text" class="run-detail-nodes__search" placeholder="Search nodes..."
-              style="padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-family: var(--font-mono); background: var(--color-surface); color: var(--color-text); flex: 1; min-width: 120px; max-width: 280px;">
-            <select class="run-detail-nodes__status-filter"
-              style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); background: var(--color-surface); color: var(--color-text);">
+        <!-- Bottom: Node execution (full width, searchable). The header is
+             sticky so the search + filter stay reachable while the user
+             scrolls long node-card lists. A sibling IntersectionObserver
+             (run-detail-filter.js) releases the DAG sticky bar above so it
+             doesn't sit between the header and the cards. -->
+        <section class="run-detail-nodes" data-dag-release-sentinel>
+          <div class="run-detail-nodes__header">
+            <h2 class="run-detail-nodes__title">Node execution</h2>
+            <input type="text" class="run-detail-nodes__search" placeholder="Search nodes...">
+            <select class="run-detail-nodes__status-filter">
               <option value="">All statuses</option>
               <option value="completed">Completed</option>
               <option value="failed">Failed</option>

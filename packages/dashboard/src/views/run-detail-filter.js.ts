@@ -47,5 +47,42 @@ export const RUN_DETAIL_FILTER_JS = `
     // these listeners survive a live poll. Expose the filter so the poll can
     // re-apply the active query/status to freshly-swapped cards.
     window.__suaApplyNodeFilter = filterNodes;
+
+    // ── Sticky DAG release ────────────────────────────────────────────
+    // The DAG/Result row is sticky at top:0 with max-height:60vh, and the
+    // cards-header below it is sticky too (z-index 6). Without intervention
+    // the DAG bar stays pinned and the cards-header sticky-pins UNDER it.
+    // Fix: as the sentinel approaches the DAG bar's bottom edge, add
+    // .dag-released so the DAG bar reverts to position:static and scrolls
+    // away — handing the top of the viewport to the cards-header alone.
+    var sentinel = document.querySelector('[data-dag-release-sentinel]');
+    var dagBar = document.querySelector('.run-detail-grid--sticky');
+    if (sentinel && dagBar) {
+      // Cache the DAG bar's stuck height once. Reading it after releasing
+      // would return the post-release (uncapped) value and cause hysteresis
+      // flapping right around the release line.
+      var dagH = Math.min(dagBar.offsetHeight, window.innerHeight * 0.6);
+      var ticking = false;
+      function check() {
+        ticking = false;
+        var rect = sentinel.getBoundingClientRect();
+        // Release when the sentinel has risen to within 8px of the DAG bar's
+        // bottom edge — i.e. overlap is about to start.
+        var shouldRelease = rect.top < dagH + 8;
+        if (shouldRelease) dagBar.classList.add('dag-released');
+        else dagBar.classList.remove('dag-released');
+      }
+      function onScroll() {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(check);
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', function () {
+        dagH = Math.min(dagBar.offsetHeight, window.innerHeight * 0.6);
+        onScroll();
+      }, { passive: true });
+      check();
+    }
   })();
 `;

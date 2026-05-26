@@ -66,7 +66,17 @@ export function renderDagView(args: {
         ${hint}
       </summary>
       <div class="dag-disclosure__body">
-        <div id="dag-canvas" class="dag-frame__canvas${agent.nodes.length <= 2 ? ' dag-frame__canvas--compact' : ''}"${unsafeHtml(navAttr)}${unsafeHtml(replayAttr)}${unsafeHtml(editAttr)}></div>
+        <!-- Wrapper hosts the cytoscape canvas + the floating zoom toolbar.
+             Cytoscape replaces #dag-canvas's innerHTML on boot, so the
+             toolbar lives as a SIBLING positioned over the canvas. -->
+        <div class="dag-frame__wrap${agent.nodes.length <= 2 ? ' dag-frame__wrap--compact' : ''}">
+          <div id="dag-canvas" class="dag-frame__canvas${agent.nodes.length <= 2 ? ' dag-frame__canvas--compact' : ''}"${unsafeHtml(navAttr)}${unsafeHtml(replayAttr)}${unsafeHtml(editAttr)}></div>
+          <div class="dag-zoom-toolbar" aria-label="DAG zoom controls">
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="in"  aria-label="Zoom in">+</button>
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="fit" aria-label="Fit to view" title="Fit to view">⧇</button>
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="out" aria-label="Zoom out">−</button>
+          </div>
+        </div>
         <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
 
         <!-- Dialog rendered BEFORE the scripts so the IIFE's initial
