@@ -305,14 +305,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // the cancel route's activeRuns Map is empty. Finalize those rows so
   // dashboards stop polling and downstream notify/retry don't hang.
   //
-  // Caveat: the orphaned child process (claude / codex CLI) may keep running
-  // briefly until it finishes its current HTTP call — this reaper closes the
-  // state-machine bleed but cannot kill the process without a persisted PID
-  // (see followup C: persist child pid on node_executions row).
+  // PR C: when the node row carries a persisted childPid + childStartedAtMs,
+  // the reaper additionally SIGKILLs the orphaned process after a ps-cross-
+  // check defends against PID reuse. This stops the token bleed for orphans
+  // still streaming to the Anthropic API at boot time.
   const reapResult = reapOrphanedRuns(runStore);
   if (reapResult.runsReaped > 0) {
     console.warn(
       `[orphan-reaper] Finalized ${reapResult.runsReaped} run(s) and ${reapResult.nodesReaped} node execution(s) ` +
+      `(killed ${reapResult.pidsKilled} orphaned process(es)) ` +
       `left in non-terminal state by a prior dashboard exit. Run ids: ${reapResult.reapedRunIds.slice(0, 10).join(', ')}` +
       `${reapResult.reapedRunIds.length > 10 ? ` (+${reapResult.reapedRunIds.length - 10} more)` : ''}`,
     );

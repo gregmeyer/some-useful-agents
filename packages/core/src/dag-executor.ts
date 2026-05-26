@@ -242,6 +242,42 @@ export async function executeAgentDag(
   let flowEnded = false;
   const skippedNodes = new Set<string>();
 
+  // ── Agent wall-clock ceiling (Agent.timeoutSec) ──────────────────────
+  // Per-node timeouts protect against ONE node hanging, but a 10-node DAG
+  // at 60s each can legitimately burn 10 minutes on tokens before any
+  // single node trips. agent.timeoutSec is the umbrella that catches that
+  // case. Implementation: combine the caller's abort signal with an
+  // internal controller that fires on either the caller-abort OR the
+  // timeout, then pass the combined signal everywhere this loop previously
+  // passed `options.signal`. When the timeout itself fires we record
+  // `agentTimedOut=true` so the final run.error names the cap directly
+  // instead of looking like a generic cancel.
+  const internalAbort = new AbortController();
+  let agentTimedOut = false;
+  let agentTimeoutTimer: NodeJS.Timeout | undefined;
+  const forwardCallerAbort = () => internalAbort.abort();
+  if (options.signal) {
+    if (options.signal.aborted) internalAbort.abort();
+    else options.signal.addEventListener('abort', forwardCallerAbort, { once: true });
+  }
+  if (agent.timeoutSec && agent.timeoutSec > 0) {
+    agentTimeoutTimer = setTimeout(() => {
+      agentTimedOut = true;
+      internalAbort.abort();
+    }, agent.timeoutSec * 1000);
+  }
+  // Single point of cleanup for the wall-clock timer + caller-abort listener.
+  // Called once on every return path from this function (terminal status,
+  // replay early-exit, exception).
+  const cleanupAgentTimeout = () => {
+    if (agentTimeoutTimer) {
+      clearTimeout(agentTimeoutTimer);
+      agentTimeoutTimer = undefined;
+    }
+    if (options.signal) options.signal.removeEventListener('abort', forwardCallerAbort);
+  };
+  const effectiveSignal = internalAbort.signal;
+
   // Replay pre-load: copy prior node_executions for nodes before the pivot.
   // Their stored `result` feeds downstream outputs so re-execution starts
   // at `fromNodeId` with the exact snapshot the original run produced.
@@ -250,6 +286,7 @@ export async function executeAgentDag(
     const { priorRunId, fromNodeId } = options.replayFrom;
     const pivotIndex = order.findIndex((n) => n.id === fromNodeId);
     if (pivotIndex < 0) {
+      cleanupAgentTimeout();
       deps.runStore.updateRun(runId, {
         status: 'failed',
         completedAt: new Date().toISOString(),
@@ -271,6 +308,7 @@ export async function executeAgentDag(
       }
     }
     if (missing.length > 0) {
+      cleanupAgentTimeout();
       deps.runStore.updateRun(runId, {
         status: 'failed',
         completedAt: new Date().toISOString(),
@@ -303,7 +341,7 @@ export async function executeAgentDag(
 
     // Cancellation: abort signal was fired. Mark all remaining nodes
     // as cancelled and break out of the loop.
-    if (options.signal?.aborted) {
+    if (effectiveSignal.aborted) {
       deps.runStore.createNodeExecution({
         runId,
         nodeId: node.id,
@@ -700,6 +738,18 @@ export async function executeAgentDag(
       });
     };
 
+    // PR C (orphan-kill): persist the child's pid + wall-clock start time
+    // onto the in-flight node row the moment spawn() returns. A dashboard
+    // restart mid-run can then read these back, ps-cross-check, and SIGKILL
+    // the orphan instead of letting it burn tokens until the API call
+    // finishes naturally.
+    const onSpawn = (pid: number, startedAtMs: number) => {
+      deps.runStore.updateNodeExecution(runId, node.id, {
+        childPid: pid,
+        childStartedAtMs: startedAtMs,
+      });
+    };
+
     // v0.16 tool dispatch: if the node references a tool, resolve it and
     // call its execute() function. Built-in tools run in-process; user
     // tools that use shell/claude-code implementation types go through the
@@ -835,7 +885,7 @@ export async function executeAgentDag(
           };
           const toolInputs = resolveValue(rawInputs) as Record<string, unknown>;
 
-          structuredOutput = await callMcpTool(resolvedImpl, toolInputs, options.signal);
+          structuredOutput = await callMcpTool(resolvedImpl, toolInputs, effectiveSignal);
           const isError = Boolean(structuredOutput.isError);
           result = {
             result: structuredOutput.result ?? '',
@@ -856,7 +906,7 @@ export async function executeAgentDag(
           };
           const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
           const spawnResult = spawnFn === spawnNodeReal
-            ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, options.signal)
+            ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
             : await spawnFn(synthNode, env, spawnOpts);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -872,7 +922,7 @@ export async function executeAgentDag(
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
         const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(nodeWithDefaults, env, spawnOpts, onProgress, options.signal)
+          ? await spawnNodeReal(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
           : await spawnFn(nodeWithDefaults, env, spawnOpts);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
@@ -966,6 +1016,18 @@ export async function executeAgentDag(
     }
   }
 
+  // Wall-clock ceiling tripped → name the cap directly in the run error so
+  // the dashboard shows "Agent wall-clock timeout (60s) exceeded" instead of
+  // a generic "Cancelled by user" that the abort plumbing would otherwise
+  // produce. The per-node row remains tagged with whatever category the
+  // spawn produced (typically 'timeout' on the in-flight node, 'cancelled'
+  // on the remaining ones).
+  if (agentTimedOut) {
+    finalStatus = 'failed';
+    finalError = `Agent wall-clock timeout (${agent.timeoutSec}s) exceeded.`;
+  }
+
+  cleanupAgentTimeout();
   deps.runStore.updateRun(runId, {
     status: finalStatus,
     completedAt: new Date().toISOString(),

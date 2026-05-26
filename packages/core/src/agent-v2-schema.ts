@@ -170,6 +170,14 @@ export const agentV2Schema = z.object({
   stateMaxBytes: z.number().int().nonnegative().optional(),
 
   /**
+   * Agent-level wall-clock ceiling in seconds. Aborts the run when exceeded,
+   * even if no single node is over its own `timeout`. See Agent.timeoutSec
+   * doc on agent-v2-types.ts for semantics. Set to 0 to disable; unset =
+   * no ceiling.
+   */
+  timeoutSec: z.number().int().nonnegative().optional(),
+
+  /**
    * CSP allowlist contributions. Currently only `imgSrc` is honored —
    * each declared host (e.g. "images.unsplash.com" or "*.unsplash.com")
    * is merged into the dashboard's page-wide `img-src` directive on
