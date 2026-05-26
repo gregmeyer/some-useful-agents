@@ -65,6 +65,11 @@ export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed'
  *   a non-zero exit code
  * - `timeout`: node exceeded its timeout
  * - `cancelled`: explicitly cancelled (provider shutdown, user abort)
+ * - `abandoned`: the run was in flight when the dashboard restarted (or
+ *   crashed); the orphaned child process kept running but the in-memory
+ *   timeout/state died with the parent. Reaped on next boot. Distinct
+ *   from `cancelled` (deliberate) so retry-policy and dashboards can
+ *   distinguish a user action from infrastructure churn.
  * - `upstream_failed`: this node never ran because an upstream failed;
  *   error text names the failing upstream for coherent top-to-bottom logs
  */
@@ -75,6 +80,7 @@ export type NodeErrorCategory =
   | 'exit_nonzero'
   | 'timeout'
   | 'cancelled'
+  | 'abandoned'
   | 'upstream_failed'
   | 'condition_not_met'
   | 'flow_ended'

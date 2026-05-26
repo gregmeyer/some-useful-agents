@@ -22,6 +22,7 @@ import {
   getMcpTokenPath,
   rotateMcpToken,
   buildLoopbackAllowlist,
+  reapOrphanedRuns,
   type SecretsStore,
   type RunStatus,
   getSchedulerStatus,
@@ -295,6 +296,28 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   }
 
   const runStore = opts.runStore ?? new RunStore(opts.dbPath);
+
+  // Orphan reap. Any run still flagged `running` or `pending` at boot is, by
+  // definition, an orphan — the only process that could be executing it is
+  // this dashboard, and we just started fresh. A daemon restart / crash mid-
+  // run leaves the row in non-terminal state forever; the in-memory
+  // setTimeout(SIGTERM) armed inside the previous process died with it, and
+  // the cancel route's activeRuns Map is empty. Finalize those rows so
+  // dashboards stop polling and downstream notify/retry don't hang.
+  //
+  // Caveat: the orphaned child process (claude / codex CLI) may keep running
+  // briefly until it finishes its current HTTP call — this reaper closes the
+  // state-machine bleed but cannot kill the process without a persisted PID
+  // (see followup C: persist child pid on node_executions row).
+  const reapResult = reapOrphanedRuns(runStore);
+  if (reapResult.runsReaped > 0) {
+    console.warn(
+      `[orphan-reaper] Finalized ${reapResult.runsReaped} run(s) and ${reapResult.nodesReaped} node execution(s) ` +
+      `left in non-terminal state by a prior dashboard exit. Run ids: ${reapResult.reapedRunIds.slice(0, 10).join(', ')}` +
+      `${reapResult.reapedRunIds.length > 10 ? ` (+${reapResult.reapedRunIds.length - 10} more)` : ''}`,
+    );
+  }
+
   // AgentStore reads v2 DAG agents from the same runs.db file. Uses its own
   // DatabaseSync — avoids changing RunStore's constructor signature. WAL
   // mode makes concurrent handles safe.

@@ -404,9 +404,18 @@ export async function spawnProcess(
       setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
     }, opts.timeoutSec * 1000);
 
-    // Cancellation signal: SIGTERM the child when the signal fires.
+    // Cancellation signal: SIGTERM the child when the signal fires, then
+    // escalate to SIGKILL after 5s if the child is still alive. Mirrors the
+    // timeout path above. Without escalation, a claude/codex CLI stuck in a
+    // slow HTTP read could ignore SIGTERM indefinitely, leaving the executor
+    // await pending forever and the run/node rows in `running` until the
+    // next dashboard restart (which reaps them via reapOrphanedRuns).
     if (opts.signal) {
-      const onAbort = () => { killed = true; child.kill('SIGTERM'); };
+      const onAbort = () => {
+        killed = true;
+        child.kill('SIGTERM');
+        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+      };
       if (opts.signal.aborted) {
         onAbort();
       } else {
