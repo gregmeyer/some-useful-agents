@@ -3700,4 +3700,79 @@ describe('/scheduled — scheduled-agents page (and pause/resume)', () => {
     expect(decodeURIComponent(res.headers.location)).toMatch(/flash=.*already paused/);
     expect(agentStore.getAgent('already-paused')?.status).toBe('paused');
   });
+
+  it('renders an Activate button + draft hint on rows with status=draft', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'cron-draft', name: 'Cron Draft', status: 'draft', source: 'local', mcp: false,
+      schedule: '0 7 * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).get('/scheduled')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(200);
+    // Activate form points at the new route.
+    expect(res.text).toMatch(/\/scheduled\/cron-draft\/activate/);
+    // Inline hint replaces the bare em-dash in the Next-fire cell.
+    expect(res.text).toMatch(/won't fire — status is draft/);
+    // No pause/resume button on a draft row.
+    expect(res.text).not.toMatch(/\/scheduled\/cron-draft\/pause/);
+    expect(res.text).not.toMatch(/\/scheduled\/cron-draft\/resume/);
+  });
+
+  it('POST /scheduled/:id/activate flips a draft to active and redirects', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'to-activate', name: 'To Activate', status: 'draft', source: 'local', mcp: false,
+      schedule: '0 8 * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).post('/scheduled/to-activate/activate')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/scheduled\?flash=/);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/flash=Activated/);
+    expect(agentStore.getAgent('to-activate')?.status).toBe('active');
+    expect(agentStore.getAgent('to-activate')?.schedule).toBe('0 8 * * *');
+  });
+
+  it('POST /scheduled/:id/activate on an already-active agent is a no-op with a flash', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'already-active', name: 'Already', status: 'active', source: 'local', mcp: false,
+      schedule: '0 8 * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).post('/scheduled/already-active/activate')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/flash=.*already active/);
+    expect(agentStore.getAgent('already-active')?.status).toBe('active');
+  });
+
+  it('archived rows render the archived hint, no pause/resume/activate button', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'cron-archived', name: 'Cron Archived', status: 'archived', source: 'local', mcp: false,
+      schedule: '0 9 * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).get('/scheduled')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/won't fire — archived/);
+    expect(res.text).not.toMatch(/\/scheduled\/cron-archived\/(pause|resume|activate)/);
+  });
 });
