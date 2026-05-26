@@ -94,6 +94,12 @@ main.main--wide {
   background-size: 16px 16px;
 }
 
+/* Trivial graphs (1–2 nodes) don't need the full canvas — a giant lone node
+   in 320px of empty grid is wasted space on single-node agents. */
+.dag-frame__canvas--compact {
+  height: 150px;
+}
+
 /* Collapse/expand affordance for the DAG viewer. Reuses the design-system
  * `.dag-frame` card chrome but adds a summary row on top. */
 .dag-disclosure {
@@ -938,6 +944,12 @@ main.main--wide {
   border: 2px solid transparent;
   border-radius: var(--radius-md);
   transition: border-color 150ms ease, background 150ms ease;
+  /* Size each tile to its own content instead of stretching every tile in a
+     row to match the tallest one. Without this, a short metric tile next to a
+     tall widget renders as a near-empty card (the value stranded at the top of
+     a huge box). fit-grow tiles still grow with their content; explicitly
+     resized (.pulse-tile--fixed-h) tiles still win via their inline height. */
+  align-items: start;
 }
 
 @media (max-width: 900px) {

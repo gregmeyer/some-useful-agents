@@ -173,7 +173,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
           <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
           <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
-          <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode)}</dd>
+          <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           ${replayedFrom}
           ${retryOf}

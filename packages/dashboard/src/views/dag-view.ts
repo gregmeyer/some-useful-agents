@@ -66,7 +66,7 @@ export function renderDagView(args: {
         ${hint}
       </summary>
       <div class="dag-disclosure__body">
-        <div id="dag-canvas" class="dag-frame__canvas"${unsafeHtml(navAttr)}${unsafeHtml(replayAttr)}${unsafeHtml(editAttr)}></div>
+        <div id="dag-canvas" class="dag-frame__canvas${agent.nodes.length <= 2 ? ' dag-frame__canvas--compact' : ''}"${unsafeHtml(navAttr)}${unsafeHtml(replayAttr)}${unsafeHtml(editAttr)}></div>
         <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
 
         <!-- Dialog rendered BEFORE the scripts so the IIFE's initial

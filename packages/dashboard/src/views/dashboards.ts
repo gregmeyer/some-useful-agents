@@ -11,7 +11,6 @@
 import type { Dashboard } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { pageHeader } from './page-header.js';
 import { renderTile } from './pulse-renderers.js';
 import { tileWrap, type PulseTile } from './pulse.js';
 import { TEMPLATE_REGISTRY } from './pulse-templates.js';
@@ -76,14 +75,15 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
   const sourceLabel = input.dashboard.packId ? `from pack: ${input.dashboard.packId}` : 'user-created';
 
   const body = html`
-    <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);">
-      ${dropdown}
+    <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
+      <h1 style="margin: 0;">${input.dashboard.name}</h1>
       <span class="dim" style="font-size: var(--font-size-sm);">
         ${String(totalTiles)} tile${totalTiles === 1 ? '' : 's'}
         ${totalMissing > 0 ? html`, ${String(totalMissing)} missing` : html``}
         · ${sourceLabel}
       </span>
-      <div style="margin-left: auto; display: flex; gap: var(--space-2);">
+      <div style="margin-left: auto; display: flex; align-items: center; gap: var(--space-2);">
+        ${dropdown}
         <button type="button" class="btn btn--primary btn--sm add-tile-btn"
           data-dashboard-id="${input.dashboard.id}"
           data-section-idx="0"
@@ -95,11 +95,6 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
         <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(input.dashboard.id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
       </div>
     </div>
-
-    ${pageHeader({
-      title: input.dashboard.name,
-      back: { href: '/packs', label: 'All packs' },
-    })}
 
     ${input.sections.length === 0
       ? html`<p class="dim" style="padding: var(--space-4); text-align: center;">No sections in this dashboard.</p>`
