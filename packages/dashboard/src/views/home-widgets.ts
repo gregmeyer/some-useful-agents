@@ -266,22 +266,39 @@ function buildScheduled(data: HomeWidgetData): SystemWidget {
     ? 'Scheduler stale'
     : 'Scheduler stopped';
 
-  // Build rows for each scheduled agent.
+  // Build rows for each scheduled agent. Active rows are normal-weight; paused
+  // rows are dimmed + carry a status pill so it's obvious they won't fire.
+  // Each row has an inline Pause/Resume button that POSTs to the dedicated
+  // /scheduled handler and round-trips back to /. The "Edit" link still
+  // goes to /agents/<id>/config for cron changes (clear, edit cron).
   const rows = scheduledAgents.map((a) => {
+    const isPaused = a.status === 'paused';
     const schedule = cronToHuman(a.schedule ?? '');
     const lastFire = lastFires[a.id];
     const lastStr = lastFire ? formatAge(lastFire) : 'never';
     const nextFire = heartbeat?.nextFires?.[a.id];
-    const nextStr = nextFire ? formatRelativeTime(nextFire, true) : '';
+    // Paused agents don't have a meaningful "next fire" — the cron is on
+    // record but won't trigger. Suppress the value to avoid confusion.
+    const nextStr = !isPaused && nextFire ? formatRelativeTime(nextFire, true) : '';
+
+    const actionForm = isPaused
+      ? html`<form method="POST" action="/scheduled/${a.id}/resume" style="display: inline; margin: 0;">
+          <button type="submit" class="btn btn--sm btn--primary" style="padding: 2px 8px; font-size: 10px;">Resume</button>
+        </form>`
+      : html`<form method="POST" action="/scheduled/${a.id}/pause" style="display: inline; margin: 0;">
+          <button type="submit" class="btn btn--sm" style="padding: 2px 8px; font-size: 10px;">Pause</button>
+        </form>`;
 
     return html`
-      <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);">
+      <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); ${isPaused ? 'opacity: 0.7;' : ''}">
         <a href="/agents/${a.id}" class="mono" style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold); flex: 1;">${a.id}</a>
+        ${isPaused ? html`<span class="badge badge--warn" style="font-size: 9px; padding: 1px 6px;">paused</span>` : html``}
         <span style="font-size: 10px; color: var(--color-text-muted);" title="${a.schedule ?? ''}">${schedule}</span>
       </div>
-      <div style="display: flex; gap: var(--space-3); font-size: 10px; color: var(--color-text-subtle); padding: 2px 0 4px;">
+      <div style="display: flex; align-items: center; gap: var(--space-3); font-size: 10px; color: var(--color-text-subtle); padding: 2px 0 6px;">
         <span>last: ${lastStr}</span>
         ${nextStr ? html`<span>next: ${nextStr}</span>` : html``}
+        <span style="margin-left: auto;">${actionForm}</span>
       </div>
     `;
   });
@@ -295,6 +312,7 @@ function buildScheduled(data: HomeWidgetData): SystemWidget {
         <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border);">
           <span>${statusDot}</span>
           <span style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">${statusLabel}</span>
+          <a href="/scheduled" style="margin-left: auto; font-size: 10px; color: var(--color-text-muted);">View all →</a>
         </div>
         ${rows as unknown as SafeHtml[]}
       </div>

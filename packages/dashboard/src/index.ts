@@ -55,6 +55,7 @@ import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
 import { packsRouter } from './routes/packs.js';
+import { scheduledRouter } from './routes/scheduled.js';
 import { dashboardsRouter } from './routes/dashboards.js';
 import { dashboardsEditRouter } from './routes/dashboards-edit.js';
 
@@ -194,7 +195,11 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       const todayResult = ctx.runStore.queryRuns({ limit: 200, offset: 0, statuses: [] as RunStatus[] });
       const inFlightResult = ctx.runStore.queryRuns({ limit: 20, offset: 0, statuses: ['running', 'pending'] as RunStatus[] });
       const todayRuns = todayResult.rows.filter((r: { startedAt: string }) => r.startedAt >= todayStart);
-      const scheduledAgents = agents.filter((a: { schedule?: string; status: string }) => a.schedule && a.status === 'active');
+      // Widget surfaces every agent with a schedule (active + paused). The
+      // previous active-only filter hid paused agents that the user might
+      // want to resume, which was misleading — see #365. /scheduled is the
+      // fuller management page; this widget is the at-a-glance summary.
+      const scheduledAgents = agents.filter((a: { schedule?: string; status: string }) => a.schedule && (a.status === 'active' || a.status === 'paused'));
 
       // Scheduler status from heartbeat file.
       const { status: schedulerStatus, heartbeat: schedulerHeartbeat } = getSchedulerStatus(ctx.dataDir);
@@ -249,6 +254,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(pulseLayoutPlanRouter);
   app.use(dashboardLayoutPlanRouter);
   app.use(packsRouter);
+  app.use(scheduledRouter);
   app.use(dashboardsEditRouter);
   app.use(dashboardsRouter);
 

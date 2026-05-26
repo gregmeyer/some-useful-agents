@@ -3578,3 +3578,126 @@ describe('Dashboard /nodes catalog', () => {
     expect(res.text).toContain('href="/api/nodes"');
   });
 });
+
+describe('/scheduled — scheduled-agents page (and pause/resume)', () => {
+  it('lists every agent with a schedule, including paused ones', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'cron-active', name: 'Cron Active', status: 'active', source: 'local', mcp: false,
+      schedule: '*/5 * * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'cron-paused', name: 'Cron Paused', status: 'paused', source: 'local', mcp: false,
+      schedule: '0 * * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'unscheduled', name: 'No Cron', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).get('/scheduled')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(200);
+    // Both scheduled agents appear; the unscheduled one does not.
+    expect(res.text).toContain('cron-active');
+    expect(res.text).toContain('cron-paused');
+    expect(res.text).not.toContain('>unscheduled<');
+    // Paused row carries the action to resume; active row carries pause.
+    expect(res.text).toMatch(/\/scheduled\/cron-active\/pause/);
+    expect(res.text).toMatch(/\/scheduled\/cron-paused\/resume/);
+  });
+
+  it('shows an empty state when no agents have a schedule', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'no-cron', name: 'No Cron', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).get('/scheduled')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/No scheduled agents/);
+  });
+
+  it('POST /scheduled/:id/pause flips an active agent to paused and redirects', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'to-pause', name: 'To Pause', status: 'active', source: 'local', mcp: false,
+      schedule: '*/5 * * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).post('/scheduled/to-pause/pause')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/scheduled\?flash=/);
+    expect(agentStore.getAgent('to-pause')?.status).toBe('paused');
+    // Schedule cron stays declared — pause is reversible.
+    expect(agentStore.getAgent('to-pause')?.schedule).toBe('*/5 * * * *');
+  });
+
+  it('POST /scheduled/:id/resume flips a paused agent back to active', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'to-resume', name: 'To Resume', status: 'paused', source: 'local', mcp: false,
+      schedule: '*/5 * * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+
+    const res = await request(app).post('/scheduled/to-resume/resume')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('to-resume')?.status).toBe('active');
+  });
+
+  it('POST /scheduled/:id/pause on an unknown agent redirects with a flash, not 500', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/scheduled/does-not-exist/pause')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    // Flash text is URL-encoded; decode before matching against the human form.
+    expect(decodeURIComponent(res.headers.location)).toMatch(/flash=.*not found/);
+  });
+
+  it('POST /scheduled/:id/pause on an agent without a schedule is rejected with a flash', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'no-sched', name: 'No Sched', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    const res = await request(app).post('/scheduled/no-sched/pause')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/flash=.*has no schedule/);
+    // Unchanged.
+    expect(agentStore.getAgent('no-sched')?.status).toBe('active');
+  });
+
+  it('idempotent: pausing an already-paused agent is a no-op with a flash', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'already-paused', name: 'Already', status: 'paused', source: 'local', mcp: false,
+      schedule: '*/5 * * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    const res = await request(app).post('/scheduled/already-paused/pause')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toMatch(/flash=.*already paused/);
+    expect(agentStore.getAgent('already-paused')?.status).toBe('paused');
+  });
+});
