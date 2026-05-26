@@ -32,6 +32,12 @@ export interface PulsePageInput {
    * the dashboards store isn't wired (tests, older daemons).
    */
   installedDashboards?: import('@some-useful-agents/core').Dashboard[];
+  /**
+   * Packs registered but not yet installed, used to populate the
+   * "Install from Packs" modal opened from the dashboards dropdown.
+   * Empty/undefined when the packs store isn't wired.
+   */
+  availablePacks?: import('@some-useful-agents/core').Pack[];
 }
 
 /** Signature for the tile wrapper function, passed to renderers. */

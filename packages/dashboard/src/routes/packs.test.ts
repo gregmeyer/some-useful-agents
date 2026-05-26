@@ -136,6 +136,33 @@ describe('packs routes', () => {
     expect(detail.text).not.toContain('action="/packs/test-pack/install"');
   });
 
+  it('POST /packs/:id/install honors returnTo (install-from-Pulse modal)', async () => {
+    const app = await makeApp();
+    packsStore.upsertPack({ id: 'test-pack', name: 'Test Pack', version: '0.1.0', source: 'builtin', manifest: manifest() });
+
+    const res = await request(app)
+      .post('/packs/test-pack/install')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ returnTo: '/pulse' });
+    expect(res.status).toBe(303);
+    // Comes back to Pulse with a flash, not the pack detail page.
+    expect(res.headers.location).toMatch(/^\/pulse\?ok=/);
+    expect(packsStore.getPack('test-pack')?.installedAt).not.toBeNull();
+  });
+
+  it('POST /packs/:id/install ignores an off-site returnTo', async () => {
+    const app = await makeApp();
+    packsStore.upsertPack({ id: 'test-pack', name: 'Test Pack', version: '0.1.0', source: 'builtin', manifest: manifest() });
+
+    const res = await request(app)
+      .post('/packs/test-pack/install')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form').send({ returnTo: 'https://evil.example.com' });
+    expect(res.status).toBe(303);
+    // Falls back to the pack detail page rather than redirecting off-site.
+    expect(res.headers.location).toMatch(/^\/packs\/test-pack\?ok=/);
+  });
+
   it('POST /packs/:id/uninstall removes dashboards but keeps agents', async () => {
     const app = await makeApp();
     packsStore.upsertPack({ id: 'test-pack', name: 'Test Pack', version: '0.1.0', source: 'builtin', manifest: manifest() });

@@ -66,7 +66,7 @@ export function renderDashboardsDropdown(args: {
           <input type="text" name="name" placeholder="New dashboard name" required style="flex: 1; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font-size: var(--font-size-xs);">
           <button type="submit" class="btn btn--ghost btn--sm" style="font-size: var(--font-size-xs);">Create</button>
         </form>
-        <a href="/packs" style="display: flex; padding: var(--space-2) var(--space-3); text-decoration: none; color: var(--color-text-muted); font-size: var(--font-size-sm);">
+        <a href="/packs" data-install-packs-open style="display: flex; padding: var(--space-2) var(--space-3); text-decoration: none; color: var(--color-text-muted); font-size: var(--font-size-sm);">
           + Install from Packs
         </a>
       </div>

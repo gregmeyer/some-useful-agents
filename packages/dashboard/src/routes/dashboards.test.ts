@@ -199,6 +199,28 @@ describe('dashboards routes', () => {
     expect(res.text).toContain('href="/dashboards/starter%3Amain"');
   });
 
+  it('Pulse renders the Install-from-Packs modal with available (uninstalled) packs', async () => {
+    const app = await makeApp();
+    // A dashboard so the dropdown (and thus the modal trigger) renders.
+    dashboardsStore.upsertDashboard({
+      id: 'starter:main', packId: 'starter', name: 'Main',
+      layout: { sections: [{ title: 'G', agentIds: ['hello'] }] },
+    });
+    // An uninstalled pack should appear in the modal with an install form
+    // that returns to Pulse.
+    packsStore.upsertPack({ id: 'weather', name: 'Weather', version: '0.2.0', source: 'builtin', manifest: { id: 'weather', name: 'Weather', version: '0.2.0', dashboards: [], agents: [] } });
+
+    const res = await request(app)
+      .get('/pulse')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('id="install-packs-modal"');
+    expect(res.text).toContain('data-install-packs-open');
+    expect(res.text).toContain('action="/packs/weather/install"');
+    expect(res.text).toMatch(/name="returnTo" value="\/pulse"/);
+  });
+
   it('CSP img-src widens to include each active agent\'s permissions.imgSrc hosts', async () => {
     const app = await makeApp();
     // Add a second agent declaring an external image host.

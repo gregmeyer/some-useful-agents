@@ -15,6 +15,7 @@ import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
+import { renderInstallPacksModal } from './install-packs-modal.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
 import { pageIntro } from './page-intro.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
@@ -234,6 +235,8 @@ export function renderPulsePage(input: PulsePageInput): string {
     ` : html``}
 
     ${improveLayoutModal()}
+
+    ${dropdownOptions.length > 1 ? renderInstallPacksModal(input.availablePacks ?? []) : html``}
 
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
