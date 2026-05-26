@@ -3,7 +3,7 @@
  * type import between pulse.ts and pulse-renderers.ts.
  */
 
-import type { Agent, AgentSignal, Run } from '@some-useful-agents/core';
+import type { Agent, AgentSignal, LayoutHint, Run } from '@some-useful-agents/core';
 import type { SafeHtml } from './html.js';
 
 export interface PulseTile {
@@ -18,6 +18,14 @@ export interface PulseTile {
    * agent.inputs. Used by interactive widgets to pre-fill the form.
    */
   previousInputs?: Record<string, string>;
+  /**
+   * Per-agent layout hint from LayoutHintsStore (size / tileFit / height).
+   * Written by the Improve-layout wizard (PR 2) and consumed by tileWrap
+   * as the first link in the fallback chain. Absent today on every code
+   * path that builds tiles — the renderer falls back to signal.size and
+   * outputWidget.tileFit, which is the pre-hints behaviour.
+   */
+  layoutHint?: LayoutHint;
 }
 
 export interface PulsePageInput {

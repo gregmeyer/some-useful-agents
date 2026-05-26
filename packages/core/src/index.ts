@@ -73,6 +73,11 @@ export {
   type DashboardLayout,
 } from './dashboards-store.js';
 export {
+  LayoutHintsStore,
+  type LayoutHint,
+  type LayoutHintPatch,
+} from './layout-hints-store.js';
+export {
   IntegrationsStore,
   INTEGRATION_ID_RE,
   type Integration,
@@ -170,9 +175,11 @@ export {
 export {
   layoutPlanSchema,
   SIGNAL_SIZES,
+  TILE_FITS,
   type LayoutPlan,
   type LayoutPlanInput,
   type SignalSize,
+  type TileFit,
 } from './layout-plan-schema.js';
 export {
   critiquePlan,

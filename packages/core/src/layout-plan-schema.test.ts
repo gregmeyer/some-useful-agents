@@ -104,6 +104,44 @@ describe('layoutPlanSchema', () => {
     expect(r.success).toBe(false);
   });
 
+  it('accepts suggestedTileFit and suggestedHeight on topAgents', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [
+        { id: 'api-monitor', rationale: 'a', suggestedSize: '2x1', suggestedTileFit: 'scroll', suggestedHeight: 240 },
+        { id: 'weather-forecast', rationale: 'b', suggestedTileFit: 'grow' },
+      ],
+    });
+    if (!r.success) console.log(r.error.issues);
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects invalid suggestedTileFit values', () => {
+    const r = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [{ id: 'api-monitor', rationale: 'a', suggestedTileFit: 'shrink' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects out-of-range suggestedHeight values', () => {
+    const tooSmall = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [{ id: 'api-monitor', rationale: 'a', suggestedHeight: 40 }],
+    });
+    const tooBig = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [{ id: 'api-monitor', rationale: 'a', suggestedHeight: 5000 }],
+    });
+    const nonInt = layoutPlanSchema.safeParse({
+      ...validPlan,
+      topAgents: [{ id: 'api-monitor', rationale: 'a', suggestedHeight: 240.5 }],
+    });
+    expect(tooSmall.success).toBe(false);
+    expect(tooBig.success).toBe(false);
+    expect(nonInt.success).toBe(false);
+  });
+
   it('accepts a plan where topAgents and container tiles are disjoint', () => {
     // The full agent metadata reaches the planner; lower-ranked agents
     // may appear in containers without being promoted to topAgents.

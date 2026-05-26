@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -83,6 +83,15 @@ export interface DashboardContext {
    * because no routes consume it yet; later PRs make it required.
    */
   dashboardsStore?: DashboardsStore;
+  /**
+   * Per-agent layout hints (size / tileFit / height) written by the
+   * Improve-layout wizard. Decoupled from the agent's versioned
+   * `signal` and `outputWidget` so the planner can write on every
+   * commit without bumping agent versions. Optional — when absent,
+   * renderers fall back to `agent.signal.size` and
+   * `agent.outputWidget.tileFit`. Reads are non-fatal.
+   */
+  layoutHintsStore?: LayoutHintsStore;
   /**
    * Integrations store. Holds project-scoped named external-service configs
    * (slack, webhook, file, …) that agents and notify handlers reference by
