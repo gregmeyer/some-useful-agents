@@ -40,7 +40,14 @@ export function tileWrap(
   ctx: TileWrapContext = { kind: 'pulse' },
 ): SafeHtml {
   const isSystem = tile.agent.id.startsWith('_system-');
-  const sizeAttr = tile.signal.size ?? '1x1';
+  // Size + tileFit + height all flow through a 3-link fallback:
+  //   layoutHint (from LayoutHintsStore, written by Improve-layout) →
+  //   signal/outputWidget (the agent's declared defaults) →
+  //   hard-coded default ('1x1' / 'grow' / no pinned height).
+  // PR 1 wires the lookup; later PRs teach the planner + commit endpoint
+  // to actually write hints. Today layoutHint is always undefined, so
+  // the visible behaviour matches pre-hints.
+  const sizeAttr = tile.layoutHint?.size ?? tile.signal.size ?? '1x1';
   const autoPalette = resolveAutoPalette(tile);
   const paletteAttr = autoPalette && autoPalette !== 'default'
     ? ` data-auto-palette="${autoPalette}"`
@@ -58,11 +65,20 @@ export function tileWrap(
   // dashboard-defined grid column; tileFit only controls height.
   //   `grow` (default) — the tile grows vertically to the widget's height.
   //   `scroll` — cap the tile height and scroll the overflow.
-  const fit = tile.agent.outputWidget ? (tile.agent.outputWidget.tileFit ?? 'grow') : null;
+  const widgetFit = tile.agent.outputWidget ? tile.agent.outputWidget.tileFit : undefined;
+  const fit = tile.layoutHint?.tileFit ?? widgetFit ?? (tile.agent.outputWidget ? 'grow' : null);
   const fitClass = fit ? ` pulse-tile--fit-${fit}` : '';
+  // Optional pinned height from a layout hint. Applies inline so it
+  // wins over CSS class height; the resize handle still works because
+  // the widget-layout.js.ts code writes localStorage that the hydrator
+  // re-applies. (Hint heights from the planner are the starting point,
+  // not a lock — user resizes still take effect.)
+  const heightAttr = tile.layoutHint?.height
+    ? ` style="height: ${tile.layoutHint.height}px"`
+    : '';
 
   return unsafeHtml(
-    `<div class="pulse-tile ${sizeClass(sizeAttr)}${fitClass}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}>` +
+    `<div class="pulse-tile ${sizeClass(sizeAttr)}${fitClass}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}${heightAttr}>` +
     tileHeader(tile, isSystem, ctx).toString() +
     `<div class="pulse-tile__body">` +
     content.toString() +

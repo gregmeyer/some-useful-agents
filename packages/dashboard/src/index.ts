@@ -8,6 +8,7 @@ import {
   ToolStore,
   PacksStore,
   DashboardsStore,
+  LayoutHintsStore,
   IntegrationsStore,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
@@ -353,6 +354,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // Widget packs + dashboards stores. Same DB file as agents/runs/tools.
   let packsStore: PacksStore | undefined;
   let dashboardsStore: DashboardsStore | undefined;
+  let layoutHintsStore: LayoutHintsStore | undefined;
   try {
     packsStore = new PacksStore(opts.dbPath);
     dashboardsStore = new DashboardsStore(opts.dbPath);
@@ -366,6 +368,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   } catch {
     // Non-fatal: packs/dashboards surface stays absent until later PRs
     // wire routes that depend on these stores.
+  }
+
+  // Layout hints store. Same DB file. Optional and independent from packs/
+  // dashboards — renderers fall back to signal.size / outputWidget.tileFit
+  // if this fails to come up.
+  try {
+    layoutHintsStore = new LayoutHintsStore(opts.dbPath);
+  } catch {
+    // Non-fatal: layout hints surface stays absent; renderers fall back.
   }
 
   // Integrations store. Same DB file. Independently optional from packs/
@@ -433,6 +444,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore,
     packsStore,
     dashboardsStore,
+    layoutHintsStore,
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,

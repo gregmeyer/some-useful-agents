@@ -31,6 +31,9 @@ const TILE_ID_RE = /^_?[a-z0-9][a-z0-9_-]*$/;
 export const SIGNAL_SIZES = ['1x1', '2x1', '1x2', '2x2'] as const;
 export type SignalSize = typeof SIGNAL_SIZES[number];
 
+export const TILE_FITS = ['grow', 'scroll'] as const;
+export type TileFit = typeof TILE_FITS[number];
+
 export const layoutPlanSchema = z.object({
   summary: z.string().min(1, 'summary is required'),
 
@@ -43,6 +46,25 @@ export const layoutPlanSchema = z.object({
     id: z.string().regex(AGENT_ID_RE, 'topAgents.id must be lowercase_with_dashes_or_underscores'),
     rationale: z.string().min(1, 'topAgents.rationale is required'),
     suggestedSize: z.enum(SIGNAL_SIZES).optional(),
+    /**
+     * Per-tile presentation hint. `grow` lets the tile expand to fit its
+     * content (good for cards / variable-height widgets). `scroll` caps
+     * the tile and scrolls overflow inside (good for long feeds or
+     * tables that shouldn't stretch a row).
+     *
+     * Layout-hints subsystem reads this on commit (later PR). Optional —
+     * absent means the renderer falls back to the agent's
+     * `outputWidget.tileFit` and then the default ('grow').
+     */
+    suggestedTileFit: z.enum(TILE_FITS).optional(),
+    /**
+     * Optional pinned height in CSS pixels for feed/scroll tiles so one
+     * tall tile doesn't dominate a row. Bounded 80..1200 to keep planner
+     * suggestions sane; absent means the renderer chooses height from
+     * size + tileFit. The layout-hints subsystem reads this on commit
+     * (later PR).
+     */
+    suggestedHeight: z.number().int().min(80).max(1200).optional(),
   })).min(1, 'topAgents must have at least one entry'),
 
   /**
