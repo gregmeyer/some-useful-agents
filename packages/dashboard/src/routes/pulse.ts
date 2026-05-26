@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
 import { renderPulsePage, tileWrap, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
-import { buildPulseTile } from '../views/pulse-tile-builder.js';
+import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 
 export const pulseRouter: Router = Router();
@@ -140,6 +140,11 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
       tiles.push(buildTile(agent as Agent & { signal: AgentSignal }, ctx));
     }
   }
+
+  // Decorate built tiles with any layout-planner-written hints. One
+  // batched lookup keyed by agent id; missing rows leave tiles
+  // untouched (renderer falls back to signal.size / outputWidget.tileFit).
+  attachLayoutHints(tiles, ctx.layoutHintsStore);
 
   const flash = parsePulseFlash(req);
   const installedDashboards = ctx.dashboardsStore?.listDashboards() ?? [];

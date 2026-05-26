@@ -974,10 +974,17 @@ export const IMPROVE_LAYOUT_JS = `
     var applyBtn = document.getElementById('improve-apply-btn');
     if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'Applying...'; }
 
+    // Forward topAgents so the server can persist the planner's
+    // per-agent layout hints (suggestedSize, suggestedTileFit,
+    // suggestedHeight) into LayoutHintsStore. The server ignores any
+    // entries it doesn't recognise, so it's safe to send the full list.
     fetch(ENDPOINT_BASE + '/commit', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ containers: plan.containers || [] }),
+      body: JSON.stringify({
+        containers: plan.containers || [],
+        topAgents: plan.topAgents || [],
+      }),
     })
     .then(function (r) { return r.json(); })
     .catch(function () { return {}; })

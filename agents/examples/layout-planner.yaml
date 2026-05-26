@@ -147,6 +147,21 @@ nodes:
         - "metric" / "status" templates → 1x1
         - "text-headline" / "comparison" → 2x1
         - "table" / "story" / "widget" → 2x2
+      - `suggestedTileFit` is optional. Controls how a widget taller
+        than its grid slot behaves: "grow" lets the tile expand to fit
+        its content (good for cards, metrics, varied-height widgets);
+        "scroll" caps the tile and scrolls overflow inside (good for
+        long feeds, tables, or anything that would otherwise dominate
+        a row). Default to "scroll" for table/story/widget templates
+        carrying lots of rows or HTML; "grow" for everything else. If
+        the agent already has an `outputWidget.tileFit` you can omit
+        the suggestion (the renderer falls back to it).
+      - `suggestedHeight` is optional, integer 80..1200 (CSS pixels).
+        Use it ONLY for scroll-mode tiles whose content would be
+        unbounded — e.g. a feed of 50 items where you want the tile
+        capped at ~240px. Omit for "grow" tiles (height follows
+        content) and for "metric"/"status" templates (size already
+        bounds them). Most plans should NOT set this.
 
       STEP 2 — GROUP into containers. The layout JSON the wizard writes
       to localStorage looks like:
@@ -345,7 +360,7 @@ nodes:
         "summary": "Grouped 12 agents into 3 containers and surfaced 1 from your catalog (weather-forecast) to match FOCUS=daily. Suggested 1 agent to draft (stock-ticker).",
         "topAgents": [
           { "id": "api-monitor", "rationale": "runs every 5 minutes, 100% success last 30d", "suggestedSize": "2x1" },
-          { "id": "hn-top-3", "rationale": "matches FOCUS=news, ran successfully today", "suggestedSize": "2x2" }
+          { "id": "hn-top-3", "rationale": "matches FOCUS=news, ran successfully today", "suggestedSize": "2x2", "suggestedTileFit": "scroll", "suggestedHeight": 320 }
         ],
         "containers": [
           { "label": "Health", "tiles": ["_system-runs-today", "_system-failure-rate", "_system-agent-count", "_system-avg-duration"] },
@@ -380,6 +395,8 @@ nodes:
       - No two container labels are the same (case-insensitive).
       - No two topAgents share an id.
       - `suggestedSize` if set must be one of "1x1", "2x1", "1x2", "2x2".
+      - `suggestedTileFit` if set must be one of "grow", "scroll".
+      - `suggestedHeight` if set must be an integer in [80, 1200].
       - `questions[]` may be empty. When set, each entry has non-empty
         `text`; `suggestedAnswer` and `options` are optional.
       - `toAdd[]` may be empty (the common case). When set, every id
