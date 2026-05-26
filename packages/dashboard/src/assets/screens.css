@@ -86,18 +86,71 @@ main.main--wide {
   box-shadow: var(--shadow-sm);
 }
 
+/* Wrapper around the cytoscape canvas — the positioning context for the
+ * floating zoom toolbar. Cytoscape replaces the canvas's innerHTML on boot,
+ * so the toolbar must sit OUTSIDE the canvas as a sibling. */
+.dag-frame__wrap {
+  position: relative;
+}
+
 .dag-frame__canvas {
   width: 100%;
-  height: 320px;
+  height: 380px;
   background-color: var(--color-surface-raised);
   background-image: radial-gradient(circle, var(--color-border) 0.5px, transparent 0.5px);
   background-size: 16px 16px;
 }
 
-/* Trivial graphs (1–2 nodes) don't need the full canvas — a giant lone node
-   in 320px of empty grid is wasted space on single-node agents. */
+/* Trivial graphs (1–2 nodes) get a shorter canvas — still wasted space at the
+   full 380px on a single-node agent — but tall enough that the node + label
+   read clearly without forcing the user to zoom. */
 .dag-frame__canvas--compact {
-  height: 150px;
+  height: 240px;
+}
+
+/* Zoom controls overlay — bottom-right of the canvas. Buttons are small,
+ * touch-friendly, and stay out of the way of the graph. Wheel + drag also
+ * work on the canvas itself (Cytoscape user-zoom/user-pan enabled). */
+.dag-zoom-toolbar {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 2;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.dag-zoom-toolbar__btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 28px;
+}
+
+.dag-zoom-toolbar__btn + .dag-zoom-toolbar__btn {
+  border-top: 1px solid var(--color-border);
+}
+
+.dag-zoom-toolbar__btn:hover {
+  background: var(--color-surface-raised);
+}
+
+.dag-zoom-toolbar__btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 /* Collapse/expand affordance for the DAG viewer. Reuses the design-system
@@ -226,6 +279,15 @@ main.main--wide {
   margin-bottom: var(--space-4);
 }
 
+/* Released when the Node execution section's sentinel crosses the viewport
+ * top. Dropping back to position:static lets the DAG bar scroll away cleanly
+ * so the (now-sticky) Node exec header isn't competing with a 60vh panel for
+ * the top of the screen. Toggled by run-detail-filter.js's IntersectionObserver. */
+.run-detail-grid--sticky.dag-released {
+  position: static;
+  max-height: none;
+}
+
 .run-detail-grid--sticky .run-detail-grid__dag,
 .run-detail-grid--sticky .run-detail-grid__result {
   position: static;
@@ -254,6 +316,65 @@ main.main--wide {
   max-height: 80vh;
   overflow-y: auto;
   padding-right: var(--space-2);
+}
+
+/* ---------- Node execution panel (full-width section below DAG/Result) ---------- */
+.run-detail-nodes {
+  margin-top: var(--space-6);
+}
+
+/* Sticky header — keeps the title + search + status filter pinned at the
+ * top of the viewport while the user scrolls through long node-card lists.
+ * z-index:6 sits above the DAG sticky bar (z-index:5); paired with the JS
+ * IntersectionObserver that releases the DAG bar (.dag-released) so we
+ * don't end up with two stacked sticky surfaces fighting for the top. */
+.run-detail-nodes__header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  background: var(--color-bg);
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.run-detail-nodes__title {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.run-detail-nodes__search {
+  flex: 1 1 200px;
+  min-width: 120px;
+  max-width: 280px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.run-detail-nodes__status-filter {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+@media (max-width: 900px) {
+  /* On narrow viewports the DAG bar isn't sticky anyway — keep the Node exec
+   * header inline so it doesn't eat scarce vertical space. */
+  .run-detail-nodes__header {
+    position: static;
+  }
 }
 
 /* ---------- Agent Config tab ----------

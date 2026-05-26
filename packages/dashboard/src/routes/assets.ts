@@ -240,12 +240,39 @@ window.renderDagViz = function () {
       grid: false,
     },
     autoungrabify: true,
-    userZoomingEnabled: false,
-    userPanningEnabled: false,
+    // Wheel-zoom + drag-pan enabled so users can inspect dense DAGs without
+    // a separate full-screen view. The toolbar buttons (data-dag-zoom) wrap
+    // these for keyboard/touch users; node taps still open the action dialog.
+    userZoomingEnabled: true,
+    userPanningEnabled: true,
+    minZoom: 0.25,
+    maxZoom: 3,
+    wheelSensitivity: 0.2,
     boxSelectionEnabled: false,
   });
   el.__cy = cy;
   cy.fit(undefined, 18);
+
+  // Toolbar wiring. Buttons are siblings of #dag-canvas (cytoscape replaces
+  // the canvas's innerHTML, so a button INSIDE it would be wiped). We attach
+  // a single delegated handler to the wrapper, which is stable across
+  // run-detail polls. __zoomBound flag avoids stacking listeners on re-render.
+  var wrap = el.parentElement;
+  if (wrap && !wrap.__zoomBound) {
+    wrap.__zoomBound = true;
+    wrap.addEventListener('click', function (evt) {
+      var t = evt.target;
+      if (!t || !t.getAttribute) return;
+      var action = t.getAttribute('data-dag-zoom');
+      if (!action || !el.__cy) return;
+      evt.preventDefault();
+      var cy = el.__cy;
+      var center = { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+      if (action === 'in')  cy.zoom({ level: Math.min(cy.zoom() * 1.25, 3),    renderedPosition: center });
+      if (action === 'out') cy.zoom({ level: Math.max(cy.zoom() / 1.25, 0.25), renderedPosition: center });
+      if (action === 'fit') cy.fit(undefined, 18);
+    });
+  }
 
   // Cytoscape does NOT auto-resize. If the initial fit ran before the canvas
   // reached its final size (sticky grid settling, fonts loading, a parent
