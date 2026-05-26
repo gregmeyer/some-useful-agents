@@ -23,6 +23,7 @@ inputs:                       # optional — runtime values users can supply
 
 schedule: "0 9 * * *"         # optional cron — daily at 9am
 allowHighFrequency: false     # optional — permit sub-minute cron cadences (default: false)
+timeoutSec: 60                # optional — wall-clock ceiling for the entire DAG run
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
@@ -271,6 +272,21 @@ schedule: "0 18 * * 1-5"       # 6pm weekdays
 ```
 
 A minimum-frequency cap is enforced to prevent runaway loops — see [ADR-0012](adr/0012-local-cron-scheduler-node-cron.md). Expressions finer than once a minute are rejected unless the agent opts in with `allowHighFrequency: true`. The dashboard's Schedule card validates the same rules server-side.
+
+## Timeouts
+
+Two layers protect a run from burning unbounded time / tokens:
+
+| Layer | Field | Default | Where it lives | What it does |
+|---|---|---|---|---|
+| Per-node | `nodes[*].timeout:` | 300s | each node | Soft cap for a single node. If the child process is still running at the deadline, `spawnProcess` sends SIGTERM, then SIGKILL after 5s if the child hasn't exited. The node ends with `exitCode=124` and `errorCategory='timeout'`; downstream nodes still run. |
+| Agent-level | `timeoutSec:` (top level) | unset | this file | Hard wall-clock ceiling for the entire DAG run. Catches the "10-node DAG legitimately runs 10 minutes" case that no single per-node `timeout:` can see. |
+
+When `timeoutSec` trips, the executor's internal `AbortController` fires, the in-flight node's spawn receives the same SIGTERM-then-SIGKILL escalation as per-node timeout, every remaining not-yet-started node is written as `cancelled` (category `cancelled`, not `timeout`), and the run's `error` field names the cap directly: `Agent wall-clock timeout (60s) exceeded.` Set `timeoutSec: 0` (or omit) to disable.
+
+Recommended sizing: pick something like 2–3× the agent's expected runtime. The bundled `layout-planner` ships with `timeoutSec: 60` against a normal runtime of ~20s — generous enough not to flag slow happy-path runs, tight enough to catch the orphaned-CLI burning tokens case.
+
+**Orphan reaper relationship.** Both timeout layers live as in-process timers — if the dashboard itself dies mid-run (`daemon restart`, crash, OOM), they die with it. A separate on-boot reaper handles that case by reading `runs.status IN ('running','pending')`, persisting `childPid` + `childStartedAtMs` on `node_executions`, and SIGKILL'ing the orphan after a `ps`-based start-time cross-check. See [Security model § Orphan process reaper](SECURITY.md).
 
 ## `pulseVisible`
 
