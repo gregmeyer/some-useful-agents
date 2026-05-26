@@ -13,7 +13,7 @@ Read a file from disk. Path is resolved relative to the project root and must st
 | Name | Type | Description |
 |---|---|---|
 | `content` | string | File contents as UTF-8 |
-| `size` | number | File size in bytes |
+| `bytes` | number | File size in bytes |
 | `result` | string | Alias for content |
 
 ## Example

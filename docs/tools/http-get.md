@@ -15,9 +15,11 @@ HTTP GET with SSRF protection. Resolves the hostname to an IP, rejects private/l
 | Name | Type | Description |
 |---|---|---|
 | `status` | number | HTTP status code |
+| `body` | json | Response body — auto-parsed to JSON when the response is valid JSON, otherwise the raw string |
 | `headers` | object | Response headers |
-| `body` | string | Response body as text |
-| `result` | string | Alias for body |
+| `duration_ms` | number | Request duration in milliseconds |
+
+A `result` string alias is also emitted (the body stringified) for templates that expect text.
 
 ## Example
 

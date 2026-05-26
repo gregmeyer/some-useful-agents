@@ -16,7 +16,8 @@ Write content to a file. Path is resolved relative to the project root; director
 |---|---|---|
 | `bytes` | number | Bytes written |
 | `path` | string | Absolute path of the written file |
-| `result` | string | Human-readable summary |
+| `append` | boolean | Whether the write was an append (mirrors the input) |
+| `result` | string | Alias for `path` — the resolved file path |
 
 ## Example
 

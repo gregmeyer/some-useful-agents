@@ -1,21 +1,20 @@
 # json-path
 
-Extract a value from a JSON string via a dot-path expression.
+Extract a value from a JSON value via a dot-path expression.
 
 ## Inputs
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | JSON text |
-| `path` | string | yes | Dot-path with optional `[N]` indexes — e.g. `items[0].title` |
+| `data` | json | yes | Object, array, or scalar to walk |
+| `path` | string | yes | Dot-separated path — e.g. `items.0.title` (array indexes are bare numeric segments, no brackets) |
 
 ## Outputs
 
 | Name | Type | Description |
 |---|---|---|
-| `value` | string | The extracted value (JSON-stringified if not a primitive) |
-| `result` | string | Alias for value |
-| `found` | boolean | `true` if the path resolved, `false` if any step was undefined |
+| `value` | json | The extracted value, with its original type preserved |
+| `result` | string | The extracted value as a string (JSON-stringified if not already a string; empty string if the path didn't resolve) |
 
 ## Example
 
@@ -28,17 +27,18 @@ Extract a value from a JSON string via a dot-path expression.
   tool: json-path
   dependsOn: [fetch]
   toolInputs:
-    input: "{{upstream.fetch.body}}"
+    data: "{{upstream.fetch.body}}"
     path: "title"
 
 - id: announce
   type: shell
   dependsOn: [title]
-  command: echo "Got: $UPSTREAM_TITLE_VALUE"
+  command: echo "Got: {{upstream.title.result}}"
 ```
 
 ## Notes
 
-- Path syntax: `a.b[0].c` (dots + array indexes, no wildcards).
-- Missing paths return `found: false` and empty `value`, rather than failing.
-- For richer queries, shell out to `jq` in a shell node.
+- **Path syntax** is dots only. Use `items.0.title`, not `items[0].title`. No wildcards or filters.
+- **Missing paths** resolve `value` to `undefined` and `result` to an empty string. The node still succeeds.
+- `data` accepts a JSON value directly — pass `{{upstream.fetch.body}}` from `http-get`/`http-post`, or `{{upstream.parse.value}}` from [`json-parse`](json-parse.md). No need to re-stringify.
+- For richer queries (filters, wildcards), shell out to `jq` in a shell node.
