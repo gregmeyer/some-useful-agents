@@ -10,7 +10,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar leads with the daily-driver surfaces: `sua · Pulse · Agents · Settings · Help`. The `sua` brand links to the **Home feed** (`/`). **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`); the grouping just keeps the top bar uncluttered.
+The top bar leads with the daily-driver surfaces: `sua · Pulse · Agents · Settings · Help`. The `sua` brand links to the **Home feed** (`/`). **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
 
 ## `/` — Home feed
 
@@ -35,12 +35,40 @@ Each card shows: status badge, source, optional `mcp` badge, "used by N" badge i
 
 **New agent** — interactive scaffolder at `/agents/new`.
 
+## `/scheduled` — Scheduled agents
+
+Sibling tab in the Agents strip (Agents · Tools · Nodes · Runs · Packs · **Scheduled**). Lists every agent with a `schedule:` field — regardless of status — so paused-but-scheduled and draft-with-cron agents are visible alongside active ones. Sorted by next-fire (earliest first), with id as the tiebreaker.
+
+**Columns:** Agent (id + truncated description) · Status (badge) · Schedule (humanized cron, raw on hover) · Last fire · Next fire · Actions.
+
+**Per-row actions:**
+
+| Row status | Button | What it does |
+|---|---|---|
+| `active` | **Pause** | Sets status=`paused`. Cron stays declared so Resume restores firing one click later. Reversible. |
+| `paused` | **Resume** | Sets status=`active`. Scheduler starts firing the next cron tick. |
+| `draft` | **Activate** | Sets status=`active`. First-time activation for an agent that was authored but never turned on. Same semantic as Resume but different copy ("Activated" vs "Resumed"). |
+| `archived` | — | No row action. Use Edit. |
+
+Every row also has an **Edit** link to `/agents/:id/config` for cron changes or permanent clearing (clearing is intentionally not a one-click row action — it's less reversible than Pause).
+
+**Inline hints in the Next fire column** (the page reads as transparently as possible):
+
+- `active` → formatted relative time (`9h`, `2d`).
+- `draft` → `won't fire — status is draft` (cursor-help; tooltip explains the active-only rule).
+- `archived` → `won't fire — archived`.
+- `paused` → `—` (cron paused-by-intent; Resume restores).
+
+**`never` in Last fire** has a tooltip clarifying that the column counts only `triggeredBy='schedule'` runs — manual runs via dashboard / CLI / MCP don't count here. An agent run manually but never by the scheduler shows `never` by design.
+
+**The home Scheduled widget** mirrors this surface: includes paused agents (badged), shows Pause/Resume inline, and has a "View all →" link to this page.
+
 ## `/agents/:id` — Agent detail
 
 Five tabs:
 
 ### Overview
-- DAG visualization (Cytoscape, click any node for actions)
+- **DAG visualization** — Cytoscape canvas with wheel-zoom + drag-pan. A floating toolbar in the bottom-right has **+** (zoom in), **⧇** (fit to view), and **−** (zoom out) buttons; clicks bind to `cy.zoom()` / `cy.fit()`. The canvas height adapts to graph size — 380px default, 240px compact for 1–2-node DAGs — so a small graph doesn't drown in an empty grid and a dense one stays readable without leaving the page. Click any node for the action dialog (Edit, Replay-from-here, Jump to details).
 - Latest run's output widget (if declared)
 - Stats strip: total runs, success rate, avg duration
 - Signal + output widget previews
@@ -110,9 +138,11 @@ Every run across all agents. Filter by agent, status (pending / running / comple
 
 ## `/runs/:id` — Run detail
 
-Per-node execution table with stdout, exit codes, errors, timings. For `llm-prompt` nodes, real-time turn progress via stream-json. "Replay from node" button on each row.
+Per-node execution table with stdout, exit codes, errors, timings. For `llm-prompt` nodes, real-time turn progress via stream-json. "Replay from node" button on each row. The **Node execution** header (title + search input + status-filter dropdown) sticks at `top: 0` while node cards scroll under it; an rAF-throttled scroll observer releases the DAG/Result sticky bar above it back to `position: static` when this header reaches the release line, so the two sticky surfaces don't fight for the top of the viewport.
 
 Resolved variables panel shows what values the run actually saw (inputs after defaults, vars after substitution).
+
+**Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
 ## `/pulse` — Pulse
 
