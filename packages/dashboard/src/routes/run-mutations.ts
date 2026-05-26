@@ -355,15 +355,34 @@ runMutationsRouter.post('/runs/:id/cancel', async (req: Request, res: Response) 
     // Provider may not have this run — that's fine if the abort above worked.
   }
 
-  // If neither path updated the status (e.g. run finished between the
-  // check and the cancel), force-update as a fallback.
+  // If neither path updated the status (e.g. run finished between the check
+  // and the cancel, OR — more commonly — the dashboard was restarted mid-run
+  // so activeRuns is empty and provider.cancelRun is a no-op), force-update
+  // as a fallback. We also finalize any node_executions still flagged
+  // `running` for this run: the old fallback only touched the `runs` row,
+  // leaving node rows stuck on a spinner forever even though the run was
+  // marked cancelled. This is the symptom of run b48c0d25 (layout-planner,
+  // 2026-05-26) where the user-cancel path left the node row in `running`
+  // until the next dashboard boot's orphan reaper finalized it.
   const updated = ctx.runStore.getRun(id);
   if (updated && updated.status === 'running') {
+    const completedAt = new Date().toISOString();
     ctx.runStore.updateRun(id, {
       status: 'cancelled' as RunStatus,
-      completedAt: new Date().toISOString(),
+      completedAt,
       error: 'Cancelled by user.',
     });
+    const nodeExecs = ctx.runStore.listNodeExecutions(id);
+    for (const exec of nodeExecs) {
+      if (exec.status === 'running' || exec.status === 'pending') {
+        ctx.runStore.updateNodeExecution(id, exec.nodeId, {
+          status: 'cancelled',
+          errorCategory: 'cancelled',
+          completedAt,
+          error: 'Cancelled by user.',
+        });
+      }
+    }
   }
 
   res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Run cancelled.')}`);

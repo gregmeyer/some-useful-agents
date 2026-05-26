@@ -323,7 +323,7 @@ export const agentV2Schema = z.object({
     delaySeconds: z.number().int().min(1).max(3600).optional(),
     categories: z.array(z.enum([
       'setup', 'input_resolution', 'spawn_failure', 'exit_nonzero',
-      'timeout', 'cancelled', 'upstream_failed', 'condition_not_met', 'flow_ended',
+      'timeout', 'cancelled', 'abandoned', 'upstream_failed', 'condition_not_met', 'flow_ended',
     ])).optional(),
   }).optional(),
 
