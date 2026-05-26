@@ -1,5 +1,279 @@
 # @some-useful-agents/mcp-server
 
+## 0.22.0
+
+### Minor Changes
+
+- 885f237: Belt-and-suspenders timeout enforcement: kill orphaned LLM processes on reboot + agent-level wall-clock ceiling.
+
+  Follow-up to the orphan reaper (last release). The reaper closed the state-machine bleed but didn't stop the orphaned `claude`/`codex` CLI from continuing its current API call. This release adds the two pieces needed to make timeout enforcement actually stop the token burn:
+
+  **Agent.timeoutSec — wall-clock ceiling for the whole run.** Per-node `timeout` protects against one node hanging; agent-level `timeoutSec` is the umbrella that catches "10 nodes at 60s each legitimately runs 10 minutes." When the run exceeds the ceiling, the executor aborts the in-flight node (SIGTERM, then SIGKILL after 5s via the cancel-path escalation shipped last release) and marks remaining nodes as cancelled. The run's `error` names the cap directly: `Agent wall-clock timeout (60s) exceeded.`
+
+  `layout-planner.yaml` (the agent that revealed the orphan bug) now declares `timeoutSec: 60` — normal runtime is ~20s, the cap catches the dashboard-restart-orphan case without flagging legitimately-slow runs.
+
+  **Persist child PID + start time on `node_executions`.** Two new nullable columns: `childPid` (the spawned process's OS pid) and `childStartedAtMs` (wall-clock ms at spawn time). The executor wires `spawnProcess`'s new `onSpawn(pid, startedAtMs)` callback to write both onto the in-flight node row the moment `spawn()` returns.
+
+  **Reaper now kills the orphan.** When a `node_executions` row carries `childPid` + `childStartedAtMs`, the orphan reaper SIGKILLs the process before transitioning the row. To defend against PID reuse on long-uptime machines, it first parses `ps -p <pid> -o etime=` and compares the actual elapsed time against the stored start time; if they've drifted apart (PID reuse), the kill is skipped. Production callers get this automatically; tests inject a `killProcess` hook.
+
+  `reapOrphanedRuns` now returns `pidsKilled` alongside `runsReaped` / `nodesReaped`. The dashboard boot log surfaces all three.
+
+  Tests: +13 (4 for agent timeout, 1 round-trip, 3 for kill behavior, 5 for etime parsing). 1603 pass / 3 skipped.
+
+- e56f176: Build eval now catches dead image links the drafter LLM hand-writes into agents.
+
+  Drafter LLMs frequently bake literal asset URLs into generated agents (e.g. a
+  shell node with an array of Wikimedia portrait URLs) and hallucinate the path.
+  These pass the structural critic — the host _is_ declared in
+  `permissions.imgSrc`, so the page CSP allows it — but the URL 404s and the
+  widget renders a broken image. Observed in the wild: ~1/3 of the Wikimedia URLs
+  in a drafted "Marvel hero of the day" agent were dead links.
+
+  The build evaluation now extracts every hardcoded `http(s)` image URL from each
+  generated agent and HEAD-checks it. Definitively-gone links (HTTP 404/410) are
+  fed back to the planner/drafter as critic-style feedback so the next attempt
+  fixes the source (or drops the image) instead of committing an agent that
+  renders broken. Inconclusive results — network errors, timeouts, 401/403
+  (hotlink), 429 (rate-limit), 5xx — are never flagged, so an offline or
+  rate-limited build host can't produce false failures. Template placeholders
+  (`{{outputs.image_url}}`) and data URIs are skipped (not statically verifiable
+  / can't 404). The check runs in both the multi-agent `PlannerLoopRunner` eval
+  phase and the single-agent drafter critic-retry loop.
+
+  New `@some-useful-agents/core` exports: `extractImageUrls`, `findDeadImageUrls`,
+  `checkPlanImageUrls`, `defaultCheckImageUrl`, `formatDeadImageFeedback`,
+  `formatImageCheckFeedback`. `PlannerLoopRunnerDeps` gains an optional
+  `checkImageUrl` dependency; omitting it skips the check (keeps tests/offline
+  builds network-free).
+
+- e56f176: Fail runs whose widget output references CSP-blocked image hosts (root-cause fix).
+
+  When an ai-template widget rendered an `<img>` from a host not in the agent's
+  `permissions.imgSrc`, the browser silently blocked it and the run-detail auto-poll
+  re-fired the CSP violation on every 2s refresh — filling the console with repeating
+  "Loading the image '…' violates the following Content Security Policy directive"
+  errors.
+
+  Fixed at the source: the executor now checks a finished run's widget output against
+  the agent's `permissions.imgSrc` and, if it references an un-allowlisted image host,
+  marks the run **failed** with an actionable error naming the host(s)
+  (`unallowedWidgetImageHosts` / `formatBlockedImageError`, new in
+  `@some-useful-agents/core`). The run-detail view hides the broken widget for such a
+  run (so the blocked image never renders or re-fires the violation) and renders a
+  **server-side** one-click "Allow host" form per blocked host — robust because the
+  hidden widget fires no CSP violation, so a client-JS banner would have nothing to
+  react to. The `allow-host` endpoint accepts that form POST and redirects back to the
+  run (same-origin redirects only); allow the host, then Retry run. As a safety net,
+  the live poll also pauses when any CSP img-src violation is detected
+  (`window.__suaCspPaused`), so residual cases on rendered widgets can't spam the
+  console either.
+
+  Separately, widget images that load from an _allowlisted_ host but still 404 (an
+  LLM hand-wrote a Wikimedia path with the wrong hash, so the run completes but the
+  image is dead) no longer show a broken-image glyph. A capture-phase image-error
+  listener swaps any failed widget `<img>` for an inline SVG "Image unavailable"
+  placeholder (`data:` URI, permitted by the CSP `img-src` allowlist), preserving
+  the failed URL in a tooltip. This is the graceful fallback for hallucinated image
+  URLs that slip past the host-level checks.
+
+- c7bae0f: Rename a dashboard from the editor.
+
+  The dashboard editor (`/dashboards/:id/edit`) now has a name field + Rename
+  button, posting to a new `POST /dashboards/:id/rename` route. Renaming
+  re-upserts with the existing id, packId, and layout — so the stable id never
+  changes and the dashboard stays findable for delete (and pack uninstall, for
+  pack-owned dashboards) after the display name changes. The editor header now
+  shows that stable id. The built-in "Default Dashboard" (the Pulse view) has no
+  stored row and is not renameable by design.
+
+  Pack-owned dashboards can't be deleted directly (deleting would just reappear on
+  pack reload). Their editor now explains this and links to the owning pack's page,
+  where uninstall removes the pack's dashboards while keeping contributed agents.
+
+- c7bae0f: Install packs from Pulse without leaving the page.
+
+  The dashboards dropdown's "+ Install from Packs" now opens an in-place modal
+  listing every registered-but-uninstalled pack, each with an Install button, plus
+  a single "Browse all packs →" link to the full packs page. Installing posts to
+  `/packs/:id/install` with `returnTo=/pulse`, so you land back on Pulse with a
+  success flash instead of being bounced to the pack detail page. The install
+  route now honors a loopback-only `returnTo`. Without JS the link still navigates
+  to `/packs`.
+
+- c7bae0f: Dashboard nav: Pulse-first top bar with in-page Agents section tabs.
+
+  The top navigation is now `sua · Pulse · Agents · Settings · Help`, with Pulse
+  promoted to the first nav item. The building blocks and executions —
+  Agents, Tools, Nodes, Runs, Packs — are grouped under **Agents** and surfaced as
+  an in-page tab strip on each of those landing pages, mirroring the Settings
+  shell (no separate global subnav bar). The top-level "Agents" item links to the
+  agents list and stays active across the whole section. URLs are unchanged; this
+  is purely an information-architecture grouping so the daily-driver surfaces
+  (Pulse, then your agents) lead, and the supporting pages stay one click away
+  without crowding the top bar.
+
+  On Pulse, the dashboard selector dropdown moves from above the page title to the
+  right side of the header row, so it no longer sits on top of the "Pulse" heading.
+
+- 7ae30a4: Fix: orphaned runs after dashboard restart no longer burn tokens silently.
+
+  When the dashboard process died mid-run (a `daemon restart`, a crash, an OOM), any in-flight LLM child process was reparented to launchd/init and kept running. The 180-second per-node timeout was an in-memory `setTimeout` inside the dashboard process — it died with the parent. The new dashboard had no `activeRuns` entry for the run and couldn't abort it, and the `runs` row sat at `status='running'` indefinitely. The user-cancel route's fallback path force-updated the `runs` row but left every `node_executions` row stuck on a spinner forever.
+
+  This release ships three fixes that close the bleed:
+
+  - **Orphan reaper on boot.** Any run still flagged `running` or `pending` when the dashboard starts is, by definition, an orphan — the only process that could be executing it is the dashboard, and it just started. The reaper transitions the run to `failed` and every still-`running`/`pending` node execution to `failed` with new `errorCategory='abandoned'` so dashboards stop polling, notify logic doesn't fire forever, and the audit trail explains the gap. Idempotent; safe to call repeatedly.
+
+  - **SIGKILL escalation on the cancel path.** When the abort signal fires, the spawner now SIGTERMs the child and escalates to SIGKILL after 5 seconds — matching the timeout path. A claude/codex CLI stuck in a slow HTTP read can no longer ignore SIGTERM indefinitely.
+
+  - **Cancel route finalizes node rows.** `POST /runs/:id/cancel`'s fallback (used when activeRuns is empty because the dashboard restarted between kickoff and cancel) now walks every `running`/`pending` node execution for the run and transitions it to `cancelled` alongside the run-level update.
+
+  Note: this release does NOT yet kill the orphaned child process itself — that requires persisting the child PID on the `node_executions` row (followup). What this stops is the state-machine bleed: rows stop sitting at `running` forever, and the run row gets a coherent terminal status.
+
+- 38691bf: dashboard: new /scheduled page + Pause/Resume per row + widget surfaces paused agents.
+
+  The home "Scheduled" widget filtered out paused agents — an agent with `schedule: "0 * * * *"` and `status: paused` was invisible even though the schedule is still on record and one click away from firing again. That hid scheduled-but-quiet agents from the user and made it hard to find what to stop.
+
+  This release adds a dedicated `/scheduled` page under the Agents tab strip listing every agent with a schedule, regardless of status. Each row carries a one-click **Pause** (active rows) or **Resume** (paused rows) form; both POST to dedicated `/scheduled/:id/pause` and `/scheduled/:id/resume` routes that flip status and redirect back to the list. Schedule cron stays declared either way — pause is reversible. Permanent removal (clearing the cron) still lives on `/agents/:id/config`.
+
+  The home widget is updated alongside: it now includes paused agents (badged), shows the same inline Pause/Resume button per row, and links "View all →" to the new page.
+
+  Note: this PR does not yet wire pause/resume on the agent loop runner or planner-loop runs — only the per-agent `agents.status` field. The scheduler already honors that field (only `status='active'` agents fire), so the user-visible behavior is correct.
+
+- e56f176: Widget tiles grow to fit their content, with a resize handle to pin height + scroll.
+
+  Tall output widgets used to get an internal scrollbar inside a capped tile. Now:
+
+  - **Tiles grow vertically by default.** A widget tile is as tall as its content
+    (readable, no scrollbar); width stays the dashboard-defined grid column. New
+    `outputWidget.tileFit` controls this per widget: `grow` (default) or `scroll`
+    (cap height + scroll). The output-widget editor exposes the choice. The full
+    run/agent detail view always renders at natural height regardless.
+  - **Resize handle pins a height.** Dragging a tile's resize handle in layout-edit
+    mode now sets an explicit height, snapped to a short grid unit, and the tile
+    body scrolls anything taller — so you can shorten a tall tile and it scrolls
+    instead of growing. Width still snaps to dashboard columns. Persisted per tile
+    in the existing layout localStorage.
+
+  Also: the dashboard CSS is served `no-cache` (was `max-age=300`) so style/layout
+  fixes land on refresh instead of being masked by a 5-minute stale cache — the
+  same trap that made an earlier tile change look broken until a hard reload.
+
+### Patch Changes
+
+- e56f176: Fix: run-detail live updates no longer wipe the DAG graph or the CSP "Allow" banner.
+
+  The run page auto-polls every 2s and swaps in a fresh `[data-run-container]`
+  fragment via `innerHTML` + `replaceWith`. Two pieces of client UI didn't survive
+  the swap:
+
+  - **DAG graph went blank.** Scripts inserted via `innerHTML` never execute
+    (HTML5), so the cytoscape bootstrap stopped running after the first poll and the
+    new `#dag-canvas` rendered blank for the rest of the run. The bootstrap is now a
+    re-callable, per-canvas-idempotent global (`window.renderDagViz`) that the poll
+    re-invokes after each swap, so the graph stays visible and node colors update
+    live as the run progresses.
+  - **CSP "Allow host" banner disappeared mid-run.** The banner for CSP-blocked
+    widget images was mounted _inside_ `[data-run-container]`, so the poll destroyed
+    it; the violation listener's host-dedupe then suppressed re-rendering, so the
+    "Allow" button vanished on the first poll and never came back. It's now mounted
+    as a sibling in the container's stable parent, surviving every swap.
+
+  The root cause behind both was that the poll replaced the entire
+  `[data-run-container]` every 2s. The poll now **reconciles only the regions that
+  changed** (`data-poll-region` markers: status, meta, error, result, nodes) instead
+  of nuking the container — so the DAG canvas (kept via a `data-poll-preserve`
+  region), focused inputs, the node search/filter, and scroll position all survive a
+  live update. The DAG bootstrap re-renders only when its data actually changed
+  (signature check), reusing the same `#dag-canvas` element. Finally, the
+  currently-running DAG node now **pulses** (glowing halo + breathing border) so
+  it's obvious at a glance which step is live.
+
+  Also fixed: the DAG sometimes rendered only the middle node. Cytoscape doesn't
+  auto-resize, so if the initial `fit()` ran before the canvas reached its final
+  size (sticky grid settling, fonts loading), the viewport stayed zoomed to a
+  stale box and the outer nodes were clipped. The bootstrap now attaches a
+  `ResizeObserver` that re-fits on any canvas resize. And `graph-render.js` is now
+  served `no-cache` (it was `max-age=300`), so DAG fixes land on refresh instead of
+  being masked by a 5-minute stale cache.
+
+- c154655: dashboard: DAG canvas zoom + sticky Node execution header.
+
+  The DAG viewer on run detail now supports interactive zoom (wheel + drag-pan, plus a floating +/⧇/− toolbar in the bottom-right of the canvas) and renders the canvas a notch taller by default (380px standard, 240px for 1–2 node graphs) so labels and arrows read clearly without zooming.
+
+  The Node execution panel below the DAG now has a sticky header — title, search, and status filter stay pinned at the top of the viewport while the user scrolls through long node-card lists. The sticky DAG/Result bar above is released automatically (via a small scroll observer) the moment the Node execution section reaches the release line, so the two sticky surfaces don't fight for the top of the screen.
+
+- 33cfbd4: Widen dashboard content cap so wide screens stop showing a large dead gutter.
+
+  The global content max-width was hard-capped at 1200px (1400px for wide pages), so on large monitors the centered layout left big non-flexing gutters on either side and clipped wide content rows. Raised `--content-max` to 1600px and `--content-max-wide` to 1760px so pages use more horizontal space while keeping a readable cap.
+
+- 3901b1f: Dashboard run-display and Pulse-layout polish.
+
+  - Run detail no longer shows the literal "exit null" for DAG/multi-node runs
+    (the run-level exit code is null by design); it shows a muted "—" instead.
+  - Node stdout strips a single enclosing Markdown code fence, so llm-prompt
+    output wrapped in `json … ` renders clean instead of showing the backticks.
+  - Trivial graphs (1–2 nodes) use a compact DAG canvas instead of the full-height
+    one, so single-node agents don't render a giant lone node in empty space.
+  - The Pulse grid sizes each tile to its own content instead of stretching every
+    tile in a row to the tallest one, so short metric/status tiles no longer
+    render as near-empty cards.
+  - Broken widget images cap their placeholder height so a failed hero image
+    doesn't leave an oversized box.
+  - The named-dashboard header (`/dashboards/:id`) now mirrors Pulse: the dashboard
+    name is the prominent heading with tile-count/source meta beside it, and the
+    dashboards dropdown plus actions move into the right-aligned group.
+
+- 160169f: Fix `sua dashboard start` crashing / mis-starting when the port is in use.
+
+  Express's `app.listen(port, host, cb)` invokes its callback even when the bind
+  fails, so a busy port (EADDRINUSE) could resolve an unbound server — printing a
+  bogus "running" banner — or leak as an uncaught error and crash on startup.
+  Binding now keys off the `listening` event so a port conflict reliably rejects.
+  The CLI then reports it clearly: if a dashboard is already running it prints the
+  sign-in URL and exits 0; otherwise it explains the port is taken and suggests
+  `--port <port>`.
+
+- 55c0c8a: Show interactive output widgets on Pulse/dashboard tiles even when `signal.template` isn't `widget`.
+
+  Pulse dispatches tile rendering on `signal.template`, so an agent that declared
+  an interactive `outputWidget` but left `signal.template` as e.g. `text-headline`
+  (several shipped examples do) rendered an empty slot template instead of the
+  widget on first view. Interactive widgets are tile-level mini-apps that render
+  without a prior run, so they now always own the tile. Non-interactive widgets
+  paired with a compact `signal.template` (e.g. a metric tile) are unchanged.
+
+- 13f31f6: dashboard/scheduled: Activate one-click on draft rows + explanatory hint for non-firing statuses.
+
+  Follow-up to the new /scheduled page. The page listed drafts with a `schedule:` declared but offered no row action — leaving the user with `Every day at 7:00 AM` next to `—` in Next fire and a "why didn't this run?" question. The answer is that the scheduler only fires `status='active'` agents.
+
+  Now:
+
+  - **Draft rows get an `Activate` button.** Posts to a new `POST /scheduled/:id/activate` route that flips status `draft → active`. Same shape as Pause/Resume; 303 redirect with a flash; idempotent guards.
+
+  - **Non-active rows get an explanatory Next-fire hint.** Drafts render `won't fire — status is draft` (with a tooltip explaining the scheduler-only-fires-active rule). Archived render `won't fire — archived`. Paused continues to show `—` (the cron is paused-by-intent and one click away from firing on Resume).
+
+  - **`never` in Last fire gets a tooltip.** Clarifies that the column counts only scheduler-triggered runs — manual runs via dashboard / CLI / MCP don't count, so an agent that's been run manually but never by the scheduler shows `never` here by design.
+
+  Tests: 1614 pass / 3 skipped (+4 new: draft renders Activate + hint, activate flips status, idempotent on already-active, archived hint with no row action).
+
+- Updated dependencies [885f237]
+- Updated dependencies [e56f176]
+- Updated dependencies [e56f176]
+- Updated dependencies [e56f176]
+- Updated dependencies [c154655]
+- Updated dependencies [33cfbd4]
+- Updated dependencies [3901b1f]
+- Updated dependencies [160169f]
+- Updated dependencies [c7bae0f]
+- Updated dependencies [c7bae0f]
+- Updated dependencies [c7bae0f]
+- Updated dependencies [7ae30a4]
+- Updated dependencies [55c0c8a]
+- Updated dependencies [13f31f6]
+- Updated dependencies [38691bf]
+- Updated dependencies [e56f176]
+  - @some-useful-agents/core@0.22.0
+
 ## 0.21.0
 
 ### Minor Changes
