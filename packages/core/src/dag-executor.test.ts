@@ -2047,3 +2047,92 @@ describe('executeAgentDag — state-dir size cap (PR D.1)', () => {
     expect(ne.stateBytesAfter).toBeUndefined();
   });
 });
+
+describe('executeAgentDag — agent wall-clock timeout (Agent.timeoutSec)', () => {
+  it('fires when the run exceeds agent.timeoutSec; finalizes the run and remaining nodes', async () => {
+    // Two-node DAG: a slow first node that finishes after the agent
+    // timeout has tripped. The mock spawner doesn't honor abort signals
+    // (it just sleeps `delayMs`), so the first node still returns —
+    // exactly the case where an orphaned claude CLI would have finished
+    // its API call. The executor's loop sees `effectiveSignal.aborted=true`
+    // before the second node and marks it cancelled. The run's final
+    // error names the agent-level cap directly.
+    const agent = makeAgent({
+      timeoutSec: 1,
+      nodes: [
+        { id: 'slow', type: 'shell', command: 'sleep 0' },
+        { id: 'never', type: 'shell', command: 'echo never', dependsOn: ['slow'] },
+      ],
+    });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ slow: { exitCode: 0, result: 'done', delayMs: 1100 } }) },
+    );
+
+    expect(run.status).toBe('failed');
+    expect(run.error).toMatch(/wall-clock timeout \(1s\)/);
+
+    const execs = runStore.listNodeExecutions(run.id);
+    const slow = execs.find((e) => e.nodeId === 'slow')!;
+    const never = execs.find((e) => e.nodeId === 'never')!;
+    // Slow node ran to completion under the mock (signal honoring is the
+    // spawner's job, not the executor's — the real spawnProcess does
+    // SIGTERM/SIGKILL). The executor still aborts the rest of the DAG.
+    expect(slow.status).toBe('completed');
+    expect(never.status).toBe('cancelled');
+    expect(never.errorCategory).toBe('cancelled');
+  });
+
+  it('does not fire when the run finishes under the ceiling', async () => {
+    const agent = makeAgent({ timeoutSec: 5 });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'fast', delayMs: 50 } }) },
+    );
+    expect(run.status).toBe('completed');
+    expect(run.error).toBeFalsy();
+  });
+
+  it('treats timeoutSec=0 as disabled (no ceiling)', async () => {
+    const agent = makeAgent({ timeoutSec: 0 });
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok', delayMs: 50 } }) },
+    );
+    expect(run.status).toBe('completed');
+  });
+
+  it('respects a caller-supplied abort signal even when timeoutSec is set', async () => {
+    // Caller cancels BEFORE the agent timeout fires. The run should reflect
+    // a caller-driven cancellation, not a wall-clock-timeout error.
+    const controller = new AbortController();
+    const agent = makeAgent({
+      timeoutSec: 60,
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo a' },
+        { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+      ],
+    });
+    const spawn: DagExecutorDeps['spawnNode'] = async (node) => {
+      if (node.id === 'a') {
+        controller.abort();
+        return { result: 'a-done', exitCode: 0 };
+      }
+      return { result: '', exitCode: 0 };
+    };
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli', signal: controller.signal },
+      { runStore, spawnNode: spawn },
+    );
+    // The cancellation path tags firstFailure with category 'cancelled' —
+    // not the wall-clock-timeout error. The agent-timeout branch only
+    // overrides when agentTimedOut is true.
+    expect(run.error).not.toMatch(/wall-clock timeout/);
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'b')!.status).toBe('cancelled');
+  });
+});

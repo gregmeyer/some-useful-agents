@@ -28,6 +28,11 @@ description: >
 status: active
 source: examples
 
+# Agent-level wall-clock ceiling. Normal runtime is ~20s; 60s catches the
+# orphaned-claude-burning-tokens case (run b48c0d25 ran 13m17s before the
+# user cancelled) without flagging legitimately-slow runs.
+timeoutSec: 60
+
 inputs:
   CURRENT_LAYOUT:
     type: string

@@ -216,6 +216,7 @@ export async function spawnNodeReal(
   _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string> },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
+  onSpawn?: (pid: number, startedAtMs: number) => void,
 ): Promise<SpawnResult> {
   if (node.type === 'shell') {
     if (!node.command) {
@@ -226,6 +227,7 @@ export async function spawnNodeReal(
       env,
       timeoutSec: node.timeout ?? 300,
       signal,
+      onSpawn,
     });
   }
 
@@ -279,6 +281,7 @@ export async function spawnNodeReal(
     } : undefined,
     extractResult: (stdout) => spawner.extractResult(stdout),
     signal,
+    onSpawn,
   });
 }
 
@@ -302,6 +305,16 @@ export interface SpawnProcessOptions {
    * substitution exceeds that ceiling fails with `spawn E2BIG` otherwise.
    */
   stdinInput?: string;
+  /**
+   * PR C (orphan-kill): fires the moment `spawn()` returns a pid, BEFORE
+   * any pipe wiring or stdin writes. The executor persists pid + startedAtMs
+   * onto the in-flight `node_executions` row so a future dashboard restart
+   * can read it back and SIGKILL the orphan instead of letting it burn
+   * tokens until it finishes naturally. startedAtMs is `Date.now()` at
+   * spawn time; the reaper ps-cross-checks elapsed time against it to
+   * defend against PID reuse on long-uptime machines.
+   */
+  onSpawn?: (pid: number, startedAtMs: number) => void;
 }
 
 /**
@@ -370,6 +383,13 @@ export async function spawnProcess(
     } catch (err) {
       resolve({ result: '', exitCode: 127, error: (err as Error).message, category: 'spawn_failure' });
       return;
+    }
+    // Report the freshly-spawned pid + start time so the executor can persist
+    // them on the node_executions row. Fires before stdin write so a crash
+    // between spawn() and the first stdout chunk still leaves a kill handle.
+    // Wrapped in try/catch: the callback shouldn't kill the run if it throws.
+    if (opts.onSpawn && typeof child.pid === 'number') {
+      try { opts.onSpawn(child.pid, Date.now()); } catch { /* never let onSpawn break spawning */ }
     }
     if (opts.stdinInput !== undefined && child.stdin) {
       child.stdin.on('error', () => { /* child may close before we finish writing — swallow EPIPE */ });

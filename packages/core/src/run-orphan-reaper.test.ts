@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
-import { reapOrphanedRuns } from './run-orphan-reaper.js';
+import { reapOrphanedRuns, parseEtime } from './run-orphan-reaper.js';
 import type { NodeExecutionRecord } from './agent-v2-types.js';
 
 const TEST_DB = join(import.meta.dirname, '__test-data__', 'orphan-reaper.db');
@@ -105,5 +105,82 @@ describe('reapOrphanedRuns', () => {
 
     expect(result.runsReaped).toBe(1);
     expect(store.getRun('pre')?.status).toBe('failed');
+  });
+});
+
+describe('reapOrphanedRuns — PID kill (PR C)', () => {
+  it('persists childPid/childStartedAtMs through createNodeExecution/listNodeExecutions', () => {
+    // The DB plumbing has to round-trip these fields cleanly or the kill
+    // path can never see them. Sanity-check first.
+    store.createRun({ id: 'r-pid', agentName: 'x', status: 'running', startedAt: '2026-05-26T03:00:00Z', triggeredBy: 'cli' });
+    store.createNodeExecution(mkExec('r-pid', 'n', { childPid: 12345, childStartedAtMs: 1700000000000 }));
+    const fetched = store.getNodeExecution('r-pid', 'n');
+    expect(fetched?.childPid).toBe(12345);
+    expect(fetched?.childStartedAtMs).toBe(1700000000000);
+  });
+
+  it('calls killProcess for rows that carry a pid, and counts the kills', () => {
+    const killed: Array<{ pid: number; startedAtMs: number }> = [];
+    store.createRun({ id: 'r-k', agentName: 'x', status: 'running', startedAt: '2026-05-26T03:00:00Z', triggeredBy: 'cli' });
+    store.createNodeExecution(mkExec('r-k', 'a', { childPid: 1111, childStartedAtMs: 1_700_000_000_000 }));
+    store.createNodeExecution(mkExec('r-k', 'b', { childPid: 2222, childStartedAtMs: 1_700_000_010_000 }));
+
+    const result = reapOrphanedRuns(store, {
+      killProcess: (pid, startedAtMs) => { killed.push({ pid, startedAtMs }); return true; },
+    });
+
+    expect(killed).toEqual([
+      { pid: 1111, startedAtMs: 1_700_000_000_000 },
+      { pid: 2222, startedAtMs: 1_700_000_010_000 },
+    ]);
+    expect(result.pidsKilled).toBe(2);
+    expect(result.nodesReaped).toBe(2);
+  });
+
+  it('does NOT call killProcess for rows without a pid (non-spawning paths)', () => {
+    const killed: number[] = [];
+    store.createRun({ id: 'r-mcp', agentName: 'x', status: 'running', startedAt: '2026-05-26T03:00:00Z', triggeredBy: 'cli' });
+    // MCP / built-in tool nodes don't spawn a child process.
+    store.createNodeExecution(mkExec('r-mcp', 'mcp-call'));
+
+    const result = reapOrphanedRuns(store, {
+      killProcess: (pid) => { killed.push(pid); return true; },
+    });
+
+    expect(killed).toEqual([]);
+    expect(result.pidsKilled).toBe(0);
+    expect(result.nodesReaped).toBe(1); // row still finalized
+  });
+
+  it('does not increment pidsKilled when killProcess declines (PID reuse)', () => {
+    store.createRun({ id: 'r-skip', agentName: 'x', status: 'running', startedAt: '2026-05-26T03:00:00Z', triggeredBy: 'cli' });
+    store.createNodeExecution(mkExec('r-skip', 'a', { childPid: 9999, childStartedAtMs: 1_700_000_000_000 }));
+
+    const result = reapOrphanedRuns(store, { killProcess: () => false });
+
+    expect(result.pidsKilled).toBe(0);
+    expect(result.nodesReaped).toBe(1); // row still finalized
+    expect(store.getNodeExecution('r-skip', 'a')?.errorCategory).toBe('abandoned');
+  });
+});
+
+describe('parseEtime', () => {
+  it('parses MM:SS', () => {
+    expect(parseEtime('00:30')).toBe(30);
+    expect(parseEtime('02:15')).toBe(135);
+  });
+  it('parses HH:MM:SS', () => {
+    expect(parseEtime('01:02:03')).toBe(3723);
+  });
+  it('parses DD-HH:MM:SS', () => {
+    expect(parseEtime('2-03:04:05')).toBe(2 * 86400 + 3 * 3600 + 4 * 60 + 5);
+  });
+  it('tolerates surrounding whitespace', () => {
+    expect(parseEtime('  00:42  ')).toBe(42);
+  });
+  it('returns null on garbage', () => {
+    expect(parseEtime('not-a-time')).toBeNull();
+    expect(parseEtime('')).toBeNull();
+    expect(parseEtime('00:99:00:00')).toBeNull();
   });
 });
