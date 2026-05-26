@@ -351,6 +351,31 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
   const ctx = getContext(req.app.locals);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const containersRaw = Array.isArray(body.containers) ? body.containers : [];
+  const topAgentsRaw = Array.isArray(body.topAgents) ? body.topAgents : [];
+
+  // Build a per-agent placement map from the planner's topAgents entries.
+  // These become per-section overrides on the new layout — dashboard-scoped,
+  // unlike LayoutHintsStore which is agent-global. Invalid field values
+  // are silently dropped (the renderer falls through to the next link in
+  // the chain).
+  const placementByAgentId = new Map<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }>();
+  for (const entry of topAgentsRaw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const id = typeof e.id === 'string' ? e.id : '';
+    if (!id || id.startsWith('_')) continue;
+    const placement: { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number } = {};
+    if (typeof e.suggestedSize === 'string' && (e.suggestedSize === '1x1' || e.suggestedSize === '2x1' || e.suggestedSize === '1x2' || e.suggestedSize === '2x2')) {
+      placement.size = e.suggestedSize;
+    }
+    if (typeof e.suggestedTileFit === 'string' && (e.suggestedTileFit === 'grow' || e.suggestedTileFit === 'scroll')) {
+      placement.tileFit = e.suggestedTileFit;
+    }
+    if (typeof e.suggestedHeight === 'number' && Number.isInteger(e.suggestedHeight) && e.suggestedHeight >= 80 && e.suggestedHeight <= 1200) {
+      placement.height = e.suggestedHeight;
+    }
+    if (Object.keys(placement).length > 0) placementByAgentId.set(id, placement);
+  }
 
   // Build the new section list from the plan's containers, filtering
   // out system tiles, de-duplicating ids, and dropping ids that don't
@@ -362,7 +387,7 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
   // where the planner kept a prior session's container).
   const seenIds = new Set<string>();
   const skippedUnknown: string[] = [];
-  const sectionsByTitle = new Map<string, { title: string; agentIds: string[] }>();
+  const sectionsByTitle = new Map<string, { title: string; agentIds: string[]; placements?: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> }>();
   const sectionOrder: string[] = [];
   for (const c of containersRaw) {
     if (!c || typeof c !== 'object') continue;
@@ -387,17 +412,31 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
       ids.push(t);
     }
     if (ids.length === 0) continue;
+    // Assemble placements for THIS section: only ids that ended up in
+    // this section's agentIds AND had a placement entry from topAgents.
+    const placementsHere: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> = {};
+    let hasPlacement = false;
+    for (const id of ids) {
+      const p = placementByAgentId.get(id);
+      if (p) { placementsHere[id] = p; hasPlacement = true; }
+    }
+
     const existing = sectionsByTitle.get(titleKey);
     if (existing) {
       for (const id of ids) {
         if (!existing.agentIds.includes(id)) existing.agentIds.push(id);
       }
+      if (hasPlacement) {
+        existing.placements = { ...(existing.placements ?? {}), ...placementsHere };
+      }
     } else {
-      sectionsByTitle.set(titleKey, { title: label, agentIds: ids });
+      const section: { title: string; agentIds: string[]; placements?: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> } = { title: label, agentIds: ids };
+      if (hasPlacement) section.placements = placementsHere;
+      sectionsByTitle.set(titleKey, section);
       sectionOrder.push(titleKey);
     }
   }
-  const newSections: Array<{ title: string; agentIds: string[] }> = sectionOrder.map((k) => sectionsByTitle.get(k)!);
+  const newSections = sectionOrder.map((k) => sectionsByTitle.get(k)!);
 
   // Compute removed/retained/added vs the prior membership for the
   // response. `added` is the newly-surfaced delta (installed agents
@@ -434,7 +473,14 @@ dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Reque
     return;
   }
 
-  res.json({ ok: true, removed, retained, added, skippedUnknown });
+  // Count placements written for the response (UI surfaces this as
+  // "Applied N tile sizes" — a signal that the planner's hints landed).
+  let placementsWritten = 0;
+  for (const s of newSections) {
+    if (s.placements) placementsWritten += Object.keys(s.placements).length;
+  }
+
+  res.json({ ok: true, removed, retained, added, skippedUnknown, placementsWritten });
 });
 
 // Reference unused imports defensively to keep tsc-clean if a future

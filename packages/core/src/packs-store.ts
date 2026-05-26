@@ -6,10 +6,26 @@ import { chmod600Safe } from './fs-utils.js';
 /**
  * One section within a dashboard layout — a titled, ordered list of agent
  * IDs to render as tiles. A dashboard is just an ordered list of these.
+ *
+ * `placements` is an optional per-agent override map keyed by agent id.
+ * When set, it overrides the agent-global LayoutHintsStore entry FOR THIS
+ * SECTION ONLY — so two dashboards can size the same agent differently.
+ * Absent / missing keys fall through to the agent-global hint, then to
+ * the agent's declared signal.size / outputWidget.tileFit, then to the
+ * renderer defaults. Width is still grid-column-based; placements only
+ * touch height-related fields.
  */
+export interface DashboardSectionPlacement {
+  size?: '1x1' | '2x1' | '1x2' | '2x2';
+  tileFit?: 'grow' | 'scroll';
+  /** Pinned height in CSS pixels. Bounded 80..1200 to match LayoutHintsStore. */
+  height?: number;
+}
+
 export interface DashboardSection {
   title: string;
   agentIds: string[];
+  placements?: Record<string, DashboardSectionPlacement>;
 }
 
 /**
