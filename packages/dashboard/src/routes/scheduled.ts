@@ -62,10 +62,29 @@ scheduledRouter.get('/scheduled', (req: Request, res: Response) => {
 });
 
 /**
- * Set status to a target value and redirect to /scheduled with a flash.
- * Used by both /pause and /resume so the error/flash paths stay consistent.
+ * Verb metadata for each row-action route. `noun` is the user-facing label
+ * (gerund + past tense both derive from the route name); `past` is the
+ * "Did X" form used in the success flash. Centralised so the flash copy
+ * stays consistent across pause / resume / activate.
  */
-function flipStatus(req: Request, res: Response, nextStatus: 'paused' | 'active'): void {
+interface VerbCopy {
+  /** Imperative + present-progressive form, used in error flashes ("Pause failed"). */
+  imperative: 'Pause' | 'Resume' | 'Activate';
+  /** Past tense form, used in success flashes ("Paused \"X\""). */
+  past: 'Paused' | 'Resumed' | 'Activated';
+}
+
+/**
+ * Flip an agent's status to `nextStatus` and redirect to /scheduled with a
+ * flash. Used by /pause, /resume, and /activate. Guards: missing agent,
+ * missing schedule, already-in-target-state all return 303 + flash, not 5xx.
+ */
+function flipStatus(
+  req: Request,
+  res: Response,
+  nextStatus: 'paused' | 'active',
+  verb: VerbCopy,
+): void {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
@@ -75,7 +94,7 @@ function flipStatus(req: Request, res: Response, nextStatus: 'paused' | 'active'
     return;
   }
   if (!agent.schedule) {
-    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`Agent "${id}" has no schedule to ${nextStatus === 'paused' ? 'pause' : 'resume'}.`)}`);
+    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`Agent "${id}" has no schedule to ${verb.imperative.toLowerCase()}.`)}`);
     return;
   }
   if (agent.status === nextStatus) {
@@ -85,13 +104,19 @@ function flipStatus(req: Request, res: Response, nextStatus: 'paused' | 'active'
 
   try {
     ctx.agentStore.updateAgentMeta(id, { status: nextStatus });
-    const verb = nextStatus === 'paused' ? 'Paused' : 'Resumed';
-    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`${verb} "${id}".`)}`);
+    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`${verb.past} "${id}".`)}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`${nextStatus === 'paused' ? 'Pause' : 'Resume'} failed: ${msg}`)}`);
+    res.redirect(303, `/scheduled?flash=${encodeURIComponent(`${verb.imperative} failed: ${msg}`)}`);
   }
 }
 
-scheduledRouter.post('/scheduled/:id/pause', (req, res) => flipStatus(req, res, 'paused'));
-scheduledRouter.post('/scheduled/:id/resume', (req, res) => flipStatus(req, res, 'active'));
+scheduledRouter.post('/scheduled/:id/pause', (req, res) =>
+  flipStatus(req, res, 'paused', { imperative: 'Pause', past: 'Paused' }));
+scheduledRouter.post('/scheduled/:id/resume', (req, res) =>
+  flipStatus(req, res, 'active', { imperative: 'Resume', past: 'Resumed' }));
+// /activate is /resume's twin for status='draft' agents — same end state
+// (active), different copy. The scheduler ignores drafts, so a scheduled
+// draft is "scheduled-in-intent but never fires" until the user activates.
+scheduledRouter.post('/scheduled/:id/activate', (req, res) =>
+  flipStatus(req, res, 'active', { imperative: 'Activate', past: 'Activated' }));

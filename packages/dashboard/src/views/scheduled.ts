@@ -118,14 +118,34 @@ function renderRow(row: ScheduledRowInput): SafeHtml {
   const { agent, lastFireAt, nextFireAt } = row;
   const isActive = agent.status === 'active';
   const isPaused = agent.status === 'paused';
+  const isDraft = agent.status === 'draft';
+  const isArchived = agent.status === 'archived';
 
-  // Next-fire is only meaningful when the agent is active (paused agents
-  // have nextFireAt computed by the scheduler-heartbeat as "what it WOULD
-  // be" — but rendering that confuses users). For non-active rows, show "—".
-  const nextStr = isActive && nextFireAt
-    ? formatRelative(nextFireAt, true)
-    : html`<span class="dim">—</span>`;
-  const lastStr = lastFireAt ? formatAge(lastFireAt) : html`<span class="dim">never</span>`;
+  // Next-fire rendering, three cases:
+  //   active  -> formatted relative time ("9h")
+  //   draft / archived  -> explanatory hint, since the scheduler skips
+  //                        these statuses entirely. The cron is on record
+  //                        but never fires until you activate (drafts) or
+  //                        change status (archived). Without this hint
+  //                        the user sees a cron next to "—" and reasonably
+  //                        wonders why it never ran.
+  //   paused  -> "—" (the cron is paused-by-intent; resume is one click)
+  let nextCell: SafeHtml;
+  if (isActive && nextFireAt) {
+    nextCell = html`<span>${formatRelative(nextFireAt, true)}</span>`;
+  } else if (isDraft) {
+    nextCell = html`<span class="dim" style="font-size: var(--font-size-xs); cursor: help;" title="The scheduler only fires status='active' agents. Activate to start firing on the declared cron.">won't fire — status is draft</span>`;
+  } else if (isArchived) {
+    nextCell = html`<span class="dim" style="font-size: var(--font-size-xs); cursor: help;" title="Archived agents don't fire. Restore via /agents/:id/config.">won't fire — archived</span>`;
+  } else {
+    nextCell = html`<span class="dim">—</span>`;
+  }
+
+  // Last fire: filtered to scheduler-triggered runs (triggeredBy='schedule').
+  // Manual runs via dashboard / CLI / MCP don't count here; the page is about
+  // scheduling, not all execution. "never" here means "scheduler has never
+  // fired this", not "this agent has never run."
+  const lastStr = lastFireAt ? formatAge(lastFireAt) : html`<span class="dim" title="Last scheduler-triggered run. Manual runs (dashboard, CLI, MCP) do not count.">never</span>`;
 
   return html`
     <tr>
@@ -138,10 +158,11 @@ function renderRow(row: ScheduledRowInput): SafeHtml {
         <span title="${agent.schedule ?? ''}">${cronToHuman(agent.schedule ?? '')}</span>
       </td>
       <td>${lastStr}</td>
-      <td>${nextStr}</td>
+      <td>${nextCell}</td>
       <td style="text-align: right; white-space: nowrap;">
         ${isActive ? renderPauseForm(agent.id) : html``}
         ${isPaused ? renderResumeForm(agent.id) : html``}
+        ${isDraft ? renderActivateForm(agent.id) : html``}
         <a href="/agents/${agent.id}/config" class="btn btn--sm btn--ghost" style="margin-left: var(--space-2);">Edit</a>
       </td>
     </tr>
@@ -160,6 +181,14 @@ function renderResumeForm(agentId: string): SafeHtml {
   return html`
     <form method="POST" action="/scheduled/${agentId}/resume" style="display: inline;">
       <button type="submit" class="btn btn--sm btn--primary" title="Resume this agent. Scheduler will fire on its declared cron.">Resume</button>
+    </form>
+  `;
+}
+
+function renderActivateForm(agentId: string): SafeHtml {
+  return html`
+    <form method="POST" action="/scheduled/${agentId}/activate" style="display: inline;">
+      <button type="submit" class="btn btn--sm btn--primary" title="Activate this draft. The scheduler will start firing on its declared cron.">Activate</button>
     </form>
   `;
 }
