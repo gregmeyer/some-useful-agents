@@ -139,9 +139,13 @@ Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm sto
 
 ![Agents list](docs/images/agents-list.png)
 
+![Scheduled agents](docs/images/scheduled.png)
+
 ![Agent detail](docs/images/agent-overview.png)
 
 ![Agent config](docs/images/agent-config.png)
+
+![Run detail with DAG zoom](docs/images/run-detail.png)
 
 - **Pulse** — information radiator at `/pulse`, the default dashboard. Signal tiles show agent output as live widgets. 10 display templates including `widget` (mirrors the agent's own outputWidget schema). Drag-and-drop reorder, widget palette with auto-theming, system metric tiles, markdown rendering, YouTube media player, tile collapse/expand, scrollable tile body with pinned chrome. A switcher dropdown at the top of the page lets you flip between Default and any installed pack/user dashboard. "Hide all" / "Show all" buttons bulk-toggle every signal — useful before installing a pack.
 - **Tiles that run themselves** — adding an agent to a dashboard runs it once automatically so the tile is never blank. "Run again" re-runs the agent and refreshes the tile in place instead of navigating away. If a widget references an external image host that the dashboard's CSP blocks, a one-click "allow" modal adds it to the agent's `img-src` allowlist.
