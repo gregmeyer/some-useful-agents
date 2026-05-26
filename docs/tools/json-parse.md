@@ -1,20 +1,21 @@
 # json-parse
 
-Parse a JSON string into structured fields downstream nodes can reference.
+Parse a JSON string into a structured value downstream nodes can reference.
 
 ## Inputs
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `input` | string | yes | JSON text to parse |
+| `text` | string | yes | JSON text to parse |
 
 ## Outputs
 
-Every top-level key in the parsed JSON is exposed as an output field. Additionally:
-
 | Name | Type | Description |
 |---|---|---|
-| `result` | string | Pretty-printed re-serialization (for debugging) |
+| `value` | json | Parsed value (object, array, or scalar) |
+| `result` | string | Re-serialized JSON (for debugging or text-only consumers) |
+
+To pull a specific field out of `value`, chain into [`json-path`](json-path.md).
 
 ## Example
 
@@ -23,18 +24,18 @@ Every top-level key in the parsed JSON is exposed as an output field. Additional
   tool: json-parse
   dependsOn: [fetch]
   toolInputs:
-    input: "{{upstream.fetch.result}}"
+    text: "{{upstream.fetch.result}}"
 
-- id: use
-  type: shell
+- id: status
+  tool: json-path
   dependsOn: [parse]
-  command: echo "Status $UPSTREAM_PARSE_STATUS — $UPSTREAM_PARSE_COUNT items"
+  toolInputs:
+    data: "{{upstream.parse.value}}"
+    path: "status"
 ```
-
-If `fetch` emitted `{"status": "ok", "count": 42}`, the shell node sees `UPSTREAM_PARSE_STATUS=ok` and `UPSTREAM_PARSE_COUNT=42`.
 
 ## Notes
 
-- **Non-object roots** — if the JSON parses to an array or scalar, the whole value is exposed as `result` only (no per-key extraction).
 - **Malformed JSON** fails the node with a parse error.
-- For deep extraction, chain into [`json-path`](json-path.md).
+- `value` carries the parsed structure (any JSON type); `result` is its string form.
+- Most agents can skip this tool entirely — [`http-get`](http-get.md) and [`http-post`](http-post.md) auto-parse JSON response bodies into `body`, so chain straight into `json-path` against `{{upstream.fetch.body}}`.
