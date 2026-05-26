@@ -203,6 +203,18 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles/:tileIdx/move', (
   });
 });
 
+dashboardsEditRouter.post('/dashboards/:id/rename', (req: Request, res: Response) => {
+  withDashboard(req, res, (id, dashboard, ctx) => {
+    const name = pickString(req.body, 'name');
+    if (!name) return redirectErr(res, id, 'Dashboard name is required.');
+    // Rename = re-upsert with the existing packId + layout; upsert preserves
+    // createdAt. Allowed on pack-owned dashboards too (like section/tile edits);
+    // only deletion is restricted to pack uninstall.
+    ctx.dashboardsStore!.upsertDashboard({ id, packId: dashboard.packId, name, layout: dashboard.layout });
+    redirectOk(res, id, `Renamed to "${name}".`);
+  });
+});
+
 dashboardsEditRouter.post('/dashboards/:id/delete', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.dashboardsStore) {

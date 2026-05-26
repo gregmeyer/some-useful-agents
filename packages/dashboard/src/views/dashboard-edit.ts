@@ -38,18 +38,31 @@ export function renderDashboardEditPage(input: RenderDashboardEditInput): string
       title: `Edit · ${d.name}`,
       back: { href: `/dashboards/${encodeURIComponent(d.id)}`, label: 'Done editing' },
       description: d.packId
-        ? `Pack-owned (${d.packId}). Edits persist; reinstalling the pack would reset to the manifest's layout.`
-        : 'User-created dashboard.',
+        ? `Pack-owned (${d.packId}) · id ${d.id}. Renaming keeps this id, so pack uninstall still matches. Edits persist; reinstalling the pack would reset to the manifest's layout.`
+        : `User-created dashboard · id ${d.id}. Renaming keeps this id.`,
     })}
 
-    <div style="display: flex; gap: var(--space-2); margin-bottom: var(--space-4);">
+    <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); flex-wrap: wrap;">
+      <form method="POST" action="/dashboards/${encodeURIComponent(d.id)}/rename" style="display: flex; gap: var(--space-1); margin: 0;">
+        <input type="text" name="name" value="${d.name}" required aria-label="Dashboard name" style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font-weight: var(--weight-semibold); min-width: 16rem;">
+        <button type="submit" class="btn btn--ghost">Rename</button>
+      </form>
       <a class="btn btn--ghost" href="/dashboards/${encodeURIComponent(d.id)}">View</a>
       ${d.packId === null ? html`
         <form method="POST" action="/dashboards/${encodeURIComponent(d.id)}/delete" style="margin: 0; display: inline;" onsubmit="return confirm('Delete this dashboard? This cannot be undone.');">
           <button type="submit" class="btn btn--ghost">Delete dashboard</button>
         </form>
-      ` : html``}
+      ` : html`
+        <a class="btn btn--ghost" href="/packs/${encodeURIComponent(d.packId)}">Manage pack →</a>
+      `}
     </div>
+
+    ${d.packId !== null ? html`
+      <p class="dim" style="margin: 0 0 var(--space-4) 0; font-size: var(--font-size-sm);">
+        This dashboard is owned by the <span class="mono">${d.packId}</span> pack, so it can't be deleted here — deleting it would just reappear when the pack reloads. To remove it, uninstall the pack from its
+        <a href="/packs/${encodeURIComponent(d.packId)}">pack page</a> (that removes the pack's dashboards but keeps any agents it contributed).
+      </p>
+    ` : html``}
 
     ${sections.length === 0 ? html`<p class="dim" style="padding: var(--space-3) 0;">No sections yet. Add one below to get started.</p>` : html``}
 
