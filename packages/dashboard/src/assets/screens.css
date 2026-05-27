@@ -1056,20 +1056,26 @@ main.main--wide {
   background: var(--color-primary-soft, rgba(45,212,191,0.05));
 }
 
-/* -- Grid: fixed 4 columns -- */
+/* -- Grid: fixed 4 columns, masonry-style row packing --
+ * `grid-auto-rows: 8px` defines a small implicit row unit. Each tile then
+ * gets `grid-row: span N` computed in JS (see pulse-masonry.js.ts) from its
+ * rendered height, so a 200px tile occupies ~25 row-units while a 1115px
+ * tile occupies ~140. This eliminates the "void below a short tile in a
+ * tall row" problem with the old `align-items: start` row-major layout —
+ * voids belonged to the tile's grid cell and were undrop-targetable.
+ * `grid-auto-flow: dense` lets smaller tiles backfill earlier holes when
+ * the user explicitly drops or resizes. `align-items: start` is kept as a
+ * safety net for the brief moment before the JS snapper runs after load. */
 .pulse-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 8px;
+  grid-auto-flow: dense;
   gap: var(--space-4);
   min-height: 20px;
   border: 2px solid transparent;
   border-radius: var(--radius-md);
   transition: border-color 150ms ease, background 150ms ease;
-  /* Size each tile to its own content instead of stretching every tile in a
-     row to match the tallest one. Without this, a short metric tile next to a
-     tall widget renders as a near-empty card (the value stranded at the top of
-     a huge box). fit-grow tiles still grow with their content; explicitly
-     resized (.pulse-tile--fixed-h) tiles still win via their inline height. */
   align-items: start;
 }
 
@@ -1111,9 +1117,13 @@ main.main--wide {
 .pulse-tile--2x2 { max-height: 600px; }
 .pulse-tile--1x2 { max-height: 600px; }
 
+/* Column spans only — row span is computed by pulse-masonry.js.ts from
+ * each tile's rendered height so the grid packs without voids. The
+ * `1x2` / `2x2` classes used to declare `grid-row: span 2`; with the
+ * masonry packer that's now derived from content height + max-height
+ * (above), letting tiles take only the row-units they actually fill. */
 .pulse-tile--2x1 { grid-column: span 2; }
-.pulse-tile--1x2 { grid-row: span 2; }
-.pulse-tile--2x2 { grid-column: span 2; grid-row: span 2; }
+.pulse-tile--2x2 { grid-column: span 2; }
 
 /* ── Widget tile fit (outputWidget.tileFit) ───────────────────────────────
  * Controls a widget tile's HEIGHT when its content is taller than the slot.
