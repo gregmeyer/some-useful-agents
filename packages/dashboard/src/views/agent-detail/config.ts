@@ -177,6 +177,54 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   `);
 
   const permImgSrc = agent.permissions?.imgSrc ?? [];
+
+  // Recently-blocked img-src pills. The CSP-violation listener
+  // (csp-img-report.js.ts) reports blocks server-side; this surfaces them
+  // as one-click "Allow" buttons that POST to /permissions/allow-host and
+  // also clear the underlying suggestion so the pill doesn't linger. The
+  // backing `data-blocked-host-list` div is re-rendered after each allow
+  // by csp-img-report-pills.js.ts so the panel updates without a full
+  // page reload.
+  const blockedHostsBlock = (() => {
+    const blocked = (args.blockedImgHosts ?? []).filter((b) => !permImgSrc.includes(b.host));
+    if (blocked.length === 0) {
+      return html`
+        <div data-blocked-host-list="${agent.id}" hidden></div>
+      `;
+    }
+    const pills = blocked.map((b) => html`
+      <form method="POST" action="/agents/${agent.id}/permissions/allow-host" data-blocked-host-form
+        style="display: inline-flex; margin: 0;">
+        <input type="hidden" name="host" value="${b.host}">
+        <input type="hidden" name="redirect" value="/agents/${agent.id}/config">
+        <button type="submit" class="btn btn--sm btn--ghost" title="Allow ${b.host} for this agent"
+          style="font-family: var(--font-mono); font-size: var(--font-size-xs);">
+          + ${b.host}${b.count > 1 ? html` <span class="dim">(${String(b.count)})</span>` : html``}
+        </button>
+      </form>
+    `);
+    return html`
+      <div data-blocked-host-list="${agent.id}"
+        style="margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+          <strong style="font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);">
+            Recently blocked
+          </strong>
+          <form method="POST" action="/api/img-blocks/${agent.id}/dismiss" data-blocked-host-dismiss style="margin: 0;">
+            <input type="hidden" name="redirect" value="/agents/${agent.id}/config">
+            <button type="submit" class="btn btn--xs btn--ghost" title="Dismiss all">Dismiss all</button>
+          </form>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: var(--space-1);">
+          ${pills as unknown as SafeHtml[]}
+        </div>
+        <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">
+          Click a host to add it to this agent's <code>img-src</code> allowlist.
+        </p>
+      </div>
+    `;
+  })();
+
   const permissionsCard = configCard('Permissions', html`
     <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
       Hosts this agent's widgets can load images from. Each line widens the
@@ -184,6 +232,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       Wildcards like <code>*.unsplash.com</code> are allowed. Saving creates a
       new agent version.
     </p>
+    ${blockedHostsBlock}
     <form method="POST" action="/agents/${agent.id}/permissions" style="display: flex; flex-direction: column; gap: var(--space-2);">
       <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">img-src hosts (one per line)</label>
       <textarea name="imgSrc" rows="3" placeholder="images.unsplash.com&#10;*.unsplash.com"

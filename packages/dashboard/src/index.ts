@@ -9,6 +9,7 @@ import {
   PacksStore,
   DashboardsStore,
   LayoutHintsStore,
+  BlockedImgHostsStore,
   IntegrationsStore,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
@@ -52,6 +53,7 @@ import { settingsRouter } from './routes/settings.js';
 import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
+import { imgBlockReportRouter } from './routes/img-block-report.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -249,6 +251,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
+  app.use(imgBlockReportRouter);
   app.use(toolsRouter);
   app.use(nodesRouter);
   app.use(pulseRouter);
@@ -355,6 +358,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   let packsStore: PacksStore | undefined;
   let dashboardsStore: DashboardsStore | undefined;
   let layoutHintsStore: LayoutHintsStore | undefined;
+  let blockedImgHostsStore: BlockedImgHostsStore | undefined;
   try {
     packsStore = new PacksStore(opts.dbPath);
     dashboardsStore = new DashboardsStore(opts.dbPath);
@@ -377,6 +381,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     layoutHintsStore = new LayoutHintsStore(opts.dbPath);
   } catch {
     // Non-fatal: layout hints surface stays absent; renderers fall back.
+  }
+
+  // Blocked img-src telemetry. Same DB file. When the client CSP
+  // listener can't reach this store, nothing renders — that's fine,
+  // it's a UX nudge rather than a security feature.
+  try {
+    blockedImgHostsStore = new BlockedImgHostsStore(opts.dbPath);
+  } catch {
+    // Non-fatal: blocked-img suggestions just won't appear.
   }
 
   // Integrations store. Same DB file. Independently optional from packs/
@@ -445,6 +458,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     packsStore,
     dashboardsStore,
     layoutHintsStore,
+    blockedImgHostsStore,
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,
