@@ -15,7 +15,6 @@ import type { Agent } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
-import { sectionTabs } from './section-tabs.js';
 import { cronToHuman, formatAge, statusBadge } from './components.js';
 
 export interface ScheduledRowInput {
@@ -56,7 +55,6 @@ export function renderScheduledPage(input: ScheduledViewInput): string {
 
   const body = html`
     ${pageHeader({ title: 'Scheduled', description })}
-    ${sectionTabs('scheduled')}
     ${renderEmptyState(rows)}
     ${rows.length > 0 ? renderTable(rows) : html``}
   `;
@@ -64,7 +62,7 @@ export function renderScheduledPage(input: ScheduledViewInput): string {
   return render(layout(
     {
       title: 'Scheduled agents',
-      activeNav: 'agents',
+      activeNav: 'scheduled',
       flash: flash ? { kind: 'info', message: flash } : undefined,
     },
     body,
