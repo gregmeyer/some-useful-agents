@@ -3,6 +3,7 @@ import { DASHBOARD_JS } from './js.js';
 import { TEMPLATE_PALETTE_JS } from './template-palette.js.js';
 import { SUGGEST_IMPROVEMENTS_JS } from './suggest-improvements.js.js';
 import { PULSE_LAYOUT_JS } from './pulse-layout.js.js';
+import { PULSE_MASONRY_JS } from './pulse-masonry.js.js';
 import { HOME_LAYOUT_JS } from './home-layout.js.js';
 import { DASHBOARDS_LAYOUT_JS } from './dashboards-layout.js.js';
 import { BUILD_FROM_GOAL_JS } from './build-from-goal.js.js';
@@ -75,7 +76,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS)}</script>
 </body>
 </html>`;
 }
