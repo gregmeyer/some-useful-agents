@@ -123,11 +123,46 @@ of scope for this release — wrap in launchd / systemd if you need it.
     );
     console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
-    const shutdown = async () => {
-      console.log('\nShutting down dashboard...');
-      await handle.close();
-      process.exit(0);
+    // Crash-logging contract. The daemon supervisor pipes stderr to
+    // dashboard.log; previously the only thing that ever reached it
+    // was the startup banner. Now signal-triggered shutdowns name
+    // their signal, uncaught exceptions write the full stack before
+    // exit, and unhandled rejections do the same. Without these the
+    // dashboard would die mid-request and the operator would see an
+    // empty log + no PID — exactly the symptom that prompted this.
+    const ts = (): string => new Date().toISOString();
+    const shutdown = async (reason: string) => {
+      process.stderr.write(`[${ts()}] dashboard shutting down (${reason})\n`);
+      try {
+        await handle.close();
+        process.exit(0);
+      } catch (err) {
+        process.stderr.write(
+          `[${ts()}] dashboard shutdown error: ${(err as Error)?.message ?? String(err)}\n` +
+          `${(err as Error)?.stack ?? ''}\n`,
+        );
+        process.exit(1);
+      }
     };
-    process.on('SIGINT', () => { void shutdown(); });
-    process.on('SIGTERM', () => { void shutdown(); });
+
+    process.on('SIGINT', () => { void shutdown('SIGINT'); });
+    process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+
+    process.on('uncaughtException', (err) => {
+      process.stderr.write(
+        `[${ts()}] FATAL uncaughtException: ${err?.message ?? String(err)}\n${err?.stack ?? ''}\n`,
+      );
+      // Exit with 1 so the supervisor knows this wasn't a clean stop
+      // and can decide whether to restart. Don't await handle.close()
+      // — the process state is corrupt; leave the OS to reclaim fds.
+      process.exit(1);
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      const err = reason instanceof Error ? reason : new Error(String(reason));
+      process.stderr.write(
+        `[${ts()}] FATAL unhandledRejection: ${err.message}\n${err.stack ?? ''}\n`,
+      );
+      process.exit(1);
+    });
   });
