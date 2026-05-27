@@ -679,7 +679,106 @@ export const IMPROVE_LAYOUT_JS = `
     });
   }
 
+  // Render a wireframe preview of the proposed layout: one labeled box
+  // per container, each containing a mock CSS grid of cells sized by the
+  // planner's suggestedSize (defaults 1x1). System tiles (leading "_")
+  // are drawn as compact metric cells. Cells also show tileFit (↕ grow /
+  // ⇅ scroll), pinned height when set, and the agent's human title (or
+  // id if missing). Wireframe is rendering-only — no DOM events.
+  function renderWireframe(plan, metaById, topAgentById) {
+    var containers = (plan.containers || []).filter(function (c) {
+      return c && Array.isArray(c.tiles) && c.tiles.length > 0;
+    });
+    if (containers.length === 0) return '';
+
+    function sizeToSpan(size) {
+      if (size === '2x1') return { cols: 2, rows: 1 };
+      if (size === '1x2') return { cols: 1, rows: 2 };
+      if (size === '2x2') return { cols: 2, rows: 2 };
+      return { cols: 1, rows: 1 };
+    }
+
+    var blocks = containers.map(function (c) {
+      var cells = c.tiles.map(function (tileId) {
+        var isSystem = typeof tileId === 'string' && tileId.charAt(0) === '_';
+        var meta = metaById[tileId] || null;
+        var top = topAgentById[tileId] || null;
+
+        // System tiles default to 1x1; named agents take the planner's
+        // suggestedSize, falling back to whatever the agent already has.
+        var rawSize = isSystem ? '1x1'
+          : (top && top.suggestedSize) || (meta && meta.size) || '1x1';
+        var span = sizeToSpan(rawSize);
+
+        var tileFit = top && top.suggestedTileFit ? top.suggestedTileFit : null;
+        var height = top && typeof top.suggestedHeight === 'number' ? top.suggestedHeight : null;
+
+        var titleText = meta && meta.title
+          ? meta.title
+          : (isSystem ? tileId.replace(/^_system-/, '').replace(/-/g, ' ') : tileId);
+
+        var fitIcon = '';
+        if (tileFit === 'scroll') fitIcon = '<span title="scroll" style="font-family:var(--font-mono);font-size:0.7rem;">⇵</span>';
+        else if (tileFit === 'grow') fitIcon = '<span title="grow" style="font-family:var(--font-mono);font-size:0.7rem;">↕</span>';
+
+        var heightLabel = height ? '<span class="dim" style="font-size:0.65rem;">' + height + 'px</span>' : '';
+
+        // Each cell. The minHeight gives 1-row cells a stable footprint;
+        // a tall content row stretches it further when grid-row is 2.
+        var minH = height ? height : (span.rows === 2 ? 88 : 42);
+        var bg = isSystem ? 'var(--color-surface-raised)' : 'var(--color-surface)';
+        var border = isSystem ? '1px dashed var(--color-border)' : '1px solid var(--color-border)';
+        return '<div style="' +
+          'grid-column: span ' + span.cols + ';' +
+          'grid-row: span ' + span.rows + ';' +
+          'min-height:' + minH + 'px;' +
+          'padding:var(--space-2);' +
+          'border:' + border + ';' +
+          'border-radius:var(--radius-sm);' +
+          'background:' + bg + ';' +
+          'display:flex;flex-direction:column;gap:2px;overflow:hidden;' +
+          '">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-1);">' +
+            '<div style="font-family:var(--font-mono);font-size:0.65rem;color:var(--color-text-muted);">' + esc(rawSize) + '</div>' +
+            '<div style="display:flex;gap:4px;align-items:center;">' + fitIcon + heightLabel + '</div>' +
+          '</div>' +
+          '<div style="font-size:var(--font-size-xs);font-weight:var(--weight-semibold);line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' +
+            esc(titleText) +
+          '</div>' +
+          '</div>';
+      }).join('');
+
+      return '<div style="margin-bottom:var(--space-3);">' +
+        '<div style="font-weight:var(--weight-semibold);font-size:var(--font-size-xs);text-transform:uppercase;letter-spacing:0.06em;color:var(--color-text-muted);margin-bottom:var(--space-1);">' + esc(c.label) + '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(4, 1fr);grid-auto-rows:minmax(0, auto);gap:var(--space-1);">' + cells + '</div>' +
+        '</div>';
+    }).join('');
+
+    return '<details open style="margin:0 0 var(--space-4) 0;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
+      '<summary style="cursor:pointer;font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-2);">Layout preview <span class="dim" style="font-weight:var(--weight-regular);text-transform:none;letter-spacing:0;font-size:0.7rem;">(4-column grid, tiles sized by the plan; ↕ grow / ⇵ scroll)</span></summary>' +
+      '<div style="margin-top:var(--space-2);">' + blocks + '</div>' +
+      '</details>';
+  }
+
   function renderPlan(plan) {
+    // Build a quick metadata lookup by agent id so the wireframe can
+    // show human titles + per-tile size/fit decisions. Missing ids are
+    // rendered with the bare id (rare — the planner is told to only
+    // emit ids that appear in AGENT_METADATA).
+    var metaById = {};
+    if (Array.isArray(cachedAgentMetadata)) {
+      for (var mi = 0; mi < cachedAgentMetadata.length; mi++) {
+        var mm = cachedAgentMetadata[mi];
+        if (mm && mm.id) metaById[mm.id] = mm;
+      }
+    }
+    var topAgentById = {};
+    (plan.topAgents || []).forEach(function (a) {
+      if (a && a.id) topAgentById[a.id] = a;
+    });
+
+    var wireframeHtml = renderWireframe(plan, metaById, topAgentById);
+
     var topRows = (plan.topAgents || []).map(function (a, i) {
       return '<div style="display:flex;gap:var(--space-3);padding:var(--space-2) 0;border-bottom:1px solid var(--color-border);">' +
         '<div class="dim" style="font-family:var(--font-mono);font-size:var(--font-size-xs);min-width:1.5rem;text-align:right;">' + (i + 1) + '.</div>' +
@@ -845,6 +944,7 @@ export const IMPROVE_LAYOUT_JS = `
       '<div style="padding:var(--space-4);">' +
       '<h3 style="margin:0 0 var(--space-2);">Proposed layout</h3>' +
       '<p class="dim" style="font-size:var(--font-size-xs);margin:0 0 var(--space-3);">' + esc(plan.summary || '') + '</p>' +
+      wireframeHtml +
       '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Top agents</div>' +
       '<div style="margin-bottom:var(--space-4);">' + topRows + '</div>' +
       '<div style="font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-1);">Containers</div>' +

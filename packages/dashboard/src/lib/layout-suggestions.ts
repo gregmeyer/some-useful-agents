@@ -54,7 +54,7 @@ export interface LayoutSuggestion {
 
 const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const FAIL_RATE_THRESHOLD = 0.5;
-const MAX_SUGGESTIONS = 5;
+const MAX_SUGGESTIONS = 6;
 const MAX_DYNAMIC = 3;
 
 /** Heuristic match for "this looks like a monitoring agent." */
@@ -155,6 +155,27 @@ function computeDynamicSuggestions(
 
 /** Always-on default suggestions. Order matters — first entries fill in if dynamic pills are scarce. */
 const STATIC_SUGGESTIONS: LayoutSuggestion[] = [
+  // Layout-quality intents first — they directly use suggestedSize /
+  // suggestedTileFit / suggestedHeight to tighten the visual grid.
+  {
+    id: 'remove-gaps',
+    label: 'Remove gaps',
+    prompt: 'Compact the grid: pick suggestedSize values that pack tiles tightly. Avoid leaving empty cells. Where a row has a tall tile next to a short one, shrink the tall one or grow the short one so the row reads as a single unit.',
+    dynamic: false,
+  },
+  {
+    id: 'tables-scrollable',
+    label: 'Make tables scrollable',
+    prompt: 'For every agent whose template is "table" / "story" / "widget" or whose output is a long list, set suggestedTileFit to "scroll" and a suggestedHeight around 240-320 pixels so feeds don\'t dominate their row.',
+    dynamic: false,
+  },
+  {
+    id: 'compact-everything',
+    label: 'Compact everything',
+    prompt: 'Prefer the smallest suggestedSize that still fits each agent\'s content. Default to 1x1 for metric/status templates and 2x1 only when text or comparison needs the width. Avoid 2x2 unless a widget genuinely requires it.',
+    dynamic: false,
+  },
+  // Agent-curation intents.
   {
     id: 'group-by-topic',
     label: 'Group by topic',
