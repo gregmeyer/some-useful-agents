@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -100,6 +100,13 @@ export interface DashboardContext {
    * — booting without it just disables the suggestion UI.
    */
   blockedImgHostsStore?: BlockedImgHostsStore;
+  /**
+   * Unified "needs your attention" queue (PR 1 of the Inbox feature
+   * series). The dashboard's `/inbox` views read from this; producer
+   * hooks + a triage system agent are wired in follow-up PRs.
+   * Optional — booting without it just disables the Inbox surface.
+   */
+  inboxStore?: InboxStore;
   /**
    * Integrations store. Holds project-scoped named external-service configs
    * (slack, webhook, file, …) that agents and notify handlers reference by

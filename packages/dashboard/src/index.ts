@@ -10,6 +10,7 @@ import {
   DashboardsStore,
   LayoutHintsStore,
   BlockedImgHostsStore,
+  InboxStore,
   IntegrationsStore,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
@@ -55,6 +56,8 @@ import { settingsMcpRouter } from './routes/settings-mcp.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
+import { inboxRouter } from './routes/inbox.js';
+import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -253,6 +256,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(helpRouter);
   app.use(versionsRouter);
   app.use(imgBlockReportRouter);
+  app.use(inboxRouter);
   app.use(toolsRouter);
   app.use(nodesRouter);
   app.use(pulseRouter);
@@ -364,6 +368,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   let dashboardsStore: DashboardsStore | undefined;
   let layoutHintsStore: LayoutHintsStore | undefined;
   let blockedImgHostsStore: BlockedImgHostsStore | undefined;
+  let inboxStore: InboxStore | undefined;
   try {
     packsStore = new PacksStore(opts.dbPath);
     dashboardsStore = new DashboardsStore(opts.dbPath);
@@ -396,6 +401,19 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   } catch {
     // Non-fatal: blocked-img suggestions just won't appear.
   }
+
+  // Inbox store. Same DB file. The /inbox surface degrades to an
+  // empty-state if the table can't be created.
+  try {
+    inboxStore = new InboxStore(opts.dbPath);
+  } catch {
+    // Non-fatal: /inbox renders empty state instead.
+  }
+
+  // Demo seed: when SUA_INBOX_DEMO=1, drop three sample rows (one per
+  // priority) into an empty inbox so the page renders something
+  // before real producers ship in PR 3. No-op without the env flag.
+  seedInboxDemoIfRequested(inboxStore);
 
   // Integrations store. Same DB file. Independently optional from packs/
   // dashboards so a schema issue in either doesn't keep the other offline.
@@ -464,6 +482,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     dashboardsStore,
     layoutHintsStore,
     blockedImgHostsStore,
+    inboxStore,
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,
