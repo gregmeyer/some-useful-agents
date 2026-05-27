@@ -1,4 +1,4 @@
-import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
+import type { Agent, BlockedImgHost, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
@@ -26,6 +26,13 @@ export interface AgentDetailArgs {
    * the integrations store — the inline form keeps working.
    */
   availableIntegrations?: Array<{ id: string; kind: string; name: string }>;
+  /**
+   * Recent img-src hosts blocked by CSP for this agent. Surfaced in the
+   * Permissions card as one-click "Allow" pills above the textarea so
+   * users don't have to copy-paste the offending hostname from the
+   * browser console. Empty when no blocks recorded or store unwired.
+   */
+  blockedImgHosts?: BlockedImgHost[];
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

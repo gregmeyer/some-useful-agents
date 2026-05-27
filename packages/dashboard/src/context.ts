@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -92,6 +92,14 @@ export interface DashboardContext {
    * `agent.outputWidget.tileFit`. Reads are non-fatal.
    */
   layoutHintsStore?: LayoutHintsStore;
+  /**
+   * Per-agent record of img-src hosts that the browser CSP has blocked.
+   * Client `csp-img-report.js.ts` listens for `securitypolicyviolation`
+   * events and POSTs them to `/api/img-block-report`. Surfaces in the
+   * agent config page as one-click "add to allowlist" pills. Optional
+   * — booting without it just disables the suggestion UI.
+   */
+  blockedImgHostsStore?: BlockedImgHostsStore;
   /**
    * Integrations store. Holds project-scoped named external-service configs
    * (slack, webhook, file, …) that agents and notify handlers reference by

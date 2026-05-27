@@ -48,7 +48,13 @@ agentTabsRouter.get('/agents/:name/config', async (req: Request, res: Response) 
   const availableIntegrations = ctx.integrationsStore
     ? ctx.integrationsStore.listIntegrations().map((i) => ({ id: i.id, kind: i.kind as string, name: i.name }))
     : [];
-  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations }));
+  // Recently blocked img-src hosts for this agent — surface as one-click
+  // "Allow" pills above the imgSrc textarea. Empty when no blocks
+  // recorded (or store unwired in older daemons).
+  const blockedImgHosts = ctx.blockedImgHostsStore
+    ? ctx.blockedImgHostsStore.listForAgent(args.agent.id, 12)
+    : [];
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts }));
 });
 
 agentTabsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {

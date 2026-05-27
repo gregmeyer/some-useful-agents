@@ -79,6 +79,11 @@ export {
   type LayoutHintPatch,
 } from './layout-hints-store.js';
 export {
+  BlockedImgHostsStore,
+  isValidImgHost,
+  type BlockedImgHost,
+} from './blocked-img-hosts-store.js';
+export {
   IntegrationsStore,
   INTEGRATION_ID_RE,
   type Integration,

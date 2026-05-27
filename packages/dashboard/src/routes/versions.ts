@@ -451,6 +451,12 @@ versionsRouter.post('/agents/:id/permissions/allow-host', (req: Request, res: Re
   try {
     const updated = { ...agent, permissions: { ...agent.permissions, imgSrc } };
     ctx.agentStore.upsertAgent(updated, 'dashboard', `Allowed img-src host ${host}`);
+    // Clear the matching blocked-host suggestion so the pill doesn't
+    // linger after the user accepted it. Best-effort — the store may
+    // not be wired in older daemons.
+    try {
+      ctx.blockedImgHostsStore?.deleteFor(agent.id, host);
+    } catch { /* ignore */ }
     if (redirectTo) { res.redirect(303, redirectTo); return; }
     res.json({ ok: true, host, imgSrc });
   } catch (err) {
