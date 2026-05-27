@@ -54,6 +54,13 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <link rel="stylesheet" href="/assets/dashboard.css">
 <script>
 (function(){var t=localStorage.getItem('sua-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');})();
+// Buffer CSP img-src violations that fire DURING body parse (before the
+// main script bundle at the end of body has registered its listener).
+// csp-img-report.js.ts drains this buffer on load. Without this, the
+// inline "Allow host" card never renders on the first page load —
+// violations fire on initial img-src fetch attempts, well before the
+// bundle script tag is reached.
+(function(){window.__suaCspBuffer = [];window.addEventListener('securitypolicyviolation', function(e){if(e&&e.violatedDirective==='img-src')window.__suaCspBuffer.push({blockedURI:e.blockedURI,target:e.target,t:Date.now()});});})();
 </script>
 </head>
 <body class="app">
