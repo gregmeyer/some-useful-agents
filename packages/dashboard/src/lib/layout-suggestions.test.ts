@@ -15,12 +15,19 @@ function agent(partial: Partial<LayoutSuggestionAgent> & { id: string }): Layout
 
 describe('computeLayoutSuggestions', () => {
   describe('static fillers', () => {
-    it('returns the four static pills when there are no agents', () => {
+    it('returns six static pills when there are no agents (layout-quality first, then agent-curation)', () => {
       const out = computeLayoutSuggestions([], null, NOW);
-      expect(out.length).toBe(4);
+      expect(out.length).toBe(6);
       expect(out.every((s) => s.dynamic === false)).toBe(true);
       const ids = out.map((s) => s.id);
-      expect(ids).toEqual(['group-by-topic', 'rank-by-reliability', 'surface-daily', 'pin-most-reliable']);
+      expect(ids).toEqual([
+        'remove-gaps',
+        'tables-scrollable',
+        'compact-everything',
+        'group-by-topic',
+        'rank-by-reliability',
+        'surface-daily',
+      ]);
     });
 
     it('returns static pills when no dynamic conditions trigger', () => {
@@ -30,7 +37,14 @@ describe('computeLayoutSuggestions', () => {
       const layout: CurrentLayout = { containers: [{ label: 'All', tiles: ['a1'] }] };
       const out = computeLayoutSuggestions(agents, layout, NOW);
       expect(out.every((s) => s.dynamic === false)).toBe(true);
-      expect(out.length).toBe(4);
+      expect(out.length).toBe(6);
+    });
+
+    it('includes layout-quality pills (remove gaps / tables scrollable / compact) ahead of agent-curation pills', () => {
+      const out = computeLayoutSuggestions([], null, NOW);
+      const idsInOrder = out.map((s) => s.id);
+      expect(idsInOrder.indexOf('remove-gaps')).toBeLessThan(idsInOrder.indexOf('group-by-topic'));
+      expect(idsInOrder.indexOf('tables-scrollable')).toBeLessThan(idsInOrder.indexOf('rank-by-reliability'));
     });
   });
 
@@ -171,7 +185,7 @@ describe('computeLayoutSuggestions', () => {
         agent({ id: 'api-monitor-b' }),
       ];
       const out = computeLayoutSuggestions(agents, null, NOW);
-      expect(out.length).toBeLessThanOrEqual(5);
+      expect(out.length).toBeLessThanOrEqual(6);
     });
 
     it('places dynamic pills before static fillers', () => {
