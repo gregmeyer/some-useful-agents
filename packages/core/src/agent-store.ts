@@ -12,6 +12,7 @@ import type {
   AgentVersionDag,
 } from './agent-v2-types.js';
 import { deriveCapabilities } from './agent-capabilities.js';
+import { extractImgHosts, mergeImgSrcHosts } from './extract-img-hosts.js';
 
 type SqlValue = string | number | null | bigint | Uint8Array;
 
@@ -385,6 +386,30 @@ export class AgentStore {
     if (agent.author !== undefined) dag.author = agent.author;
     if (agent.tags) dag.tags = agent.tags;
     if (agent.permissions) dag.permissions = agent.permissions;
+
+    // Backfill permissions.imgSrc by static analysis of the outputWidget
+    // template. The drafter prompt teaches the LLM to emit this field
+    // when widgets reference external images, but the field is soft
+    // and the LLM occasionally forgets — leaving the user with a
+    // broken-image tile until they manually add the host. This pass
+    // catches every <img src="https://HOST/..."> tag the LLM did write,
+    // merges those hosts into existing permissions.imgSrc, and persists
+    // them with the version. Defense-in-depth — the inline-allow card
+    // on Pulse is the runtime catch-all; this is the install-time fix.
+    if (agent.outputWidget?.template) {
+      const extracted = extractImgHosts({ outputWidget: agent.outputWidget });
+      if (extracted.length > 0) {
+        const merged = mergeImgSrcHosts(dag.permissions?.imgSrc, extracted);
+        // Only write back if the merge changed something — avoids needless
+        // version bumps when upsertAgent's DAG-equality check runs.
+        const existing = dag.permissions?.imgSrc ?? [];
+        const changed = merged.length !== existing.length || merged.some((h, i) => h !== existing[i]);
+        if (changed) {
+          dag.permissions = { ...(dag.permissions ?? {}), imgSrc: merged };
+        }
+      }
+    }
+
     return dag;
   }
 
