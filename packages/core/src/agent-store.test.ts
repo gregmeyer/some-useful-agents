@@ -330,3 +330,65 @@ describe('AgentStore.starred', () => {
     expect(store.listAgents().map((a) => a.id)).toEqual(['alpha', 'gamma', 'beta']);
   });
 });
+
+describe('AgentStore permissions.imgSrc backfill', () => {
+  function seedWithTemplate(template: string, extra: Partial<Agent> = {}): Omit<Agent, 'version'> {
+    return seed({
+      id: 'with-img',
+      outputWidget: {
+        type: 'ai-template',
+        template,
+      } as Agent['outputWidget'],
+      ...extra,
+    });
+  }
+
+  it('backfills permissions.imgSrc from outputWidget.template when none declared', () => {
+    const tpl = '<div><img src="https://apod.nasa.gov/x.jpg"></div>';
+    store.createAgent(seedWithTemplate(tpl), 'cli');
+    const got = store.getAgent('with-img');
+    expect(got?.permissions?.imgSrc).toEqual(['apod.nasa.gov']);
+  });
+
+  it('merges with permissions declared by the drafter (preserves wildcards)', () => {
+    const tpl = '<img src="https://images.unsplash.com/x.jpg">';
+    store.createAgent(
+      seedWithTemplate(tpl, {
+        permissions: { imgSrc: ['*.unsplash.com'] },
+      } as Partial<Agent>),
+      'cli',
+    );
+    const got = store.getAgent('with-img');
+    expect(got?.permissions?.imgSrc).toEqual(['*.unsplash.com', 'images.unsplash.com']);
+  });
+
+  it('skips baseline hosts (img.youtube.com, i.vimeocdn.com)', () => {
+    const tpl = `
+      <img src="https://img.youtube.com/vi/abc/0.jpg">
+      <img src="https://apod.nasa.gov/x.jpg">
+    `;
+    store.createAgent(seedWithTemplate(tpl), 'cli');
+    const got = store.getAgent('with-img');
+    expect(got?.permissions?.imgSrc).toEqual(['apod.nasa.gov']);
+  });
+
+  it('leaves agents without an outputWidget untouched', () => {
+    store.createAgent(seed(), 'cli');
+    const got = store.getAgent('hello');
+    expect(got?.permissions).toBeUndefined();
+  });
+
+  it('does not bump version on upsert when extracted hosts already merged in', () => {
+    const tpl = '<img src="https://apod.nasa.gov/x.jpg">';
+    store.createAgent(seedWithTemplate(tpl), 'cli');
+    const v1 = store.getAgent('with-img');
+    expect(v1?.version).toBe(1);
+    expect(v1?.permissions?.imgSrc).toEqual(['apod.nasa.gov']);
+
+    // Upsert the same spec — backfill is idempotent, DAG-equality should match,
+    // no new version row created.
+    store.upsertAgent(seedWithTemplate(tpl), 'cli');
+    const v2 = store.getAgent('with-img');
+    expect(v2?.version).toBe(1);
+  });
+});

@@ -84,6 +84,10 @@ export {
   type BlockedImgHost,
 } from './blocked-img-hosts-store.js';
 export {
+  extractImgHosts,
+  mergeImgSrcHosts,
+} from './extract-img-hosts.js';
+export {
   IntegrationsStore,
   INTEGRATION_ID_RE,
   type Integration,
