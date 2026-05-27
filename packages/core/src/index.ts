@@ -88,6 +88,21 @@ export {
   mergeImgSrcHosts,
 } from './extract-img-hosts.js';
 export {
+  InboxStore,
+  INBOX_PRIORITIES,
+  INBOX_STATUSES,
+  INBOX_SOURCES,
+  INBOX_RESPONSE_ROLES,
+  type InboxMessage,
+  type InboxResponse,
+  type InboxPriority,
+  type InboxStatus,
+  type InboxSource,
+  type InboxResponseRole,
+  type AddMessageInput,
+  type ListMessagesOpts,
+} from './inbox-store.js';
+export {
   IntegrationsStore,
   INTEGRATION_ID_RE,
   type Integration,
