@@ -33,6 +33,7 @@ import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
 import { EncryptedFileSecretsSession } from './secrets-session.js';
 import { requireAuth } from './auth-middleware.js';
+import { buildDashboardErrorHandler } from './error-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { agentsRouter } from './routes/agents.js';
@@ -267,6 +268,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
     const { renderNotFoundPage } = await import('./views/not-found.js');
     res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl }));
   });
+
+  // Express error handler — see error-middleware.ts for the contract.
+  // Must be the LAST middleware registered.
+  app.use(buildDashboardErrorHandler());
 
   return app;
 }
