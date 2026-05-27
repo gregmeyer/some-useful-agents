@@ -22,7 +22,7 @@ import { footer } from './footer.js';
 export interface LayoutOptions {
   title: string;
   /** Highlight in the nav (one of: agents, tools, runs, pulse, packs, settings, help). */
-  activeNav?: 'agents' | 'tools' | 'nodes' | 'runs' | 'pulse' | 'packs' | 'settings' | 'help';
+  activeNav?: 'agents' | 'tools' | 'nodes' | 'runs' | 'pulse' | 'packs' | 'scheduled' | 'settings' | 'help';
   /** Flash banner shown at the top of the body (errors from prior actions). */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** Widen the main column (for screens with 2-col layouts). */
@@ -60,6 +60,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   <a class="topbar__brand" href="/">sua</a>
   <nav class="topbar__nav">
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
+    <a href="/scheduled" class="${opts.activeNav === 'scheduled' ? 'is-active' : ''}">Scheduled</a>
     <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
