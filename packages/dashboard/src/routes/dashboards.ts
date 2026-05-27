@@ -54,10 +54,25 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
       }
       tiles.push(buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore }));
     }
-    // Decorate with any agent-global layout hints from LayoutHintsStore.
-    // Per-placement overrides land in PR 3; for now dashboards share the
-    // same hint as Pulse for a given agent.
+    // Decorate with the agent-global hint first, then layer this
+    // section's per-placement overrides on top. Each defined placement
+    // field wins; undefined fields fall through to the hint, signal,
+    // or default — same precedence as Pulse, plus a dashboard-scoped
+    // layer above it.
     attachLayoutHints(tiles, ctx.layoutHintsStore);
+    if (s.placements) {
+      for (const tile of tiles) {
+        const placement = s.placements[tile.agent.id];
+        if (!placement) continue;
+        const base = tile.layoutHint ?? { agentId: tile.agent.id, updatedAt: 0 };
+        tile.layoutHint = {
+          ...base,
+          ...(placement.size !== undefined ? { size: placement.size } : {}),
+          ...(placement.tileFit !== undefined ? { tileFit: placement.tileFit } : {}),
+          ...(placement.height !== undefined ? { height: placement.height } : {}),
+        };
+      }
+    }
     return { title: s.title, tiles, missingAgentIds, agentIds: [...s.agentIds] };
   });
 

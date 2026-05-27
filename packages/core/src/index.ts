@@ -66,6 +66,7 @@ export {
   type PackAgentRef,
   type PackDashboardManifest,
   type DashboardSection,
+  type DashboardSectionPlacement,
 } from './packs-store.js';
 export {
   DashboardsStore,

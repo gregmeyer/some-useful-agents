@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   AgentStore,
   DashboardsStore,
+  LayoutHintsStore,
   LocalProvider,
   MemorySecretsStore,
   PacksStore,
@@ -27,6 +28,7 @@ let runStore: RunStore;
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
+let layoutHintsStore: LayoutHintsStore;
 
 async function makeApp() {
   dir = mkdtempSync(join(tmpdir(), 'sua-dashboards-routes-'));
@@ -39,6 +41,7 @@ async function makeApp() {
   agentStore = new AgentStore(dbPath);
   packsStore = new PacksStore(dbPath);
   dashboardsStore = new DashboardsStore(dbPath);
+  layoutHintsStore = new LayoutHintsStore(dbPath);
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
 
@@ -70,6 +73,7 @@ async function makeApp() {
     rotateToken: () => 'r'.repeat(64),
     packsStore,
     dashboardsStore,
+    layoutHintsStore,
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
     dataDir: dir,
@@ -91,6 +95,7 @@ afterEach(async () => {
   try { agentStore?.close(); } catch { /* ignore */ }
   try { packsStore?.close(); } catch { /* ignore */ }
   try { dashboardsStore?.close(); } catch { /* ignore */ }
+  try { layoutHintsStore?.close(); } catch { /* ignore */ }
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -255,5 +260,61 @@ describe('dashboards routes', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('class="dashboards-dropdown"');
+  });
+
+  it('per-section placement overrides the agent-global LayoutHintsStore entry', async () => {
+    const app = await makeApp();
+    // Agent-global hint: 1x1 / grow / no height (what Pulse would see).
+    layoutHintsStore.setHint('hello', { size: '1x1', tileFit: 'grow' });
+    // Dashboard places the same agent with 2x2 / scroll / pinned 240px.
+    dashboardsStore.upsertDashboard({
+      id: 'user:big-card',
+      packId: null,
+      name: 'Big Card',
+      layout: {
+        sections: [{
+          title: 'Hero',
+          agentIds: ['hello'],
+          placements: { hello: { size: '2x2', tileFit: 'scroll', height: 240 } },
+        }],
+      },
+    });
+
+    const res = await request(app)
+      .get('/dashboards/user%3Abig-card')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Per-placement wins on every axis.
+    expect(res.text).toMatch(/data-tile-size="2x2"/);
+    expect(res.text).toMatch(/pulse-tile--fit-scroll/);
+    expect(res.text).toMatch(/style="height: 240px"/);
+  });
+
+  it('falls through to agent-global hint when a placement field is undefined', async () => {
+    const app = await makeApp();
+    layoutHintsStore.setHint('hello', { size: '2x1', tileFit: 'scroll' });
+    dashboardsStore.upsertDashboard({
+      id: 'user:partial',
+      packId: null,
+      name: 'Partial',
+      layout: {
+        sections: [{
+          title: 'Hero',
+          agentIds: ['hello'],
+          // Only override height; size + tileFit should fall through to the hint.
+          placements: { hello: { height: 180 } },
+        }],
+      },
+    });
+
+    const res = await request(app)
+      .get('/dashboards/user%3Apartial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/data-tile-size="2x1"/);
+    expect(res.text).toMatch(/pulse-tile--fit-scroll/);
+    expect(res.text).toMatch(/style="height: 180px"/);
   });
 });
