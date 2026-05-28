@@ -101,6 +101,12 @@ nodes:
       Agents you may propose running on the operator's behalf (may be empty):
       {{inputs.ALLOWED_SUB_AGENTS}}
 
+      IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob,
+      or any file/search tools. Everything you need is already in the
+      message context above. The `ALLOWED_SUB_AGENTS` value is the
+      complete, authoritative list of agents you may propose — do not
+      go searching for more. Respond with the `<plan>` block directly.
+
       ════════════════════════════════════════════════════════════════
       WHAT TO RECOMMEND
       ════════════════════════════════════════════════════════════════
@@ -204,5 +210,10 @@ nodes:
         entries each with `type: "run-agent"`, a string `agentId` in
         the allowlist, an optional string-to-string `inputs` map, and
         a `rationale` string.
-    maxTurns: 1
+    # 2 turns: turn 1 emits the <plan> block; turn 2 is a buffer if
+    # the model accidentally calls a tool on turn 1 (it'll get refused
+    # by the prompt instructions and re-emit clean on turn 2). Setting
+    # this to 1 caused max-turns failures when the model probed the
+    # filesystem before responding.
+    maxTurns: 2
     timeout: 60

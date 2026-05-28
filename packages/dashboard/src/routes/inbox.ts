@@ -331,14 +331,39 @@ inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Respon
   }
   const response = ctx.inboxStore.getResponse(rid);
   const meta = response ? parseActionMeta(response) : null;
-  if (!response || response.messageId !== id || !meta || meta.status !== 'proposed') {
-    if (isAjax(req)) { res.status(409).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action is not runnable.')}`);
+  // No row, wrong message, or not an action → genuinely can't run.
+  if (!response || response.messageId !== id || !meta) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action not found.')}`);
     return;
   }
+  // Idempotent: already running or already terminal — treat the click
+  // as a "we heard you" no-op. The modal is polling and the action
+  // card reflects its current state. Returning 204/303 keeps the
+  // operator experience forgiving: rage-clicking the Run button can't
+  // fire the sub-agent twice and can't surface error toasts.
+  if (meta.status !== 'proposed') {
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Already in progress.')}`);
+    return;
+  }
+
+  // Atomically claim the action: proposed → running. If a concurrent
+  // request beat us to it the UPDATE's status WHERE clause fails to
+  // match — same idempotent treatment as the check above (the action
+  // is now running on someone else's behalf; we're done).
+  const startedAt = Date.now();
+  const runningMeta: InboxActionMeta = { ...meta, status: 'running', startedAt };
+  const claimed = ctx.inboxStore.transitionActionStatus(rid, 'proposed', JSON.stringify(runningMeta));
+  if (!claimed) {
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Already in progress.')}`);
+    return;
+  }
+
   if (isAjax(req)) { res.status(204).end(); }
   // Fire-and-forget; the modal polls /fragment for state.
-  void runProposedAction(ctx, id, response, meta).catch((err) => {
+  void runProposedAction(ctx, id, response, runningMeta).catch((err) => {
     process.stderr.write(`[inbox-triage] action ${rid} crashed: ${(err as Error)?.message ?? err}\n`);
   });
   if (!isAjax(req)) {
@@ -364,19 +389,26 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
   }
   const response = ctx.inboxStore.getResponse(rid);
   const meta = response ? parseActionMeta(response) : null;
-  if (!response || response.messageId !== id || !meta || meta.status !== 'proposed') {
-    if (isAjax(req)) { res.status(409).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action is not skippable.')}`);
+  if (!response || response.messageId !== id || !meta) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action not found.')}`);
     return;
   }
-  try {
-    ctx.inboxStore.updateResponse(rid, {
-      metaJson: JSON.stringify({ ...meta, status: 'skipped', endedAt: Date.now() }),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (isAjax(req)) { res.status(500).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Skip failed: ${msg}`)}`);
+  // Idempotent: already skipped or already past the proposed window
+  // (running / completed / failed) → no-op, no error. Skipping a
+  // running action is intentionally a no-op (would race with the
+  // sub-agent); operator can dismiss the message instead.
+  if (meta.status !== 'proposed') {
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Action is no longer pending.')}`);
+    return;
+  }
+  // Atomic claim — same race-free transition as /run uses.
+  const skippedMeta: InboxActionMeta = { ...meta, status: 'skipped', endedAt: Date.now() };
+  const claimed = ctx.inboxStore.transitionActionStatus(rid, 'proposed', JSON.stringify(skippedMeta));
+  if (!claimed) {
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Action is no longer pending.')}`);
     return;
   }
   if (isAjax(req)) { res.status(204).end(); return; }
@@ -601,10 +633,11 @@ async function runProposedAction(
     });
     return;
   }
-  const startedAt = Date.now();
-  ctx.inboxStore.updateResponse(response.id, {
-    metaJson: JSON.stringify({ ...meta, status: 'running', startedAt }),
-  });
+  // The route handler already transitioned proposed → running
+  // atomically (see /actions/:rid/run); meta passed in already
+  // carries status='running' + startedAt. We just preserve startedAt
+  // for the duration math at the completion update below.
+  const startedAt = meta.startedAt ?? Date.now();
 
   // Per-agent input enrichment. Today only agent-analyzer needs
   // server-side help (the AGENT_YAML it requires is heavy and lives in

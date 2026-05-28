@@ -499,10 +499,36 @@ export class InboxStore {
   }
 
   /**
+   * Atomically transition an `action`-role response from one status
+   * to another, IFF its current meta_json status matches `fromStatus`.
+   * Returns true when the transition committed, false when it lost the
+   * race (row missing OR status changed by another writer first).
+   *
+   * Race-safe via a single UPDATE with a status WHERE clause —
+   * critical for `/inbox/:id/actions/:rid/run`, which previously
+   * checked status in the route handler and updated it later in an
+   * async fire-and-forget, leaving a window where a concurrent
+   * double-click could dispatch the sub-agent twice.
+   */
+  transitionActionStatus(id: string, fromStatus: string, newMetaJson: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE inbox_responses
+      SET meta_json = ?
+      WHERE id = ?
+        AND role = 'action'
+        AND json_extract(meta_json, '$.status') = ?
+    `).run(newMetaJson, id, fromStatus);
+    return result.changes === 1;
+  }
+
+  /**
    * Update an existing response's body and/or meta_json. Used to
    * transition `action` rows through their lifecycle (proposed →
    * running → completed). Pass `undefined` to leave a field
    * unchanged; pass `null` for `metaJson` to clear it.
+   *
+   * Not race-safe — for transitions that depend on the current
+   * status (e.g. proposed → running), use `transitionActionStatus`.
    */
   updateResponse(
     id: string,

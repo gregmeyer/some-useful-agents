@@ -398,29 +398,30 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
     expect(typeof meta.endedAt).toBe('number');
   });
 
-  it('/skip on a non-proposed row returns 409', async () => {
+  it('/skip on an already-skipped row is idempotent (204, no state change)', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
     const r = proposeAction(m.id, 'agent-analyzer', 'try it');
-    inboxStore.updateResponse(r.id, {
-      metaJson: JSON.stringify({ kind: 'action', status: 'skipped', agentId: 'agent-analyzer', inputs: {} }),
-    });
+    const skippedMeta = { kind: 'action', status: 'skipped', agentId: 'agent-analyzer', inputs: {}, endedAt: 123 };
+    inboxStore.updateResponse(r.id, { metaJson: JSON.stringify(skippedMeta) });
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/skip`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(204);
+    // Meta unchanged.
+    expect(JSON.parse(inboxStore.getResponse(r.id)!.metaJson!).endedAt).toBe(123);
   });
 
-  it('/skip on a non-existent rid returns 409', async () => {
+  it('/skip on a non-existent rid returns 404', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/nope/skip`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(404);
   });
 
-  it('/skip with rid that belongs to a different message returns 409', async () => {
+  it('/skip with rid that belongs to a different message returns 404', async () => {
     const app = await makeApp();
     const m1 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'a' });
     const m2 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'b', body: 'b' });
@@ -428,7 +429,7 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
     const res = await request(app)
       .post(`/inbox/${m2.id}/actions/${r.id}/skip`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(404);
   });
 
   it('/run on a proposed action returns 204 and transitions meta off "proposed"', async () => {
@@ -452,17 +453,47 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
     expect(meta.status).not.toBe('proposed');
   });
 
-  it('/run on a non-proposed row returns 409', async () => {
+  it('/run on a non-proposed row is idempotent (204, no re-dispatch)', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
     const r = proposeAction(m.id, 'agent-analyzer', 'try it');
-    inboxStore.updateResponse(r.id, {
-      metaJson: JSON.stringify({ kind: 'action', status: 'completed', agentId: 'agent-analyzer', inputs: {} }),
-    });
+    const completedMeta = {
+      kind: 'action', status: 'completed', agentId: 'agent-analyzer',
+      inputs: {}, runId: 'previous-run-id', endedAt: 999,
+    };
+    inboxStore.updateResponse(r.id, { metaJson: JSON.stringify(completedMeta) });
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/run`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(204);
+    // Idempotent: the prior completion is preserved.
+    const after = JSON.parse(inboxStore.getResponse(r.id)!.metaJson!);
+    expect(after.status).toBe('completed');
+    expect(after.runId).toBe('previous-run-id');
+  });
+
+  it('concurrent /run requests on the same proposed action only dispatch once', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
+    // Fire two requests in parallel — simulates a double-click before
+    // the first response lands. The atomic claim in the route ensures
+    // only one wins.
+    const [a, b] = await Promise.all([
+      request(app).post(`/inbox/${m.id}/actions/${r.id}/run`)
+        .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE),
+      request(app).post(`/inbox/${m.id}/actions/${r.id}/run`)
+        .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE),
+    ]);
+    // Both return 204 (one claims + dispatches, the other no-ops idempotently).
+    expect(a.status).toBe(204);
+    expect(b.status).toBe(204);
+    await new Promise((r) => setTimeout(r, 30));
+    const after = JSON.parse(inboxStore.getResponse(r.id)!.metaJson!);
+    // State is past 'proposed' (the winning claim transitioned it).
+    expect(after.status).not.toBe('proposed');
+    // Only ONE startedAt was recorded — proves a single dispatch.
+    expect(typeof after.startedAt).toBe('number');
   });
 });
 

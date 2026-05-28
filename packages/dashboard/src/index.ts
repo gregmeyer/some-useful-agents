@@ -413,7 +413,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // Demo seed: when SUA_INBOX_DEMO=1, drop three sample rows (one per
   // priority) into an empty inbox so the page renders something
   // before real producers ship in PR 3. No-op without the env flag.
-  seedInboxDemoIfRequested(inboxStore);
+  seedInboxDemoIfRequested(inboxStore, agentStore);
 
   // Integrations store. Same DB file. Independently optional from packs/
   // dashboards so a schema issue in either doesn't keep the other offline.
