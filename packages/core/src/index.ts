@@ -93,6 +93,7 @@ export {
   INBOX_STATUSES,
   INBOX_SOURCES,
   INBOX_RESPONSE_ROLES,
+  normalizeTags,
   type InboxMessage,
   type InboxResponse,
   type InboxPriority,

@@ -73,9 +73,21 @@ function isAjax(req: Request): boolean {
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const rows = ctx.inboxStore ? ctx.inboxStore.list() : [];
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  const starred = req.query.starred === '1' || req.query.starred === 'true';
+  const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
+  const rows = ctx.inboxStore ? ctx.inboxStore.list({
+    q: q || undefined,
+    starred: starred || undefined,
+    tag: tag || undefined,
+  }) : [];
+  const allTags = ctx.inboxStore ? ctx.inboxStore.listAllTags() : [];
   const { sort, dir } = parseSort(req);
-  res.type('html').send(renderInboxList({ rows, sort, dir, flash: parseFlash(req) }));
+  res.type('html').send(renderInboxList({
+    rows, sort, dir, flash: parseFlash(req),
+    filter: { q, starred, tag },
+    allTags,
+  }));
 });
 
 inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
@@ -192,6 +204,70 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
   void runTriageAgent(ctx, id).catch(() => { /* swallow */ });
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Triage agent invoked.')}`);
+});
+
+/**
+ * POST /inbox/:id/star — toggle the star flag. Body: `starred=1|0`
+ * (defaults to flipping the current value when absent). Returns 204
+ * for AJAX, 303 for plain form posts (always back to /inbox so the
+ * list reflects the new starred-sort position).
+ */
+inboxRouter.post('/inbox/:id/star', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const message = ctx.inboxStore.get(id);
+  if (!message) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const next = typeof req.body?.starred === 'string'
+    ? (req.body.starred === '1' || req.body.starred === 'true')
+    : !message.starred;
+  try {
+    ctx.inboxStore.setStarred(id, next);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `/inbox/${encodeURIComponent(id)}?error=${encodeURIComponent(`Star failed: ${msg}`)}`);
+    return;
+  }
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `/inbox?ok=${encodeURIComponent(next ? 'Starred.' : 'Unstarred.')}`);
+});
+
+/**
+ * POST /inbox/:id/tags — replace the message's tag set. Body: `tags`
+ * is a comma-separated string ("auth, network"). Empty → clears all
+ * tags. Invalid tags are silently dropped by the store. 204 for
+ * AJAX, 303 for plain form.
+ */
+inboxRouter.post('/inbox/:id/tags', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const raw = typeof req.body?.tags === 'string' ? req.body.tags : '';
+  const tags = raw.split(',').map((t: string) => t.trim()).filter(Boolean);
+  try {
+    ctx.inboxStore.setTags(id, tags);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Tags failed: ${msg}`)}`);
+    return;
+  }
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Tags updated.')}`);
 });
 
 // ── helpers ─────────────────────────────────────────────────────────

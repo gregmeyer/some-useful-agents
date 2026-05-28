@@ -253,6 +253,118 @@ describe('POST /inbox/:id/respond', () => {
   });
 });
 
+describe('GET /inbox with filters', () => {
+  it('filters by ?starred=1', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'starred-msg', body: 'x' });
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'plain-msg', body: 'y' });
+    inboxStore.setStarred(a.id, true);
+    const res = await request(app).get('/inbox?starred=1').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('starred-msg');
+    expect(res.text).not.toContain('plain-msg');
+  });
+
+  it('filters by ?tag=auth (exact match, not substring)', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'auth-msg', body: 'x' });
+    const b = inboxStore.add({ priority: 'medium', source: 'manual', title: 'authentication-msg', body: 'y' });
+    inboxStore.setTags(a.id, ['auth']);
+    inboxStore.setTags(b.id, ['authentication']);
+    const res = await request(app).get('/inbox?tag=auth').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('auth-msg');
+    expect(res.text).not.toContain('authentication-msg');
+  });
+
+  it('filters by ?q across title/body/agent/conversation', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'apple-fruit', body: 'fruit' });
+    const c = inboxStore.add({ priority: 'medium', source: 'manual', title: 'cherry-fruit', body: 'red' });
+    inboxStore.addResponse(c.id, 'triage', 'mentions apple in the thread');
+    const res = await request(app).get('/inbox?q=apple').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('apple-fruit');
+    expect(res.text).toContain('cherry-fruit');
+  });
+
+  it('renders the filter bar with current values and a Clear link', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/inbox?q=hello').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('class="inbox-filter"');
+    expect(res.text).toContain('value="hello"');
+    expect(res.text).toMatch(/href="\/inbox"[^>]*>Clear</);
+  });
+});
+
+describe('POST /inbox/:id/star', () => {
+  it('toggles + persists; 204 (AJAX) / 303 (form)', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r1 = await request(app)
+      .post(`/inbox/${m.id}/star`).type('form').send({ starred: '1' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(r1.status).toBe(204);
+    expect(inboxStore.get(m.id)!.starred).toBe(true);
+    const r2 = await request(app)
+      .post(`/inbox/${m.id}/star`).type('form').send({ starred: '0' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(r2.status).toBe(303);
+    expect(inboxStore.get(m.id)!.starred).toBe(false);
+  });
+
+  it('omitting starred flips current value', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.setStarred(m.id, true);
+    await request(app).post(`/inbox/${m.id}/star`).set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.starred).toBe(false);
+  });
+});
+
+describe('POST /inbox/:id/tags', () => {
+  it('comma-separated input is normalized (lowercase, dedupe, drop invalid)', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    await request(app)
+      .post(`/inbox/${m.id}/tags`).type('form').send({ tags: 'Auth, NETWORK, invalid tag, auth' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.tags).toEqual(['auth', 'network']);
+  });
+
+  it('empty input clears all tags', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.setTags(m.id, ['auth']);
+    await request(app)
+      .post(`/inbox/${m.id}/tags`).type('form').send({ tags: '' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.tags).toEqual([]);
+  });
+});
+
+describe('Row + fragment rendering for star + tags', () => {
+  it('list row renders the star button + tag chips', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', agentId: 'foo', title: 't', body: 'b' });
+    inboxStore.setStarred(m.id, true);
+    inboxStore.setTags(m.id, ['auth', 'network']);
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('inbox-star inbox-star--on');
+    expect(res.text).toContain('inbox-tag-chip');
+  });
+
+  it('modal fragment renders sticky header, star button, and tag editor input', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag', body: 'b' });
+    inboxStore.setTags(m.id, ['auth']);
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('inbox-detail__header');
+    expect(res.text).toContain('inbox-detail__thread');
+    expect(res.text).toContain(`action="/inbox/${m.id}/star"`);
+    expect(res.text).toContain(`action="/inbox/${m.id}/tags"`);
+    expect(res.text).toContain('value="auth"');
+  });
+});
+
 describe('POST /inbox/:id/triage', () => {
   it('returns 204 (AJAX) and inserts a synthetic "Asked triage" user marker', async () => {
     const app = await makeApp();

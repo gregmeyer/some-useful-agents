@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InboxStore, type InboxMessage } from './inbox-store.js';
+import { InboxStore, normalizeTags, type InboxMessage } from './inbox-store.js';
 
 let dir: string;
 let store: InboxStore;
@@ -206,5 +206,114 @@ describe('InboxStore validation', () => {
   it('requires title and body on add', () => {
     expect(() => store.add({ priority: 'low', source: 'manual', title: '', body: 'x' })).toThrow(/title/);
     expect(() => store.add({ priority: 'low', source: 'manual', title: 'x', body: '' })).toThrow(/body/);
+  });
+});
+
+describe('normalizeTags', () => {
+  it('lowercases, trims, dedupes, sorts, drops invalid', () => {
+    expect(normalizeTags(['Foo', ' bar ', 'foo', 'BAR', '', 'has space', '😀', 'baz-1'])).toEqual([
+      'bar', 'baz-1', 'foo',
+    ]);
+  });
+
+  it('drops entries that are too long', () => {
+    const long = 'a'.repeat(33);
+    expect(normalizeTags([long, 'ok'])).toEqual(['ok']);
+  });
+});
+
+describe('InboxStore star + tags', () => {
+  it('messages default to starred=false + tags=[]', () => {
+    const m = addMinimal();
+    const got = store.get(m.id)!;
+    expect(got.starred).toBe(false);
+    expect(got.tags).toEqual([]);
+  });
+
+  it('setStarred toggles + persists', () => {
+    const m = addMinimal();
+    store.setStarred(m.id, true);
+    expect(store.get(m.id)!.starred).toBe(true);
+    store.setStarred(m.id, false);
+    expect(store.get(m.id)!.starred).toBe(false);
+  });
+
+  it('setTags normalizes (lowercase, dedupe, sort, drop invalid)', () => {
+    const m = addMinimal();
+    store.setTags(m.id, ['Auth', 'auth', 'NETWORK', 'invalid tag with space', '😀']);
+    expect(store.get(m.id)!.tags).toEqual(['auth', 'network']);
+  });
+
+  it('setTags([]) clears + listAllTags reflects current state', () => {
+    const a = addMinimal({ title: 'A' });
+    const b = addMinimal({ title: 'B' });
+    store.setTags(a.id, ['network', 'auth']);
+    store.setTags(b.id, ['network', 'db']);
+    expect(store.listAllTags()).toEqual(['auth', 'db', 'network']);
+    store.setTags(a.id, []);
+    expect(store.get(a.id)!.tags).toEqual([]);
+    expect(store.listAllTags()).toEqual(['db', 'network']);
+  });
+
+  it('throws on unknown id', () => {
+    expect(() => store.setStarred('nope', true)).toThrow(/no message with id/);
+    expect(() => store.setTags('nope', ['x'])).toThrow(/no message with id/);
+  });
+});
+
+describe('InboxStore.list filters (q, starred, tag)', () => {
+  it('starred=true returns only starred messages', () => {
+    const a = addMinimal({ title: 'starred-one' });
+    addMinimal({ title: 'plain' });
+    store.setStarred(a.id, true);
+    const out = store.list({ starred: true });
+    expect(out.map((r) => r.title)).toEqual(['starred-one']);
+  });
+
+  it('sorts starred messages above non-starred at the same priority', () => {
+    const plain = addMinimal({ priority: 'high', title: 'high-plain' });
+    const starred = addMinimal({ priority: 'high', title: 'high-starred' });
+    store.setStarred(starred.id, true);
+    const out = store.list();
+    expect(out.map((r) => r.title)).toEqual(['high-starred', 'high-plain']);
+    void plain;
+  });
+
+  it('tag filter matches exact lowercase tag, not substring', () => {
+    const a = addMinimal({ title: 'A' });
+    const b = addMinimal({ title: 'B' });
+    store.setTags(a.id, ['auth']);
+    store.setTags(b.id, ['authentication']);
+    const out = store.list({ tag: 'auth' });
+    expect(out.map((r) => r.title)).toEqual(['A']);
+  });
+
+  it('q matches title, body, agent, and conversation entries', () => {
+    const a = addMinimal({ title: 'apple', body: 'has fruit' });
+    const b = addMinimal({ title: 'banana', body: 'plain text', agentId: 'apple-watcher' });
+    const c = addMinimal({ title: 'cherry', body: 'pie' });
+    store.addResponse(c.id, 'triage', 'mentioned apple in the thread');
+
+    const out = store.list({ q: 'apple' }).map((r) => r.title).sort();
+    expect(out).toEqual(['apple', 'banana', 'cherry']);
+    void a;
+    void b;
+  });
+
+  it('q is case-insensitive and trims', () => {
+    addMinimal({ title: 'NASA Astronomy' });
+    addMinimal({ title: 'weather' });
+    expect(store.list({ q: '  nasa  ' }).map((r) => r.title)).toEqual(['NASA Astronomy']);
+  });
+
+  it('combines filters (starred + tag + q)', () => {
+    const a = addMinimal({ title: 'auth issue' });
+    const b = addMinimal({ title: 'auth issue starred' });
+    addMinimal({ title: 'other' });
+    store.setStarred(b.id, true);
+    store.setTags(a.id, ['network']);
+    store.setTags(b.id, ['auth']);
+    const out = store.list({ starred: true, tag: 'auth', q: 'auth' });
+    expect(out.map((r) => r.title)).toEqual(['auth issue starred']);
   });
 });
