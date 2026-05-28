@@ -1,21 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { reapOrphanedRuns, parseEtime } from './run-orphan-reaper.js';
 import type { NodeExecutionRecord } from './agent-v2-types.js';
 
-const TEST_DB = join(import.meta.dirname, '__test-data__', 'orphan-reaper.db');
-
+// Per-test tmpdir (see run-store.test.ts for context).
+let testDir: string;
 let store: RunStore;
 
 beforeEach(() => {
-  store = new RunStore(TEST_DB);
+  testDir = mkdtempSync(join(tmpdir(), 'sua-orphan-reaper-'));
+  store = new RunStore(join(testDir, 'orphan-reaper.db'));
 });
 
 afterEach(() => {
-  store.close();
-  rmSync(join(import.meta.dirname, '__test-data__'), { recursive: true, force: true });
+  try { store.close(); } catch { /* ignore */ }
+  if (testDir) rmSync(testDir, { recursive: true, force: true });
 });
 
 function mkExec(runId: string, nodeId: string, overrides?: Partial<NodeExecutionRecord>): NodeExecutionRecord {

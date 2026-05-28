@@ -13,6 +13,10 @@ export interface InboxListOptions {
   sort: InboxSortKey;
   dir: InboxSortDir;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** Current filter state, used to repopulate the search bar. */
+  filter?: { q: string; starred: boolean; tag: string };
+  /** All tags currently in use across the inbox, for the tag dropdown. */
+  allTags?: string[];
 }
 
 export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
@@ -100,26 +104,71 @@ function sortIndicator(col: InboxSortKey, current: { sort: InboxSortKey; dir: In
  */
 export function renderInboxList(opts: InboxListOptions): string {
   const { rows, sort, dir, flash } = opts;
+  const filter = opts.filter ?? { q: '', starred: false, tag: '' };
+  const allTags = opts.allTags ?? [];
   const sorted = sortMessages(rows, sort, dir);
   const current = { sort, dir };
+  const hasActiveFilter = !!filter.q || filter.starred || !!filter.tag;
 
   const header = (col: InboxSortKey, label: string): SafeHtml => html`
     <th><a href="${sortUrl(col, current)}" class="inbox-sort-header">${label}${sortIndicator(col, current)}</a></th>
   `;
 
+  const tagOptions = allTags.map((t) => html`
+    <option value="${t}" ${filter.tag === t ? 'selected' : ''}>${t}</option>
+  `);
+
+  // Search + filter bar above the table. The form GETs back to /inbox
+  // so filters live in the URL and can be bookmarked / shared. A
+  // simple Clear button strips every param.
+  const filterBar = html`
+    <form class="inbox-filter" method="GET" action="/inbox">
+      <input type="text" name="q" value="${filter.q}" placeholder="Search title, body, agent, or conversation…"
+        class="form-field inbox-filter__q">
+      <label class="inbox-filter__starred">
+        <input type="checkbox" name="starred" value="1" ${filter.starred ? 'checked' : ''}>
+        ★ Starred only
+      </label>
+      <select name="tag" class="form-field inbox-filter__tag">
+        <option value="">All tags</option>
+        ${tagOptions as unknown as SafeHtml[]}
+      </select>
+      <button type="submit" class="btn btn--sm btn--primary">Apply</button>
+      ${hasActiveFilter ? html`<a class="btn btn--sm btn--ghost" href="/inbox">Clear</a>` : html``}
+    </form>
+  `;
+
+  const tagChips = (tags: string[]): SafeHtml => tags.length === 0
+    ? html``
+    : html`<span class="inbox-tag-chips">${tags.map((t) => html`<a href="/inbox?tag=${encodeURIComponent(t)}" class="inbox-tag-chip" data-inbox-row-stop>${t}</a>`) as unknown as SafeHtml[]}</span>`;
+
   const tbody = sorted.map((m) => html`
     <tr data-inbox-row-id="${m.id}" class="inbox-row">
+      <td>
+        <form method="POST" action="/inbox/${m.id}/star" data-inbox-row-stop data-inbox-star-form style="margin:0;">
+          <input type="hidden" name="starred" value="${m.starred ? '0' : '1'}">
+          <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
+        </form>
+      </td>
       <td><span class="badge ${PRIORITY_BADGE[m.priority]}">${m.priority}</span></td>
       <td><span class="badge ${SOURCE_BADGE[m.source]}">${SOURCE_LABEL[m.source]}</span></td>
       <td>${m.agentId ? html`<a href="/agents/${m.agentId}" data-inbox-row-stop>${m.agentId}</a>` : html`<span class="dim">—</span>`}</td>
-      <td><a href="/inbox/${m.id}" data-inbox-row-link>${m.title}</a></td>
+      <td>
+        <a href="/inbox/${m.id}" data-inbox-row-link>${m.title}</a>
+        ${tagChips(m.tags)}
+      </td>
       <td class="dim">${formatAge(new Date(m.createdAt).toISOString())}</td>
       <td><span class="badge badge--muted">${m.status}</span></td>
     </tr>
   `);
 
-  const table = rows.length === 0
+  const emptyState = hasActiveFilter
     ? html`
+      <div class="settings-empty mt-0">
+        <h3 class="mt-0">No matches</h3>
+        <p class="dim">No inbox items match the current filter. <a href="/inbox">Clear filters</a> to see everything.</p>
+      </div>`
+    : html`
       <div class="settings-empty mt-0">
         <h3 class="mt-0">Inbox zero</h3>
         <p class="dim">
@@ -127,11 +176,15 @@ export function renderInboxList(opts: InboxListOptions): string {
           cadence reminders) ship in upcoming PRs — until then this page shows demo data
           with <code>SUA_INBOX_DEMO=1</code>.
         </p>
-      </div>`
+      </div>`;
+
+  const table = rows.length === 0
+    ? emptyState
     : html`
       <table class="table inbox-table">
         <thead>
           <tr>
+            <th aria-label="Star"></th>
             ${header('priority', 'Priority')}
             ${header('source', 'Source')}
             ${header('agent', 'Agent')}
@@ -149,6 +202,7 @@ export function renderInboxList(opts: InboxListOptions): string {
       title: 'Inbox',
       description: 'Things that need your attention. Click a row to open. Click a column header to sort.',
     })}
+    ${filterBar}
     ${table}
     ${renderInboxModalShell()}
   `;

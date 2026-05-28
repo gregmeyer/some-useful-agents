@@ -1,18 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { extractPriorAgentInputs } from './run-inputs.js';
 import type { Agent } from './agent-v2-types.js';
 
-const TEST_DB = join(import.meta.dirname, '__test-data__', 'run-inputs.db');
-
+// Per-test tmpdir — see run-store.test.ts for the historical context.
+// Multiple test files used to share `packages/core/src/__test-data__/`
+// and stomp each other when vitest ran them concurrently.
+let testDir: string;
 let store: RunStore;
 
-beforeEach(() => { store = new RunStore(TEST_DB); });
+beforeEach(() => {
+  testDir = mkdtempSync(join(tmpdir(), 'sua-run-inputs-'));
+  store = new RunStore(join(testDir, 'run-inputs.db'));
+});
 afterEach(() => {
-  store.close();
-  rmSync(join(import.meta.dirname, '__test-data__'), { recursive: true, force: true });
+  try { store.close(); } catch { /* ignore */ }
+  if (testDir) rmSync(testDir, { recursive: true, force: true });
 });
 
 const agent: Pick<Agent, 'inputs'> = {

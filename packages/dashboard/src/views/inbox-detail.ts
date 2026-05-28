@@ -59,6 +59,9 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="flash flash--${flash.kind}" style="margin: 0 0 var(--space-2);">${flash.message}</div>
   ` : html``;
 
+  // Header meta row + a star control on the right. The star form is
+  // intercepted by inbox-modal.js (via data-inbox-modal-form) so
+  // clicking it toggles in place without a page reload.
   const headerMeta = html`
     <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-1);">
       <span class="badge ${badgeClass}">${message.priority}</span>
@@ -67,7 +70,26 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       <span class="badge badge--muted">${message.status}</span>
       ${message.agentId ? html`<a href="/agents/${message.agentId}">${message.agentId}</a>` : html``}
       ${message.runId ? html`<a href="/runs/${message.runId}" class="mono">run ${message.runId.slice(0, 8)}</a>` : html``}
+      <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form style="margin: 0 0 0 auto;">
+        <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
+        <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
+      </form>
     </div>
+  `;
+
+  // Tag editor: comma-separated input. Existing tags are pre-filled.
+  // Form submit replaces the entire tag set; clearing the input
+  // removes all tags. Validation happens in the store (invalid
+  // entries are silently dropped).
+  const tagsBlock = html`
+    <form method="POST" action="/inbox/${message.id}/tags" data-inbox-modal-form
+      style="margin-top: var(--space-2); display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs);">
+      <label style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: var(--weight-semibold);">Tags</label>
+      <input type="text" name="tags" value="${message.tags.join(', ')}"
+        placeholder="auth, network, …" class="form-field"
+        style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">
+      <button type="submit" class="btn btn--xs btn--ghost">Save tags</button>
+    </form>
   `;
 
   const bodyBlock = html`
@@ -118,16 +140,27 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       </div>
     `;
 
+  // Sticky top region: title + meta + tags + details + context all stay
+  // pinned while the conversation thread scrolls below. The modal's
+  // outer container handles vertical overflow; this sub-section uses
+  // position:sticky relative to that scroll context.
   return html`
-    <header style="margin: 0;">
-      <h3 id="inbox-modal-title" style="margin: 0;">${message.title}</h3>
-      ${headerMeta}
-    </header>
-    ${flashBlock}
-    ${bodyBlock}
-    ${contextBlock}
-    ${conversationBlock}
-    ${actionsBlock}
+    <div class="inbox-detail">
+      <div class="inbox-detail__header">
+        <header style="margin: 0;">
+          <h3 id="inbox-modal-title" style="margin: 0;">${message.title}</h3>
+          ${headerMeta}
+          ${tagsBlock}
+        </header>
+        ${flashBlock}
+        ${bodyBlock}
+        ${contextBlock}
+      </div>
+      <div class="inbox-detail__thread">
+        ${conversationBlock}
+        ${actionsBlock}
+      </div>
+    </div>
   `;
 }
 

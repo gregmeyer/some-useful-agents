@@ -57,6 +57,14 @@ export interface InboxMessage {
   recommendation?: string;
   resolvedAt?: number;
   dedupeKey?: string;
+  /** User-flagged for quick filter on the inbox list. */
+  starred: boolean;
+  /**
+   * Free-form lowercase tags, deduped + sorted. Stored as a JSON array.
+   * Producers may seed tags (e.g. `network`, `auth`); operators add/remove
+   * them from the modal header.
+   */
+  tags: string[];
 }
 
 export interface InboxResponse {
@@ -90,6 +98,17 @@ export interface ListMessagesOpts {
   status?: InboxStatus;
   priority?: InboxPriority;
   limit?: number;
+  /**
+   * Free-text query matched (case-insensitively) against title, body,
+   * agent_id, and the bodies of any conversation responses. Lets the
+   * operator find a thread by quoting something the triage agent said,
+   * or the agent that owns the failure.
+   */
+  q?: string;
+  /** When true, only return starred messages. */
+  starred?: boolean;
+  /** When set, only return messages tagged with this exact lowercase tag. */
+  tag?: string;
 }
 
 /**
@@ -98,6 +117,23 @@ export interface ListMessagesOpts {
  * before `high`; we inject a CASE expression to fix the ordering
  * without storing a numeric column.
  */
+const TAG_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+/**
+ * Lowercase, trim, drop invalid entries, de-duplicate, sort. Used by
+ * `setTags` and exported for callers that need to validate UI input
+ * before sending it to the store.
+ */
+export function normalizeTags(input: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const t = raw.toLowerCase().trim();
+    if (TAG_RE.test(t)) out.add(t);
+  }
+  return Array.from(out).sort();
+}
+
 const PRIORITY_RANK_CASE = `
   CASE priority
     WHEN 'high' THEN 0
@@ -156,12 +192,27 @@ export class InboxStore {
         triage_run_id TEXT,
         recommendation TEXT,
         resolved_at INTEGER,
-        dedupe_key TEXT UNIQUE
+        dedupe_key TEXT UNIQUE,
+        starred INTEGER NOT NULL DEFAULT 0,
+        tags_json TEXT
       )
     `);
+    // Idempotent additive migrations for installs created before star + tags.
+    // ALTER TABLE ... ADD COLUMN is a no-op on a column that already exists
+    // (we catch + ignore the duplicate-column error).
+    for (const ddl of [
+      `ALTER TABLE inbox_messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE inbox_messages ADD COLUMN tags_json TEXT`,
+    ]) {
+      try { this.db.exec(ddl); } catch { /* column exists — ignore */ }
+    }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inbox_open
         ON inbox_messages(status, priority, created_at DESC)
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_inbox_starred
+        ON inbox_messages(starred, created_at DESC) WHERE starred = 1
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS inbox_responses (
@@ -222,6 +273,9 @@ export class InboxStore {
    * List messages newest-first within each priority. Default filter
    * excludes `dismissed` + `resolved` (the queue is for active items
    * only); pass `status` to override.
+   *
+   * Supports text search (`q` — matches title/body/agent and the
+   * conversation thread), starred-only, and tag filtering.
    */
   list(opts: ListMessagesOpts = {}): InboxMessage[] {
     const where: string[] = [];
@@ -238,14 +292,82 @@ export class InboxStore {
       where.push('priority = ?');
       params.push(opts.priority);
     }
+    if (opts.starred === true) {
+      where.push('starred = 1');
+    }
+    if (typeof opts.tag === 'string' && opts.tag.trim()) {
+      // tags_json is a JSON array of lowercase strings; match the tag
+      // surrounded by JSON delimiters so we don't false-match on
+      // substrings (e.g. tag "auth" wouldn't match "authentication").
+      where.push('tags_json LIKE ?');
+      params.push(`%"${opts.tag.toLowerCase().trim()}"%`);
+    }
+    if (typeof opts.q === 'string' && opts.q.trim()) {
+      // Match title, body, agent_id, OR any conversation response
+      // body. The subquery uses EXISTS so we don't duplicate rows on
+      // multiple matching responses. Case-insensitive via LIKE +
+      // lowercasing both sides.
+      const pattern = `%${opts.q.toLowerCase().trim()}%`;
+      where.push(`(
+        LOWER(title) LIKE ?
+        OR LOWER(body) LIKE ?
+        OR LOWER(IFNULL(agent_id, '')) LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM inbox_responses
+            WHERE inbox_responses.message_id = inbox_messages.id
+              AND LOWER(inbox_responses.body) LIKE ?
+        )
+      )`);
+      params.push(pattern, pattern, pattern, pattern);
+    }
     const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
     const rows = this.db.prepare(`
       SELECT * FROM inbox_messages
       WHERE ${where.join(' AND ')}
-      ORDER BY ${PRIORITY_RANK_CASE}, created_at DESC
+      ORDER BY starred DESC, ${PRIORITY_RANK_CASE}, created_at DESC
       LIMIT ?
     `).all(...params, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToMessage(r));
+  }
+
+  /** Set or clear the star flag. */
+  setStarred(id: string, starred: boolean): void {
+    const result = this.db.prepare(`UPDATE inbox_messages SET starred = ? WHERE id = ?`)
+      .run(starred ? 1 : 0, id);
+    if (result.changes === 0) throw new Error(`InboxStore.setStarred: no message with id "${id}"`);
+  }
+
+  /**
+   * Replace the message's tag list. Tags are lowercased, trimmed,
+   * de-duplicated, and sorted before persisting. Pass an empty
+   * array to clear all tags. Tag values may contain only
+   * lowercase letters, digits, hyphens, and underscores (no spaces);
+   * invalid entries are silently dropped so the UI can be lazy
+   * about validation.
+   */
+  setTags(id: string, tags: string[]): void {
+    const normalized = normalizeTags(tags);
+    const json = normalized.length === 0 ? null : JSON.stringify(normalized);
+    const result = this.db.prepare(`UPDATE inbox_messages SET tags_json = ? WHERE id = ?`)
+      .run(json, id);
+    if (result.changes === 0) throw new Error(`InboxStore.setTags: no message with id "${id}"`);
+  }
+
+  /** All tags currently in use across the inbox, sorted, deduped. */
+  listAllTags(): string[] {
+    const rows = this.db.prepare(
+      `SELECT tags_json FROM inbox_messages WHERE tags_json IS NOT NULL`,
+    ).all() as Array<{ tags_json: string }>;
+    const tags = new Set<string>();
+    for (const row of rows) {
+      try {
+        const arr = JSON.parse(row.tags_json) as unknown;
+        if (Array.isArray(arr)) {
+          for (const t of arr) if (typeof t === 'string') tags.add(t);
+        }
+      } catch { /* skip malformed */ }
+    }
+    return Array.from(tags).sort();
   }
 
   get(id: string): InboxMessage | null {
@@ -371,6 +493,13 @@ export class InboxStore {
   // ── row marshalling ────────────────────────────────────────────────
 
   private rowToMessage(row: Record<string, unknown>): InboxMessage {
+    let tags: string[] = [];
+    if (typeof row.tags_json === 'string' && row.tags_json) {
+      try {
+        const parsed = JSON.parse(row.tags_json) as unknown;
+        if (Array.isArray(parsed)) tags = parsed.filter((t): t is string => typeof t === 'string');
+      } catch { /* malformed — surface as empty */ }
+    }
     return {
       id: row.id as string,
       createdAt: row.created_at as number,
@@ -386,6 +515,8 @@ export class InboxStore {
       recommendation: (row.recommendation as string | null) ?? undefined,
       resolvedAt: (row.resolved_at as number | null) ?? undefined,
       dedupeKey: (row.dedupe_key as string | null) ?? undefined,
+      starred: (row.starred as number) === 1,
+      tags,
     };
   }
 
