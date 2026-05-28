@@ -2706,20 +2706,20 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   overflow: hidden;
 }
 .inbox-list__group-head {
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-raised);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-1) var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  color: var(--color-text-muted);
+}
+.inbox-list__group-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
 }
 .inbox-list__group-count {
-  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   font-weight: var(--weight-medium);
 }
 .inbox-row2 {
@@ -2856,11 +2856,17 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   padding: 0;
   align-items: flex-start;
 }
+.inbox-timeline__entry .inbox-msg {
+  /* Larger gap between avatar column and body so the rail-line break
+   * around each avatar reads cleanly without a box-shadow halo. */
+  gap: var(--space-3);
+}
 .inbox-timeline__entry .inbox-msg__avatar {
-  /* Lift the avatar so it visually covers the rail line. */
+  /* Lift the avatar above the absolute rail line so the dot covers
+   * the line at each entry. No box-shadow ring — the solid background
+   * of the avatar circle handles the visual break on its own. */
   position: relative;
   z-index: 1;
-  box-shadow: 0 0 0 3px var(--color-bg);
 }
 .inbox-composer {
   position: sticky;
@@ -2882,4 +2888,324 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   align-items: center;
   margin-top: var(--space-2);
   gap: var(--space-2);
+}
+
+/* ========================================================================
+ * Inbox toolbar + modal polish (PR #392)
+ * ----------------------------------------------------------------------
+ * Toolbar: inline chips, no card border, autosubmit
+ *   .inbox-toolbar         — single-row flex container
+ *   .inbox-toolbar__search — search input with inline icon + × clear
+ *   .inbox-chip            — pill toggle for Starred / Tag filters
+ *
+ * Modal polish:
+ *   .inbox-modal__close    — × button in top-right corner of the modal
+ *   .inbox-modal__title-row — title + star, no extra meta
+ *   .inbox-modal__meta     — single tight meta row (priority dot + status + links)
+ *   .inbox-modal__priority — colored dot replacing the priority badge
+ *   .inbox-modal__tags     — pill row (replaces textarea + Save tags)
+ *   .inbox-pill            — tag pill with ×
+ *   .inbox-composer__footer — single right-aligned row: ghost actions + primary
+ * ======================================================================*/
+
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.inbox-toolbar__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 18rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 var(--space-2);
+  transition: border-color 120ms ease-out;
+}
+.inbox-toolbar__search:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
+}
+.inbox-toolbar__search-icon {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-right: var(--space-1);
+  flex-shrink: 0;
+}
+.inbox-toolbar__q {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  padding: 0;
+  min-width: 0;
+}
+.inbox-toolbar__q::placeholder { color: var(--color-text-muted); }
+.inbox-toolbar__clear {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  padding: 0 var(--space-1);
+  line-height: 1;
+}
+.inbox-toolbar__clear:hover { color: var(--color-text); }
+.inbox-toolbar__reset {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  padding: 0 var(--space-2);
+  align-self: center;
+}
+.inbox-toolbar__reset:hover { color: var(--color-text); }
+
+/* Chip toggles for Starred + Tag */
+.inbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 80ms ease-out, color 80ms ease-out, border-color 80ms ease-out;
+}
+.inbox-chip:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.inbox-chip input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.inbox-chip--active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.inbox-chip__icon { font-weight: var(--weight-semibold); }
+.inbox-chip--select { padding: 0 var(--space-2) 0 var(--space-3); }
+.inbox-chip__select {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  outline: 0;
+  padding: 0 var(--space-3) 0 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238b93a7' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+}
+
+/* Match the + New conversation button height to the toolbar chips */
+.inbox-new-btn { height: 32px; line-height: 1; }
+
+/* ---------- Modal close × in top-right ---------- */
+.inbox-modal { position: relative; }
+.inbox-modal__close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  z-index: 5;
+}
+.inbox-modal__close:hover { background: var(--color-surface-raised); color: var(--color-text); }
+
+/* ---------- Modal title row + meta + tags ---------- */
+.inbox-modal__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding-right: 32px;
+}
+.inbox-modal__title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  flex: 1;
+  word-break: break-word;
+}
+.inbox-modal__star-form { margin: 0; flex-shrink: 0; }
+
+.inbox-modal__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.inbox-modal__priority {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.inbox-modal__priority--high { background: var(--color-warn, #f59e0b); }
+.inbox-modal__priority--medium { background: var(--color-info, #60a5fa); }
+.inbox-modal__priority--low { background: var(--color-text-muted); }
+.inbox-modal__link { color: var(--color-text); text-decoration: none; }
+.inbox-modal__link:hover { color: var(--color-primary); text-decoration: underline; }
+.inbox-modal__sep { color: var(--color-text-muted); opacity: 0.5; }
+.inbox-modal__age { margin-left: auto; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+
+/* Tag pills */
+.inbox-modal__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+.inbox-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 10px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+.inbox-pill__remove {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.inbox-pill__remove:hover { background: var(--color-border); color: var(--color-text); }
+.inbox-modal__tag-add {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  min-width: 6rem;
+  outline: 0;
+  transition: border-color 80ms ease-out, background 80ms ease-out;
+}
+.inbox-modal__tag-add:hover {
+  border-color: var(--color-text-muted);
+}
+.inbox-modal__tag-add:focus {
+  border-style: solid;
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+}
+.inbox-modal__tag-add::placeholder { color: var(--color-text-muted); }
+
+/* Body without a heading */
+.inbox-modal__body {
+  margin-top: var(--space-3);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* Context payload as a subtle disclosure */
+.inbox-modal__context { margin-top: var(--space-3); }
+.inbox-modal__context > summary {
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.inbox-modal__context > summary::-webkit-details-marker { display: none; }
+.inbox-modal__context > summary::before {
+  content: '▸';
+  font-size: 10px;
+  transition: transform 120ms ease-out;
+  display: inline-block;
+}
+.inbox-modal__context[open] > summary::before { transform: rotate(90deg); }
+.inbox-modal__context > pre {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+  overflow-x: auto;
+  max-height: 12rem;
+  background: var(--color-surface-raised);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.inbox-modal__timeline-section {
+  margin-top: var(--space-3);
+}
+
+/* ---------- Consolidated composer footer ---------- */
+.inbox-composer__form { margin: 0; }
+.inbox-composer__textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: var(--font-size-sm);
+  padding: var(--space-2);
+  line-height: 1.5;
+}
+.inbox-composer__footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: var(--space-2);
+  gap: var(--space-2);
+}
+.inbox-composer--terminal {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-3);
 }
