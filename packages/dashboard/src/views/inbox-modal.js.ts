@@ -55,6 +55,9 @@ export const INBOX_MODAL_JS = `
 
   function shouldKeepPolling() {
     if (content.querySelector('[data-triage-pending="1"]')) return true;
+    // Any proposed sub-agent action that's currently executing means
+    // we need to keep refreshing to surface its lifecycle updates.
+    if (content.querySelector('[data-action-running="1"]')) return true;
     if (Date.now() < keepPollingUntil) return true;
     return false;
   }

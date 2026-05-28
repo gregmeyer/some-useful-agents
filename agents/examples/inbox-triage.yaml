@@ -55,6 +55,16 @@ inputs:
     description: >
       The conversation thread to date, one entry per line as
       `[ROLE] body`. Empty on the first triage of a fresh message.
+  ALLOWED_SUB_AGENTS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Comma-separated list of agent ids the triage agent may propose
+      running on the operator's behalf (e.g. "suggest-improvements").
+      Proposals targeting an id not in this list are refused at the
+      route layer with a visible note in the conversation. Empty means
+      the triage agent is text-only and must not propose `actions`.
 
 nodes:
   - id: triage
@@ -88,6 +98,9 @@ nodes:
       Conversation so far (may be empty — you are the first responder):
       {{inputs.CONVERSATION}}
 
+      Agents you may propose running on the operator's behalf (may be empty):
+      {{inputs.ALLOWED_SUB_AGENTS}}
+
       ════════════════════════════════════════════════════════════════
       WHAT TO RECOMMEND
       ════════════════════════════════════════════════════════════════
@@ -113,11 +126,41 @@ nodes:
         ask from the operator and respond to it directly.
 
       ════════════════════════════════════════════════════════════════
+      PROPOSING ACTIONS
+      ════════════════════════════════════════════════════════════════
+
+      When `ALLOWED_SUB_AGENTS` is non-empty AND running one of those
+      agents would help the operator (e.g. produce a diagnosis,
+      suggest a fix, summarize a noisy log), include an `actions`
+      array in the plan. Each entry proposes running ONE sub-agent.
+      The dashboard renders these as Run / Skip cards inline in the
+      conversation — they DO NOT auto-execute. The operator clicks
+      Run to actually invoke the sub-agent; you (the triage agent)
+      then get a follow-up turn to summarize what came back.
+
+      Rules:
+      - Only propose `agentId`s that appear verbatim in `ALLOWED_SUB_AGENTS`.
+      - At most 3 actions per turn. Keep them tight and complementary,
+        not redundant.
+      - `inputs` keys must be plausible inputs for the target agent
+        (use the agent id + your prior knowledge). Values must be strings.
+      - `rationale` is shown to the operator under the Run/Skip
+        buttons — explain in one sentence why this action helps.
+      - If the conversation already shows a prior action of the same
+        kind that ran and completed, DO NOT propose it again — instead
+        summarize its result in `recommendation`.
+
+      If `ALLOWED_SUB_AGENTS` is empty OR no action would help, omit
+      `actions` entirely (or send an empty array). Text-only
+      recommendations are perfectly fine.
+
+      ════════════════════════════════════════════════════════════════
       OUTPUT FORMAT — exact shape, single <plan>...</plan> block
       ════════════════════════════════════════════════════════════════
 
       Wrap the JSON in <plan>…</plan> tags. Output ONLY the <plan>
-      block — no preamble, no markdown fences around it. Example:
+      block — no preamble, no markdown fences around it. Example
+      (text-only, no actions proposed):
 
       <plan>
       {
@@ -127,11 +170,33 @@ nodes:
       }
       </plan>
 
+      Example with a proposed sub-agent action (only when
+      `suggest-improvements` is in ALLOWED_SUB_AGENTS):
+
+      <plan>
+      {
+        "messageId": "{{inputs.MESSAGE_ID}}",
+        "recommendation": "The agent's prompt asks for JSON but doesn't pin the schema. I can run suggest-improvements on it for a concrete diff.",
+        "actions": [
+          {
+            "type": "run-agent",
+            "agentId": "suggest-improvements",
+            "inputs": { "AGENT_ID": "demo-failing-agent" },
+            "rationale": "Get a concrete prompt-schema fix to apply."
+          }
+        ]
+      }
+      </plan>
+
       VALIDATION RULES (failing these means the route discards the response):
       - `messageId` MUST equal {{inputs.MESSAGE_ID}}.
       - `recommendation` is required, 10..2000 chars, plain text or simple markdown.
       - `verifyHint` is optional — set it when the operator can re-run
         a known action to confirm the fix. Leave it absent for
         ambiguous or judgement-call recommendations.
+      - `actions` is optional. When present, must be an array of 0..3
+        entries each with `type: "run-agent"`, a string `agentId` in
+        the allowlist, an optional string-to-string `inputs` map, and
+        a `rationale` string.
     maxTurns: 1
     timeout: 60

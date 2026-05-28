@@ -30,6 +30,9 @@ import {
   extractPlanJson,
   parseAgent,
   type RunStatus,
+  type InboxActionMeta,
+  type InboxActionStatus,
+  type InboxResponse,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import {
@@ -48,6 +51,27 @@ const SORT_KEYS = new Set<InboxSortKey>(['priority', 'source', 'agent', 'title',
 const SORT_DIRS = new Set<InboxSortDir>(['asc', 'desc']);
 const TRIAGE_AGENT_ID = 'inbox-triage';
 const PENDING_USER_REPLY_WINDOW_MS = 30_000;
+
+/**
+ * Agent IDs that the inbox-triage agent is allowed to propose running
+ * on the operator's behalf. Intersected with what's actually installed
+ * in the agentStore at proposal time. v1 keeps this hardcoded — a
+ * future PR can move it to a `agents/areas/inbox.yaml` per-area config.
+ */
+const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
+  'suggest-improvements',
+];
+
+/**
+ * Hard cap on `action`-role responses per inbox message. Triage gets a
+ * follow-up turn after each action resolves; without a cap, a bad
+ * prompt could fan out indefinitely. 10 is enough room for a few rounds
+ * of "run X, summarize, run Y on the result" without going wild.
+ */
+const MAX_ACTIONS_PER_MESSAGE = 10;
+
+/** Truncate the sub-agent run output that's stored in action meta. */
+const ACTION_RESULT_PREVIEW_LIMIT = 500;
 
 function parseSort(req: Request): { sort: InboxSortKey; dir: InboxSortDir } {
   const sortRaw = typeof req.query.sort === 'string' ? req.query.sort : '';
@@ -270,22 +294,95 @@ inboxRouter.post('/inbox/:id/tags', (req: Request, res: Response) => {
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Tags updated.')}`);
 });
 
+/**
+ * POST /inbox/:id/actions/:rid/run — execute a proposed sub-agent
+ * action. Loads the `action`-role response, verifies it's still in
+ * `proposed` state, runs the target agent via executeAgentDag, then
+ * patches the row through running → completed/failed. When all
+ * non-skipped actions for this message are in a terminal state, fires
+ * a follow-up triage turn so the agent can summarize what came back.
+ */
+inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rid = Array.isArray(req.params.rid) ? req.params.rid[0] : req.params.rid;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const response = ctx.inboxStore.getResponse(rid);
+  const meta = response ? parseActionMeta(response) : null;
+  if (!response || response.messageId !== id || !meta || meta.status !== 'proposed') {
+    if (isAjax(req)) { res.status(409).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action is not runnable.')}`);
+    return;
+  }
+  if (isAjax(req)) { res.status(204).end(); }
+  // Fire-and-forget; the modal polls /fragment for state.
+  void runProposedAction(ctx, id, response, meta).catch((err) => {
+    process.stderr.write(`[inbox-triage] action ${rid} crashed: ${(err as Error)?.message ?? err}\n`);
+  });
+  if (!isAjax(req)) {
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Action started.')}`);
+  }
+});
+
+/**
+ * POST /inbox/:id/actions/:rid/skip — mark a proposed action as
+ * skipped. The operator chose not to run it. No re-fire of triage —
+ * skipping is the "no thanks" signal; if every action gets skipped,
+ * we let the conversation rest unless the operator asks again.
+ */
+inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const rid = Array.isArray(req.params.rid) ? req.params.rid[0] : req.params.rid;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const response = ctx.inboxStore.getResponse(rid);
+  const meta = response ? parseActionMeta(response) : null;
+  if (!response || response.messageId !== id || !meta || meta.status !== 'proposed') {
+    if (isAjax(req)) { res.status(409).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Action is not skippable.')}`);
+    return;
+  }
+  try {
+    ctx.inboxStore.updateResponse(rid, {
+      metaJson: JSON.stringify({ ...meta, status: 'skipped', endedAt: Date.now() }),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Skip failed: ${msg}`)}`);
+    return;
+  }
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Skipped.')}`);
+});
+
 // ── helpers ─────────────────────────────────────────────────────────
 
 /**
- * Triage is "pending" if either:
- *   (a) the message has a triageRunId whose run is in flight, OR
+ * Triage is "pending" — and the modal should keep polling — if any of:
+ *   (a) the message has a triageRunId whose run is in flight,
  *   (b) the most recent response is from the user, posted in the
- *       last 30 seconds, with no later triage or system reply.
- *
- * Branch (b) covers the unavoidable race between POST /respond
- * returning 204 and the dag-executor inserting its run-store row
- * (which we'd later capture into triageRunId).
+ *       last 30 seconds, with no later triage / system / action reply
+ *       (covers the race between POST /respond returning 204 and the
+ *       dag-executor inserting its run-store row), or
+ *   (c) any `action`-role response on this message is in `running`
+ *       state (the sub-agent is mid-flight; updates land via
+ *       updateResponse and the modal should re-render).
  */
 function isTriagePending(
   ctx: ReturnType<typeof getContext>,
   message: { triageRunId?: string },
-  responses: { role: string; createdAt: number }[],
+  responses: InboxResponse[],
 ): boolean {
   if (message.triageRunId) {
     try {
@@ -293,10 +390,218 @@ function isTriagePending(
       if (run && (run.status === 'pending' || run.status === 'running')) return true;
     } catch { /* ignore */ }
   }
+  for (const r of responses) {
+    if (r.role !== 'action') continue;
+    const meta = parseActionMeta(r);
+    if (meta?.status === 'running') return true;
+  }
   if (responses.length === 0) return false;
   const last = responses[responses.length - 1];
   if (last.role !== 'user') return false;
   return Date.now() - last.createdAt < PENDING_USER_REPLY_WINDOW_MS;
+}
+
+/**
+ * Parse the `meta_json` payload of an `action`-role response. Returns
+ * null when the row isn't an action or the meta is missing / malformed —
+ * callers treat that as "not an actionable action."
+ */
+function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
+  if (r.role !== 'action' || !r.metaJson) return null;
+  try {
+    const parsed = JSON.parse(r.metaJson) as Partial<InboxActionMeta>;
+    if (parsed && parsed.kind === 'action' && typeof parsed.agentId === 'string' && typeof parsed.status === 'string') {
+      return parsed as InboxActionMeta;
+    }
+  } catch { /* swallow */ }
+  return null;
+}
+
+/**
+ * Build the effective allowlist of sub-agent ids triage may propose
+ * running: the static list intersected with what's currently installed
+ * in the agentStore. This guards against the prompt mentioning agents
+ * that aren't present on this instance.
+ */
+function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
+  return TRIAGE_SUB_AGENT_ALLOWLIST.filter((id) => ctx.agentStore.getAgent(id));
+}
+
+/**
+ * Parse + validate the `actions` field from a triage `<plan>` block.
+ * Returns valid action proposals + the rejected ones (with a reason)
+ * so the route can surface refusals as `system` responses in the
+ * conversation. Unknown agent ids fall into rejected.
+ */
+function parseProposedActions(
+  rawActions: unknown,
+  allowlist: readonly string[],
+): { accepted: InboxActionMeta[]; rejected: { agentId: string; reason: string }[] } {
+  const accepted: InboxActionMeta[] = [];
+  const rejected: { agentId: string; reason: string }[] = [];
+  if (!Array.isArray(rawActions)) return { accepted, rejected };
+  const allowSet = new Set(allowlist);
+  for (const entry of rawActions.slice(0, 3)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const type = typeof e.type === 'string' ? e.type : '';
+    const agentId = typeof e.agentId === 'string' ? e.agentId : '';
+    if (type !== 'run-agent' || !agentId) {
+      rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
+      continue;
+    }
+    if (!allowSet.has(agentId)) {
+      rejected.push({ agentId, reason: 'not in ALLOWED_SUB_AGENTS' });
+      continue;
+    }
+    const inputs: Record<string, string> = {};
+    if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+      for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+        if (typeof k === 'string' && typeof v === 'string') inputs[k] = v;
+      }
+    }
+    const rationale = typeof e.rationale === 'string' ? e.rationale.trim() : undefined;
+    accepted.push({
+      kind: 'action',
+      status: 'proposed',
+      agentId,
+      inputs,
+      rationale: rationale || undefined,
+    });
+  }
+  return { accepted, rejected };
+}
+
+/**
+ * Execute a single proposed action: walks meta through `running`,
+ * dispatches `executeAgentDag` on the sub-agent, then patches meta to
+ * `completed | failed` with run lineage + a short result preview. When
+ * all proposed actions on the parent message have resolved (any
+ * non-`proposed` state) AND at least one ran, re-fire triage so it can
+ * summarize the outcome in the conversation.
+ */
+async function runProposedAction(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  response: InboxResponse,
+  meta: InboxActionMeta,
+): Promise<void> {
+  if (!ctx.inboxStore) return;
+  const subAgent = ctx.agentStore.getAgent(meta.agentId);
+  if (!subAgent) {
+    ctx.inboxStore.updateResponse(response.id, {
+      metaJson: JSON.stringify({
+        ...meta,
+        status: 'failed',
+        endedAt: Date.now(),
+        refusalReason: `Agent "${meta.agentId}" is not installed.`,
+      }),
+    });
+    return;
+  }
+  const startedAt = Date.now();
+  ctx.inboxStore.updateResponse(response.id, {
+    metaJson: JSON.stringify({ ...meta, status: 'running', startedAt }),
+  });
+
+  let runId: string | undefined;
+  let nextStatus: InboxActionStatus = 'failed';
+  let resultSummary: string | undefined;
+  let refusalReason: string | undefined;
+  try {
+    const run = await executeAgentDag(
+      subAgent,
+      {
+        triggeredBy: 'dashboard',
+        inputs: meta.inputs,
+      },
+      {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        variablesStore: ctx.variablesStore,
+        dataRoot: ctx.agentStore.dataRoot,
+      },
+    );
+    runId = run.id;
+    if (run.status === 'completed') {
+      nextStatus = 'completed';
+      const raw = typeof run.result === 'string' ? run.result : '';
+      resultSummary = raw.length > ACTION_RESULT_PREVIEW_LIMIT
+        ? raw.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
+        : raw;
+    } else {
+      nextStatus = 'failed';
+      refusalReason = run.error ?? `Run ended in status ${run.status}.`;
+    }
+  } catch (err) {
+    nextStatus = 'failed';
+    refusalReason = err instanceof Error ? err.message : String(err);
+  }
+  ctx.inboxStore.updateResponse(response.id, {
+    metaJson: JSON.stringify({
+      ...meta,
+      status: nextStatus,
+      startedAt,
+      endedAt: Date.now(),
+      runId,
+      resultSummary,
+      refusalReason,
+    }),
+  });
+
+  // If every proposed action on this message has now resolved AND at
+  // least one ran (completed or failed), re-fire triage so it gets a
+  // summary turn. Purely skipped sets do NOT trigger the follow-up —
+  // we treat all-skip as "operator declined, move on."
+  if (allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId)) {
+    void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+  }
+}
+
+function allActionsResolved(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  for (const r of responses) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    if (m && (m.status === 'proposed' || m.status === 'running')) return false;
+  }
+  return true;
+}
+
+function atLeastOneActionExecuted(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  for (const r of responses) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    if (m && (m.status === 'completed' || m.status === 'failed')) return true;
+  }
+  return false;
+}
+
+/**
+ * Count `action`-role responses for a message regardless of status.
+ * Used to enforce MAX_ACTIONS_PER_MESSAGE — once we've fanned out N
+ * actions on a single thread, refuse new proposals as a runaway
+ * guard.
+ */
+function countActionsOnMessage(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): number {
+  if (!ctx.inboxStore) return 0;
+  let n = 0;
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    if (r.role === 'action') n++;
+  }
+  return n;
 }
 
 /**
@@ -332,9 +637,21 @@ async function runTriageAgent(
   }
   if (!triage) return;
 
+  // Build conversation snapshot for the prompt. For action-role rows,
+  // include the structured status so the model can see what already
+  // ran rather than just the rationale body.
   const conversation = ctx.inboxStore.listResponses(messageId)
-    .map((r) => `[${r.role}] ${r.body}`)
+    .map((r) => {
+      if (r.role === 'action') {
+        const m = parseActionMeta(r);
+        const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
+        return `[action] ${r.body}${suffix}`;
+      }
+      return `[${r.role}] ${r.body}`;
+    })
     .join('\n');
+
+  const allowlist = getSubAgentAllowlist(ctx);
 
   let runId: string | undefined;
   try {
@@ -350,6 +667,7 @@ async function runTriageAgent(
           MESSAGE_SOURCE: message.source,
           CONTEXT_JSON: message.contextJson ?? '',
           CONVERSATION: conversation,
+          ALLOWED_SUB_AGENTS: allowlist.join(', '),
         },
       },
       {
@@ -401,7 +719,7 @@ async function runTriageAgent(
       );
       return;
     }
-    let parsed: { recommendation?: unknown; verifyHint?: unknown };
+    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown };
     try {
       parsed = JSON.parse(planJson);
     } catch {
@@ -422,6 +740,34 @@ async function runTriageAgent(
       rec,
       verifyHint ? JSON.stringify({ verifyHint }) : undefined,
     );
+
+    // Parse + persist any proposed actions (only when allowlist is
+    // non-empty). Refusals (out-of-allowlist or malformed) get a
+    // single grouped `system` note so the operator can see what was
+    // declined and why.
+    if (allowlist.length > 0) {
+      const { accepted, rejected } = parseProposedActions(parsed.actions, allowlist);
+      const existing = countActionsOnMessage(ctx, messageId);
+      const budget = Math.max(0, MAX_ACTIONS_PER_MESSAGE - existing);
+      const toInsert = accepted.slice(0, budget);
+      const overflow = accepted.length - toInsert.length;
+      for (const action of toInsert) {
+        const body = action.rationale
+          ?? `Run agent \`${action.agentId}\`.`;
+        ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
+      }
+      const notes: string[] = [];
+      for (const r of rejected) {
+        notes.push(`Refused action on \`${r.agentId}\`: ${r.reason}.`);
+      }
+      if (overflow > 0) {
+        notes.push(`Skipped ${overflow} additional proposed action${overflow === 1 ? '' : 's'} — message has reached the per-thread action cap (${MAX_ACTIONS_PER_MESSAGE}).`);
+      }
+      if (notes.length > 0) {
+        ctx.inboxStore.addResponse(messageId, 'system', notes.join('\n'));
+      }
+    }
+
     try {
       ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
     } catch { /* ignore */ }

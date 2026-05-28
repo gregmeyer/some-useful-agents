@@ -93,6 +93,7 @@ export {
   INBOX_STATUSES,
   INBOX_SOURCES,
   INBOX_RESPONSE_ROLES,
+  INBOX_ACTION_STATUSES,
   normalizeTags,
   type InboxMessage,
   type InboxResponse,
@@ -100,6 +101,8 @@ export {
   type InboxStatus,
   type InboxSource,
   type InboxResponseRole,
+  type InboxActionStatus,
+  type InboxActionMeta,
   type AddMessageInput,
   type ListMessagesOpts,
 } from './inbox-store.js';
