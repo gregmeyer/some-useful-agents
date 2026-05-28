@@ -1,11 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync, statSync } from 'node:fs';
-import { platform } from 'node:os';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { platform, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import type { Run } from './types.js';
 
-const TEST_DB = join(import.meta.dirname, '__test-data__', 'test-runs.db');
+// Per-test isolated temp directory. Previously this file used a
+// predictable shared path inside the source tree
+// (`packages/core/src/__test-data__/`) and wiped the directory in
+// afterEach, which raced with parallel tests in the same file (vitest
+// runs `it` blocks concurrently inside one suite when the suite isn't
+// `describe.sequential`). The race manifested as flaky CI failures:
+// `ERR_SQLITE_ERROR: disk I/O error` when one test was writing while
+// another's afterEach was deleting the parent directory. Switching to
+// `mkdtempSync` per beforeEach gives each test its own private dir.
+let testDir: string;
+let TEST_DB: string;
 
 function makeRun(overrides?: Partial<Run>): Run {
   return {
@@ -21,12 +31,14 @@ function makeRun(overrides?: Partial<Run>): Run {
 let store: RunStore;
 
 beforeEach(() => {
+  testDir = mkdtempSync(join(tmpdir(), 'sua-run-store-'));
+  TEST_DB = join(testDir, 'test-runs.db');
   store = new RunStore(TEST_DB);
 });
 
 afterEach(() => {
-  store.close();
-  rmSync(join(import.meta.dirname, '__test-data__'), { recursive: true, force: true });
+  try { store.close(); } catch { /* db may already be closed in a test */ }
+  if (testDir) rmSync(testDir, { recursive: true, force: true });
 });
 
 describe('RunStore', () => {
@@ -77,9 +89,10 @@ describe('RunStore', () => {
   });
 
   it('auto-creates data directory', () => {
-    // The constructor already creates the directory, this test verifies
-    // no error is thrown when the directory doesn't exist
-    const deepPath = join(import.meta.dirname, '__test-data__', 'deep', 'nested', 'test.db');
+    // The constructor mkdir's the parent dir; this test verifies a
+    // multi-level path is created without error. Uses the per-test
+    // tmpdir from beforeEach so it isolates from other tests.
+    const deepPath = join(testDir, 'deep', 'nested', 'test.db');
     const deepStore = new RunStore(deepPath);
     const run = makeRun({ id: 'deep-1' });
     deepStore.createRun(run);

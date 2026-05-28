@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import {
@@ -12,13 +13,20 @@ import type { Agent, NodeErrorCategory, RetryPolicy } from './agent-v2-types.js'
 import type { Run } from './types.js';
 import type { DagExecuteOptions, DagExecutorDeps } from './dag-executor.js';
 
-const TEST_DB = join(import.meta.dirname, '__test-data__', 'retry.db');
+// Per-test tmpdir (see run-store.test.ts for context — shared
+// __test-data__ paths trampled each other under parallel test runs).
+let testDir: string;
+let TEST_DB: string;
 
 let store: RunStore;
-beforeEach(() => { store = new RunStore(TEST_DB); });
+beforeEach(() => {
+  testDir = mkdtempSync(join(tmpdir(), 'sua-retry-'));
+  TEST_DB = join(testDir, 'retry.db');
+  store = new RunStore(TEST_DB);
+});
 afterEach(() => {
-  store.close();
-  rmSync(join(import.meta.dirname, '__test-data__'), { recursive: true, force: true });
+  try { store.close(); } catch { /* ignore */ }
+  if (testDir) rmSync(testDir, { recursive: true, force: true });
 });
 
 function makeAgent(retry?: RetryPolicy): Agent {
