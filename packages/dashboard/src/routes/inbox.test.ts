@@ -293,12 +293,14 @@ describe('GET /inbox with filters', () => {
     expect(res.text).toContain('cherry-fruit');
   });
 
-  it('renders the filter bar with current values and a Clear link', async () => {
+  it('renders the toolbar with current search value and a Reset link', async () => {
     const app = await makeApp();
     const res = await request(app).get('/inbox?q=hello').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('class="inbox-filter"');
+    expect(res.text).toContain('class="inbox-toolbar"');
     expect(res.text).toContain('value="hello"');
-    expect(res.text).toMatch(/href="\/inbox"[^>]*>Clear</);
+    expect(res.text).toMatch(/href="\/inbox"[^>]*>Reset</);
+    // Apply button replaced by autosubmit.
+    expect(res.text).not.toContain('>Apply<');
   });
 });
 
