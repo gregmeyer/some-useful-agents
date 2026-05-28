@@ -123,8 +123,84 @@ export const INBOX_MODAL_JS = `
     refresh();
   }
 
-  // Row click → modal.
+  // Row click → modal. Chevron click is checked first and toggles the
+  // inline preview without opening the modal.
   document.addEventListener('click', function (e) {
+    // Row preview toggle (chevron on the gridded row).
+    var chev = e.target.closest && e.target.closest('[data-inbox-row-chevron]');
+    if (chev) {
+      e.preventDefault();
+      e.stopPropagation();
+      var rowEl = chev.closest('[data-inbox-row-id]');
+      if (rowEl) {
+        var expanded = rowEl.classList.toggle('inbox-row2--expanded');
+        chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      }
+      return;
+    }
+
+    // Rail entry → open the modal for that thread.
+    var railItem = e.target.closest && e.target.closest('[data-inbox-rail-id]');
+    if (railItem) {
+      e.preventDefault();
+      openFor(railItem.getAttribute('data-inbox-rail-id'));
+      return;
+    }
+
+    // Rail collapse / expand toggle.
+    var railToggle = e.target.closest && e.target.closest('[data-inbox-rail-toggle]');
+    if (railToggle) {
+      e.preventDefault();
+      var shell = document.getElementById('inbox-shell');
+      if (shell) {
+        var collapsed = shell.classList.toggle('inbox-shell--rail-collapsed');
+        try { localStorage.setItem('sua-inbox-rail', collapsed ? 'collapsed' : 'open'); } catch (_) {}
+        railToggle.textContent = collapsed ? '›' : '‹';
+      }
+      return;
+    }
+
+    // Suggested-actions banner collapse toggle.
+    var suggToggle = e.target.closest && e.target.closest('[data-inbox-suggest-toggle]');
+    if (suggToggle) {
+      e.preventDefault();
+      var suggest = document.getElementById('inbox-suggest');
+      if (suggest) {
+        var hidden = suggest.classList.toggle('inbox-suggest--collapsed');
+        try { localStorage.setItem('sua-inbox-suggest', hidden ? 'collapsed' : 'open'); } catch (_) {}
+        suggToggle.textContent = hidden ? 'Show' : 'Hide';
+        suggToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+      }
+      return;
+    }
+
+    // + New conversation: POST /inbox/new, open the returned id in-modal.
+    var newBtn = e.target.closest && e.target.closest('#inbox-new-conversation');
+    if (newBtn) {
+      e.preventDefault();
+      newBtn.disabled = true;
+      fetch('/inbox/new', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: new URLSearchParams({ title: '' }).toString(),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'fetch',
+        },
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('create failed: ' + r.status);
+          var newId = r.headers.get('X-Inbox-Id');
+          if (newId) openFor(newId);
+        })
+        .catch(function (err) {
+          // Surface failure inline; fall back to nothing.
+          console.error('inbox /new failed', err);
+        })
+        .then(function () { newBtn.disabled = false; });
+      return;
+    }
+
     var stop = e.target.closest && e.target.closest('[data-inbox-row-stop]');
     if (stop) return;
 
@@ -147,6 +223,26 @@ export const INBOX_MODAL_JS = `
       close();
     }
   });
+
+  // Restore drawer + banner state on load.
+  (function restoreShellState() {
+    try {
+      var railState = localStorage.getItem('sua-inbox-rail');
+      var shell = document.getElementById('inbox-shell');
+      if (shell && railState === 'collapsed') {
+        shell.classList.add('inbox-shell--rail-collapsed');
+        var toggle = shell.querySelector('[data-inbox-rail-toggle]');
+        if (toggle) toggle.textContent = '›';
+      }
+      var suggState = localStorage.getItem('sua-inbox-suggest');
+      var suggest = document.getElementById('inbox-suggest');
+      if (suggest && suggState === 'collapsed') {
+        suggest.classList.add('inbox-suggest--collapsed');
+        var sToggle = suggest.querySelector('[data-inbox-suggest-toggle]');
+        if (sToggle) { sToggle.textContent = 'Show'; sToggle.setAttribute('aria-expanded', 'false'); }
+      }
+    } catch (_) {}
+  })();
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !modal.hidden) close();

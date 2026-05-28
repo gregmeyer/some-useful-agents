@@ -16,6 +16,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { cronToHuman, formatAge, statusBadge } from './components.js';
+import { sectionTabs } from './section-tabs.js';
 
 export interface ScheduledRowInput {
   agent: Agent;
@@ -54,6 +55,7 @@ export function renderScheduledPage(input: ScheduledViewInput): string {
       `. Scheduler: ${schedulerStatus}.`;
 
   const body = html`
+    ${sectionTabs('scheduled')}
     ${pageHeader({ title: 'Scheduled', description })}
     ${renderEmptyState(rows)}
     ${rows.length > 0 ? renderTable(rows) : html``}
@@ -62,7 +64,10 @@ export function renderScheduledPage(input: ScheduledViewInput): string {
   return render(layout(
     {
       title: 'Scheduled agents',
-      activeNav: 'scheduled',
+      // Scheduled lives under the Agents sub-nav now (see section-tabs.ts).
+      // Highlight Agents in the top bar; the sub-nav strip handles the
+      // tab-level highlight.
+      activeNav: 'agents',
       flash: flash ? { kind: 'info', message: flash } : undefined,
     },
     body,

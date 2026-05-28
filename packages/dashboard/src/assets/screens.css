@@ -2504,3 +2504,382 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .settings-llm__probe-row--ok .settings-llm__probe-status { color: var(--color-ok, #34d399); }
 .settings-llm__probe-row--fail .settings-llm__probe-status { color: var(--color-danger, #f87171); }
+
+/* ========================================================================
+ * Inbox productivity overhaul (Linear + Slack feel)
+ * ----------------------------------------------------------------------
+ * Page shell:
+ *   .inbox-shell        — two-col grid: rail + main
+ *   .inbox-rail         — collapsible left rail of starred threads
+ *   .inbox-main         — main column
+ *   .inbox-page-head    — title + actions row
+ *   .inbox-suggest      — suggested-next-actions banner (pulse-tile shape)
+ *   .inbox-list         — main message list (gridded rows)
+ *   .inbox-row2         — single gridded row (chevron + cells + preview)
+ *   .inbox-row2__preview — collapsible inline preview underneath a row
+ *
+ * Modal timeline:
+ *   .inbox-timeline     — vertical timeline with rail line
+ *   .inbox-timeline__entry  — single entry (avatar dot + content)
+ *   .inbox-composer     — pinned composer at bottom of modal
+ * ======================================================================*/
+
+.inbox-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+.inbox-shell--rail-collapsed {
+  grid-template-columns: 48px 1fr;
+}
+@media (max-width: 900px) {
+  .inbox-shell,
+  .inbox-shell--rail-collapsed { grid-template-columns: 1fr; }
+  .inbox-rail { display: none; }
+}
+
+/* ---------- Left rail: favorited threads ---------- */
+.inbox-rail {
+  position: sticky;
+  top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  max-height: calc(100vh - var(--space-6));
+  overflow-y: auto;
+}
+.inbox-rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-2);
+}
+.inbox-rail__toggle {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px var(--space-1);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+}
+.inbox-rail__toggle:hover { background: var(--color-surface-raised); color: var(--color-text); }
+.inbox-shell--rail-collapsed .inbox-rail__head,
+.inbox-shell--rail-collapsed .inbox-rail__items { display: none; }
+.inbox-shell--rail-collapsed .inbox-rail__toggle { width: 100%; text-align: center; }
+.inbox-rail__items { display: flex; flex-direction: column; gap: var(--space-1); }
+.inbox-rail__item {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.inbox-rail__item:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
+}
+.inbox-rail__item-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-rail__item-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: 2px;
+}
+.inbox-rail__empty {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---------- Page header (title + + button) ---------- */
+.inbox-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.inbox-page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.inbox-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------- Suggested next actions banner ---------- */
+.inbox-suggest {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-info, #60a5fa);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.inbox-suggest--clean { border-left-color: var(--color-ok, #34d399); }
+.inbox-suggest__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.inbox-suggest__title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.inbox-suggest__toggle {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+}
+.inbox-suggest__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.inbox-suggest__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.inbox-suggest__item:hover { border-color: var(--color-border-strong); background: var(--color-surface); }
+.inbox-suggest__count {
+  font-weight: var(--weight-semibold);
+  color: var(--color-primary);
+}
+.inbox-suggest--collapsed .inbox-suggest__items { display: none; }
+
+/* ---------- Main list (gridded rows) ---------- */
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.inbox-list__group {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.inbox-list__group-head {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.inbox-list__group-count {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+.inbox-row2 {
+  display: grid;
+  grid-template-columns: 24px 24px 70px 88px 1fr 80px 90px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 80ms ease-out;
+}
+.inbox-row2:last-child { border-bottom: 0; }
+.inbox-row2:hover { background: var(--color-surface-raised); }
+.inbox-row2__chevron {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  transition: transform 120ms ease-out;
+}
+.inbox-row2__chevron:hover { color: var(--color-text); background: var(--color-surface); }
+.inbox-row2__chevron[aria-expanded="true"] { transform: rotate(90deg); color: var(--color-text); }
+.inbox-row2__title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: hidden;
+}
+.inbox-row2__title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-row2__agent {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.inbox-row2__age {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+.inbox-row2__status { text-align: right; }
+.inbox-row2__preview {
+  grid-column: 1 / -1;
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-3);
+  display: none;
+}
+.inbox-row2--expanded .inbox-row2__preview { display: block; }
+.inbox-row2--expanded { background: var(--color-surface-raised); }
+.inbox-row2__preview-body {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-3);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 8rem;
+  overflow: hidden;
+  position: relative;
+}
+.inbox-row2__preview-tail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.inbox-row2__preview-msg {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  align-items: baseline;
+}
+.inbox-row2__preview-msg-role {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  min-width: 50px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.inbox-row2__preview-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Mobile fallback: simpler column set */
+@media (max-width: 720px) {
+  .inbox-row2 { grid-template-columns: 24px 24px 1fr 70px; }
+  .inbox-row2__priority,
+  .inbox-row2__source,
+  .inbox-row2__status { display: none; }
+}
+
+/* ---------- Modal timeline ---------- */
+/* Restyle the conversation thread as a vertical timeline. The
+ * existing entries (.inbox-msg, .inbox-action) keep their current
+ * structure inside; only the outer wrapper changes. */
+.inbox-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.inbox-timeline::before {
+  /* The vertical rail line. Drawn at the center of the avatar column. */
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+.inbox-timeline__entry {
+  position: relative;
+  padding-left: 0;
+  padding-bottom: var(--space-4);
+}
+.inbox-timeline__entry:last-child { padding-bottom: 0; }
+.inbox-timeline__entry .inbox-msg {
+  border-top: 0;
+  padding: 0;
+  align-items: flex-start;
+}
+.inbox-timeline__entry .inbox-msg__avatar {
+  /* Lift the avatar so it visually covers the rail line. */
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 3px var(--color-bg);
+}
+.inbox-composer {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) 0 0;
+  margin-top: var(--space-3);
+}
+.inbox-composer textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: var(--font-size-sm);
+  padding: var(--space-2);
+}
+.inbox-composer__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-2);
+  gap: var(--space-2);
+}

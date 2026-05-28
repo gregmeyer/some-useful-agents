@@ -1,17 +1,17 @@
 import { html, type SafeHtml } from './html.js';
 
-/** The Agents section groups the building blocks + executions. */
-export type AgentsSection = 'agents' | 'tools' | 'nodes' | 'runs' | 'packs';
+/** The Agents section groups the building blocks + executions + scheduling. */
+export type AgentsSection = 'agents' | 'tools' | 'nodes' | 'runs' | 'packs' | 'scheduled';
 
 /**
  * In-page tab strip for the Agents section, mirroring the Settings shell's
  * `.tab-strip`. Rendered on each section landing page (not on deep detail
- * pages) so switching between Agents / Tools / Nodes / Runs / Packs is a
- * server-rendered click with no global subnav bar.
+ * pages) so switching between Agents / Tools / Nodes / Runs / Packs /
+ * Scheduled is a server-rendered click with no global subnav bar.
  *
- * Scheduled is a top-level nav entry instead of a sub-tab — it carries
- * cross-agent context (paused agents, next-run timing) that doesn't fit
- * the per-building-block grouping.
+ * Scheduled used to be a top-level nav entry; moved into this sub-nav
+ * once Inbox became the primary "needs your attention" surface and the
+ * top bar got rebalanced around it.
  */
 export function sectionTabs(active: AgentsSection): SafeHtml {
   const tab = (id: AgentsSection, href: string, label: string): SafeHtml => html`
@@ -24,6 +24,7 @@ export function sectionTabs(active: AgentsSection): SafeHtml {
       ${tab('nodes', '/nodes', 'Nodes')}
       ${tab('runs', '/runs', 'Runs')}
       ${tab('packs', '/packs', 'Packs')}
+      ${tab('scheduled', '/scheduled', 'Scheduled')}
     </nav>
   `;
 }

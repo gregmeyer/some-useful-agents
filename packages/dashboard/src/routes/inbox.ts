@@ -184,6 +184,45 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   res.type('html').send(render(renderInboxDetailFragment({ message, responses, triagePending, currentTargetYaml })));
 });
 
+/**
+ * POST /inbox/new — create an empty `source: manual` row so the
+ * operator can start a fresh conversation. Returns the new id via
+ * the `X-Inbox-Id` response header on AJAX (204); a plain form post
+ * gets a 303 redirect to `/inbox/:id`. Triage does NOT auto-fire
+ * here — it kicks in normally on the operator's first POST /respond.
+ */
+inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const titleRaw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+  const title = titleRaw.length > 0 ? titleRaw.slice(0, 200) : 'New conversation';
+  // body is required by the store; manual-source threads start blank,
+  // so we seed with a small placeholder that's overwritten the moment
+  // the operator's first /respond lands.
+  try {
+    const created = ctx.inboxStore.add({
+      priority: 'medium',
+      source: 'manual',
+      title,
+      body: '(empty)',
+    });
+    if (isAjax(req)) {
+      res.setHeader('X-Inbox-Id', created.id);
+      res.status(204).end();
+      return;
+    }
+    res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent(`Create failed: ${msg}`)}`);
+  }
+});
+
 inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
