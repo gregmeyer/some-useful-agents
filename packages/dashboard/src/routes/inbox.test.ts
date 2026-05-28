@@ -594,6 +594,108 @@ describe('POST /inbox/:id/actions/:rid/run — agent-analyzer enrichment', () =>
   });
 });
 
+describe('POST /inbox/:id/actions/:rid/run — agent-catalog-search enrichment', () => {
+  // When triage proposes running `agent-catalog-search`, the route
+  // auto-injects a JSON snapshot of every installed (non-system) agent
+  // as AGENT_CATALOG. We stub the agent with a shell echo so we can grep
+  // the resulting run output for proof of injection.
+
+  it('auto-injects AGENT_CATALOG and filters out system agents', async () => {
+    const app = await makeApp();
+
+    // Install two catalog-visible agents. The tokens in their ids let
+    // us assert each got serialized into AGENT_CATALOG.
+    for (const id of ['cocktail-mixer-marker', 'weather-forecast-marker']) {
+      const yaml = [
+        `id: ${id}`,
+        `name: ${id}`,
+        'description: enrichment-test fixture',
+        'nodes:',
+        '  - id: noop',
+        '    type: shell',
+        '    command: echo ok',
+      ].join('\n');
+      agentStore.upsertAgent(parseAgent(yaml), 'dashboard', 'test fixture');
+    }
+
+    // Install a system agent that MUST be filtered out of the catalog.
+    const sysYaml = [
+      'id: agent-analyzer',
+      'name: Agent Analyzer',
+      'description: should NOT appear in catalog',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo ok',
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(sysYaml), 'dashboard', 'test fixture');
+
+    // Stub agent-catalog-search with a shell node that echoes the
+    // injected AGENT_CATALOG so we can read it back from the run result.
+    const stubYaml = [
+      'id: agent-catalog-search',
+      'name: Agent Catalog Search',
+      'description: stubbed for enrichment test',
+      'inputs:',
+      '  QUERY:',
+      '    type: string',
+      '    required: true',
+      '  AGENT_CATALOG:',
+      '    type: string',
+      '    required: false',
+      '    default: ""',
+      'nodes:',
+      "  - id: echo",
+      "    type: shell",
+      "    command: \"echo catalog: $AGENT_CATALOG\"",
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(stubYaml), 'dashboard', 'test fixture');
+
+    const msg = inboxStore.add({
+      priority: 'medium',
+      source: 'manual',
+      title: 'find me a cocktail recipe agent',
+      body: 'looking for something to mix drinks',
+    });
+
+    const proposed = inboxStore.addResponse(
+      msg.id,
+      'action',
+      'search the catalog',
+      JSON.stringify({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'agent-catalog-search',
+        inputs: { QUERY: 'cocktail recipe' },
+        rationale: 'find an installed agent that matches the request.',
+      }),
+    );
+
+    const res = await request(app)
+      .post(`/inbox/${msg.id}/actions/${proposed.id}/run`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+
+    const deadline = Date.now() + 2000;
+    let after = inboxStore.getResponse(proposed.id);
+    while (Date.now() < deadline) {
+      after = inboxStore.getResponse(proposed.id);
+      const m = after?.metaJson ? JSON.parse(after.metaJson) : null;
+      if (m && m.status !== 'proposed' && m.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(after).not.toBeNull();
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('completed');
+    expect(meta.resultSummary).toContain('cocktail-mixer-marker');
+    expect(meta.resultSummary).toContain('weather-forecast-marker');
+    // System agent must NOT appear in the injected catalog.
+    expect(meta.resultSummary).not.toContain('agent-analyzer');
+  });
+});
+
 describe('POST /inbox/:id/actions/:rid/run — agent-editor write path', () => {
   // agent-editor is route-handled: no DAG dispatch, just a synchronous
   // upsertAgent after validation. These tests install a target agent,
