@@ -21,6 +21,14 @@ export interface InboxDetailOptions {
    * thinking indicator that inbox-modal.js polls on.
    */
   triagePending?: boolean;
+  /**
+   * Current YAML of the agent referenced by `message.agentId`, used
+   * to render the unified diff inside `agent-editor`-targeting action
+   * cards. The route exports this once via `core.exportAgent` and
+   * passes it in; the view keeps no agentStore dependency. Absent
+   * when the message has no target agent or it isn't installed.
+   */
+  currentTargetYaml?: string;
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -69,7 +77,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
 
@@ -124,7 +132,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   ` : html``;
 
-  const timeline = responses.map((r) => renderConversationEntry(r));
+  const timeline = responses.map((r) => renderConversationEntry(r, currentTargetYaml));
 
   const conversationBlock = html`
     <section style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border);">
@@ -216,8 +224,8 @@ function pretty(raw: string): string {
  * branch to a card renderer that surfaces Run / Skip controls + the
  * sub-agent's status.
  */
-function renderConversationEntry(r: InboxResponse): SafeHtml {
-  if (r.role === 'action') return renderActionEntry(r);
+function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
+  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
   return html`
@@ -253,7 +261,7 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
 }
 
 /** Render an action-role row as a card whose body depends on status. */
-function renderActionEntry(r: InboxResponse): SafeHtml {
+function renderActionEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
   const meta = parseActionMeta(r);
   if (!meta) {
     // Malformed action row — fall back to plain rendering so the
@@ -309,7 +317,9 @@ function renderActionEntry(r: InboxResponse): SafeHtml {
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
           ${meta.rationale ? html`<div class="inbox-action__rationale">${meta.rationale}</div>` : html``}
-          ${inputsRendered}
+          ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+            ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
+            : inputsRendered}
           ${detailBlock}
           ${controlsBlock}
         </div>
@@ -368,6 +378,54 @@ function renderActionStatusBody(meta: InboxActionMeta): SafeHtml {
     default:
       return html``;
   }
+}
+
+/**
+ * Render a unified-diff view of `oldYaml` vs `newYaml`. Used by
+ * agent-editor action cards so the operator sees exactly what's
+ * about to change before clicking Run. Hand-rolled LCS-based line
+ * diff — agent YAMLs are small (~100 lines) so O(m*n) memory is
+ * trivial. Lines that match render dim; removed lines red, added
+ * lines green.
+ */
+function renderYamlDiff(oldYaml: string, newYaml: string): SafeHtml {
+  const a = oldYaml.split('\n');
+  const b = newYaml.split('\n');
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rows: SafeHtml[] = [];
+  let plus = 0, minus = 0;
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { rows.push(diffLine(' ', a[i])); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push(diffLine('-', a[i])); i++; minus++; }
+    else { rows.push(diffLine('+', b[j])); j++; plus++; }
+  }
+  while (i < m) { rows.push(diffLine('-', a[i++])); minus++; }
+  while (j < n) { rows.push(diffLine('+', b[j++])); plus++; }
+
+  return html`
+    <div class="inbox-action__diff">
+      <div class="inbox-action__diff-header">
+        Proposed YAML change — <span class="inbox-action__diff-add">+${plus}</span> /
+        <span class="inbox-action__diff-del">-${minus}</span>
+      </div>
+      <pre class="inbox-action__diff-body mono">${rows as unknown as SafeHtml[]}</pre>
+    </div>
+  `;
+}
+
+function diffLine(kind: ' ' | '+' | '-', text: string): SafeHtml {
+  const cls = kind === '+' ? 'inbox-action__diff-line--add'
+    : kind === '-' ? 'inbox-action__diff-line--del'
+    : 'inbox-action__diff-line--ctx';
+  return html`<span class="inbox-action__diff-line ${cls}">${kind} ${text}
+</span>`;
 }
 
 function formatDuration(meta: InboxActionMeta): string {
