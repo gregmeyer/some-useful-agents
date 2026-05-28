@@ -170,10 +170,10 @@ describe('InboxStore.addResponse + listResponses', () => {
   it('accepts the `action` role for sub-agent proposals', () => {
     const m = addMinimal();
     const meta = JSON.stringify({
-      kind: 'action', status: 'proposed', agentId: 'suggest-improvements',
+      kind: 'action', status: 'proposed', agentId: 'agent-analyzer',
       inputs: { TOPIC: 't' }, rationale: 'try it',
     });
-    const r = store.addResponse(m.id, 'action', 'Run suggest-improvements.', meta);
+    const r = store.addResponse(m.id, 'action', 'Run agent-analyzer.', meta);
     expect(r.role).toBe('action');
     const fetched = store.getResponse(r.id);
     expect(fetched?.role).toBe('action');

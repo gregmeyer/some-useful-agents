@@ -171,22 +171,28 @@ nodes:
       </plan>
 
       Example with a proposed sub-agent action (only when
-      `suggest-improvements` is in ALLOWED_SUB_AGENTS):
+      `agent-analyzer` is in ALLOWED_SUB_AGENTS):
 
       <plan>
       {
         "messageId": "{{inputs.MESSAGE_ID}}",
-        "recommendation": "The agent's prompt asks for JSON but doesn't pin the schema. I can run suggest-improvements on it for a concrete diff.",
+        "recommendation": "The run failed with exit code 1 on a missing CLI tool. agent-analyzer can scan the YAML and return a concrete diff.",
         "actions": [
           {
             "type": "run-agent",
-            "agentId": "suggest-improvements",
-            "inputs": { "AGENT_ID": "demo-failing-agent" },
-            "rationale": "Get a concrete prompt-schema fix to apply."
+            "agentId": "agent-analyzer",
+            "inputs": { "FOCUS": "Why does this fail with exit 1? What's the minimal change to make it pass?" },
+            "rationale": "Get concrete diff suggestions targeting the exit-code failure."
           }
         ]
       }
       </plan>
+
+      The dashboard auto-injects the failing agent's full YAML +
+      most-recent run output as additional inputs to `agent-analyzer`,
+      so you don't need to thread those through `inputs` yourself.
+      Just provide `FOCUS` (a one-sentence prompt steering the
+      analysis) and the dashboard handles the rest.
 
       VALIDATION RULES (failing these means the route discards the response):
       - `messageId` MUST equal {{inputs.MESSAGE_ID}}.

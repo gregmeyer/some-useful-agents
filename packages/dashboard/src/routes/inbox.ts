@@ -26,6 +26,7 @@ import { Router, type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  exportAgent,
   executeAgentDag,
   extractPlanJson,
   parseAgent,
@@ -54,13 +55,29 @@ const PENDING_USER_REPLY_WINDOW_MS = 30_000;
 
 /**
  * Agent IDs that the inbox-triage agent is allowed to propose running
- * on the operator's behalf. Intersected with what's actually installed
- * in the agentStore at proposal time. v1 keeps this hardcoded — a
- * future PR can move it to a `agents/areas/inbox.yaml` per-area config.
+ * on the operator's behalf. Each entry that resolves to an installed
+ * (or auto-importable) agent becomes available to triage. v1 keeps
+ * this hardcoded — a future PR can move it to a per-area config.
+ *
+ * `agent-analyzer` is the agent behind the "Suggest improvements"
+ * button on the agent detail page. When triage proposes it, the route
+ * auto-injects AGENT_YAML (from the inbox message's agentId) +
+ * LAST_RUN_OUTPUT, mirroring the analyze route at
+ * `run-now-build.ts:415`.
  */
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
-  'suggest-improvements',
+  'agent-analyzer',
 ];
+
+/**
+ * For allowlist entries that aren't already installed, the route
+ * lazy-imports the YAML on first triage call (mirrors what the
+ * existing analyze route does for agent-analyzer). The path lookup
+ * is conservative — any agent that isn't installed AND isn't shipped
+ * under `agents/examples/` is silently dropped from the effective
+ * allowlist.
+ */
+const ALLOWLIST_AUTOIMPORT_DIR = 'agents/examples';
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -419,12 +436,97 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
 
 /**
  * Build the effective allowlist of sub-agent ids triage may propose
- * running: the static list intersected with what's currently installed
- * in the agentStore. This guards against the prompt mentioning agents
- * that aren't present on this instance.
+ * running. For entries not yet installed, attempt a one-shot import
+ * from `agents/examples/<id>.yaml` (same pattern the analyze route uses
+ * for agent-analyzer). Entries that can't be imported are silently
+ * dropped — the prompt never sees them, so triage can't propose them.
  */
 function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
-  return TRIAGE_SUB_AGENT_ALLOWLIST.filter((id) => ctx.agentStore.getAgent(id));
+  const available: string[] = [];
+  for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
+    if (ctx.agentStore.getAgent(id)) {
+      available.push(id);
+      continue;
+    }
+    try {
+      const yamlPath = join(resolve(ALLOWLIST_AUTOIMPORT_DIR), `${id}.yaml`);
+      const yamlText = readFileSync(yamlPath, 'utf-8');
+      const parsed = parseAgent(yamlText);
+      ctx.agentStore.upsertAgent(parsed, 'import', `Auto-imported for inbox triage allowlist`);
+      if (ctx.agentStore.getAgent(id)) available.push(id);
+    } catch {
+      // No example YAML to import from — skip; the allowlist just
+      // shrinks. Operator can install the agent manually later.
+    }
+  }
+  return available;
+}
+
+/**
+ * For agent-analyzer specifically: auto-inject AGENT_YAML (and
+ * LAST_RUN_OUTPUT when available) so triage doesn't have to thread
+ * the full YAML string through its <plan>. Mirrors the analyze
+ * route's input shape at run-now-build.ts:441-489 but stripped down
+ * (no DISCOVERY_CATALOG yet — that needs the tools/templates registry
+ * and we keep this PR focused on the inbox plumbing).
+ *
+ * Returns a new inputs object; the original is not mutated. When the
+ * inbox message has no `agentId`, the function returns the inputs
+ * unchanged and execution proceeds — agent-analyzer will fail loudly
+ * on the missing required AGENT_YAML, surfaced via the action's
+ * `failed` state in the conversation thread.
+ */
+function enrichAgentAnalyzerInputs(
+  ctx: ReturnType<typeof getContext>,
+  messageAgentId: string | undefined,
+  inputs: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...inputs };
+  if (!out.AGENT_YAML && messageAgentId) {
+    const target = ctx.agentStore.getAgent(messageAgentId);
+    if (target) {
+      try { out.AGENT_YAML = exportAgent(target); } catch { /* swallow */ }
+    }
+  }
+  if (!out.LAST_RUN_OUTPUT && messageAgentId) {
+    const summary = collectRunSummary(ctx, messageAgentId);
+    if (summary) out.LAST_RUN_OUTPUT = summary;
+  }
+  return out;
+}
+
+/**
+ * Distilled version of run-now-build.ts's run-output collector:
+ * grab the latest completed run's result + the latest failed run's
+ * error/output, cap at 3000 chars. Empty string when neither exists.
+ */
+function collectRunSummary(
+  ctx: ReturnType<typeof getContext>,
+  agentName: string,
+): string {
+  let out = '';
+  try {
+    const completed = ctx.runStore.listRuns({ agentName, status: 'completed', limit: 1 });
+    if (completed.length > 0 && completed[0].result) {
+      const raw = completed[0].result;
+      out = raw.length > 2000 ? raw.slice(0, 2000) + '\n...(truncated)' : raw;
+    }
+    const failed = ctx.runStore.listRuns({ agentName, status: 'failed', limit: 1 });
+    if (failed.length > 0) {
+      const f = failed[0];
+      const failedAt = f.completedAt ?? f.startedAt;
+      const completedAt = completed[0]?.completedAt ?? '';
+      if (!completedAt || failedAt > completedAt) {
+        const parts = [
+          `\n\nMOST RECENT RUN FAILED (${f.id.slice(0, 8)}):`,
+          f.error ? `Error: ${f.error}` : '',
+          f.result ? `Output: ${f.result.slice(0, 1000)}` : '',
+        ].filter(Boolean);
+        out += parts.join('\n');
+      }
+    }
+  } catch { /* swallow */ }
+  return out.length > 3000 ? out.slice(0, 3000) + '\n...(truncated)' : out;
 }
 
 /**
@@ -504,6 +606,16 @@ async function runProposedAction(
     metaJson: JSON.stringify({ ...meta, status: 'running', startedAt }),
   });
 
+  // Per-agent input enrichment. Today only agent-analyzer needs
+  // server-side help (the AGENT_YAML it requires is heavy and lives in
+  // the agentStore, not in triage's prompt context). Future allowlist
+  // entries can add their own case here.
+  let effectiveInputs = meta.inputs;
+  if (meta.agentId === 'agent-analyzer') {
+    const parentMessage = ctx.inboxStore.get(messageId);
+    effectiveInputs = enrichAgentAnalyzerInputs(ctx, parentMessage?.agentId, meta.inputs);
+  }
+
   let runId: string | undefined;
   let nextStatus: InboxActionStatus = 'failed';
   let resultSummary: string | undefined;
@@ -513,7 +625,7 @@ async function runProposedAction(
       subAgent,
       {
         triggeredBy: 'dashboard',
-        inputs: meta.inputs,
+        inputs: effectiveInputs,
       },
       {
         runStore: ctx.runStore,
