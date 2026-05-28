@@ -21,6 +21,7 @@ import {
   RunStore,
   buildLoopbackAllowlist,
   loadAgents,
+  parseAgent,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
@@ -385,7 +386,7 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
   it('/skip transitions a proposed action to skipped', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/skip`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
@@ -400,9 +401,9 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
   it('/skip on a non-proposed row returns 409', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
     inboxStore.updateResponse(r.id, {
-      metaJson: JSON.stringify({ kind: 'action', status: 'skipped', agentId: 'suggest-improvements', inputs: {} }),
+      metaJson: JSON.stringify({ kind: 'action', status: 'skipped', agentId: 'agent-analyzer', inputs: {} }),
     });
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/skip`)
@@ -423,7 +424,7 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
     const app = await makeApp();
     const m1 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'a' });
     const m2 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'b', body: 'b' });
-    const r = proposeAction(m1.id, 'suggest-improvements', 'r');
+    const r = proposeAction(m1.id, 'agent-analyzer', 'r');
     const res = await request(app)
       .post(`/inbox/${m2.id}/actions/${r.id}/skip`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
@@ -433,7 +434,7 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
   it('/run on a proposed action returns 204 and transitions meta off "proposed"', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/run`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
@@ -454,14 +455,105 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
   it('/run on a non-proposed row returns 409', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
     inboxStore.updateResponse(r.id, {
-      metaJson: JSON.stringify({ kind: 'action', status: 'completed', agentId: 'suggest-improvements', inputs: {} }),
+      metaJson: JSON.stringify({ kind: 'action', status: 'completed', agentId: 'agent-analyzer', inputs: {} }),
     });
     const res = await request(app)
       .post(`/inbox/${m.id}/actions/${r.id}/run`)
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /inbox/:id/actions/:rid/run — agent-analyzer enrichment', () => {
+  // End-to-end: when triage proposes running `agent-analyzer` on an
+  // inbox message whose `agentId` points at an installed agent, the
+  // route auto-injects that agent's YAML as AGENT_YAML. Here we stub
+  // agent-analyzer with a shell-exec that echoes its AGENT_YAML input
+  // so we can grep the resulting run output for proof of injection.
+
+  it('auto-injects AGENT_YAML for agent-analyzer from the message agentId', async () => {
+    const app = await makeApp();
+
+    // Install a small target agent. The token "target-agent-marker" in
+    // its YAML lets us assert downstream that the analyzer received it.
+    const targetYaml = [
+      'id: target-agent-marker',
+      'name: Target Agent Marker',
+      'description: token used by enrichment test',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo ok',
+    ].join('\n');
+    const target = parseAgent(targetYaml);
+    agentStore.upsertAgent(target, 'dashboard', 'test fixture');
+
+    // Stub agent-analyzer with a shell node that echoes whatever YAML
+    // it received. The route's enrichment passes AGENT_YAML via the
+    // executor's input map; the shell echoes the placeholder substitution.
+    const analyzerYaml = [
+      'id: agent-analyzer',
+      'name: Agent Analyzer',
+      'description: stubbed analyzer for enrichment test',
+      'inputs:',
+      '  AGENT_YAML:',
+      '    type: string',
+      '    required: true',
+      'nodes:',
+      "  - id: echo",
+      "    type: shell",
+      "    command: \"echo received: $AGENT_YAML\"",
+    ].join('\n');
+    const analyzer = parseAgent(analyzerYaml);
+    agentStore.upsertAgent(analyzer, 'dashboard', 'test fixture');
+
+    // Inbox message whose `agentId` references the target.
+    const msg = inboxStore.add({
+      priority: 'high',
+      source: 'run-failure',
+      title: 'target failed',
+      body: 'something broke',
+      agentId: 'target-agent-marker',
+    });
+
+    // Triage would normally propose this; insert it directly so we
+    // skip the LLM round-trip.
+    const proposed = inboxStore.addResponse(
+      msg.id,
+      'action',
+      'analyze the failing agent',
+      JSON.stringify({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'agent-analyzer',
+        inputs: { FOCUS: 'why does this fail' },
+        rationale: 'Get a concrete fix.',
+      }),
+    );
+
+    const res = await request(app)
+      .post(`/inbox/${msg.id}/actions/${proposed.id}/run`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+
+    // Wait for the shell node to complete. Up to ~2s — local shell
+    // is near-instant but we don't want to flake on a slow CI box.
+    const deadline = Date.now() + 2000;
+    let after = inboxStore.getResponse(proposed.id);
+    while (Date.now() < deadline) {
+      after = inboxStore.getResponse(proposed.id);
+      const m = after?.metaJson ? JSON.parse(after.metaJson) : null;
+      if (m && m.status !== 'proposed' && m.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(after).not.toBeNull();
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('completed');
+    expect(meta.resultSummary).toContain('target-agent-marker');
   });
 });
 
