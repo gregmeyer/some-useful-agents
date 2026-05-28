@@ -1,0 +1,50 @@
+# Agent Editor — applies a YAML change to an existing agent.
+#
+# This agent is dispatched by inbox triage as the second step of the
+# diagnose-then-fix loop:
+#   1. agent-analyzer scans a failing agent's YAML, emits a corrected
+#      <yaml>...</yaml> block in its run result
+#   2. The dashboard route extracts that block, auto-proposes an
+#      agent-editor action card (with diff preview) targeting the
+#      same AGENT_ID
+#   3. Operator reviews the diff and clicks Run
+#   4. The route validates NEW_YAML, confirms the parsed id matches
+#      AGENT_ID, and commits the new version via
+#      `agentStore.upsertAgent` (creates a new entry in
+#      `agent_versions` — undo via the agent detail page)
+#
+# IMPORTANT: this YAML is the public-facing contract. The actual edit
+# is performed by the inbox route (`runProposedAction` in
+# packages/dashboard/src/routes/inbox.ts), not by executing the DAG
+# below. The single shell node is a no-op kept here only so the
+# allowlist's lazy-import + agentStore lookup succeed.
+
+id: agent-editor
+name: Agent Editor
+description: >
+  Commits a YAML change to an existing agent. Dispatched by inbox
+  triage as the apply-the-fix step after agent-analyzer produces a
+  validated proposed YAML. The actual upsertAgent call is performed
+  by the dashboard route, not by this DAG.
+status: active
+source: examples
+timeoutSec: 30
+
+inputs:
+  AGENT_ID:
+    type: string
+    required: true
+    description: The id of the agent to update. Must match the parsed id of NEW_YAML.
+  NEW_YAML:
+    type: string
+    required: true
+    description: >
+      The complete replacement YAML. Must pass `parseAgent` validation
+      and the parsed `id` field must equal AGENT_ID. The route refuses
+      mismatched ids to prevent triage from accidentally pointing at
+      the wrong target.
+
+nodes:
+  - id: noop
+    type: shell
+    command: echo "Edit handled by route — see runProposedAction in packages/dashboard/src/routes/inbox.ts."

@@ -67,7 +67,17 @@ const PENDING_USER_REPLY_WINDOW_MS = 30_000;
  */
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
+  'agent-editor',
 ];
+
+/**
+ * Agent IDs handled by the route directly rather than dispatched as a
+ * sub-agent run. The "agent" entry here exists so the allowlist + UI
+ * affordances behave consistently, but the actual side effect (e.g.
+ * committing a YAML change via `agentStore.upsertAgent`) is performed
+ * synchronously inside `runProposedAction`.
+ */
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor']);
 
 /**
  * For allowlist entries that aren't already installed, the route
@@ -151,7 +161,8 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
   }
   const responses = ctx.inboxStore.listResponses(id);
   const triagePending = isTriagePending(ctx, message, responses);
-  res.type('html').send(renderInboxDetail({ message, responses, flash: parseFlash(req), triagePending }));
+  const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
+  res.type('html').send(renderInboxDetail({ message, responses, flash: parseFlash(req), triagePending, currentTargetYaml }));
 });
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
@@ -168,7 +179,8 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   }
   const responses = ctx.inboxStore.listResponses(id);
   const triagePending = isTriagePending(ctx, message, responses);
-  res.type('html').send(render(renderInboxDetailFragment({ message, responses, triagePending })));
+  const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
+  res.type('html').send(render(renderInboxDetailFragment({ message, responses, triagePending, currentTargetYaml })));
 });
 
 inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
@@ -495,6 +507,23 @@ function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
 }
 
 /**
+ * Export the YAML of the agent referenced by `agentId` (the inbox
+ * message's target). The detail view passes this into the diff
+ * renderer so `agent-editor` action cards can show old-vs-new.
+ * Returns undefined when there's no target or the agent isn't
+ * installed — the view falls back to rendering just inputs.
+ */
+function exportTargetAgentYaml(
+  ctx: ReturnType<typeof getContext>,
+  agentId: string | undefined,
+): string | undefined {
+  if (!agentId) return undefined;
+  const target = ctx.agentStore.getAgent(agentId);
+  if (!target) return undefined;
+  try { return exportAgent(target); } catch { return undefined; }
+}
+
+/**
  * For agent-analyzer specifically: auto-inject AGENT_YAML (and
  * LAST_RUN_OUTPUT when available) so triage doesn't have to thread
  * the full YAML string through its <plan>. Mirrors the analyze
@@ -621,6 +650,32 @@ async function runProposedAction(
   meta: InboxActionMeta,
 ): Promise<void> {
   if (!ctx.inboxStore) return;
+
+  // The route handler already transitioned proposed → running
+  // atomically (see /actions/:rid/run); meta passed in already
+  // carries status='running' + startedAt.
+  const startedAt = meta.startedAt ?? Date.now();
+
+  // Route-handled agents (e.g. agent-editor) perform their side
+  // effect synchronously inside the route — no DAG dispatch. The
+  // YAML on disk for these agents is a stub that documents the
+  // contract; the actual write happens here.
+  if (ROUTE_HANDLED_AGENTS.has(meta.agentId)) {
+    const result = await executeRouteHandledAgent(ctx, messageId, meta);
+    ctx.inboxStore.updateResponse(response.id, {
+      metaJson: JSON.stringify({
+        ...meta,
+        status: result.status,
+        startedAt,
+        endedAt: Date.now(),
+        resultSummary: result.summary,
+        refusalReason: result.refusalReason,
+      }),
+    });
+    maybeRefireTriage(ctx, messageId);
+    return;
+  }
+
   const subAgent = ctx.agentStore.getAgent(meta.agentId);
   if (!subAgent) {
     ctx.inboxStore.updateResponse(response.id, {
@@ -633,11 +688,6 @@ async function runProposedAction(
     });
     return;
   }
-  // The route handler already transitioned proposed → running
-  // atomically (see /actions/:rid/run); meta passed in already
-  // carries status='running' + startedAt. We just preserve startedAt
-  // for the duration math at the completion update below.
-  const startedAt = meta.startedAt ?? Date.now();
 
   // Per-agent input enrichment. Today only agent-analyzer needs
   // server-side help (the AGENT_YAML it requires is heavy and lives in
@@ -653,6 +703,7 @@ async function runProposedAction(
   let nextStatus: InboxActionStatus = 'failed';
   let resultSummary: string | undefined;
   let refusalReason: string | undefined;
+  let fullResult = '';
   try {
     const run = await executeAgentDag(
       subAgent,
@@ -670,10 +721,10 @@ async function runProposedAction(
     runId = run.id;
     if (run.status === 'completed') {
       nextStatus = 'completed';
-      const raw = typeof run.result === 'string' ? run.result : '';
-      resultSummary = raw.length > ACTION_RESULT_PREVIEW_LIMIT
-        ? raw.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
-        : raw;
+      fullResult = typeof run.result === 'string' ? run.result : '';
+      resultSummary = fullResult.length > ACTION_RESULT_PREVIEW_LIMIT
+        ? fullResult.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
+        : fullResult;
     } else {
       nextStatus = 'failed';
       refusalReason = run.error ?? `Run ended in status ${run.status}.`;
@@ -694,13 +745,164 @@ async function runProposedAction(
     }),
   });
 
-  // If every proposed action on this message has now resolved AND at
-  // least one ran (completed or failed), re-fire triage so it gets a
-  // summary turn. Purely skipped sets do NOT trigger the follow-up —
-  // we treat all-skip as "operator declined, move on."
+  // After agent-analyzer completes successfully, look for a
+  // `<yaml>...</yaml>` block in the `analyze` (or `fix`) node output —
+  // NOT the run-level result, which is the trailing `validate` shell
+  // node's `{valid:true}` JSON. If present + valid + targeting the
+  // inbox message's agent, auto-propose an agent-editor action card
+  // with the parsed YAML.
+  if (meta.agentId === 'agent-analyzer' && nextStatus === 'completed' && runId) {
+    maybeAutoProposeEditorAction(ctx, messageId, runId);
+  }
+
+  maybeRefireTriage(ctx, messageId);
+}
+
+/** Hoisted from the end of `runProposedAction` so route-handled and
+ *  DAG-dispatched paths share the same re-fire trigger. */
+function maybeRefireTriage(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): void {
   if (allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId)) {
     void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
   }
+}
+
+/**
+ * Synchronous executor for agents listed in `ROUTE_HANDLED_AGENTS`.
+ * Today that's just `agent-editor`, which commits a YAML change via
+ * `agentStore.upsertAgent` after validation. Returns the action's
+ * terminal status + a summary line for the conversation thread.
+ */
+async function executeRouteHandledAgent(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  if (meta.agentId === 'agent-editor') {
+    return executeAgentEditor(ctx, messageId, meta);
+  }
+  return {
+    status: 'failed',
+    refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
+  };
+}
+
+/**
+ * Apply a YAML change to an existing agent. Validates:
+ *   - `AGENT_ID` input is present
+ *   - `NEW_YAML` parses cleanly via `parseAgent`
+ *   - parsed `id` matches `AGENT_ID` (prevents accidentally targeting
+ *     the wrong agent if triage hallucinates an id mismatch)
+ *
+ * On success commits via `agentStore.upsertAgent` (creates a new
+ * version — undo via the agent detail page). On failure leaves the
+ * agent untouched and surfaces the reason in the action card.
+ */
+function executeAgentEditor(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  void messageId;
+  const agentId = meta.inputs.AGENT_ID;
+  const newYaml = meta.inputs.NEW_YAML;
+  if (!agentId || !newYaml) {
+    return {
+      status: 'failed',
+      refusalReason: 'agent-editor requires both AGENT_ID and NEW_YAML inputs.',
+    };
+  }
+  let parsed;
+  try {
+    parsed = parseAgent(newYaml);
+  } catch (err) {
+    return {
+      status: 'failed',
+      refusalReason: `NEW_YAML failed validation: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (parsed.id !== agentId) {
+    return {
+      status: 'failed',
+      refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
+    };
+  }
+  try {
+    ctx.agentStore.upsertAgent(parsed, 'dashboard', 'Inbox triage applied YAML fix');
+  } catch (err) {
+    return {
+      status: 'failed',
+      refusalReason: `upsertAgent failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const after = ctx.agentStore.getAgent(agentId);
+  const version = after?.version ?? '?';
+  return {
+    status: 'completed',
+    summary: `Updated agent \`${agentId}\` to v${version}.`,
+  };
+}
+
+/**
+ * Extract a `<yaml>...</yaml>` block from agent-analyzer's run
+ * result, validate it, and (if it targets the inbox message's agent)
+ * auto-insert a proposed `agent-editor` action card. Silently no-ops
+ * if no yaml block is present, if it doesn't parse, if it targets a
+ * different agent, or if the per-message action cap has been hit.
+ */
+function maybeAutoProposeEditorAction(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  analyzerRunId: string,
+): void {
+  if (!ctx.inboxStore) return;
+  // The analyzer DAG ends in a `validate` shell node whose tiny
+  // {valid:true} output overshadows the LLM's full response at the
+  // run-level `.result`. The actual YAML lives in the `analyze` or
+  // `fix` node's output. Prefer `fix` (later in the chain, runs only
+  // when validate found issues) over `analyze`.
+  const execs = ctx.runStore.listNodeExecutions(analyzerRunId);
+  const fix = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
+  const analyze = execs.find((e) => e.nodeId === 'analyze' && e.status === 'completed');
+  const source = (fix?.result ?? analyze?.result ?? '').toString();
+  const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
+  if (!match) return;
+  const proposedYaml = match[1].trim();
+  if (proposedYaml.length < 10) return;
+  let parsed;
+  try { parsed = parseAgent(proposedYaml); } catch { return; }
+
+  const message = ctx.inboxStore.get(messageId);
+  if (!message?.agentId || parsed.id !== message.agentId) return;
+
+  // Respect the cap so a chatty analyzer can't fan out unbounded edits.
+  if (countActionsOnMessage(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
+
+  // Avoid duplicate proposals if the same YAML was already proposed
+  // and is still pending — operator might be mid-decision.
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    if (m && m.agentId === 'agent-editor'
+      && (m.status === 'proposed' || m.status === 'running')
+      && m.inputs.NEW_YAML === proposedYaml) return;
+  }
+
+  const action: InboxActionMeta = {
+    kind: 'action',
+    status: 'proposed',
+    agentId: 'agent-editor',
+    inputs: { AGENT_ID: message.agentId, NEW_YAML: proposedYaml },
+    rationale: `Apply the YAML fix that agent-analyzer produced.`,
+  };
+  ctx.inboxStore.addResponse(
+    messageId,
+    'action',
+    action.rationale!,
+    JSON.stringify(action),
+  );
 }
 
 function allActionsResolved(

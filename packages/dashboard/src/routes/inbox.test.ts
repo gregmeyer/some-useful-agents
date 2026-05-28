@@ -588,6 +588,135 @@ describe('POST /inbox/:id/actions/:rid/run — agent-analyzer enrichment', () =>
   });
 });
 
+describe('POST /inbox/:id/actions/:rid/run — agent-editor write path', () => {
+  // agent-editor is route-handled: no DAG dispatch, just a synchronous
+  // upsertAgent after validation. These tests install a target agent,
+  // propose an agent-editor action, and verify the lifecycle outcomes.
+
+  function installTarget(id: string, label: string) {
+    const yaml = [
+      `id: ${id}`,
+      `name: ${label}`,
+      'description: test fixture',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo old',
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(yaml), 'dashboard', 'test fixture');
+  }
+
+  function proposeEditor(messageId: string, agentId: string, newYaml: string) {
+    return inboxStore.addResponse(messageId, 'action', 'Apply YAML fix', JSON.stringify({
+      kind: 'action',
+      status: 'proposed',
+      agentId: 'agent-editor',
+      inputs: { AGENT_ID: agentId, NEW_YAML: newYaml },
+      rationale: 'apply the proposed fix',
+    }));
+  }
+
+  it('happy path: commits a new version via upsertAgent', async () => {
+    const app = await makeApp();
+    installTarget('target-x', 'old name');
+    const before = agentStore.getAgent('target-x');
+    const newYaml = [
+      'id: target-x',
+      'name: NEW NAME',
+      'description: updated by test',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo new',
+    ].join('\n');
+    const msg = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b', agentId: 'target-x' });
+    const r = proposeEditor(msg.id, 'target-x', newYaml);
+
+    const res = await request(app)
+      .post(`/inbox/${msg.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+
+    // Route-handled path is synchronous inside runProposedAction;
+    // give the microtask queue a tick to settle.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const after = agentStore.getAgent('target-x');
+    expect(after?.name).toBe('NEW NAME');
+    expect((after?.version ?? 0)).toBeGreaterThan(before?.version ?? 0);
+
+    const action = JSON.parse(inboxStore.getResponse(r.id)!.metaJson!);
+    expect(action.status).toBe('completed');
+    expect(action.resultSummary).toMatch(/Updated agent .target-x. to v/);
+  });
+
+  it('refuses when NEW_YAML id mismatches AGENT_ID', async () => {
+    const app = await makeApp();
+    installTarget('target-y', 'y');
+    const mismatched = [
+      'id: someone-else',
+      'name: drift',
+      'description: drift fixture',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo x',
+    ].join('\n');
+    const msg = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b', agentId: 'target-y' });
+    const r = proposeEditor(msg.id, 'target-y', mismatched);
+
+    await request(app).post(`/inbox/${msg.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(agentStore.getAgent('target-y')?.name).toBe('y'); // unchanged
+    const action = JSON.parse(inboxStore.getResponse(r.id)!.metaJson!);
+    expect(action.status).toBe('failed');
+    expect(action.refusalReason).toMatch(/does not match AGENT_ID/);
+  });
+
+  it('refuses when NEW_YAML fails parseAgent validation', async () => {
+    const app = await makeApp();
+    installTarget('target-z', 'z');
+    const garbage = 'this: is: not: valid: yaml: {{{{';
+    const msg = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b', agentId: 'target-z' });
+    const r = proposeEditor(msg.id, 'target-z', garbage);
+
+    await request(app).post(`/inbox/${msg.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 30));
+
+    const action = JSON.parse(inboxStore.getResponse(r.id)!.metaJson!);
+    expect(action.status).toBe('failed');
+    expect(action.refusalReason).toMatch(/failed validation/);
+  });
+
+  it('idempotent: re-running a completed agent-editor action is a no-op', async () => {
+    const app = await makeApp();
+    installTarget('target-i', 'before');
+    const okYaml = [
+      'id: target-i',
+      'name: AFTER',
+      'description: ok',
+      'nodes: [{ id: noop, type: shell, command: echo ok }]',
+    ].join('\n');
+    const msg = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b', agentId: 'target-i' });
+    const r = proposeEditor(msg.id, 'target-i', okYaml);
+
+    await request(app).post(`/inbox/${msg.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 30));
+    const v1 = agentStore.getAgent('target-i')?.version ?? 0;
+
+    // Click Run a second time; idempotent path returns 204 without writing.
+    const res2 = await request(app).post(`/inbox/${msg.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res2.status).toBe(204);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(agentStore.getAgent('target-i')?.version).toBe(v1);
+  });
+});
+
 describe('POST /inbox/:id/triage', () => {
   it('returns 204 (AJAX) and inserts a synthetic "Asked triage" user marker', async () => {
     const app = await makeApp();

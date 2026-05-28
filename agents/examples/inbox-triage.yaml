@@ -155,6 +155,12 @@ nodes:
       - If the conversation already shows a prior action of the same
         kind that ran and completed, DO NOT propose it again — instead
         summarize its result in `recommendation`.
+      - DO NOT propose `agent-editor` directly. It is managed by the
+        dashboard: when `agent-analyzer` produces a corrected YAML in
+        its run output, the route automatically inserts an
+        `agent-editor` action card with the diff preview. Your only
+        job for fix-applying flows is to propose `agent-analyzer` —
+        the editor proposal follows for free.
 
       If `ALLOWED_SUB_AGENTS` is empty OR no action would help, omit
       `actions` entirely (or send an empty array). Text-only
