@@ -78,24 +78,43 @@ export function renderInboxDetail(opts: InboxDetailOptions): string {
     </section>
   ` : html``;
 
-  const responsesBlock = responses.length > 0
+  // Conversation timeline: each entry is a small block with role +
+  // age + body. Empty state hints that the triage agent (next PR)
+  // will fill this in automatically.
+  const responsesBlock = html`
+    <section class="card" style="margin-top: var(--space-3);">
+      <h3 style="margin: 0 0 var(--space-2);">Conversation</h3>
+      ${responses.length > 0
+        ? html`${responses.map((r) => html`
+            <div style="border-top: 1px solid var(--color-border); padding: var(--space-2) 0;">
+              <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: var(--space-1);">
+                ${ROLE_LABEL[r.role] ?? r.role} · ${formatAge(new Date(r.createdAt).toISOString())}
+              </div>
+              <div style="white-space: pre-wrap;">${r.body}</div>
+            </div>
+          `) as unknown as SafeHtml[]}`
+        : html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Add a note below; the triage agent will join the thread in an upcoming PR.</p>`}
+      ${replyForm(message)}
+    </section>
+  `;
+
+  // Action bar — surfaces the catch-all "Dismiss" verb for any
+  // message. Source-specific actions (allow-host, retry-run, etc.)
+  // ship as a follow-up PR; for now Dismiss is the universal action
+  // the user asked for in the first dogfood pass.
+  const actionsBlock = message.status === 'dismissed' || message.status === 'resolved'
     ? html`
       <section class="card" style="margin-top: var(--space-3);">
-        <h3 style="margin: 0 0 var(--space-2);">Conversation</h3>
-        ${responses.map((r) => html`
-          <div style="border-top: 1px solid var(--color-border); padding: var(--space-2) 0;">
-            <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-bottom: var(--space-1);">
-              ${ROLE_LABEL[r.role] ?? r.role} · ${formatAge(new Date(r.createdAt).toISOString())}
-            </div>
-            <div style="white-space: pre-wrap;">${r.body}</div>
-          </div>
-        `) as unknown as SafeHtml[]}
+        <p class="dim" style="margin: 0; font-size: var(--font-size-sm);">
+          This message is ${message.status}. ${message.resolvedAt ? html`Closed ${formatAge(new Date(message.resolvedAt).toISOString())}.` : html``}
+        </p>
       </section>`
     : html`
-      <section class="card" style="margin-top: var(--space-3);">
-        <p class="dim" style="font-size: var(--font-size-sm); margin: 0;">
-          No replies yet. The triage agent + interactive replies ship in upcoming PRs.
-        </p>
+      <section class="card" style="margin-top: var(--space-3); display: flex; gap: var(--space-2); align-items: center;">
+        <form method="POST" action="/inbox/${message.id}/dismiss" style="margin: 0;">
+          <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
+        </form>
+        <span class="dim" style="font-size: var(--font-size-xs);">Hide this message from the queue. Reopen with the status filter on /inbox.</span>
       </section>
     `;
 
@@ -108,6 +127,7 @@ export function renderInboxDetail(opts: InboxDetailOptions): string {
     ${bodyBlock}
     ${contextBlock}
     ${recommendationBlock}
+    ${actionsBlock}
     ${responsesBlock}
   `;
 
@@ -129,4 +149,29 @@ function pretty(raw: string): string {
   } catch {
     return raw;
   }
+}
+
+/**
+ * Inline reply form rendered inside the Conversation card. POSTs to
+ * /inbox/:id/respond which appends a `user`-role entry to the thread.
+ * Hidden when the message is in a terminal state — once you've
+ * dismissed/resolved, the conversation is closed.
+ */
+function replyForm(message: InboxMessage): SafeHtml {
+  if (message.status === 'dismissed' || message.status === 'resolved') return html``;
+  return html`
+    <form method="POST" action="/inbox/${message.id}/respond"
+      style="margin: var(--space-2) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: var(--space-2);">
+      <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">
+        Reply
+      </label>
+      <textarea name="body" rows="3" required maxlength="8192"
+        placeholder="Describe what you tried, ask a follow-up, or note a decision."
+        class="form-field"
+        style="padding: var(--space-2); font-size: var(--font-size-sm); resize: vertical;"></textarea>
+      <div style="display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn btn--sm btn--primary">Post reply</button>
+      </div>
+    </form>
+  `;
 }

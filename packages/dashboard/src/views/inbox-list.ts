@@ -1,87 +1,153 @@
-import type { InboxMessage, InboxPriority } from '@some-useful-agents/core';
+import type { InboxMessage, InboxPriority, InboxSource } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { formatAge } from './components.js';
 
+export type InboxSortKey = 'priority' | 'source' | 'agent' | 'title' | 'age' | 'status';
+export type InboxSortDir = 'asc' | 'desc';
+
 export interface InboxListOptions {
   rows: InboxMessage[];
+  sort: InboxSortKey;
+  dir: InboxSortDir;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }
 
-const PRIORITY_LABEL: Record<InboxPriority, string> = {
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
+/**
+ * Default sort is priority ASC (high first) with age DESC as the
+ * secondary tiebreaker — matches what the queue is *for*: the most
+ * urgent recent thing on top.
+ */
+export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
+  sort: 'priority',
+  dir: 'asc',
 };
 
-const PRIORITY_HINT: Record<InboxPriority, string> = {
-  high: 'Failed runs and other action-needed-now items',
-  medium: 'Authorisations and pending decisions',
-  low: 'Housekeeping reminders',
+/**
+ * Strong visual marker per priority — the operator's eye should pick
+ * out high-pri rows at a glance. Mirrors the warn/info/muted palette
+ * used elsewhere (badge--warn for failed runs, badge--info for active
+ * status, badge--muted for neutral metadata).
+ */
+const PRIORITY_BADGE: Record<InboxPriority, string> = {
+  high: 'badge--warn',
+  medium: 'badge--info',
+  low: 'badge--muted',
 };
 
-const SOURCE_LABEL: Record<string, string> = {
+/**
+ * Source labels + badge variants. The badge gives "what kind of issue
+ * is this" affordance at a glance — the user asked for this in the
+ * first dogfood pass.
+ */
+const SOURCE_LABEL: Record<InboxSource, string> = {
   'run-failure': 'Run failure',
   'permission-request': 'Permission',
   'cadence': 'Cadence',
   'manual': 'Manual',
 };
+const SOURCE_BADGE: Record<InboxSource, string> = {
+  'run-failure': 'badge--warn',
+  'permission-request': 'badge--info',
+  'cadence': 'badge--muted',
+  'manual': 'badge--muted',
+};
+
+const PRIORITY_RANK: Record<InboxPriority, number> = { high: 0, medium: 1, low: 2 };
 
 /**
- * Render the inbox list page. Rows are grouped by priority into three
- * sections (High / Medium / Low) so the operator's eye lands on the
- * urgent items first. Within each section, rows are newest-first.
- * Mirrors the list-table pattern from runs-list.ts but groups
- * vertically instead of using a single sortable table.
+ * Sort messages client-side (JS, not SQL) — keeps the store API
+ * focused on the canonical priority+age order and lets the UI layer
+ * own presentation. Limit is 200 server-side; in-memory sort cost is
+ * negligible.
+ */
+export function sortMessages(
+  rows: InboxMessage[],
+  sort: InboxSortKey,
+  dir: InboxSortDir,
+): InboxMessage[] {
+  const sign = dir === 'asc' ? 1 : -1;
+  const copy = rows.slice();
+  copy.sort((a, b) => {
+    switch (sort) {
+      case 'priority':
+        return sign * (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority])
+          || (b.createdAt - a.createdAt); // newer first as tiebreaker
+      case 'age':
+        // age DESC (= "newest first") is what users mean by "by age".
+        // Treat `asc` as oldest-first and `desc` as newest-first.
+        return dir === 'asc' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt;
+      case 'source':
+        return sign * a.source.localeCompare(b.source) || (b.createdAt - a.createdAt);
+      case 'agent':
+        return sign * (a.agentId ?? '').localeCompare(b.agentId ?? '') || (b.createdAt - a.createdAt);
+      case 'title':
+        return sign * a.title.localeCompare(b.title);
+      case 'status':
+        return sign * a.status.localeCompare(b.status) || (b.createdAt - a.createdAt);
+      default:
+        return 0;
+    }
+  });
+  return copy;
+}
+
+/**
+ * Build the URL for a column header. Click the active column → flip
+ * direction; click a different column → switch to it with that
+ * column's natural default direction (priority asc, age desc, etc.).
+ */
+function sortUrl(col: InboxSortKey, current: { sort: InboxSortKey; dir: InboxSortDir }): string {
+  const sameCol = col === current.sort;
+  let dir: InboxSortDir;
+  if (sameCol) {
+    dir = current.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    // Per-column natural defaults: age + status are most useful
+    // descending (newest first / triaged-on-top), the rest ascending.
+    dir = (col === 'age' || col === 'status') ? 'desc' : 'asc';
+  }
+  const params = new URLSearchParams();
+  if (col !== INBOX_DEFAULT_SORT.sort) params.set('sort', col);
+  if (dir !== INBOX_DEFAULT_SORT.dir || col !== INBOX_DEFAULT_SORT.sort) params.set('dir', dir);
+  const qs = params.toString();
+  return qs ? `/inbox?${qs}` : '/inbox';
+}
+
+function sortIndicator(col: InboxSortKey, current: { sort: InboxSortKey; dir: InboxSortDir }): string {
+  if (col !== current.sort) return '';
+  return current.dir === 'asc' ? ' ↑' : ' ↓';
+}
+
+/**
+ * Render the inbox list page as a single sortable grid. Each column
+ * header is a link that toggles the sort direction (clicking the
+ * active column) or switches to that column (default direction per
+ * column). The "affordance for what kind of issue" comes from the
+ * priority + source badges — the eye lands on warn-styled rows first.
  */
 export function renderInboxList(opts: InboxListOptions): string {
-  const { rows, flash } = opts;
+  const { rows, sort, dir, flash } = opts;
+  const sorted = sortMessages(rows, sort, dir);
+  const current = { sort, dir };
 
-  const groups: Record<InboxPriority, InboxMessage[]> = {
-    high: rows.filter((r) => r.priority === 'high'),
-    medium: rows.filter((r) => r.priority === 'medium'),
-    low: rows.filter((r) => r.priority === 'low'),
-  };
+  const header = (col: InboxSortKey, label: string): SafeHtml => html`
+    <th><a href="${sortUrl(col, current)}" class="inbox-sort-header">${label}${sortIndicator(col, current)}</a></th>
+  `;
 
-  const sections = (Object.keys(groups) as InboxPriority[]).map((priority) => {
-    const items = groups[priority];
-    if (items.length === 0) return html``;
-    const tbody = items.map((m) => html`
-      <tr>
-        <td>${m.agentId ? html`<a href="/agents/${m.agentId}">${m.agentId}</a>` : html`<span class="dim">—</span>`}</td>
-        <td><a href="/inbox/${m.id}">${m.title}</a></td>
-        <td class="dim">${SOURCE_LABEL[m.source] ?? m.source}</td>
-        <td class="dim">${formatAge(new Date(m.createdAt).toISOString())}</td>
-        <td><span class="badge badge--muted">${m.status}</span></td>
-      </tr>
-    `);
-    return html`
-      <section style="margin-bottom: var(--space-5);">
-        <h2 style="margin: 0 0 var(--space-1); font-size: var(--font-size-lg);">
-          ${PRIORITY_LABEL[priority]}
-          <span class="dim" style="font-weight: var(--weight-regular); font-size: var(--font-size-sm); margin-left: var(--space-2);">
-            ${String(items.length)} ${items.length === 1 ? 'item' : 'items'}
-          </span>
-        </h2>
-        <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">${PRIORITY_HINT[priority]}</p>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Agent</th>
-              <th>Title</th>
-              <th>Source</th>
-              <th>Age</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>${tbody as unknown as SafeHtml[]}</tbody>
-        </table>
-      </section>
-    `;
-  });
+  const tbody = sorted.map((m) => html`
+    <tr>
+      <td><span class="badge ${PRIORITY_BADGE[m.priority]}">${m.priority}</span></td>
+      <td><span class="badge ${SOURCE_BADGE[m.source]}">${SOURCE_LABEL[m.source]}</span></td>
+      <td>${m.agentId ? html`<a href="/agents/${m.agentId}">${m.agentId}</a>` : html`<span class="dim">—</span>`}</td>
+      <td><a href="/inbox/${m.id}">${m.title}</a></td>
+      <td class="dim">${formatAge(new Date(m.createdAt).toISOString())}</td>
+      <td><span class="badge badge--muted">${m.status}</span></td>
+    </tr>
+  `);
 
-  const empty = rows.length === 0
+  const table = rows.length === 0
     ? html`
       <div class="settings-empty mt-0">
         <h3 class="mt-0">Inbox zero</h3>
@@ -91,15 +157,28 @@ export function renderInboxList(opts: InboxListOptions): string {
           with <code>SUA_INBOX_DEMO=1</code>.
         </p>
       </div>`
-    : html``;
+    : html`
+      <table class="table">
+        <thead>
+          <tr>
+            ${header('priority', 'Priority')}
+            ${header('source', 'Source')}
+            ${header('agent', 'Agent')}
+            ${header('title', 'Title')}
+            ${header('age', 'Age')}
+            ${header('status', 'Status')}
+          </tr>
+        </thead>
+        <tbody>${tbody as unknown as SafeHtml[]}</tbody>
+      </table>
+    `;
 
   const body = html`
     ${pageHeader({
       title: 'Inbox',
-      description: 'Things that need your attention, ordered by priority.',
+      description: 'Things that need your attention. Click a column header to sort.',
     })}
-    ${empty}
-    ${sections as unknown as SafeHtml[]}
+    ${table}
   `;
 
   return render(layout({ title: 'Inbox', activeNav: 'inbox', flash }, body));
