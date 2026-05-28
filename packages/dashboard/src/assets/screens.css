@@ -2435,3 +2435,72 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-action__diff-line--ctx {
   color: var(--color-text-muted);
 }
+
+/* ---------- /settings/llm ---------- */
+.settings-llm__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 480px;
+  margin: var(--space-3) 0;
+}
+.settings-llm__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-llm__field label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.settings-llm__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.settings-llm__status {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warn, #f59e0b);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+.settings-llm__status--clean {
+  border-left-color: var(--color-ok, #34d399);
+}
+.settings-llm__status-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+.settings-llm__probe {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+}
+.settings-llm__probe-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+.settings-llm__probe-row--ok { background: rgba(52, 211, 153, 0.08); }
+.settings-llm__probe-row--fail { background: rgba(248, 113, 113, 0.08); }
+.settings-llm__probe-status {
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.settings-llm__probe-row--ok .settings-llm__probe-status { color: var(--color-ok, #34d399); }
+.settings-llm__probe-row--fail .settings-llm__probe-status { color: var(--color-danger, #f87171); }

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { startDashboardServer } from '@some-useful-agents/dashboard';
 import { getMcpTokenPath, readMcpToken } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getRetentionDays, getDashboardBaseUrl } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl } from '../config.js';
 import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
@@ -80,6 +80,7 @@ of scope for this release — wrap in launchd / systemd if you need it.
         dbPath: getDbPath(config),
         secretsPath: getSecretsPath(config),
         variablesPath: getVariablesPath(config),
+        llmSettingsPath: getLlmSettingsPath(config),
         retentionDays: getRetentionDays(config),
         allowUntrustedShell: new Set(options.allowUntrustedShell),
         dashboardBaseUrl: getDashboardBaseUrl(config),

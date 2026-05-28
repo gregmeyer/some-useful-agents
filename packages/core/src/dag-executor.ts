@@ -97,6 +97,15 @@ export interface DagExecutorDeps {
    */
   spawnNode?: SpawnNodeFn;
   /**
+   * Optional LLM fallback policy. When the primary provider fails
+   * with a fallback-worthy error category (credit/quota/binary/timeout),
+   * node-spawner retries the same prompt under the fallback provider
+   * and invokes `onFallback` for telemetry. Configured in
+   * `/settings/llm` and threaded through here by the dashboard
+   * context. Tests can pass undefined to skip the fallback path.
+   */
+  llmSettings?: import('./node-spawner.js').LlmSettingsSnapshot;
+  /**
    * Optional dashboard URL prefix used by the notify dispatcher to embed
    * a "view run in dashboard" link in Slack messages. When absent, the
    * link is omitted; the notify still fires.
@@ -904,7 +913,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings };
           const spawnResult = spawnFn === spawnNodeReal
             ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
             : await spawnFn(synthNode, env, spawnOpts);
@@ -920,7 +929,7 @@ export async function executeAgentDag(
           model: node.model ?? agent.model,
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings };
         const spawnResult = spawnFn === spawnNodeReal
           ? await spawnNodeReal(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
           : await spawnFn(nodeWithDefaults, env, spawnOpts);

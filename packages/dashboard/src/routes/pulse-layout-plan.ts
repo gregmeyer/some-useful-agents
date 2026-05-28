@@ -25,6 +25,7 @@ import {
   type RunStatus,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   computeLayoutSuggestions,
   type CurrentLayout,
@@ -181,6 +182,7 @@ async function kickoffLayoutPlannerRun(args: {
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   );
 

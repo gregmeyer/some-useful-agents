@@ -6,7 +6,12 @@ import {
   closePostgresPool,
   inferSqliteSnapshot,
   closeSqliteDatabase,
+  LLM_PROVIDERS,
+  isProvider,
+  type LlmProvider,
 } from '@some-useful-agents/core';
+import { spawn } from 'node:child_process';
+import { formatAge } from '../views/components.js';
 import { html } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
@@ -15,6 +20,7 @@ import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { renderSettingsAppearance } from '../views/settings-appearance.js';
 import { renderSettingsIntegrations } from '../views/settings-integrations.js';
+import { renderSettingsLlm } from '../views/settings-llm.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 
@@ -595,6 +601,117 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
+/** Briefly spawn each CLI with --version (or similar) to confirm liveness. */
+async function probeProvider(provider: LlmProvider): Promise<{ ok: boolean; message: string }> {
+  const binary = provider === 'codex' ? 'codex' : 'claude';
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (result: { ok: boolean; message: string }) => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGTERM'); } catch { /* */ }
+      resolve(result);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      finish({ ok: false, message: `spawn failed: ${(err as Error).message}` });
+      return;
+    }
+    child.stdout?.on('data', (b) => { stdout += b.toString(); });
+    child.stderr?.on('data', (b) => { stderr += b.toString(); });
+    child.on('error', (err) => {
+      finish({ ok: false, message: `binary not found: ${err.message}` });
+    });
+    child.on('close', (code) => {
+      if (code === 0) {
+        const line = (stdout + stderr).split('\n').find((l) => l.trim()) ?? '';
+        finish({ ok: true, message: line.trim() || 'reachable' });
+      } else {
+        finish({ ok: false, message: (stderr || stdout || `exit ${code}`).split('\n')[0].slice(0, 200) });
+      }
+    });
+    setTimeout(() => finish({ ok: false, message: 'probe timed out after 5s' }), 5000);
+  });
+}
+
+settingsRouter.get('/settings/llm', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash } = readQueryBanners(req);
+  const settings = ctx.llmSettingsStore?.get();
+  const error = typeof req.query.error === 'string' ? req.query.error : undefined;
+  const body = renderSettingsLlm({
+    settings,
+    providers: LLM_PROVIDERS,
+    error,
+    formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
+  });
+  res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
+});
+
+settingsRouter.post('/settings/llm', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const primaryRaw = typeof req.body?.primary === 'string' ? req.body.primary : '';
+  const fallbackRaw = typeof req.body?.fallback === 'string' ? req.body.fallback : '';
+  if (!isProvider(primaryRaw)) {
+    redirectWith(res, '/settings/llm', 'error', `Invalid primary provider "${primaryRaw}".`);
+    return;
+  }
+  const fallback: LlmProvider | undefined = fallbackRaw === '' ? undefined : isProvider(fallbackRaw) ? fallbackRaw : null as never;
+  if (fallback === (null as never)) {
+    redirectWith(res, '/settings/llm', 'error', `Invalid fallback provider "${fallbackRaw}".`);
+    return;
+  }
+  if (fallback !== undefined && fallback === primaryRaw) {
+    redirectWith(res, '/settings/llm', 'error', 'Fallback must differ from primary.');
+    return;
+  }
+  try {
+    ctx.llmSettingsStore.setProviders(primaryRaw, fallback);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', 'LLM settings saved.');
+});
+
+settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const settings = ctx.llmSettingsStore?.get();
+  if (!settings) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const probe: Record<LlmProvider, { ok: boolean; message: string }> = {} as never;
+  for (const p of LLM_PROVIDERS) {
+    probe[p] = await probeProvider(p);
+  }
+  // Stash the result on a per-request basis by piggybacking the shell
+  // render (the simplest way without adding session state).
+  const error = typeof req.query.error === 'string' ? req.query.error : undefined;
+  const body = renderSettingsLlm({
+    settings,
+    providers: LLM_PROVIDERS,
+    error,
+    probe,
+    formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
+  });
+  res.type('html').send(renderSettingsShell({ active: 'llm', body }));
+});
+
+settingsRouter.post('/settings/llm/clear-last-fallback', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (ctx.llmSettingsStore) ctx.llmSettingsStore.clearLastFallback();
+  redirectWith(res, '/settings/llm', 'flash', 'Cleared.');
+});
+
 settingsRouter.get('/settings/general', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -664,7 +781,7 @@ function readQueryBanners(req: Request): {
 function redirectWith(
   res: Response,
   path: string,
-  kind: 'flash' | 'unlockError' | 'setError',
+  kind: 'flash' | 'unlockError' | 'setError' | 'error',
   message: string,
   extra: Record<string, string> = {},
 ): void {

@@ -349,11 +349,22 @@ export {
   type LlmSpawner,
   type SpawnProgress,
   type LlmSpawnOptions,
+  type LlmSettingsSnapshot,
+  type LlmFailureCategory,
+  classifyLlmFailure,
   claudeSpawner,
   claudeTextSpawner,
   codexSpawner,
   getSpawner,
 } from './node-spawner.js';
+export {
+  LlmSettingsStore,
+  LLM_PROVIDERS,
+  isProvider,
+  type LlmSettings,
+  type LlmProvider,
+  type LlmFallbackEvent,
+} from './llm-settings-store.js';
 export {
   planMigration,
   applyMigration,
