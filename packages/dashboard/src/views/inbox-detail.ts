@@ -85,50 +85,63 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="flash flash--${flash.kind}" style="margin: 0 0 var(--space-2);">${flash.message}</div>
   ` : html``;
 
-  // Header meta row + a star control on the right. The star form is
-  // intercepted by inbox-modal.js (via data-inbox-modal-form) so
-  // clicking it toggles in place without a page reload.
+  // Tight meta row: priority dot + status + agent link + run link + age.
+  // Priority becomes a colored dot rather than a full badge to lower
+  // its visual weight; the status badge stays because it's the
+  // operator's primary "what state is this in" signal. Source is now
+  // implicit via the priority + agent + runId combination (it's
+  // surfaced on the list view).
   const headerMeta = html`
-    <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-1);">
-      <span class="badge ${badgeClass}">${message.priority}</span>
-      <span>${SOURCE_LABEL[message.source] ?? message.source}</span>
-      <span>${formatAge(new Date(message.createdAt).toISOString())}</span>
+    <div class="inbox-modal__meta">
+      <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
       <span class="badge badge--muted">${message.status}</span>
-      ${message.agentId ? html`<a href="/agents/${message.agentId}">${message.agentId}</a>` : html``}
-      ${message.runId ? html`<a href="/runs/${message.runId}" class="mono">run ${message.runId.slice(0, 8)}</a>` : html``}
-      <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form style="margin: 0 0 0 auto;">
-        <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
-        <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
-      </form>
+      ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
+      ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
+      <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
     </div>
   `;
 
-  // Tag editor: comma-separated input. Existing tags are pre-filled.
-  // Form submit replaces the entire tag set; clearing the input
-  // removes all tags. Validation happens in the store (invalid
-  // entries are silently dropped).
-  const tagsBlock = html`
-    <form method="POST" action="/inbox/${message.id}/tags" data-inbox-modal-form
-      style="margin-top: var(--space-2); display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs);">
-      <label style="color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: var(--weight-semibold);">Tags</label>
-      <input type="text" name="tags" value="${message.tags.join(', ')}"
-        placeholder="auth, network, …" class="form-field"
-        style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">
-      <button type="submit" class="btn btn--xs btn--ghost">Save tags</button>
+  // Star control sits in the title row, top-right (mirrors the
+  // modal-shell ✕ close button alignment).
+  const starControl = html`
+    <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form class="inbox-modal__star-form">
+      <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
+      <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
     </form>
   `;
 
-  const bodyBlock = html`
-    <section style="margin-top: var(--space-3);">
-      <h4 style="margin: 0 0 var(--space-1); font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);">Details</h4>
-      <div style="white-space: pre-wrap;">${message.body}</div>
-    </section>
+  // Tags as pills with inline ×. The form submits the full tag set on
+  // every change (existing route contract — `tags` is a CSV); JS
+  // handles add/remove deltas client-side and then submits.
+  const tagPills = message.tags.map((t) => html`
+    <span class="inbox-pill" data-inbox-tag="${t}">
+      ${t}<button type="button" class="inbox-pill__remove" data-inbox-tag-remove="${t}" aria-label="Remove tag ${t}">×</button>
+    </span>
+  `);
+  const tagsBlock = html`
+    <form method="POST" action="/inbox/${message.id}/tags" data-inbox-modal-form
+      data-inbox-tags-form data-inbox-modal-quiet="1" class="inbox-modal__tags">
+      <input type="hidden" name="tags" value="${message.tags.join(', ')}" data-inbox-tags-input>
+      ${tagPills as unknown as SafeHtml[]}
+      <input type="text" class="inbox-modal__tag-add" placeholder="Add tag…" aria-label="Add tag"
+        data-inbox-tag-add maxlength="32">
+    </form>
   `;
 
+  // Body lands without a heading — it IS the content, no label needed.
+  // Manual conversations seed body with '(empty)' so the store's
+  // NOT NULL constraint is satisfied; suppress that visually so the
+  // modal opens clean until the operator's first reply lands.
+  const trimmedBody = message.body.trim();
+  const hasBody = trimmedBody.length > 0 && trimmedBody !== '(empty)';
+  const bodyBlock = hasBody ? html`
+    <div class="inbox-modal__body">${message.body}</div>
+  ` : html``;
+
   const contextBlock = message.contextJson ? html`
-    <details style="margin-top: var(--space-3);">
-      <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.06em;">Context payload</summary>
-      <pre class="mono" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0; overflow-x: auto; max-height: 12rem;">${pretty(message.contextJson)}</pre>
+    <details class="inbox-modal__context">
+      <summary>Context payload</summary>
+      <pre class="mono">${pretty(message.contextJson)}</pre>
     </details>
   ` : html``;
 
@@ -137,10 +150,11 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   `);
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
-  // the avatar dot that overlaps the rail line drawn by .inbox-timeline.
+  // the avatar dot that overlaps the rail line drawn by
+  // .inbox-timeline. No "Conversation" heading — the timeline shape
+  // is self-evident.
   const timelineBlock = html`
-    <section style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border);">
-      <h4 style="margin: 0 0 var(--space-2); font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);">Conversation</h4>
+    <section class="inbox-modal__timeline-section">
       ${responses.length === 0 && !triagePending
         ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Use the composer below — the triage agent will join automatically.</p>`
         : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
@@ -148,55 +162,76 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </section>
   `;
 
-  const actionsRow = isTerminal
+  // Single consolidated footer: composer textarea on top, then a single
+  // right-aligned row with Ask triage and Dismiss as ghost secondaries
+  // sitting beside the Post reply primary on the right.
+  const composer = isTerminal
     ? html`
-      <p class="dim" style="margin: var(--space-3) 0 0; font-size: var(--font-size-sm);">
-        This message is ${message.status}.${message.resolvedAt ? html` Closed ${formatAge(new Date(message.resolvedAt).toISOString())}.` : html``}
-      </p>`
+      <div class="inbox-composer inbox-composer--terminal">
+        <p class="dim" style="margin: 0; font-size: var(--font-size-sm);">
+          This message is ${message.status}.${message.resolvedAt ? html` Closed ${formatAge(new Date(message.resolvedAt).toISOString())}.` : html``}
+        </p>
+      </div>
+    `
     : html`
-      <div class="inbox-composer__row">
-        <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin: 0;">
-          <button type="submit" class="btn btn--sm btn--ghost" ${triagePending ? 'disabled' : ''}>
-            ${triagePending ? 'Triaging…' : 'Ask triage'}
+      <div class="inbox-composer">
+        ${replyComposerOnly(message, triagePending ?? false)}
+        <div class="inbox-composer__footer">
+          <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin: 0;">
+            <button type="submit" class="btn btn--sm btn--ghost" ${triagePending ? 'disabled' : ''}>
+              ${triagePending ? 'Triaging…' : 'Ask triage'}
+            </button>
+          </form>
+          <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
+            <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
+          </form>
+          <button type="submit" form="inbox-reply-form" class="btn btn--sm btn--primary"
+            ${triagePending ? 'disabled' : ''}>
+            ${triagePending ? 'Waiting…' : 'Post reply'}
           </button>
-        </form>
-        <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
-          <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
-        </form>
+        </div>
       </div>
     `;
 
-  // Pinned composer sits below the scrolling timeline. Sticky-bottom
-  // keeps it on screen even when the operator scrolls back through
-  // long threads — no hunting for the reply box.
-  const composer = isTerminal ? html`` : html`
-    <div class="inbox-composer">
-      ${replyForm(message, triagePending ?? false)}
-      ${actionsRow}
-    </div>
-  `;
-  const terminalNote = isTerminal ? actionsRow : html``;
-
-  // Sticky top region: title + meta + tags + details + context all stay
-  // pinned while the conversation thread scrolls below.
+  // Title row: title (left) + star (right). Close × lives in the modal
+  // shell's corner (see inbox-modal.ts). The old "Close" link at the
+  // bottom-right is gone.
   return html`
     <div class="inbox-detail">
       <div class="inbox-detail__header">
-        <header style="margin: 0;">
-          <h3 id="inbox-modal-title" style="margin: 0;">${message.title}</h3>
-          ${headerMeta}
-          ${tagsBlock}
+        <header class="inbox-modal__title-row">
+          <h3 id="inbox-modal-title" class="inbox-modal__title">${message.title}</h3>
+          ${starControl}
         </header>
+        ${headerMeta}
+        ${tagsBlock}
         ${flashBlock}
         ${bodyBlock}
         ${contextBlock}
       </div>
       <div class="inbox-detail__thread">
         ${timelineBlock}
-        ${terminalNote}
       </div>
       ${composer}
     </div>
+  `;
+}
+
+/**
+ * Composer textarea only — the submit button moves into the
+ * footer row alongside Ask triage / Dismiss. The `<form id>` lets
+ * the footer's primary button reach it via `form="inbox-reply-form"`.
+ */
+function replyComposerOnly(message: InboxMessage, triagePending: boolean): SafeHtml {
+  if (message.status === 'dismissed' || message.status === 'resolved') return html``;
+  return html`
+    <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
+      data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-composer__form">
+      <textarea name="body" rows="3" required maxlength="8192"
+        ${triagePending ? 'disabled' : ''}
+        placeholder="Describe what you tried, ask a follow-up, or note a decision. The triage agent will respond."
+        class="form-field inbox-composer__textarea"></textarea>
+    </form>
   `;
 }
 
@@ -459,31 +494,3 @@ function renderThinkingIndicator(): SafeHtml {
   `;
 }
 
-/**
- * Reply form. Disabled while triage is pending so the user can't
- * queue a second turn before the first response lands. Carries
- * `data-inbox-modal-keeps-triage` so the JS bumps the polling
- * deadline on submit (covers the race where the dag-executor
- * hasn't inserted its run row yet).
- */
-function replyForm(message: InboxMessage, triagePending: boolean): SafeHtml {
-  if (message.status === 'dismissed' || message.status === 'resolved') return html``;
-  return html`
-    <form method="POST" action="/inbox/${message.id}/respond" data-inbox-modal-form data-inbox-modal-keeps-triage="1"
-      style="margin: var(--space-3) 0 0; padding-top: var(--space-2); border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: var(--space-2);">
-      <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">
-        Reply
-      </label>
-      <textarea name="body" rows="3" required maxlength="8192"
-        ${triagePending ? 'disabled' : ''}
-        placeholder="Describe what you tried, ask a follow-up, or note a decision. The triage agent will respond."
-        class="form-field"
-        style="padding: var(--space-2); font-size: var(--font-size-sm); resize: vertical;"></textarea>
-      <div style="display: flex; justify-content: flex-end;">
-        <button type="submit" class="btn btn--sm btn--primary" ${triagePending ? 'disabled' : ''}>
-          ${triagePending ? 'Waiting on triage…' : 'Post reply'}
-        </button>
-      </div>
-    </form>
-  `;
-}

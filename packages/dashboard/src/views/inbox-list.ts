@@ -144,23 +144,32 @@ export function renderInboxList(opts: InboxListOptions): string {
 
 function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, allTags: string[]): SafeHtml {
   const tagOptions = allTags.map((t) => html`
-    <option value="${t}" ${filter.tag === t ? 'selected' : ''}>${t}</option>
+    <option value="${t}" ${filter.tag === t ? 'selected' : ''}>#${t}</option>
   `);
   const hasFilter = !!filter.q || filter.starred || !!filter.tag;
+  // Inline toolbar: chips for Starred + Tag, search with inline clear,
+  // autosubmit on change/Enter. No card border, no Apply button — the
+  // form posts itself via JS (see inbox-modal.js.ts toolbar handler).
   return html`
-    <form class="inbox-filter" method="GET" action="/inbox" style="margin: 0;">
-      <input type="text" name="q" value="${filter.q}" placeholder="Search…"
-        class="form-field inbox-filter__q" style="min-width: 14rem;">
-      <label class="inbox-filter__starred" style="font-size: var(--font-size-xs);">
-        <input type="checkbox" name="starred" value="1" ${filter.starred ? 'checked' : ''}>
-        ★ Starred
+    <form class="inbox-toolbar" method="GET" action="/inbox" role="search" data-inbox-toolbar>
+      <div class="inbox-toolbar__search">
+        <span class="inbox-toolbar__search-icon" aria-hidden="true">⌕</span>
+        <input type="text" name="q" value="${filter.q}" placeholder="Search messages…"
+          class="inbox-toolbar__q" data-inbox-toolbar-q>
+        ${filter.q ? html`<button type="button" class="inbox-toolbar__clear" data-inbox-toolbar-clear aria-label="Clear search">×</button>` : html``}
+      </div>
+      <label class="inbox-chip ${filter.starred ? 'inbox-chip--active' : ''}" data-inbox-chip>
+        <input type="checkbox" name="starred" value="1" ${filter.starred ? 'checked' : ''} data-inbox-toolbar-submit>
+        <span aria-hidden="true">★</span> Starred
       </label>
-      <select name="tag" class="form-field inbox-filter__tag">
-        <option value="">All tags</option>
-        ${tagOptions as unknown as SafeHtml[]}
-      </select>
-      <button type="submit" class="btn btn--sm btn--ghost">Apply</button>
-      ${hasFilter ? html`<a class="btn btn--sm btn--ghost" href="/inbox">Clear</a>` : html``}
+      <label class="inbox-chip inbox-chip--select ${filter.tag ? 'inbox-chip--active' : ''}">
+        <span class="inbox-chip__icon" aria-hidden="true">#</span>
+        <select name="tag" class="inbox-chip__select" data-inbox-toolbar-submit>
+          <option value="">tags</option>
+          ${tagOptions as unknown as SafeHtml[]}
+        </select>
+      </label>
+      ${hasFilter ? html`<a class="inbox-toolbar__reset" href="/inbox" aria-label="Clear all filters">Reset</a>` : html``}
     </form>
   `;
 }
@@ -268,11 +277,15 @@ function renderMain(rows: InboxMessage[]): SafeHtml {
 }
 
 function renderGroup(priority: InboxPriority, rows: InboxMessage[]): SafeHtml {
+  // Group header uses the same priority dot as the rows, so the
+  // color cue is shared between the group label and each row's
+  // priority indicator — single design language.
   return html`
-    <section class="inbox-list__group">
+    <section class="inbox-list__group" data-priority="${priority}">
       <header class="inbox-list__group-head">
-        <span>${PRIORITY_LABEL[priority]}</span>
-        <span class="inbox-list__group-count">· ${rows.length}</span>
+        <span class="inbox-modal__priority inbox-modal__priority--${priority}"></span>
+        <span class="inbox-list__group-label">${PRIORITY_LABEL[priority]}</span>
+        <span class="inbox-list__group-count">${rows.length}</span>
       </header>
       ${rows.map((m) => renderRow(m)) as unknown as SafeHtml[]}
     </section>
@@ -280,7 +293,21 @@ function renderGroup(priority: InboxPriority, rows: InboxMessage[]): SafeHtml {
 }
 
 function renderRow(m: InboxMessage): SafeHtml {
-  const tagChips = m.tags.length === 0 ? html`` : html`<span style="display: inline-flex; gap: 4px; margin-left: var(--space-1);">${m.tags.map((t) => html`<span class="inbox-tag-chip" style="font-size: 10px;">${t}</span>`) as unknown as SafeHtml[]}</span>`;
+  const tagChips = m.tags.length === 0
+    ? html``
+    : html`<span class="inbox-row2__tags">${m.tags.map((t) => html`<span class="inbox-tag-chip">${t}</span>`) as unknown as SafeHtml[]}</span>`;
+  // Agent + run link rendered inline like the modal's meta row:
+  // `agent-id · run abc12345`. Both links share the .inbox-modal__link
+  // styling so hover/focus behavior is identical.
+  const agentRunCell = (m.agentId || m.runId)
+    ? html`
+      <span class="inbox-row2__agent">
+        ${m.agentId ? html`<a href="/agents/${m.agentId}" class="inbox-modal__link mono" data-inbox-row-stop>${m.agentId}</a>` : html``}
+        ${m.agentId && m.runId ? html`<span class="inbox-modal__sep">·</span>` : html``}
+        ${m.runId ? html`<a href="/runs/${m.runId}" class="inbox-modal__link mono" data-inbox-row-stop>${m.runId.slice(0, 8)}</a>` : html``}
+      </span>
+    `
+    : html`<span class="inbox-row2__agent dim">—</span>`;
   return html`
     <div class="inbox-row2" data-inbox-row-id="${m.id}" id="row-${m.id}">
       <button type="button" class="inbox-row2__chevron" data-inbox-row-chevron
@@ -289,11 +316,10 @@ function renderRow(m: InboxMessage): SafeHtml {
         <input type="hidden" name="starred" value="${m.starred ? '0' : '1'}">
         <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
       </form>
-      <span class="badge ${PRIORITY_BADGE[m.priority]}">${m.priority}</span>
-      <span class="inbox-row2__agent">${m.agentId ?? '—'}</span>
+      <span class="inbox-modal__priority inbox-modal__priority--${m.priority}" title="${m.priority} priority"></span>
+      ${agentRunCell}
       <span class="inbox-row2__title">
-        <a href="/inbox/${m.id}" data-inbox-row-link style="text-decoration: none; color: inherit;"
-          class="inbox-row2__title-text">${m.title}</a>
+        <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>
         ${tagChips}
       </span>
       <span class="inbox-row2__age">${formatAge(new Date(m.createdAt).toISOString())}</span>
