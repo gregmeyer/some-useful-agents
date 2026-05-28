@@ -19,6 +19,7 @@ import { CSP_ALLOW_JS } from './csp-allow.js.js';
 import { CSP_IMG_REPORT_JS } from './csp-img-report.js.js';
 import { WIDGET_IMG_FALLBACK_JS } from './widget-img-fallback.js.js';
 import { INSTALL_PACKS_MODAL_JS } from './install-packs-modal.js.js';
+import { INBOX_MODAL_JS } from './inbox-modal.js.js';
 import { footer } from './footer.js';
 
 export interface LayoutOptions {
@@ -84,7 +85,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS)}</script>
 </body>
 </html>`;
 }
