@@ -1,0 +1,121 @@
+# Agent Catalog Search — helps the operator find an existing installed agent
+# that matches a natural-language query (e.g. "find me an agent that gives
+# cocktail recipes" or "any agent that monitors GitHub releases?").
+#
+# Lives in the inbox-triage sub-agent allowlist. When triage proposes a
+# `run-agent` action with `agentId: agent-catalog-search`, the inbox route
+# auto-injects `AGENT_CATALOG` (a JSON snapshot of every installed agent —
+# id, name, description, tags, source) so the LLM has the full picture
+# without needing to call any tool.
+
+id: agent-catalog-search
+name: Agent Catalog Search
+description: >
+  Searches the installed agent catalog for matches to a natural-language
+  query. Returns up to 5 ranked candidates with a one-line justification
+  each. Used by inbox triage to answer "find me an agent that does X".
+status: active
+source: examples
+
+inputs:
+  QUERY:
+    type: string
+    required: true
+    description: >
+      The natural-language question or capability the operator is
+      looking for (e.g. "cocktail recipes", "find PRs that need review",
+      "monitor weather"). Comes from the inbox conversation.
+  AGENT_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: >
+      JSON snapshot of installed agents. Each entry has
+      `{id, name, description, tags, source, status}`. Auto-injected by
+      the inbox route at action-run time.
+
+nodes:
+  - id: search
+    type: llm-prompt
+    prompt: |
+      You are the Agent Catalog Search agent for the sua platform. The
+      operator is looking for an existing agent that matches a query.
+      Your job is to scan the catalog below and return up to 5 ranked
+      matches.
+
+      IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob, or
+      any file/search tools. The catalog is the complete, authoritative
+      list. If nothing in it matches, say so — do not go searching for
+      more.
+
+      ════════════════════════════════════════════════════════════════
+      QUERY
+      ════════════════════════════════════════════════════════════════
+
+      {{inputs.QUERY}}
+
+      ════════════════════════════════════════════════════════════════
+      INSTALLED AGENT CATALOG (JSON array)
+      ════════════════════════════════════════════════════════════════
+
+      {{inputs.AGENT_CATALOG}}
+
+      ════════════════════════════════════════════════════════════════
+      RANKING RULES
+      ════════════════════════════════════════════════════════════════
+
+      - Prefer agents whose `description` or `tags` directly match the
+        query topic. A semantic match counts (e.g. "weather-forecast"
+        matches "tell me about the weather").
+      - Skip agents whose `status` is not `active` unless nothing
+        active matches — in that case include them but mark
+        `note: "inactive"`.
+      - Skip system / scaffolding agents (`inbox-triage`,
+        `agent-analyzer`, `agent-editor`, `agent-catalog-search`,
+        `agent-builder`, `agent-drafter`, `goal-surveyor`,
+        `build-planner`, `layout-planner`, `dashboard-designer`)
+        unless the user is explicitly asking about agent-creation or
+        platform tooling.
+      - Rank by relevance. Score 1.0 = perfect match, 0.0 = no signal.
+      - Cap at 5 matches. If nothing scores above 0.3, return zero
+        matches and put a short explanation in `recommendation`.
+
+      ════════════════════════════════════════════════════════════════
+      OUTPUT FORMAT — exact shape, single <matches>...</matches> block
+      ════════════════════════════════════════════════════════════════
+
+      Wrap the JSON in <matches>…</matches> tags. Output ONLY the
+      <matches> block — no preamble, no markdown fences. Example:
+
+      <matches>
+      {
+        "query": "{{inputs.QUERY}}",
+        "recommendation": "Two installed agents match. weather-forecast is the closest fit; weather-stub is a development stand-in.",
+        "matches": [
+          {
+            "agentId": "weather-forecast",
+            "name": "Weather Forecast",
+            "score": 0.92,
+            "why": "Pulls current weather for a configurable city. Direct match."
+          },
+          {
+            "agentId": "weather-stub",
+            "name": "Weather Stub",
+            "score": 0.45,
+            "why": "Dev-only stub that returns canned weather data."
+          }
+        ]
+      }
+      </matches>
+
+      When nothing matches:
+
+      <matches>
+      {
+        "query": "{{inputs.QUERY}}",
+        "recommendation": "No installed agent covers this. Closest neighbors were daily-summary and research-digest, neither targets the requested topic.",
+        "matches": []
+      }
+      </matches>
+    maxTurns: 2
+    timeout: 60

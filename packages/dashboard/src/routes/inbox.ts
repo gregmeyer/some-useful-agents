@@ -69,7 +69,23 @@ const PENDING_USER_REPLY_WINDOW_MS = 30_000;
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
   'agent-editor',
+  'agent-catalog-search',
 ];
+
+/**
+ * Agent ids that are themselves part of the inbox-triage scaffolding —
+ * they exist to make triage work, not as candidates to recommend back
+ * to the operator. `agent-catalog-search` filters these out of its
+ * result set so "find me an agent that does X" never proposes a system
+ * agent. Kept here (vs in the YAML) so the list stays in sync with the
+ * allowlist as new sub-agents are added.
+ */
+const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
+  'inbox-triage',
+  'agent-analyzer',
+  'agent-editor',
+  'agent-catalog-search',
+]);
 
 /**
  * Agent IDs handled by the route directly rather than dispatched as a
@@ -597,6 +613,37 @@ function enrichAgentAnalyzerInputs(
 }
 
 /**
+ * Inject `AGENT_CATALOG` into agent-catalog-search inputs: a JSON array
+ * of installed-agent metadata (id, name, description, tags, source,
+ * status) excluding system/scaffolding agents. The catalog-search
+ * agent's prompt also self-filters, but stripping here saves prompt
+ * tokens and prevents the LLM from accidentally proposing a system
+ * agent even on edge cases.
+ */
+function enrichAgentCatalogSearchInputs(
+  ctx: ReturnType<typeof getContext>,
+  inputs: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...inputs };
+  if (out.AGENT_CATALOG && out.AGENT_CATALOG.trim().length > 0) return out;
+  try {
+    const agents = ctx.agentStore.listAgents();
+    const catalog = agents
+      .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description ?? '',
+        tags: a.tags ?? [],
+        source: a.source,
+        status: a.status,
+      }));
+    out.AGENT_CATALOG = JSON.stringify(catalog);
+  } catch { /* swallow — empty catalog still lets the agent respond "no matches" */ }
+  return out;
+}
+
+/**
  * Distilled version of run-now-build.ts's run-output collector:
  * grab the latest completed run's result + the latest failed run's
  * error/output, cap at 3000 chars. Empty string when neither exists.
@@ -729,14 +776,15 @@ async function runProposedAction(
     return;
   }
 
-  // Per-agent input enrichment. Today only agent-analyzer needs
-  // server-side help (the AGENT_YAML it requires is heavy and lives in
-  // the agentStore, not in triage's prompt context). Future allowlist
-  // entries can add their own case here.
+  // Per-agent input enrichment. Triage's prompt context can't carry
+  // heavyweight inputs (full agent YAMLs, catalog snapshots), so we
+  // inject them here at action-run time based on agentId.
   let effectiveInputs = meta.inputs;
   if (meta.agentId === 'agent-analyzer') {
     const parentMessage = ctx.inboxStore.get(messageId);
     effectiveInputs = enrichAgentAnalyzerInputs(ctx, parentMessage?.agentId, meta.inputs);
+  } else if (meta.agentId === 'agent-catalog-search') {
+    effectiveInputs = enrichAgentCatalogSearchInputs(ctx, meta.inputs);
   }
 
   let runId: string | undefined;
