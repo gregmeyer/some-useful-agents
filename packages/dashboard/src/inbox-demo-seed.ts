@@ -9,11 +9,55 @@
  * data, no recurring inserts.
  */
 
-import type { InboxStore } from '@some-useful-agents/core';
+import { parseAgent, type AgentStore, type InboxStore } from '@some-useful-agents/core';
 
-export function seedInboxDemoIfRequested(store: InboxStore | undefined): void {
+/**
+ * Stub YAML for `demo-failing-agent`. The Inbox demo seed references
+ * this agent by id; when triage proposes running agent-analyzer on
+ * the failing-run message, the inbox route exports this agent's YAML
+ * as AGENT_YAML input. Without it, the action runs with a missing
+ * required input and fails immediately.
+ *
+ * The YAML deliberately uses an invalid tool reference (`shell-exec`)
+ * so agent-analyzer has a real failure to diagnose — matches the
+ * demo message body ("shell-exec: command not found").
+ */
+const DEMO_FAILING_AGENT_YAML = [
+  'id: demo-failing-agent',
+  'name: Demo failing agent',
+  'description: Sample agent that fails with exit 1 — used by the inbox demo.',
+  'source: examples',
+  'nodes:',
+  '  - id: greet',
+  '    type: shell',
+  '    command: echo hello',
+  '  - id: fail',
+  '    type: shell',
+  '    command: shell-exec ls',
+  '    dependsOn: [greet]',
+].join('\n');
+
+export function seedInboxDemoIfRequested(
+  store: InboxStore | undefined,
+  agentStore?: AgentStore,
+): void {
   if (!store) return;
   if (process.env.SUA_INBOX_DEMO !== '1') return;
+
+  // Install the demo failing agent so triage's action-loop can
+  // actually run agent-analyzer on it. Idempotent — upsertAgent
+  // skips when the YAML hasn't changed.
+  if (agentStore && !agentStore.getAgent('demo-failing-agent')) {
+    try {
+      const parsed = parseAgent(DEMO_FAILING_AGENT_YAML);
+      agentStore.upsertAgent(parsed, 'import', 'Inbox demo seed');
+    } catch (err) {
+      process.stderr.write(
+        `[inbox-demo-seed] could not install demo-failing-agent: ${(err as Error)?.message ?? String(err)}\n`,
+      );
+    }
+  }
+
   // Only seed if empty so daemon restarts don't accumulate duplicates
   // (dedupe_key would catch them anyway, but the empty-check makes
   // the intent explicit).
