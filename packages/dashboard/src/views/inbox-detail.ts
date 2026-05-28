@@ -1,4 +1,10 @@
-import type { InboxMessage, InboxResponse, InboxResponseRole } from '@some-useful-agents/core';
+import type {
+  InboxMessage,
+  InboxResponse,
+  InboxResponseRole,
+  InboxActionMeta,
+  InboxActionStatus,
+} from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -34,6 +40,7 @@ const ROLE_LABEL: Record<InboxResponseRole, string> = {
   user: 'You',
   triage: 'Triage agent',
   system: 'System',
+  action: 'Proposed action',
 };
 
 /** Two-character avatar text per role (mirrors Slack-style avatars). */
@@ -41,6 +48,17 @@ const ROLE_AVATAR: Record<InboxResponseRole, string> = {
   user: 'You',
   triage: 'Tri',
   system: 'Sys',
+  action: 'Act',
+};
+
+/** Human label for each action-card status. */
+const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
+  proposed: 'Proposed',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  skipped: 'Skipped',
+  refused: 'Refused',
 };
 
 /**
@@ -194,9 +212,12 @@ function pretty(raw: string): string {
 /**
  * Slack-style conversation entry: avatar + name + time + body. The
  * `data-msg-id` attribute lets the modal JS detect new entries
- * between refreshes and animate them in once.
+ * between refreshes and animate them in once. `action`-role rows
+ * branch to a card renderer that surfaces Run / Skip controls + the
+ * sub-agent's status.
  */
 function renderConversationEntry(r: InboxResponse): SafeHtml {
+  if (r.role === 'action') return renderActionEntry(r);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
   return html`
@@ -211,6 +232,150 @@ function renderConversationEntry(r: InboxResponse): SafeHtml {
       </div>
     </div>
   `;
+}
+
+/**
+ * Inline parse of an action-role response's `meta_json`. Mirrors the
+ * route's `parseActionMeta` (deliberately duplicated to keep the
+ * view's import surface from leaking into route helpers).
+ */
+function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
+  if (r.role !== 'action' || !r.metaJson) return null;
+  try {
+    const parsed = JSON.parse(r.metaJson) as Partial<InboxActionMeta>;
+    if (parsed && parsed.kind === 'action'
+      && typeof parsed.agentId === 'string'
+      && typeof parsed.status === 'string') {
+      return parsed as InboxActionMeta;
+    }
+  } catch { /* swallow */ }
+  return null;
+}
+
+/** Render an action-role row as a card whose body depends on status. */
+function renderActionEntry(r: InboxResponse): SafeHtml {
+  const meta = parseActionMeta(r);
+  if (!meta) {
+    // Malformed action row — fall back to plain rendering so the
+    // operator at least sees the body text.
+    return html`
+      <div class="inbox-msg" data-msg-id="${r.id}">
+        <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
+        <div class="inbox-msg__body">
+          <div class="inbox-msg__meta"><span class="inbox-msg__meta-name">Action (malformed)</span></div>
+          <div class="inbox-msg__text">${r.body}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  const statusLabel = ACTION_STATUS_LABEL[meta.status] ?? meta.status;
+  const inputsRendered = renderActionInputs(meta.inputs);
+  const messageId = '__inbox_message_id__'; // hijacked from form action below
+
+  // Drives modal-poll keep-alive while the action is running.
+  const runningAttr = meta.status === 'running' ? 'data-action-running="1"' : '';
+
+  const controlsBlock = meta.status === 'proposed'
+    ? html`
+      <div class="inbox-action__controls">
+        <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/run"
+          data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin:0;">
+          <button type="submit" class="btn btn--xs btn--primary">Run</button>
+        </form>
+        <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/skip"
+          data-inbox-modal-form style="margin:0;">
+          <button type="submit" class="btn btn--xs btn--ghost">Skip</button>
+        </form>
+      </div>
+    `
+    : html``;
+  void messageId;
+
+  const detailBlock = renderActionStatusBody(meta);
+
+  return html`
+    <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
+      <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
+      <div class="inbox-msg__body">
+        <div class="inbox-msg__meta">
+          <span class="inbox-msg__meta-name">Triage proposed</span>
+          <span class="inbox-action__status">${statusLabel}</span>
+          <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
+        </div>
+        <div class="inbox-action__card">
+          <div class="inbox-action__headline">
+            Run agent <span class="mono">${meta.agentId}</span>
+            ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
+          </div>
+          ${meta.rationale ? html`<div class="inbox-action__rationale">${meta.rationale}</div>` : html``}
+          ${inputsRendered}
+          ${detailBlock}
+          ${controlsBlock}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderActionInputs(inputs: Record<string, string>): SafeHtml {
+  const keys = Object.keys(inputs);
+  if (keys.length === 0) return html``;
+  const rows = keys.map((k) => html`
+    <li><span class="inbox-action__input-key mono">${k}</span> <span class="inbox-action__input-val mono">${inputs[k]}</span></li>
+  `);
+  return html`
+    <ul class="inbox-action__inputs">${rows as unknown as SafeHtml[]}</ul>
+  `;
+}
+
+function renderActionStatusBody(meta: InboxActionMeta): SafeHtml {
+  switch (meta.status) {
+    case 'proposed':
+      return html``;
+    case 'running':
+      return html`
+        <div class="inbox-action__running">
+          Running
+          <span class="inbox-thinking__dots"><span></span><span></span><span></span></span>
+        </div>
+      `;
+    case 'completed': {
+      const dur = formatDuration(meta);
+      const preview = meta.resultSummary?.trim();
+      return html`
+        <div class="inbox-action__result inbox-action__result--ok">
+          Completed${dur ? ` in ${dur}` : ''}.
+          ${preview ? html`<pre class="inbox-action__preview mono">${preview}</pre>` : html``}
+        </div>
+      `;
+    }
+    case 'failed':
+      return html`
+        <div class="inbox-action__result inbox-action__result--err">
+          Failed${formatDuration(meta) ? ` after ${formatDuration(meta)}` : ''}.
+          ${meta.refusalReason ? html`<div class="inbox-action__reason">${meta.refusalReason}</div>` : html``}
+        </div>
+      `;
+    case 'skipped':
+      return html`<div class="inbox-action__result inbox-action__result--muted">Skipped by operator.</div>`;
+    case 'refused':
+      return html`
+        <div class="inbox-action__result inbox-action__result--err">
+          Refused. ${meta.refusalReason ? html`<span>${meta.refusalReason}</span>` : html``}
+        </div>
+      `;
+    default:
+      return html``;
+  }
+}
+
+function formatDuration(meta: InboxActionMeta): string {
+  if (typeof meta.startedAt !== 'number' || typeof meta.endedAt !== 'number') return '';
+  const ms = meta.endedAt - meta.startedAt;
+  if (ms < 0) return '';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 /** Pulsing-dots "Triage agent is thinking…" indicator. */

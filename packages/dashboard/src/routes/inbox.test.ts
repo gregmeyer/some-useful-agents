@@ -365,6 +365,106 @@ describe('Row + fragment rendering for star + tags', () => {
   });
 });
 
+describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
+  // The action lifecycle routes operate on `action`-role responses
+  // that triage would normally insert when its <plan> includes an
+  // `actions[]` array. Here we insert proposed rows directly via the
+  // InboxStore — same shape, no LLM round-trip — and exercise the
+  // transitions.
+
+  function proposeAction(messageId: string, agentId: string, rationale: string) {
+    return inboxStore.addResponse(messageId, 'action', rationale, JSON.stringify({
+      kind: 'action',
+      status: 'proposed',
+      agentId,
+      inputs: { TOPIC: 'demo' },
+      rationale,
+    }));
+  }
+
+  it('/skip transitions a proposed action to skipped', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const res = await request(app)
+      .post(`/inbox/${m.id}/actions/${r.id}/skip`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+    const after = inboxStore.getResponse(r.id);
+    expect(after).not.toBeNull();
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('skipped');
+    expect(typeof meta.endedAt).toBe('number');
+  });
+
+  it('/skip on a non-proposed row returns 409', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    inboxStore.updateResponse(r.id, {
+      metaJson: JSON.stringify({ kind: 'action', status: 'skipped', agentId: 'suggest-improvements', inputs: {} }),
+    });
+    const res = await request(app)
+      .post(`/inbox/${m.id}/actions/${r.id}/skip`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(409);
+  });
+
+  it('/skip on a non-existent rid returns 409', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const res = await request(app)
+      .post(`/inbox/${m.id}/actions/nope/skip`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(409);
+  });
+
+  it('/skip with rid that belongs to a different message returns 409', async () => {
+    const app = await makeApp();
+    const m1 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'a' });
+    const m2 = inboxStore.add({ priority: 'medium', source: 'manual', title: 'b', body: 'b' });
+    const r = proposeAction(m1.id, 'suggest-improvements', 'r');
+    const res = await request(app)
+      .post(`/inbox/${m2.id}/actions/${r.id}/skip`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(409);
+  });
+
+  it('/run on a proposed action returns 204 and transitions meta off "proposed"', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    const res = await request(app)
+      .post(`/inbox/${m.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // Returns 204 immediately; the agent runs fire-and-forget.
+    expect(res.status).toBe(204);
+    // Give the dispatcher a tick to enter the running state. The
+    // sub-agent isn't installed in this test setup so the row will
+    // promptly settle in `failed` ("agent not installed") rather than
+    // hanging in `running` — either is "not proposed" and that's what
+    // we assert.
+    await new Promise((r) => setTimeout(r, 30));
+    const after = inboxStore.getResponse(r.id);
+    expect(after).not.toBeNull();
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).not.toBe('proposed');
+  });
+
+  it('/run on a non-proposed row returns 409', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const r = proposeAction(m.id, 'suggest-improvements', 'try it');
+    inboxStore.updateResponse(r.id, {
+      metaJson: JSON.stringify({ kind: 'action', status: 'completed', agentId: 'suggest-improvements', inputs: {} }),
+    });
+    const res = await request(app)
+      .post(`/inbox/${m.id}/actions/${r.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(409);
+  });
+});
+
 describe('POST /inbox/:id/triage', () => {
   it('returns 204 (AJAX) and inserts a synthetic "Asked triage" user marker', async () => {
     const app = await makeApp();

@@ -39,8 +39,46 @@ export type InboxStatus = typeof INBOX_STATUSES[number];
 export const INBOX_SOURCES = ['run-failure', 'permission-request', 'cadence', 'manual'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
-export const INBOX_RESPONSE_ROLES = ['user', 'triage', 'system'] as const;
+export const INBOX_RESPONSE_ROLES = ['user', 'triage', 'system', 'action'] as const;
 export type InboxResponseRole = typeof INBOX_RESPONSE_ROLES[number];
+
+/**
+ * Lifecycle for an `action`-role response (triage proposing a sub-agent
+ * run). State transitions: `proposed` → `running` → `completed | failed`,
+ * or `proposed` → `skipped`. `refused` is terminal when allowlist /
+ * depth checks reject the proposal at insert time.
+ */
+export const INBOX_ACTION_STATUSES = [
+  'proposed',
+  'running',
+  'completed',
+  'failed',
+  'skipped',
+  'refused',
+] as const;
+export type InboxActionStatus = typeof INBOX_ACTION_STATUSES[number];
+
+/**
+ * Structured payload stored in `inbox_responses.meta_json` for
+ * `action`-role rows. The view + route read this to drive Run/Skip
+ * buttons and status rendering; the body field is just a
+ * human-readable rationale.
+ */
+export interface InboxActionMeta {
+  kind: 'action';
+  status: InboxActionStatus;
+  agentId: string;
+  inputs: Record<string, string>;
+  rationale?: string;
+  /** Sub-agent run id once execution starts. */
+  runId?: string;
+  startedAt?: number;
+  endedAt?: number;
+  /** First ~500 chars of the sub-agent's terminal output. */
+  resultSummary?: string;
+  /** Set when status is `refused` or `failed`. */
+  refusalReason?: string;
+}
 
 export interface InboxMessage {
   id: string;
@@ -445,6 +483,49 @@ export class InboxStore {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, messageId, now, role, body, metaJson ?? null);
     return { id, messageId, createdAt: now, role, body, metaJson };
+  }
+
+  /**
+   * Fetch a single response row by id. Used by the action-execution
+   * routes (`/inbox/:id/actions/:rid/run|skip`) to load the proposed
+   * action and verify it's still in `proposed` state before mutating.
+   */
+  getResponse(id: string): InboxResponse | null {
+    const row = this.db.prepare(
+      `SELECT id, message_id, created_at, role, body, meta_json
+        FROM inbox_responses WHERE id = ?`,
+    ).get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToResponse(row) : null;
+  }
+
+  /**
+   * Update an existing response's body and/or meta_json. Used to
+   * transition `action` rows through their lifecycle (proposed →
+   * running → completed). Pass `undefined` to leave a field
+   * unchanged; pass `null` for `metaJson` to clear it.
+   */
+  updateResponse(
+    id: string,
+    patch: { body?: string; metaJson?: string | null },
+  ): void {
+    const fields: string[] = [];
+    const params: (string | null)[] = [];
+    if (patch.body !== undefined) {
+      fields.push('body = ?');
+      params.push(patch.body);
+    }
+    if (patch.metaJson !== undefined) {
+      fields.push('meta_json = ?');
+      params.push(patch.metaJson);
+    }
+    if (fields.length === 0) return;
+    params.push(id);
+    const result = this.db.prepare(
+      `UPDATE inbox_responses SET ${fields.join(', ')} WHERE id = ?`,
+    ).run(...params);
+    if (result.changes === 0) {
+      throw new Error(`InboxStore.updateResponse: no response with id "${id}"`);
+    }
   }
 
   listResponses(messageId: string): InboxResponse[] {

@@ -2111,6 +2111,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg__avatar--user { background: var(--color-primary, #2dd4bf); }
 .inbox-msg__avatar--triage { background: var(--color-info, #60a5fa); }
 .inbox-msg__avatar--system { background: var(--color-text-muted, #8b93a7); }
+.inbox-msg__avatar--action { background: var(--color-warn, #f59e0b); }
 .inbox-msg__body { flex: 1; min-width: 0; }
 .inbox-msg__meta {
   font-size: var(--font-size-xs);
@@ -2286,4 +2287,107 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-detail__thread {
   margin-top: var(--space-2);
+}
+
+/* ---------- Inbox conversation: action cards ---------- */
+/* When triage proposes running a sub-agent it lands in the thread as
+ * an `action`-role response. The card surfaces the agentId + inputs +
+ * a rationale, plus Run/Skip controls while status="proposed". As
+ * lifecycle ticks through running → completed/failed/skipped, the
+ * controls disappear and the status body fills in. */
+.inbox-action__status {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: var(--weight-semibold);
+  padding: 1px 6px;
+  border-radius: 2px;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+.inbox-action--proposed .inbox-action__status { color: var(--color-warn, #f59e0b); }
+.inbox-action--running .inbox-action__status { color: var(--color-info, #60a5fa); }
+.inbox-action--completed .inbox-action__status { color: var(--color-ok, #34d399); }
+.inbox-action--failed .inbox-action__status,
+.inbox-action--refused .inbox-action__status { color: var(--color-danger, #f87171); }
+.inbox-action--skipped .inbox-action__status { color: var(--color-text-muted); }
+
+.inbox-action__card {
+  margin-top: 4px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-warn, #f59e0b);
+  border-radius: var(--radius-sm, 4px);
+}
+.inbox-action--running .inbox-action__card { border-left-color: var(--color-info, #60a5fa); }
+.inbox-action--completed .inbox-action__card { border-left-color: var(--color-ok, #34d399); }
+.inbox-action--failed .inbox-action__card,
+.inbox-action--refused .inbox-action__card { border-left-color: var(--color-danger, #f87171); }
+.inbox-action--skipped .inbox-action__card { border-left-color: var(--color-text-muted); opacity: 0.7; }
+
+.inbox-action__headline {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-semibold);
+}
+.inbox-action__rationale {
+  margin-top: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.inbox-action__inputs {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--font-size-xs);
+}
+.inbox-action__inputs li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.inbox-action__input-key {
+  color: var(--color-text-muted);
+}
+.inbox-action__input-val {
+  color: var(--color-text);
+}
+.inbox-action__controls {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}
+.inbox-action__running {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-info, #60a5fa);
+}
+.inbox-action__result {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+.inbox-action__result--ok { color: var(--color-text); }
+.inbox-action__result--err { color: var(--color-danger, #f87171); }
+.inbox-action__result--muted { color: var(--color-text-muted); }
+.inbox-action__preview {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--color-surface-raised, #1f2430);
+  border-radius: 3px;
+  font-size: var(--font-size-xs);
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.inbox-action__reason {
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }

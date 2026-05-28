@@ -166,6 +166,47 @@ describe('InboxStore.addResponse + listResponses', () => {
     const responses = store.listResponses(m.id);
     expect(responses[0].metaJson).toBe('{"host":"apod.nasa.gov"}');
   });
+
+  it('accepts the `action` role for sub-agent proposals', () => {
+    const m = addMinimal();
+    const meta = JSON.stringify({
+      kind: 'action', status: 'proposed', agentId: 'suggest-improvements',
+      inputs: { TOPIC: 't' }, rationale: 'try it',
+    });
+    const r = store.addResponse(m.id, 'action', 'Run suggest-improvements.', meta);
+    expect(r.role).toBe('action');
+    const fetched = store.getResponse(r.id);
+    expect(fetched?.role).toBe('action');
+    expect(fetched?.metaJson).toBe(meta);
+  });
+});
+
+describe('InboxStore.getResponse + updateResponse', () => {
+  it('getResponse returns null for unknown ids', () => {
+    expect(store.getResponse('nope')).toBeNull();
+  });
+
+  it('updateResponse patches body and/or metaJson, leaves untouched fields alone', () => {
+    const m = addMinimal();
+    const r = store.addResponse(m.id, 'action', 'initial', JSON.stringify({ kind: 'action', status: 'proposed', agentId: 'x', inputs: {} }));
+    store.updateResponse(r.id, { metaJson: JSON.stringify({ kind: 'action', status: 'running', agentId: 'x', inputs: {}, startedAt: 1 }) });
+    const after = store.getResponse(r.id);
+    expect(after?.body).toBe('initial');
+    expect(JSON.parse(after!.metaJson!).status).toBe('running');
+    store.updateResponse(r.id, { body: 'updated body' });
+    expect(store.getResponse(r.id)?.body).toBe('updated body');
+  });
+
+  it('updateResponse with metaJson=null clears the meta', () => {
+    const m = addMinimal();
+    const r = store.addResponse(m.id, 'action', 'b', JSON.stringify({ kind: 'action', status: 'proposed', agentId: 'x', inputs: {} }));
+    store.updateResponse(r.id, { metaJson: null });
+    expect(store.getResponse(r.id)?.metaJson).toBeUndefined();
+  });
+
+  it('updateResponse throws on unknown id', () => {
+    expect(() => store.updateResponse('nope', { body: 'x' })).toThrow(/no response with id/);
+  });
 });
 
 describe('InboxStore.findByDedupeKey', () => {
