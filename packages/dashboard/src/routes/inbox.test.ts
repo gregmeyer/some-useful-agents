@@ -94,11 +94,13 @@ describe('GET /inbox', () => {
     const app = await makeApp();
     const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Inbox zero');
+    // Redesigned inbox shows the "All clear" suggested-actions banner
+    // when the inbox is empty.
+    expect(res.text).toContain('All clear');
     expect(res.text).toMatch(/<a href="\/inbox"[^>]*class="is-active"/);
   });
 
-  it('renders one sortable table; rows carry data-inbox-row-id; modal shell is present + hidden', async () => {
+  it('renders gridded rows grouped by priority; rows carry data-inbox-row-id; modal shell is present + hidden', async () => {
     const app = await makeApp();
     inboxStore.add({ priority: 'low', source: 'cadence', title: 'low-pri', body: 'x' });
     const high = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'foo', title: 'high-pri', body: 'y' });
@@ -106,29 +108,33 @@ describe('GET /inbox', () => {
 
     const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(200);
-    expect((res.text.match(/<table class="table inbox-table">/g) ?? []).length).toBe(1);
+    expect(res.text).toContain('class="inbox-list"');
     expect(res.text).toContain(`data-inbox-row-id="${high.id}"`);
+    // High-priority group renders above low-priority group.
     expect(res.text.indexOf('high-pri')).toBeLessThan(res.text.indexOf('low-pri'));
     expect(res.text).toContain('id="inbox-modal"');
     expect(res.text).toMatch(/id="inbox-modal"[^>]*hidden/);
+    // New header chrome.
+    expect(res.text).toContain('id="inbox-new-conversation"');
+    expect(res.text).toContain('id="inbox-shell"');
   });
 
-  it('honours ?sort=source&dir=asc and shows the ↑ indicator on the active column', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'low', source: 'run-failure', title: 'R', body: 'x' });
-    inboxStore.add({ priority: 'low', source: 'cadence', title: 'C', body: 'y' });
-    const res = await request(app).get('/inbox?sort=source&dir=asc').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    expect(res.text.indexOf('>C<')).toBeLessThan(res.text.indexOf('>R<'));
-    expect(res.text).toMatch(/Source ↑/);
-  });
-
-  it('falls back to defaults for unknown sort / dir', async () => {
+  it('groups rows by priority and lists high → medium → low', async () => {
     const app = await makeApp();
     inboxStore.add({ priority: 'high', source: 'run-failure', title: 'H', body: 'x' });
     inboxStore.add({ priority: 'low', source: 'cadence', title: 'L', body: 'y' });
-    const res = await request(app).get('/inbox?sort=nope&dir=sideways').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.text.indexOf('>H<')).toBeLessThan(res.text.indexOf('>L<'));
+  });
+
+  it('renders the favorited rail with starred messages', async () => {
+    const app = await makeApp();
+    const starred = inboxStore.add({ priority: 'medium', source: 'manual', title: 'pinned', body: 'b' });
+    inboxStore.setStarred(starred.id, true);
+    inboxStore.add({ priority: 'low', source: 'cadence', title: 'unpinned', body: 'b' });
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('class="inbox-rail"');
+    expect(res.text).toContain(`data-inbox-rail-id="${starred.id}"`);
   });
 });
 
@@ -714,6 +720,46 @@ describe('POST /inbox/:id/actions/:rid/run — agent-editor write path', () => {
     expect(res2.status).toBe(204);
     await new Promise((r) => setTimeout(r, 30));
     expect(agentStore.getAgent('target-i')?.version).toBe(v1);
+  });
+});
+
+describe('POST /inbox/new', () => {
+  it('AJAX: returns 204 with X-Inbox-Id header pointing at a fresh manual row', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/new')
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send('title=My+new+thread');
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+    const row = inboxStore.get(id);
+    expect(row).not.toBeNull();
+    expect(row!.source).toBe('manual');
+    expect(row!.title).toBe('My new thread');
+    expect(row!.priority).toBe('medium');
+  });
+
+  it('plain form: redirects 303 to /inbox/:id', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/new')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send('title=Hello');
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/inbox\/[a-f0-9-]+$/);
+  });
+
+  it('empty title falls back to "New conversation"', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/new')
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send('title=');
+    expect(res.status).toBe(204);
+    const row = inboxStore.get(res.headers['x-inbox-id']);
+    expect(row!.title).toBe('New conversation');
   });
 });
 

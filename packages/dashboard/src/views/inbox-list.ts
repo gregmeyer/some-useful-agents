@@ -1,10 +1,28 @@
 import type { InboxMessage, InboxPriority, InboxSource } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { pageHeader } from './page-header.js';
 import { formatAge } from './components.js';
 import { renderInboxModalShell } from './inbox-modal.js';
 
+/**
+ * /inbox — Linear-meets-Slack productivity surface.
+ *
+ * Layout:
+ *   [page header — title + filter + "+ New conversation" button]
+ *   [Suggested next actions banner — collapsible]
+ *   [two-col grid]
+ *     ├─ left rail (collapsible): starred threads, ordered by recency
+ *     └─ main: priority-grouped list of gridded rows with inline preview
+ *
+ * Row click opens the existing modal (no nav). Chevron on each row
+ * toggles an inline preview (body excerpt + "open thread") so the
+ * operator can triage without leaving the page.
+ */
+
+// Sort keys are kept for backward compatibility — the route still
+// parses them and the type union is referenced by the route file —
+// but the redesigned list groups by priority and orders within groups
+// by createdAt DESC, so the operator-visible sort is fixed.
 export type InboxSortKey = 'priority' | 'source' | 'agent' | 'title' | 'age' | 'status';
 export type InboxSortDir = 'asc' | 'desc';
 
@@ -13,21 +31,13 @@ export interface InboxListOptions {
   sort: InboxSortKey;
   dir: InboxSortDir;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
-  /** Current filter state, used to repopulate the search bar. */
   filter?: { q: string; starred: boolean; tag: string };
-  /** All tags currently in use across the inbox, for the tag dropdown. */
   allTags?: string[];
 }
 
 export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
   sort: 'priority',
   dir: 'asc',
-};
-
-const PRIORITY_BADGE: Record<InboxPriority, string> = {
-  high: 'badge--warn',
-  medium: 'badge--info',
-  low: 'badge--muted',
 };
 
 const SOURCE_LABEL: Record<InboxSource, string> = {
@@ -37,175 +47,277 @@ const SOURCE_LABEL: Record<InboxSource, string> = {
   'manual': 'Manual',
 };
 
-const SOURCE_BADGE: Record<InboxSource, string> = {
-  'run-failure': 'badge--warn',
-  'permission-request': 'badge--info',
-  'cadence': 'badge--muted',
-  'manual': 'badge--muted',
+const PRIORITY_LABEL: Record<InboxPriority, string> = {
+  high: 'High priority',
+  medium: 'Medium',
+  low: 'Low',
 };
 
-const PRIORITY_RANK: Record<InboxPriority, number> = { high: 0, medium: 1, low: 2 };
+const PRIORITY_BADGE: Record<InboxPriority, string> = {
+  high: 'badge--warn',
+  medium: 'badge--info',
+  low: 'badge--muted',
+};
 
 /**
- * Client-side sort. Keeps the store API focused on its canonical
- * priority+age order and lets the UI own presentation.
+ * Lightweight rules for the suggested-actions banner. Pure functions
+ * over the loaded rows — no LLM call, no I/O. Deterministic so
+ * operators can predict what they'll see.
  */
-export function sortMessages(
-  rows: InboxMessage[],
-  sort: InboxSortKey,
-  dir: InboxSortDir,
-): InboxMessage[] {
-  const sign = dir === 'asc' ? 1 : -1;
-  const copy = rows.slice();
-  copy.sort((a, b) => {
-    switch (sort) {
-      case 'priority':
-        return sign * (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority])
-          || (b.createdAt - a.createdAt);
-      case 'age':
-        return dir === 'asc' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt;
-      case 'source':
-        return sign * a.source.localeCompare(b.source) || (b.createdAt - a.createdAt);
-      case 'agent':
-        return sign * (a.agentId ?? '').localeCompare(b.agentId ?? '') || (b.createdAt - a.createdAt);
-      case 'title':
-        return sign * a.title.localeCompare(b.title);
-      case 'status':
-        return sign * a.status.localeCompare(b.status) || (b.createdAt - a.createdAt);
-      default:
-        return 0;
-    }
-  });
-  return copy;
+function buildSuggestions(rows: InboxMessage[]): Array<{ label: string; count: number; href?: string; tag: string }> {
+  const out: Array<{ label: string; count: number; href?: string; tag: string }> = [];
+  const open = rows.filter((r) => r.status === 'open' || r.status === 'triaged');
+  const highOpen = open.filter((r) => r.priority === 'high');
+  const untriaged = open.filter((r) => r.status === 'open');
+  const awaiting = rows.filter((r) => r.status === 'awaiting_user');
+
+  if (highOpen.length > 0) {
+    out.push({
+      label: `Resolve high-priority items`,
+      count: highOpen.length,
+      tag: 'high-priority',
+      href: highOpen[0] ? `#row-${highOpen[0].id}` : undefined,
+    });
+  }
+  if (untriaged.length > 0) {
+    out.push({
+      label: `Triage untriaged messages`,
+      count: untriaged.length,
+      tag: 'untriaged',
+      href: untriaged[0] ? `#row-${untriaged[0].id}` : undefined,
+    });
+  }
+  if (awaiting.length > 0) {
+    out.push({
+      label: `Reply to triage`,
+      count: awaiting.length,
+      tag: 'awaiting',
+      href: awaiting[0] ? `#row-${awaiting[0].id}` : undefined,
+    });
+  }
+  return out;
 }
 
-function sortUrl(col: InboxSortKey, current: { sort: InboxSortKey; dir: InboxSortDir }): string {
-  const sameCol = col === current.sort;
-  const dir: InboxSortDir = sameCol
-    ? (current.dir === 'asc' ? 'desc' : 'asc')
-    : (col === 'age' || col === 'status') ? 'desc' : 'asc';
-  const params = new URLSearchParams();
-  if (col !== INBOX_DEFAULT_SORT.sort) params.set('sort', col);
-  if (dir !== INBOX_DEFAULT_SORT.dir || col !== INBOX_DEFAULT_SORT.sort) params.set('dir', dir);
-  const qs = params.toString();
-  return qs ? `/inbox?${qs}` : '/inbox';
-}
-
-function sortIndicator(col: InboxSortKey, current: { sort: InboxSortKey; dir: InboxSortDir }): string {
-  if (col !== current.sort) return '';
-  return current.dir === 'asc' ? ' ↑' : ' ↓';
-}
-
-/**
- * Single sortable grid. Each `<tr>` carries `data-inbox-row-id` so
- * inbox-modal.js intercepts clicks and opens the message in a modal
- * — no page navigation. The `<a>` inside still navigates as a
- * fallback for right-click "open in new tab" + no-JS users.
- */
 export function renderInboxList(opts: InboxListOptions): string {
-  const { rows, sort, dir, flash } = opts;
+  const rows = opts.rows;
   const filter = opts.filter ?? { q: '', starred: false, tag: '' };
   const allTags = opts.allTags ?? [];
-  const sorted = sortMessages(rows, sort, dir);
-  const current = { sort, dir };
-  const hasActiveFilter = !!filter.q || filter.starred || !!filter.tag;
 
-  const header = (col: InboxSortKey, label: string): SafeHtml => html`
-    <th><a href="${sortUrl(col, current)}" class="inbox-sort-header">${label}${sortIndicator(col, current)}</a></th>
+  const starredAll = rows.filter((r) => r.starred);
+  const suggestions = buildSuggestions(rows);
+
+  const filterBar = renderFilterBar(filter, allTags);
+  const suggestBanner = renderSuggestBanner(suggestions, rows.length);
+  const rail = renderRail(starredAll);
+  const main = renderMain(rows);
+
+  const body = html`
+    <div class="inbox-page-head">
+      <div>
+        <h1 style="margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl);">Inbox</h1>
+        <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
+          Conversations that need your attention. Click a row to open, or the chevron for a quick preview.
+        </p>
+      </div>
+      <div class="inbox-page-head__actions">
+        ${filterBar}
+        <button type="button" id="inbox-new-conversation" class="btn btn--primary inbox-new-btn">
+          <span aria-hidden="true">+</span> New conversation
+        </button>
+      </div>
+    </div>
+
+    ${suggestBanner}
+
+    <div class="inbox-shell" id="inbox-shell">
+      ${rail}
+      <div class="inbox-main">
+        ${main}
+      </div>
+    </div>
+
+    ${renderInboxModalShell()}
   `;
 
+  return render(layout({ title: 'Inbox', activeNav: 'inbox', flash: opts.flash }, body));
+}
+
+function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, allTags: string[]): SafeHtml {
   const tagOptions = allTags.map((t) => html`
     <option value="${t}" ${filter.tag === t ? 'selected' : ''}>${t}</option>
   `);
-
-  // Search + filter bar above the table. The form GETs back to /inbox
-  // so filters live in the URL and can be bookmarked / shared. A
-  // simple Clear button strips every param.
-  const filterBar = html`
-    <form class="inbox-filter" method="GET" action="/inbox">
-      <input type="text" name="q" value="${filter.q}" placeholder="Search title, body, agent, or conversation…"
-        class="form-field inbox-filter__q">
-      <label class="inbox-filter__starred">
+  const hasFilter = !!filter.q || filter.starred || !!filter.tag;
+  return html`
+    <form class="inbox-filter" method="GET" action="/inbox" style="margin: 0;">
+      <input type="text" name="q" value="${filter.q}" placeholder="Search…"
+        class="form-field inbox-filter__q" style="min-width: 14rem;">
+      <label class="inbox-filter__starred" style="font-size: var(--font-size-xs);">
         <input type="checkbox" name="starred" value="1" ${filter.starred ? 'checked' : ''}>
-        ★ Starred only
+        ★ Starred
       </label>
       <select name="tag" class="form-field inbox-filter__tag">
         <option value="">All tags</option>
         ${tagOptions as unknown as SafeHtml[]}
       </select>
-      <button type="submit" class="btn btn--sm btn--primary">Apply</button>
-      ${hasActiveFilter ? html`<a class="btn btn--sm btn--ghost" href="/inbox">Clear</a>` : html``}
+      <button type="submit" class="btn btn--sm btn--ghost">Apply</button>
+      ${hasFilter ? html`<a class="btn btn--sm btn--ghost" href="/inbox">Clear</a>` : html``}
     </form>
   `;
+}
 
-  const tagChips = (tags: string[]): SafeHtml => tags.length === 0
-    ? html``
-    : html`<span class="inbox-tag-chips">${tags.map((t) => html`<a href="/inbox?tag=${encodeURIComponent(t)}" class="inbox-tag-chip" data-inbox-row-stop>${t}</a>`) as unknown as SafeHtml[]}</span>`;
-
-  const tbody = sorted.map((m) => html`
-    <tr data-inbox-row-id="${m.id}" class="inbox-row">
-      <td>
-        <form method="POST" action="/inbox/${m.id}/star" data-inbox-row-stop data-inbox-star-form style="margin:0;">
-          <input type="hidden" name="starred" value="${m.starred ? '0' : '1'}">
-          <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
-        </form>
-      </td>
-      <td><span class="badge ${PRIORITY_BADGE[m.priority]}">${m.priority}</span></td>
-      <td><span class="badge ${SOURCE_BADGE[m.source]}">${SOURCE_LABEL[m.source]}</span></td>
-      <td>${m.agentId ? html`<a href="/agents/${m.agentId}" data-inbox-row-stop>${m.agentId}</a>` : html`<span class="dim">—</span>`}</td>
-      <td>
-        <a href="/inbox/${m.id}" data-inbox-row-link>${m.title}</a>
-        ${tagChips(m.tags)}
-      </td>
-      <td class="dim">${formatAge(new Date(m.createdAt).toISOString())}</td>
-      <td><span class="badge badge--muted">${m.status}</span></td>
-    </tr>
-  `);
-
-  const emptyState = hasActiveFilter
-    ? html`
-      <div class="settings-empty mt-0">
-        <h3 class="mt-0">No matches</h3>
-        <p class="dim">No inbox items match the current filter. <a href="/inbox">Clear filters</a> to see everything.</p>
-      </div>`
-    : html`
-      <div class="settings-empty mt-0">
-        <h3 class="mt-0">Inbox zero</h3>
-        <p class="dim">
-          No items need your attention. Producers (failed-run hooks, CSP-block escalation,
-          cadence reminders) ship in upcoming PRs — until then this page shows demo data
-          with <code>SUA_INBOX_DEMO=1</code>.
-        </p>
-      </div>`;
-
-  const table = rows.length === 0
-    ? emptyState
-    : html`
-      <table class="table inbox-table">
-        <thead>
-          <tr>
-            <th aria-label="Star"></th>
-            ${header('priority', 'Priority')}
-            ${header('source', 'Source')}
-            ${header('agent', 'Agent')}
-            ${header('title', 'Title')}
-            ${header('age', 'Age')}
-            ${header('status', 'Status')}
-          </tr>
-        </thead>
-        <tbody>${tbody as unknown as SafeHtml[]}</tbody>
-      </table>
+function renderSuggestBanner(suggestions: Array<{ label: string; count: number; href?: string; tag: string }>, totalRows: number): SafeHtml {
+  if (totalRows === 0) {
+    return html`
+      <div class="inbox-suggest inbox-suggest--clean" id="inbox-suggest">
+        <div class="inbox-suggest__head">
+          <span class="inbox-suggest__title">All clear ✨</span>
+        </div>
+        <div class="inbox-suggest__items">
+          <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+            Nothing in your inbox. Click <strong>+ New conversation</strong> to start one with the triage agent.
+          </span>
+        </div>
+      </div>
     `;
-
-  const body = html`
-    ${pageHeader({
-      title: 'Inbox',
-      description: 'Things that need your attention. Click a row to open. Click a column header to sort.',
-    })}
-    ${filterBar}
-    ${table}
-    ${renderInboxModalShell()}
+  }
+  if (suggestions.length === 0) {
+    return html`
+      <div class="inbox-suggest inbox-suggest--clean" id="inbox-suggest">
+        <div class="inbox-suggest__head">
+          <span class="inbox-suggest__title">Nothing pressing</span>
+          <button type="button" class="inbox-suggest__toggle" data-inbox-suggest-toggle aria-expanded="true">Hide</button>
+        </div>
+        <div class="inbox-suggest__items">
+          <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+            All ${totalRows} items are resolved or dismissed. Browse below if you want to revisit.
+          </span>
+        </div>
+      </div>
+    `;
+  }
+  const items = suggestions.map((s) => html`
+    <a class="inbox-suggest__item" href="${s.href ?? '#'}" data-inbox-suggest-tag="${s.tag}">
+      <span class="inbox-suggest__count">${s.count}</span>
+      <span>${s.label}</span>
+    </a>
+  `);
+  return html`
+    <div class="inbox-suggest" id="inbox-suggest">
+      <div class="inbox-suggest__head">
+        <span class="inbox-suggest__title">⚡ Suggested next actions</span>
+        <button type="button" class="inbox-suggest__toggle" data-inbox-suggest-toggle aria-expanded="true">Hide</button>
+      </div>
+      <div class="inbox-suggest__items">
+        ${items as unknown as SafeHtml[]}
+      </div>
+    </div>
   `;
+}
 
-  return render(layout({ title: 'Inbox', activeNav: 'inbox', flash }, body));
+function renderRail(starred: InboxMessage[]): SafeHtml {
+  const items = starred.length === 0
+    ? html`<div class="inbox-rail__empty">No starred threads yet. Star a thread to pin it here.</div>`
+    : html`
+      <div class="inbox-rail__items">
+        ${starred.map((m) => html`
+          <a class="inbox-rail__item" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
+            <div class="inbox-rail__item-title">${m.title}</div>
+            <div class="inbox-rail__item-meta">
+              <span class="badge ${PRIORITY_BADGE[m.priority]}" style="font-size: 10px; padding: 1px 4px;">${m.priority}</span>
+              <span>${formatAge(new Date(m.createdAt).toISOString())}</span>
+            </div>
+          </a>
+        `) as unknown as SafeHtml[]}
+      </div>
+    ` as unknown as SafeHtml;
+
+  return html`
+    <aside class="inbox-rail" id="inbox-rail" aria-label="Favorited threads">
+      <div class="inbox-rail__head">
+        <span>★ Favorited</span>
+        <button type="button" class="inbox-rail__toggle" data-inbox-rail-toggle aria-label="Collapse rail">‹</button>
+      </div>
+      ${items}
+    </aside>
+  `;
+}
+
+function renderMain(rows: InboxMessage[]): SafeHtml {
+  if (rows.length === 0) {
+    return html`
+      <div class="card" style="padding: var(--space-6); text-align: center; color: var(--color-text-muted);">
+        <p style="margin: 0 0 var(--space-2);">No matches.</p>
+        <p style="margin: 0; font-size: var(--font-size-sm);">
+          Adjust the filter, clear it, or start a fresh conversation with the + button above.
+        </p>
+      </div>
+    `;
+  }
+
+  const groups: Record<InboxPriority, InboxMessage[]> = { high: [], medium: [], low: [] };
+  for (const r of rows) groups[r.priority].push(r);
+  for (const k of ['high', 'medium', 'low'] as InboxPriority[]) {
+    groups[k].sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || b.createdAt - a.createdAt);
+  }
+
+  const sections = (['high', 'medium', 'low'] as InboxPriority[])
+    .filter((p) => groups[p].length > 0)
+    .map((p) => renderGroup(p, groups[p]));
+
+  return html`<div class="inbox-list">${sections as unknown as SafeHtml[]}</div>`;
+}
+
+function renderGroup(priority: InboxPriority, rows: InboxMessage[]): SafeHtml {
+  return html`
+    <section class="inbox-list__group">
+      <header class="inbox-list__group-head">
+        <span>${PRIORITY_LABEL[priority]}</span>
+        <span class="inbox-list__group-count">· ${rows.length}</span>
+      </header>
+      ${rows.map((m) => renderRow(m)) as unknown as SafeHtml[]}
+    </section>
+  `;
+}
+
+function renderRow(m: InboxMessage): SafeHtml {
+  const tagChips = m.tags.length === 0 ? html`` : html`<span style="display: inline-flex; gap: 4px; margin-left: var(--space-1);">${m.tags.map((t) => html`<span class="inbox-tag-chip" style="font-size: 10px;">${t}</span>`) as unknown as SafeHtml[]}</span>`;
+  return html`
+    <div class="inbox-row2" data-inbox-row-id="${m.id}" id="row-${m.id}">
+      <button type="button" class="inbox-row2__chevron" data-inbox-row-chevron
+        aria-label="Toggle preview" aria-expanded="false">›</button>
+      <form method="POST" action="/inbox/${m.id}/star" data-inbox-row-stop data-inbox-star-form style="margin: 0;">
+        <input type="hidden" name="starred" value="${m.starred ? '0' : '1'}">
+        <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
+      </form>
+      <span class="badge ${PRIORITY_BADGE[m.priority]}">${m.priority}</span>
+      <span class="inbox-row2__agent">${m.agentId ?? '—'}</span>
+      <span class="inbox-row2__title">
+        <a href="/inbox/${m.id}" data-inbox-row-link style="text-decoration: none; color: inherit;"
+          class="inbox-row2__title-text">${m.title}</a>
+        ${tagChips}
+      </span>
+      <span class="inbox-row2__age">${formatAge(new Date(m.createdAt).toISOString())}</span>
+      <span class="inbox-row2__status"><span class="badge badge--muted">${m.status}</span></span>
+
+      <div class="inbox-row2__preview" data-inbox-row-preview>
+        <div class="inbox-row2__preview-body">${m.body}</div>
+        ${m.contextJson ? html`
+          <details>
+            <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted);">Context payload</summary>
+            <pre class="mono" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0; overflow-x: auto; max-height: 10rem;">${tryPretty(m.contextJson)}</pre>
+          </details>
+        ` : html``}
+        <div class="inbox-row2__preview-actions">
+          <a href="/inbox/${m.id}" class="btn btn--sm btn--primary" data-inbox-row-link>Open thread</a>
+          <span class="dim" style="font-size: var(--font-size-xs); align-self: center;">
+            ${SOURCE_LABEL[m.source]} · ${m.status}
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function tryPretty(raw: string): string {
+  try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return raw; }
 }

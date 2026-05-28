@@ -132,26 +132,29 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   ` : html``;
 
-  const timeline = responses.map((r) => renderConversationEntry(r, currentTargetYaml));
+  const timeline = responses.map((r) => html`
+    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml)}</li>
+  `);
 
-  const conversationBlock = html`
+  // Conversation rendered as a vertical timeline. Each `<li>` carries
+  // the avatar dot that overlaps the rail line drawn by .inbox-timeline.
+  const timelineBlock = html`
     <section style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border);">
       <h4 style="margin: 0 0 var(--space-2); font-size: var(--font-size-sm); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);">Conversation</h4>
       ${responses.length === 0 && !triagePending
-        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Post a note below — the triage agent will join automatically.</p>`
-        : html`${timeline as unknown as SafeHtml[]}`}
+        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Use the composer below — the triage agent will join automatically.</p>`
+        : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
       ${triagePending ? renderThinkingIndicator() : html``}
-      ${replyForm(message, triagePending ?? false)}
     </section>
   `;
 
-  const actionsBlock = isTerminal
+  const actionsRow = isTerminal
     ? html`
       <p class="dim" style="margin: var(--space-3) 0 0; font-size: var(--font-size-sm);">
         This message is ${message.status}.${message.resolvedAt ? html` Closed ${formatAge(new Date(message.resolvedAt).toISOString())}.` : html``}
       </p>`
     : html`
-      <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2); align-items: center;">
+      <div class="inbox-composer__row">
         <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin: 0;">
           <button type="submit" class="btn btn--sm btn--ghost" ${triagePending ? 'disabled' : ''}>
             ${triagePending ? 'Triaging…' : 'Ask triage'}
@@ -160,16 +163,22 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
           <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
         </form>
-        <span class="dim" style="font-size: var(--font-size-xs); margin-left: auto;">
-          Dismiss closes this thread; Triage re-runs the LLM for a fresh recommendation.
-        </span>
       </div>
     `;
 
+  // Pinned composer sits below the scrolling timeline. Sticky-bottom
+  // keeps it on screen even when the operator scrolls back through
+  // long threads — no hunting for the reply box.
+  const composer = isTerminal ? html`` : html`
+    <div class="inbox-composer">
+      ${replyForm(message, triagePending ?? false)}
+      ${actionsRow}
+    </div>
+  `;
+  const terminalNote = isTerminal ? actionsRow : html``;
+
   // Sticky top region: title + meta + tags + details + context all stay
-  // pinned while the conversation thread scrolls below. The modal's
-  // outer container handles vertical overflow; this sub-section uses
-  // position:sticky relative to that scroll context.
+  // pinned while the conversation thread scrolls below.
   return html`
     <div class="inbox-detail">
       <div class="inbox-detail__header">
@@ -183,9 +192,10 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ${contextBlock}
       </div>
       <div class="inbox-detail__thread">
-        ${conversationBlock}
-        ${actionsBlock}
+        ${timelineBlock}
+        ${terminalNote}
       </div>
+      ${composer}
     </div>
   `;
 }
