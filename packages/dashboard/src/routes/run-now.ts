@@ -5,6 +5,7 @@
 import { Router, type Request, type Response } from 'express';
 import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
 export const runNowRouter: Router = Router();
 
@@ -69,6 +70,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
         allowUntrustedShell: ctx.allowUntrustedShell,
         dashboardBaseUrl: ctx.dashboardBaseUrl,
         dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
       },
     );
 

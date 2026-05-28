@@ -42,6 +42,7 @@ import {
   type DashboardDesign,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -147,6 +148,7 @@ async function kickoffAgentRun(args: {
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   ).catch(() => { /* failure surfaces via runStore.getRun(runId).status */ });
   return runId;

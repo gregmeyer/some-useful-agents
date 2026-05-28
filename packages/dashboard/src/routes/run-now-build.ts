@@ -28,6 +28,7 @@ import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   startBuildSession,
   startDraftOneSession,
@@ -372,6 +373,7 @@ async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | nul
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   );
 
@@ -516,6 +518,7 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
       secretsStore: ctx.secretsStore,
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   );
 
@@ -716,6 +719,7 @@ Output ONLY the complete fixed YAML. Nothing else.`,
         secretsStore: ctx.secretsStore,
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
       },
     );
 
@@ -1115,6 +1119,7 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
               secretsStore: ctx.secretsStore,
               variablesStore: ctx.variablesStore,
               dataRoot: ctx.agentStore.dataRoot,
+              llmSettings: buildLlmSettingsSnapshot(ctx),
             },
           ).catch(() => { /* surfaced as a failed run row */ });
         }

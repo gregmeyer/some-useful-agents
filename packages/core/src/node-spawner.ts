@@ -18,10 +18,57 @@ import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } fr
 
 export type SpawnResult = ExecutionResult & { category?: NodeErrorCategory };
 
+/**
+ * Optional fallback policy for llm-prompt nodes. When the primary
+ * spawn returns a failure that `classifyLlmFailure` marks as
+ * fallback-worthy (credit exhausted, quota exceeded, binary missing,
+ * hard timeout) AND `fallback` is set, node-spawner retries the same
+ * prompt under the fallback provider. `onFallback` is invoked once
+ * per fallback so the runtime can record telemetry / surface the
+ * event on /settings/llm.
+ */
+export interface LlmSettingsSnapshot {
+  primary?: string;
+  fallback?: string;
+  onFallback?: (event: {
+    reason: LlmFailureCategory;
+    primary: string;
+    fallback: string;
+    agentId: string;
+    nodeId: string;
+  }) => void;
+}
+
+/**
+ * Buckets a failed llm-prompt attempt into one of a few causes so the
+ * fallback policy can decide whether to retry, switch providers, or
+ * bubble up the failure unchanged.
+ *
+ * - `credit_exhausted` / `quota_exceeded` — operator paid-tier issue;
+ *   switching providers is the helpful default
+ * - `binary_missing` — CLI not installed; switching providers is the
+ *   only way to make progress
+ * - `timeout` — hard wall-clock cap hit; the fallback may be faster
+ * - `rate_limited` — transient; retrying the same provider after a
+ *   short backoff is usually better than switching
+ * - `auth_required` — operator login expired; switching won't fix it,
+ *   bubble up
+ * - `other` — unknown / probably a real prompt or runtime bug; don't
+ *   mask by switching providers
+ */
+export type LlmFailureCategory =
+  | 'credit_exhausted'
+  | 'quota_exceeded'
+  | 'binary_missing'
+  | 'timeout'
+  | 'rate_limited'
+  | 'auth_required'
+  | 'other';
+
 export type SpawnNodeFn = (
   node: AgentNode,
   env: Record<string, string>,
-  opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string> },
+  opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string>; llmSettings?: LlmSettingsSnapshot },
 ) => Promise<SpawnResult>;
 
 /**
@@ -213,7 +260,7 @@ export function getSpawner(provider?: string): LlmSpawner {
 export async function spawnNodeReal(
   node: AgentNode,
   env: Record<string, string>,
-  _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string> },
+  _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string>; llmSettings?: LlmSettingsSnapshot },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
@@ -248,14 +295,6 @@ export async function spawnNodeReal(
   resolvedPrompt = resolveStateTemplate(resolvedPrompt, env.STATE_DIR);
   resolvedPrompt = substituteInputs(resolvedPrompt, env);
 
-  const spawner = getSpawner(node.provider ?? 'claude');
-  const args = spawner.buildArgs({
-    prompt: resolvedPrompt,
-    model: node.model,
-    maxTurns: node.maxTurns,
-    allowedTools: node.allowedTools,
-  });
-
   // Strip UPSTREAM_*_RESULT env vars before exec: claude-code consumed
   // them via {{upstream.X.field}} substitution above (lines 228-233), so
   // the raw env-var copies are now dead weight. Leaving them in argv+env
@@ -267,12 +306,71 @@ export async function spawnNodeReal(
     if (!/^UPSTREAM_[A-Z0-9_]+_RESULT$/.test(k)) childEnv[k] = v;
   }
 
+  // Resolve the primary provider: explicit per-node setting wins,
+  // then the operator's configured global primary, then the hardcoded
+  // claude default. The fallback (if any) is consulted only when the
+  // primary attempt returns a fallback-worthy failure.
+  const primaryProvider = node.provider ?? _opts.llmSettings?.primary ?? 'claude';
+  const primaryResult = await runLlmAttempt(primaryProvider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+
+  const fallbackProvider = _opts.llmSettings?.fallback;
+  if (!fallbackProvider || fallbackProvider === primaryProvider) {
+    return primaryResult;
+  }
+  const category = classifyLlmFailure(primaryResult);
+  if (!shouldFallback(category)) {
+    return primaryResult;
+  }
+
+  // Fire telemetry callback first so the operator sees the event on
+  // /settings/llm even if the fallback itself fails. The retry
+  // proceeds regardless.
+  _opts.llmSettings?.onFallback?.({
+    reason: category,
+    primary: primaryProvider,
+    fallback: fallbackProvider,
+    agentId: _opts.agentId,
+    nodeId: node.id,
+  });
+
+  const fallbackResult = await runLlmAttempt(fallbackProvider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+  // If the fallback succeeded, return its result but tag the error
+  // field with a breadcrumb so logs show the primary was attempted
+  // first. If it also failed, return its result (the more recent
+  // attempt is the one the operator will be debugging).
+  if (fallbackResult.exitCode === 0) {
+    return {
+      ...fallbackResult,
+      error: `Fallback ${fallbackProvider} succeeded after primary ${primaryProvider} failed (${category}).`,
+    };
+  }
+  return fallbackResult;
+}
+
+/**
+ * One LLM CLI invocation under a chosen provider. Extracted so the
+ * fallback path can retry under a different provider with the same
+ * resolved prompt + env.
+ */
+async function runLlmAttempt(
+  provider: string,
+  node: AgentNode,
+  resolvedPrompt: string,
+  childEnv: Record<string, string>,
+  onProgress?: (event: SpawnProgress) => void,
+  signal?: AbortSignal,
+  onSpawn?: (pid: number, startedAtMs: number) => void,
+): Promise<SpawnResult> {
+  const spawner = getSpawner(provider);
+  const args = spawner.buildArgs({
+    prompt: resolvedPrompt,
+    model: node.model,
+    maxTurns: node.maxTurns,
+    allowedTools: node.allowedTools,
+  });
   return spawnProcess(spawner.binary, args, {
     cwd: node.workingDirectory,
     env: childEnv,
-    // Prompt rides on stdin — argv would also count toward ARG_MAX, and
-    // `{{upstream.X.result}}` substitution can produce 100KB+ prompts on
-    // agents like ashby-job-finder (fetch-jobs-html alone is multi-100KB).
     stdinInput: resolvedPrompt,
     timeoutSec: node.timeout ?? 300,
     onProgress: onProgress ? (line) => {
@@ -283,6 +381,64 @@ export async function spawnNodeReal(
     signal,
     onSpawn,
   });
+}
+
+/**
+ * Inspect a failed `SpawnResult` and classify the failure cause. The
+ * classifier is deliberately pattern-based (substring matches over
+ * stderr/error) — LLM CLIs don't expose stable exit codes for these
+ * conditions, so we rely on observable strings the CLI prints.
+ */
+export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
+  if (result.exitCode === 0) return 'other';
+  const haystack = `${result.error ?? ''}\n${result.result ?? ''}`.toLowerCase();
+  if (result.category === 'spawn_failure'
+    || haystack.includes('command not found')
+    || haystack.includes('enoent')) {
+    return 'binary_missing';
+  }
+  if (result.category === 'timeout' || haystack.includes('timed out')) {
+    return 'timeout';
+  }
+  if (haystack.includes('credit balance')
+    || haystack.includes('insufficient credit')
+    || haystack.includes('out of credit')
+    || haystack.includes('billing')) {
+    return 'credit_exhausted';
+  }
+  if (haystack.includes('quota exceeded')
+    || haystack.includes('quota_exceeded')
+    || haystack.includes('limit exceeded')
+    || haystack.includes('usage limit')) {
+    return 'quota_exceeded';
+  }
+  if (haystack.includes('rate limit')
+    || haystack.includes('rate_limit')
+    || haystack.includes('429')
+    || haystack.includes('too many requests')) {
+    return 'rate_limited';
+  }
+  if (haystack.includes('not authenticated')
+    || haystack.includes('login required')
+    || haystack.includes('please log in')
+    || haystack.includes('401')
+    || haystack.includes('unauthorized')) {
+    return 'auth_required';
+  }
+  return 'other';
+}
+
+/**
+ * Categories worth swapping providers for. Rate limits and auth
+ * failures are excluded: rate limits are transient on the same
+ * provider, auth requires operator action, and 'other' usually means
+ * a real bug we don't want to mask by silently switching.
+ */
+function shouldFallback(category: LlmFailureCategory): boolean {
+  return category === 'credit_exhausted'
+    || category === 'quota_exceeded'
+    || category === 'binary_missing'
+    || category === 'timeout';
 }
 
 // ── Process spawner ────────────────────────────────────────────────────

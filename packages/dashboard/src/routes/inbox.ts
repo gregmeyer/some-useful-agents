@@ -36,6 +36,7 @@ import {
   type InboxResponse,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
   renderInboxList,
   type InboxSortKey,
@@ -716,6 +717,7 @@ async function runProposedAction(
         secretsStore: ctx.secretsStore,
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
       },
     );
     runId = run.id;
@@ -1022,6 +1024,7 @@ async function runTriageAgent(
         secretsStore: ctx.secretsStore,
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
       },
     );
     // Capture the runId once it lands. Race the executor to avoid

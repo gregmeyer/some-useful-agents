@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { executeAgentDag, executeAgentLoop, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
 export const runMutationsRouter: Router = Router();
 
@@ -164,6 +165,7 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
       allowUntrustedShell: ctx.allowUntrustedShell,
       dashboardBaseUrl: ctx.dashboardBaseUrl,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   );
 
@@ -283,6 +285,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
       allowUntrustedShell: ctx.allowUntrustedShell,
       dashboardBaseUrl: ctx.dashboardBaseUrl,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
     { memoryStore: ctx.agentMemoryStore },
   );

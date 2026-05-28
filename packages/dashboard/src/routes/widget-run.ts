@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
 import { render } from '../views/html.js';
 
@@ -45,6 +46,7 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
       allowUntrustedShell: ctx.allowUntrustedShell,
       dashboardBaseUrl: ctx.dashboardBaseUrl,
       dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
     },
   );
 

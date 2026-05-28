@@ -18,6 +18,7 @@ import {
   AgentMemoryStore,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
+  LlmSettingsStore,
   VariablesStore,
   EncryptedFileStore,
   loadAgents,
@@ -78,6 +79,12 @@ export interface StartDashboardOptions {
   secretsPath: string;
   /** Path to the plain-text global variables file (.sua/variables.json). */
   variablesPath?: string;
+  /**
+   * Path to the LLM settings JSON file (primary + fallback provider).
+   * When unset, `/settings/llm` runs in read-only mode and the
+   * dashboard skips threading fallback policy into `executeAgentDag`.
+   */
+  llmSettingsPath?: string;
   /** Path to the bearer token file. Defaults to `~/.sua/mcp-token`. */
   tokenPath?: string;
   /** Community shell agents the operator has pre-allowed. */
@@ -363,6 +370,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     variablesStore = new VariablesStore(opts.variablesPath);
   }
 
+  // LLM provider settings: primary + optional fallback. Threaded into
+  // every executeAgentDag call so node-spawner can retry under the
+  // fallback when the primary returns a recognized "should fall back"
+  // error category.
+  let llmSettingsStore: LlmSettingsStore | undefined;
+  if (opts.llmSettingsPath) {
+    llmSettingsStore = new LlmSettingsStore(opts.llmSettingsPath);
+  }
+
   // Widget packs + dashboards stores. Same DB file as agents/runs/tools.
   let packsStore: PacksStore | undefined;
   let dashboardsStore: DashboardsStore | undefined;
@@ -478,6 +494,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     rotateToken: () => rotateMcpToken(tokenPath),
     toolStore,
     variablesStore,
+    llmSettingsStore,
     packsStore,
     dashboardsStore,
     layoutHintsStore,

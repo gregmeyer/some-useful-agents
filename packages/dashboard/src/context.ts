@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 
 /**
@@ -73,6 +73,13 @@ export interface DashboardContext {
    * autocomplete and the /settings/variables tab.
    */
   variablesStore?: VariablesStore;
+  /**
+   * v0.24+: LLM provider config + fallback policy. When set, the
+   * dashboard threads a snapshot into every `executeAgentDag` call
+   * so node-spawner can retry under the fallback provider if the
+   * primary returns a fallback-worthy error category.
+   */
+  llmSettingsStore?: LlmSettingsStore;
   /**
    * Widget packs store. Optional today (PR 1 of widget-packs-and-dashboards)
    * because no routes consume it yet; later PRs make it required.
