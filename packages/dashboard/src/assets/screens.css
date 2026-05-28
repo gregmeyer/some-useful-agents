@@ -2078,3 +2078,111 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .add-tile-card--create .add-tile-card__icon {
   font-size: 1.25rem;
 }
+
+/* ---------- Inbox conversation (modal-driven) ---------- */
+/* Slack-feel: avatar + body + meta with animated reveal for new
+ * entries. The modal JS adds .inbox-msg--new to messages that appeared
+ * since the last fragment fetch; the animation runs once and the class
+ * stays on the element (CSS handles the one-shot semantics). */
+.inbox-msg {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+  align-items: flex-start;
+}
+.inbox-msg:first-child {
+  border-top: none;
+  padding-top: var(--space-2);
+}
+.inbox-msg__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-bg, #0d1117);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.inbox-msg__avatar--user { background: var(--color-primary, #2dd4bf); }
+.inbox-msg__avatar--triage { background: var(--color-info, #60a5fa); }
+.inbox-msg__avatar--system { background: var(--color-text-muted, #8b93a7); }
+.inbox-msg__body { flex: 1; min-width: 0; }
+.inbox-msg__meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.inbox-msg__meta-name {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+.inbox-msg__text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+@keyframes inbox-msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.inbox-msg--new { animation: inbox-msg-in 260ms ease-out; }
+
+/* Animated three-dot "agent is thinking" indicator. Mirrors the
+ * Slack typing animation: three dots with staggered pulse. The
+ * indicator carries data-triage-pending="1" so inbox-modal.js polls
+ * the fragment until it disappears. */
+.inbox-thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.inbox-thinking__avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-info, #60a5fa);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  color: var(--color-bg, #0d1117);
+  text-transform: uppercase;
+}
+.inbox-thinking__dots {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: var(--space-1);
+}
+.inbox-thinking__dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: inbox-think 1.4s ease-in-out infinite;
+}
+.inbox-thinking__dots span:nth-child(2) { animation-delay: 0.2s; }
+.inbox-thinking__dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes inbox-think {
+  0%, 60%, 100% { opacity: 0.25; transform: scale(0.7); }
+  30%           { opacity: 1;    transform: scale(1); }
+}
+
+/* Inbox list: data-inbox-row-id rows get a row-hover affordance so
+ * users see the click target. Title link inherits the row hover. */
+.inbox-row { cursor: pointer; }
+.inbox-row:hover { background: var(--color-surface-raised); }
+.inbox-row a { text-decoration: none; }

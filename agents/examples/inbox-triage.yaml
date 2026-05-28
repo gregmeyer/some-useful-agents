@@ -1,0 +1,137 @@
+# Inbox Triage — joins the conversation thread on an inbox message and
+# emits a concrete recommendation.
+#
+# Invoked by `POST /inbox/:id/triage` (and auto-fired by the
+# `/inbox/:id/respond` handler whenever the user posts a reply). The
+# dashboard parses the agent's `<plan>{...}</plan>` block, appends the
+# recommendation as a `triage`-role response to the message's
+# inbox_responses thread, and (if `verifyHint` is set) holds it for
+# the future verification loop.
+
+id: inbox-triage
+name: Inbox Triage
+description: >
+  Reads an inbox message (title, body, context, conversation so far) and
+  recommends the next concrete action. Joins the conversation thread.
+status: active
+source: examples
+
+# Triage should land in seconds, not minutes — fail fast if the LLM
+# stalls so the modal's "thinking..." indicator doesn't lie indefinitely.
+timeoutSec: 60
+
+inputs:
+  MESSAGE_ID:
+    type: string
+    required: true
+    description: Inbox message id (uuid) so the route can match the response back.
+  MESSAGE_TITLE:
+    type: string
+    required: true
+    description: The message title from the producer.
+  MESSAGE_BODY:
+    type: string
+    required: true
+    description: The producer's short markdown summary.
+  MESSAGE_PRIORITY:
+    type: string
+    required: true
+    description: 'high | medium | low — sets urgency of the recommendation.'
+  MESSAGE_SOURCE:
+    type: string
+    required: true
+    description: 'run-failure | permission-request | cadence | manual.'
+  CONTEXT_JSON:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Structured producer payload (failed-run details, blocked host,
+      stale-agent list, etc.). Parse if useful.
+  CONVERSATION:
+    type: string
+    required: false
+    default: ""
+    description: >
+      The conversation thread to date, one entry per line as
+      `[ROLE] body`. Empty on the first triage of a fresh message.
+
+nodes:
+  - id: triage
+    type: llm-prompt
+    prompt: |
+      You are the Inbox Triage agent for the sua agent platform. The
+      operator opened an inbox message and either explicitly asked for
+      a triage recommendation, or just posted a reply that the system
+      auto-routed to you.
+
+      Read the message, parse the context payload if structured, look
+      at the conversation so far, and return ONE concrete, actionable
+      recommendation. Keep it tight — operators are skimming, not
+      reading essays.
+
+      ════════════════════════════════════════════════════════════════
+      MESSAGE
+      ════════════════════════════════════════════════════════════════
+
+      id:       {{inputs.MESSAGE_ID}}
+      priority: {{inputs.MESSAGE_PRIORITY}}
+      source:   {{inputs.MESSAGE_SOURCE}}
+      title:    {{inputs.MESSAGE_TITLE}}
+
+      Body:
+      {{inputs.MESSAGE_BODY}}
+
+      Context (may be empty / JSON / arbitrary):
+      {{inputs.CONTEXT_JSON}}
+
+      Conversation so far (may be empty — you are the first responder):
+      {{inputs.CONVERSATION}}
+
+      ════════════════════════════════════════════════════════════════
+      WHAT TO RECOMMEND
+      ════════════════════════════════════════════════════════════════
+
+      Match the recommendation to the source:
+
+      - source=run-failure → diagnose the failure if the context has
+        an exit code / error line. Recommend either (a) a one-line fix
+        the user should try, (b) the dashboard path that shows the
+        full failed run, or (c) "this looks transient, retry once and
+        dismiss if it succeeds". Don't speculate without the data.
+
+      - source=permission-request → name the missing permission (host,
+        path, tool) and the concrete config path the user updates. If
+        the request is for a CSP image host, point at the agent's
+        Config → Permissions panel.
+
+      - source=cadence → name the housekeeping action and where to do
+        it ("archive these agents from /agents", "set a schedule on
+        agent X via /scheduled", etc.).
+
+      - source=manual → use your judgment. Treat the body as a free-form
+        ask from the operator and respond to it directly.
+
+      ════════════════════════════════════════════════════════════════
+      OUTPUT FORMAT — exact shape, single <plan>...</plan> block
+      ════════════════════════════════════════════════════════════════
+
+      Wrap the JSON in <plan>…</plan> tags. Output ONLY the <plan>
+      block — no preamble, no markdown fences around it. Example:
+
+      <plan>
+      {
+        "messageId": "{{inputs.MESSAGE_ID}}",
+        "recommendation": "Run failed with exit 1 because `which apod` returned no match. Install the apod CLI (brew install apod) or switch to the http-get version of the agent.",
+        "verifyHint": "Re-run the agent; it should reach the parse-output node without exit code 1."
+      }
+      </plan>
+
+      VALIDATION RULES (failing these means the route discards the response):
+      - `messageId` MUST equal {{inputs.MESSAGE_ID}}.
+      - `recommendation` is required, 10..2000 chars, plain text or simple markdown.
+      - `verifyHint` is optional — set it when the operator can re-run
+        a known action to confirm the fix. Leave it absent for
+        ambiguous or judgement-call recommendations.
+    maxTurns: 1
+    timeout: 60
