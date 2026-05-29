@@ -118,6 +118,9 @@ export const INBOX_MODAL_JS = `
     // refresh fires after triage:complete.
     es.addEventListener('triage:started', function () {
       sseAliveAt = Date.now();
+      // Reset the stream buffer for this new turn so a follow-up
+      // doesn't carry the prior bubble's accumulated text.
+      streamFullBuffer = '';
       ensureStreamingBubble();
     });
     // triage:token — append the text chunk to the streaming bubble.
@@ -249,33 +252,87 @@ export const INBOX_MODAL_JS = `
     return text;
   }
 
-  // Append text to the streaming bubble. Throttled to one DOM write
-  // per animation frame so a burst of tokens doesn't tank layout.
-  // Pending chunks accumulate in a string queue and flush on rAF.
-  var pendingStreamText = '';
+  // Append text to the streaming bubble. The triage agent's stream
+  // is the raw plan envelope (<plan>{ messageId, recommendation,
+  // actions }</plan>); the canonical persisted entry shows only the
+  // recommendation value (extractPlanJson + addResponse on the
+  // server). The streaming bubble must match that view or the
+  // operator briefly sees JSON before the fragment refresh.
+  //
+  // Approach: accumulate every chunk in a full buffer, then on each
+  // rAF tick try to extract the recommendation value (handles
+  // escaped chars). When found, render JUST the extracted text;
+  // when not (model used a different format, or the recommendation
+  // key hasn't arrived yet), fall back to the raw streamed text.
+  // Throttled to one DOM write per animation frame.
+  var streamFullBuffer = '';
   var pendingStreamRaf = null;
   function appendStreamingText(textEl, chunk) {
-    pendingStreamText += chunk;
+    streamFullBuffer += chunk;
     if (pendingStreamRaf) return;
     pendingStreamRaf = requestAnimationFrame(function () {
       pendingStreamRaf = null;
-      var flush = pendingStreamText;
-      pendingStreamText = '';
-      // Re-query the element in case the DOM was swapped between
-      // when the chunk arrived and when this rAF fired.
       var el = content.querySelector('[data-streaming-bubble] .inbox-msg__text');
       if (!el) return;
-      // textContent appends — explicitly avoid innerHTML so an
-      // accidental "<" or "&" in the model's output renders as-is
-      // instead of breaking the markup.
-      el.appendChild(document.createTextNode(flush));
-      // Auto-scroll while streaming, but only if the operator was
-      // already near the bottom — don't yank them away from reading
-      // earlier history.
+      var display = extractRecommendationFromStream(streamFullBuffer);
+      if (display === null) display = streamFullBuffer;
+      // Re-render the visible text from scratch on each tick — the
+      // buffer is small (1 reply at a time) and rebuilding once per
+      // frame is cheaper than chasing diffs through escape handling.
+      el.textContent = display;
       var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
       if (nearBottom) content.scrollTop = content.scrollHeight;
     });
   }
+
+  /**
+   * Extract the triage recommendation string from a partial JSON
+   * stream, handling escaped characters. Returns the partial value
+   * even before the closing quote arrives (so the typewriter keeps
+   * painting as tokens land). Returns null when the
+   * recommendation key + opening quote haven't shown up yet — that
+   * means either the model is still emitting the envelope preamble
+   * (messageId etc.) or the stream isn't a plan envelope at all.
+   * The caller falls back to raw text in that case.
+   */
+  function extractRecommendationFromStream(buffer) {
+    var startMatch = buffer.match(/"recommendation"\s*:\s*"/);
+    if (!startMatch) return null;
+    var i = startMatch.index + startMatch[0].length;
+    var out = '';
+    while (i < buffer.length) {
+      var c = buffer.charCodeAt(i);
+      if (c === 92 /* \\ */ && i + 1 < buffer.length) {
+        var nextCh = buffer[i + 1];
+        if (nextCh === 'n') out += '\n';
+        else if (nextCh === 't') out += '\t';
+        else if (nextCh === 'r') out += '\r';
+        else if (nextCh === '"') out += '"';
+        else if (nextCh === '\\') out += '\\';
+        else if (nextCh === '/') out += '/';
+        else if (nextCh === 'u' && i + 5 < buffer.length) {
+          var hex = buffer.slice(i + 2, i + 6);
+          if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+            out += String.fromCharCode(parseInt(hex, 16));
+            i += 6;
+            continue;
+          }
+          out += nextCh;
+        } else {
+          out += nextCh;
+        }
+        i += 2;
+      } else if (c === 34 /* " */) {
+        // Closing quote — recommendation field is complete.
+        break;
+      } else {
+        out += buffer[i];
+        i++;
+      }
+    }
+    return out;
+  }
+
 
   function stopPoll() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
