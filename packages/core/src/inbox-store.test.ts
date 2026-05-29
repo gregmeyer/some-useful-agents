@@ -114,6 +114,114 @@ describe('InboxStore.list', () => {
   });
 });
 
+describe('InboxStore.list — sortable queue (PR row UX pass)', () => {
+  // The dashboard's queue UX exposes click-to-sort on every column.
+  // Verify the store honors each sort key + direction, that the
+  // derived last-activity timestamp drives both the default
+  // priority-then-activity ordering and the `?sort=age` explicit
+  // case, and that an unknown key defaults to priority semantics.
+
+  it('lastActivityAt = MAX(response.created_at) when responses exist', async () => {
+    const a = addMinimal({ title: 'a' });
+    // Add one response, then read back via list() and confirm
+    // lastActivityAt > createdAt.
+    await new Promise((r) => setTimeout(r, 5));
+    store.addResponse(a.id, 'user', 'hello');
+    const [row] = store.list();
+    expect(row.lastActivityAt).toBeDefined();
+    expect(row.lastActivityAt!).toBeGreaterThan(row.createdAt);
+  });
+
+  it('lastActivityAt falls back to createdAt when no responses exist', () => {
+    const a = addMinimal({ title: 'a' });
+    const [row] = store.list();
+    expect(row.lastActivityAt).toBe(row.createdAt);
+    expect(a.createdAt).toBe(row.createdAt);
+  });
+
+  it('default sort = priority asc + last-activity desc, with replies bumping the row', async () => {
+    addMinimal({ priority: 'low', title: 'L1' });
+    await new Promise((r) => setTimeout(r, 5));
+    const h1 = addMinimal({ priority: 'high', title: 'H1' });
+    await new Promise((r) => setTimeout(r, 5));
+    addMinimal({ priority: 'high', title: 'H2' });
+    // Reply on H1 — it should now lead H2 within the high-priority bucket.
+    await new Promise((r) => setTimeout(r, 5));
+    store.addResponse(h1.id, 'triage', 'updated');
+    const titles = store.list().map((m) => m.title);
+    expect(titles).toEqual(['H1', 'H2', 'L1']);
+  });
+
+  it('sort=age desc orders by last-activity DESC (newest activity first)', async () => {
+    const oldHigh = addMinimal({ priority: 'high', title: 'old-but-high' });
+    await new Promise((r) => setTimeout(r, 5));
+    const recentLow = addMinimal({ priority: 'low', title: 'recent-but-low' });
+    // Bump oldHigh after recentLow so its last-activity wins.
+    await new Promise((r) => setTimeout(r, 5));
+    store.addResponse(oldHigh.id, 'user', 'nudge');
+    const titles = store.list({ sort: 'age', dir: 'desc' }).map((m) => m.title);
+    expect(titles).toEqual(['old-but-high', 'recent-but-low']);
+    expect(recentLow.id).toBeTruthy();
+  });
+
+  it('sort=age asc reverses the order (oldest activity first)', async () => {
+    addMinimal({ title: 'oldest' });
+    await new Promise((r) => setTimeout(r, 5));
+    addMinimal({ title: 'newest' });
+    const titles = store.list({ sort: 'age', dir: 'asc' }).map((m) => m.title);
+    expect(titles).toEqual(['oldest', 'newest']);
+  });
+
+  it('sort=status asc puts awaiting_user first', () => {
+    const a = addMinimal({ title: 'await' });
+    const b = addMinimal({ title: 'open' });
+    const c = addMinimal({ title: 'triaged' });
+    store.updateStatus(a.id, 'awaiting_user');
+    store.updateStatus(c.id, 'triaged');
+    expect(b.id).toBeTruthy();
+    const titles = store.list({ sort: 'status', dir: 'asc' }).map((m) => m.title);
+    expect(titles.indexOf('await')).toBeLessThan(titles.indexOf('triaged'));
+    expect(titles.indexOf('triaged')).toBeLessThan(titles.indexOf('open'));
+  });
+
+  it('sort=title is alphabetical (case-insensitive)', () => {
+    addMinimal({ title: 'banana' });
+    addMinimal({ title: 'Apple' });
+    addMinimal({ title: 'cherry' });
+    const titles = store.list({ sort: 'title', dir: 'asc' }).map((m) => m.title);
+    expect(titles).toEqual(['Apple', 'banana', 'cherry']);
+    const reversed = store.list({ sort: 'title', dir: 'desc' }).map((m) => m.title);
+    expect(reversed).toEqual(['cherry', 'banana', 'Apple']);
+  });
+
+  it('sort=agent puts unagented rows last regardless of direction', () => {
+    addMinimal({ title: 'beta-agent', agentId: 'beta' });
+    addMinimal({ title: 'alpha-agent', agentId: 'alpha' });
+    addMinimal({ title: 'no-agent' });
+    const asc = store.list({ sort: 'agent', dir: 'asc' }).map((m) => m.title);
+    expect(asc).toEqual(['alpha-agent', 'beta-agent', 'no-agent']);
+    const desc = store.list({ sort: 'agent', dir: 'desc' }).map((m) => m.title);
+    // Unagented still last; named agents flip order.
+    expect(desc).toEqual(['beta-agent', 'alpha-agent', 'no-agent']);
+  });
+
+  it('starred messages float to the top regardless of sort', () => {
+    const a = addMinimal({ priority: 'low', title: 'starred-low' });
+    addMinimal({ priority: 'high', title: 'normal-high' });
+    store.setStarred(a.id, true);
+    const titles = store.list({ sort: 'priority', dir: 'asc' }).map((m) => m.title);
+    expect(titles[0]).toBe('starred-low');
+  });
+
+  it('unknown sort key falls back to priority semantics', () => {
+    addMinimal({ priority: 'low', title: 'L' });
+    addMinimal({ priority: 'high', title: 'H' });
+    // `as never` to bypass the TypeScript guardrail at the test seam.
+    const titles = store.list({ sort: 'wat' as never }).map((m) => m.title);
+    expect(titles).toEqual(['H', 'L']);
+  });
+});
+
 describe('InboxStore.updateStatus / dismiss', () => {
   it('transitions open → triaged → resolved and sets resolved_at on resolve', () => {
     const m = addMinimal();

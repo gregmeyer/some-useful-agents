@@ -103,6 +103,15 @@ export interface InboxMessage {
    * them from the modal header.
    */
   tags: string[];
+  /**
+   * Wall-clock ms-since-epoch of the most recent activity on the
+   * thread — either the last conversation response or the message's
+   * own `createdAt` if no replies exist. Derived at `list()` time via
+   * a LEFT JOIN; `get()` and other single-row reads leave this
+   * undefined since they don't run the join. Drives the queue's
+   * "Age" column under the default priority + last-activity sort.
+   */
+  lastActivityAt?: number;
 }
 
 export interface InboxResponse {
@@ -147,7 +156,18 @@ export interface ListMessagesOpts {
   starred?: boolean;
   /** When set, only return messages tagged with this exact lowercase tag. */
   tag?: string;
+  /**
+   * Sort key. Default `priority` (high first, then most-recent
+   * activity within a priority). Other keys honor the dashboard's
+   * URL-driven sort state — see InboxSortKey in routes/inbox.ts.
+   */
+  sort?: InboxSortKey;
+  /** Sort direction. Default `desc` for most keys; UI flips on header click. */
+  dir?: InboxSortDir;
 }
+
+export type InboxSortKey = 'priority' | 'status' | 'age' | 'title' | 'agent';
+export type InboxSortDir = 'asc' | 'desc';
 
 /**
  * Priority ranking for ORDER BY — `high` first. SQLite sorts strings
@@ -180,6 +200,75 @@ const PRIORITY_RANK_CASE = `
     ELSE 3
   END
 `;
+
+/**
+ * Status ranking for ORDER BY. `awaiting_user` (the "Your turn"
+ * state) comes first so a `?sort=status` flip surfaces what needs
+ * an operator click. `triaged` follows (triage finished, no
+ * pending action), then `verifying` (in-flight check), then `open`
+ * (fresh, untriaged). Terminal states sit last for symmetry with
+ * `list()`'s default filter that hides them.
+ */
+const STATUS_RANK_CASE = `
+  CASE status
+    WHEN 'awaiting_user' THEN 0
+    WHEN 'triaged' THEN 1
+    WHEN 'verifying' THEN 2
+    WHEN 'open' THEN 3
+    WHEN 'resolved' THEN 4
+    WHEN 'dismissed' THEN 5
+    ELSE 6
+  END
+`;
+
+/**
+ * SQL fragment for the derived "last activity" timestamp. Returns
+ * `MAX(inbox_responses.created_at)` for the row's message_id,
+ * falling back to the message's own `created_at` when no responses
+ * exist. Used both in the SELECT (so the column is on every row)
+ * and the default ORDER BY (priority then activity desc).
+ *
+ * Implemented as a correlated scalar subquery rather than a LEFT
+ * JOIN + GROUP BY because there's no aggregation on the outer
+ * query and the subquery sidesteps duplicate rows from multi-
+ * response messages.
+ */
+const LAST_ACTIVITY_AT_SQL = `
+  COALESCE(
+    (SELECT MAX(created_at) FROM inbox_responses
+       WHERE inbox_responses.message_id = inbox_messages.id),
+    inbox_messages.created_at
+  )
+`;
+
+/**
+ * Map a sort key + direction to the ORDER BY clause. `priority` is
+ * the default and always tie-breaks by last-activity desc; other
+ * sorts tie-break by activity desc too so the result is stable
+ * even when the primary key is equal. Starred messages always
+ * float to the top so the rail's contents lead the list.
+ */
+function buildOrderBy(sort: InboxSortKey | undefined, dir: InboxSortDir | undefined): string {
+  const d = dir === 'asc' ? 'ASC' : 'DESC';
+  switch (sort) {
+    case 'status':
+      // Status asc = "Your turn first"; status desc = "calmest first".
+      return `starred DESC, ${STATUS_RANK_CASE} ${dir === 'desc' ? 'DESC' : 'ASC'}, ${LAST_ACTIVITY_AT_SQL} DESC`;
+    case 'age':
+      // Age desc = newest activity first; age asc = oldest first.
+      return `starred DESC, ${LAST_ACTIVITY_AT_SQL} ${d}`;
+    case 'title':
+      return `starred DESC, LOWER(title) ${d}, ${LAST_ACTIVITY_AT_SQL} DESC`;
+    case 'agent':
+      // NULLs LAST for agent_id so unagented rows don't crowd the top.
+      return `starred DESC, agent_id IS NULL, LOWER(IFNULL(agent_id,'')) ${d}, ${LAST_ACTIVITY_AT_SQL} DESC`;
+    case 'priority':
+    default:
+      // Priority asc = high first; desc = low first. Default behavior
+      // (no explicit sort) matches priority asc + activity desc.
+      return `starred DESC, ${PRIORITY_RANK_CASE} ${dir === 'desc' ? 'DESC' : 'ASC'}, ${LAST_ACTIVITY_AT_SQL} DESC`;
+  }
+}
 
 /**
  * SQLite-backed Inbox. One row per message in `inbox_messages`; an
@@ -359,10 +448,14 @@ export class InboxStore {
       params.push(pattern, pattern, pattern, pattern);
     }
     const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
+    const orderBy = buildOrderBy(opts.sort, opts.dir);
     const rows = this.db.prepare(`
-      SELECT * FROM inbox_messages
+      SELECT
+        inbox_messages.*,
+        ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
+      FROM inbox_messages
       WHERE ${where.join(' AND ')}
-      ORDER BY starred DESC, ${PRIORITY_RANK_CASE}, created_at DESC
+      ORDER BY ${orderBy}
       LIMIT ?
     `).all(...params, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToMessage(r));
@@ -624,6 +717,9 @@ export class InboxStore {
       dedupeKey: (row.dedupe_key as string | null) ?? undefined,
       starred: (row.starred as number) === 1,
       tags,
+      // last_activity_at is only present when `list()` joins it in;
+      // `get()` and other single-row reads leave it undefined.
+      lastActivityAt: typeof row.last_activity_at === 'number' ? row.last_activity_at : undefined,
     };
   }
 
