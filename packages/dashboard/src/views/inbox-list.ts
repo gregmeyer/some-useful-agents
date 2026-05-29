@@ -1,4 +1,4 @@
-import type { InboxMessage, InboxPriority, InboxSource, InboxStatus } from '@some-useful-agents/core';
+import type { InboxMessage, InboxPriority, InboxResponseRole, InboxSource, InboxStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
@@ -47,6 +47,34 @@ export interface InboxListOptions {
    * changes. The list itself comes from the route's filtered query.
    */
   archiveView?: 'dismissed' | 'resolved';
+  /**
+   * Per-row preview payload, keyed by message id. Powers the
+   * activity-strip preview in the row's expanded state — latest
+   * conversation excerpt + count of proposed action cards. The
+   * route computes these in one pass when rendering the list to
+   * avoid N+1 from the view side. Rows without an entry get the
+   * legacy "no replies yet" empty preview.
+   */
+  previewPayloads?: Map<string, InboxRowPreviewPayload>;
+}
+
+/** Compact preview-strip payload for one row. See renderRow. */
+export interface InboxRowPreviewPayload {
+  /** Most recent non-action response, or undefined when none exists. */
+  latestResponse?: {
+    role: InboxResponseRole;
+    body: string;
+    createdAt: number;
+  };
+  /**
+   * Count + first-agent summary of proposed action cards on the
+   * thread. Drives the "1 proposed action: agent-X" pill in the
+   * preview strip.
+   */
+  proposedActions?: {
+    count: number;
+    firstAgentId?: string;
+  };
 }
 
 export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
@@ -62,7 +90,7 @@ const SOURCE_LABEL: Record<InboxSource, string> = {
 };
 
 const PRIORITY_LABEL: Record<InboxPriority, string> = {
-  high: 'High priority',
+  high: 'High',
   medium: 'Medium',
   low: 'Low',
 };
@@ -72,6 +100,28 @@ const PRIORITY_BADGE: Record<InboxPriority, string> = {
   medium: 'badge--info',
   low: 'badge--muted',
 };
+
+/**
+ * Role labels for the activity-strip preview. Matches the modal's
+ * ROLE_LABEL in inbox-detail.ts but kept local to avoid an import
+ * cycle. Action role intentionally omitted — the activity strip
+ * excludes action-card responses; pending actions get their own
+ * summary chip.
+ */
+const PREVIEW_ROLE_LABEL: Partial<Record<InboxResponseRole, string>> = {
+  user: 'You',
+  triage: 'Triage',
+  system: 'System',
+};
+
+const PREVIEW_ROLE_AVATAR: Partial<Record<InboxResponseRole, string>> = {
+  user: 'You',
+  triage: 'Tri',
+  system: 'Sys',
+};
+
+/** Max characters in the preview's activity-excerpt body before truncating. */
+const PREVIEW_EXCERPT_CAP = 160;
 
 /**
  * Human labels for the inbox-status enum. The raw snake_case values
@@ -153,13 +203,14 @@ export function renderInboxList(opts: InboxListOptions): string {
 
   const starredAll = rows.filter((r) => r.starred);
   const suggestions = archiveView ? [] : buildSuggestions(rows);
+  const previewPayloads = opts.previewPayloads ?? new Map<string, InboxRowPreviewPayload>();
 
   const filterBar = renderFilterBar(filter, allTags);
   const suggestBanner = archiveView
     ? renderArchiveHeader(archiveView, rows.length)
     : renderSuggestBanner(suggestions, rows.length, terminalCount);
   const rail = renderRail(starredAll);
-  const main = renderMain(rows);
+  const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads);
   const archiveLink = !archiveView && terminalCount > 0
     ? html`
       <div class="inbox-archive-footer">
@@ -356,7 +407,7 @@ function renderRail(starred: InboxMessage[]): SafeHtml {
   `;
 }
 
-function renderMain(rows: InboxMessage[]): SafeHtml {
+function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir, filter: { q: string; starred: boolean; tag: string }, previewPayloads: Map<string, InboxRowPreviewPayload>): SafeHtml {
   if (rows.length === 0) {
     return html`
       <div class="card" style="padding: var(--space-6); text-align: center; color: var(--color-text-muted);">
@@ -367,43 +418,80 @@ function renderMain(rows: InboxMessage[]): SafeHtml {
       </div>
     `;
   }
-
-  const groups: Record<InboxPriority, InboxMessage[]> = { high: [], medium: [], low: [] };
-  for (const r of rows) groups[r.priority].push(r);
-  for (const k of ['high', 'medium', 'low'] as InboxPriority[]) {
-    groups[k].sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || b.createdAt - a.createdAt);
-  }
-
-  const sections = (['high', 'medium', 'low'] as InboxPriority[])
-    .filter((p) => groups[p].length > 0)
-    .map((p) => renderGroup(p, groups[p]));
-
-  return html`<div class="inbox-list">${sections as unknown as SafeHtml[]}</div>`;
-}
-
-function renderGroup(priority: InboxPriority, rows: InboxMessage[]): SafeHtml {
-  // Group header uses the same priority dot as the rows, so the
-  // color cue is shared between the group label and each row's
-  // priority indicator — single design language.
+  // Flat sortable list. The priority-group cards are gone — the
+  // priority dot on each row + the (sorted) order carry the
+  // urgency cue without the structural overhead.
   return html`
-    <section class="inbox-list__group" data-priority="${priority}">
-      <header class="inbox-list__group-head">
-        <span class="inbox-modal__priority inbox-modal__priority--${priority}"></span>
-        <span class="inbox-list__group-label">${PRIORITY_LABEL[priority]}</span>
-        <span class="inbox-list__group-count">${rows.length}</span>
-      </header>
-      ${rows.map((m) => renderRow(m)) as unknown as SafeHtml[]}
-    </section>
+    <div class="inbox-list" role="table">
+      ${renderListHeader(sort, dir, filter)}
+      ${rows.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
+    </div>
   `;
 }
 
-function renderRow(m: InboxMessage): SafeHtml {
+/**
+ * Sticky column header for the flat list. Each column is a sort link
+ * that flips direction on click; the active column shows an arrow
+ * indicator. The grid template mirrors the row's so the labels sit
+ * directly above their cells.
+ *
+ * The chevron and star columns get no label (they're per-row
+ * affordances, not data dimensions).
+ */
+function renderListHeader(sort: InboxSortKey, dir: InboxSortDir, filter: { q: string; starred: boolean; tag: string }): SafeHtml {
+  const link = (key: InboxSortKey, label: string, defaultDir: InboxSortDir = 'desc'): SafeHtml => {
+    const isActive = sort === key;
+    // Active column: click flips direction. Inactive: jump to the
+    // column's natural direction (desc for priority/age/status,
+    // asc for title/agent so the alphabetical sort feels intuitive).
+    const nextDir: InboxSortDir = isActive ? (dir === 'desc' ? 'asc' : 'desc') : defaultDir;
+    const params = new URLSearchParams();
+    params.set('sort', key);
+    params.set('dir', nextDir);
+    if (filter.q) params.set('q', filter.q);
+    if (filter.starred) params.set('starred', '1');
+    if (filter.tag) params.set('tag', filter.tag);
+    const href = `/inbox?${params.toString()}`;
+    const arrow = isActive
+      ? (dir === 'desc' ? html`<span class="inbox-list__sort-arrow" aria-hidden="true">↓</span>` : html`<span class="inbox-list__sort-arrow" aria-hidden="true">↑</span>`)
+      : html``;
+    return html`<a class="inbox-list__sort ${isActive ? 'inbox-list__sort--active' : ''}" href="${href}" data-inbox-row-stop>${label}${arrow}</a>`;
+  };
+  return html`
+    <div class="inbox-list__header" role="row">
+      <span></span>
+      <span role="columnheader">${link('priority', 'Priority', 'asc')}</span>
+      <span role="columnheader" class="inbox-list__header-title">${link('title', 'Title', 'asc')}</span>
+      <span role="columnheader">${link('agent', 'Agent', 'asc')}</span>
+      <span role="columnheader">${link('status', 'Status', 'asc')}</span>
+      <span role="columnheader">${link('age', 'Age', 'desc')}</span>
+      <span></span>
+      <span></span>
+    </div>
+  `;
+}
+
+/**
+ * One row in the flat list.
+ *
+ * Left side: priority dot + title (+ inline tag chips).
+ * Right side: agent · status · age · star · chevron.
+ *
+ * Operators read content on the left and act on the right — the
+ * star and chevron sit next to the metadata that informs their
+ * decisions. Removed the "—" placeholder for missing agents: empty
+ * space reads as "no agent" without adding ink.
+ *
+ * The expanded preview replaces the old body-only excerpt with an
+ * activity strip that shows the most recent triage/user/system
+ * reply + a pending-actions summary. See renderPreview.
+ */
+function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined): SafeHtml {
   const tagChips = m.tags.length === 0
     ? html``
     : html`<span class="inbox-row2__tags">${m.tags.map((t) => html`<span class="inbox-tag-chip">${t}</span>`) as unknown as SafeHtml[]}</span>`;
-  // Agent + run link rendered inline like the modal's meta row:
-  // `agent-id · run abc12345`. Both links share the .inbox-modal__link
-  // styling so hover/focus behavior is identical.
+  // Agent + run link, rendered only when present. Mono is reserved
+  // for ids; the cell is empty (zero-width) when no agent.
   const agentRunCell = (m.agentId || m.runId)
     ? html`
       <span class="inbox-row2__agent">
@@ -412,43 +500,132 @@ function renderRow(m: InboxMessage): SafeHtml {
         ${m.runId ? html`<a href="/runs/${m.runId}" class="inbox-modal__link mono" data-inbox-row-stop>${m.runId.slice(0, 8)}</a>` : html``}
       </span>
     `
-    : html`<span class="inbox-row2__agent dim">—</span>`;
+    : html`<span class="inbox-row2__agent" aria-hidden="true"></span>`;
+  // Age cell uses lastActivityAt when present; falls back to
+  // createdAt for rows where the store didn't compute the join
+  // (e.g. single-message reads). The hover title shows both so the
+  // operator can disambiguate "old thread, recently bumped" vs
+  // "old thread, untouched."
+  const ageAt = m.lastActivityAt ?? m.createdAt;
+  const ageTitle = m.lastActivityAt && m.lastActivityAt !== m.createdAt
+    ? `created ${formatAge(new Date(m.createdAt).toISOString())} · last activity ${formatAge(new Date(m.lastActivityAt).toISOString())}`
+    : `created ${formatAge(new Date(m.createdAt).toISOString())}`;
   return html`
-    <div class="inbox-row2" data-inbox-row-id="${m.id}" id="row-${m.id}">
-      <button type="button" class="inbox-row2__chevron" data-inbox-row-chevron
-        aria-label="Toggle preview" aria-expanded="false">›</button>
+    <div class="inbox-row2" data-inbox-row-id="${m.id}" id="row-${m.id}" role="row" data-inbox-status="${m.status}">
+      <span class="inbox-modal__priority inbox-modal__priority--${m.priority}" title="${m.priority} priority"></span>
+      <span class="inbox-row2__title" role="cell">
+        <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>
+        ${tagChips}
+      </span>
+      ${agentRunCell}
+      <span class="inbox-row2__status" role="cell">
+        <span class="badge ${STATUS_BADGE[m.status]}">${STATUS_LABEL[m.status]}</span>
+      </span>
+      <span class="inbox-row2__age dim" role="cell" title="${ageTitle}">${formatAge(new Date(ageAt).toISOString())}</span>
       <form method="POST" action="/inbox/${m.id}/star" data-inbox-row-stop data-inbox-star-form style="margin: 0;">
         <input type="hidden" name="starred" value="${m.starred ? '0' : '1'}">
         <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
       </form>
-      <span class="inbox-modal__priority inbox-modal__priority--${m.priority}" title="${m.priority} priority"></span>
-      ${agentRunCell}
-      <span class="inbox-row2__title">
-        <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>
-        ${tagChips}
-      </span>
-      <span class="inbox-row2__signal" data-inbox-status="${m.status}">
-        <span class="badge ${STATUS_BADGE[m.status]}">${STATUS_LABEL[m.status]}</span>
-        <span class="inbox-row2__age dim">${formatAge(new Date(m.createdAt).toISOString())}</span>
-      </span>
+      <button type="button" class="inbox-row2__chevron" data-inbox-row-chevron
+        aria-label="Toggle preview" aria-expanded="false">›</button>
 
-      <div class="inbox-row2__preview" data-inbox-row-preview>
-        <div class="inbox-row2__preview-body">${m.body}</div>
-        ${m.contextJson ? html`
-          <details>
-            <summary style="cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted);">Context payload</summary>
-            <pre class="mono" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0; overflow-x: auto; max-height: 10rem;">${tryPretty(m.contextJson)}</pre>
-          </details>
-        ` : html``}
-        <div class="inbox-row2__preview-actions">
-          <a href="/inbox/${m.id}" class="btn btn--sm btn--primary" data-inbox-row-link>Open thread</a>
-          <span class="dim" style="font-size: var(--font-size-xs); align-self: center;">
-            ${SOURCE_LABEL[m.source]}
-          </span>
+      ${renderPreview(m, preview)}
+    </div>
+  `;
+}
+
+/**
+ * Expanded preview — the "activity strip." Replaces the old
+ * body-only excerpt with the actual conversation signal:
+ *
+ *   1. Latest non-action response (triage / user / system) with
+ *      avatar + role + first ~160 chars.
+ *   2. Pending-actions summary when triage has proposed something.
+ *   3. Context payload disclosure (only when present).
+ *   4. Tag chips moved here from the collapsed row.
+ *   5. Right-aligned footer: Open thread → · Source · age.
+ *
+ * Empty cases:
+ *   - Manual conversation with no replies → italic "No replies yet"
+ *     hint + Open thread CTA. The "(empty)" body sentinel from the
+ *     store's NOT NULL workaround is suppressed (mirrors the modal
+ *     fragment renderer in inbox-detail.ts).
+ *   - Body that isn't "(empty)" but no responses → fall back to the
+ *     legacy body excerpt so producers that seed real body text
+ *     still get a useful preview.
+ */
+function renderPreview(m: InboxMessage, preview: InboxRowPreviewPayload | undefined): SafeHtml {
+  const latest = preview?.latestResponse;
+  const proposed = preview?.proposedActions;
+  const trimmedBody = m.body.trim();
+  const hasMeaningfulBody = trimmedBody.length > 0 && trimmedBody !== '(empty)';
+
+  const activityBlock = latest
+    ? html`
+      <div class="inbox-row2__activity">
+        <span class="inbox-msg__avatar inbox-msg__avatar--${latest.role}">${PREVIEW_ROLE_AVATAR[latest.role] ?? latest.role.slice(0, 3)}</span>
+        <div class="inbox-row2__activity-body">
+          <div class="inbox-row2__activity-meta">
+            <span class="inbox-row2__activity-role">${PREVIEW_ROLE_LABEL[latest.role] ?? latest.role}</span>
+            <span class="dim">${formatAge(new Date(latest.createdAt).toISOString())}</span>
+          </div>
+          <div class="inbox-row2__activity-excerpt">${excerpt(latest.body, PREVIEW_EXCERPT_CAP)}</div>
         </div>
+      </div>
+    `
+    : hasMeaningfulBody
+      ? html`<div class="inbox-row2__body-excerpt">${excerpt(m.body, PREVIEW_EXCERPT_CAP * 2)}</div>`
+      : html`<div class="inbox-row2__no-activity dim">No replies yet. Open the thread to start the conversation.</div>`;
+
+  const actionsBlock = proposed && proposed.count > 0
+    ? html`
+      <div class="inbox-row2__action-summary">
+        <span class="inbox-row2__action-summary-icon" aria-hidden="true">▸</span>
+        ${proposed.count} proposed action${proposed.count === 1 ? '' : 's'}${proposed.firstAgentId ? html`: <span class="mono">${proposed.firstAgentId}</span>` : html``}
+      </div>
+    `
+    : html``;
+
+  const contextBlock = m.contextJson
+    ? html`
+      <details class="inbox-row2__context">
+        <summary>Context payload</summary>
+        <pre class="mono">${tryPretty(m.contextJson)}</pre>
+      </details>
+    `
+    : html``;
+
+  const tagsBlock = m.tags.length > 0
+    ? html`
+      <div class="inbox-row2__preview-tags">
+        ${m.tags.map((t) => html`<span class="inbox-tag-chip">${t}</span>`) as unknown as SafeHtml[]}
+      </div>
+    `
+    : html``;
+
+  return html`
+    <div class="inbox-row2__preview" data-inbox-row-preview>
+      ${activityBlock}
+      ${actionsBlock}
+      ${contextBlock}
+      <div class="inbox-row2__preview-footer">
+        ${tagsBlock}
+        <span class="inbox-row2__preview-footer-spacer"></span>
+        <a href="/inbox/${m.id}" class="btn btn--sm btn--primary" data-inbox-row-link>Open thread →</a>
+        <span class="dim inbox-row2__preview-source">${SOURCE_LABEL[m.source]}</span>
       </div>
     </div>
   `;
+}
+
+/** Truncate to N chars at a word boundary; appends ellipsis when cut. */
+function excerpt(raw: string, cap: number): string {
+  const s = raw.trim();
+  if (s.length <= cap) return s;
+  const cut = s.slice(0, cap);
+  const lastSpace = cut.lastIndexOf(' ');
+  const trimmed = lastSpace > cap * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return trimmed + '…';
 }
 
 function tryPretty(raw: string): string {

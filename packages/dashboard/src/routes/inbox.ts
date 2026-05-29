@@ -166,13 +166,61 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
   const statusQ = typeof req.query.status === 'string' ? req.query.status : '';
   const archiveView: 'dismissed' | 'resolved' | undefined =
     statusQ === 'dismissed' ? 'dismissed' : statusQ === 'resolved' ? 'resolved' : undefined;
+  const { sort, dir } = parseSort(req);
+  // Coerce the dashboard's broader InboxSortKey union (which still
+  // carries the legacy 'source' option for back-compat) to the
+  // store's sort vocabulary. Anything the store doesn't know falls
+  // back to its default (priority semantics).
+  const STORE_SORT_KEYS: ReadonlySet<string> = new Set(['priority', 'status', 'age', 'title', 'agent']);
+  const storeSort = STORE_SORT_KEYS.has(sort) ? (sort as 'priority' | 'status' | 'age' | 'title' | 'agent') : 'priority';
   const rows = ctx.inboxStore ? ctx.inboxStore.list({
     q: q || undefined,
     starred: starred || undefined,
     tag: tag || undefined,
     status: archiveView,
+    sort: storeSort,
+    dir,
   }) : [];
   const allTags = ctx.inboxStore ? ctx.inboxStore.listAllTags() : [];
+  // Compute per-row preview payloads in a single pass. Each call to
+  // listResponses is a single SQLite roundtrip; for the default
+  // page-size (≤200 rows) the cost is negligible. If pagination
+  // grows the row count materially, fold this into a bulk store
+  // helper that joins inbox_responses once.
+  const previewPayloads = new Map<string, import('../views/inbox-list.js').InboxRowPreviewPayload>();
+  if (ctx.inboxStore && rows.length > 0) {
+    for (const r of rows) {
+      const responses = ctx.inboxStore.listResponses(r.id);
+      let latestResponse: { role: 'user' | 'triage' | 'system' | 'action'; body: string; createdAt: number } | undefined;
+      let proposedCount = 0;
+      let firstProposedAgentId: string | undefined;
+      // Walk from newest to oldest. listResponses returns ascending
+      // by created_at, so iterate in reverse.
+      for (let i = responses.length - 1; i >= 0; i--) {
+        const resp = responses[i];
+        if (resp.role !== 'action' && !latestResponse) {
+          latestResponse = { role: resp.role, body: resp.body, createdAt: resp.createdAt };
+        }
+        if (resp.role === 'action') {
+          const meta = parseActionMeta(resp);
+          if (meta?.status === 'proposed') {
+            proposedCount += 1;
+            if (!firstProposedAgentId) firstProposedAgentId = meta.agentId;
+          }
+        }
+        // Early exit once we have both signals.
+        if (latestResponse && proposedCount > 0) break;
+      }
+      previewPayloads.set(r.id, {
+        latestResponse: latestResponse && latestResponse.role !== 'action'
+          ? { role: latestResponse.role, body: latestResponse.body, createdAt: latestResponse.createdAt }
+          : undefined,
+        proposedActions: proposedCount > 0
+          ? { count: proposedCount, firstAgentId: firstProposedAgentId }
+          : undefined,
+      });
+    }
+  }
   // terminalCount drives the "Inbox cleared" empty-state + the "View
   // N dismissed / resolved" archive-footer link. Only computed for
   // the active view — the archive view has its own header.
@@ -184,13 +232,13 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
       terminalCount = dismissed.length + resolved.length;
     } catch { /* swallow — empty count is harmless */ }
   }
-  const { sort, dir } = parseSort(req);
   res.type('html').send(renderInboxList({
     rows, sort, dir, flash: parseFlash(req),
     filter: { q, starred, tag },
     allTags,
     terminalCount,
     archiveView,
+    previewPayloads,
   }));
 });
 
