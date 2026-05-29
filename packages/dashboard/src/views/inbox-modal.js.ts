@@ -286,6 +286,15 @@ export const INBOX_MODAL_JS = `
     if (!(form instanceof HTMLFormElement)) return;
     if (!form.hasAttribute('data-inbox-modal-form')) return;
     e.preventDefault();
+
+    // In-flight guard. A submit that beats the disable to the
+    // browsers event loop (rapid double-click, Enter-then-click)
+    // gets dropped here so the route never sees the duplicate. The
+    // flag clears in the .then/.catch below so a legitimate retry
+    // after failure still works.
+    if (form.getAttribute('data-inflight') === '1') return;
+    form.setAttribute('data-inflight', '1');
+
     var action = form.getAttribute('action');
     var method = (form.getAttribute('method') || 'POST').toUpperCase();
     var formData = new FormData(form);
@@ -297,6 +306,27 @@ export const INBOX_MODAL_JS = `
     // server's triageRunId capture races our first refresh.
     var keepsTriagePolling = form.getAttribute('data-inbox-modal-keeps-triage') === '1';
     if (keepsTriagePolling) keepPollingUntil = Date.now() + 30000;
+
+    // Optimistic UI for the reply path. Without this, the operator
+    // clicks Post reply, sees no movement for the network round-
+    // trip + LLM kickoff window, and clicks again — producing a
+    // duplicate "You" message in the conversation. Echo the message
+    // into the timeline immediately, clear the textarea, and dim
+    // the placeholder until the real one lands from refresh().
+    var isReplyForm = !!action && action.indexOf('/respond') !== -1;
+    var pendingEntry = null;
+    var savedTextareaValue = '';
+    var textarea = null;
+    if (isReplyForm) {
+      textarea = form.querySelector('textarea[name="body"]')
+        || content.querySelector('textarea[name="body"]');
+      var body = textarea ? (textarea.value || '').trim() : '';
+      if (body) {
+        savedTextareaValue = textarea ? textarea.value : '';
+        pendingEntry = appendPendingReply(body);
+        if (textarea) textarea.value = '';
+      }
+    }
 
     fetch(action, {
       method: method,
@@ -311,6 +341,9 @@ export const INBOX_MODAL_JS = `
         if (!r.ok) throw new Error('mutation failed: ' + r.status);
       })
       .then(function () {
+        // refresh() will replace the pending placeholder with the
+        // real persisted entry, so no manual cleanup needed.
+        form.removeAttribute('data-inflight');
         if (dismissAfter) {
           var row = document.querySelector('[data-inbox-row-id="' + cssEscape(currentId || '') + '"]');
           if (row && row.parentNode) row.parentNode.removeChild(row);
@@ -320,9 +353,75 @@ export const INBOX_MODAL_JS = `
         }
       })
       .catch(function () {
+        form.removeAttribute('data-inflight');
         for (var i = 0; i < submits.length; i++) submits[i].disabled = false;
+        // Rollback the optimistic UI so the operator can edit and
+        // retry instead of losing their text.
+        if (pendingEntry && pendingEntry.parentNode) {
+          pendingEntry.parentNode.removeChild(pendingEntry);
+        }
+        if (textarea && savedTextareaValue) {
+          textarea.value = savedTextareaValue;
+        }
       });
   });
+
+  /**
+   * Append a "Sending…" placeholder bubble to the conversation
+   * timeline. Matches the structure of renderConversationEntry so the
+   * CSS styles it like a real user message, plus a data-pending
+   * attribute that drives the dimmed appearance. Returns the
+   * <li> element so the catch path can remove it on failure.
+   */
+  function appendPendingReply(bodyText) {
+    var ul = content.querySelector('ul.inbox-timeline');
+    if (!ul) {
+      // The "no replies yet" empty state doesn't render a <ul>; build
+      // one so the optimistic append has a home. The fragment refresh
+      // will replace this with the canonical server-rendered timeline.
+      var section = content.querySelector('.inbox-modal__timeline-section');
+      if (!section) return null;
+      var emptyP = section.querySelector('p.dim');
+      if (emptyP && emptyP.parentNode) emptyP.parentNode.removeChild(emptyP);
+      ul = document.createElement('ul');
+      ul.className = 'inbox-timeline';
+      section.appendChild(ul);
+    }
+    var li = document.createElement('li');
+    li.className = 'inbox-timeline__entry';
+    var msg = document.createElement('div');
+    msg.className = 'inbox-msg';
+    msg.setAttribute('data-pending', '1');
+    var avatar = document.createElement('div');
+    avatar.className = 'inbox-msg__avatar inbox-msg__avatar--user';
+    avatar.textContent = 'You';
+    var bodyEl = document.createElement('div');
+    bodyEl.className = 'inbox-msg__body';
+    var meta = document.createElement('div');
+    meta.className = 'inbox-msg__meta';
+    var name = document.createElement('span');
+    name.className = 'inbox-msg__meta-name';
+    name.textContent = 'You';
+    var age = document.createElement('span');
+    age.textContent = 'Sending…';
+    meta.appendChild(name);
+    meta.appendChild(age);
+    var text = document.createElement('div');
+    text.className = 'inbox-msg__text';
+    text.textContent = bodyText;
+    bodyEl.appendChild(meta);
+    bodyEl.appendChild(text);
+    msg.appendChild(avatar);
+    msg.appendChild(bodyEl);
+    li.appendChild(msg);
+    ul.appendChild(li);
+    // Scroll the optimistic message into view so the operator sees
+    // it land.
+    requestAnimationFrame(function () {
+      content.scrollTop = content.scrollHeight;
+    });
+    return li;
+  }
 
   function cssEscape(s) {
     return String(s).replace(/[^a-zA-Z0-9_-]/g, function (c) {

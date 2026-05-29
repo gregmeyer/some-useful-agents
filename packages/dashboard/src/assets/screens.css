@@ -2129,6 +2129,19 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+/* Optimistic "Sending..." placeholder rendered by the modal JS the
+ * moment Post reply submits. Dimmed so the operator can tell it's
+ * not yet confirmed, but visible enough that they know their text
+ * went somewhere — no more clicking twice while waiting for the
+ * network. The placeholder is replaced by the real persisted entry
+ * on the next fragment refresh. */
+.inbox-msg[data-pending] {
+  opacity: 0.55;
+  animation: inbox-msg-in 140ms ease-out;
+}
+.inbox-msg[data-pending] .inbox-msg__text {
+  font-style: italic;
+}
 
 @keyframes inbox-msg-in {
   from { opacity: 0; transform: translateY(6px); }
