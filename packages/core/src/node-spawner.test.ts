@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProviderChain, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
+import { buildProviderChain, claudeSpawner, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -94,6 +94,89 @@ describe('buildProviderChain (waterfall)', () => {
 
   it('supports a 3-provider chain — pin still goes first, rest follows in order', () => {
     expect(buildProviderChain('codex', ['claude', 'gemini', 'codex'])).toEqual(['codex', 'claude', 'gemini']);
+  });
+});
+
+describe('claudeSpawner.parseProgress (per-token output_chunk)', () => {
+  // The Claude CLI's --output-format stream-json emits one JSON line
+  // per event. Assistant events carry a content array with text
+  // and/or tool_use items. PR 4 of the streaming UX work uses the
+  // output_chunk events to drive the typewriter reveal.
+
+  it('returns null for non-JSON lines', () => {
+    expect(claudeSpawner.parseProgress('')).toBeNull();
+    expect(claudeSpawner.parseProgress('hello world')).toBeNull();
+    expect(claudeSpawner.parseProgress('[not, json]')).toBeNull();
+  });
+
+  it('emits output_chunk with the text delta on an assistant text event', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Hello, world!' }] },
+    });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p).not.toBeNull();
+    expect(p?.type).toBe('output_chunk');
+    expect(p?.message).toBe('Hello, world!');
+  });
+
+  it('emits tool_use when an assistant event has tool_use content (no text)', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Read', input: {} }] },
+    });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p?.type).toBe('tool_use');
+  });
+
+  it('prefers text over tool_use when both are present in one assistant event', () => {
+    // The first text chunk drives the typewriter; the tool_use is
+    // surfaced via the next event in the stream.
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [
+        { type: 'text', text: 'Let me check.' },
+        { type: 'tool_use', name: 'Read' },
+      ] },
+    });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p?.type).toBe('output_chunk');
+    expect(p?.message).toBe('Let me check.');
+  });
+
+  it('falls back to turn_start for an assistant event with empty content', () => {
+    const line = JSON.stringify({ type: 'assistant', message: { content: [] } });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p?.type).toBe('turn_start');
+  });
+
+  it('skips empty text deltas (no message.length === 0 events)', () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '' }] },
+    });
+    const p = claudeSpawner.parseProgress(line);
+    // Empty text → no useful chunk → falls through to the generic
+    // turn_start so the UI knows the model is alive.
+    expect(p?.type).toBe('turn_start');
+  });
+
+  it('emits turn_complete with the turn count on a result event', () => {
+    const line = JSON.stringify({ type: 'result', num_turns: 3 });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p?.type).toBe('turn_complete');
+    expect(p?.turn).toBe(3);
+  });
+
+  it('emits tool_use on a top-level tool_use event', () => {
+    const line = JSON.stringify({ type: 'tool_use', name: 'Grep' });
+    const p = claudeSpawner.parseProgress(line);
+    expect(p?.type).toBe('tool_use');
+  });
+
+  it('returns null for unrecognized event types', () => {
+    const line = JSON.stringify({ type: 'system' });
+    expect(claudeSpawner.parseProgress(line)).toBeNull();
   });
 });
 

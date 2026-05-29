@@ -1283,6 +1283,20 @@ async function runTriageAgent(
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
+        // Forward token-level progress from the triage LLM node to
+        // the SSE bus. Filtered to output_chunk so we don't spam
+        // clients with turn_start / tool_use markers (those still
+        // land in progressJson via the DB path). Other progress
+        // types remain DB-only.
+        inboxOnProgress: ({ nodeId, progress }) => {
+          if (progress.type !== 'output_chunk') return;
+          if (!progress.message) return;
+          publishInboxEvent(ctx, messageId, 'triage:token', {
+            nodeId,
+            chunk: progress.message,
+            at: Date.now(),
+          });
+        },
       },
     );
     // Capture the runId once it lands. Race the executor to avoid

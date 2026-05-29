@@ -106,6 +106,16 @@ export interface DagExecutorDeps {
    */
   llmSettings?: import('./node-spawner.js').LlmSettingsSnapshot;
   /**
+   * Optional per-event forwarder used by the dashboard's inbox SSE
+   * stream. Fires once per `SpawnProgress` event with the agent +
+   * node context. Decoupled from core: dag-executor doesn't know
+   * about the inbox event bus; the dashboard registers an adapter
+   * that filters by node and republishes to the bus as
+   * `triage:token` / `tool_use` etc. Errors are swallowed by the
+   * adapter so a misbehaving subscriber can't break a run.
+   */
+  inboxOnProgress?: (event: { nodeId: string; progress: import('./node-spawner.js').SpawnProgress }) => void;
+  /**
    * Optional dashboard URL prefix used by the notify dispatcher to embed
    * a "view run in dashboard" link in Slack messages. When absent, the
    * link is omitted; the notify still fires.
@@ -738,6 +748,11 @@ export async function executeAgentDag(
 
     // Progress collector: accumulates SpawnProgress events and writes
     // them to the DB so the dashboard can poll for turn status.
+    // Additionally forwards each event to the optional inbox SSE
+    // adapter (`deps.inboxOnProgress`) — that's what the dashboard
+    // hangs per-token triage:token events off of, for the typewriter
+    // reveal in PR 4. The adapter is responsible for filtering by
+    // node and swallowing its own errors.
     const progressEvents: SpawnProgress[] = [];
     const onProgress = (event: SpawnProgress) => {
       progressEvents.push(event);
@@ -745,6 +760,12 @@ export async function executeAgentDag(
       deps.runStore.updateNodeExecution(runId, node.id, {
         progressJson: JSON.stringify(progressEvents),
       });
+      // Best-effort fan-out to the inbox SSE bus. Never let an
+      // adapter exception break a live run.
+      if (deps.inboxOnProgress) {
+        try { deps.inboxOnProgress({ nodeId: node.id, progress: event }); }
+        catch { /* swallow */ }
+      }
     };
 
     // PR C (orphan-kill): persist the child's pid + wall-clock start time
