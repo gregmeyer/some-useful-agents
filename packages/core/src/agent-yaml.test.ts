@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseAgent, exportAgent, AgentYamlParseError } from './agent-yaml.js';
 import type { Agent } from './agent-v2-types.js';
 
@@ -342,5 +344,50 @@ nodes:
     // Round-trip preserves them.
     const a2 = parseAgent(exportAgent(a1));
     expect(a2).toEqual(a1);
+  });
+});
+
+describe('agents/examples/agent-analyzer.yaml — preflight guard + widget', () => {
+  // Locks in the contract that:
+  // - AGENT_YAML is required:false so the executor doesn't reject at
+  //   setup with an opaque "missing required input" error;
+  // - the first node is `preflight` (no deps), which validates the
+  //   input and bails with a human-readable shell message;
+  // - `analyze` depends on preflight so a missing-YAML run dead-ends
+  //   at the friendly preflight error instead of hitting Claude;
+  // - the agent declares an outputWidget + signal so standalone runs
+  //   render properly on /runs/:id and Pulse.
+  it('parses, declares preflight as the first guard, and has widget+signal', () => {
+    const yaml = readFileSync(
+      join(__dirname, '..', '..', '..', 'agents', 'examples', 'agent-analyzer.yaml'),
+      'utf-8',
+    );
+    const a = parseAgent(yaml);
+
+    // Schema: AGENT_YAML must not be required (preflight is the gate).
+    expect(a.inputs?.AGENT_YAML?.required).not.toBe(true);
+    expect(a.inputs?.AGENT_YAML?.default).toBe('');
+
+    // First node must be preflight + a shell that exits non-zero on
+    // empty AGENT_YAML, so the operator-visible error is the
+    // human-readable message we wrote — not the executor's generic
+    // "missing required input" or a Claude turn that fails silently.
+    expect(a.nodes[0].id).toBe('preflight');
+    expect(a.nodes[0].type).toBe('shell');
+    expect(a.nodes[0].dependsOn ?? []).toEqual([]);
+    expect(a.nodes[0].command).toMatch(/AGENT_YAML/);
+    expect(a.nodes[0].command).toMatch(/Suggest improvements/);
+
+    // analyze gates on preflight.
+    const analyze = a.nodes.find((n) => n.id === 'analyze');
+    expect(analyze?.dependsOn).toContain('preflight');
+
+    // outputWidget is declared with at least one field (the schema
+    // requires this for non-ai widgets).
+    expect(a.outputWidget?.type).toBe('key-value');
+    expect((a.outputWidget?.fields ?? []).length).toBeGreaterThan(0);
+
+    // signal template is declared for Pulse.
+    expect(a.signal?.template).toBe('text-headline');
   });
 });

@@ -10,8 +10,15 @@ source: examples
 inputs:
   AGENT_YAML:
     type: string
-    required: true
-    description: The full YAML definition of the agent to analyze.
+    required: false
+    default: ""
+    description: >
+      The full YAML definition of the agent to analyze. Required at
+      runtime — when empty, the `preflight` shell node fails fast with
+      a clear human-facing message. We keep this `required: false` with
+      an empty default so the executor doesn't reject the run at setup
+      time with an opaque "missing required input" error; the preflight
+      guard produces a much better diagnostic instead.
   FOCUS:
     type: string
     required: false
@@ -29,8 +36,30 @@ inputs:
     description: Node types, signal templates, output widgets, available agents, and patterns. Injected at analysis time.
 
 nodes:
+  - id: preflight
+    type: shell
+    # Cheap fast-fail. The dashboard's "Suggest improvements" flow
+    # injects AGENT_YAML automatically, but a manual run, scheduled
+    # trigger, or programmatic invocation that forgets the input
+    # otherwise produces an opaque generic executor error. Catching
+    # the empty case here gives the operator a one-line explanation
+    # of what to do instead.
+    command: |
+      if [ -z "$AGENT_YAML" ] || [ ${#AGENT_YAML} -lt 10 ]; then
+        echo "agent-analyzer requires AGENT_YAML — the full YAML of the agent to analyze."
+        echo ""
+        echo "From the dashboard: open any agent's detail page and click 'Suggest improvements' — the button injects the YAML automatically."
+        echo "From a manual run: paste the agent's YAML into the AGENT_YAML input field on the Run-now form."
+        echo "From a schedule or programmatic call: pass AGENT_YAML in the inputs map."
+        exit 1
+      fi
+      echo '{"ok":true,"yaml_length":'${#AGENT_YAML}'}'
+    timeout: 5
+
   - id: analyze
     type: llm-prompt
+    dependsOn:
+      - preflight
     prompt: |
       You are an expert agent architect reviewing a sua DAG agent.
 
@@ -208,3 +237,69 @@ nodes:
       </yaml>
     maxTurns: 4
     timeout: 240
+
+  - id: summarize
+    type: shell
+    # Final node — emits a small JSON envelope so the agent has a
+    # structured run.result for the outputWidget. Reads from `fix` when
+    # validation failed (so the corrected XML wins), otherwise from
+    # `analyze`. Soft-deps on `fix` so a skipped `fix` doesn't block
+    # this from running; the empty $UPSTREAM_FIX_RESULT case is handled.
+    dependsOn:
+      - analyze
+      - validate
+      - fix
+    command: |
+      # Prefer fix output when validate said invalid AND fix actually ran.
+      VALIDATE_VALID=$(echo "$UPSTREAM_VALIDATE_RESULT" | grep -o '"valid":[a-z]*' | head -1)
+      if [ "$VALIDATE_VALID" = '"valid":false' ] && [ -n "$UPSTREAM_FIX_RESULT" ]; then
+        SRC="$UPSTREAM_FIX_RESULT"
+        SOURCE_NODE="fix"
+      else
+        SRC="$UPSTREAM_ANALYZE_RESULT"
+        SOURCE_NODE="analyze"
+      fi
+
+      CLASSIFICATION=$(printf '%s' "$SRC" | sed -n 's:.*<classification>\([^<]*\)</classification>.*:\1:p' | head -1)
+      SUMMARY=$(printf '%s' "$SRC" | sed -n 's:.*<summary>\([^<]*\)</summary>.*:\1:p' | head -1)
+      HAS_YAML=$(printf '%s' "$SRC" | grep -c '<yaml>' || true)
+
+      # JSON-escape via node so quotes / newlines in the summary don't
+      # corrupt the envelope.
+      node -e '
+        const c = (process.argv[1] || "UNKNOWN").trim();
+        const s = (process.argv[2] || "").trim();
+        const sn = process.argv[3] || "analyze";
+        const hasYaml = (process.argv[4] || "0").trim() !== "0";
+        console.log(JSON.stringify({
+          classification: c,
+          summary: s,
+          has_suggested_yaml: hasYaml,
+          source_node: sn,
+        }));
+      ' "$CLASSIFICATION" "$SUMMARY" "$SOURCE_NODE" "$HAS_YAML"
+    timeout: 15
+
+outputWidget:
+  type: key-value
+  fields:
+    - name: classification
+      label: Assessment
+      type: badge
+    - name: summary
+      label: Summary
+      type: text
+    - name: has_suggested_yaml
+      label: YAML diff available
+      type: badge
+    - name: source_node
+      label: Source node
+      type: text
+
+signal:
+  title: Agent Analyzer
+  icon: "🔎"
+  template: text-headline
+  mapping:
+    headline: summary
+    badge: classification
