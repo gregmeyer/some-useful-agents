@@ -418,9 +418,14 @@ function renderActionStatusBody(meta: InboxActionMeta): SafeHtml {
     case 'proposed':
       return html``;
     case 'running':
+      // Action-running picks up the same witty-label rotation as the
+      // triage indicator — different phase, different label set
+      // ("Dispatching…", "Crunching…"). data-action-running is the
+      // hook the modal-poll watchdog uses to keep the modal alive
+      // while the sub-agent runs.
       return html`
-        <div class="inbox-action__running">
-          Running
+        <div class="inbox-action__running inbox-thinking" data-action-running="1" data-thinking-phase="action-running">
+          <span class="inbox-thinking__label" data-thinking-label>Running</span>
           <span class="inbox-thinking__dots"><span></span><span></span><span></span></span>
         </div>
       `;
@@ -512,11 +517,15 @@ function formatDuration(meta: InboxActionMeta): string {
 
 /** Pulsing-dots "Triage agent is thinking…" indicator. */
 function renderThinkingIndicator(): SafeHtml {
+  // data-thinking-phase lets the modal JS pick the right label set
+  // when it rotates copy underneath the dots. The default seed text
+  // is a sensible label so users with JS disabled (or before the
+  // rotation loop fires) still see something coherent.
   return html`
-    <div class="inbox-thinking" data-triage-pending="1">
+    <div class="inbox-thinking" data-triage-pending="1" data-thinking-phase="triage">
       <div class="inbox-thinking__avatar">Tri</div>
       <div>
-        Triage agent is thinking
+        <span class="inbox-thinking__label" data-thinking-label>Triage agent is thinking</span>
         <span class="inbox-thinking__dots"><span></span><span></span><span></span></span>
       </div>
     </div>
