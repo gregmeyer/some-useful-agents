@@ -977,6 +977,8 @@ export async function executeAgentDag(
         exitCode: 0,
         outputsJson,
         stateBytesAfter,
+        usedProvider: result.usedProvider,
+        attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
       });
     } else {
       const category: NodeErrorCategory =
@@ -992,6 +994,8 @@ export async function executeAgentDag(
         exitCode: result.exitCode,
         error: result.error ?? `Process exited with code ${result.exitCode}`,
         outputsJson,
+        usedProvider: result.usedProvider,
+        attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
         stateBytesAfter,
       });
       firstFailure = { nodeId: node.id, category };

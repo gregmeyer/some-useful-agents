@@ -5,19 +5,25 @@ import { PROVIDER_IDS, type LlmProvider } from './llm-providers.js';
 export type { LlmProvider };
 
 /**
- * LLM provider config + fallback policy.
+ * LLM provider waterfall config.
  *
- * Persistent across daemon restarts: the operator picks a primary
- * provider via `/settings/llm`; if the primary fails with a
- * recognized "should fall back" error category (credit exhausted,
- * quota exceeded, binary missing, hard timeout) AND a fallback is
- * configured, node-spawner retries the LLM attempt with the fallback
- * provider and records the event in `lastFallback` so the settings
- * page can show "fallback fired 3m ago on agent X because Y."
+ * Persistent across daemon restarts: the operator manages an ORDERED
+ * list of providers via `/settings/llm`. `providers[0]` is the primary
+ * (the default for any llm-prompt node that doesn't pin its own
+ * provider). When a provider's attempt fails with a recognized
+ * "should fall back" category (credit / quota / binary-missing /
+ * hard-timeout), node-spawner walks the rest of the chain in order
+ * until one succeeds or the chain is exhausted.
  *
- * File-backed JSON (mirrors `VariablesStore`) — no migration story
- * needed for a two-field config, and the daemon can pick up edits
- * the operator makes without a restart.
+ * A node that pins its own provider (`node.provider: codex`) gets
+ * that provider at the HEAD of the chain regardless of the global
+ * order — and the remaining providers in the global order still run
+ * as fallbacks. This fixes the "pinned-to-X means no fallback" bug
+ * where a single CLI outage would brick the run.
+ *
+ * File-backed JSON. Old `{ primary, fallback? }` shape from before
+ * the waterfall is auto-migrated to `{ providers: [primary, ...] }`
+ * on first read.
  */
 
 /**
@@ -30,9 +36,11 @@ export const LLM_PROVIDERS: readonly LlmProvider[] = PROVIDER_IDS;
 export interface LlmFallbackEvent {
   /** Unix millis when the fallback fired. */
   at: number;
+  /** Provider that failed (the "from" side of the hop). */
   primary: LlmProvider;
+  /** Provider the run continued on (the "to" side). */
   fallback: LlmProvider;
-  /** Failure category that triggered the fallback. */
+  /** Failure category that triggered the hop. */
   reason: string;
   /** The agent whose node fell back, if known. */
   agentId?: string;
@@ -41,15 +49,24 @@ export interface LlmFallbackEvent {
 }
 
 export interface LlmSettings {
-  primary: LlmProvider;
-  /** When undefined the operator has not enabled a fallback. */
-  fallback?: LlmProvider;
+  /**
+   * Ordered waterfall. `providers[0]` is the primary (used by default
+   * for any llm-prompt node without a pinned provider). Subsequent
+   * entries are tried in order on classified failures. Never empty —
+   * the store enforces at least one entry.
+   */
+  providers: LlmProvider[];
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
 }
 
-interface LlmSettingsFile {
+interface LlmSettingsFileV1 {
   version: 1;
+  settings: { primary: LlmProvider; fallback?: LlmProvider; lastFallback?: LlmFallbackEvent };
+}
+
+interface LlmSettingsFileV2 {
+  version: 2;
   settings: LlmSettings;
 }
 
@@ -76,23 +93,27 @@ export class LlmSettingsStore {
   }
 
   /**
-   * Replace the primary/fallback pair. `fallback` may be undefined to
-   * clear the fallback (no automatic retry on failure). Preserves
-   * `lastFallback` telemetry — only `recordFallback` mutates that.
+   * Replace the entire waterfall. Validates each entry against
+   * PROVIDER_IDS, dedupes (first occurrence wins), and rejects empty
+   * lists — the operator must pick at least one provider so any
+   * llm-prompt node has something to dispatch to.
+   *
+   * Preserves `lastFallback` telemetry — only `recordFallback` and
+   * `clearLastFallback` mutate that.
    */
-  setProviders(primary: LlmProvider, fallback?: LlmProvider): void {
-    if (!isProvider(primary)) {
-      throw new Error(`Invalid primary provider: ${primary}`);
+  setProviders(providers: LlmProvider[]): void {
+    const deduped: LlmProvider[] = [];
+    for (const p of providers) {
+      if (!isProvider(p)) {
+        throw new Error(`Invalid provider: ${p}`);
+      }
+      if (!deduped.includes(p)) deduped.push(p);
     }
-    if (fallback !== undefined && !isProvider(fallback)) {
-      throw new Error(`Invalid fallback provider: ${fallback}`);
-    }
-    if (fallback !== undefined && fallback === primary) {
-      throw new Error('Fallback provider must differ from primary.');
+    if (deduped.length === 0) {
+      throw new Error('Provider waterfall must have at least one entry.');
     }
     const data = this.read();
-    data.settings.primary = primary;
-    data.settings.fallback = fallback;
+    data.settings.providers = deduped;
     this.write(data);
   }
 
@@ -110,32 +131,47 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
-  private read(): LlmSettingsFile {
+  private read(): LlmSettingsFileV2 {
     if (!existsSync(this.path)) {
-      return { version: 1, settings: { primary: DEFAULT_PRIMARY } };
+      return { version: 2, settings: { providers: [DEFAULT_PRIMARY] } };
     }
     try {
       const raw = readFileSync(this.path, 'utf-8');
-      const parsed = JSON.parse(raw) as LlmSettingsFile;
-      if (parsed.version !== 1) {
-        throw new Error(`Unsupported llm-settings file version: ${parsed.version}`);
+      const parsed = JSON.parse(raw) as LlmSettingsFileV1 | LlmSettingsFileV2;
+
+      // Auto-migrate the legacy { primary, fallback? } shape. We tolerate
+      // a missing version key from very early dev builds by sniffing the
+      // shape directly.
+      if (parsed.version === 1 || (parsed.version === undefined && (parsed as LlmSettingsFileV1).settings?.primary !== undefined)) {
+        const old = (parsed as LlmSettingsFileV1).settings ?? { primary: DEFAULT_PRIMARY };
+        const providers: LlmProvider[] = [];
+        if (isProvider(old.primary)) providers.push(old.primary);
+        if (old.fallback && isProvider(old.fallback) && !providers.includes(old.fallback)) {
+          providers.push(old.fallback);
+        }
+        if (providers.length === 0) providers.push(DEFAULT_PRIMARY);
+        return { version: 2, settings: { providers, lastFallback: old.lastFallback } };
       }
-      // Defensive: tolerate hand-edited files with bad providers — fall
-      // back to defaults rather than blowing up at module-load time.
-      if (!isProvider(parsed.settings?.primary)) {
-        parsed.settings = { primary: DEFAULT_PRIMARY };
+
+      if ((parsed as { version?: number }).version !== 2) {
+        throw new Error(`Unsupported llm-settings file version: ${(parsed as { version?: number }).version}`);
       }
-      if (parsed.settings.fallback !== undefined && !isProvider(parsed.settings.fallback)) {
-        parsed.settings.fallback = undefined;
-      }
+
+      // Defensive: drop unknown providers from a hand-edited file rather
+      // than blow up at module-load time.
+      const filtered = (parsed.settings.providers ?? []).filter(isProvider);
+      const deduped: LlmProvider[] = [];
+      for (const p of filtered) if (!deduped.includes(p)) deduped.push(p);
+      if (deduped.length === 0) deduped.push(DEFAULT_PRIMARY);
+      parsed.settings.providers = deduped;
       return parsed;
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
-      return { version: 1, settings: { primary: DEFAULT_PRIMARY } };
+      return { version: 2, settings: { providers: [DEFAULT_PRIMARY] } };
     }
   }
 
-  private write(data: LlmSettingsFile): void {
+  private write(data: LlmSettingsFileV2): void {
     writeFileSync(this.path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   }
 }

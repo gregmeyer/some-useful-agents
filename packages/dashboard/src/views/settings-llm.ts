@@ -36,12 +36,57 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     ? html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${args.error}</div>`
     : html``;
 
-  const primaryOpts = args.providers.map((p) => html`
-    <option value="${p}" ${args.settings!.primary === p ? 'selected' : ''}>${PROVIDER_LABEL[p] ?? p}</option>
-  `);
-  const fallbackOpts = args.providers.map((p) => html`
-    <option value="${p}" ${args.settings!.fallback === p ? 'selected' : ''}>${PROVIDER_LABEL[p] ?? p}</option>
-  `);
+  const chain = args.settings.providers;
+  const chainSet = new Set(chain);
+  const available = args.providers.filter((p) => !chainSet.has(p));
+
+  // Each row is its own tiny form. Up/Down/Remove submit to specific
+  // mutation routes so the operator sees exactly what changed; the
+  // alternative — one big "edit list" form with hidden serialization
+  // — was harder to reason about and made the URL state non-shareable.
+  const rows = chain.map((p, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === chain.length - 1;
+    const isOnly = chain.length === 1;
+    return html`
+      <li class="settings-llm__chain-row" data-provider="${p}">
+        <span class="settings-llm__chain-rank">${idx + 1}</span>
+        <span class="settings-llm__chain-label">
+          <span class="mono">${p}</span>
+          <span class="dim">${PROVIDER_LABEL[p] ?? ''}</span>
+        </span>
+        ${isFirst ? html`<span class="badge badge--ok">Primary</span>` : html`<span class="dim" style="font-size: var(--font-size-xs);">Fallback</span>`}
+        <div class="settings-llm__chain-actions">
+          <form method="POST" action="/settings/llm/move" style="display:inline;">
+            <input type="hidden" name="provider" value="${p}">
+            <input type="hidden" name="direction" value="up">
+            <button type="submit" class="btn btn--xs btn--ghost" ${isFirst ? 'disabled' : ''} aria-label="Move ${p} up">↑</button>
+          </form>
+          <form method="POST" action="/settings/llm/move" style="display:inline;">
+            <input type="hidden" name="provider" value="${p}">
+            <input type="hidden" name="direction" value="down">
+            <button type="submit" class="btn btn--xs btn--ghost" ${isLast ? 'disabled' : ''} aria-label="Move ${p} down">↓</button>
+          </form>
+          <form method="POST" action="/settings/llm/remove" style="display:inline;">
+            <input type="hidden" name="provider" value="${p}">
+            <button type="submit" class="btn btn--xs btn--ghost" ${isOnly ? 'disabled' : ''} title="${isOnly ? 'Cannot remove the last provider.' : ''}">Remove</button>
+          </form>
+        </div>
+      </li>
+    `;
+  });
+
+  const addBlock = available.length === 0
+    ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: var(--space-2) 0 0;">All known providers are already in the chain.</p>`
+    : html`
+      <form method="POST" action="/settings/llm/add" class="settings-llm__add">
+        <label for="llm-add" class="dim">Add provider</label>
+        <select id="llm-add" name="provider" class="form-field" style="max-width: 220px;">
+          ${available.map((p) => html`<option value="${p}">${PROVIDER_LABEL[p] ?? p}</option>`) as unknown as SafeHtml[]}
+        </select>
+        <button type="submit" class="btn btn--sm">Add</button>
+      </form>
+    `;
 
   const lastFallback = args.settings.lastFallback;
   const statusBlock = lastFallback
@@ -63,7 +108,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     : html`
       <div class="settings-llm__status settings-llm__status--clean">
         <div class="settings-llm__status-label">No fallback recorded</div>
-        <div class="dim">The primary provider hasn't failed in a fallback-worthy way since records started.</div>
+        <div class="dim">No provider in the chain has fallen over in a fallback-worthy way since records started.</div>
       </div>
     `;
 
@@ -83,39 +128,34 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
   return html`
     <section class="settings-section">
-      <h2 class="mt-0">LLM provider</h2>
+      <h2 class="mt-0">LLM provider waterfall</h2>
       <p class="dim">
-        Pick the primary CLI that every <code>llm-prompt</code> node calls into.
-        When configured, the fallback kicks in only on recognized credit /
-        quota / binary-missing / timeout failures — transient errors like rate
-        limits stay on the primary and retry there.
+        An ordered chain of CLI providers. The first entry is the
+        <strong>primary</strong> — every <code>llm-prompt</code> node calls
+        into it by default. On recognized failures (credit / quota /
+        binary-missing / hard-timeout), the runtime walks the rest of the
+        chain in order until one succeeds. Rate limits, auth failures, and
+        other errors stay on the same provider.
+      </p>
+      <p class="dim">
+        When an agent or node pins its own provider, that provider runs
+        first regardless of the chain order — and the remaining providers
+        still apply as fallbacks. (Previously a pin disabled all fallback.)
       </p>
 
       ${errorBanner}
 
-      <form method="POST" action="/settings/llm" class="settings-llm__form">
-        <div class="settings-llm__field">
-          <label for="llm-primary">Primary</label>
-          <select id="llm-primary" name="primary" class="form-field">
-            ${primaryOpts as unknown as SafeHtml[]}
-          </select>
-        </div>
-        <div class="settings-llm__field">
-          <label for="llm-fallback">Fallback</label>
-          <select id="llm-fallback" name="fallback" class="form-field">
-            <option value="">(no fallback)</option>
-            ${fallbackOpts as unknown as SafeHtml[]}
-          </select>
-          <p class="dim" style="font-size: var(--font-size-xs); margin: 4px 0 0;">
-            Must differ from primary. Leave blank to disable automatic
-            switching.
-          </p>
-        </div>
-        <div class="settings-llm__actions">
-          <button type="submit" class="btn btn--primary">Save</button>
-          <button type="submit" formaction="/settings/llm/probe" class="btn btn--ghost">Probe CLIs</button>
-        </div>
-      </form>
+      <ol class="settings-llm__chain">
+        ${rows as unknown as SafeHtml[]}
+      </ol>
+
+      ${addBlock}
+
+      <div class="settings-llm__actions" style="margin-top: var(--space-3);">
+        <form method="POST" action="/settings/llm/probe" style="display:inline;">
+          <button type="submit" class="btn btn--ghost">Probe CLIs</button>
+        </form>
+      </div>
 
       ${probeBlock}
       ${statusBlock}

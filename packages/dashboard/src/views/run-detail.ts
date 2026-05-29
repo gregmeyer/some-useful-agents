@@ -446,6 +446,19 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     // Parse progress events for turn indicator.
     const progressIndicator = renderProgressIndicator(e);
 
+    // Show a fallback chip on the node row when the LLM waterfall fell
+    // through. Silent when only one provider was tried (the common
+    // case) or when the node is shell (both fields unset).
+    let waterfallChip: SafeHtml = html``;
+    if (e.attemptedProviders) {
+      const trail = e.attemptedProviders.split(',').filter(Boolean);
+      if (trail.length > 1 && e.usedProvider) {
+        const failedFrom = trail.slice(0, -1).join(', ');
+        const verdict = e.status === 'completed' ? 'ran on' : 'ended on';
+        waterfallChip = html`<span class="badge badge--muted" title="LLM waterfall: ${trail.join(' → ')}">${verdict} <span class="mono">${e.usedProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
+      }
+    }
+
     const bodyBlocks: SafeHtml[] = [];
 
     // Collapsible variables panel showing resolved env at execution time.
@@ -468,6 +481,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
           ${statusBadge(e.status)}
           ${category}
           ${stateDelta}
+          ${waterfallChip}
           ${progressIndicator}
           <span class="run-node__meta">
             <span>${duration}</span>

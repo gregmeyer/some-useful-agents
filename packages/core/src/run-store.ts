@@ -217,6 +217,17 @@ export class RunStore {
     if (!execCols.has('childstartedatms')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN childStartedAtMs INTEGER`);
     }
+
+    // LLM provider waterfall: which provider ultimately produced the
+    // result + the trail of providers attempted. Both nullable so
+    // shell nodes + pre-waterfall rows stay clean. CSV is enough —
+    // the trail rarely exceeds 3 entries.
+    if (!execCols.has('usedprovider')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedProvider TEXT`);
+    }
+    if (!execCols.has('attemptedproviders')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN attemptedProviders TEXT`);
+    }
   }
 
   /**
@@ -400,8 +411,9 @@ export class RunStore {
         runId, nodeId, workflowVersion, status, errorCategory,
         startedAt, completedAt, result, exitCode, error,
         inputsJson, upstreamInputsJson, outputsJson, progressJson,
-        stateBytesBefore, stateBytesAfter, childPid, childStartedAtMs
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        stateBytesBefore, stateBytesAfter, childPid, childStartedAtMs,
+        usedProvider, attemptedProviders
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       record.runId, record.nodeId, record.workflowVersion, record.status,
@@ -412,6 +424,7 @@ export class RunStore {
       record.outputsJson ?? null, record.progressJson ?? null,
       record.stateBytesBefore ?? null, record.stateBytesAfter ?? null,
       record.childPid ?? null, record.childStartedAtMs ?? null,
+      record.usedProvider ?? null, record.attemptedProviders ?? null,
     );
   }
 
@@ -419,7 +432,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedProvider' | 'attemptedProviders'
     >>,
   ): void {
     const fields: string[] = [];
@@ -438,6 +451,8 @@ export class RunStore {
     if (updates.stateBytesAfter !== undefined) { fields.push('stateBytesAfter = ?'); values.push(updates.stateBytesAfter); }
     if (updates.childPid !== undefined) { fields.push('childPid = ?'); values.push(updates.childPid); }
     if (updates.childStartedAtMs !== undefined) { fields.push('childStartedAtMs = ?'); values.push(updates.childStartedAtMs); }
+    if (updates.usedProvider !== undefined) { fields.push('usedProvider = ?'); values.push(updates.usedProvider); }
+    if (updates.attemptedProviders !== undefined) { fields.push('attemptedProviders = ?'); values.push(updates.attemptedProviders); }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -532,6 +547,8 @@ export class RunStore {
       stateBytesAfter: (row.stateBytesAfter as number | null) ?? undefined,
       childPid: (row.childPid as number | null) ?? undefined,
       childStartedAtMs: (row.childStartedAtMs as number | null) ?? undefined,
+      usedProvider: (row.usedProvider as string | null) ?? undefined,
+      attemptedProviders: (row.attemptedProviders as string | null) ?? undefined,
     };
   }
 }
