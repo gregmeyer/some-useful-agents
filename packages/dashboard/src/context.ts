@@ -1,5 +1,6 @@
 import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
+import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
 /**
  * Shared resources a request handler needs. Built once in
@@ -114,6 +115,13 @@ export interface DashboardContext {
    * Optional — booting without it just disables the Inbox surface.
    */
   inboxStore?: InboxStore;
+  /**
+   * In-memory pub/sub for inbox conversation events (PR 2 of the
+   * streaming UX rollout). Powers the SSE endpoint at
+   * `GET /inbox/:id/events`. Optional — booting without it leaves
+   * the modal on its 1.5s fragment-poll path (which still works).
+   */
+  inboxEventBus?: InboxEventBus;
   /**
    * Integrations store. Holds project-scoped named external-service configs
    * (slack, webhook, file, …) that agents and notify handlers reference by

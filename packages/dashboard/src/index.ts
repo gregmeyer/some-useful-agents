@@ -58,6 +58,8 @@ import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
 import { inboxRouter } from './routes/inbox.js';
+import { inboxEventsRouter } from './routes/inbox-events.js';
+import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
@@ -263,6 +265,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(helpRouter);
   app.use(versionsRouter);
   app.use(imgBlockReportRouter);
+  // SSE before the main inbox router so the more specific
+  // `/inbox/:id/events` route resolves before any catch-all paths
+  // in the inbox router try to claim it.
+  app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);
   app.use(nodesRouter);
@@ -500,6 +506,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     layoutHintsStore,
     blockedImgHostsStore,
     inboxStore,
+    // Streaming pub/sub for inbox conversation events. Powers the SSE
+    // endpoint at GET /inbox/:id/events. Always instantiated — even
+    // when inboxStore is unavailable the bus is a cheap empty Map,
+    // and routes that don't have a store will short-circuit before
+    // touching it.
+    inboxEventBus: new InboxEventBus(),
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,
