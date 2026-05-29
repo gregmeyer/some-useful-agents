@@ -652,34 +652,105 @@ settingsRouter.get('/settings/llm', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });
 
-settingsRouter.post('/settings/llm', (req: Request, res: Response) => {
+/**
+ * Add a provider to the END of the waterfall chain. No-op if the
+ * provider is already present.
+ */
+settingsRouter.post('/settings/llm/add', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.llmSettingsStore) {
     redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
     return;
   }
-  const primaryRaw = typeof req.body?.primary === 'string' ? req.body.primary : '';
-  const fallbackRaw = typeof req.body?.fallback === 'string' ? req.body.fallback : '';
-  if (!isProvider(primaryRaw)) {
-    redirectWith(res, '/settings/llm', 'error', `Invalid primary provider "${primaryRaw}".`);
+  const providerRaw = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  if (!isProvider(providerRaw)) {
+    redirectWith(res, '/settings/llm', 'error', `Invalid provider "${providerRaw}".`);
     return;
   }
-  const fallback: LlmProvider | undefined = fallbackRaw === '' ? undefined : isProvider(fallbackRaw) ? fallbackRaw : null as never;
-  if (fallback === (null as never)) {
-    redirectWith(res, '/settings/llm', 'error', `Invalid fallback provider "${fallbackRaw}".`);
-    return;
-  }
-  if (fallback !== undefined && fallback === primaryRaw) {
-    redirectWith(res, '/settings/llm', 'error', 'Fallback must differ from primary.');
+  const current = ctx.llmSettingsStore.get().providers;
+  if (current.includes(providerRaw)) {
+    redirectWith(res, '/settings/llm', 'flash', `${providerRaw} is already in the chain.`);
     return;
   }
   try {
-    ctx.llmSettingsStore.setProviders(primaryRaw, fallback);
+    ctx.llmSettingsStore.setProviders([...current, providerRaw]);
   } catch (err) {
     redirectWith(res, '/settings/llm', 'error', (err as Error).message);
     return;
   }
-  redirectWith(res, '/settings/llm', 'flash', 'LLM settings saved.');
+  redirectWith(res, '/settings/llm', 'flash', `Added ${providerRaw} to the chain.`);
+});
+
+/**
+ * Remove a provider from the chain. Refuses when the chain would
+ * become empty — every llm-prompt node needs at least one provider
+ * to dispatch to.
+ */
+settingsRouter.post('/settings/llm/remove', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const providerRaw = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  const current = ctx.llmSettingsStore.get().providers;
+  if (!current.includes(providerRaw as LlmProvider)) {
+    redirectWith(res, '/settings/llm', 'error', `${providerRaw} is not in the chain.`);
+    return;
+  }
+  const next = current.filter((p) => p !== providerRaw);
+  if (next.length === 0) {
+    redirectWith(res, '/settings/llm', 'error', 'Cannot remove the last provider — pick a replacement first.');
+    return;
+  }
+  try {
+    ctx.llmSettingsStore.setProviders(next);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `Removed ${providerRaw} from the chain.`);
+});
+
+/**
+ * Move a provider up or down by one slot in the chain. The TOP slot is
+ * the primary, so promoting an entry to position 0 makes it the
+ * default provider for new runs.
+ */
+settingsRouter.post('/settings/llm/move', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const providerRaw = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  const direction = typeof req.body?.direction === 'string' ? req.body.direction : '';
+  const current = ctx.llmSettingsStore.get().providers;
+  const idx = current.indexOf(providerRaw as LlmProvider);
+  if (idx < 0) {
+    redirectWith(res, '/settings/llm', 'error', `${providerRaw} is not in the chain.`);
+    return;
+  }
+  const delta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
+  if (delta === 0) {
+    redirectWith(res, '/settings/llm', 'error', `Invalid direction "${direction}".`);
+    return;
+  }
+  const target = idx + delta;
+  if (target < 0 || target >= current.length) {
+    // Already at the edge — nothing to do.
+    redirectWith(res, '/settings/llm', 'flash', `${providerRaw} is already at the ${target < 0 ? 'top' : 'bottom'}.`);
+    return;
+  }
+  const next = [...current];
+  [next[idx], next[target]] = [next[target], next[idx]];
+  try {
+    ctx.llmSettingsStore.setProviders(next);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `Moved ${providerRaw} ${direction}.`);
 });
 
 settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) => {

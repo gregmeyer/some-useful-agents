@@ -2437,6 +2437,59 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 
 /* ---------- /settings/llm ---------- */
+/* Ordered waterfall list. First entry is the primary; subsequent
+   entries are fallbacks tried in order on classified failures. */
+.settings-llm__chain {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.settings-llm__chain-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.settings-llm__chain-rank {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  width: 16px;
+  text-align: center;
+}
+.settings-llm__chain-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+.settings-llm__chain-label .mono {
+  font-weight: var(--weight-medium);
+}
+.settings-llm__chain-actions {
+  display: flex;
+  gap: 4px;
+}
+.settings-llm__add {
+  display: flex;
+  align-items: end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.settings-llm__add label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 .settings-llm__form {
   display: flex;
   flex-direction: column;

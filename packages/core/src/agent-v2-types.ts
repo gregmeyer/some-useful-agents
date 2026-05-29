@@ -605,6 +605,20 @@ export interface NodeExecutionRecord {
    * died, PID got reassigned to something unrelated).
    */
   childStartedAtMs?: number;
+  /**
+   * LLM provider that actually produced the result for this node. Set
+   * for llm-prompt nodes only; undefined for shell. When the provider
+   * waterfall fell back through multiple CLIs (e.g. claude failed →
+   * tried codex), this is the LAST one tried.
+   */
+  usedProvider?: string;
+  /**
+   * Comma-separated trail of every provider attempted in waterfall
+   * order. Length 1 means no fallback fired. Stored as CSV (not JSON)
+   * so the dashboard can read it back without a parse step and the
+   * size stays bounded.
+   */
+  attemptedProviders?: string;
 }
 
 /**

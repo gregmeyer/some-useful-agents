@@ -16,7 +16,23 @@ import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } fr
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type SpawnResult = ExecutionResult & { category?: NodeErrorCategory };
+export type SpawnResult = ExecutionResult & {
+  category?: NodeErrorCategory;
+  /**
+   * Provider that ultimately produced this result. Set by spawnNodeReal
+   * for llm-prompt nodes only. When the waterfall ran multiple providers
+   * before one succeeded (or all failed), this is the LAST provider
+   * attempted — paired with `attemptedProviders` for the full trail.
+   * Undefined for shell nodes.
+   */
+  usedProvider?: string;
+  /**
+   * Ordered trail of every provider the waterfall tried, including the
+   * one in `usedProvider`. Length 1 means no fallback fired. Undefined
+   * for shell nodes.
+   */
+  attemptedProviders?: string[];
+};
 
 /**
  * Optional fallback policy for llm-prompt nodes. When the primary
@@ -28,12 +44,24 @@ export type SpawnResult = ExecutionResult & { category?: NodeErrorCategory };
  * event on /settings/llm.
  */
 export interface LlmSettingsSnapshot {
-  primary?: string;
-  fallback?: string;
+  /**
+   * Ordered provider waterfall. `providers[0]` is the global primary;
+   * the rest are tried in order on classified failures. When a node
+   * pins its own provider, that provider runs FIRST and the rest of
+   * the chain still applies as fallbacks (deduplicated).
+   */
+  providers?: string[];
+  /**
+   * Fired once per hop in the waterfall (i.e. once per fallback
+   * transition, not once per run). `from` is the provider that just
+   * failed; `to` is the next provider in the chain that's about to
+   * run. The runtime persists each event so /settings/llm can show
+   * the last hop.
+   */
   onFallback?: (event: {
     reason: LlmFailureCategory;
-    primary: string;
-    fallback: string;
+    from: string;
+    to: string;
     agentId: string;
     nodeId: string;
   }) => void;
@@ -306,45 +334,58 @@ export async function spawnNodeReal(
     if (!/^UPSTREAM_[A-Z0-9_]+_RESULT$/.test(k)) childEnv[k] = v;
   }
 
-  // Resolve the primary provider: explicit per-node setting wins,
-  // then the operator's configured global primary, then the hardcoded
-  // claude default. The fallback (if any) is consulted only when the
-  // primary attempt returns a fallback-worthy failure.
-  const primaryProvider = node.provider ?? _opts.llmSettings?.primary ?? 'claude';
-  const primaryResult = await runLlmAttempt(primaryProvider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+  const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers);
 
-  const fallbackProvider = _opts.llmSettings?.fallback;
-  if (!fallbackProvider || fallbackProvider === primaryProvider) {
-    return primaryResult;
-  }
-  const category = classifyLlmFailure(primaryResult);
-  if (!shouldFallback(category)) {
-    return primaryResult;
+  const attemptedProviders: string[] = [];
+  let lastResult: SpawnResult | undefined;
+  let lastCategory: LlmFailureCategory = 'other';
+
+  for (let i = 0; i < chain.length; i++) {
+    const provider = chain[i];
+    attemptedProviders.push(provider);
+    const result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+
+    if (result.exitCode === 0) {
+      // Success — annotate with the trail so the dashboard can show
+      // "ran on codex after claude failed" without parsing the error
+      // breadcrumb.
+      return {
+        ...result,
+        usedProvider: provider,
+        attemptedProviders,
+        error: attemptedProviders.length > 1
+          ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
+          : result.error,
+      };
+    }
+
+    lastResult = result;
+    lastCategory = classifyLlmFailure(result);
+
+    // Decide whether to continue the waterfall.
+    if (!shouldFallback(lastCategory)) break;
+    const next = chain[i + 1];
+    if (!next) break;
+
+    // Fire telemetry for the hop. The runtime persists this so the
+    // settings page can show "claude → codex (timeout) 3m ago".
+    _opts.llmSettings?.onFallback?.({
+      reason: lastCategory,
+      from: provider,
+      to: next,
+      agentId: _opts.agentId,
+      nodeId: node.id,
+    });
   }
 
-  // Fire telemetry callback first so the operator sees the event on
-  // /settings/llm even if the fallback itself fails. The retry
-  // proceeds regardless.
-  _opts.llmSettings?.onFallback?.({
-    reason: category,
-    primary: primaryProvider,
-    fallback: fallbackProvider,
-    agentId: _opts.agentId,
-    nodeId: node.id,
-  });
-
-  const fallbackResult = await runLlmAttempt(fallbackProvider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
-  // If the fallback succeeded, return its result but tag the error
-  // field with a breadcrumb so logs show the primary was attempted
-  // first. If it also failed, return its result (the more recent
-  // attempt is the one the operator will be debugging).
-  if (fallbackResult.exitCode === 0) {
-    return {
-      ...fallbackResult,
-      error: `Fallback ${fallbackProvider} succeeded after primary ${primaryProvider} failed (${category}).`,
-    };
-  }
-  return fallbackResult;
+  // All attempts failed (or the chain ended on a non-fallback
+  // category). Return the most recent failure with the trail so the
+  // operator can see what was tried.
+  return {
+    ...(lastResult ?? { result: '', exitCode: 1 }),
+    usedProvider: attemptedProviders[attemptedProviders.length - 1],
+    attemptedProviders,
+  };
 }
 
 /**
@@ -381,6 +422,36 @@ async function runLlmAttempt(
     signal,
     onSpawn,
   });
+}
+
+/**
+ * Build the ordered provider waterfall for one node's LLM attempt.
+ * The node's pinned provider (if any) goes first regardless of the
+ * global configured order. The remaining providers from the global
+ * order follow, deduplicated so the same CLI isn't retried back-to-
+ * back.
+ *
+ * This is the load-bearing primitive behind the pinned-provider bug
+ * fix: previously a pinned provider was an early-return that skipped
+ * fallback entirely. Now the pin only biases the head of the chain,
+ * and the rest of the chain still applies as fallbacks on classified
+ * failures.
+ *
+ * Exported for direct unit testing — the waterfall LOOP itself
+ * (which calls runLlmAttempt for each chain entry) is integration-
+ * tested elsewhere via the dag-executor's spawn-injection seam.
+ */
+export function buildProviderChain(
+  pinnedProvider: string | undefined,
+  configuredOrder: readonly string[] | undefined,
+): string[] {
+  const order = configuredOrder ?? [];
+  const seed = pinnedProvider ?? order[0] ?? 'claude';
+  const chain = [seed];
+  for (const p of order) {
+    if (!chain.includes(p)) chain.push(p);
+  }
+  return chain;
 }
 
 /**

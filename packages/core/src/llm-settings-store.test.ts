@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LlmSettingsStore, LLM_PROVIDERS } from './llm-settings-store.js';
@@ -16,40 +16,39 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe('LlmSettingsStore', () => {
-  it('defaults to claude as primary, no fallback, when file is absent', () => {
+describe('LlmSettingsStore (waterfall)', () => {
+  it('defaults to a single-entry chain with claude primary when file is absent', () => {
     const s = store.get();
-    expect(s.primary).toBe('claude');
-    expect(s.fallback).toBeUndefined();
+    expect(s.providers).toEqual(['claude']);
     expect(s.lastFallback).toBeUndefined();
   });
 
-  it('setProviders persists primary + fallback', () => {
-    store.setProviders('codex', 'claude');
+  it('setProviders persists the full ordered chain', () => {
+    store.setProviders(['codex', 'claude']);
     const s = store.get();
-    expect(s.primary).toBe('codex');
-    expect(s.fallback).toBe('claude');
+    expect(s.providers).toEqual(['codex', 'claude']);
   });
 
-  it('setProviders accepts undefined fallback (no automatic switching)', () => {
-    store.setProviders('claude');
-    expect(store.get().fallback).toBeUndefined();
+  it('setProviders accepts a single-entry chain (no fallback)', () => {
+    store.setProviders(['claude']);
+    expect(store.get().providers).toEqual(['claude']);
   });
 
-  it('rejects invalid primary', () => {
-    expect(() => store.setProviders('made-up' as never)).toThrow(/Invalid primary/);
+  it('setProviders dedupes (first occurrence wins)', () => {
+    store.setProviders(['claude', 'codex', 'claude', 'codex']);
+    expect(store.get().providers).toEqual(['claude', 'codex']);
   });
 
-  it('rejects invalid fallback', () => {
-    expect(() => store.setProviders('claude', 'made-up' as never)).toThrow(/Invalid fallback/);
+  it('rejects empty chain — at least one provider is required', () => {
+    expect(() => store.setProviders([])).toThrow(/at least one/);
   });
 
-  it('rejects fallback equal to primary', () => {
-    expect(() => store.setProviders('claude', 'claude')).toThrow(/differ from primary/);
+  it('rejects unknown providers', () => {
+    expect(() => store.setProviders(['made-up' as never])).toThrow(/Invalid provider/);
   });
 
   it('recordFallback writes telemetry, get() returns it', () => {
-    store.setProviders('claude', 'codex');
+    store.setProviders(['claude', 'codex']);
     store.recordFallback({
       at: 1700000000000,
       primary: 'claude',
@@ -64,16 +63,15 @@ describe('LlmSettingsStore', () => {
     expect(s.lastFallback?.fallback).toBe('codex');
   });
 
-  it('clearLastFallback resets the telemetry only (primary/fallback preserved)', () => {
-    store.setProviders('claude', 'codex');
+  it('clearLastFallback resets telemetry only (chain preserved)', () => {
+    store.setProviders(['claude', 'codex']);
     store.recordFallback({
       at: 1, primary: 'claude', fallback: 'codex', reason: 'timeout',
     });
     store.clearLastFallback();
     const s = store.get();
     expect(s.lastFallback).toBeUndefined();
-    expect(s.primary).toBe('claude');
-    expect(s.fallback).toBe('codex');
+    expect(s.providers).toEqual(['claude', 'codex']);
   });
 
   it('LLM_PROVIDERS is non-empty and matches the canonical PROVIDER_IDS list', () => {
@@ -81,13 +79,57 @@ describe('LlmSettingsStore', () => {
     expect(LLM_PROVIDERS).toContain('claude');
   });
 
-  it('recovers from a hand-edited file with a bad primary by falling back to default', () => {
-    // Write a malformed file.
+  it('migrates the v1 { primary, fallback? } shape into a v2 chain', () => {
     const path = join(dir, 'llm-settings.json');
-    require('node:fs').writeFileSync(path, JSON.stringify({
-      version: 1, settings: { primary: 'not-a-thing' },
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      settings: { primary: 'claude', fallback: 'codex' },
     }));
-    const store2 = new LlmSettingsStore(path);
-    expect(store2.get().primary).toBe('claude');
+    const migrated = new LlmSettingsStore(path);
+    expect(migrated.get().providers).toEqual(['claude', 'codex']);
+  });
+
+  it('migrates v1 with no fallback into a single-entry chain', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 1, settings: { primary: 'codex' },
+    }));
+    const migrated = new LlmSettingsStore(path);
+    expect(migrated.get().providers).toEqual(['codex']);
+  });
+
+  it('migrated lastFallback survives the v1 → v2 conversion', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      settings: {
+        primary: 'claude',
+        fallback: 'codex',
+        lastFallback: {
+          at: 1700000000000, primary: 'claude', fallback: 'codex', reason: 'timeout',
+        },
+      },
+    }));
+    const migrated = new LlmSettingsStore(path);
+    expect(migrated.get().lastFallback?.reason).toBe('timeout');
+  });
+
+  it('recovers from a hand-edited v2 file with bad providers by filtering them out', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 2,
+      settings: { providers: ['not-a-thing', 'codex'] },
+    }));
+    const s = new LlmSettingsStore(path).get();
+    expect(s.providers).toEqual(['codex']);
+  });
+
+  it('recovers from a v2 file with all-invalid providers by falling back to claude', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 2, settings: { providers: ['nope', 'also-nope'] },
+    }));
+    const s = new LlmSettingsStore(path).get();
+    expect(s.providers).toEqual(['claude']);
   });
 });

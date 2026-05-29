@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyLlmFailure, type SpawnResult } from './node-spawner.js';
+import { buildProviderChain, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -65,3 +65,35 @@ describe('classifyLlmFailure', () => {
       .toBe('credit_exhausted');
   });
 });
+
+describe('buildProviderChain (waterfall)', () => {
+  it('returns the configured order when no pin is set', () => {
+    expect(buildProviderChain(undefined, ['claude', 'codex'])).toEqual(['claude', 'codex']);
+  });
+
+  it('puts a pinned provider at the head and keeps the rest of the chain as fallbacks', () => {
+    // The bug fix: pinning claude no longer disables fallback. The pin
+    // just chooses the FIRST attempt; codex still runs on classified
+    // failures.
+    expect(buildProviderChain('claude', ['codex', 'claude'])).toEqual(['claude', 'codex']);
+  });
+
+  it('dedupes when the pinned provider is also in the configured order', () => {
+    expect(buildProviderChain('codex', ['claude', 'codex'])).toEqual(['codex', 'claude']);
+  });
+
+  it('falls back to the hardcoded claude default when nothing is configured', () => {
+    expect(buildProviderChain(undefined, undefined)).toEqual(['claude']);
+    expect(buildProviderChain(undefined, [])).toEqual(['claude']);
+  });
+
+  it('respects a pin even when no global chain is configured', () => {
+    expect(buildProviderChain('codex', undefined)).toEqual(['codex']);
+    expect(buildProviderChain('codex', [])).toEqual(['codex']);
+  });
+
+  it('supports a 3-provider chain — pin still goes first, rest follows in order', () => {
+    expect(buildProviderChain('codex', ['claude', 'gemini', 'codex'])).toEqual(['codex', 'claude', 'gemini']);
+  });
+});
+
