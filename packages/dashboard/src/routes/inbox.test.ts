@@ -594,6 +594,81 @@ describe('POST /inbox/:id/actions/:rid/run — agent-analyzer enrichment', () =>
     expect(meta.status).toBe('completed');
     expect(meta.resultSummary).toContain('target-agent-marker');
   });
+
+  it('refuses the dispatch with a clear message when the target agent is NOT installed', async () => {
+    // Regression for the dispatch failure we saw live: the inbox
+    // message referenced an agent that didn't exist in the local
+    // catalog, so enrichment silently left AGENT_YAML empty and the
+    // analyzer died at input resolution with a generic "missing
+    // required input" — which looked like an analyzer bug rather
+    // than the real cause. Now the route refuses the dispatch up
+    // front and posts a system response explaining what to do.
+    const app = await makeApp();
+
+    // Install the analyzer stub so the agentStore lookup for the
+    // sub-agent succeeds (otherwise we'd hit the existing
+    // "not installed" branch first).
+    const analyzerYaml = [
+      'id: agent-analyzer',
+      'name: Agent Analyzer',
+      'description: stub',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo ok',
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(analyzerYaml), 'dashboard', 'test fixture');
+
+    // Inbox message references an agent that is NOT installed.
+    const msg = inboxStore.add({
+      priority: 'medium',
+      source: 'permission-request',
+      title: 'csp-block test',
+      body: 'apod.nasa.gov is blocked',
+      agentId: 'ghost-agent-not-installed',
+    });
+
+    const proposed = inboxStore.addResponse(
+      msg.id,
+      'action',
+      'analyze the missing agent',
+      JSON.stringify({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'agent-analyzer',
+        inputs: { FOCUS: 'Add a host to permissions.imgSrc' },
+        rationale: 'csp dispatch',
+      }),
+    );
+
+    const res = await request(app)
+      .post(`/inbox/${msg.id}/actions/${proposed.id}/run`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+
+    // Wait for the route to update the action status.
+    const deadline = Date.now() + 1500;
+    let after = inboxStore.getResponse(proposed.id);
+    while (Date.now() < deadline) {
+      after = inboxStore.getResponse(proposed.id);
+      const m = after?.metaJson ? JSON.parse(after.metaJson) : null;
+      if (m && m.status !== 'proposed' && m.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('failed');
+    expect(meta.refusalReason).toMatch(/ghost-agent-not-installed/);
+    expect(meta.refusalReason).toMatch(/not installed/i);
+
+    // And a system response was posted to the conversation so the
+    // operator sees the explanation in-thread.
+    const responses = inboxStore.listResponses(msg.id);
+    const systemReply = responses.find((r) => r.role === 'system');
+    expect(systemReply).toBeDefined();
+    expect(systemReply!.body).toMatch(/ghost-agent-not-installed/);
+  });
 });
 
 describe('POST /inbox/:id/actions/:rid/run — agent-catalog-search enrichment', () => {
@@ -885,5 +960,47 @@ describe('POST /inbox/:id/triage', () => {
     expect(r1.status).toBe(303);
     const r2 = await request(app).post('/inbox/nope/triage').set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(r2.status).toBe(404);
+  });
+
+  it('auto-refreshes stale system allowlist agents from bundled examples', async () => {
+    // Regression for the dispatch failure: pre-#394 installs of
+    // agent-analyzer had AGENT_YAML required:true with no preflight
+    // node. The old auto-import only fired when the agent was
+    // absent — never refreshed an existing install — so operators
+    // still saw the broken behavior after the fix shipped. The route
+    // now compares the installed YAML against the bundled YAML on
+    // disk and re-imports when they differ.
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+
+    // Install a deliberately STALE agent-analyzer: minimal stub,
+    // very different from agents/examples/agent-analyzer.yaml.
+    const staleYaml = [
+      'id: agent-analyzer',
+      'name: STALE Analyzer (pre-refresh)',
+      'description: stale stub for regression test',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo stale',
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(staleYaml), 'dashboard', 'pre-refresh stub');
+    const before = agentStore.getAgent('agent-analyzer')!;
+    expect(before.name).toBe('STALE Analyzer (pre-refresh)');
+
+    // Firing triage walks the allowlist, which is where the refresh
+    // hook lives. We don't care whether the LLM run succeeds — only
+    // that the allowlist refresh fired BEFORE the dispatch.
+    await request(app).post(`/inbox/${m.id}/triage`).set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    // Allow a brief tick for the async triage path to start; the
+    // refresh happens synchronously inside getSubAgentAllowlist
+    // BEFORE the executor dispatch.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const after = agentStore.getAgent('agent-analyzer')!;
+    expect(after.name).not.toBe('STALE Analyzer (pre-refresh)');
+    // The bundled YAML defines the canonical analyzer name.
+    expect(after.name).toBe('Agent Analyzer');
   });
 });
