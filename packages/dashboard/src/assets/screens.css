@@ -2215,6 +2215,20 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   0%, 60%, 100% { opacity: 0.25; transform: scale(0.7); }
   30%           { opacity: 1;    transform: scale(1); }
 }
+/* Witty waiting-label cross-fade. The JS rotation loop
+ * (updateWaitingLabels in inbox-modal.js.ts) toggles --out for the
+ * 220ms exit window before swapping textContent, then removes --out
+ * so the new label fades in. Keep the transition tight so the label
+ * never feels sluggish. */
+.inbox-thinking__label {
+  display: inline-block;
+  transition: opacity 220ms ease-out, transform 220ms ease-out;
+  opacity: 1;
+}
+.inbox-thinking__label--out {
+  opacity: 0;
+  transform: translateY(-2px);
+}
 
 /* Inbox list: data-inbox-row-id rows get a row-hover affordance so
  * users see the click target. Title link inherits the row hover. */
@@ -3012,6 +3026,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border-top: 1px solid var(--color-border);
   padding: var(--space-3) 0 0;
   margin-top: var(--space-3);
+  /* The timeline avatars have z-index:1 so they punch through the
+   * vertical rail line (see .inbox-timeline::before). Without an
+   * explicit stacking context here, the avatars from the last
+   * messages would scroll up THROUGH the sticky composer when the
+   * conversation gets long. Bump above the avatar plane and give
+   * the composer a solid bg so nothing bleeds through. */
+  z-index: 2;
 }
 .inbox-composer textarea {
   width: 100%;

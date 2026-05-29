@@ -82,6 +82,61 @@ export const INBOX_MODAL_JS = `
       if (!firstRender && !seenMsgIds[id]) el.classList.add('inbox-msg--new');
       seenMsgIds[id] = true;
     }
+    // Re-attach the waiting-label rotation in case the fragment refresh
+    // replaced the thinking indicator DOM. updateWaitingLabels reads
+    // [data-thinking-label] freshly each tick so a swapped node is
+    // handled automatically.
+    updateWaitingLabels();
+  }
+
+  // Witty waiting labels — rotate the copy under the thinking dots
+  // every 2s while triage is busy. Phase pulled from the indicator's
+  // data-thinking-phase so the label set fits the moment (triage vs
+  // action-running vs verifying). Cross-fade is CSS-driven.
+  var WAITING_LABELS = {
+    triage: [
+      'Pondering', 'Distilling tokens', 'Marinating thoughts',
+      'Cogitating', 'Polishing prose', 'Consulting the muse',
+      'Brewing ideas', 'Threading reasoning', 'Synthesizing',
+      'Steeping reply', 'Sketching response', 'Untangling intent',
+    ],
+    'action-running': [
+      'Dispatching', 'Running it', 'Crunching',
+      'Compiling notes', 'Tracing call graph',
+    ],
+    verifying: [
+      'Double-checking', 'Verifying', 'Sanity-checking',
+    ],
+  };
+  var waitingTimer = null;
+  function updateWaitingLabels() {
+    if (waitingTimer) { clearInterval(waitingTimer); waitingTimer = null; }
+    var labelEl = content.querySelector('[data-thinking-label]');
+    if (!labelEl) return;
+    var indicator = labelEl.closest('.inbox-thinking');
+    var phase = indicator ? (indicator.getAttribute('data-thinking-phase') || 'triage') : 'triage';
+    var labels = WAITING_LABELS[phase] || WAITING_LABELS.triage;
+    // Seed with a random label so the indicator never repeats the
+    // same one across consecutive triage runs.
+    var idx = Math.floor(Math.random() * labels.length);
+    var rotate = function () {
+      // Re-query each tick so a re-render swap is handled gracefully.
+      var el = content.querySelector('[data-thinking-label]');
+      if (!el) { if (waitingTimer) { clearInterval(waitingTimer); waitingTimer = null; } return; }
+      idx = (idx + 1) % labels.length;
+      el.classList.add('inbox-thinking__label--out');
+      setTimeout(function () {
+        var still = content.querySelector('[data-thinking-label]');
+        if (!still) return;
+        still.textContent = labels[idx];
+        still.classList.remove('inbox-thinking__label--out');
+      }, 220);
+    };
+    waitingTimer = setInterval(rotate, 2000);
+    // Run one rotation immediately so the seed label gets replaced
+    // by something from the curated set within the first tick — this
+    // proves to the operator that the loop is alive.
+    setTimeout(rotate, 600);
   }
 
   function scrollToBottom() {
@@ -120,13 +175,37 @@ export const INBOX_MODAL_JS = `
 
   /**
    * True if the operator is actively interacting with the modal — they
-   * have focus inside it (typing), or they have a non-empty text
-   * selection anchored inside it (highlighting text to copy). In
-   * either case, a poll-driven refresh should NOT call focus
-   * because that wipes the selection / caret position.
+   * have a non-empty text selection anchored inside it (highlighting
+   * text to copy), or they are typing into a non-empty input. In
+   * either case, a poll-driven refresh should NOT swap the DOM
+   * because that wipes the selection or in-progress text.
+   *
+   * Critical: an EMPTY focused textarea does NOT count as interacting.
+   * After Post reply, the textarea clears but focus stays in it —
+   * if we treated that as interacting, refresh() would skip swaps
+   * forever, the thinking indicator + triage reply would never
+   * appear, and the operator would be staring at a stale modal
+   * wondering if anything happened.
    */
   function userIsInteracting() {
-    if (content.contains(document.activeElement)) return true;
+    var active = document.activeElement;
+    if (content.contains(active)) {
+      // Empty input fields don't count — the operator hasn't started
+      // typing yet, so a fragment swap is safe (and necessary).
+      var tag = active.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT') {
+        var val = active.value != null ? String(active.value) : '';
+        if (val.length === 0) {
+          // Fall through to the selection check below.
+        } else {
+          return true;
+        }
+      } else {
+        // Any non-input element with focus (button, link, details
+        // summary) is genuine interaction.
+        return true;
+      }
+    }
     var sel = window.getSelection && window.getSelection();
     if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
       try {
