@@ -296,19 +296,19 @@ export const INBOX_MODAL_JS = `
    * The caller falls back to raw text in that case.
    */
   function extractRecommendationFromStream(buffer) {
-    var startMatch = buffer.match(/"recommendation"\s*:\s*"/);
+    var startMatch = buffer.match(/"recommendation"\\s*:\\s*"/);
     if (!startMatch) return null;
     var i = startMatch.index + startMatch[0].length;
     var out = '';
     while (i < buffer.length) {
       var c = buffer.charCodeAt(i);
-      if (c === 92 /* \\ */ && i + 1 < buffer.length) {
+      if (c === 92 && i + 1 < buffer.length) {
         var nextCh = buffer[i + 1];
-        if (nextCh === 'n') out += '\n';
-        else if (nextCh === 't') out += '\t';
-        else if (nextCh === 'r') out += '\r';
+        if (nextCh === 'n') out += '\\n';
+        else if (nextCh === 't') out += '\\t';
+        else if (nextCh === 'r') out += '\\r';
         else if (nextCh === '"') out += '"';
-        else if (nextCh === '\\') out += '\\';
+        else if (nextCh === '\\\\') out += '\\\\';
         else if (nextCh === '/') out += '/';
         else if (nextCh === 'u' && i + 5 < buffer.length) {
           var hex = buffer.slice(i + 2, i + 6);
@@ -322,7 +322,7 @@ export const INBOX_MODAL_JS = `
           out += nextCh;
         }
         i += 2;
-      } else if (c === 34 /* " */) {
+      } else if (c === 34 /* dquote */) {
         // Closing quote — recommendation field is complete.
         break;
       } else {
