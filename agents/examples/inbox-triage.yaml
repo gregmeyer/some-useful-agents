@@ -162,6 +162,22 @@ nodes:
         job for fix-applying flows is to propose `agent-analyzer` —
         the editor proposal follows for free.
 
+      Agent guide (when to propose which from the allowlist):
+      - `agent-analyzer` → diagnose a failed run / suggest a YAML fix
+        for the inbox message's target agent. The dashboard
+        auto-injects AGENT_YAML + LAST_RUN_OUTPUT, so you only need
+        to set `FOCUS` to a one-sentence prompt steering the
+        analysis.
+      - `agent-catalog-search` → the operator is looking for an
+        existing installed agent that matches a capability or topic
+        ("find me an agent that does X", "any agent that monitors
+        Y?", "what agent gives Z?"). Pass `QUERY` = the user's
+        request in their own words. The dashboard auto-injects the
+        installed-agent catalog as `AGENT_CATALOG`, so you don't
+        thread that yourself. Prefer this over speculating about
+        which agents exist — you don't see the catalog and the
+        operator does.
+
       If `ALLOWED_SUB_AGENTS` is empty OR no action would help, omit
       `actions` entirely (or send an empty array). Text-only
       recommendations are perfectly fine.

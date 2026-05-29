@@ -297,5 +297,74 @@ export const INBOX_MODAL_JS = `
       return '\\\\' + c.charCodeAt(0).toString(16) + ' ';
     });
   }
+
+  // ── Inbox list toolbar: autosubmit + search debounce + chip clear ──
+  (function setupInboxToolbar() {
+    var form = document.querySelector('[data-inbox-toolbar]');
+    if (!form) return;
+    var q = form.querySelector('[data-inbox-toolbar-q]');
+    var qTimer = null;
+    if (q) {
+      q.addEventListener('input', function () {
+        if (qTimer) clearTimeout(qTimer);
+        qTimer = setTimeout(function () { form.submit(); }, 350);
+      });
+      q.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (qTimer) clearTimeout(qTimer);
+          form.submit();
+        }
+      });
+    }
+    var clear = form.querySelector('[data-inbox-toolbar-clear]');
+    if (clear) {
+      clear.addEventListener('click', function () {
+        if (q) { q.value = ''; q.focus(); }
+        form.submit();
+      });
+    }
+    var autoEls = form.querySelectorAll('[data-inbox-toolbar-submit]');
+    for (var ai = 0; ai < autoEls.length; ai++) {
+      autoEls[ai].addEventListener('change', function () { form.submit(); });
+    }
+  })();
+
+  // ── Tag pills inside the modal (add / remove with quiet submit) ──
+  // The remove buttons + the Add-tag input live in the rendered
+  // fragment; we delegate on the modal element since the fragment
+  // refreshes after every save.
+  modal.addEventListener('click', function (e) {
+    var rm = e.target.closest && e.target.closest('[data-inbox-tag-remove]');
+    if (!rm) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var tag = rm.getAttribute('data-inbox-tag-remove');
+    var hidden = modal.querySelector('[data-inbox-tags-input]');
+    if (!hidden) return;
+    var current = String(hidden.value).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var next = current.filter(function (t) { return t !== tag; });
+    hidden.value = next.join(', ');
+    var form = hidden.form;
+    if (form && form.requestSubmit) form.requestSubmit();
+    else if (form) form.submit();
+  });
+  modal.addEventListener('keydown', function (e) {
+    var add = e.target.closest && e.target.closest('[data-inbox-tag-add]');
+    if (!add) return;
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    var raw = String(add.value).trim().toLowerCase();
+    if (!raw) return;
+    var hidden = modal.querySelector('[data-inbox-tags-input]');
+    if (!hidden) return;
+    var current = String(hidden.value).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (current.indexOf(raw) === -1) current.push(raw);
+    hidden.value = current.join(', ');
+    add.value = '';
+    var form = hidden.form;
+    if (form && form.requestSubmit) form.requestSubmit();
+    else if (form) form.submit();
+  });
 })();
 `;
