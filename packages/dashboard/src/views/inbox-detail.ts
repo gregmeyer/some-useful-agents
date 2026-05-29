@@ -37,6 +37,30 @@ const PRIORITY_BADGE: Record<string, string> = {
   low: 'badge--muted',
 };
 
+/**
+ * Human label + badge variant for each inbox-status enum. Mirrors
+ * the table in inbox-list.ts — kept here as a duplicate to avoid an
+ * import cycle, but updated together when the operator-facing
+ * vocabulary changes. `Your turn` is the load-bearing label: it's
+ * the only status that demands action.
+ */
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Open',
+  triaged: 'Triaged',
+  awaiting_user: 'Your turn',
+  verifying: 'Verifying',
+  resolved: 'Resolved',
+  dismissed: 'Dismissed',
+};
+const STATUS_BADGE: Record<string, string> = {
+  open: 'badge--muted',
+  triaged: 'badge--muted',
+  awaiting_user: 'badge--warn',
+  verifying: 'badge--info',
+  resolved: 'badge--ok',
+  dismissed: 'badge--muted',
+};
+
 const SOURCE_LABEL: Record<string, string> = {
   'run-failure': 'Run failure',
   'permission-request': 'Permission',
@@ -94,7 +118,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const headerMeta = html`
     <div class="inbox-modal__meta">
       <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
-      <span class="badge badge--muted">${message.status}</span>
+      <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
       ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
       ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
       <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
@@ -280,8 +304,13 @@ function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): 
         <div class="inbox-msg__meta">
           <span class="inbox-msg__meta-name">${role}</span>
           <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
+          <button type="button" class="inbox-msg__copy" data-inbox-copy
+            aria-label="Copy ${role} message"
+            title="Copy this message">
+            <span data-inbox-copy-label>Copy</span>
+          </button>
         </div>
-        <div class="inbox-msg__text">${r.body}</div>
+        <div class="inbox-msg__text" data-inbox-copy-source>${r.body}</div>
       </div>
     </div>
   `;
