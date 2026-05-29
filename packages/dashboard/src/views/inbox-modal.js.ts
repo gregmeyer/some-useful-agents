@@ -34,6 +34,18 @@ export const INBOX_MODAL_JS = `
   // dag-executor + run-store insertion is racy with our 200ms wait.
   var keepPollingUntil = 0;
 
+  // SSE state. eventSource carries the active connection; sseAliveAt
+  // records the last event (or open) timestamp so the watchdog can
+  // detect a silent disconnect and fall back to the fragment poll.
+  var eventSource = null;
+  var sseAliveAt = 0;
+  var sseWatchdog = null;
+  // Watchdog cadence: if we haven't seen any SSE message (data or
+  // heartbeat comment) within this window, force a fragment refresh
+  // to recover gracefully. Heartbeats fire every 15s server-side,
+  // so 20s is comfortable headroom.
+  var SSE_WATCHDOG_MS = 20000;
+
   function open() {
     modal.hidden = false;
     modal.classList.add('is-open');
@@ -47,6 +59,91 @@ export const INBOX_MODAL_JS = `
     seenMsgIds = Object.create(null);
     keepPollingUntil = 0;
     stopPoll();
+    closeEventSource();
+  }
+
+  function closeEventSource() {
+    if (eventSource) {
+      try { eventSource.close(); } catch (_) { /* noop */ }
+      eventSource = null;
+    }
+    if (sseWatchdog) { clearInterval(sseWatchdog); sseWatchdog = null; }
+    sseAliveAt = 0;
+  }
+
+  /**
+   * Open an EventSource for the current thread. Each handled event
+   * triggers a fragment refresh — the SSE notification is the "wake
+   * up, something changed" signal; the canonical state still comes
+   * from /fragment so we never have to incrementally diff DOM here.
+   * (PR 3+4 will start rendering tokens directly.)
+   *
+   * If EventSource isn't available (very old browsers) or the
+   * endpoint returns an error, we silently fall through to the
+   * 1.5s fragment poll. Same behavior on SSE disconnect via the
+   * watchdog below.
+   */
+  function openEventSource(messageId) {
+    closeEventSource();
+    if (typeof EventSource === 'undefined') return;
+    var es;
+    try {
+      es = new EventSource('/inbox/' + encodeURIComponent(messageId) + '/events');
+    } catch (_) { return; }
+    eventSource = es;
+    sseAliveAt = Date.now();
+
+    es.addEventListener('open', function () { sseAliveAt = Date.now(); });
+    es.addEventListener('error', function () {
+      // EventSource auto-reconnects with Last-Event-ID; we just note
+      // the disconnect so the watchdog can decide whether to fall
+      // back to the poll.
+      sseAliveAt = sseAliveAt || Date.now();
+    });
+
+    // Generic handler for all our custom event types. The data
+    // payload is JSON; for now we just trigger a refresh because the
+    // fragment already renders the canonical state. PR 4 will start
+    // patching DOM incrementally for triage:token events.
+    var onAnyEvent = function () {
+      sseAliveAt = Date.now();
+      // Only one event per animation frame to avoid stacking refreshes
+      // when several events arrive in the same tick.
+      scheduleSseRefresh();
+    };
+    [
+      'state', 'triage:started', 'triage:token', 'triage:complete',
+      'action:created', 'action:status', 'message:created',
+    ].forEach(function (t) { es.addEventListener(t, onAnyEvent); });
+
+    // Watchdog: if the channel goes silent past the threshold (no
+    // heartbeat or data), we suspect the connection died below the
+    // EventSource layer (proxy timeout, sleeping tab). Fall back to
+    // the fragment poll until the next real event arrives.
+    if (sseWatchdog) clearInterval(sseWatchdog);
+    sseWatchdog = setInterval(function () {
+      if (!eventSource || currentId !== messageId) return;
+      if (Date.now() - sseAliveAt > SSE_WATCHDOG_MS) {
+        refresh();
+        sseAliveAt = Date.now();
+      }
+    }, 5000);
+    if (sseWatchdog && typeof sseWatchdog === 'object' && 'unref' in sseWatchdog) {
+      sseWatchdog.unref && sseWatchdog.unref();
+    }
+  }
+
+  var sseRefreshRaf = null;
+  function scheduleSseRefresh() {
+    if (sseRefreshRaf) return;
+    sseRefreshRaf = requestAnimationFrame(function () {
+      sseRefreshRaf = null;
+      // The "userIsInteracting" check inside refresh() still applies
+      // — if the operator is typing in a non-empty textarea or has a
+      // selection, the swap is skipped (their state is preserved)
+      // until the next event or the watchdog forces through.
+      refresh();
+    });
   }
 
   function stopPoll() {
@@ -232,6 +329,10 @@ export const INBOX_MODAL_JS = `
     content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
     open();
     refresh();
+    // Open the SSE connection AFTER the initial fragment fetch so
+    // the first render isn't racing the stream. Each subsequent
+    // event triggers an incremental refresh.
+    openEventSource(id);
   }
 
   // Row click → modal. Chevron click is checked first and toggles the

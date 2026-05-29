@@ -117,6 +117,23 @@ const MAX_ACTIONS_PER_MESSAGE = 10;
 /** Truncate the sub-agent run output that's stored in action meta. */
 const ACTION_RESULT_PREVIEW_LIMIT = 500;
 
+/**
+ * Thin wrapper around `ctx.inboxEventBus.publish`. Swallows errors so
+ * a misbehaving subscriber can't break a route. Bus presence is
+ * optional — the inbox surface works without it (modal falls back to
+ * the 1.5s fragment poll).
+ */
+function publishInboxEvent(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  type: string,
+  data: Record<string, unknown>,
+): void {
+  if (!ctx.inboxEventBus) return;
+  try { ctx.inboxEventBus.publish(messageId, { type, data }); }
+  catch { /* telemetry path — never break a route */ }
+}
+
 function parseSort(req: Request): { sort: InboxSortKey; dir: InboxSortDir } {
   const sortRaw = typeof req.query.sort === 'string' ? req.query.sort : '';
   const dirRaw = typeof req.query.dir === 'string' ? req.query.dir : '';
@@ -297,14 +314,24 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Reply is too long (max 8 KB).')}`);
     return;
   }
+  let userResponse;
   try {
-    ctx.inboxStore.addResponse(id, 'user', bodyRaw);
+    userResponse = ctx.inboxStore.addResponse(id, 'user', bodyRaw);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (isAjax(req)) { res.status(500).end(); return; }
     res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Reply failed: ${msg}`)}`);
     return;
   }
+  // Publish to the SSE bus so any modal subscribed to this thread
+  // sees the persisted user reply within a network RTT. The fragment
+  // poll fallback still works for clients that haven't subscribed.
+  publishInboxEvent(ctx, id, 'message:created', {
+    responseId: userResponse.id,
+    role: 'user',
+    body: bodyRaw,
+    createdAt: userResponse.createdAt,
+  });
   // Auto-fire triage. Fire-and-forget; the modal polls /fragment for
   // the response. The conversation thread itself signals "in progress"
   // via the user-reply-within-30s heuristic in isTriagePending.
@@ -327,7 +354,13 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
   // shows what the operator just did. The triage agent receives the
   // updated CONVERSATION and responds.
   try {
-    ctx.inboxStore.addResponse(id, 'user', '(Asked triage to take another look.)');
+    const marker = ctx.inboxStore.addResponse(id, 'user', '(Asked triage to take another look.)');
+    publishInboxEvent(ctx, id, 'message:created', {
+      responseId: marker.id,
+      role: 'user',
+      body: marker.body,
+      createdAt: marker.createdAt,
+    });
   } catch { /* swallow */ }
   void runTriageAgent(ctx, id).catch(() => { /* swallow */ });
   if (isAjax(req)) { res.status(204).end(); return; }
@@ -447,6 +480,12 @@ inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Respon
     res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Already in progress.')}`);
     return;
   }
+  publishInboxEvent(ctx, id, 'action:status', {
+    responseId: rid,
+    status: 'running',
+    agentId: meta.agentId,
+    startedAt,
+  });
 
   if (isAjax(req)) { res.status(204).end(); }
   // Fire-and-forget; the modal polls /fragment for state.
@@ -498,6 +537,12 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
     res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Action is no longer pending.')}`);
     return;
   }
+  publishInboxEvent(ctx, id, 'action:status', {
+    responseId: rid,
+    status: 'skipped',
+    agentId: meta.agentId,
+    endedAt: skippedMeta.endedAt,
+  });
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Skipped.')}`);
 });
@@ -794,15 +839,25 @@ async function runProposedAction(
   // contract; the actual write happens here.
   if (ROUTE_HANDLED_AGENTS.has(meta.agentId)) {
     const result = await executeRouteHandledAgent(ctx, messageId, meta);
+    const endedAt = Date.now();
     ctx.inboxStore.updateResponse(response.id, {
       metaJson: JSON.stringify({
         ...meta,
         status: result.status,
         startedAt,
-        endedAt: Date.now(),
+        endedAt,
         resultSummary: result.summary,
         refusalReason: result.refusalReason,
       }),
+    });
+    publishInboxEvent(ctx, messageId, 'action:status', {
+      responseId: response.id,
+      status: result.status,
+      agentId: meta.agentId,
+      startedAt,
+      endedAt,
+      resultSummary: result.summary,
+      refusalReason: result.refusalReason,
     });
     maybeRefireTriage(ctx, messageId);
     return;
@@ -810,13 +865,22 @@ async function runProposedAction(
 
   const subAgent = ctx.agentStore.getAgent(meta.agentId);
   if (!subAgent) {
+    const endedAt = Date.now();
+    const refusalReason = `Agent "${meta.agentId}" is not installed.`;
     ctx.inboxStore.updateResponse(response.id, {
       metaJson: JSON.stringify({
         ...meta,
         status: 'failed',
-        endedAt: Date.now(),
-        refusalReason: `Agent "${meta.agentId}" is not installed.`,
+        endedAt,
+        refusalReason,
       }),
+    });
+    publishInboxEvent(ctx, messageId, 'action:status', {
+      responseId: response.id,
+      status: 'failed',
+      agentId: meta.agentId,
+      endedAt,
+      refusalReason,
     });
     return;
   }
@@ -838,16 +902,31 @@ async function runProposedAction(
     const targetAgentId = parentMessage?.agentId;
     if (targetAgentId && !ctx.agentStore.getAgent(targetAgentId)) {
       const reason = `Can't dispatch agent-analyzer — the target agent "${targetAgentId}" is not installed in this catalog. Install it (e.g. from agents/examples or via the Agents → Import page) and try again.`;
+      const endedAt = Date.now();
       ctx.inboxStore.updateResponse(response.id, {
         metaJson: JSON.stringify({
           ...meta,
           status: 'failed',
           startedAt,
-          endedAt: Date.now(),
+          endedAt,
           refusalReason: reason,
         }),
       });
-      ctx.inboxStore.addResponse(messageId, 'system', reason);
+      publishInboxEvent(ctx, messageId, 'action:status', {
+        responseId: response.id,
+        status: 'failed',
+        agentId: meta.agentId,
+        startedAt,
+        endedAt,
+        refusalReason: reason,
+      });
+      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', reason);
+      publishInboxEvent(ctx, messageId, 'message:created', {
+        responseId: sysReply.id,
+        role: 'system',
+        body: reason,
+        createdAt: sysReply.createdAt,
+      });
       maybeRefireTriage(ctx, messageId);
       return;
     }
@@ -891,16 +970,27 @@ async function runProposedAction(
     nextStatus = 'failed';
     refusalReason = err instanceof Error ? err.message : String(err);
   }
+  const endedAt = Date.now();
   ctx.inboxStore.updateResponse(response.id, {
     metaJson: JSON.stringify({
       ...meta,
       status: nextStatus,
       startedAt,
-      endedAt: Date.now(),
+      endedAt,
       runId,
       resultSummary,
       refusalReason,
     }),
+  });
+  publishInboxEvent(ctx, messageId, 'action:status', {
+    responseId: response.id,
+    status: nextStatus,
+    agentId: meta.agentId,
+    startedAt,
+    endedAt,
+    runId,
+    resultSummary,
+    refusalReason,
   });
 
   // After agent-analyzer completes successfully, look for a
@@ -1055,12 +1145,19 @@ function maybeAutoProposeEditorAction(
     inputs: { AGENT_ID: message.agentId, NEW_YAML: proposedYaml },
     rationale: `Apply the YAML fix that agent-analyzer produced.`,
   };
-  ctx.inboxStore.addResponse(
+  const editorResp = ctx.inboxStore.addResponse(
     messageId,
     'action',
     action.rationale!,
     JSON.stringify(action),
   );
+  publishInboxEvent(ctx, messageId, 'action:created', {
+    responseId: editorResp.id,
+    agentId: action.agentId,
+    rationale: action.rationale,
+    inputs: action.inputs,
+    createdAt: editorResp.createdAt,
+  });
 }
 
 function allActionsResolved(
@@ -1140,6 +1237,12 @@ async function runTriageAgent(
   }
   const triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
   if (!triage) return;
+
+  // SSE: announce the thinking phase so connected clients can show
+  // the witty waiting label immediately, without waiting for the
+  // 1.5s poll heuristic to flip the indicator on.
+  publishInboxEvent(ctx, messageId, 'triage:started', {});
+  publishInboxEvent(ctx, messageId, 'state', { phase: 'thinking', since: Date.now() });
 
   // Build conversation snapshot for the prompt. For action-role rows,
   // include the structured status so the model can see what already
@@ -1233,18 +1336,31 @@ async function runTriageAgent(
     }
     const rec = typeof parsed.recommendation === 'string' ? parsed.recommendation.trim() : '';
     if (!rec || rec.length < 10 || rec.length > 2000) {
-      ctx.inboxStore.addResponse(messageId, 'system', 'Triage agent recommendation failed validation.');
+      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', 'Triage agent recommendation failed validation.');
+      publishInboxEvent(ctx, messageId, 'message:created', {
+        responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+      });
       return;
     }
     const verifyHint = typeof parsed.verifyHint === 'string' && parsed.verifyHint.trim()
       ? parsed.verifyHint.trim()
       : undefined;
-    ctx.inboxStore.addResponse(
+    const triageReply = ctx.inboxStore.addResponse(
       messageId,
       'triage',
       rec,
       verifyHint ? JSON.stringify({ verifyHint }) : undefined,
     );
+    // The canonical "triage finished" signal. Clients use this to
+    // replace any in-progress typewriter bubble (PR 4) with the
+    // persisted entry.
+    publishInboxEvent(ctx, messageId, 'triage:complete', {
+      responseId: triageReply.id,
+      role: 'triage',
+      body: rec,
+      verifyHint,
+      createdAt: triageReply.createdAt,
+    });
 
     // Parse + persist any proposed actions (only when allowlist is
     // non-empty). Refusals (out-of-allowlist or malformed) get a
@@ -1259,7 +1375,14 @@ async function runTriageAgent(
       for (const action of toInsert) {
         const body = action.rationale
           ?? `Run agent \`${action.agentId}\`.`;
-        ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
+        const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
+        publishInboxEvent(ctx, messageId, 'action:created', {
+          responseId: actionResp.id,
+          agentId: action.agentId,
+          rationale: action.rationale,
+          inputs: action.inputs,
+          createdAt: actionResp.createdAt,
+        });
       }
       const notes: string[] = [];
       for (const r of rejected) {
@@ -1269,18 +1392,26 @@ async function runTriageAgent(
         notes.push(`Skipped ${overflow} additional proposed action${overflow === 1 ? '' : 's'} — message has reached the per-thread action cap (${MAX_ACTIONS_PER_MESSAGE}).`);
       }
       if (notes.length > 0) {
-        ctx.inboxStore.addResponse(messageId, 'system', notes.join('\n'));
+        const sysReply = ctx.inboxStore.addResponse(messageId, 'system', notes.join('\n'));
+        publishInboxEvent(ctx, messageId, 'message:created', {
+          responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+        });
       }
     }
 
     try {
       ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
     } catch { /* ignore */ }
+    publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`[inbox-triage] run failed: ${msg}\n${(err as Error)?.stack ?? ''}\n`);
     try {
-      ctx.inboxStore.addResponse(messageId, 'system', `Triage agent crashed: ${msg}`);
+      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', `Triage agent crashed: ${msg}`);
+      publishInboxEvent(ctx, messageId, 'message:created', {
+        responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+      });
     } catch { /* ignore */ }
+    publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   }
 }
