@@ -137,7 +137,7 @@ describe('GET /inbox/:id/events (SSE)', () => {
           data += chunk.toString('utf-8');
           // Once we've seen our pre-published event, close the
           // connection so the test doesn't hang.
-          if (data.includes('event: state')) res.destroy();
+          if (data.includes('event: state')) (res as unknown as { destroy: () => void }).destroy();
         });
         res.on('close', () => cb(null, data));
         res.on('error', () => cb(null, data));
@@ -170,7 +170,7 @@ describe('GET /inbox/:id/events (SSE)', () => {
         let data = '';
         res.on('data', (chunk: Buffer) => {
           data += chunk.toString('utf-8');
-          if (data.includes('event: c')) res.destroy();
+          if (data.includes('event: c')) (res as unknown as { destroy: () => void }).destroy();
         });
         res.on('close', () => cb(null, data));
         res.on('error', () => cb(null, data));
