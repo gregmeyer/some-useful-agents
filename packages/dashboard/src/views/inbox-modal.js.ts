@@ -101,19 +101,58 @@ export const INBOX_MODAL_JS = `
       sseAliveAt = sseAliveAt || Date.now();
     });
 
-    // Generic handler for all our custom event types. The data
-    // payload is JSON; for now we just trigger a refresh because the
-    // fragment already renders the canonical state. PR 4 will start
-    // patching DOM incrementally for triage:token events.
+    // Generic handler: any event keeps the watchdog happy and pulls
+    // a fresh fragment so the canonical state renders. Specific
+    // triage:* event handlers below run BEFORE this — they patch the
+    // DOM incrementally for the typewriter reveal, so a refresh
+    // happening right after wouldn't be jarring (it's a no-op when
+    // the fragment matches the streamed content).
     var onAnyEvent = function () {
       sseAliveAt = Date.now();
-      // Only one event per animation frame to avoid stacking refreshes
-      // when several events arrive in the same tick.
       scheduleSseRefresh();
     };
+
+    // triage:started — create the streaming bubble immediately so
+    // there's no gap between the witty waiting label and the first
+    // token. The bubble is replaced wholesale when the fragment
+    // refresh fires after triage:complete.
+    es.addEventListener('triage:started', function () {
+      sseAliveAt = Date.now();
+      ensureStreamingBubble();
+    });
+    // triage:token — append the text chunk to the streaming bubble.
+    // textContent (not innerHTML) keeps the operator-visible text
+    // free of any HTML interpretation; the canonical fragment is
+    // server-rendered with the same escaping rules.
+    es.addEventListener('triage:token', function (ev) {
+      sseAliveAt = Date.now();
+      var bubble = ensureStreamingBubble();
+      if (!bubble) return;
+      var data;
+      try { data = JSON.parse(ev.data); } catch (_) { return; }
+      var chunk = data && data.chunk;
+      if (!chunk) return;
+      appendStreamingText(bubble, String(chunk));
+    });
+    // triage:complete — keep the bubble in place; the watchdog or
+    // the canonical fragment refresh (scheduled by onAnyEvent for
+    // message:created → fired on triage's addResponse) will swap in
+    // the persisted entry so we don't double-render.
+    es.addEventListener('triage:complete', function () {
+      sseAliveAt = Date.now();
+      // Mark "settled" — drop the streaming caret so the bubble looks
+      // like a normal finished message between now and the fragment
+      // refresh replacing it.
+      var bubble = content.querySelector('[data-streaming-bubble]');
+      if (bubble) {
+        bubble.removeAttribute('data-streaming');
+        bubble.setAttribute('data-settled', '1');
+      }
+      scheduleSseRefresh();
+    });
+
     [
-      'state', 'triage:started', 'triage:token', 'triage:complete',
-      'action:created', 'action:status', 'message:created',
+      'state', 'action:created', 'action:status', 'message:created',
     ].forEach(function (t) { es.addEventListener(t, onAnyEvent); });
 
     // Watchdog: if the channel goes silent past the threshold (no
@@ -143,6 +182,98 @@ export const INBOX_MODAL_JS = `
       // selection, the swap is skipped (their state is preserved)
       // until the next event or the watchdog forces through.
       refresh();
+    });
+  }
+
+  /**
+   * Create the streaming triage bubble if it doesn't already exist.
+   * Returns the .inbox-msg__text element where chunks get appended.
+   * Idempotent — multiple triage:started events on a single turn
+   * (rare) reuse the same bubble.
+   *
+   * The thinking indicator (rendered server-side based on the
+   * isTriagePending heuristic) is removed when the bubble lands so
+   * the operator doesn't see "Triage agent is thinking..." sitting
+   * above the streaming reply.
+   */
+  function ensureStreamingBubble() {
+    var existing = content.querySelector('[data-streaming-bubble]');
+    if (existing) return existing.querySelector('.inbox-msg__text');
+
+    var ul = content.querySelector('ul.inbox-timeline');
+    if (!ul) {
+      var section = content.querySelector('.inbox-modal__timeline-section');
+      if (!section) return null;
+      var emptyP = section.querySelector('p.dim');
+      if (emptyP && emptyP.parentNode) emptyP.parentNode.removeChild(emptyP);
+      ul = document.createElement('ul');
+      ul.className = 'inbox-timeline';
+      section.appendChild(ul);
+    }
+    // Remove the server-rendered thinking indicator if present —
+    // the streaming bubble takes its place.
+    var thinking = content.querySelector('.inbox-thinking[data-triage-pending]');
+    if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
+
+    var li = document.createElement('li');
+    li.className = 'inbox-timeline__entry';
+    var msg = document.createElement('div');
+    msg.className = 'inbox-msg inbox-msg--new';
+    msg.setAttribute('data-streaming', '1');
+    msg.setAttribute('data-streaming-bubble', '1');
+    var avatar = document.createElement('div');
+    avatar.className = 'inbox-msg__avatar inbox-msg__avatar--triage';
+    avatar.textContent = 'Tri';
+    var body = document.createElement('div');
+    body.className = 'inbox-msg__body';
+    var meta = document.createElement('div');
+    meta.className = 'inbox-msg__meta';
+    var name = document.createElement('span');
+    name.className = 'inbox-msg__meta-name';
+    name.textContent = 'Triage agent';
+    var age = document.createElement('span');
+    age.textContent = 'Writing…';
+    meta.appendChild(name);
+    meta.appendChild(age);
+    var text = document.createElement('div');
+    text.className = 'inbox-msg__text';
+    body.appendChild(meta);
+    body.appendChild(text);
+    msg.appendChild(avatar);
+    msg.appendChild(body);
+    li.appendChild(msg);
+    ul.appendChild(li);
+    requestAnimationFrame(function () {
+      content.scrollTop = content.scrollHeight;
+    });
+    return text;
+  }
+
+  // Append text to the streaming bubble. Throttled to one DOM write
+  // per animation frame so a burst of tokens doesn't tank layout.
+  // Pending chunks accumulate in a string queue and flush on rAF.
+  var pendingStreamText = '';
+  var pendingStreamRaf = null;
+  function appendStreamingText(textEl, chunk) {
+    pendingStreamText += chunk;
+    if (pendingStreamRaf) return;
+    pendingStreamRaf = requestAnimationFrame(function () {
+      pendingStreamRaf = null;
+      var flush = pendingStreamText;
+      pendingStreamText = '';
+      // Re-query the element in case the DOM was swapped between
+      // when the chunk arrived and when this rAF fired.
+      var el = content.querySelector('[data-streaming-bubble] .inbox-msg__text');
+      if (!el) return;
+      // textContent appends — explicitly avoid innerHTML so an
+      // accidental "<" or "&" in the model's output renders as-is
+      // instead of breaking the markup.
+      el.appendChild(document.createTextNode(flush));
+      // Auto-scroll while streaming, but only if the operator was
+      // already near the bottom — don't yank them away from reading
+      // earlier history.
+      var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
+      if (nearBottom) content.scrollTop = content.scrollHeight;
     });
   }
 
