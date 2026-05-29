@@ -541,34 +541,48 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
  * for agent-analyzer). Entries that can't be imported are silently
  * dropped — the prompt never sees them, so triage can't propose them.
  */
+/**
+ * Auto-install OR auto-refresh a single system agent from its
+ * bundled `agents/examples/<id>.yaml`. Returns true when the agent
+ * exists in the store after the call (whether imported, refreshed,
+ * or already current); false when the disk YAML is missing or
+ * unparseable. Scoped to system agents only — `inbox-triage` itself
+ * plus everything in TRIAGE_SUB_AGENT_ALLOWLIST. User agents are
+ * never touched by this path.
+ *
+ * Refresh trigger: the installed exported YAML differs from the
+ * bundled one. The diff catches prompt updates (e.g. PR #395's
+ * VOICE section on inbox-triage) plus structural changes (e.g.
+ * PR #394's preflight node on agent-analyzer).
+ */
+function ensureSystemAgentCurrent(
+  ctx: ReturnType<typeof getContext>,
+  id: string,
+  context: string,
+): boolean {
+  try {
+    const yamlPath = join(resolve(ALLOWLIST_AUTOIMPORT_DIR), `${id}.yaml`);
+    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const parsed = parseAgent(yamlText);
+    const installed = ctx.agentStore.getAgent(id);
+    const needsImport = !installed;
+    const needsRefresh = installed && exportAgent(installed) !== exportAgent(parsed);
+    if (needsImport || needsRefresh) {
+      ctx.agentStore.upsertAgent(parsed, 'import', needsImport
+        ? `Auto-imported for ${context}`
+        : 'Auto-refreshed from agents/examples/ (bundled YAML changed)');
+    }
+    return ctx.agentStore.getAgent(id) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
   const available: string[] = [];
   for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
-    try {
-      const yamlPath = join(resolve(ALLOWLIST_AUTOIMPORT_DIR), `${id}.yaml`);
-      const yamlText = readFileSync(yamlPath, 'utf-8');
-      const parsed = parseAgent(yamlText);
-      const installed = ctx.agentStore.getAgent(id);
-
-      // Auto-install when absent. Auto-refresh when the bundled YAML
-      // differs from the installed one — system allowlist agents
-      // (analyzer, editor, catalog-search) ship with the package and
-      // get prompt + node updates over time. Without this refresh,
-      // operators who installed an older version see broken triage
-      // dispatches when the route's contract has evolved (e.g.
-      // PR #394's preflight + required:false on AGENT_YAML). Scoped
-      // to allowlist entries only — user agents are never touched.
-      const needsImport = !installed;
-      const needsRefresh = installed && exportAgent(installed) !== exportAgent(parsed);
-      if (needsImport || needsRefresh) {
-        ctx.agentStore.upsertAgent(parsed, 'import', needsImport
-          ? 'Auto-imported for inbox triage allowlist'
-          : 'Auto-refreshed from agents/examples/ (bundled YAML changed)');
-      }
-      if (ctx.agentStore.getAgent(id)) available.push(id);
-    } catch {
-      // No example YAML to import from — skip; the allowlist just
-      // shrinks. Operator can install the agent manually later.
+    if (ensureSystemAgentCurrent(ctx, id, 'inbox triage allowlist')) {
+      available.push(id);
     }
   }
   return available;
@@ -1092,21 +1106,20 @@ async function runTriageAgent(
   const message = ctx.inboxStore.get(messageId);
   if (!message) return;
 
-  let triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
-  if (!triage) {
-    try {
-      const yamlPath = join(resolve('agents/examples'), `${TRIAGE_AGENT_ID}.yaml`);
-      const yamlText = readFileSync(yamlPath, 'utf-8');
-      const parsed = parseAgent(yamlText);
-      ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for inbox triage');
-      triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
-    } catch (err) {
-      process.stderr.write(
-        `[inbox-triage] could not load agent yaml: ${(err as Error)?.message ?? String(err)}\n`,
-      );
-      return;
-    }
+  // Auto-install + auto-refresh inbox-triage from the bundled YAML.
+  // Pre-PR #399 this only handled the install case — operators who
+  // installed inbox-triage before PR #395's VOICE-section update kept
+  // emitting stage directions ("Reply with X: ...") in every triage
+  // turn because the older prompt was still cached in the store.
+  // Reuses the same diff-and-refresh helper that
+  // getSubAgentAllowlist uses for the sub-agent allowlist.
+  if (!ensureSystemAgentCurrent(ctx, TRIAGE_AGENT_ID, 'inbox triage')) {
+    process.stderr.write(
+      `[inbox-triage] could not load agent yaml from agents/examples/${TRIAGE_AGENT_ID}.yaml\n`,
+    );
+    return;
   }
+  const triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
   if (!triage) return;
 
   // Build conversation snapshot for the prompt. For action-role rows,
