@@ -962,6 +962,36 @@ describe('POST /inbox/:id/triage', () => {
     expect(r2.status).toBe(404);
   });
 
+  it('auto-refreshes a stale inbox-triage agent from the bundled YAML', async () => {
+    // Regression for the stage-direction recurrence: PR #398 added
+    // auto-refresh for the SUB-agent allowlist (analyzer/editor/
+    // catalog-search) but inbox-triage itself was excluded — so
+    // operators who installed inbox-triage before PR #395 kept seeing
+    // "Reply with X: ..." stage directions even after the fix
+    // shipped. The runner now refreshes inbox-triage too.
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+
+    const staleYaml = [
+      'id: inbox-triage',
+      'name: STALE Inbox Triage (pre-refresh)',
+      'description: stale stub for regression test',
+      'nodes:',
+      '  - id: noop',
+      '    type: shell',
+      '    command: echo stale',
+    ].join('\n');
+    agentStore.upsertAgent(parseAgent(staleYaml), 'dashboard', 'pre-refresh stub');
+    expect(agentStore.getAgent('inbox-triage')!.name).toBe('STALE Inbox Triage (pre-refresh)');
+
+    await request(app).post(`/inbox/${m.id}/triage`).set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const after = agentStore.getAgent('inbox-triage')!;
+    expect(after.name).not.toBe('STALE Inbox Triage (pre-refresh)');
+    expect(after.name).toBe('Inbox Triage');
+  });
+
   it('auto-refreshes stale system allowlist agents from bundled examples', async () => {
     // Regression for the dispatch failure: pre-#394 installs of
     // agent-analyzer had AGENT_YAML required:true with no preflight
