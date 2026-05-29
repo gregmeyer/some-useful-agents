@@ -98,6 +98,17 @@ export const INBOX_MODAL_JS = `
       .then(function (r) { if (!r.ok) throw new Error('fragment fetch failed'); return r.text(); })
       .then(function (text) {
         if (currentId !== id) return; // user opened a different message
+        // Don't blow away the modal DOM mid-interaction. innerHTML
+        // replacement destroys both text selections (operator copying
+        // triage's reply) and caret position in the composer. When the
+        // user is actively interacting, skip THIS refresh and just
+        // reschedule — the next tick will catch up. The polling deadline
+        // logic in maybeSchedulePoll() keeps us watching until the user
+        // stops interacting.
+        if (userIsInteracting()) {
+          maybeSchedulePoll();
+          return;
+        }
         content.innerHTML = text;
         applyAnimations();
         scrollToBottom();
@@ -105,6 +116,27 @@ export const INBOX_MODAL_JS = `
         maybeSchedulePoll();
       })
       .catch(function () { /* swallow; user can close + retry */ });
+  }
+
+  /**
+   * True if the operator is actively interacting with the modal — they
+   * have focus inside it (typing), or they have a non-empty text
+   * selection anchored inside it (highlighting text to copy). In
+   * either case, a poll-driven refresh should NOT call focus
+   * because that wipes the selection / caret position.
+   */
+  function userIsInteracting() {
+    if (content.contains(document.activeElement)) return true;
+    var sel = window.getSelection && window.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+      try {
+        var anchor = sel.anchorNode;
+        if (anchor && content.contains(anchor.nodeType === 1 ? anchor : anchor.parentNode)) {
+          return true;
+        }
+      } catch (_) { /* ignore */ }
+    }
+    return false;
   }
 
   function focusFirstInteractive() {
