@@ -288,13 +288,92 @@ export const codexSpawner: LlmSpawner = {
     // Prompt rides on stdin (see claudeSpawner note). `codex exec` reads
     // its prompt from stdin when no positional argument is given.
     void opts.prompt;
-    const args = ['exec', '-s', 'read-only'];
+    // --json emits one JSON event per line, mirroring claude's
+    // `--output-format stream-json`. This unlocks the inbox SSE
+    // pipeline: turn.started → output_chunk → turn.completed get
+    // forwarded as triage:started → triage:token → triage:complete.
+    const args = ['exec', '--json', '-s', 'read-only'];
     if (opts.model) args.push('-m', opts.model);
     return args;
   },
 
-  parseProgress(): SpawnProgress | null { return null; },
-  extractResult(stdout: string): string { return stdout; },
+  /**
+   * Codex's --json JSONL shape (sampled live):
+   *   {"type":"thread.started","thread_id":"…"}      ← discarded
+   *   {"type":"turn.started"}                         → turn_start
+   *   {"type":"item.completed","item":{
+   *      "type":"agent_message","text":"…"}}          → output_chunk
+   *   {"type":"turn.completed","usage":{
+   *      "output_tokens": N, …}}                      → turn_complete
+   *
+   * Codex emits the full assistant text in a single agent_message
+   * item rather than streaming token-by-token deltas (the way
+   * claude's --output-format stream-json does). The dashboard's
+   * typewriter still renders incrementally — it just gets one big
+   * chunk arriving ~RTT before turn.completed, which still beats
+   * the prior "whole reply lands at addResponse time" experience.
+   */
+  parseProgress(line: string): SpawnProgress | null {
+    if (!line.startsWith('{')) return null;
+    try {
+      const event = JSON.parse(line);
+      if (event.type === 'turn.started') {
+        return {
+          timestamp: new Date().toISOString(),
+          type: 'turn_start',
+          message: 'Codex is responding...',
+        };
+      }
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
+        const text = typeof event.item.text === 'string' ? event.item.text : '';
+        if (text.length > 0) {
+          return {
+            timestamp: new Date().toISOString(),
+            type: 'output_chunk',
+            message: text,
+          };
+        }
+      }
+      if (event.type === 'turn.completed') {
+        const outTokens = event.usage?.output_tokens;
+        return {
+          timestamp: new Date().toISOString(),
+          type: 'turn_complete',
+          message: typeof outTokens === 'number'
+            ? `Completed (${outTokens} output tokens).`
+            : 'Completed.',
+        };
+      }
+    } catch {
+      // Not valid JSON — skip.
+    }
+    return null;
+  },
+
+  /**
+   * With --json the raw stdout is JSONL, not the model's prose. Walk
+   * to the LAST `item.completed` agent_message and return its text —
+   * matches the contract `claudeSpawner.extractResult` provides
+   * (final prose string for the run record + downstream prompts).
+   * Falls back to the raw stdout for backward compat if no
+   * agent_message line is found.
+   */
+  extractResult(stdout: string): string {
+    const lines = stdout.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line.startsWith('{')) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event.type === 'item.completed'
+          && event.item?.type === 'agent_message'
+          && typeof event.item.text === 'string') {
+          return event.item.text;
+        }
+      } catch { /* skip */ }
+    }
+    return stdout;
+  },
 };
 
 // ── Spawner registry ───────────────────────────────────────────────────

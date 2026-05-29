@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProviderChain, claudeSpawner, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
+import { buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -177,6 +177,117 @@ describe('claudeSpawner.parseProgress (per-token output_chunk)', () => {
   it('returns null for unrecognized event types', () => {
     const line = JSON.stringify({ type: 'system' });
     expect(claudeSpawner.parseProgress(line)).toBeNull();
+  });
+});
+
+describe('codexSpawner', () => {
+  // Live sample of codex --json (sampled from running `codex exec --json -s read-only`):
+  //   {"type":"thread.started","thread_id":"…"}
+  //   {"type":"turn.started"}
+  //   {"type":"item.completed","item":{"type":"agent_message","text":"…"}}
+  //   {"type":"turn.completed","usage":{"output_tokens":N,…}}
+
+  it('buildArgs includes --json so we get structured events instead of raw prose', () => {
+    const args = codexSpawner.buildArgs({ prompt: 'hi' });
+    expect(args).toContain('--json');
+    expect(args).toContain('exec');
+    expect(args).toContain('-s');
+    expect(args).toContain('read-only');
+  });
+
+  it('buildArgs threads through the model when set', () => {
+    const args = codexSpawner.buildArgs({ prompt: 'hi', model: 'o3' });
+    const i = args.indexOf('-m');
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('o3');
+  });
+
+  it('parseProgress returns null for non-JSON lines', () => {
+    expect(codexSpawner.parseProgress('')).toBeNull();
+    expect(codexSpawner.parseProgress('not json')).toBeNull();
+  });
+
+  it('parseProgress emits turn_start on turn.started', () => {
+    const p = codexSpawner.parseProgress(JSON.stringify({ type: 'turn.started' }));
+    expect(p?.type).toBe('turn_start');
+  });
+
+  it('parseProgress emits output_chunk with the agent_message text', () => {
+    const line = JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'item_0', type: 'agent_message', text: 'Hello there.' },
+    });
+    const p = codexSpawner.parseProgress(line);
+    expect(p?.type).toBe('output_chunk');
+    expect(p?.message).toBe('Hello there.');
+  });
+
+  it('parseProgress skips empty agent_message text', () => {
+    const line = JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: '' },
+    });
+    expect(codexSpawner.parseProgress(line)).toBeNull();
+  });
+
+  it('parseProgress ignores non-agent_message item.completed events', () => {
+    // Codex may emit tool_use / file_changes / reasoning items in
+    // future versions — those should not surface as triage:token.
+    const line = JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'tool_use', name: 'shell' },
+    });
+    expect(codexSpawner.parseProgress(line)).toBeNull();
+  });
+
+  it('parseProgress emits turn_complete on turn.completed with output_tokens', () => {
+    const line = JSON.stringify({
+      type: 'turn.completed',
+      usage: { output_tokens: 57, input_tokens: 12934 },
+    });
+    const p = codexSpawner.parseProgress(line);
+    expect(p?.type).toBe('turn_complete');
+    expect(p?.message).toContain('57');
+  });
+
+  it('parseProgress emits turn_complete with a generic message when usage is absent', () => {
+    const p = codexSpawner.parseProgress(JSON.stringify({ type: 'turn.completed' }));
+    expect(p?.type).toBe('turn_complete');
+  });
+
+  it('parseProgress returns null for thread.started + unknown event types', () => {
+    expect(codexSpawner.parseProgress(JSON.stringify({ type: 'thread.started', thread_id: 'x' }))).toBeNull();
+    expect(codexSpawner.parseProgress(JSON.stringify({ type: 'something_new' }))).toBeNull();
+  });
+
+  it('extractResult walks back to the last agent_message and returns its text', () => {
+    const stdout = [
+      JSON.stringify({ type: 'thread.started', thread_id: 'x' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Hello there.' } }),
+      JSON.stringify({ type: 'turn.completed', usage: { output_tokens: 12 } }),
+    ].join('\n');
+    expect(codexSpawner.extractResult(stdout)).toBe('Hello there.');
+  });
+
+  it('extractResult prefers the LAST agent_message when multiple appear in one run', () => {
+    // Multi-turn runs (e.g. when the model emits a tool_use then a
+    // follow-up agent_message) would have several agent_message
+    // items. The final one is the user-visible reply.
+    const stdout = [
+      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Intermediate.' } }),
+      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Final answer.' } }),
+      JSON.stringify({ type: 'turn.completed' }),
+    ].join('\n');
+    expect(codexSpawner.extractResult(stdout)).toBe('Final answer.');
+  });
+
+  it('extractResult falls back to raw stdout when no agent_message is present', () => {
+    // Defensive: legacy behavior for any future codex output shape
+    // we haven't seen yet — the spawner still hands a string back to
+    // the executor instead of throwing.
+    const stdout = 'plain unstructured fallback';
+    expect(codexSpawner.extractResult(stdout)).toBe(stdout);
   });
 });
 
