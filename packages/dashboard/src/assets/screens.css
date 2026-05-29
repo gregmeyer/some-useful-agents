@@ -2142,6 +2142,34 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg[data-pending] .inbox-msg__text {
   font-style: italic;
 }
+
+/* Streaming triage bubble (PR 4 of the streaming UX work). Created
+ * by inbox-modal.js on the first `triage:token` SSE event, replaced
+ * by the canonical fragment after `triage:complete`. The caret
+ * pseudo-element is the ChatGPT-style blinking cursor that marks
+ * the live writing edge. */
+.inbox-msg[data-streaming] {
+  animation: inbox-msg-in 140ms ease-out;
+}
+.inbox-msg[data-streaming] .inbox-msg__text::after {
+  content: '\25AE'; /* black vertical rectangle — narrow + tall, reads as a caret */
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--color-accent, currentColor);
+  animation: inbox-stream-caret 900ms steps(1, end) infinite;
+  font-weight: bold;
+}
+.inbox-msg[data-settled] .inbox-msg__text::after {
+  /* Hide the caret once triage:complete fires — the canonical
+   * fragment refresh will replace this bubble outright, but in the
+   * brief gap the operator shouldn't see a still-blinking cursor on
+   * a finished message. */
+  display: none;
+}
+@keyframes inbox-stream-caret {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
 /* Copy-message affordance on each conversation turn. Sits in the
  * meta row next to the timestamp. Invisible until row hover so the
  * conversation stays clean during reading; pops in when the
