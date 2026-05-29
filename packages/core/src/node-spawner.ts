@@ -174,14 +174,46 @@ export const claudeSpawner: LlmSpawner = {
     if (!line.startsWith('{')) return null;
     try {
       const event = JSON.parse(line);
+      // Assistant events carry an array of content items: `{type:'text', text:'...'}`
+      // for the model's writing, `{type:'tool_use', ...}` when it calls a tool.
+      // Each `assistant` event from the stream-json output represents a chunk
+      // (the CLI streams in sub-message intervals). Per-token reveal in the
+      // dashboard hangs off these text chunks.
       if (event.type === 'assistant') {
+        const content = event.message?.content;
+        if (Array.isArray(content)) {
+          // Prefer the FIRST text chunk we find. If a single assistant
+          // event interleaves text + tool_use the tool_use case still
+          // fires via the dedicated branch below.
+          for (const c of content) {
+            if (c && c.type === 'text' && typeof c.text === 'string' && c.text.length > 0) {
+              return {
+                timestamp: new Date().toISOString(),
+                type: 'output_chunk',
+                message: c.text,
+              };
+            }
+          }
+          // Tool-use without text: surface that explicitly so the
+          // dashboard's witty-label loop can flip to the action-running
+          // phase rather than show the triage thinking phase.
+          if (content.some((c: { type?: string }) => c && c.type === 'tool_use')) {
+            return {
+              timestamp: new Date().toISOString(),
+              type: 'tool_use',
+              message: 'Using a tool...',
+            };
+          }
+        }
+        // Empty assistant event (rare, but handle gracefully) — keep
+        // the old "thinking" signal so the UI knows something happened.
         return {
           timestamp: new Date().toISOString(),
           type: 'turn_start',
           message: 'Claude is responding...',
         };
       }
-      if (event.type === 'tool_use' || (event.type === 'assistant' && event.message?.content?.some?.((c: { type: string }) => c.type === 'tool_use'))) {
+      if (event.type === 'tool_use') {
         return {
           timestamp: new Date().toISOString(),
           type: 'tool_use',
