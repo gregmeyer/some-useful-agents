@@ -2142,6 +2142,27 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg[data-pending] .inbox-msg__text {
   font-style: italic;
 }
+/* Copy-message affordance on each conversation turn. Sits in the
+ * meta row next to the timestamp. Invisible until row hover so the
+ * conversation stays clean during reading; pops in when the
+ * operator's cursor lands on a turn. */
+.inbox-msg__copy {
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity 80ms ease-out, background 80ms ease-out, color 80ms ease-out;
+  margin-left: auto;
+}
+.inbox-msg:hover .inbox-msg__copy,
+.inbox-msg__copy:focus-visible { opacity: 1; }
+.inbox-msg__copy:hover { background: var(--color-surface-raised); color: var(--color-text); }
+.inbox-msg__copy--ok { color: var(--color-ok, #34d399); opacity: 1; }
+.inbox-msg__copy--err { color: var(--color-err, #ef4444); opacity: 1; }
 
 @keyframes inbox-msg-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -2713,6 +2734,35 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   gap: var(--space-2);
 }
 .inbox-suggest--clean { border-left-color: var(--color-ok, #34d399); }
+/* Archive view header (showing dismissed/resolved). Distinct muted
+ * tone so it's obvious you're browsing the archive, not the active
+ * inbox. */
+.inbox-suggest--archive {
+  border-left-color: var(--color-text-muted);
+  background: var(--color-surface-raised, var(--color-bg));
+}
+.inbox-archive-back {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.inbox-archive-back:hover { color: var(--color-text); text-decoration: underline; }
+
+/* Footer link "View N dismissed / resolved →" rendered below the
+ * active inbox list when there's terminal-state history. Quiet
+ * affordance — operators discover it after they dismiss something
+ * and want to confirm. */
+.inbox-archive-footer {
+  margin-top: var(--space-3);
+  padding: var(--space-2) 0;
+  text-align: center;
+}
+.inbox-archive-footer__link {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+.inbox-archive-footer__link:hover { color: var(--color-text); }
 .inbox-suggest__head {
   display: flex;
   align-items: center;
@@ -2790,13 +2840,35 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-row2 {
   display: grid;
-  grid-template-columns: 24px 24px 70px 88px 1fr 80px 90px;
+  /* Merged the prior age + status columns into a single signal cell
+   * on the right (badge + age, grouped). Keeps the row scanable as
+   * one signal instead of two unrelated chips. */
+  grid-template-columns: 24px 24px 70px 88px 1fr auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   transition: background 80ms ease-out;
+}
+/* Right-side signal cell: status badge leading + age trailing.
+ * Loud variant for awaiting_user (the only row that needs a click)
+ * is driven by the badge variant set in the view. */
+.inbox-row2__signal {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: end;
+  font-size: var(--font-size-xs);
+}
+.inbox-row2__signal .inbox-row2__age {
+  white-space: nowrap;
+}
+/* Subtle left-edge accent for the row that needs a click — the badge
+ * already says "Your turn" but operators tend to scan the rail line
+ * for color, so we mirror the cue at the row level too. */
+.inbox-row2[data-inbox-status="awaiting_user"] {
+  box-shadow: inset 3px 0 0 var(--color-warn, #f59e0b);
 }
 .inbox-row2:last-child { border-bottom: 0; }
 .inbox-row2:hover { background: var(--color-surface-raised); }
@@ -2835,9 +2907,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-row2__age {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  text-align: right;
 }
-.inbox-row2__status { text-align: right; }
 .inbox-row2__preview {
   grid-column: 1 / -1;
   background: var(--color-surface-raised);
@@ -2882,12 +2952,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   gap: var(--space-2);
 }
 
-/* Mobile fallback: simpler column set */
+/* Mobile fallback: simpler column set. Keep the signal cell on the
+ * right so operators still see "Your turn" on phones. */
 @media (max-width: 720px) {
-  .inbox-row2 { grid-template-columns: 24px 24px 1fr 70px; }
+  .inbox-row2 { grid-template-columns: 24px 24px 1fr auto; }
   .inbox-row2__priority,
-  .inbox-row2__source,
-  .inbox-row2__status { display: none; }
+  .inbox-row2__source { display: none; }
+  .inbox-row2__signal .inbox-row2__age { display: none; }
 }
 
 /* ---------- Modal timeline ---------- */
@@ -2944,7 +3015,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-composer textarea {
   width: 100%;
-  resize: vertical;
+  resize: none;
   font-size: var(--font-size-sm);
   padding: var(--space-2);
 }
@@ -3258,7 +3329,11 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-composer__form { margin: 0; }
 .inbox-composer__textarea {
   width: 100%;
-  resize: vertical;
+  /* Drag the bottom of the MODAL to grow the conversation area —
+   * the textarea stays at its declared row height. (Prior
+   * `resize: vertical` on the textarea expanded just that one
+   * element, which wasn't what operators reached for.) */
+  resize: none;
   font-size: var(--font-size-sm);
   padding: var(--space-2);
   line-height: 1.5;

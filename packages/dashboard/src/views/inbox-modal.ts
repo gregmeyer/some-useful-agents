@@ -11,7 +11,7 @@ import { html, type SafeHtml } from './html.js';
 export function renderInboxModalShell(): SafeHtml {
   return html`
     <div class="modal-backdrop" id="inbox-modal" role="dialog" aria-modal="true" aria-labelledby="inbox-modal-title" hidden>
-      <div class="modal inbox-modal" style="max-width: 44rem; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal inbox-modal" style="max-width: 44rem; height: 70vh; min-height: 24rem; max-height: 92vh; display: flex; flex-direction: column; resize: vertical; overflow: hidden;">
         <button type="button" class="inbox-modal__close" data-inbox-modal-close aria-label="Close">×</button>
         <div id="inbox-modal-content" style="flex: 1; overflow-y: auto; min-height: 0;">
           <p class="dim" style="margin: 0; padding: var(--space-4) 0; text-align: center;">Loading…</p>

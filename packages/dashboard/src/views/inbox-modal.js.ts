@@ -158,6 +158,48 @@ export const INBOX_MODAL_JS = `
   // Row click → modal. Chevron click is checked first and toggles the
   // inline preview without opening the modal.
   document.addEventListener('click', function (e) {
+    // Copy-message button on a conversation entry. Reads the
+    // sibling .inbox-msg__text textContent so we copy what the
+    // operator actually sees (newlines preserved, HTML stripped).
+    var copyBtn = e.target.closest && e.target.closest('[data-inbox-copy]');
+    if (copyBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      var msgEl = copyBtn.closest('.inbox-msg');
+      var src = msgEl && msgEl.querySelector('[data-inbox-copy-source]');
+      var text = src ? (src.innerText || src.textContent || '').trim() : '';
+      if (!text) return;
+      var labelEl = copyBtn.querySelector('[data-inbox-copy-label]');
+      var prior = labelEl ? labelEl.textContent : 'Copy';
+      var done = function (ok) {
+        if (!labelEl) return;
+        labelEl.textContent = ok ? 'Copied' : 'Copy failed';
+        copyBtn.classList.add(ok ? 'inbox-msg__copy--ok' : 'inbox-msg__copy--err');
+        setTimeout(function () {
+          labelEl.textContent = prior;
+          copyBtn.classList.remove('inbox-msg__copy--ok', 'inbox-msg__copy--err');
+        }, 1500);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = false;
+          try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+          document.body.removeChild(ta);
+          done(ok);
+        }
+      } catch (_) { done(false); }
+      return;
+    }
+
     // Row preview toggle (chevron on the gridded row).
     var chev = e.target.closest && e.target.closest('[data-inbox-row-chevron]');
     if (chev) {
@@ -345,9 +387,12 @@ export const INBOX_MODAL_JS = `
         // real persisted entry, so no manual cleanup needed.
         form.removeAttribute('data-inflight');
         if (dismissAfter) {
-          var row = document.querySelector('[data-inbox-row-id="' + cssEscape(currentId || '') + '"]');
-          if (row && row.parentNode) row.parentNode.removeChild(row);
-          close();
+          // Hard reload so the suggestion banner counts, priority
+          // group headers, AND favorited rail all stay in sync with
+          // the now-terminal row. The prior approach (remove row +
+          // close modal) left those counts stale until the operator
+          // manually refreshed.
+          window.location.reload();
         } else {
           refresh();
         }

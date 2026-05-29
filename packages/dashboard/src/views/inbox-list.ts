@@ -1,4 +1,4 @@
-import type { InboxMessage, InboxPriority, InboxSource } from '@some-useful-agents/core';
+import type { InboxMessage, InboxPriority, InboxSource, InboxStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
@@ -33,6 +33,20 @@ export interface InboxListOptions {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   filter?: { q: string; starred: boolean; tag: string };
   allTags?: string[];
+  /**
+   * Count of messages in terminal states (dismissed + resolved). Used
+   * by the empty-state copy to acknowledge recent cleanup work and
+   * to render the "View archive" footer link. Defaults to 0 when the
+   * route doesn't pass it.
+   */
+  terminalCount?: number;
+  /**
+   * When set, the view is showing the archive (dismissed/resolved
+   * rows) instead of the active inbox. The header renders a
+   * "Showing <status> · ← Active inbox" chip + the empty state copy
+   * changes. The list itself comes from the route's filtered query.
+   */
+  archiveView?: 'dismissed' | 'resolved';
 }
 
 export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
@@ -57,6 +71,38 @@ const PRIORITY_BADGE: Record<InboxPriority, string> = {
   high: 'badge--warn',
   medium: 'badge--info',
   low: 'badge--muted',
+};
+
+/**
+ * Human labels for the inbox-status enum. The raw snake_case values
+ * (e.g. `awaiting_user`) read as database values, not UI copy —
+ * operators are skimming, not parsing. "Your turn" is the
+ * load-bearing label: it's the only status that demands action, so
+ * it gets distinct copy + the loudest badge variant.
+ */
+const STATUS_LABEL: Record<InboxStatus, string> = {
+  open: 'Open',
+  triaged: 'Triaged',
+  awaiting_user: 'Your turn',
+  verifying: 'Verifying',
+  resolved: 'Resolved',
+  dismissed: 'Dismissed',
+};
+
+/**
+ * Visual hierarchy: "Your turn" is the row that needs a click, so it
+ * gets the warn (amber) chip. Verifying gets info (blue) so the
+ * operator can spot in-flight work. Everything else is muted — the
+ * eye sweeps past them. Terminal statuses (resolved/dismissed) get
+ * the ok green if they ever land on this list.
+ */
+const STATUS_BADGE: Record<InboxStatus, string> = {
+  open: 'badge--muted',
+  triaged: 'badge--muted',
+  awaiting_user: 'badge--warn',
+  verifying: 'badge--info',
+  resolved: 'badge--ok',
+  dismissed: 'badge--muted',
 };
 
 /**
@@ -102,14 +148,27 @@ export function renderInboxList(opts: InboxListOptions): string {
   const rows = opts.rows;
   const filter = opts.filter ?? { q: '', starred: false, tag: '' };
   const allTags = opts.allTags ?? [];
+  const terminalCount = opts.terminalCount ?? 0;
+  const archiveView = opts.archiveView;
 
   const starredAll = rows.filter((r) => r.starred);
-  const suggestions = buildSuggestions(rows);
+  const suggestions = archiveView ? [] : buildSuggestions(rows);
 
   const filterBar = renderFilterBar(filter, allTags);
-  const suggestBanner = renderSuggestBanner(suggestions, rows.length);
+  const suggestBanner = archiveView
+    ? renderArchiveHeader(archiveView, rows.length)
+    : renderSuggestBanner(suggestions, rows.length, terminalCount);
   const rail = renderRail(starredAll);
   const main = renderMain(rows);
+  const archiveLink = !archiveView && terminalCount > 0
+    ? html`
+      <div class="inbox-archive-footer">
+        <a href="/inbox?status=dismissed" class="inbox-archive-footer__link">
+          View ${terminalCount} dismissed / resolved →
+        </a>
+      </div>
+    `
+    : html``;
 
   const body = html`
     <div class="inbox-page-head">
@@ -133,6 +192,7 @@ export function renderInboxList(opts: InboxListOptions): string {
       ${rail}
       <div class="inbox-main">
         ${main}
+        ${archiveLink}
       </div>
     </div>
 
@@ -140,6 +200,30 @@ export function renderInboxList(opts: InboxListOptions): string {
   `;
 
   return render(layout({ title: 'Inbox', activeNav: 'inbox', flash: opts.flash }, body));
+}
+
+/**
+ * Archive view header: replaces the suggested-actions banner when the
+ * operator is browsing dismissed / resolved rows. Includes a back link
+ * to the active inbox and a row count.
+ */
+function renderArchiveHeader(status: 'dismissed' | 'resolved', count: number): SafeHtml {
+  const label = status === 'dismissed' ? 'Dismissed' : 'Resolved';
+  return html`
+    <div class="inbox-suggest inbox-suggest--archive" id="inbox-suggest">
+      <div class="inbox-suggest__head">
+        <span class="inbox-suggest__title">${label}</span>
+        <a href="/inbox" class="inbox-archive-back">← Active inbox</a>
+      </div>
+      <div class="inbox-suggest__items">
+        <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+          ${count === 0
+            ? html`No ${status} messages.`
+            : html`Showing ${count} ${status} message${count === 1 ? '' : 's'}. These are read-only — reopen by replying from the modal.`}
+        </span>
+      </div>
+    </div>
+  `;
 }
 
 function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, allTags: string[]): SafeHtml {
@@ -174,8 +258,29 @@ function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, a
   `;
 }
 
-function renderSuggestBanner(suggestions: Array<{ label: string; count: number; href?: string; tag: string }>, totalRows: number): SafeHtml {
+function renderSuggestBanner(suggestions: Array<{ label: string; count: number; href?: string; tag: string }>, totalRows: number, terminalCount: number): SafeHtml {
   if (totalRows === 0) {
+    // When the active inbox is empty AND there's a terminal-state
+    // history, acknowledge the cleanup so the operator can see "yes,
+    // your dismiss landed" and offers a path back to the archive.
+    // Without terminal history this is a truly empty inbox — show
+    // the original "Nothing in your inbox" copy.
+    if (terminalCount > 0) {
+      return html`
+        <div class="inbox-suggest inbox-suggest--clean" id="inbox-suggest">
+          <div class="inbox-suggest__head">
+            <span class="inbox-suggest__title">Inbox cleared ✨</span>
+          </div>
+          <div class="inbox-suggest__items">
+            <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+              Nothing active. ${terminalCount} message${terminalCount === 1 ? '' : 's'} in your archive —
+              <a href="/inbox?status=dismissed" class="inbox-archive-back">view archive</a>
+              or <strong>+ New conversation</strong> to start fresh.
+            </span>
+          </div>
+        </div>
+      `;
+    }
     return html`
       <div class="inbox-suggest inbox-suggest--clean" id="inbox-suggest">
         <div class="inbox-suggest__head">
@@ -322,8 +427,10 @@ function renderRow(m: InboxMessage): SafeHtml {
         <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>
         ${tagChips}
       </span>
-      <span class="inbox-row2__age">${formatAge(new Date(m.createdAt).toISOString())}</span>
-      <span class="inbox-row2__status"><span class="badge badge--muted">${m.status}</span></span>
+      <span class="inbox-row2__signal" data-inbox-status="${m.status}">
+        <span class="badge ${STATUS_BADGE[m.status]}">${STATUS_LABEL[m.status]}</span>
+        <span class="inbox-row2__age dim">${formatAge(new Date(m.createdAt).toISOString())}</span>
+      </span>
 
       <div class="inbox-row2__preview" data-inbox-row-preview>
         <div class="inbox-row2__preview-body">${m.body}</div>
@@ -336,7 +443,7 @@ function renderRow(m: InboxMessage): SafeHtml {
         <div class="inbox-row2__preview-actions">
           <a href="/inbox/${m.id}" class="btn btn--sm btn--primary" data-inbox-row-link>Open thread</a>
           <span class="dim" style="font-size: var(--font-size-xs); align-self: center;">
-            ${SOURCE_LABEL[m.source]} · ${m.status}
+            ${SOURCE_LABEL[m.source]}
           </span>
         </div>
       </div>

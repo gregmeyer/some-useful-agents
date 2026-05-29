@@ -144,17 +144,36 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
   const starred = req.query.starred === '1' || req.query.starred === 'true';
   const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
+  // Archive view: ?status=dismissed or ?status=resolved. Anything else
+  // falls through to the active inbox (the store's default filter).
+  const statusQ = typeof req.query.status === 'string' ? req.query.status : '';
+  const archiveView: 'dismissed' | 'resolved' | undefined =
+    statusQ === 'dismissed' ? 'dismissed' : statusQ === 'resolved' ? 'resolved' : undefined;
   const rows = ctx.inboxStore ? ctx.inboxStore.list({
     q: q || undefined,
     starred: starred || undefined,
     tag: tag || undefined,
+    status: archiveView,
   }) : [];
   const allTags = ctx.inboxStore ? ctx.inboxStore.listAllTags() : [];
+  // terminalCount drives the "Inbox cleared" empty-state + the "View
+  // N dismissed / resolved" archive-footer link. Only computed for
+  // the active view — the archive view has its own header.
+  let terminalCount = 0;
+  if (!archiveView && ctx.inboxStore) {
+    try {
+      const dismissed = ctx.inboxStore.list({ status: 'dismissed' });
+      const resolved = ctx.inboxStore.list({ status: 'resolved' });
+      terminalCount = dismissed.length + resolved.length;
+    } catch { /* swallow — empty count is harmless */ }
+  }
   const { sort, dir } = parseSort(req);
   res.type('html').send(renderInboxList({
     rows, sort, dir, flash: parseFlash(req),
     filter: { q, starred, tag },
     allTags,
+    terminalCount,
+    archiveView,
   }));
 });
 
