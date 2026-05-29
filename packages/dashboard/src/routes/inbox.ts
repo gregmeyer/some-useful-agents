@@ -544,15 +544,27 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
 function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
   const available: string[] = [];
   for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
-    if (ctx.agentStore.getAgent(id)) {
-      available.push(id);
-      continue;
-    }
     try {
       const yamlPath = join(resolve(ALLOWLIST_AUTOIMPORT_DIR), `${id}.yaml`);
       const yamlText = readFileSync(yamlPath, 'utf-8');
       const parsed = parseAgent(yamlText);
-      ctx.agentStore.upsertAgent(parsed, 'import', `Auto-imported for inbox triage allowlist`);
+      const installed = ctx.agentStore.getAgent(id);
+
+      // Auto-install when absent. Auto-refresh when the bundled YAML
+      // differs from the installed one — system allowlist agents
+      // (analyzer, editor, catalog-search) ship with the package and
+      // get prompt + node updates over time. Without this refresh,
+      // operators who installed an older version see broken triage
+      // dispatches when the route's contract has evolved (e.g.
+      // PR #394's preflight + required:false on AGENT_YAML). Scoped
+      // to allowlist entries only — user agents are never touched.
+      const needsImport = !installed;
+      const needsRefresh = installed && exportAgent(installed) !== exportAgent(parsed);
+      if (needsImport || needsRefresh) {
+        ctx.agentStore.upsertAgent(parsed, 'import', needsImport
+          ? 'Auto-imported for inbox triage allowlist'
+          : 'Auto-refreshed from agents/examples/ (bundled YAML changed)');
+      }
       if (ctx.agentStore.getAgent(id)) available.push(id);
     } catch {
       // No example YAML to import from — skip; the allowlist just
@@ -779,10 +791,34 @@ async function runProposedAction(
   // Per-agent input enrichment. Triage's prompt context can't carry
   // heavyweight inputs (full agent YAMLs, catalog snapshots), so we
   // inject them here at action-run time based on agentId.
+  //
+  // Pre-flight the analyzer dispatch: if the inbox message's
+  // referenced agent isn't installed locally, enrichment will leave
+  // AGENT_YAML empty and the analyzer dies at input resolution with a
+  // generic "Missing required input" — confusing for the operator
+  // because it looks like a triage / analyzer bug rather than the
+  // real cause (target agent not in the catalog). Refuse the dispatch
+  // up front with a clear conversation message instead.
   let effectiveInputs = meta.inputs;
   if (meta.agentId === 'agent-analyzer') {
     const parentMessage = ctx.inboxStore.get(messageId);
-    effectiveInputs = enrichAgentAnalyzerInputs(ctx, parentMessage?.agentId, meta.inputs);
+    const targetAgentId = parentMessage?.agentId;
+    if (targetAgentId && !ctx.agentStore.getAgent(targetAgentId)) {
+      const reason = `Can't dispatch agent-analyzer — the target agent "${targetAgentId}" is not installed in this catalog. Install it (e.g. from agents/examples or via the Agents → Import page) and try again.`;
+      ctx.inboxStore.updateResponse(response.id, {
+        metaJson: JSON.stringify({
+          ...meta,
+          status: 'failed',
+          startedAt,
+          endedAt: Date.now(),
+          refusalReason: reason,
+        }),
+      });
+      ctx.inboxStore.addResponse(messageId, 'system', reason);
+      maybeRefireTriage(ctx, messageId);
+      return;
+    }
+    effectiveInputs = enrichAgentAnalyzerInputs(ctx, targetAgentId, meta.inputs);
   } else if (meta.agentId === 'agent-catalog-search') {
     effectiveInputs = enrichAgentCatalogSearchInputs(ctx, meta.inputs);
   }
