@@ -611,16 +611,31 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
 }
 
 /**
- * Categories worth swapping providers for. Rate limits and auth
- * failures are excluded: rate limits are transient on the same
- * provider, auth requires operator action, and 'other' usually means
- * a real bug we don't want to mask by silently switching.
+ * Categories worth swapping providers for. The bar: "another provider
+ * in the chain could plausibly succeed where this one failed." We fall
+ * back on:
+ *   - binary_missing  — the CLI isn't installed at all
+ *   - timeout         — this provider hung; the next one might not
+ *   - credit_exhausted / quota_exceeded — out of budget on this provider
+ *   - auth_required   — operator hasn't logged in (or session expired)
+ *                       on this provider but might be authed on another
+ *   - rate_limited    — this provider's 429; the next provider in the
+ *                       chain has its own quota and is the whole point
+ *                       of wiring a waterfall
+ *
+ * 'other' stays excluded — silent fallback on unclassified errors masks
+ * real bugs that the operator should see (and that switching providers
+ * would not fix).
+ *
+ * Exported for unit testing — callers in this module use it directly.
  */
-function shouldFallback(category: LlmFailureCategory): boolean {
+export function shouldFallback(category: LlmFailureCategory): boolean {
   return category === 'credit_exhausted'
     || category === 'quota_exceeded'
     || category === 'binary_missing'
-    || category === 'timeout';
+    || category === 'timeout'
+    || category === 'auth_required'
+    || category === 'rate_limited';
 }
 
 // ── Process spawner ────────────────────────────────────────────────────
