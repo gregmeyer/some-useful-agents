@@ -2,9 +2,13 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import {
+  AgentStore,
   LocalProvider,
   EncryptedFileStore,
+  RunStore,
+  VariablesStore,
   ensureMcpToken,
   getMcpTokenPath,
 } from '@some-useful-agents/core';
@@ -100,13 +104,36 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
   const provider = new LocalProvider(options.dbPath, secretsStore);
   await provider.initialize();
 
+  // Dashboard-managed agents live in the SQLite DB, not on the filesystem.
+  // Open dedicated handles here so the list/run tools see the full
+  // catalog (mcp=true + status=active). Both stores use SQLite via
+  // node:sqlite — multiple connections on the same DB are safe under
+  // WAL, which the dashboard + scheduler combination already relies on.
+  // VariablesStore sits at the conventional sibling path so {{vars.X}}
+  // substitution works for MCP-triggered runs.
+  const agentStore = new AgentStore(options.dbPath);
+  const runStore = new RunStore(options.dbPath);
+  const dataRoot = dirname(options.dbPath);
+  const variablesStore = (() => {
+    try { return new VariablesStore(`${dataRoot}/.sua/variables.json`); }
+    catch { return undefined; }
+  })();
+
   // Each MCP session gets its own McpServer instance. The SDK couples a
   // server 1:1 with a transport — calling `server.connect()` twice on the
-  // same instance throws. Provider + agentDirs are safe to share across
-  // sessions (provider has its own concurrency; agentDirs is read-only).
+  // same instance throws. Stores are safe to share across sessions —
+  // each store handles its own concurrency.
   const buildSessionServer = (): McpServer => {
     const s = new McpServer({ name: 'some-useful-agents', version: '0.3.2' });
-    registerTools(s, provider, options.agentDirs);
+    registerTools(s, {
+      provider,
+      agentStore,
+      runStore,
+      secretsStore,
+      variablesStore,
+      dataRoot,
+      agentDirs: options.agentDirs,
+    });
     return s;
   };
 
@@ -254,6 +281,8 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     try { (httpServer as unknown as { closeAllConnections?: () => void }).closeAllConnections?.(); } catch { /* ignore */ }
     sessions.clear();
     try { await provider.shutdown(); } catch { /* ignore */ }
+    try { runStore.close(); } catch { /* ignore */ }
+    try { agentStore.close(); } catch { /* ignore */ }
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   };
 

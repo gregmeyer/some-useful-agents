@@ -33,7 +33,7 @@ describe('loadMcpExposedAgents', () => {
       `name: explicit-false\ntype: shell\ncommand: echo no\nmcp: false\n`,
     );
 
-    const exposed = loadMcpExposedAgents([dir]);
+    const exposed = loadMcpExposedAgents({ agentDirs: [dir] });
 
     expect(Array.from(exposed.keys()).sort()).toEqual(['exposed']);
   });
@@ -42,7 +42,7 @@ describe('loadMcpExposedAgents', () => {
     writeAgent('a', `name: a\ntype: shell\ncommand: echo a\n`);
     writeAgent('b', `name: b\ntype: shell\ncommand: echo b\nmcp: false\n`);
 
-    const exposed = loadMcpExposedAgents([dir]);
+    const exposed = loadMcpExposedAgents({ agentDirs: [dir] });
 
     expect(exposed.size).toBe(0);
   });
@@ -70,7 +70,7 @@ describe('loadMcpExposedAgents', () => {
       ].join('\n'),
     );
 
-    const exposed = loadMcpExposedAgents([dir]);
+    const exposed = loadMcpExposedAgents({ agentDirs: [dir] });
     const agent = exposed.get('with-inputs');
     expect(agent?.inputs?.TOPIC?.required).toBe(true);
     expect(agent?.inputs?.STYLE?.values).toEqual(['short', 'long']);
@@ -82,10 +82,61 @@ describe('loadMcpExposedAgents', () => {
       `name: claude-exposed\ntype: claude-code\nprompt: "say hi"\nmcp: true\n`,
     );
 
-    const exposed = loadMcpExposedAgents([dir]);
+    const exposed = loadMcpExposedAgents({ agentDirs: [dir] });
 
     expect(exposed.has('claude-exposed')).toBe(true);
-    expect(exposed.get('claude-exposed')?.type).toBe('claude-code');
+    const entry = exposed.get('claude-exposed');
+    expect(entry?.kind).toBe('v1');
+    if (entry?.kind === 'v1') {
+      expect(entry.agent.type).toBe('claude-code');
+    }
+  });
+
+  it('exposes v2 (DB) agents flagged mcp:true and skips inactive ones', async () => {
+    const { AgentStore } = await import('@some-useful-agents/core');
+    const dbPath = join(dir, 'agents.db');
+    const store = new AgentStore(dbPath);
+    try {
+      store.createAgent({
+        id: 'db-exposed', name: 'DB Exposed', status: 'active', source: 'local', mcp: true,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo ok' }],
+      }, 'cli');
+      store.createAgent({
+        id: 'db-hidden', name: 'DB Hidden', status: 'active', source: 'local', mcp: false,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+      }, 'cli');
+      store.createAgent({
+        id: 'db-paused', name: 'Paused', status: 'paused', source: 'local', mcp: true,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+      }, 'cli');
+
+      const exposed = loadMcpExposedAgents({ agentStore: store });
+      expect(Array.from(exposed.keys()).sort()).toEqual(['db-exposed']);
+      expect(exposed.get('db-exposed')?.kind).toBe('v2');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('AgentStore (v2) wins over filesystem (v1) on id collision', async () => {
+    writeAgent('shared', `name: shared\ntype: shell\ncommand: echo disk\nmcp: true\n`);
+    const { AgentStore } = await import('@some-useful-agents/core');
+    const dbPath = join(dir, 'collision.db');
+    const store = new AgentStore(dbPath);
+    try {
+      store.createAgent({
+        id: 'shared', name: 'Shared DB', status: 'active', source: 'local', mcp: true,
+        nodes: [{ id: 'main', type: 'shell', command: 'echo db' }],
+      }, 'cli');
+      const exposed = loadMcpExposedAgents({ agentStore: store, agentDirs: [dir] });
+      const entry = exposed.get('shared');
+      expect(entry?.kind).toBe('v2');
+      if (entry?.kind === 'v2') {
+        expect(entry.name).toBe('Shared DB');
+      }
+    } finally {
+      store.close();
+    }
   });
 });
 
