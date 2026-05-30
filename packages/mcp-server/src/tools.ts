@@ -1,7 +1,19 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { AgentDefinition, AgentInputSpec, Provider } from '@some-useful-agents/core';
+import type {
+  Agent as V2Agent,
+  AgentDefinition,
+  AgentInputSpec,
+  AgentStore,
+  IntegrationsStore,
+  Provider,
+  RunStore,
+  SecretsStore,
+  ToolStore,
+  VariablesStore,
+} from '@some-useful-agents/core';
 import {
+  executeAgentDag,
   loadAgents,
   MissingInputError,
   InvalidInputTypeError,
@@ -10,17 +22,68 @@ import {
 } from '@some-useful-agents/core';
 
 /**
- * Only agents that opt in via `mcp: true` in their YAML are exposed to MCP
- * clients. Non-exposed agents are reported as "not found" rather than
- * "forbidden" so a compromised MCP client cannot enumerate the user's full
- * agent catalog. Use `sua agent list` from the CLI to see everything.
+ * Discriminated entry for an MCP-exposed agent. v2 agents come from the
+ * AgentStore (dashboard / DB-managed) and dispatch through
+ * `executeAgentDag`. v1 agents come from filesystem YAML directories
+ * (legacy / pre-DB) and dispatch through `provider.submitRun`.
  */
-export function loadMcpExposedAgents(agentDirs: string[]): Map<string, AgentDefinition> {
-  const { agents } = loadAgents({ directories: agentDirs });
-  const exposed = new Map<string, AgentDefinition>();
-  for (const [name, agent] of agents) {
-    if (agent.mcp === true) exposed.set(name, agent);
+export type McpAgentEntry =
+  | { kind: 'v2'; id: string; name: string; description?: string; inputs?: Record<string, AgentInputSpec>; agent: V2Agent }
+  | { kind: 'v1'; id: string; name: string; description?: string; inputs?: Record<string, AgentInputSpec>; agent: AgentDefinition };
+
+export interface LoadMcpAgentsOptions {
+  /** Primary source for dashboard-managed agents. Filter: mcp=true, status=active. */
+  agentStore?: AgentStore;
+  /** Legacy filesystem sources. Used for pre-DB v1 YAML files still on disk. */
+  agentDirs?: string[];
+}
+
+/**
+ * Build the map of MCP-exposed agents from both the AgentStore (v2 / DB)
+ * and any filesystem directories still holding v1 YAML files. On id
+ * collision, the AgentStore entry wins — the DB is the canonical
+ * source for any agent that's been dashboard-managed.
+ *
+ * Only agents that opt in via `mcp: true` are exposed. Non-exposed
+ * agents are reported as "not found" rather than "forbidden" so a
+ * compromised MCP client cannot enumerate the full catalog.
+ */
+export function loadMcpExposedAgents(opts: LoadMcpAgentsOptions): Map<string, McpAgentEntry> {
+  const exposed = new Map<string, McpAgentEntry>();
+
+  // v2 — AgentStore is the source of truth for dashboard-managed agents.
+  if (opts.agentStore) {
+    const dbAgents = opts.agentStore.listAgents({ mcp: true, status: 'active' });
+    for (const agent of dbAgents) {
+      exposed.set(agent.id, {
+        kind: 'v2',
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        inputs: agent.inputs,
+        agent,
+      });
+    }
   }
+
+  // v1 — legacy filesystem YAML. Skipped when an id already came from
+  // the AgentStore (DB wins).
+  if (opts.agentDirs && opts.agentDirs.length > 0) {
+    const { agents } = loadAgents({ directories: opts.agentDirs });
+    for (const [id, def] of agents) {
+      if (exposed.has(id)) continue;
+      if (def.mcp !== true) continue;
+      exposed.set(id, {
+        kind: 'v1',
+        id,
+        name: def.name,
+        description: def.description,
+        inputs: def.inputs,
+        agent: def,
+      });
+    }
+  }
+
   return exposed;
 }
 
@@ -77,31 +140,60 @@ function errorResult(text: string) {
   return { content: [{ type: 'text' as const, text }], isError: true };
 }
 
-export function registerTools(server: McpServer, provider: Provider, agentDirs: string[]): void {
+export interface RegisterToolsOptions {
+  provider: Provider;
+  /** v2 source — agents created or managed by the dashboard. */
+  agentStore?: AgentStore;
+  /**
+   * RunStore used for v2 dispatch. Independent connection to the same
+   * SQLite DB the provider's internal RunStore uses. SQLite handles
+   * multiple connections via WAL; the existing dashboard + scheduler
+   * combination has been doing this for releases.
+   */
+  runStore?: RunStore;
+  secretsStore?: SecretsStore;
+  variablesStore?: VariablesStore;
+  toolStore?: ToolStore;
+  integrationsStore?: IntegrationsStore;
+  /**
+   * Optional data root for the agent-state directory. Required iff
+   * any v2 agent expects {{state}} expansion or writes to $STATE_DIR.
+   * Almost always set by callers; absent only in stripped-down test rigs.
+   */
+  dataRoot?: string;
+  /** Legacy filesystem source — v1 YAML directories. */
+  agentDirs?: string[];
+}
+
+export function registerTools(server: McpServer, opts: RegisterToolsOptions): void {
+  const loadOpts: LoadMcpAgentsOptions = {
+    agentStore: opts.agentStore,
+    agentDirs: opts.agentDirs,
+  };
 
   server.tool(
     'list-agents',
-    'List agent definitions exposed to MCP (those with `mcp: true` in YAML), including each agent\'s declared inputs schema',
+    "List agent definitions exposed to MCP (those with `mcp: true`), including each agent's declared inputs schema. Sources both dashboard-managed (DB) and legacy filesystem agents",
     {},
     async () => {
-      const agents = loadMcpExposedAgents(agentDirs);
-      const list = Array.from(agents.values()).map(a => {
-        const entry: Record<string, unknown> = {
-          name: a.name,
-          type: a.type,
-          description: a.description ?? '',
+      const agents = loadMcpExposedAgents(loadOpts);
+      const list = Array.from(agents.values()).map((entry) => {
+        const out: Record<string, unknown> = {
+          name: entry.id,
+          description: entry.description ?? '',
+          source: entry.kind,
         };
-        const inputs = describeInputs(a.inputs);
-        if (inputs) entry.inputs = inputs;
-        return entry;
+        const inputs = describeInputs(entry.inputs);
+        if (inputs) out.inputs = inputs;
+        return out;
       });
       return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
-    }
+    },
   );
 
   server.tool(
     'run-agent',
-    'Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent\'s schema',
+    "Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent's schema",
     {
       name: z.string().describe('Agent name to run'),
       inputs: z.record(z.string(), z.string()).optional().describe(
@@ -109,9 +201,9 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
       ),
     },
     async ({ name, inputs }) => {
-      const agents = loadMcpExposedAgents(agentDirs);
-      const agent = agents.get(name);
-      if (!agent) {
+      const agents = loadMcpExposedAgents(loadOpts);
+      const entry = agents.get(name);
+      if (!entry) {
         return errorResult(`Agent "${name}" not found.`);
       }
 
@@ -119,13 +211,59 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
       const capError = checkInputCaps(provided);
       if (capError) return errorResult(capError);
 
+      // v2 dispatch path — executeAgentDag. Requires runStore at minimum;
+      // missing deps make the run fail with category=setup, surfaced as
+      // an MCP error here.
+      if (entry.kind === 'v2') {
+        if (!opts.runStore) {
+          return errorResult(`Agent "${name}" is a v2 (DAG) agent but MCP was started without a runStore. Reinstall or restart sua so the DB-backed dispatcher wires up.`);
+        }
+        try {
+          const run = await executeAgentDag(
+            entry.agent,
+            { triggeredBy: 'mcp', inputs: provided },
+            {
+              runStore: opts.runStore,
+              secretsStore: opts.secretsStore,
+              agentStore: opts.agentStore,
+              variablesStore: opts.variablesStore,
+              toolStore: opts.toolStore,
+              integrationsStore: opts.integrationsStore,
+              dataRoot: opts.dataRoot,
+            },
+          );
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                id: run.id,
+                status: run.status,
+                result: run.result,
+                error: run.error,
+                exitCode: run.exitCode,
+              }, null, 2),
+            }],
+            isError: run.status === 'failed',
+          };
+        } catch (err) {
+          if (
+            err instanceof MissingInputError ||
+            err instanceof InvalidInputTypeError ||
+            err instanceof UndeclaredInputError ||
+            err instanceof SensitiveInputNameError
+          ) {
+            return errorResult(err.message);
+          }
+          throw err;
+        }
+      }
+
+      // v1 dispatch path — provider.submitRun. The legacy AgentDefinition
+      // shape submitRun expects.
       let run;
       try {
-        run = await provider.submitRun({ agent, triggeredBy: 'mcp', inputs: provided });
+        run = await opts.provider.submitRun({ agent: entry.agent, triggeredBy: 'mcp', inputs: provided });
       } catch (err) {
-        // Surface input-validation errors as MCP errors with the user-readable
-        // message instead of a 500. Anything else is unexpected — re-throw so
-        // the SDK turns it into the standard error envelope.
         if (
           err instanceof MissingInputError ||
           err instanceof InvalidInputTypeError ||
@@ -138,12 +276,12 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
       }
 
       // Wait for completion (with timeout)
-      const timeout = (agent.timeout ?? 300) * 1000 + 5000;
+      const timeout = (entry.agent.timeout ?? 300) * 1000 + 5000;
       const start = Date.now();
       let current = run;
       while ((current.status === 'running' || current.status === 'pending') && Date.now() - start < timeout) {
-        await new Promise(r => setTimeout(r, 500));
-        const updated = await provider.getRun(run.id);
+        await new Promise((r) => setTimeout(r, 500));
+        const updated = await opts.provider.getRun(run.id);
         if (updated) current = updated;
       }
 
@@ -160,7 +298,7 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
         }],
         isError: current.status === 'failed',
       };
-    }
+    },
   );
 
   server.tool(
@@ -168,12 +306,12 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
     'Get the status of a run',
     { runId: z.string().describe('Run ID') },
     async ({ runId }) => {
-      const run = await provider.getRun(runId);
+      const run = await opts.provider.getRun(runId);
       if (!run) {
         return errorResult(`Run "${runId}" not found.`);
       }
       return { content: [{ type: 'text' as const, text: JSON.stringify(run, null, 2) }] };
-    }
+    },
   );
 
   server.tool(
@@ -181,9 +319,9 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
     'Get logs for a run',
     { runId: z.string().describe('Run ID') },
     async ({ runId }) => {
-      const logs = await provider.getRunLogs(runId);
+      const logs = await opts.provider.getRunLogs(runId);
       return { content: [{ type: 'text' as const, text: logs || '(no output)' }] };
-    }
+    },
   );
 
   server.tool(
@@ -191,9 +329,9 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
     'Cancel a running agent',
     { runId: z.string().describe('Run ID to cancel') },
     async ({ runId }) => {
-      await provider.cancelRun(runId);
+      await opts.provider.cancelRun(runId);
       return { content: [{ type: 'text' as const, text: `Cancelled run ${runId}` }] };
-    }
+    },
   );
 
   server.tool(
@@ -204,14 +342,14 @@ export function registerTools(server: McpServer, provider: Provider, agentDirs: 
       limit: z.number().optional().default(20).describe('Max results'),
     },
     async ({ agentName, limit }) => {
-      const runs = await provider.listRuns({ agentName, limit });
-      const summary = runs.map(r => ({
+      const runs = await opts.provider.listRuns({ agentName, limit });
+      const summary = runs.map((r) => ({
         id: r.id,
         agent: r.agentName,
         status: r.status,
         started: r.startedAt,
       }));
       return { content: [{ type: 'text' as const, text: JSON.stringify(summary, null, 2) }] };
-    }
+    },
   );
 }
