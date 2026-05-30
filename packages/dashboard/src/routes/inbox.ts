@@ -26,17 +26,22 @@ import { Router, type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  buildDiscoveryCatalog,
   exportAgent,
   executeAgentDag,
   extractPlanJson,
+  listBuiltinTools,
   parseAgent,
   type RunStatus,
   type InboxActionMeta,
   type InboxActionStatus,
   type InboxResponse,
+  type ToolDefinition,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
+import { formatToolCatalog } from './run-now-build.js';
+import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
   type InboxSortKey,
@@ -98,6 +103,7 @@ const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
   'agent-editor',
   'agent-catalog-search',
+  'agent-builder',
 ];
 
 /**
@@ -119,6 +125,7 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-analyzer',
   'agent-editor',
   'agent-catalog-search',
+  'agent-builder',
 ]);
 
 /**
@@ -134,6 +141,7 @@ const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'agent-analyzer',
   'agent-editor',
   'agent-catalog-search',
+  'agent-builder',
 ]);
 
 /**
@@ -859,6 +867,47 @@ function enrichAgentCatalogSearchInputs(
 }
 
 /**
+ * Inject `AVAILABLE_TOOLS` + `DISCOVERY_CATALOG` into agent-builder
+ * inputs. Both are required by `agents/examples/agent-builder.yaml`'s
+ * design node; the operator-facing "Build from goal" flow at
+ * `run-now-build.ts:340-348` already supplies them and we mirror its
+ * input shape here so a triage-dispatched agent-builder run sees the
+ * same catalog the dashboard's button-driven flow does.
+ *
+ * Preserves any caller-supplied values (triage occasionally passes a
+ * narrowed FOCUS; never the registries). Falls back to whatever the
+ * stores expose — empty strings are acceptable inputs and the agent
+ * gracefully degrades when a catalog is missing.
+ */
+function enrichAgentBuilderInputs(
+  ctx: ReturnType<typeof getContext>,
+  inputs: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...inputs };
+  try {
+    const builtins = listBuiltinTools();
+    let userTools: ToolDefinition[] = [];
+    try {
+      if (ctx.toolStore) userTools = ctx.toolStore.listTools();
+    } catch { /* store not available */ }
+    const allTools = [...builtins, ...userTools];
+    if (!out.AVAILABLE_TOOLS) {
+      out.AVAILABLE_TOOLS = formatToolCatalog(allTools);
+    }
+    if (!out.DISCOVERY_CATALOG) {
+      out.DISCOVERY_CATALOG = buildDiscoveryCatalog({
+        agents: ctx.agentStore.listAgents(),
+        tools: allTools,
+        templateRegistry: TEMPLATE_REGISTRY,
+        dashboards: ctx.dashboardsStore?.listDashboards(),
+        packs: ctx.packsStore?.listPacks(),
+      });
+    }
+  } catch { /* swallow — agent-builder validates inputs and will fail loudly */ }
+  return out;
+}
+
+/**
  * Distilled version of run-now-build.ts's run-output collector:
  * grab the latest completed run's result + the latest failed run's
  * error/output, cap at 3000 chars. Empty string when neither exists.
@@ -1058,6 +1107,8 @@ async function runProposedAction(
     effectiveInputs = enrichAgentAnalyzerInputs(ctx, targetAgentId, meta.inputs);
   } else if (meta.agentId === 'agent-catalog-search') {
     effectiveInputs = enrichAgentCatalogSearchInputs(ctx, meta.inputs);
+  } else if (meta.agentId === 'agent-builder') {
+    effectiveInputs = enrichAgentBuilderInputs(ctx, meta.inputs);
   }
 
   let runId: string | undefined;

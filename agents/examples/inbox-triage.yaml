@@ -279,6 +279,28 @@ nodes:
         exist — you don't see the catalog, but the search agent
         does.
 
+      - `agent-builder` → the operator wants to BUILD a new agent
+        ("draft me an agent that …", "build a trivia-night agent",
+        "create one that pulls X and posts Y"). Pass `GOAL` = the
+        operator's full request, verbatim and unedited; pass `FOCUS`
+        only when the conversation has produced a SPECIFIC additional
+        constraint (e.g. the operator said "shell-only, no LLM
+        nodes", "schedule it daily", "use the cocktail-db API"). When
+        no constraint surfaced, omit `FOCUS` entirely or pass an
+        empty string. The dashboard auto-injects `AVAILABLE_TOOLS`
+        and `DISCOVERY_CATALOG`, so you don't thread either.
+        commitmentSummary should be the verb-led "drafting <NAME>
+        agent" form (e.g. "drafting trivia-night agent").
+
+        ORDER OF OPERATIONS when the operator asks for an agent on a
+        topic: PROPOSE `agent-catalog-search` FIRST to check for an
+        existing one. If catalog-search returns no installed match,
+        the FOLLOW-UP turn proposes `agent-builder` to draft a new
+        one. Do NOT propose both in the same turn — `agent-builder`
+        only runs after a confirmed miss. The exception: when the
+        operator EXPLICITLY says "build a new one" or "I want a
+        fresh one" — propose builder directly.
+
       If `ALLOWED_SUB_AGENTS` is empty OR no action would help, omit
       `actions` entirely (or send an empty array). Text-only
       recommendations are perfectly fine.
@@ -328,6 +350,27 @@ nodes:
             "agentId": "agent-catalog-search",
             "inputs": { "QUERY": "trivia — generate trivia questions, host a quiz, or answer trivia" },
             "rationale": "Search the installed catalog for any agent that already covers trivia."
+          }
+        ]
+      }
+      </plan>
+
+      Example proposing agent-builder (operator explicitly asked to
+      build a new agent, OR a prior agent-catalog-search returned no
+      matches). Pass GOAL verbatim. The dashboard injects the tool
+      catalog + discovery context, so `inputs` stays tiny:
+
+      <plan>
+      {
+        "messageId": "{{inputs.MESSAGE_ID}}",
+        "recommendation": "I'll draft the trivia-night agent now — it'll generate questions, host a quiz, and track scores.",
+        "commitmentSummary": "drafting trivia-night agent",
+        "actions": [
+          {
+            "type": "run-agent",
+            "agentId": "agent-builder",
+            "inputs": { "GOAL": "Build a trivia-night agent that asks questions, accepts answers, and tracks scores using the Open Trivia DB API." },
+            "rationale": "Draft a complete agent YAML from the operator's goal."
           }
         ]
       }
