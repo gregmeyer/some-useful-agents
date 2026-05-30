@@ -754,6 +754,20 @@ function ensureSystemAgentCurrent(
 }
 
 function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
+  // Per-agent override on inbox-triage. When the operator has edited
+  // the agent's `allowedSubAgents` list via /agents/inbox-triage/config,
+  // that wins over the hardcoded fallback. Empty array = "text-only,
+  // no sub-agents allowed." Undefined = use the platform default
+  // (auto-installable system agents).
+  const triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
+  const operatorOverride = triage?.allowedSubAgents;
+  if (operatorOverride !== undefined) {
+    // Operator-set list: only surface ids that are actually installed.
+    // Unlike the system-default path we do NOT auto-import here —
+    // operator-listed entries are assumed to be user agents already
+    // sitting in the store.
+    return operatorOverride.filter((id) => ctx.agentStore.getAgent(id) !== undefined);
+  }
   const available: string[] = [];
   for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
     if (ensureSystemAgentCurrent(ctx, id, 'inbox triage allowlist')) {

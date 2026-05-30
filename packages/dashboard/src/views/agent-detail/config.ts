@@ -273,6 +273,72 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     </form>
   `);
 
+  // Allowed sub-agents card. Lists the operator-picked sub-agent
+  // allowlist (or "platform default" when unset). Pills are removable;
+  // "Add agent…" opens the picklist modal at the bottom of the page.
+  // Inbox-triage is the only consumer today; the field is on the base
+  // Agent type so future agent-invoke / loop dispatchers can adopt it
+  // without a schema migration.
+  const allowedSubAgentsCard = (() => {
+    const list = agent.allowedSubAgents;
+    const usingDefault = list === undefined;
+    const installedMap = new Map((args.installedAgents ?? []).map((a) => [a.id, a]));
+    const pills = (list ?? []).map((aid) => {
+      const installed = installedMap.has(aid);
+      return html`
+        <span class="inbox-pill ${installed ? '' : 'inbox-pill--warn'}" data-sub-agent="${aid}" title="${installed ? '' : 'Not installed — entry has no effect until the agent is imported.'}">
+          ${aid}
+          <button type="button" class="inbox-pill__remove" data-sub-agent-remove="${aid}" aria-label="Remove ${aid}">×</button>
+        </span>
+      `;
+    });
+    const missingCount = (list ?? []).filter((aid) => !installedMap.has(aid)).length;
+    const body = html`
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">
+        Agent ids this agent may propose as sub-agent actions. Honored at dispatch time by inbox-triage; future flow-control nodes will follow.
+      </p>
+      ${usingDefault
+        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">Using platform default (hardcoded system agents).</p>`
+        : html`
+          <form method="POST" action="/agents/${agent.id}/allowed-sub-agents" id="allowed-sub-agents-form" style="margin: 0 0 var(--space-2);">
+            <input type="hidden" name="agentIds" id="allowed-sub-agents-input" value="${(list ?? []).join(',')}">
+          </form>
+          <div class="inbox-pills" data-allowed-sub-agents-pills>
+            ${pills as unknown as SafeHtml[]}
+            ${list && list.length === 0 ? html`<span class="dim" style="font-size: var(--font-size-xs);">Empty — sub-agents are disabled.</span>` : html``}
+          </div>
+          ${missingCount > 0
+            ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0; color: var(--color-warn, #f59e0b);">${String(missingCount)} entry/entries not installed (highlighted).</p>`
+            : html``}
+        `}
+      <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+        <button type="button" class="btn btn--sm" id="allowed-sub-agents-add" data-allowed-sub-agents-open>${usingDefault ? 'Pick agents…' : 'Add agent…'}</button>
+        ${usingDefault
+          ? html``
+          : html`
+            <form method="POST" action="/agents/${agent.id}/allowed-sub-agents" style="display:inline;">
+              <input type="hidden" name="clear" value="1">
+              <button type="submit" class="btn btn--sm btn--ghost">Revert to default</button>
+            </form>
+          `}
+      </div>
+    `;
+    return configCard('Allowed sub-agents', body);
+  })();
+
+  // Picklist modal data (rendered once below the page-grid). The modal
+  // is a sibling of the cards so it can overlay the whole tab without
+  // grid-cell containment quirks. Data attributes carry the agent id +
+  // the catalog payload as JSON for the inline JS to consume.
+  const picklistPayload = (args.installedAgents ?? [])
+    .filter((a) => a.id !== agent.id)
+    .map((a) => ({ id: a.id, name: a.name, description: a.description ?? '' }));
+  const allowedSubAgentsPicklist = html`
+    <div id="allowed-sub-agents-picklist" hidden data-agent-id="${agent.id}" data-current="${(agent.allowedSubAgents ?? []).join(',')}">
+      <script type="application/json" id="allowed-sub-agents-catalog">${JSON.stringify(picklistPayload)}</script>
+    </div>
+  `;
+
   const variablesCard = configCard('Variables', renderVariablesEditor(agent));
 
   const secretsCard = configCard('Secrets', html`
@@ -344,9 +410,11 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       </div>
       <div class="config-grid__col">
         ${outputWidgetSection}
+        ${allowedSubAgentsCard}
         ${notifySection}
       </div>
     </div>
+    ${allowedSubAgentsPicklist}
   `;
 
   return agentPageShell({ ...args, activeTab: 'config' }, content);

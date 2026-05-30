@@ -210,6 +210,15 @@ export const agentV2Schema = z.object({
   provider: providerEnumSchema.optional(),
   model: z.string().optional(),
 
+  /**
+   * Optional allowlist of agent ids this agent may propose as sub-agent
+   * actions. Honored by inbox-triage's dispatch path. Each entry must
+   * be a valid agent id (same kebab-case rule as the top-level id).
+   * Empty array = "no sub-agents allowed" (text-only). Undefined = "use
+   * platform default" (the hardcoded inbox-triage allowlist).
+   */
+  allowedSubAgents: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/, 'Agent ids must be lowercase kebab-case')).optional(),
+
   inputs: z.record(
     z.string().regex(INPUT_NAME_RE, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
     inputSpecSchema,

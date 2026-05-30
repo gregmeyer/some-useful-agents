@@ -386,6 +386,11 @@ export class AgentStore {
     if (agent.author !== undefined) dag.author = agent.author;
     if (agent.tags) dag.tags = agent.tags;
     if (agent.permissions) dag.permissions = agent.permissions;
+    // allowedSubAgents is preserved through any value the caller sets,
+    // including an explicit empty array (= "text-only, no sub-agents
+    // allowed"). Only `undefined` is dropped — that's the "use
+    // platform default" signal.
+    if (agent.allowedSubAgents !== undefined) dag.allowedSubAgents = agent.allowedSubAgents;
 
     // Backfill permissions.imgSrc by static analysis of the outputWidget
     // template. The drafter prompt teaches the LLM to emit this field
@@ -455,6 +460,7 @@ export class AgentStore {
       author: dag.author,
       tags: dag.tags,
       permissions: dag.permissions,
+      allowedSubAgents: dag.allowedSubAgents,
     };
     agent.capabilities = deriveCapabilities(agent);
     return agent;
