@@ -109,6 +109,14 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="flash flash--${flash.kind}" style="margin: 0 0 var(--space-2);">${flash.message}</div>
   ` : html``;
 
+  // Pending-work chip: surfaced when the most recent triage response
+  // declared a `commitmentSummary` AND a proposed-action it kicked
+  // off is still in flight (proposed or running). Once every action
+  // after the commitment resolves, the chip goes away — the
+  // operator's signal that triage is "still on it" vs. "done and
+  // waiting on you."
+  const pendingCommitment = derivePendingCommitment(responses);
+
   // Tight meta row: priority dot + status + agent link + run link + age.
   // Priority becomes a colored dot rather than a full badge to lower
   // its visual weight; the status badge stays because it's the
@@ -119,6 +127,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="inbox-modal__meta">
       <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
       <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
+      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="Triage is working on a proposed action">${pendingCommitment}…</span>` : html``}
       ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
       ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
       <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
@@ -210,6 +219,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
             <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
           </form>
           <button type="submit" form="inbox-reply-form" class="btn btn--sm btn--primary"
+            title="Cmd/Ctrl + Enter"
             ${triagePending ? 'disabled' : ''}>
             ${triagePending ? 'Waiting…' : 'Post reply'}
           </button>
@@ -314,6 +324,45 @@ function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): 
       </div>
     </div>
   `;
+}
+
+/**
+ * Pull the pending commitment chip text for the header. Walks
+ * responses newest-first to find the most recent triage reply whose
+ * `metaJson` carries a `commitmentSummary`, then checks whether any
+ * action response that came AFTER it is still in flight (proposed
+ * or running). The chip only shows while the work is actually
+ * pending — once every downstream action terminates, the commitment
+ * is considered resolved and the chip clears on the next render.
+ */
+function derivePendingCommitment(responses: readonly InboxResponse[]): string | undefined {
+  let commitmentSummary: string | undefined;
+  let commitmentAt = 0;
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const r = responses[i];
+    if (r.role !== 'triage' || !r.metaJson) continue;
+    try {
+      const meta = JSON.parse(r.metaJson) as { commitmentSummary?: unknown };
+      const cs = typeof meta.commitmentSummary === 'string' ? meta.commitmentSummary.trim() : '';
+      if (cs.length > 0) {
+        commitmentSummary = cs;
+        commitmentAt = r.createdAt;
+        break;
+      }
+    } catch { /* ignore */ }
+  }
+  if (!commitmentSummary) return undefined;
+  // Any action after the commitment that is still proposed or
+  // running keeps the chip alive.
+  for (const r of responses) {
+    if (r.createdAt < commitmentAt) continue;
+    const action = parseActionMeta(r);
+    if (!action) continue;
+    if (action.status === 'proposed' || action.status === 'running') {
+      return commitmentSummary;
+    }
+  }
+  return undefined;
 }
 
 /**

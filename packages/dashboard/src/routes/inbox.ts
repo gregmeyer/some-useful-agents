@@ -1389,7 +1389,7 @@ async function runTriageAgent(
       );
       return;
     }
-    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown };
+    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown };
     try {
       parsed = JSON.parse(planJson);
     } catch {
@@ -1407,11 +1407,24 @@ async function runTriageAgent(
     const verifyHint = typeof parsed.verifyHint === 'string' && parsed.verifyHint.trim()
       ? parsed.verifyHint.trim()
       : undefined;
+    // Pending-work chip text. Only honored when this turn also
+    // proposes at least one action (enforced post-action-parse below)
+    // — a commitment with no job behind it is the prose-only failure
+    // mode the chip exists to prevent.
+    const commitmentRaw = typeof parsed.commitmentSummary === 'string'
+      ? parsed.commitmentSummary.trim()
+      : '';
+    const commitmentSummary = commitmentRaw.length >= 3 && commitmentRaw.length <= 60
+      ? commitmentRaw
+      : undefined;
+    const triageMeta: Record<string, string> = {};
+    if (verifyHint) triageMeta.verifyHint = verifyHint;
+    if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
     const triageReply = ctx.inboxStore.addResponse(
       messageId,
       'triage',
       rec,
-      verifyHint ? JSON.stringify({ verifyHint }) : undefined,
+      Object.keys(triageMeta).length > 0 ? JSON.stringify(triageMeta) : undefined,
     );
     // The canonical "triage finished" signal. Clients use this to
     // replace any in-progress typewriter bubble (PR 4) with the
@@ -1421,6 +1434,7 @@ async function runTriageAgent(
       role: 'triage',
       body: rec,
       verifyHint,
+      commitmentSummary,
       createdAt: triageReply.createdAt,
     });
 
