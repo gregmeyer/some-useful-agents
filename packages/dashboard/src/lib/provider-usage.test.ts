@@ -17,7 +17,7 @@ describe('computeProviderUsage', () => {
   it('returns one row per provider, even when no agents use them', () => {
     const rows = computeProviderUsage([]);
     const ids = rows.map((r) => r.id).sort();
-    expect(ids).toEqual(['claude', 'codex']);
+    expect(ids).toEqual(['apple-foundation-models', 'claude', 'codex']);
     for (const r of rows) {
       expect(r.agentCount).toBe(0);
       expect(typeof r.installed).toBe('boolean');

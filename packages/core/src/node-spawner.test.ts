@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, type SpawnResult } from './node-spawner.js';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -122,6 +122,64 @@ describe('buildProviderChain (waterfall)', () => {
 
   it('supports a 3-provider chain — pin still goes first, rest follows in order', () => {
     expect(buildProviderChain('codex', ['claude', 'gemini', 'codex'])).toEqual(['codex', 'claude', 'gemini']);
+  });
+
+  it('places apple-foundation-models pin at the head, keeping claude/codex as fallbacks', () => {
+    expect(buildProviderChain('apple-foundation-models', ['claude', 'codex']))
+      .toEqual(['apple-foundation-models', 'claude', 'codex']);
+  });
+});
+
+describe('appleFoundationModelsSpawner', () => {
+  it('exposes the env-var prompt contract (PROMPT) and empty argv', () => {
+    expect(appleFoundationModelsSpawner.promptEnvVar).toBe('PROMPT');
+    expect(appleFoundationModelsSpawner.buildArgs({ prompt: 'hi' })).toEqual([]);
+    expect(appleFoundationModelsSpawner.buildEnv?.({ prompt: 'hi there' })).toEqual({ PROMPT: 'hi there' });
+  });
+
+  it('enables simulated streaming so the typewriter UX still fires', () => {
+    expect(appleFoundationModelsSpawner.simulateStream).toBe(true);
+  });
+
+  it('extractResult returns response_text on status=ok and empty string otherwise', () => {
+    const ok = JSON.stringify({ status: 'ok', response_text: 'hello world', model_name: 'apple-foundationmodels' });
+    expect(appleFoundationModelsSpawner.extractResult(ok)).toBe('hello world');
+
+    const unavailable = JSON.stringify({ status: 'unavailable', response_text: '', model_name: 'apple-foundationmodels' });
+    expect(appleFoundationModelsSpawner.extractResult(unavailable)).toBe('');
+
+    const err = JSON.stringify({ status: 'error', response_text: '', model_name: 'apple-foundationmodels', error_message: 'boom' });
+    expect(appleFoundationModelsSpawner.extractResult(err)).toBe('');
+  });
+
+  it('classifyResult maps unavailable/unsupported to binary_missing for fallback', () => {
+    const unavailable = JSON.stringify({ status: 'unavailable' });
+    expect(appleFoundationModelsSpawner.classifyResult?.(
+      { result: unavailable, exitCode: 0, error: '' },
+      unavailable,
+    )).toBe('binary_missing');
+
+    const unsupported = JSON.stringify({ status: 'unsupported' });
+    expect(appleFoundationModelsSpawner.classifyResult?.(
+      { result: unsupported, exitCode: 0, error: '' },
+      unsupported,
+    )).toBe('binary_missing');
+  });
+
+  it('classifyResult maps error to other (does NOT silently fall back on real bugs)', () => {
+    const err = JSON.stringify({ status: 'error', error_message: 'boom' });
+    expect(appleFoundationModelsSpawner.classifyResult?.(
+      { result: err, exitCode: 0, error: '' },
+      err,
+    )).toBe('other');
+  });
+
+  it('classifyResult returns null on status=ok (no override needed)', () => {
+    const ok = JSON.stringify({ status: 'ok', response_text: 'hi' });
+    expect(appleFoundationModelsSpawner.classifyResult?.(
+      { result: ok, exitCode: 0, error: '' },
+      ok,
+    )).toBeNull();
   });
 });
 

@@ -131,10 +131,52 @@ export interface LlmSpawnOptions {
  * the final result text.
  */
 export interface LlmSpawner {
-  /** CLI binary name (e.g. 'claude', 'codex'). */
+  /**
+   * CLI binary name (e.g. 'claude', 'codex'). For providers whose
+   * binary path is computed lazily at invocation time, `resolveBinary`
+   * overrides this — the spawner registry's `binary` is still set to a
+   * sensible default for static call sites (logging, error messages).
+   */
   binary: string;
+  /**
+   * Resolve the actual binary path at invocation time. Used by
+   * providers that compile-on-demand (e.g. apple-foundation-models,
+   * which materializes its Swift runner under ~/.sua/runners/ on first
+   * use). When undefined, callers use `binary` directly.
+   *
+   * Returns either a path or a structured `unsupported` signal that the
+   * waterfall treats as `binary_missing` (so the chain falls through to
+   * the next provider without an actual spawn attempt).
+   */
+  resolveBinary?: () => { path: string } | { unsupported: true; reason: string };
   /** Build the CLI argument list. */
   buildArgs(opts: LlmSpawnOptions): string[];
+  /**
+   * Optional env-var contribution. The prompt-on-env-var providers
+   * (apple-foundation-models) use this to surface PROMPT /
+   * SYSTEM_PROMPT alongside the inherited childEnv. Returned keys are
+   * merged INTO the existing childEnv before the spawn — they don't
+   * replace it. When undefined, no extra env is contributed.
+   */
+  buildEnv?: (opts: LlmSpawnOptions) => Record<string, string>;
+  /**
+   * When true, after the process exits successfully the waterfall emits
+   * the extracted result text as a series of synthetic `output_chunk`
+   * progress events (paced ~8ms apart, capped at ~1.5s total) so the
+   * typewriter UI behaves consistently across streaming and non-
+   * streaming providers. Used by apple-foundation-models, which has no
+   * native token-delta stream.
+   */
+  simulateStream?: boolean;
+  /**
+   * If set, the prompt is passed via this env var name instead of
+   * stdin. Providers that read prompts from argv (claude/codex via
+   * stdinInput) leave this unset. The waterfall hands the resolved
+   * prompt to `buildEnv` automatically, but explicit env-name mapping
+   * keeps the interface declarative for future providers that want a
+   * different name.
+   */
+  promptEnvVar?: string;
   /**
    * Parse a line of stdout for progress events. Returns null if the line
    * is not a progress event (e.g. regular output text).
@@ -146,6 +188,14 @@ export interface LlmSpawner {
    * For text mode, this returns stdout as-is.
    */
   extractResult(stdout: string): string;
+  /**
+   * Inspect a fresh `SpawnResult` (after extractResult ran) and return
+   * an override category when the provider's payload encodes failures
+   * inline (e.g. apple-foundation-models writes `status: "unavailable"`
+   * to a JSON line with exit code 0). The waterfall consults this
+   * BEFORE the generic `classifyLlmFailure` text matcher.
+   */
+  classifyResult?: (result: SpawnResult, rawStdout: string) => LlmFailureCategory | null;
 }
 
 // ── Claude spawner ─────────────────────────────────────────────────────
@@ -376,12 +426,112 @@ export const codexSpawner: LlmSpawner = {
   },
 };
 
+// ── Apple Foundation Models spawner ────────────────────────────────────
+
+/**
+ * Apple Foundation Models spawner. Drives the on-device model via a
+ * tiny Swift runner compiled lazily and cached at
+ * `~/.sua/runners/apple_foundationmodels` (see
+ * `apple-foundationmodels-runner.ts`).
+ *
+ * Key differences from claude/codex:
+ *   - Prompt rides on environment variables (PROMPT, SYSTEM_PROMPT),
+ *     not stdin or argv.
+ *   - Output is a single JSON object on stdout: `{ status,
+ *     response_text, model_name, error_message }`. No per-token deltas.
+ *   - The typewriter UX is simulated post-completion via
+ *     `simulateStream: true` so the modal's streaming-bubble path keeps
+ *     working — the runlAttempt loop chunks the extracted text and
+ *     emits synthetic output_chunk events on the same onProgress hook
+ *     real spawners use.
+ *   - `status: "unavailable"` or `"unsupported"` map to `binary_missing`
+ *     via `classifyResult` so the waterfall falls through to the next
+ *     provider.
+ */
+export const appleFoundationModelsSpawner: LlmSpawner = {
+  binary: 'apple_foundationmodels',
+  simulateStream: true,
+  promptEnvVar: 'PROMPT',
+
+  resolveBinary() {
+    // Lazy import to keep this provider out of the cold-path for
+    // non-macOS hosts that never invoke it. The runner module's
+    // ensureAppleRunner() is idempotent and fast on cache hit.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { ensureAppleRunner } = require('./apple-foundationmodels-runner.js') as typeof import('./apple-foundationmodels-runner.js');
+    const handle = ensureAppleRunner();
+    if (handle.status === 'ready') return { path: handle.binaryPath };
+    return { unsupported: true, reason: handle.message ?? 'Apple Foundation Models runner is unavailable.' };
+  },
+
+  buildArgs(_opts: LlmSpawnOptions): string[] {
+    // The runner reads PROMPT + SYSTEM_PROMPT from its environment;
+    // model / maxTurns / allowedTools are ignored (the on-device
+    // framework doesn't expose those knobs).
+    return [];
+  },
+
+  buildEnv(opts: LlmSpawnOptions): Record<string, string> {
+    return { PROMPT: opts.prompt };
+  },
+
+  parseProgress(_line: string): SpawnProgress | null {
+    // Real-time progress isn't available — the runner emits one JSON
+    // line at completion. The simulated streaming hook in
+    // `runLlmAttempt` covers the typewriter UX.
+    return null;
+  },
+
+  extractResult(stdout: string): string {
+    // The runner prints one JSON object on the last non-empty line.
+    const lines = stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.startsWith('{')) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (typeof obj.response_text === 'string' && obj.status === 'ok') {
+          return obj.response_text;
+        }
+        // Non-ok status: surface an empty result; classifyResult will
+        // map the JSON status to a fallback-worthy category so the
+        // waterfall continues to the next provider.
+        return '';
+      } catch { /* skip */ }
+    }
+    return '';
+  },
+
+  classifyResult(result: SpawnResult, rawStdout: string): LlmFailureCategory | null {
+    // Apple's runner can exit 0 yet report failure inline via the JSON
+    // status field. Map unavailable/unsupported to binary_missing so
+    // the waterfall treats the host as if the binary weren't installed
+    // (because functionally — for this prompt on this device — it
+    // isn't usable). 'error' maps to 'other' so real bugs surface.
+    const lines = rawStdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.startsWith('{')) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.status === 'unavailable' || obj.status === 'unsupported') {
+          return 'binary_missing';
+        }
+        if (obj.status === 'error') return 'other';
+        if (obj.status === 'ok') return null;
+      } catch { /* skip */ }
+    }
+    return null;
+  },
+};
+
 // ── Spawner registry ───────────────────────────────────────────────────
 
 const SPAWNERS: Record<string, LlmSpawner> = {
   claude: claudeSpawner,
   'claude-text': claudeTextSpawner,
   codex: codexSpawner,
+  'apple-foundation-models': appleFoundationModelsSpawner,
 };
 
 /** Get a spawner by provider name. Defaults to claude stream-json. */
@@ -514,16 +664,48 @@ async function runLlmAttempt(
   onSpawn?: (pid: number, startedAtMs: number) => void,
 ): Promise<SpawnResult> {
   const spawner = getSpawner(provider);
-  const args = spawner.buildArgs({
+  const spawnOpts: LlmSpawnOptions = {
     prompt: resolvedPrompt,
     model: node.model,
     maxTurns: node.maxTurns,
     allowedTools: node.allowedTools,
-  });
-  return spawnProcess(spawner.binary, args, {
+  };
+  const args = spawner.buildArgs(spawnOpts);
+
+  // Lazy-resolve binary path. Providers like apple-foundation-models
+  // compile a runner on first use; the resolver returns either a
+  // ready path or an `unsupported: true` signal we turn into a
+  // synthetic binary_missing failure so the waterfall falls through
+  // without actually trying to spawn a nonexistent executable.
+  let binaryPath = spawner.binary;
+  if (spawner.resolveBinary) {
+    const resolved = spawner.resolveBinary();
+    if ('unsupported' in resolved) {
+      return {
+        result: '',
+        exitCode: 127,
+        error: resolved.reason,
+        category: 'spawn_failure',
+      };
+    }
+    binaryPath = resolved.path;
+  }
+
+  // Merge env. The spawner's buildEnv overrides anything in childEnv
+  // with the same key (so PROMPT etc. land cleanly even if the agent
+  // env happens to collide).
+  const mergedEnv = spawner.buildEnv
+    ? { ...childEnv, ...spawner.buildEnv(spawnOpts) }
+    : childEnv;
+
+  // Providers that read the prompt from env (Apple FM) skip stdin so
+  // the runner doesn't sit waiting for EOF.
+  const stdinInput = spawner.promptEnvVar ? undefined : resolvedPrompt;
+
+  const result = await spawnProcess(binaryPath, args, {
     cwd: node.workingDirectory,
-    env: childEnv,
-    stdinInput: resolvedPrompt,
+    env: mergedEnv,
+    stdinInput,
     timeoutSec: node.timeout ?? 300,
     onProgress: onProgress ? (line) => {
       const event = spawner.parseProgress(line);
@@ -533,6 +715,68 @@ async function runLlmAttempt(
     signal,
     onSpawn,
   });
+
+  // Inline-failure classification (e.g. apple-foundation-models writes
+  // `status: "unavailable"` on a successful exit). When the spawner
+  // reports a fallback-worthy category, override the result so the
+  // waterfall's classifyLlmFailure picks it up.
+  if (spawner.classifyResult && result.exitCode === 0) {
+    const overrideCategory = spawner.classifyResult(result, result.result ?? '');
+    if (overrideCategory === 'binary_missing' || overrideCategory === 'other') {
+      return {
+        ...result,
+        result: '',
+        exitCode: 1,
+        category: overrideCategory === 'binary_missing' ? 'spawn_failure' : result.category,
+        error: result.error ?? 'Provider reported an inline failure status.',
+      };
+    }
+  }
+
+  // Simulated streaming. Non-streaming providers (Apple FM) emit one
+  // synthetic output_chunk burst so the typewriter UX stays consistent.
+  // We only fire chunks when the run succeeded; failure already exits
+  // here and the waterfall falls through.
+  if (spawner.simulateStream && result.exitCode === 0 && onProgress && result.result) {
+    await simulateStreamingChunks(result.result, onProgress, signal);
+  }
+
+  return result;
+}
+
+/**
+ * Synthetic streaming for non-streaming providers. Splits the
+ * extracted text into ~30-char chunks and pacing each by
+ * SIMULATED_STREAM_INTERVAL_MS, capped at SIMULATED_STREAM_MAX_MS total
+ * so long responses don't drag. Emits each chunk on `onProgress` as an
+ * `output_chunk` event — the dashboard's typewriter consumes these
+ * identically to real per-token streams from claude.
+ */
+const SIMULATED_STREAM_INTERVAL_MS = 8;
+const SIMULATED_STREAM_MAX_MS = 1500;
+const SIMULATED_STREAM_MIN_CHUNK = 30;
+
+async function simulateStreamingChunks(
+  text: string,
+  onProgress: (event: SpawnProgress) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!text) return;
+  // Compute chunk size that keeps total time under MAX_MS.
+  const maxChunks = Math.max(1, Math.floor(SIMULATED_STREAM_MAX_MS / SIMULATED_STREAM_INTERVAL_MS));
+  const chunkSize = Math.max(SIMULATED_STREAM_MIN_CHUNK, Math.ceil(text.length / maxChunks));
+  for (let i = 0; i < text.length; i += chunkSize) {
+    if (signal?.aborted) return;
+    const chunk = text.slice(i, i + chunkSize);
+    onProgress({
+      timestamp: new Date().toISOString(),
+      type: 'output_chunk',
+      message: chunk,
+    });
+    if (i + chunkSize < text.length) {
+      await new Promise<void>((resolve) => setTimeout(resolve, SIMULATED_STREAM_INTERVAL_MS));
+    }
+  }
 }
 
 /**

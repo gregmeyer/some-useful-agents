@@ -1,0 +1,413 @@
+id: apple-foundationmodels-prompt
+name: Apple FoundationModels Prompt
+description: Run a prompt through Apple's on-device Foundation Models stack via Swift and return a structured response for local agent workflows.
+status: active
+source: examples
+mcp: true
+inputs:
+  PROMPT:
+    type: string
+    description: The user prompt to send to the local Apple model.
+  SYSTEM_PROMPT:
+    type: string
+    default: ""
+    description: Optional system instructions for the session.
+  TIMEOUT_SECONDS:
+    type: number
+    default: 60
+    description: Maximum seconds to allow the local Swift runner to execute.
+  MAX_PREVIEW_CHARS:
+    type: number
+    default: 160
+    description: Maximum prompt characters to expose in prompt_preview.
+outputs:
+  status:
+    type: string
+  response_text:
+    type: string
+  model_name:
+    type: string
+  error_message:
+    type: string
+  elapsed_ms:
+    type: number
+  prompt_chars:
+    type: number
+  system_prompt_used:
+    type: boolean
+  prompt_preview:
+    type: string
+  summary_text:
+    type: string
+nodes:
+  - id: write_runner
+    type: shell
+    command: |
+      set -euo pipefail
+
+      mkdir -p "$STATE_DIR"
+      script_path="$STATE_DIR/apple_foundationmodels_prompt.swift"
+
+      cat > "$script_path" <<'SWIFT'
+      import Foundation
+      #if canImport(FoundationModels)
+      import FoundationModels
+      #endif
+
+      struct Output: Codable {
+          let status: String
+          let response_text: String
+          let model_name: String
+          let error_message: String?
+      }
+
+      func emit(_ output: Output) {
+          let encoder = JSONEncoder()
+          if let data = try? encoder.encode(output),
+             let text = String(data: data, encoding: .utf8) {
+              print(text)
+          } else {
+              print("{\"status\":\"error\",\"response_text\":\"\",\"model_name\":\"apple-foundationmodels\",\"error_message\":\"Failed to encode output\"}")
+          }
+      }
+
+      @main
+      struct Runner {
+          static func main() async {
+              let env = ProcessInfo.processInfo.environment
+              let prompt = (env["PROMPT"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+              let systemPrompt = (env["SYSTEM_PROMPT"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+              guard !prompt.isEmpty else {
+                  emit(Output(status: "error", response_text: "", model_name: "apple-foundationmodels", error_message: "PROMPT is required"))
+                  return
+              }
+
+              #if canImport(FoundationModels)
+              if #available(macOS 26.0, iOS 26.0, *) {
+                  guard SystemLanguageModel.default.isAvailable else {
+                      emit(Output(status: "unavailable", response_text: "", model_name: "apple-foundationmodels", error_message: "Apple Foundation Models is not available on this device"))
+                      return
+                  }
+
+                  do {
+                      let session = systemPrompt.isEmpty
+                          ? LanguageModelSession()
+                          : LanguageModelSession(instructions: systemPrompt)
+                      let response = try await session.respond(to: prompt)
+                      emit(Output(status: "ok", response_text: String(describing: response.content), model_name: "apple-foundationmodels", error_message: nil))
+                  } catch {
+                      emit(Output(status: "error", response_text: "", model_name: "apple-foundationmodels", error_message: String(describing: error)))
+                  }
+              } else {
+                  emit(Output(status: "unsupported", response_text: "", model_name: "apple-foundationmodels", error_message: "Requires Apple OS with Foundation Models support"))
+              }
+              #else
+              emit(Output(status: "unsupported", response_text: "", model_name: "apple-foundationmodels", error_message: "FoundationModels framework is not available in this Swift toolchain"))
+              #endif
+          }
+      }
+      SWIFT
+
+      if [ ! -s "$script_path" ]; then
+        echo '{"script_path":"","error":"Failed to write Swift runner"}' >&2
+        exit 1
+      fi
+
+      printf '{"script_path":"%s"}\n' "$script_path"
+  - id: run_prompt
+    type: shell
+    command: |
+      set -euo pipefail
+
+      if [ -z "${PROMPT:-}" ]; then
+        echo '{"status":"error","response_text":"","model_name":"apple-foundationmodels","error_message":"PROMPT is required","elapsed_ms":0}'
+        exit 0
+      fi
+
+      if [ -z "${TIMEOUT_SECONDS:-}" ]; then
+        echo '{"status":"error","response_text":"","model_name":"apple-foundationmodels","error_message":"TIMEOUT_SECONDS is required","elapsed_ms":0}'
+        exit 0
+      fi
+
+      python3 - "$TIMEOUT_SECONDS" <<'PY'
+      import sys
+
+      try:
+          timeout = float(sys.argv[1])
+      except Exception:
+          print('{"status":"error","response_text":"","model_name":"apple-foundationmodels","error_message":"TIMEOUT_SECONDS must be numeric","elapsed_ms":0}')
+          sys.exit(0)
+
+      if timeout <= 0:
+          print('{"status":"error","response_text":"","model_name":"apple-foundationmodels","error_message":"TIMEOUT_SECONDS must be greater than 0","elapsed_ms":0}')
+          sys.exit(0)
+      PY
+
+      start_ms=$(python3 - <<'PY'
+      import time
+      print(int(time.time() * 1000))
+      PY
+      )
+
+      runner_json=$(python3 - "$TIMEOUT_SECONDS" "$STATE_DIR/foundationmodels_raw.json" "$STATE_DIR/foundationmodels.stderr" "$STATE_DIR/apple_foundationmodels_runner" <<'PY'
+      import json
+      import os
+      import subprocess
+      import sys
+
+      timeout = int(float(sys.argv[1]))
+      raw_path = sys.argv[2]
+      err_path = sys.argv[3]
+      bin_path = sys.argv[4]
+
+      try:
+          upstream = json.loads(os.environ["UPSTREAM_WRITE_RUNNER_RESULT"])
+          script_path = upstream["script_path"]
+      except Exception as exc:
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Failed to read script_path from write_runner: {exc}"
+          }))
+          sys.exit(0)
+
+      if not script_path:
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": "Swift runner path is empty"
+          }))
+          sys.exit(0)
+
+      if not os.path.exists(script_path):
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": "Swift runner file is missing"
+          }))
+          sys.exit(0)
+
+      try:
+          compile_proc = subprocess.run(
+              ["xcrun", "swiftc", "-parse-as-library", script_path, "-o", bin_path],
+              capture_output=True,
+              text=True,
+              timeout=timeout
+          )
+          if compile_proc.returncode != 0:
+              print(json.dumps({
+                  "status": "error",
+                  "response_text": "",
+                  "model_name": "apple-foundationmodels",
+                  "error_message": (compile_proc.stderr or compile_proc.stdout or f"Swift compile failed with code {compile_proc.returncode}").strip()
+              }))
+              sys.exit(0)
+
+          with open(raw_path, "w", encoding="utf-8") as out, open(err_path, "w", encoding="utf-8") as err:
+              proc = subprocess.run(
+                  [bin_path],
+                  stdout=out,
+                  stderr=err,
+                  text=True,
+                  timeout=timeout,
+                  env=os.environ.copy()
+              )
+          if proc.returncode != 0:
+              with open(err_path, "r", encoding="utf-8") as f:
+                  stderr = f.read().strip()
+              print(json.dumps({
+                  "status": "error",
+                  "response_text": "",
+                  "model_name": "apple-foundationmodels",
+                  "error_message": stderr or f"Swift runner exited with code {proc.returncode}"
+              }))
+              sys.exit(0)
+      except subprocess.TimeoutExpired:
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Timed out after {timeout} seconds"
+          }))
+          sys.exit(0)
+      except FileNotFoundError as exc:
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Required tool not found: {exc}"
+          }))
+          sys.exit(0)
+      except Exception as exc:
+          print(json.dumps({
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Runner launch failed: {exc}"
+          }))
+          sys.exit(0)
+
+      try:
+          with open(raw_path, "r", encoding="utf-8") as f:
+              text = f.read().strip()
+          data = json.loads(text) if text else None
+      except Exception:
+          data = None
+
+      if not isinstance(data, dict):
+          with open(err_path, "r", encoding="utf-8") as f:
+              stderr = f.read().strip()
+          data = {
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": stderr or "Swift runner produced invalid JSON"
+          }
+
+      print(json.dumps(data))
+      PY
+      )
+
+      end_ms=$(python3 - <<'PY'
+      import time
+      print(int(time.time() * 1000))
+      PY
+      )
+
+      python3 - "$runner_json" "$start_ms" "$end_ms" <<'PY'
+      import json
+      import sys
+
+      try:
+          data = json.loads(sys.argv[1])
+      except Exception as exc:
+          data = {
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Failed to parse runner JSON: {exc}"
+          }
+
+      start_ms = int(sys.argv[2])
+      end_ms = int(sys.argv[3])
+      data["elapsed_ms"] = max(0, end_ms - start_ms)
+      print(json.dumps(data))
+      PY
+    dependsOn:
+      - write_runner
+  - id: finalize
+    type: shell
+    command: |
+      set -euo pipefail
+      python3 - <<'PY'
+      import json
+      import os
+
+      prompt = os.environ.get("PROMPT", "")
+      system_prompt = os.environ.get("SYSTEM_PROMPT", "")
+      max_preview_chars = int(float(os.environ.get("MAX_PREVIEW_CHARS", "160") or "160"))
+      preview = prompt[:max_preview_chars] + ("..." if len(prompt) > max_preview_chars else "")
+
+      try:
+          data = json.loads(os.environ["UPSTREAM_RUN_PROMPT_RESULT"])
+      except Exception as exc:
+          data = {
+              "status": "error",
+              "response_text": "",
+              "model_name": "apple-foundationmodels",
+              "error_message": f"Failed to parse runner output: {exc}",
+              "elapsed_ms": 0
+          }
+
+      error_message = data.get("error_message") or ""
+      response_text = data.get("response_text", "") or ""
+      summary_text = error_message if error_message else response_text[:240]
+
+      final = {
+          "status": data.get("status", "error"),
+          "response_text": response_text,
+          "model_name": data.get("model_name", "apple-foundationmodels"),
+          "error_message": error_message,
+          "elapsed_ms": int(data.get("elapsed_ms", 0) or 0),
+          "prompt_chars": len(prompt),
+          "system_prompt_used": bool(system_prompt.strip()),
+          "prompt_preview": preview,
+          "summary_text": summary_text
+      }
+
+      print(json.dumps(final))
+      PY
+    dependsOn:
+      - run_prompt
+signal:
+  title: Apple Prompt
+  template: text-headline
+  mapping:
+    headline: status
+    body: summary_text
+  size: 2x1
+  accent: blue
+outputWidget:
+  type: dashboard
+  fields:
+    - name: elapsed_ms
+      label: Latency ms
+      type: metric
+    - name: status
+      label: Status
+      type: badge
+    - name: model_name
+      label: Model
+      type: stat
+    - name: prompt_chars
+      label: Prompt chars
+      type: stat
+    - name: response_text
+      label: Response
+      type: text
+    - name: system_prompt_used
+      label: System prompt
+      type: stat
+    - name: prompt_preview
+      label: Prompt preview
+      type: code
+    - name: error_message
+      label: Error
+      type: text
+  controls:
+    - type: replay
+      label: Run again
+      inputs:
+        - PROMPT
+        - SYSTEM_PROMPT
+        - TIMEOUT_SECONDS
+    - type: field-toggle
+      label: Show
+      fields:
+        - prompt_preview
+        - error_message
+      default: hidden
+    - type: view-switch
+      label: View
+      views:
+        - id: summary
+          fields:
+            - elapsed_ms
+            - status
+            - model_name
+            - prompt_chars
+            - response_text
+        - id: debug
+          fields:
+            - elapsed_ms
+            - status
+            - model_name
+            - prompt_chars
+            - system_prompt_used
+            - prompt_preview
+            - error_message
+      default: summary

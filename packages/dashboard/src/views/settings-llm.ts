@@ -17,6 +17,7 @@ export interface SettingsLlmArgs {
 const PROVIDER_LABEL: Record<LlmProvider, string> = {
   claude: 'Claude (claude CLI)',
   codex: 'Codex (codex CLI)',
+  'apple-foundation-models': 'Apple Foundation Models (on-device)',
 };
 
 export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {

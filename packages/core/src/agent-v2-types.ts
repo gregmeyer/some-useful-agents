@@ -16,6 +16,7 @@
 import type { AgentInputSpec, AgentOutputSpec } from './types.js';
 import type { AgentCapabilities } from './agent-capabilities.js';
 import type { AgentSource } from './agent-loader.js';
+import type { LlmProvider } from './llm-providers.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 
@@ -238,7 +239,7 @@ export interface AgentNode {
    * Determines which CLI binary and argument format the spawner uses.
    * Shell nodes ignore this field.
    */
-  provider?: 'claude' | 'codex';
+  provider?: LlmProvider;
 
   // Common per-node
   timeout?: number;
@@ -348,7 +349,7 @@ export interface Agent {
   version: number;
 
   /** Default LLM provider for all claude-code nodes. Nodes can override. */
-  provider?: 'claude' | 'codex';
+  provider?: LlmProvider;
   /** Default model for all claude-code nodes. Nodes can override. */
   model?: string;
 
@@ -513,7 +514,7 @@ export interface AgentVersion {
  */
 export interface AgentVersionDag {
   id: string;
-  provider?: 'claude' | 'codex';
+  provider?: LlmProvider;
   model?: string;
   /**
    * Per-agent opt-out of the scheduler's frequency cap. When true, sub-minute
