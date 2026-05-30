@@ -1075,15 +1075,74 @@ async function runProposedAction(
   maybeRefireTriage(ctx, messageId);
 }
 
+/**
+ * Maximum number of consecutive auto-fired triage turns between
+ * operator interventions. Each completed sub-agent action triggers a
+ * triage refire (so triage can summarize what came back); if triage
+ * then proposes another auto-approved action that completes, that's
+ * another refire, etc. The cap prevents a runaway loop when triage
+ * keeps proposing actions on its own. Reset when the operator posts
+ * a user response.
+ *
+ * 5 is a comfortable headroom for analyzer → editor → catalog-search
+ * chains while still catching pathological loops within a few turns.
+ */
+const MAX_AUTO_TRIAGE_TURNS = 5;
+
+/**
+ * Count the number of `triage` responses since the most recent `user`
+ * response (or message creation if no user reply yet). Drives the
+ * auto-refire cap — the operator hitting Reply resets the counter so
+ * fresh user input always gets a fresh budget.
+ */
+function countConsecutiveTriageTurns(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): number {
+  if (!ctx.inboxStore) return 0;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  let count = 0;
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const r = responses[i];
+    if (r.role === 'user') break;
+    if (r.role === 'triage') count += 1;
+  }
+  return count;
+}
+
 /** Hoisted from the end of `runProposedAction` so route-handled and
- *  DAG-dispatched paths share the same re-fire trigger. */
+ *  DAG-dispatched paths share the same re-fire trigger.
+ *
+ *  Layer 3 of the triage follow-through plan: when a sub-agent action
+ *  completes and resolves all outstanding actions on the thread,
+ *  re-invoke triage so it can summarize the result and either propose
+ *  the next step, mark `awaiting_user`, or mark resolved. The
+ *  CONVERSATION snapshot already includes each action's status +
+ *  resultSummary, so triage sees what came back without any new
+ *  input plumbing.
+ *
+ *  The cap (MAX_AUTO_TRIAGE_TURNS) prevents runaway loops. When hit,
+ *  we post a system note + mark the thread awaiting_user so the
+ *  operator can decide whether to continue. */
 function maybeRefireTriage(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
 ): void {
-  if (allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId)) {
-    void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+  if (!ctx.inboxStore) return;
+  if (!(allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId))) return;
+  if (countConsecutiveTriageTurns(ctx, messageId) >= MAX_AUTO_TRIAGE_TURNS) {
+    const note = `Auto-follow-up paused after ${MAX_AUTO_TRIAGE_TURNS} consecutive triage turns. Reply or dismiss to continue.`;
+    const sysReply = ctx.inboxStore.addResponse(messageId, 'system', note);
+    publishInboxEvent(ctx, messageId, 'message:created', {
+      responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+    });
+    try {
+      ctx.inboxStore.updateStatus(messageId, 'awaiting_user');
+    } catch { /* ignore */ }
+    publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
+    return;
   }
+  void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
 }
 
 /**
