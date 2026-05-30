@@ -73,6 +73,27 @@ const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
 ];
 
 /**
+ * Agents whose proposed-action cards are auto-approved when triage
+ * emits them — they kick straight to `running` without waiting for an
+ * operator click. The set is the proven safe chain: analyzer (read-only
+ * diagnosis), editor (writes only the YAML diff already shown in the
+ * card), catalog-search (read-only catalog probe). Anything outside
+ * this set still requires manual Run.
+ *
+ * Operator can still skip an in-flight action via the standard
+ * action-card controls, and the chevron/dismiss flows are unaffected.
+ *
+ * v1 keeps this hardcoded. A future PR can move it to a per-thread or
+ * global override (`data/.sua/inbox-settings.json`) once a non-trivial
+ * subset of operators want different defaults.
+ */
+const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
+  'agent-analyzer',
+  'agent-editor',
+  'agent-catalog-search',
+]);
+
+/**
  * Agent ids that are themselves part of the inbox-triage scaffolding —
  * they exist to make triage work, not as candidates to recommend back
  * to the operator. `agent-catalog-search` filters these out of its
@@ -1459,6 +1480,34 @@ async function runTriageAgent(
           inputs: action.inputs,
           createdAt: actionResp.createdAt,
         });
+        // Auto-approve trusted system agents. The proposed -> running
+        // transition is atomic via transitionActionStatus, so a
+        // concurrent operator click on /run no-ops idempotently. The
+        // chip Layer 1 added stays pulsing through the run; on
+        // completion runProposedAction publishes the terminal
+        // action:status event and (when all actions resolve) fires
+        // the follow-up triage turn.
+        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId)) {
+          const startedAt = Date.now();
+          const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt };
+          const claimed = ctx.inboxStore.transitionActionStatus(
+            actionResp.id,
+            'proposed',
+            JSON.stringify(runningMeta),
+          );
+          if (claimed) {
+            publishInboxEvent(ctx, messageId, 'action:status', {
+              responseId: actionResp.id,
+              status: 'running',
+              agentId: action.agentId,
+              startedAt,
+            });
+            const claimedResponse = ctx.inboxStore.getResponse(actionResp.id) ?? actionResp;
+            void runProposedAction(ctx, messageId, claimedResponse, runningMeta).catch((err) => {
+              process.stderr.write(`[inbox-triage] auto-approved action ${actionResp.id} crashed: ${(err as Error)?.message ?? err}\n`);
+            });
+          }
+        }
       }
       const notes: string[] = [];
       for (const r of rejected) {
