@@ -552,6 +552,21 @@ export class InboxStore {
   }
 
   /**
+   * Rename a message. Used by the dashboard to replace the default
+   * "New conversation" placeholder with a title derived from the
+   * operator's first reply. Title is required (the column is NOT
+   * NULL); caller is responsible for truncating to the operator-
+   * friendly limit (~60 chars).
+   */
+  updateTitle(id: string, title: string): void {
+    if (!title) throw new Error('InboxStore.updateTitle: title is required');
+    const result = this.db.prepare(
+      'UPDATE inbox_messages SET title = ? WHERE id = ?',
+    ).run(title, id);
+    if (result.changes === 0) throw new Error(`InboxStore.updateTitle: no message with id "${id}"`);
+  }
+
+  /**
    * Append a conversation entry to a message. Roles:
    *   `user`   — operator reply via the dashboard or CLI
    *   `triage` — triage agent recommendation / follow-up

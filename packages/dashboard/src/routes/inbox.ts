@@ -66,6 +66,34 @@ const PENDING_USER_REPLY_WINDOW_MS = 30_000;
  * LAST_RUN_OUTPUT, mirroring the analyze route at
  * `run-now-build.ts:415`.
  */
+/**
+ * Default title for a freshly-created manual thread. POST /inbox/new
+ * uses this when the client doesn't supply a title; POST /respond
+ * watches for it so the first reply on the thread can replace the
+ * placeholder with something derived from the operator's actual words.
+ */
+const DEFAULT_NEW_CONVERSATION_TITLE = 'New conversation';
+
+/**
+ * Max characters in an auto-derived title. The inbox-list grid is
+ * tight enough that anything past this gets ellipsized anyway, so we
+ * truncate at the route layer with a trailing ellipsis instead of
+ * relying on CSS overflow alone.
+ */
+const TITLE_FROM_BODY_MAX = 60;
+
+/**
+ * Squash a freeform reply body into a single-line title. Replaces
+ * whitespace runs (incl. newlines) with single spaces, trims, and
+ * truncates with an ellipsis past TITLE_FROM_BODY_MAX. Returns the
+ * original (trimmed) body when it's already short enough.
+ */
+function deriveTitleFromBody(body: string): string {
+  const single = body.replace(/\s+/g, ' ').trim();
+  if (single.length <= TITLE_FROM_BODY_MAX) return single;
+  return single.slice(0, TITLE_FROM_BODY_MAX - 1).trimEnd() + '…';
+}
+
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
   'agent-editor',
@@ -320,7 +348,7 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
     return;
   }
   const titleRaw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
-  const title = titleRaw.length > 0 ? titleRaw.slice(0, 200) : 'New conversation';
+  const title = titleRaw.length > 0 ? titleRaw.slice(0, 200) : DEFAULT_NEW_CONVERSATION_TITLE;
   // body is required by the store; manual-source threads start blank,
   // so we seed with a small placeholder that's overwritten the moment
   // the operator's first /respond lands.
@@ -391,6 +419,20 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     if (isAjax(req)) { res.status(500).end(); return; }
     res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Reply failed: ${msg}`)}`);
     return;
+  }
+  // First reply on a manual-source thread still carrying the default
+  // "New conversation" title? Auto-rename from the body so /inbox stops
+  // showing a wall of identical row titles. Only triggers when there
+  // were zero prior responses (this reply is the first), so subsequent
+  // edits don't keep rewriting the title from each reply.
+  const messageNow = ctx.inboxStore.get(id);
+  if (messageNow
+    && messageNow.source === 'manual'
+    && messageNow.title === DEFAULT_NEW_CONVERSATION_TITLE
+    && ctx.inboxStore.listResponses(id).filter((r) => r.id !== userResponse.id).length === 0) {
+    try {
+      ctx.inboxStore.updateTitle(id, deriveTitleFromBody(bodyRaw));
+    } catch { /* ignore — title update is best-effort */ }
   }
   // Publish to the SSE bus so any modal subscribed to this thread
   // sees the persisted user reply within a network RTT. The fragment
