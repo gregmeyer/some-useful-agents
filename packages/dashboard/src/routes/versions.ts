@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { getContext } from '../context.js';
 import { renderVersionsList, renderVersionDetail } from '../views/versions.js';
-import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from '@some-useful-agents/core';
+import { validateScheduleInterval, CronInvalidError, CronTooFrequentError, LLM_PROVIDERS, type LlmProvider } from '@some-useful-agents/core';
 
 /**
  * Version history + rollback routes for v2 DAG agents.
@@ -281,7 +281,7 @@ versionsRouter.post('/agents/:id/schedule', (req: Request, res: Response) => {
   }
 });
 
-const VALID_PROVIDERS = new Set(['claude', 'codex']);
+const VALID_PROVIDERS: ReadonlySet<string> = new Set(LLM_PROVIDERS);
 
 /**
  * POST /agents/:id/llm — update agent-level provider and model defaults.
@@ -296,7 +296,7 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
   const model = typeof body.model === 'string' ? body.model.trim() : '';
 
   if (provider && !VALID_PROVIDERS.has(provider)) {
-    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Invalid provider. Must be claude or codex.')}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Invalid provider. Must be one of: ${LLM_PROVIDERS.join(', ')}.`)}`);
     return;
   }
 
@@ -307,7 +307,7 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
   }
 
   // Check for no-op.
-  const newProvider = (provider || undefined) as 'claude' | 'codex' | undefined;
+  const newProvider = (provider || undefined) as LlmProvider | undefined;
   const newModel = model || undefined;
   if (agent.provider === newProvider && agent.model === newModel) {
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('LLM defaults unchanged.')}`);

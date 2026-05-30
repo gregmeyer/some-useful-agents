@@ -80,10 +80,10 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
 
   'llm-prompt': {
     type: 'llm-prompt',
-    description: 'Run an LLM (Claude or Codex) with a prompt. Optional tool access via allowedTools. Alias: claude-code.',
+    description: 'Run an LLM (Claude, Codex, or Apple Foundation Models) with a prompt. Optional tool access via allowedTools. Alias: claude-code.',
     inputs: [
       { name: 'prompt', type: 'string', required: true, description: 'Prompt text. References inputs via {{inputs.X}}, upstreams via {{upstream.<id>.result}}.' },
-      { name: 'provider', type: "'claude' | 'codex'", description: 'Which CLI to spawn. Defaults to the agent-level provider, then to claude.' },
+      { name: 'provider', type: "'claude' | 'codex' | 'apple-foundation-models'", description: 'Which CLI to spawn. Defaults to the agent-level provider, then to claude.' },
       { name: 'model', type: 'string', description: 'Override the default model for this node only.' },
       { name: 'maxTurns', type: 'number', description: 'Cap on tool-use turns. Default 5.' },
       { name: 'allowedTools', type: 'string[]', description: 'Tools the LLM may call. Built-ins: file-read, file-write, Edit, Write, web-search, etc. MCP tools when configured.' },
@@ -113,10 +113,10 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
 
   'claude-code': {
     type: 'claude-code',
-    description: 'Run an LLM (Claude or Codex) with a prompt. Optional tool access via allowedTools.',
+    description: 'Run an LLM (Claude, Codex, or Apple Foundation Models) with a prompt. Optional tool access via allowedTools.',
     inputs: [
       { name: 'prompt', type: 'string', required: true, description: 'Prompt text. References inputs via {{inputs.X}}, upstreams via {{upstream.<id>.result}}.' },
-      { name: 'provider', type: "'claude' | 'codex'", description: 'Which CLI to spawn. Defaults to the agent-level provider, then to claude.' },
+      { name: 'provider', type: "'claude' | 'codex' | 'apple-foundation-models'", description: 'Which CLI to spawn. Defaults to the agent-level provider, then to claude.' },
       { name: 'model', type: 'string', description: 'Override the default model for this node only.' },
       { name: 'maxTurns', type: 'number', description: 'Cap on tool-use turns. Default 5.' },
       { name: 'allowedTools', type: 'string[]', description: 'Tools the LLM may call. Built-ins: file-read, file-write, Edit, Write, web-search, etc. MCP tools when configured.' },

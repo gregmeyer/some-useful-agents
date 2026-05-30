@@ -17,8 +17,21 @@
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
+import { PROVIDER_IDS } from './llm-providers.js';
 import { inputSpecSchema, outputSpecSchema } from './schema.js';
 import { outputWidgetSchema } from './output-widget-schema.js';
+
+/**
+ * Zod enum over every registered LLM provider id. Sourced from
+ * `PROVIDER_IDS` so new providers automatically validate through the
+ * agent + node `provider` fields without a schema edit. The double
+ * cast (`as [string, ...string[]]`) is required because
+ * `PROVIDER_IDS` is typed as `readonly LlmProvider[]` and z.enum needs
+ * a non-empty mutable-tuple type.
+ */
+const providerEnumSchema = z.enum(
+  PROVIDER_IDS as unknown as [typeof PROVIDER_IDS[number], ...typeof PROVIDER_IDS[number][]],
+);
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const NODE_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
@@ -98,7 +111,7 @@ export const agentNodeSchema = z.object({
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   allowedTools: z.array(z.string()).optional(),
-  provider: z.enum(['claude', 'codex']).optional(),
+  provider: providerEnumSchema.optional(),
 
   // file-write node fields (top-level for ergonomics; desugar to toolInputs at dispatch).
   path: z.string().optional(),
@@ -194,7 +207,7 @@ export const agentV2Schema = z.object({
     imgSrc: z.array(z.string().regex(/^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/, 'imgSrc hosts must be lowercase host names, optional leading "*." for wildcard subdomains')).optional(),
   }).optional(),
 
-  provider: z.enum(['claude', 'codex']).optional(),
+  provider: providerEnumSchema.optional(),
   model: z.string().optional(),
 
   inputs: z.record(

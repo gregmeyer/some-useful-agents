@@ -131,12 +131,13 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     <section class="settings-section">
       <h2 class="mt-0">LLM provider waterfall</h2>
       <p class="dim">
-        An ordered chain of CLI providers. The first entry is the
+        An ordered chain of LLM providers. The first entry is the
         <strong>primary</strong> — every <code>llm-prompt</code> node calls
-        into it by default. On recognized failures (credit / quota /
-        binary-missing / hard-timeout), the runtime walks the rest of the
-        chain in order until one succeeds. Rate limits, auth failures, and
-        other errors stay on the same provider.
+        into it by default. On recognized failures (binary missing,
+        timeout, quota / credit exhausted, auth required, or rate
+        limited) the runtime walks the rest of the chain in order
+        until one succeeds. Unclassified errors stay on the same
+        provider so real bugs surface instead of being masked.
       </p>
       <p class="dim">
         When an agent or node pins its own provider, that provider runs

@@ -256,6 +256,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         <select name="provider" id="llm-provider" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);">
           ${providerOption('claude', agent.provider)}
           ${providerOption('codex', agent.provider)}
+          ${providerOption('apple-foundation-models', agent.provider)}
         </select>
       </div>
       <div style="display: flex; gap: var(--space-2); align-items: center;">
