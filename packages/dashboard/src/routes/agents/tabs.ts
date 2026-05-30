@@ -54,7 +54,13 @@ agentTabsRouter.get('/agents/:name/config', async (req: Request, res: Response) 
   const blockedImgHosts = ctx.blockedImgHostsStore
     ? ctx.blockedImgHostsStore.listForAgent(args.agent.id, 12)
     : [];
-  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts }));
+  // All installed agents for the allowed-sub-agents picklist modal.
+  // Excludes the current agent (you can't allow yourself as a sub-
+  // agent). Pulled here so the view stays store-agnostic.
+  const installedAgents = ctx.agentStore.listAgents()
+    .filter((a) => a.id !== args.agent.id)
+    .map((a) => ({ id: a.id, name: a.name, description: a.description }));
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts, installedAgents }));
 });
 
 agentTabsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {

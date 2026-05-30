@@ -33,6 +33,13 @@ export interface AgentDetailArgs {
    * browser console. Empty when no blocks recorded or store unwired.
    */
   blockedImgHosts?: BlockedImgHost[];
+  /**
+   * All installed agents (id + name + description) for the
+   * allowed-sub-agents picklist modal. Excludes the current agent
+   * (you can't allow yourself as a sub-agent). Empty when the agent
+   * store isn't wired.
+   */
+  installedAgents?: Array<{ id: string; name: string; description?: string }>;
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

@@ -328,6 +328,104 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /agents/:id/allowed-sub-agents — set the agent's
+ * `allowedSubAgents` allowlist. Honored at sub-agent dispatch time
+ * (today only by inbox-triage; future agent-invoke / loop dispatchers
+ * can read the same field). Body shape:
+ *
+ *   - `agentIds` as a JSON array of strings, OR
+ *   - `agentIds` as a comma-separated string (form-friendly)
+ *
+ * Empty list = "no sub-agents allowed" (text-only). To revert to the
+ * platform default, POST with `clear=1` (the field is removed from
+ * the agent, not set to empty).
+ */
+const AGENT_ID_RE = /^[a-z][a-z0-9-]*$/;
+
+versionsRouter.post('/agents/:id/allowed-sub-agents', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const back = `/agents/${encodeURIComponent(id)}/config`;
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  if (body.clear === '1' || body.clear === 1 || body.clear === true) {
+    if (agent.allowedSubAgents === undefined) {
+      res.redirect(303, `${back}?flash=${encodeURIComponent('Already using platform default.')}`);
+      return;
+    }
+    try {
+      const { allowedSubAgents: _drop, ...rest } = agent;
+      void _drop;
+      ctx.agentStore.upsertAgent(rest, 'dashboard', 'Reverted allowedSubAgents to platform default');
+      res.redirect(303, `${back}?flash=${encodeURIComponent('Reverted to platform default.')}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.redirect(303, `${back}?flash=${encodeURIComponent(`Revert failed: ${msg}`)}`);
+    }
+    return;
+  }
+
+  // Accept either JSON array or comma-separated string.
+  let parsed: string[];
+  if (Array.isArray(body.agentIds)) {
+    parsed = body.agentIds.filter((v): v is string => typeof v === 'string');
+  } else if (typeof body.agentIds === 'string') {
+    parsed = body.agentIds.split(',').map((s) => s.trim()).filter(Boolean);
+  } else {
+    parsed = [];
+  }
+
+  // Validate id shape + dedupe.
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const aid of parsed) {
+    const trimmed = aid.trim();
+    if (!AGENT_ID_RE.test(trimmed)) {
+      res.redirect(303, `${back}?flash=${encodeURIComponent(`Invalid agent id "${trimmed}". Agent ids must be lowercase kebab-case.`)}`);
+      return;
+    }
+    if (trimmed === id) continue; // can't allow yourself
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    cleaned.push(trimmed);
+  }
+
+  // Warn (don't block) on entries that aren't installed — the operator
+  // may be staging an agent before importing it. The route layer
+  // re-filters at dispatch time so an uninstalled entry has no effect
+  // until the agent appears.
+  const missing = cleaned.filter((aid) => !ctx.agentStore.getAgent(aid));
+
+  // No-op short-circuit.
+  const before = agent.allowedSubAgents ?? null;
+  const after = cleaned;
+  const beforeKey = before ? before.join(',') : '__default__';
+  const afterKey = after.join(',');
+  if (beforeKey === afterKey) {
+    res.redirect(303, `${back}?flash=${encodeURIComponent('Allowed sub-agents unchanged.')}`);
+    return;
+  }
+
+  try {
+    const updated = { ...agent, allowedSubAgents: cleaned };
+    ctx.agentStore.upsertAgent(updated, 'dashboard', `Updated allowedSubAgents (${cleaned.length} entries)`);
+    const note = missing.length > 0
+      ? `Saved. ${missing.length} entry/entries not yet installed: ${missing.join(', ')}.`
+      : `Saved ${cleaned.length} allowed sub-agent${cleaned.length === 1 ? '' : 's'}.`;
+    res.redirect(303, `${back}?flash=${encodeURIComponent(note)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `${back}?flash=${encodeURIComponent(`Save failed: ${msg}`)}`);
+  }
+});
+
 // CSP host syntax — must match the regex in agent-v2-schema.ts
 // (`permissions.imgSrc` items). Lowercase host name with optional
 // leading "*." for wildcard subdomains. Schemes/ports are stripped on

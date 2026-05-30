@@ -353,6 +353,20 @@ export interface Agent {
   /** Default model for all claude-code nodes. Nodes can override. */
   model?: string;
 
+  /**
+   * Optional allowlist of sub-agent ids this agent may propose running
+   * on the operator's behalf. Honored by the inbox-triage route at
+   * sub-agent dispatch time: triage's `ALLOWED_SUB_AGENTS` input comes
+   * from this list when set, otherwise from the hardcoded fallback in
+   * `routes/inbox.ts`. Operator-managed via the picklist on
+   * `/agents/:id/config`. Entries that aren't installed at dispatch
+   * time are silently dropped (a warning surfaces in the config view).
+   *
+   * Empty array means "no sub-agents allowed" — text-only triage.
+   * Undefined means "use the platform default."
+   */
+  allowedSubAgents?: string[];
+
   /** Agent-level runtime inputs. Nodes reference these as `{{inputs.X}}`. */
   inputs?: Record<string, AgentInputSpec>;
 
@@ -535,6 +549,8 @@ export interface AgentVersionDag {
   tags?: string[];
   /** CSP allowlist contributions (e.g. img-src hosts) — see Agent.permissions. */
   permissions?: { imgSrc?: string[] };
+  /** See Agent.allowedSubAgents. */
+  allowedSubAgents?: string[];
 }
 
 /**

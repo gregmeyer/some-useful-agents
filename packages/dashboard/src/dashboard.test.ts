@@ -3776,3 +3776,110 @@ describe('/scheduled — scheduled-agents page (and pause/resume)', () => {
     expect(res.text).not.toMatch(/\/scheduled\/cron-archived\/(pause|resume|activate)/);
   });
 });
+
+describe('POST /agents/:id/allowed-sub-agents', () => {
+  it('saves a clean list and redirects with a flash', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'host', name: 'Host', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'helper-a', name: 'A', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo a' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'helper-b', name: 'B', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo b' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/host/allowed-sub-agents')
+      .type('form').send({ agentIds: 'helper-a,helper-b' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/\/agents\/host\/config\?flash=/);
+    const updated = agentStore.getAgent('host');
+    expect(updated?.allowedSubAgents).toEqual(['helper-a', 'helper-b']);
+  });
+
+  it('drops self-references and dedupes', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'self-test', name: 'X', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'tool-y', name: 'Y', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    await request(app).post('/agents/self-test/allowed-sub-agents')
+      .type('form').send({ agentIds: 'self-test,tool-y,tool-y' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(agentStore.getAgent('self-test')?.allowedSubAgents).toEqual(['tool-y']);
+  });
+
+  it('rejects ids that fail the kebab-case shape', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'shape-test', name: 'S', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/shape-test/allowed-sub-agents')
+      .type('form').send({ agentIds: 'Bad ID With Spaces' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/flash=Invalid%20agent%20id/);
+    expect(agentStore.getAgent('shape-test')?.allowedSubAgents).toBeUndefined();
+  });
+
+  it('saves an empty list (text-only sub-agents disabled)', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'empty-host', name: 'EH', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+      allowedSubAgents: ['something'],
+    }, 'cli');
+
+    await request(app).post('/agents/empty-host/allowed-sub-agents')
+      .type('form').send({ agentIds: '' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(agentStore.getAgent('empty-host')?.allowedSubAgents).toEqual([]);
+  });
+
+  it('clear=1 reverts to platform default (undefined)', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'revert-host', name: 'RH', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+      allowedSubAgents: ['helper'],
+    }, 'cli');
+
+    await request(app).post('/agents/revert-host/allowed-sub-agents')
+      .type('form').send({ clear: '1' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(agentStore.getAgent('revert-host')?.allowedSubAgents).toBeUndefined();
+  });
+
+  it('warns (does not block) on entries that are not installed', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'warn-host', name: 'W', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'main', type: 'shell', command: 'echo' }],
+    }, 'cli');
+
+    const res = await request(app).post('/agents/warn-host/allowed-sub-agents')
+      .type('form').send({ agentIds: 'ghost-tool' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/ghost-tool/);
+    expect(agentStore.getAgent('warn-host')?.allowedSubAgents).toEqual(['ghost-tool']);
+  });
+});
