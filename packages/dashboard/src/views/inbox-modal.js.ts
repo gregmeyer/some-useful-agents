@@ -894,6 +894,21 @@ export const INBOX_MODAL_JS = `
     else if (form) form.submit();
   });
   modal.addEventListener('keydown', function (e) {
+    // Cmd+Enter (Mac) or Ctrl+Enter submits the reply composer / inline
+    // reply / triage form the textarea lives in. Plain Enter still
+    // inserts a newline.
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      var ta = e.target.closest && e.target.closest('textarea[name="body"]');
+      if (ta) {
+        var replyForm = ta.closest('[data-inbox-modal-form]');
+        if (replyForm) {
+          e.preventDefault();
+          if (replyForm.requestSubmit) replyForm.requestSubmit();
+          else replyForm.submit();
+          return;
+        }
+      }
+    }
     var add = e.target.closest && e.target.closest('[data-inbox-tag-add]');
     if (!add) return;
     if (e.key !== 'Enter') return;

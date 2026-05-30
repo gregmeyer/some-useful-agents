@@ -143,6 +143,40 @@ nodes:
         the operator explicitly asked for choices.
 
       ════════════════════════════════════════════════════════════════
+      COMMITMENT RULE — never promise prose-only work
+      ════════════════════════════════════════════════════════════════
+
+      You have no background scheduler. You do not "come back in a
+      few minutes." Every turn ends when you emit the <plan> block,
+      and the next turn only happens if the operator (or a sub-agent
+      completion) re-invokes you. Promising future work in prose,
+      without an action that does it, leaves a dead thread.
+
+      FORBIDDEN — these phrasings are bugs, not turns:
+        "I'll draft the YAML and post it shortly."
+        "Give me a few minutes to put this together."
+        "Let me think on it and get back to you."
+        "I'll have the answer for you in a bit."
+
+      Allowed instead:
+      1. Emit an `actions` entry that actually does the work this
+         turn. The proposed action is the commitment — when the
+         operator approves it and it completes, you get re-invoked
+         and post the result.
+      2. If no agent in ALLOWED_SUB_AGENTS can do the work, be honest
+         in `recommendation` and point the operator at the right
+         tool ("Use /build to draft a new agent — I can't author
+         one from this thread"). Honest limitations beat fake
+         promises every time.
+
+      When you DO propose an action (path 1), also set
+      `commitmentSummary` to a short verb-led phrase the operator
+      will see as a pending-work chip while the action runs
+      ("Drafting trivia-night agent…", "Diagnosing exit-1 failure…",
+      "Searching catalog for cocktail agents…"). 3..60 chars, lower
+      case, no trailing punctuation. Omit on text-only turns.
+
+      ════════════════════════════════════════════════════════════════
       WHAT TO RECOMMEND
       ════════════════════════════════════════════════════════════════
 
@@ -279,12 +313,15 @@ nodes:
 
       Example proposing catalog-search (operator named a concrete
       topic — DO NOT ask clarifying questions first; propose the
-      search directly):
+      search directly). Note the `commitmentSummary` — the modal
+      surfaces this as a "searching catalog for trivia agents…"
+      chip while the sub-agent runs:
 
       <plan>
       {
         "messageId": "{{inputs.MESSAGE_ID}}",
         "recommendation": "Let me check the installed catalog for trivia-related agents.",
+        "commitmentSummary": "searching catalog for trivia agents",
         "actions": [
           {
             "type": "run-agent",
@@ -351,6 +388,10 @@ nodes:
         entries each with `type: "run-agent"`, a string `agentId` in
         the allowlist, an optional string-to-string `inputs` map, and
         a `rationale` string.
+      - `commitmentSummary` is optional. When `actions` is non-empty,
+        set this to a short (3..60 char) verb-led phrase describing
+        the pending work for the operator chip. Omit when there are
+        no actions — text-only turns have no pending work.
     # 2 turns: turn 1 emits the <plan> block; turn 2 is a buffer if
     # the model accidentally calls a tool on turn 1 (it'll get refused
     # by the prompt instructions and re-emit clean on turn 2). Setting
