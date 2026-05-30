@@ -29,7 +29,7 @@ function isLlmPromptNode(type: string | undefined): boolean {
  */
 export function computeProviderUsage(agents: Agent[]): ProviderUsageRow[] {
   const availability = detectLlms();
-  const counts: Record<LlmProvider, number> = { claude: 0, codex: 0 };
+  const counts: Record<LlmProvider, number> = { claude: 0, codex: 0, 'apple-foundation-models': 0 };
 
   for (const agent of agents) {
     const agentDefault = (agent.provider ?? 'claude') as LlmProvider;

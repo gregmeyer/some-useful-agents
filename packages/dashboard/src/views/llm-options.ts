@@ -1,4 +1,11 @@
+import type { LlmProvider } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
+
+const PROVIDER_OPTIONS: ReadonlyArray<{ id: LlmProvider; label: string }> = [
+  { id: 'claude', label: 'Claude' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'apple-foundation-models', label: 'Apple Foundation Models' },
+];
 
 /**
  * Per-node LLM options for `type: llm-prompt` nodes — provider, model,
@@ -17,7 +24,9 @@ export interface LlmOptionsValues {
 }
 
 export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
-  const provider = values.provider === 'codex' ? 'codex' : 'claude';
+  const selected: LlmProvider = PROVIDER_OPTIONS.some((o) => o.id === values.provider)
+    ? (values.provider as LlmProvider)
+    : 'claude';
   const model = typeof values.model === 'string' ? values.model : '';
   const maxTurns =
     typeof values.maxTurns === 'number' ? String(values.maxTurns)
@@ -32,10 +41,9 @@ export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
     <div class="form-field">
       <strong>Provider</strong>
       <select name="provider" class="form-field__input" style="width: auto;">
-        <option value="claude" ${provider !== 'codex' ? 'selected' : ''}>Claude</option>
-        <option value="codex" ${provider === 'codex' ? 'selected' : ''}>Codex</option>
+        ${PROVIDER_OPTIONS.map((opt) => html`<option value="${opt.id}" ${selected === opt.id ? 'selected' : ''}>${opt.label}</option>`) as unknown as SafeHtml[]}
       </select>
-      <span class="form-field__hint">Which LLM CLI runs the prompt. Inherits from the agent if unset.</span>
+      <span class="form-field__hint">Which LLM provider runs the prompt. Inherits from the agent if unset.</span>
     </div>
 
     <div class="form-field">
@@ -62,7 +70,7 @@ export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
 }
 
 export interface ParsedLlmOptions {
-  provider?: 'claude' | 'codex';
+  provider?: LlmProvider;
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
@@ -72,8 +80,8 @@ export interface ParsedLlmOptions {
 export function parseLlmOptions(body: Record<string, unknown>): ParsedLlmOptions {
   const result: ParsedLlmOptions = {};
 
-  if (typeof body.provider === 'string' && (body.provider === 'claude' || body.provider === 'codex')) {
-    result.provider = body.provider;
+  if (typeof body.provider === 'string' && PROVIDER_OPTIONS.some((o) => o.id === body.provider)) {
+    result.provider = body.provider as LlmProvider;
   }
 
   if (typeof body.model === 'string' && body.model.trim()) {
