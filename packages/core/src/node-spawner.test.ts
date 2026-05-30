@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, type SpawnResult } from './node-spawner.js';
+import { buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -29,7 +29,7 @@ describe('classifyLlmFailure', () => {
       .toBe('quota_exceeded');
   });
 
-  it('detects rate limited (transient — should NOT fall back)', () => {
+  it('detects rate limited', () => {
     expect(classifyLlmFailure(r({ error: 'rate limit hit; retry after 30s' })))
       .toBe('rate_limited');
     expect(classifyLlmFailure(r({ result: 'HTTP 429 too many requests' })))
@@ -63,6 +63,34 @@ describe('classifyLlmFailure', () => {
   it('checks both error AND result fields (CLI errors land in either)', () => {
     expect(classifyLlmFailure(r({ result: 'Your credit balance is too low to continue.' })))
       .toBe('credit_exhausted');
+  });
+});
+
+describe('shouldFallback (waterfall trigger)', () => {
+  it('falls back on missing-binary / timeout / quota / credit', () => {
+    expect(shouldFallback('binary_missing')).toBe(true);
+    expect(shouldFallback('timeout')).toBe(true);
+    expect(shouldFallback('quota_exceeded')).toBe(true);
+    expect(shouldFallback('credit_exhausted')).toBe(true);
+  });
+
+  it('falls back on auth_required (operator may be authed on a different provider)', () => {
+    // Pre-fix: returned false; operator pinned to claude with an
+    // expired session got a hard failure even when codex was wired up
+    // as a fallback. The whole point of the chain is "another provider
+    // could plausibly succeed."
+    expect(shouldFallback('auth_required')).toBe(true);
+  });
+
+  it('falls back on rate_limited (the other provider has its own quota)', () => {
+    // Pre-fix: rate limits stayed on the same provider. With a multi-
+    // provider chain configured in /settings/llm the explicit intent
+    // is "if this one is throttled, try the next."
+    expect(shouldFallback('rate_limited')).toBe(true);
+  });
+
+  it('does NOT fall back on other — silent switching would mask real bugs', () => {
+    expect(shouldFallback('other')).toBe(false);
   });
 });
 
