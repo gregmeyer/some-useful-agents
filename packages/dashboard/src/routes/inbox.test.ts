@@ -258,6 +258,49 @@ describe('POST /inbox/:id/respond', () => {
     expect(big.status).toBe(400);
     expect(inboxStore.listResponses(m.id)).toEqual([]);
   });
+
+  it('first reply on a default-titled manual thread renames the title from the body', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'New conversation', body: '(empty)' });
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'Help me build a trivia agent that asks questions and tracks scores' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const after = inboxStore.get(m.id)!;
+    expect(after.title).toBe('Help me build a trivia agent that asks questions and tracks…');
+    expect(after.title.length).toBeLessThanOrEqual(60);
+  });
+
+  it('first reply preserves an operator-set title', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'Trivia agent design', body: '(empty)' });
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'whatever' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.title).toBe('Trivia agent design');
+  });
+
+  it('second reply does not overwrite a previously-derived title', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'New conversation', body: '(empty)' });
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'first reply' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const afterFirst = inboxStore.get(m.id)!.title;
+    expect(afterFirst).toBe('first reply');
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'second reply with very different words' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.title).toBe('first reply');
+  });
+
+  it('does not rename non-manual sources even when they happen to use the default title', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'New conversation', body: 'b' });
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'investigating' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.title).toBe('New conversation');
+  });
 });
 
 describe('GET /inbox with filters', () => {

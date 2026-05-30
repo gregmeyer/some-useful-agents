@@ -165,11 +165,17 @@ export const ADD_TILE_MODAL_JS = `
       var hiddenAgent = document.getElementById('add-tile-agent-id');
       // Only agent cards (with data-agent-id) submit the form; the
       // "Create new" tiles have their own handlers above and are skipped.
+      // Use requestSubmit() so the submit event fires — widget-layout.js
+      // listens for it and clears its edit-mode beforeunload guard. Bare
+      // form.submit() bypasses that listener and triggers Chrome's
+      // generic "Leave site?" dialog on top of the legit navigation.
       var cards = modal.querySelectorAll('.add-tile-card[data-agent-id]');
       for (var c = 0; c < cards.length; c++) {
         cards[c].addEventListener('click', function () {
           hiddenAgent.value = this.getAttribute('data-agent-id') || '';
-          if (hiddenAgent.value) form.submit();
+          if (!hiddenAgent.value) return;
+          if (form.requestSubmit) form.requestSubmit();
+          else form.submit();
         });
       }
 
