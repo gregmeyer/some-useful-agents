@@ -1,13 +1,24 @@
 import { html, type SafeHtml } from '../html.js';
 import { statusBadge, formatDuration, formatAge, cronToHuman } from '../components.js';
 import { renderDagView, renderDagFallback } from '../dag-view.js';
+import { renderInteractiveWidget } from '../interactive-widget.js';
 import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
   const { agent, recentRuns, widgetControls } = args;
   const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
+  const latestRun = recentRuns[0];
+  const latestRunInputsJson = (latestRun as { inputsJson?: string } | undefined)?.inputsJson;
   const hasCommunityShellNode = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
+  const previousInputs = (() => {
+    if (!latestRunInputsJson) return undefined;
+    try {
+      return JSON.parse(latestRunInputsJson) as Record<string, string>;
+    } catch {
+      return undefined;
+    }
+  })();
 
   // Quick stats row. Tools-used comes from `agent.capabilities` — the
   // canonical static analysis (parse-time, includes explicit `tool:`,
@@ -59,7 +70,16 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
             <h3 style="margin: 0;">Output widget</h3>
             <span class="badge badge--muted" style="font-size: 9px;">${agent.outputWidget.type}</span>
           </div>
-          ${latestCompletedRun?.result
+          ${agent.outputWidget.interactive
+            ? renderInteractiveWidget({
+                agent,
+                widget: agent.outputWidget,
+                lastRun: latestRun && latestRun.status === 'completed' && typeof latestRun.result === 'string'
+                  ? latestRun
+                  : undefined,
+                previousInputs,
+              })
+            : latestCompletedRun?.result
             ? html`
               ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id, widgetControls, agent.inputs) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
               <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0;">From run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
