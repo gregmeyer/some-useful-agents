@@ -520,6 +520,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
     activeRuns: new Map(),
     inboxTriageAbortControllers: new Map(),
+    inboxTriagePendingRefires: new Set(),
     dataDir: dirname(opts.dbPath),
     dashboardBaseUrl: (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, ''),
   };

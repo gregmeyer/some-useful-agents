@@ -172,6 +172,14 @@ export interface DashboardContext {
    */
   inboxTriageAbortControllers: Map<string, { runId: string; controller: AbortController }>;
   /**
+   * Message ids whose latest `runTriageAgent` call was deferred
+   * because an earlier triage run was still in flight. After the
+   * earlier run finishes, the `finally` block fires a fresh triage
+   * turn so the operator's later reply doesn't sit silently. Membership
+   * is idempotent — multiple deferred calls collapse to one re-fire.
+   */
+  inboxTriagePendingRefires: Set<string>;
+  /**
    * Data directory path. Used by the health endpoint to read the scheduler
    * heartbeat file and report scheduler status.
    */
