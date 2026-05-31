@@ -13,10 +13,12 @@ import {
   parseAgent,
   buildDiscoveryCatalog,
   buildPlanSchema,
+  LLM_PROVIDERS,
   PlannerLoopRunner,
   defaultCheckImageUrl,
   findSimilarCommittedPlans,
   formatPriorPlansBlock,
+  type LlmProvider,
   type PriorPlanCandidate,
   type BuildPlan,
   type PlanCriticError,
@@ -784,13 +786,17 @@ buildRouter.post('/agents/build', async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
   const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
+  const providerRaw = typeof body.provider === 'string' ? body.provider.trim() : '';
+  const provider = providerRaw && (LLM_PROVIDERS as readonly string[]).includes(providerRaw)
+    ? (providerRaw as LlmProvider)
+    : undefined;
 
   if (!goal) {
     res.json({ ok: false, error: 'Goal is required.' });
     return;
   }
 
-  const sessionId = await startBuildSession({ ctx, goal, focus });
+  const sessionId = await startBuildSession({ ctx, goal, focus, provider });
   if (!sessionId) {
     res.json({
       ok: false,
@@ -827,13 +833,17 @@ buildRouter.post('/agents/draft-one', async (req: Request, res: Response) => {
     ? body.suggestedName.trim()
     : undefined;
   const focus = typeof body.focus === 'string' ? body.focus.trim() : '';
+  const providerRaw = typeof body.provider === 'string' ? body.provider.trim() : '';
+  const provider = providerRaw && (LLM_PROVIDERS as readonly string[]).includes(providerRaw)
+    ? (providerRaw as LlmProvider)
+    : undefined;
 
   if (!purpose) {
     res.json({ ok: false, error: 'purpose is required.' });
     return;
   }
 
-  const sessionId = await startDraftOneSession({ ctx, purpose, suggestedName, focus });
+  const sessionId = await startDraftOneSession({ ctx, purpose, suggestedName, focus, provider });
   if (!sessionId) {
     res.json({
       ok: false,

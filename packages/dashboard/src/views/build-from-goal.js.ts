@@ -50,19 +50,23 @@ export const BUILD_FROM_GOAL_JS = `
     // (the original goal field is gone from the DOM by then).
     var lastGoal = '';
     var lastFocus = '';
+    var lastProvider = '';
 
     submitBtn.addEventListener('click', function () {
       var goalEl = document.getElementById('build-goal');
       var focusEl = document.getElementById('build-focus');
+      var providerEl = document.getElementById('build-provider');
       var goal = goalEl ? goalEl.value.trim() : '';
       if (!goal) { goalEl && goalEl.focus(); return; }
       var focus = focusEl ? focusEl.value.trim() : '';
-      runPlanner(goal, focus);
+      var provider = providerEl ? String(providerEl.value || '').trim() : '';
+      runPlanner(goal, focus, provider);
     });
 
-    function runPlanner(goal, focus) {
+    function runPlanner(goal, focus, provider) {
       lastGoal = goal;
       lastFocus = focus;
+      lastProvider = provider || '';
       var t0 = Date.now();
       var cancelled = false;
       var pollTimer = null;
@@ -103,7 +107,9 @@ export const BUILD_FROM_GOAL_JS = `
       fetch('/agents/build', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'goal=' + encodeURIComponent(goal) + (focus ? '&focus=' + encodeURIComponent(focus) : ''),
+        body: 'goal=' + encodeURIComponent(goal)
+          + (focus ? '&focus=' + encodeURIComponent(focus) : '')
+          + (provider ? '&provider=' + encodeURIComponent(provider) : ''),
       })
       .then(function (r) { return r.json(); })
       .then(function (startData) {
@@ -337,7 +343,7 @@ export const BUILD_FROM_GOAL_JS = `
             var ansEl = document.getElementById('build-answers');
             var ans = ansEl ? ansEl.value.trim() : '';
             if (!ans) { ansEl && ansEl.focus(); return; }
-            runPlanner(lastGoal + '\\n\\nClarifications: ' + ans, lastFocus);
+            runPlanner(lastGoal + '\\n\\nClarifications: ' + ans, lastFocus, lastProvider);
           });
         }
       }
