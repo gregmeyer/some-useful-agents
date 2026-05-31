@@ -32,6 +32,8 @@ import {
   extractPlanJson,
   listBuiltinTools,
   parseAgent,
+  LLM_PROVIDERS,
+  type LlmProvider,
   type RunStatus,
   type InboxActionMeta,
   type InboxActionStatus,
@@ -41,6 +43,7 @@ import {
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { formatToolCatalog } from './run-now-build.js';
+import { applyProviderPin } from './build-orchestrator.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
@@ -884,6 +887,11 @@ function enrichAgentBuilderInputs(
   inputs: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = { ...inputs };
+  // PROVIDER is a routing hint, not an agent input — it gets converted
+  // to a per-node pin in extractAgentBuilderProviderPin. Drop it here
+  // so executeAgentDag's input-resolution doesn't reject it as an
+  // undeclared key.
+  delete out.PROVIDER;
   try {
     const builtins = listBuiltinTools();
     let userTools: ToolDefinition[] = [];
@@ -905,6 +913,20 @@ function enrichAgentBuilderInputs(
     }
   } catch { /* swallow — agent-builder validates inputs and will fail loudly */ }
   return out;
+}
+
+/**
+ * Pull a provider pin off an agent-builder action's inputs. Triage may
+ * include `PROVIDER` when the operator names one explicitly ("build
+ * it on apple", "use codex"); we strip it from the agent inputs in
+ * `enrichAgentBuilderInputs` and apply it as a per-node pin on the
+ * cloned agent before dispatch. Invalid / unknown values are ignored
+ * so the system default chain still kicks in.
+ */
+function extractAgentBuilderProviderPin(inputs: Record<string, string>): LlmProvider | undefined {
+  const raw = typeof inputs.PROVIDER === 'string' ? inputs.PROVIDER.trim() : '';
+  if (!raw) return undefined;
+  return (LLM_PROVIDERS as readonly string[]).includes(raw) ? (raw as LlmProvider) : undefined;
 }
 
 /**
@@ -1111,6 +1133,17 @@ async function runProposedAction(
     effectiveInputs = enrichAgentBuilderInputs(ctx, meta.inputs);
   }
 
+  // Provider pin from triage's action inputs. agent-builder is the
+  // only consumer today — operator says "build it on apple" and triage
+  // emits PROVIDER=apple-foundation-models. The pin runs first in the
+  // waterfall; the global fallback chain still applies on classified
+  // failures. Strip is already handled inside enrichAgentBuilderInputs.
+  let dispatchAgent = subAgent;
+  if (meta.agentId === 'agent-builder') {
+    const providerPin = extractAgentBuilderProviderPin(meta.inputs);
+    if (providerPin) dispatchAgent = applyProviderPin(subAgent, providerPin);
+  }
+
   let runId: string | undefined;
   let nextStatus: InboxActionStatus = 'failed';
   let resultSummary: string | undefined;
@@ -1118,7 +1151,7 @@ async function runProposedAction(
   let fullResult = '';
   try {
     const run = await executeAgentDag(
-      subAgent,
+      dispatchAgent,
       {
         triggeredBy: 'dashboard',
         inputs: effectiveInputs,

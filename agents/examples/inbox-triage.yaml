@@ -292,6 +292,18 @@ nodes:
         commitmentSummary should be the verb-led "drafting <NAME>
         agent" form (e.g. "drafting trivia-night agent").
 
+        OPTIONAL `PROVIDER` input: when the operator EXPLICITLY names
+        an LLM provider for the build ("build it on apple", "use
+        codex", "with claude", "on apple foundation models"), include
+        `PROVIDER` in the action inputs with one of these exact
+        values: `claude`, `codex`, `apple-foundation-models`. Map
+        loose phrasings: "apple" / "on-device" / "foundation models"
+        → `apple-foundation-models`; "claude" → `claude`; "codex" /
+        "openai" → `codex`. When the operator did NOT mention a
+        provider, OMIT `PROVIDER` entirely — the dashboard's system
+        default chain (from /settings/llm) takes over. Never invent
+        a provider hint the operator didn't ask for.
+
         ORDER OF OPERATIONS when the operator asks for an agent on a
         topic: PROPOSE `agent-catalog-search` FIRST to check for an
         existing one. If catalog-search returns no installed match,
@@ -371,6 +383,29 @@ nodes:
             "agentId": "agent-builder",
             "inputs": { "GOAL": "Build a trivia-night agent that asks questions, accepts answers, and tracks scores using the Open Trivia DB API." },
             "rationale": "Draft a complete agent YAML from the operator's goal."
+          }
+        ]
+      }
+      </plan>
+
+      Example proposing agent-builder with an explicit provider hint
+      (operator said "build it on apple" — only include PROVIDER when
+      the operator actually named a provider):
+
+      <plan>
+      {
+        "messageId": "{{inputs.MESSAGE_ID}}",
+        "recommendation": "I'll draft the trivia-night agent on Apple Foundation Models.",
+        "commitmentSummary": "drafting trivia-night agent on apple",
+        "actions": [
+          {
+            "type": "run-agent",
+            "agentId": "agent-builder",
+            "inputs": {
+              "GOAL": "Build a trivia-night agent that asks questions, accepts answers, and tracks scores using the Open Trivia DB API.",
+              "PROVIDER": "apple-foundation-models"
+            },
+            "rationale": "Draft the agent pinned to the on-device Apple model."
           }
         ]
       }
