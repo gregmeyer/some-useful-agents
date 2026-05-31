@@ -452,10 +452,26 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     body: bodyRaw,
     createdAt: userResponse.createdAt,
   });
-  // Auto-fire triage. Fire-and-forget; the modal polls /fragment for
-  // the response. The conversation thread itself signals "in progress"
-  // via the user-reply-within-30s heuristic in isTriagePending.
-  void runTriageAgent(ctx, id).catch(() => { /* logged in helper */ });
+  // Auto-fire triage UNLESS a proposed-or-running action is pending
+  // on this thread. The prior action either is awaiting an operator
+  // click (proposed) or is mid-execution (running); auto-firing
+  // triage now would race against the action's lifecycle and could
+  // pile up redundant proposals. The follow-up triage turn that
+  // `maybeRefireTriage` schedules at action-completion picks up the
+  // operator's reply (it lives in the same CONVERSATION snapshot)
+  // so nothing is lost. Operator can still hit "Ask triage"
+  // explicitly when they want a fresh turn now.
+  const responsesNow = ctx.inboxStore.listResponses(id);
+  const actionPending = responsesNow.some((r) => {
+    const m = parseActionMeta(r);
+    return m && (m.status === 'proposed' || m.status === 'running');
+  });
+  if (!actionPending) {
+    // Fire-and-forget; the modal polls /fragment for the response.
+    // The conversation thread itself signals "in progress" via the
+    // user-reply-within-30s heuristic in isTriagePending.
+    void runTriageAgent(ctx, id).catch(() => { /* logged in helper */ });
+  }
 
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Reply added.')}`);
@@ -1539,6 +1555,20 @@ async function runTriageAgent(
   const message = ctx.inboxStore.get(messageId);
   if (!message) return;
 
+  // Concurrent-triage guard. PR #425 added an in-flight controller
+  // registry; if one already exists, an earlier triage run is mid-
+  // flight and a second concurrent run would race against the
+  // first's response + the message-status updates. The deferred
+  // call lands in `inboxTriagePendingRefires`; the in-flight run's
+  // `finally` block schedules a fresh triage turn after it clears
+  // its own controller, so any reply the operator posted while
+  // triage was thinking still gets a response. Operator can hit the
+  // stop button to abandon the prior run if they want fresh.
+  if (ctx.inboxTriageAbortControllers.has(messageId)) {
+    ctx.inboxTriagePendingRefires.add(messageId);
+    return;
+  }
+
   // Auto-install + auto-refresh inbox-triage from the bundled YAML.
   // Pre-PR #399 this only handled the install case — operators who
   // installed inbox-triage before PR #395's VOICE-section update kept
@@ -1796,6 +1826,18 @@ async function runTriageAgent(
     const existing = ctx.inboxTriageAbortControllers.get(messageId);
     if (existing && existing.runId === runId) {
       ctx.inboxTriageAbortControllers.delete(messageId);
+    }
+    // Drain a pending re-fire (queued while this run was holding the
+    // guard). Use setImmediate so the new run starts AFTER the
+    // current frame's state mutations settle and any SSE listeners
+    // see this run's `state:done` before the next one's
+    // `triage:started`. The cancel-aborted path skips the drain —
+    // operator-cancelled means "stop responding," not "queue up the
+    // next turn."
+    if (!abortController.signal.aborted && ctx.inboxTriagePendingRefires.delete(messageId)) {
+      setImmediate(() => {
+        runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+      });
     }
   }
 }

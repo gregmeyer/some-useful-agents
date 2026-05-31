@@ -70,6 +70,7 @@ async function makeApp() {
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
     inboxTriageAbortControllers: new Map(),
+    inboxTriagePendingRefires: new Set(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
@@ -1068,7 +1069,116 @@ describe('POST /inbox/:id/triage/cancel', () => {
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(404);
   });
+});
 
+describe('Concurrent-triage guard (POST /respond)', () => {
+  it('does NOT auto-fire triage when a proposed action is pending', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
+      kind: 'action',
+      status: 'proposed',
+      agentId: 'agent-analyzer',
+      inputs: { FOCUS: 'why' },
+      rationale: 'rationale',
+    }));
+
+    const app2 = app as unknown as { locals: { inboxTriageAbortControllers: Map<string, unknown> } };
+    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+
+    await request(app)
+      .post(`/inbox/${m.id}/respond`)
+      .type('form').send({ body: 'follow-up reply' })
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    // Give the fire-and-forget a tick to land if it were going to.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+
+    // The user reply still landed on the thread.
+    const userReplies = inboxStore.listResponses(m.id).filter((r) => r.role === 'user');
+    expect(userReplies.map((r) => r.body)).toEqual(['follow-up reply']);
+  });
+
+  it('does NOT auto-fire triage when a running action is pending', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
+      kind: 'action',
+      status: 'running',
+      agentId: 'agent-analyzer',
+      inputs: { FOCUS: 'why' },
+      rationale: 'rationale',
+      startedAt: Date.now(),
+    }));
+
+    const app2 = app as unknown as { locals: { inboxTriageAbortControllers: Map<string, unknown> } };
+    await request(app)
+      .post(`/inbox/${m.id}/respond`)
+      .type('form').send({ body: 'follow-up reply' })
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+  });
+
+  it('still records the user reply when triage is skipped', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
+      kind: 'action',
+      status: 'proposed',
+      agentId: 'agent-analyzer',
+      inputs: {},
+      rationale: 'r',
+    }));
+
+    const res = await request(app)
+      .post(`/inbox/${m.id}/respond`)
+      .type('form').send({ body: 'guarded reply' })
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+    const userReplies = inboxStore.listResponses(m.id).filter((r) => r.role === 'user');
+    expect(userReplies.map((r) => r.body)).toEqual(['guarded reply']);
+  });
+
+  it('runTriageAgent re-entry queues a pending refire (idempotent)', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+
+    // Seed an in-flight triage controller manually — simulates the
+    // first reply still being processed when a second reply comes in.
+    const app2 = app as unknown as { locals: {
+      inboxTriageAbortControllers: Map<string, { runId: string; controller: AbortController }>;
+      inboxTriagePendingRefires: Set<string>;
+    } };
+    const controller = new AbortController();
+    app2.locals.inboxTriageAbortControllers.set(m.id, { runId: 'inflight', controller });
+
+    // Trigger the explicit /triage path (which also goes through
+    // runTriageAgent). With the in-flight controller present, the
+    // guard should add this message to the pending refire set
+    // instead of starting a second triage run.
+    await request(app)
+      .post(`/inbox/${m.id}/triage`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(app2.locals.inboxTriagePendingRefires.has(m.id)).toBe(true);
+
+    // Hitting it again is idempotent — set membership doesn't grow.
+    await request(app)
+      .post(`/inbox/${m.id}/triage`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(app2.locals.inboxTriagePendingRefires.size).toBe(1);
+  });
+});
+
+describe('Stale inbox-triage refresh', () => {
   it('auto-refreshes a stale inbox-triage agent from the bundled YAML', async () => {
     // Regression for the stage-direction recurrence: PR #398 added
     // auto-refresh for the SUB-agent allowlist (analyzer/editor/
