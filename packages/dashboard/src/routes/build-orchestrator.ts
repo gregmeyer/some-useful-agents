@@ -24,6 +24,7 @@ import {
   executeAgentDag,
   extractPlanJson,
   extractSurveyJson,
+  isLlmPromptType,
   parseAgent,
   surveySchema,
   draftSchema,
@@ -38,6 +39,7 @@ import {
   type Agent,
   type BuildPlan,
   type Draft,
+  type LlmProvider,
   type Survey,
   type DashboardDesign,
 } from '@some-useful-agents/core';
@@ -65,6 +67,14 @@ interface BuildSession {
   id: string;
   goal: string;
   focus: string;
+  /**
+   * Optional provider pin applied to every llm-prompt node in the
+   * surveyor / drafter / designer chain. Defaults to undefined =
+   * "use the system default chain from /settings/llm." When set, the
+   * pin starts the waterfall but the global fallback chain still
+   * applies on classified failures.
+   */
+  providerPin?: LlmProvider;
   createdAt: number;
 
   phase: SessionPhase;
@@ -124,8 +134,18 @@ async function kickoffAgentRun(args: {
   ctx: Ctx;
   agent: Agent;
   inputs: Record<string, string>;
+  /**
+   * Optional provider pin applied to every llm-prompt node in the
+   * agent before dispatch. When set, the pin runs first in the
+   * waterfall and the global fallback chain still applies on
+   * classified failures (auth, rate-limit, binary-missing, etc. —
+   * see node-spawner.ts:shouldFallback). When unset, each node
+   * inherits its declared provider (or the agent's default, or the
+   * global primary).
+   */
+  providerPin?: LlmProvider;
 }): Promise<string | null> {
-  const { ctx, agent, inputs } = args;
+  const { ctx, agent, inputs, providerPin } = args;
   // Pre-generate the run-id. Eliminates the race in the old code path
   // (which queried runStore for "most-recent run by agentName" — when
   // N parallel kickoffs target the same agent, the query returns the
@@ -133,11 +153,12 @@ async function kickoffAgentRun(args: {
   // polling the same drafter run). Passing runId in via DagExecuteOptions
   // means we know the id without ever needing the query.
   const runId = randomUUID();
+  const effectiveAgent = providerPin ? applyProviderPin(agent, providerPin) : agent;
   // Fire-and-forget: don't await the run completion here; callers poll
   // runStore later. Swallow errors so a startup failure doesn't reject
   // the kickoff promise — the polling path surfaces the failed run.
   executeAgentDag(
-    agent,
+    effectiveAgent,
     {
       triggeredBy: 'dashboard',
       inputs,
@@ -152,6 +173,22 @@ async function kickoffAgentRun(args: {
     },
   ).catch(() => { /* failure surfaces via runStore.getRun(runId).status */ });
   return runId;
+}
+
+/**
+ * Clone an agent with `provider` stamped on every llm-prompt (and
+ * legacy claude-code) node so the operator's build-time pick becomes
+ * the head of the waterfall. The global fallback chain in
+ * /settings/llm still applies on classified failures — the pin is
+ * "try this first," not "use only this."
+ *
+ * Non-LLM nodes (shell, file-write, control flow) are unchanged.
+ */
+function applyProviderPin(agent: Agent, providerPin: LlmProvider): Agent {
+  return {
+    ...agent,
+    nodes: agent.nodes.map((node) => (isLlmPromptType(node.type) ? { ...node, provider: providerPin } : node)),
+  };
 }
 
 // ── Catalog helpers ────────────────────────────────────────────────────
@@ -228,8 +265,9 @@ export async function startBuildSession(args: {
   ctx: Ctx;
   goal: string;
   focus: string;
+  provider?: LlmProvider;
 }): Promise<string | null> {
-  const { ctx, goal, focus } = args;
+  const { ctx, goal, focus, provider } = args;
   gcSessions();
 
   const surveyor = loadExampleAgent(ctx, SURVEYOR_AGENT_ID);
@@ -244,6 +282,7 @@ export async function startBuildSession(args: {
       FOCUS: focus,
       DISCOVERY_CATALOG: discovery,
     },
+    providerPin: provider,
   });
   if (!runId) return null;
 
@@ -252,6 +291,7 @@ export async function startBuildSession(args: {
     id: sessionId,
     goal,
     focus,
+    providerPin: provider,
     createdAt: Date.now(),
     phase: 'survey',
     phaseMessage: 'Surveying your goal...',
@@ -274,8 +314,9 @@ export async function startDraftOneSession(args: {
   purpose: string;
   suggestedName?: string;
   focus: string;
+  provider?: LlmProvider;
 }): Promise<string | null> {
-  const { ctx, purpose, suggestedName, focus } = args;
+  const { ctx, purpose, suggestedName, focus, provider } = args;
   gcSessions();
 
   const drafter = loadExampleAgent(ctx, DRAFTER_AGENT_ID);
@@ -295,6 +336,7 @@ export async function startDraftOneSession(args: {
       AVAILABLE_TOOLS: tools,
       DISCOVERY_CATALOG: discovery,
     },
+    providerPin: provider,
   });
   if (!runId) return null;
 
@@ -307,6 +349,7 @@ export async function startDraftOneSession(args: {
     id: sessionId,
     goal: purpose,
     focus,
+    providerPin: provider,
     createdAt: Date.now(),
     phase: 'drafting',
     phaseMessage: 'Drafting agent...',
@@ -433,6 +476,7 @@ async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
         AVAILABLE_TOOLS: tools,
         DISCOVERY_CATALOG: discovery,
       },
+      providerPin: session.providerPin,
     });
     return [`fragment-${i}`, runId] as const;
   });
@@ -606,6 +650,7 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
           AVAILABLE_TOOLS: tools,
           DISCOVERY_CATALOG: discovery,
         },
+        providerPin: session.providerPin,
       });
       return [key, newRunId] as const;
     });
@@ -675,6 +720,7 @@ async function startDesignerStage(ctx: Ctx, session: BuildSession): Promise<void
       AGENT_IDS: allAgentIds.join(', '),
       AGENT_DESCRIPTIONS: JSON.stringify(descriptions),
     },
+    providerPin: session.providerPin,
   });
   if (!runId) {
     fail(session, 'Failed to kick off dashboard-designer.');

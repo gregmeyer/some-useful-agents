@@ -12,6 +12,7 @@
  * the page body. Both the home page and the agents list page use this.
  */
 
+import { LLM_PROVIDERS, type LlmProvider } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
 export interface BuildFromGoalModalOptions {
@@ -19,7 +20,19 @@ export interface BuildFromGoalModalOptions {
   availableDashboards?: Array<{ id: string; name: string }>;
   /** If set, the existing-dashboard radio is pre-selected and this id is pre-chosen in the dropdown. */
   defaultDashboardId?: string;
+  /**
+   * Provider ids the runtime knows about. When unset, the picker shows
+   * only "System default" — useful for older daemons that don't pass
+   * the list through. Caller normally sources from `PROVIDER_IDS`.
+   */
+  availableProviders?: readonly LlmProvider[];
 }
+
+const PROVIDER_LABEL: Record<LlmProvider, string> = {
+  claude: 'Claude (claude CLI)',
+  codex: 'Codex (codex CLI)',
+  'apple-foundation-models': 'Apple Foundation Models (on-device)',
+};
 
 export function buildFromGoalButton(opts: { variant?: 'primary' | 'ghost' } = {}): SafeHtml {
   const cls = opts.variant === 'primary' ? 'btn btn--primary btn--sm' : 'btn btn--sm';
@@ -69,10 +82,19 @@ export function buildFromGoalModal(opts: BuildFromGoalModalOptions = {}): SafeHt
             <textarea id="build-goal" rows="3" placeholder="e.g. a daily morning dashboard with HN top stories, today's weather, and my notes folder"
               style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); resize: vertical;"></textarea>
           </label>
-          <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
+          <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
             <strong style="font-size: var(--font-size-sm);">Constraints <span class="dim" style="font-weight: var(--weight-regular);">(optional)</span></strong>
             <input id="build-focus" type="text" placeholder="e.g. use shell nodes only, schedule daily at 9am"
               style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+          </label>
+          <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-4);">
+            <strong style="font-size: var(--font-size-sm);">LLM provider <span class="dim" style="font-weight: var(--weight-regular);">(optional)</span></strong>
+            <select id="build-provider" class="input"
+              style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+              <option value="" selected>Use system default (waterfall from /settings/llm)</option>
+              ${(opts.availableProviders ?? LLM_PROVIDERS).map((p) => html`<option value="${p}">${PROVIDER_LABEL[p] ?? p}</option>`) as unknown as SafeHtml[]}
+            </select>
+            <span class="dim" style="font-size: var(--font-size-xs);">Pins this build's planner/drafter/designer to the chosen provider. On failure the global fallback chain still applies.</span>
           </label>
           <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
             <button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Cancel</button>
