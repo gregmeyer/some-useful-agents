@@ -1042,10 +1042,10 @@ describe('POST /inbox/:id/triage/cancel', () => {
     const after = runStore.getRun(fakeRunId);
     expect(after?.status).toBe('cancelled');
 
-    // A "Triage stopped by operator." system note now lives on the thread.
+    // A friendly cancellation note now lives on the thread.
     const responses = inboxStore.listResponses(m.id);
     const sys = responses.find((r) => r.role === 'system');
-    expect(sys?.body).toContain('Triage stopped');
+    expect(sys?.body).toBe('Triage agent cancelled.');
   });
 
   it('is idempotent: no in-flight controller returns 204 with "Nothing to cancel"', async () => {

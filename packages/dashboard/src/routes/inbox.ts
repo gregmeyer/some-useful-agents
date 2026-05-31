@@ -33,6 +33,8 @@ import {
   extractPlanJson,
   listBuiltinTools,
   parseAgent,
+  LLM_PROVIDERS,
+  type LlmProvider,
   type RunStatus,
   type InboxActionMeta,
   type InboxActionStatus,
@@ -42,6 +44,7 @@ import {
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { formatToolCatalog } from './run-now-build.js';
+import { applyProviderPin } from './build-orchestrator.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
@@ -568,7 +571,7 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   // sees what happened without polling. The next user reply will
   // re-fire triage normally.
   try {
-    const sysReply = ctx.inboxStore.addResponse(id, 'system', 'Triage stopped by operator.');
+    const sysReply = ctx.inboxStore.addResponse(id, 'system', 'Triage agent cancelled.');
     publishInboxEvent(ctx, id, 'message:created', {
       responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
     });
@@ -982,6 +985,11 @@ function enrichAgentBuilderInputs(
   inputs: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = { ...inputs };
+  // PROVIDER is a routing hint, not an agent input — it gets converted
+  // to a per-node pin in extractAgentBuilderProviderPin. Drop it here
+  // so executeAgentDag's input-resolution doesn't reject it as an
+  // undeclared key.
+  delete out.PROVIDER;
   try {
     const builtins = listBuiltinTools();
     let userTools: ToolDefinition[] = [];
@@ -1003,6 +1011,20 @@ function enrichAgentBuilderInputs(
     }
   } catch { /* swallow — agent-builder validates inputs and will fail loudly */ }
   return out;
+}
+
+/**
+ * Pull a provider pin off an agent-builder action's inputs. Triage may
+ * include `PROVIDER` when the operator names one explicitly ("build
+ * it on apple", "use codex"); we strip it from the agent inputs in
+ * `enrichAgentBuilderInputs` and apply it as a per-node pin on the
+ * cloned agent before dispatch. Invalid / unknown values are ignored
+ * so the system default chain still kicks in.
+ */
+function extractAgentBuilderProviderPin(inputs: Record<string, string>): LlmProvider | undefined {
+  const raw = typeof inputs.PROVIDER === 'string' ? inputs.PROVIDER.trim() : '';
+  if (!raw) return undefined;
+  return (LLM_PROVIDERS as readonly string[]).includes(raw) ? (raw as LlmProvider) : undefined;
 }
 
 /**
@@ -1209,6 +1231,17 @@ async function runProposedAction(
     effectiveInputs = enrichAgentBuilderInputs(ctx, meta.inputs);
   }
 
+  // Provider pin from triage's action inputs. agent-builder is the
+  // only consumer today — operator says "build it on apple" and triage
+  // emits PROVIDER=apple-foundation-models. The pin runs first in the
+  // waterfall; the global fallback chain still applies on classified
+  // failures. Strip is already handled inside enrichAgentBuilderInputs.
+  let dispatchAgent = subAgent;
+  if (meta.agentId === 'agent-builder') {
+    const providerPin = extractAgentBuilderProviderPin(meta.inputs);
+    if (providerPin) dispatchAgent = applyProviderPin(subAgent, providerPin);
+  }
+
   let runId: string | undefined;
   let nextStatus: InboxActionStatus = 'failed';
   let resultSummary: string | undefined;
@@ -1216,7 +1249,7 @@ async function runProposedAction(
   let fullResult = '';
   try {
     const run = await executeAgentDag(
-      subAgent,
+      dispatchAgent,
       {
         triggeredBy: 'dashboard',
         inputs: effectiveInputs,
@@ -1670,7 +1703,20 @@ async function runTriageAgent(
     const finished = await runPromise;
     void finished;
 
+    // Operator-cancelled via the stop button? Bail without adding the
+    // unfriendly "did not complete" continuation — the cancel route
+    // already posted "Triage stopped by operator." and finalized the
+    // run. Hits BOTH races: the executor returning 'failed' before
+    // the cancel route force-updates to 'cancelled', and the executor
+    // returning 'cancelled' cleanly. Either way, the signal-aborted
+    // bit is the load-bearing operator-intent signal.
+    if (abortController.signal.aborted) return;
+
     const run = runId ? ctx.runStore.getRun(runId) : null;
+    // Also catch the case where the run row itself ended up cancelled
+    // (e.g. /runs/:id/cancel hit by a sibling tab while we were
+    // waiting) — same friendly silence.
+    if (run?.status === 'cancelled') return;
     if (!run || run.status !== 'completed' || !run.result) {
       ctx.inboxStore.addResponse(
         messageId,
@@ -1807,14 +1853,21 @@ async function runTriageAgent(
     } catch { /* ignore */ }
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[inbox-triage] run failed: ${msg}\n${(err as Error)?.stack ?? ''}\n`);
-    try {
-      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', `Triage agent crashed: ${msg}`);
-      publishInboxEvent(ctx, messageId, 'message:created', {
-        responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
-      });
-    } catch { /* ignore */ }
+    // Operator-cancelled exceptions look like crashes here (the
+    // abort signal surfaces as a thrown error inside the executor).
+    // Skip the "Triage agent crashed" system note — the cancel route
+    // already posted "Triage stopped by operator." and the state:done
+    // event below still fires so the modal clears its pending UI.
+    if (!abortController.signal.aborted) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[inbox-triage] run failed: ${msg}\n${(err as Error)?.stack ?? ''}\n`);
+      try {
+        const sysReply = ctx.inboxStore.addResponse(messageId, 'system', `Triage agent crashed: ${msg}`);
+        publishInboxEvent(ctx, messageId, 'message:created', {
+          responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+        });
+      } catch { /* ignore */ }
+    }
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   } finally {
     // Clear the abort-controller registry entries for this run.
