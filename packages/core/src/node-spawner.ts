@@ -13,6 +13,7 @@ import type { Agent, AgentNode, NodeErrorCategory } from './agent-v2-types.js';
 import type { ExecutionResult } from './agent-executor.js';
 import { substituteInputs } from './input-resolver.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
+import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -454,11 +455,12 @@ export const appleFoundationModelsSpawner: LlmSpawner = {
   promptEnvVar: 'PROMPT',
 
   resolveBinary() {
-    // Lazy import to keep this provider out of the cold-path for
-    // non-macOS hosts that never invoke it. The runner module's
-    // ensureAppleRunner() is idempotent and fast on cache hit.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { ensureAppleRunner } = require('./apple-foundationmodels-runner.js') as typeof import('./apple-foundationmodels-runner.js');
+    // Static import at the top of the file — the runner module's
+    // dependencies are Node built-ins (child_process, fs, crypto,
+    // os, path), so eager loading costs nothing. The earlier CJS
+    // `require()` here was broken: this package is ESM and `require`
+    // isn't defined at runtime, so every Apple FM invocation threw
+    // ReferenceError before reaching the runner.
     const handle = ensureAppleRunner();
     if (handle.status === 'ready') return { path: handle.binaryPath };
     return { unsupported: true, reason: handle.message ?? 'Apple Foundation Models runner is unavailable.' };
