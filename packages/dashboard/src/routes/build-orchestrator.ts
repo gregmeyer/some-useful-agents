@@ -184,7 +184,7 @@ async function kickoffAgentRun(args: {
  *
  * Non-LLM nodes (shell, file-write, control flow) are unchanged.
  */
-function applyProviderPin(agent: Agent, providerPin: LlmProvider): Agent {
+export function applyProviderPin(agent: Agent, providerPin: LlmProvider): Agent {
   return {
     ...agent,
     nodes: agent.nodes.map((node) => (isLlmPromptType(node.type) ? { ...node, provider: providerPin } : node)),
