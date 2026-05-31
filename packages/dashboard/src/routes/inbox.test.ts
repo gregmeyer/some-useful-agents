@@ -69,6 +69,7 @@ async function makeApp() {
     inboxStore,
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
+    inboxTriageAbortControllers: new Map(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
@@ -1003,6 +1004,69 @@ describe('POST /inbox/:id/triage', () => {
     expect(r1.status).toBe(303);
     const r2 = await request(app).post('/inbox/nope/triage').set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(r2.status).toBe(404);
+  });
+});
+
+describe('POST /inbox/:id/triage/cancel', () => {
+  it('aborts the registered controller and clears the in-flight entry', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+
+    // Simulate an in-flight triage run: register a controller + a
+    // runStore row in `running` state, then POST cancel.
+    const fakeRunId = 'triage-fake-run-id';
+    const controller = new AbortController();
+    runStore.createRun({
+      id: fakeRunId, agentName: 'inbox-triage', status: 'running',
+      startedAt: new Date().toISOString(), triggeredBy: 'dashboard',
+    });
+    const app2 = app as unknown as { locals: { activeRuns: Map<string, AbortController>; inboxTriageAbortControllers: Map<string, { runId: string; controller: AbortController }> } };
+    app2.locals.activeRuns.set(fakeRunId, controller);
+    app2.locals.inboxTriageAbortControllers.set(m.id, { runId: fakeRunId, controller });
+
+    let aborted = false;
+    controller.signal.addEventListener('abort', () => { aborted = true; });
+
+    const res = await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+
+    expect(aborted).toBe(true);
+    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+    expect(app2.locals.activeRuns.has(fakeRunId)).toBe(false);
+
+    // Run row was force-finalized as cancelled.
+    const after = runStore.getRun(fakeRunId);
+    expect(after?.status).toBe('cancelled');
+
+    // A "Triage stopped by operator." system note now lives on the thread.
+    const responses = inboxStore.listResponses(m.id);
+    const sys = responses.find((r) => r.role === 'system');
+    expect(sys?.body).toContain('Triage stopped');
+  });
+
+  it('is idempotent: no in-flight controller returns 204 with "Nothing to cancel"', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const res = await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+    // No system message inserted for a no-op cancel.
+    const responses = inboxStore.listResponses(m.id);
+    expect(responses.find((r) => r.role === 'system')).toBeUndefined();
+  });
+
+  it('404 (AJAX) for unknown message id', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/nope/triage/cancel')
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(404);
   });
 
   it('auto-refreshes a stale inbox-triage agent from the bundled YAML', async () => {

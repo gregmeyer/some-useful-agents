@@ -2257,6 +2257,39 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   opacity: 0;
   transform: translateY(-2px);
 }
+.inbox-thinking__body { flex: 1; min-width: 0; }
+/* Stop button — square icon next to the pulsing dots. Killing the
+ * in-flight triage hits POST /inbox/:id/triage/cancel which aborts
+ * the DAG executor and unblocks the composer for the operator's
+ * next reply. Visually parks at the right edge of the indicator row
+ * so it shares space with the dots without crowding the label. */
+.inbox-thinking__stop-form { margin: 0; flex-shrink: 0; }
+.inbox-thinking__stop {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 80ms ease-out, color 80ms ease-out, border-color 80ms ease-out;
+}
+.inbox-thinking__stop:hover {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-strong, var(--color-border));
+}
+.inbox-thinking__stop-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 1px;
+}
 
 /* Inbox list: data-inbox-row-id rows get a row-hover affordance so
  * users see the click target. Title link inherits the row hover. */

@@ -162,6 +162,16 @@ export interface DashboardContext {
    */
   activeRuns: Map<string, AbortController>;
   /**
+   * Active inbox-triage runs, keyed by inbox message id. Lets POST
+   * /inbox/:id/triage/cancel find the run-in-flight for a thread
+   * without scanning the runs table: the route launches triage and
+   * registers the pre-generated runId + abort controller here; the
+   * cancel route aborts the controller (which also cascades into
+   * activeRuns + the runStore). Cleared on completion. Only one
+   * triage run per message at a time — re-entering replaces.
+   */
+  inboxTriageAbortControllers: Map<string, { runId: string; controller: AbortController }>;
+  /**
    * Data directory path. Used by the health endpoint to read the scheduler
    * heartbeat file and report scheduler status.
    */

@@ -191,7 +191,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       ${responses.length === 0 && !triagePending
         ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Use the composer below — the triage agent will join automatically.</p>`
         : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
-      ${triagePending ? renderThinkingIndicator() : html``}
+      ${triagePending ? renderThinkingIndicator(message.id) : html``}
     </section>
   `;
 
@@ -564,19 +564,31 @@ function formatDuration(meta: InboxActionMeta): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** Pulsing-dots "Triage agent is thinking…" indicator. */
-function renderThinkingIndicator(): SafeHtml {
+/** Pulsing-dots "Triage agent is thinking…" indicator with a stop button. */
+function renderThinkingIndicator(messageId: string): SafeHtml {
   // data-thinking-phase lets the modal JS pick the right label set
   // when it rotates copy underneath the dots. The default seed text
   // is a sensible label so users with JS disabled (or before the
   // rotation loop fires) still see something coherent.
+  //
+  // Stop button posts to /inbox/:id/triage/cancel; the route aborts
+  // the in-flight DAG run, marks it cancelled, and publishes a
+  // state:done SSE so the modal clears the pending state. The
+  // composer's `disabled` attribute drops off via the same fragment
+  // refresh path the rest of the modal uses.
   return html`
     <div class="inbox-thinking" data-triage-pending="1" data-thinking-phase="triage">
       <div class="inbox-thinking__avatar">Tri</div>
-      <div>
+      <div class="inbox-thinking__body">
         <span class="inbox-thinking__label" data-thinking-label>Triage agent is thinking</span>
         <span class="inbox-thinking__dots"><span></span><span></span><span></span></span>
       </div>
+      <form method="POST" action="/inbox/${messageId}/triage/cancel"
+        data-inbox-modal-form data-inbox-triage-stop="1" class="inbox-thinking__stop-form">
+        <button type="submit" class="inbox-thinking__stop" aria-label="Stop triage">
+          <span aria-hidden="true" class="inbox-thinking__stop-icon"></span>
+        </button>
+      </form>
     </div>
   `;
 }
