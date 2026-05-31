@@ -23,6 +23,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
@@ -484,6 +485,87 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
   void runTriageAgent(ctx, id).catch(() => { /* swallow */ });
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Triage agent invoked.')}`);
+});
+
+/**
+ * POST /inbox/:id/triage/cancel — short-circuit an in-flight triage
+ * run. Looks up the registered AbortController via
+ * `ctx.inboxTriageAbortControllers` (keyed by message id), aborts the
+ * DAG executor's signal, calls into `provider.cancelRun` as a belt-
+ * and-suspenders for v1 paths, and force-finalizes the run row +
+ * node executions if the executor didn't get to those teardown
+ * steps before the response returns.
+ *
+ * Idempotent: a missing entry (run already finished, or the dashboard
+ * was restarted) returns 204 / "Nothing to cancel" without erroring.
+ * The operator sees the indicator clear via the `state:done` SSE
+ * event that the runTriageAgent finally-block (or this route's
+ * fallback finalization) publishes.
+ */
+inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const entry = ctx.inboxTriageAbortControllers.get(id);
+  if (!entry) {
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Nothing to cancel.')}`);
+    return;
+  }
+  ctx.inboxTriageAbortControllers.delete(id);
+  ctx.activeRuns.delete(entry.runId);
+  try { entry.controller.abort(); } catch { /* ignore */ }
+  // Provider cancel — belt-and-suspenders for v1 paths and any
+  // pid-tracked child processes the executor spawned.
+  try { await ctx.provider.cancelRun(entry.runId); } catch { /* ignore */ }
+  // Force-finalize the run + any node executions still flagged
+  // running, in case the executor's normal teardown didn't fire
+  // before the request returns. Mirrors POST /runs/:id/cancel.
+  try {
+    const run = ctx.runStore.getRun(entry.runId);
+    if (run && (run.status === 'running' || run.status === 'pending')) {
+      const completedAt = new Date().toISOString();
+      ctx.runStore.updateRun(entry.runId, {
+        status: 'cancelled' as RunStatus,
+        completedAt,
+        error: 'Cancelled by user.',
+      });
+      const nodeExecs = ctx.runStore.listNodeExecutions(entry.runId);
+      for (const exec of nodeExecs) {
+        if (exec.status === 'running' || exec.status === 'pending') {
+          ctx.runStore.updateNodeExecution(entry.runId, exec.nodeId, {
+            status: 'cancelled',
+            errorCategory: 'cancelled',
+            completedAt,
+            error: 'Cancelled by user.',
+          });
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  // Surface the cancellation in the conversation so the operator
+  // sees what happened without polling. The next user reply will
+  // re-fire triage normally.
+  try {
+    const sysReply = ctx.inboxStore.addResponse(id, 'system', 'Triage stopped by operator.');
+    publishInboxEvent(ctx, id, 'message:created', {
+      responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
+    });
+  } catch { /* ignore */ }
+  publishInboxEvent(ctx, id, 'state', { phase: 'done', since: Date.now() });
+  // Move the thread to awaiting_user so the modal's pending state
+  // clears and the composer re-enables.
+  try {
+    ctx.inboxStore.updateStatus(id, 'awaiting_user');
+  } catch { /* ignore */ }
+
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Triage stopped.')}`);
 });
 
 /**
@@ -1495,7 +1577,26 @@ async function runTriageAgent(
 
   const allowlist = getSubAgentAllowlist(ctx);
 
-  let runId: string | undefined;
+  // Pre-generate the runId + AbortController so the cancel route
+  // (/inbox/:id/triage/cancel) can find and abort the in-flight run
+  // without scanning the runs table. Replace any prior in-flight
+  // triage controller for this message — last writer wins, the
+  // older run's abort will run to completion safely.
+  const runId: string = randomUUID();
+  const abortController = new AbortController();
+  ctx.activeRuns.set(runId, abortController);
+  ctx.inboxTriageAbortControllers.set(messageId, { runId, controller: abortController });
+  // Set the triageRunId on the message immediately so the
+  // run-detail page and the inbox modal can both point at the
+  // in-flight run. We refresh the status post-run anyway.
+  try {
+    ctx.inboxStore.updateStatus(
+      messageId,
+      message.status === 'open' ? 'triaged' : message.status,
+      { triageRunId: runId },
+    );
+  } catch { /* ignore — message may have been dismissed mid-flight */ }
+
   try {
     const runPromise = executeAgentDag(
       triage,
@@ -1511,6 +1612,8 @@ async function runTriageAgent(
           CONVERSATION: conversation,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
         },
+        runId,
+        signal: abortController.signal,
       },
       {
         runStore: ctx.runStore,
@@ -1534,27 +1637,6 @@ async function runTriageAgent(
         },
       },
     );
-    // Capture the runId once it lands. Race the executor to avoid
-    // blocking the auto-fire path; the conversation-based pending
-    // heuristic carries us through if this misses.
-    await Promise.race([runPromise, new Promise((r) => setTimeout(r, 250))]);
-    const { rows } = ctx.runStore.queryRuns({
-      agentName: TRIAGE_AGENT_ID,
-      statuses: ['running', 'completed', 'failed', 'pending'] as RunStatus[],
-      limit: 1,
-      offset: 0,
-    });
-    const recent = rows[0];
-    if (recent) {
-      runId = recent.id;
-      try {
-        ctx.inboxStore.updateStatus(
-          messageId,
-          message.status === 'open' ? 'triaged' : message.status,
-          { triageRunId: runId },
-        );
-      } catch { /* ignore — message may have been dismissed mid-flight */ }
-    }
     const finished = await runPromise;
     void finished;
 
@@ -1704,5 +1786,16 @@ async function runTriageAgent(
       });
     } catch { /* ignore */ }
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
+  } finally {
+    // Clear the abort-controller registry entries for this run.
+    // Cancel-route already deletes activeRuns when it fires; this
+    // covers the normal-completion path. Use ?-checks because a
+    // re-entry would have already replaced the entry with a fresh
+    // controller pointing at a newer runId.
+    ctx.activeRuns.delete(runId);
+    const existing = ctx.inboxTriageAbortControllers.get(messageId);
+    if (existing && existing.runId === runId) {
+      ctx.inboxTriageAbortControllers.delete(messageId);
+    }
   }
 }
