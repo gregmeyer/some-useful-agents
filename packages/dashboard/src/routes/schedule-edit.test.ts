@@ -73,6 +73,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     dashboardsStore,
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
+    inboxTriageAbortControllers: new Map(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };

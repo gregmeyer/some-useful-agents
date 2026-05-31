@@ -95,6 +95,7 @@ async function makeApp() {
     layoutHintsStore,
     allowUntrustedShell: new Set(),
     activeRuns: new Map(),
+    inboxTriageAbortControllers: new Map(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
