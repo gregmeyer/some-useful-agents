@@ -850,6 +850,45 @@ describe('Dashboard /agents/:id/add-node chain flow (PR 1.6)', () => {
     expect(res.text).toMatch(/name="dependsOn" value="first"/);
   });
 
+  it('GET /agents/:id/add-node renders the node-discovery modal with built-in tools + invocable agents', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'host', name: 'Host', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n1', type: 'shell', command: 'echo' }],
+    }, 'cli');
+    agentStore.createAgent({
+      id: 'invocable', name: 'Sub', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n1', type: 'shell', command: 'echo sub' }],
+      inputs: { TOPIC: { type: 'string', required: true } },
+    }, 'cli');
+
+    const res = await request(app).get('/agents/host/add-node')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+
+    // Discover button + modal scaffold.
+    expect(res.text).toContain('data-node-discovery-open');
+    expect(res.text).toContain('id="node-discovery-modal"');
+    expect(res.text).toContain('id="node-discovery-search"');
+
+    // Group headings — at least patterns + built-ins + the agent.
+    expect(res.text).toContain('Quick patterns');
+    expect(res.text).toContain('Built-in tools');
+    expect(res.text).toContain('Invocable agents');
+
+    // Cards: a built-in tool (shell-exec) + the agent (via agent: prefix).
+    expect(res.text).toMatch(/data-node-discovery-pick="shell-exec"/);
+    expect(res.text).toMatch(/data-node-discovery-pick="agent:invocable"/);
+
+    // Pattern cards carry default values for pre-fill.
+    expect(res.text).toMatch(/data-node-discovery-defaults=/);
+
+    // Self-invocation is filtered out — the host agent shouldn't appear
+    // as a pickable sub-agent.
+    expect(res.text).not.toMatch(/data-node-discovery-pick="agent:host"/);
+  });
+
   it('POST /agents/:id/add-node appends a downstream node and bumps version', async () => {
     const app = await makeApp();
     agentStore.createAgent({

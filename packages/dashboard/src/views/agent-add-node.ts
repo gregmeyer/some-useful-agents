@@ -6,6 +6,7 @@ import { computePaletteSuggestions, renderPalettePayload } from './template-pale
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 import { renderLlmOptions } from './llm-options.js';
 import { NODE_PATTERNS } from './node-patterns.js';
+import { renderNodeDiscoveryButton, renderNodeDiscoveryModal } from './node-discovery-modal.js';
 
 function availableVariablesPanel(agent: Agent): SafeHtml {
   if (agent.nodes.length === 0) {
@@ -119,7 +120,10 @@ export function renderAgentAddNode(args: {
     ${existingNodesCard}
 
     <section class="mb-4">
-      <p class="card__title mb-2">Quick start patterns</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-2);">
+        <p class="card__title" style="margin:0;">Quick start patterns</p>
+        ${renderNodeDiscoveryButton()}
+      </div>
       <div class="pattern-strip">
         ${NODE_PATTERNS.map((p) => html`
           <button type="button" class="btn btn--sm pattern-btn" data-pattern-tool="${p.tool}" data-pattern-defaults="${unsafeHtml(JSON.stringify(p.defaults).replace(/"/g, '&quot;'))}"
@@ -191,6 +195,11 @@ export function renderAgentAddNode(args: {
         <button type="submit" class="btn btn--primary">Add node</button>
       </div>
     </form>
+
+    ${renderNodeDiscoveryModal({
+      tools: allTools,
+      agents: allAgents.filter((a) => a.id !== agent.id && a.status === 'active'),
+    })}
   `;
 
   return render(layout({ title: `Add node \u2014 ${agent.id}`, activeNav: 'agents' }, body));
