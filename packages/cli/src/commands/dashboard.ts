@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { startDashboardServer } from '@some-useful-agents/dashboard';
 import { getMcpTokenPath, readMcpToken } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl, resolveProvider } from '../config.js';
+import { createProvider } from '../provider-factory.js';
 import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
@@ -40,6 +41,11 @@ dashboardCommand
   .option('--port <port>', 'Port to listen on', '3000')
   .option('--host <host>', 'Bind host (default 127.0.0.1)', '127.0.0.1')
   .option(
+    '--provider <kind>',
+    'Run-now backend: "local" (default) or "temporal". Overrides config/SUA_PROVIDER. ' +
+      'Temporal requires the server (docker compose up -d) and a worker (sua worker start).',
+  )
+  .option(
     '--allow-untrusted-shell <name>',
     'Pre-allow a community shell agent to be triggered from the dashboard (repeatable)',
     collectName,
@@ -61,7 +67,7 @@ The dashboard runs foreground; Ctrl-C stops it. Daemonization is out
 of scope for this release — wrap in launchd / systemd if you need it.
 `,
   )
-  .action(async (options: { port: string; host: string; allowUntrustedShell: string[] }) => {
+  .action(async (options: { port: string; host: string; provider?: string; allowUntrustedShell: string[] }) => {
     const port = Number.parseInt(options.port, 10);
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       ui.fail(`Invalid port "${options.port}".`);
@@ -70,6 +76,28 @@ of scope for this release — wrap in launchd / systemd if you need it.
 
     const config = loadConfig();
     const dirs = getAgentDirs(config);
+    const allowUntrustedShell = new Set(options.allowUntrustedShell);
+
+    // Build the run-now provider up front so a misconfigured or unreachable
+    // Temporal server fails before we bind the HTTP listener. resolveProvider
+    // validates the kind; createProvider connects (Temporal) or opens the
+    // SQLite store (local).
+    const providerKind = resolveProvider(config, options.provider);
+    let provider;
+    try {
+      provider = await createProvider(config, {
+        providerOverride: options.provider,
+        allowUntrustedShell,
+      });
+    } catch (err) {
+      const msg = (err as Error).message;
+      ui.fail(`Could not start the ${providerKind} provider: ${msg}`);
+      if (providerKind === 'temporal' && /ECONNREFUSED|connection refused/i.test(msg)) {
+        console.error(ui.dim(`\nIs Temporal running? Start it with: ${ui.cmd('docker compose up -d')}`));
+        console.error(ui.dim(`Then start a worker in another terminal: ${ui.cmd('sua worker start')}`));
+      }
+      process.exit(1);
+    }
 
     let handle;
     try {
@@ -82,8 +110,9 @@ of scope for this release — wrap in launchd / systemd if you need it.
         variablesPath: getVariablesPath(config),
         llmSettingsPath: getLlmSettingsPath(config),
         retentionDays: getRetentionDays(config),
-        allowUntrustedShell: new Set(options.allowUntrustedShell),
+        allowUntrustedShell,
         dashboardBaseUrl: getDashboardBaseUrl(config),
+        provider,
       });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
@@ -116,6 +145,8 @@ of scope for this release — wrap in launchd / systemd if you need it.
     ui.banner(
       `Dashboard running on ${options.host}:${port}`,
       [
+        `Run-now provider: ${providerKind}${providerKind === 'temporal' ? ' (needs `sua worker start`)' : ''}`,
+        ``,
         `One-time sign-in URL:`,
         handle.authUrl,
         ``,

@@ -6,7 +6,8 @@ import {
   readMcpToken,
   rotateMcpToken,
 } from '@some-useful-agents/core';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, resolveProvider } from '../config.js';
+import { createProvider } from '../provider-factory.js';
 import * as ui from '../ui.js';
 
 export const mcpCommand = new Command('mcp')
@@ -20,6 +21,11 @@ mcpCommand
     '--host <host>',
     'Bind host (default 127.0.0.1; set 0.0.0.0 only if you genuinely need LAN exposure)',
   )
+  .option(
+    '--provider <kind>',
+    'Run backend: "local" (default) or "temporal". Overrides config/SUA_PROVIDER. ' +
+      'Temporal requires the server (docker compose up -d) and a worker (sua worker start).',
+  )
   .action(async (options) => {
     const config = loadConfig();
     const port = options.port ? parseInt(options.port, 10) : config.mcpPort;
@@ -28,16 +34,33 @@ mcpCommand
     const dbPath = getDbPath(config);
     const tokenPath = getMcpTokenPath();
     const { token } = ensureMcpToken(tokenPath);
+    const providerKind = resolveProvider(config, options.provider);
+
+    // Build the run provider up front so an unreachable Temporal server fails
+    // before we advertise the MCP endpoint.
+    let provider;
+    try {
+      provider = await createProvider(config, { providerOverride: options.provider });
+    } catch (err) {
+      const msg = (err as Error).message;
+      ui.fail(`Could not start the ${providerKind} provider: ${msg}`);
+      if (providerKind === 'temporal' && /ECONNREFUSED|connection refused/i.test(msg)) {
+        console.error(ui.dim(`\nIs Temporal running? Start it with: ${ui.cmd('docker compose up -d')}`));
+        console.error(ui.dim(`Then start a worker in another terminal: ${ui.cmd('sua worker start')}`));
+      }
+      process.exit(1);
+    }
 
     // Dynamic import to avoid loading MCP deps when not needed
     const { startMcpServer } = await import('@some-useful-agents/mcp-server');
 
     ui.banner('Starting MCP server', [
-      `Host:   ${host}`,
-      `Port:   ${port}`,
-      `Agents: ${dirs.all.join(', ')}`,
-      `DB:     ${dbPath}`,
-      `Token:  ${tokenPath}`,
+      `Host:     ${host}`,
+      `Port:     ${port}`,
+      `Provider: ${providerKind}${providerKind === 'temporal' ? ' (needs `sua worker start`)' : ''}`,
+      `Agents:   ${dirs.all.join(', ')}`,
+      `DB:       ${dbPath}`,
+      `Token:    ${tokenPath}`,
     ]);
 
     if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
@@ -71,6 +94,7 @@ mcpCommand
       dbPath,
       secretsPath: getSecretsPath(config),
       tokenPath,
+      provider,
     });
   });
 

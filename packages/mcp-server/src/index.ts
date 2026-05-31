@@ -11,6 +11,7 @@ import {
   VariablesStore,
   ensureMcpToken,
   getMcpTokenPath,
+  type Provider,
 } from '@some-useful-agents/core';
 import {
   buildLoopbackAllowlist,
@@ -39,6 +40,12 @@ export interface McpServerOptions {
    * if it does not exist.
    */
   tokenPath?: string;
+  /**
+   * Provider that backs the run/list/cancel MCP tools. Defaults to a
+   * LocalProvider over `dbPath`. The CLI injects a TemporalProvider here when
+   * `sua mcp start --provider temporal` is used.
+   */
+  provider?: Provider;
 }
 
 interface SessionEntry {
@@ -101,8 +108,13 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
   }
 
   const secretsStore = new EncryptedFileStore(options.secretsPath);
-  const provider = new LocalProvider(options.dbPath, secretsStore);
-  await provider.initialize();
+  // An injected provider (the CLI's createProvider) arrives already
+  // initialized; only initialize the fallback we construct here.
+  let provider = options.provider;
+  if (!provider) {
+    provider = new LocalProvider(options.dbPath, secretsStore);
+    await provider.initialize();
+  }
 
   // Dashboard-managed agents live in the SQLite DB, not on the filesystem.
   // Open dedicated handles here so the list/run tools see the full

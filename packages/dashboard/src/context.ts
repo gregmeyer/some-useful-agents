@@ -1,4 +1,4 @@
-import type { LocalProvider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { Provider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -14,8 +14,13 @@ export interface DashboardContext {
   allowlist: Set<string>;
   /** Expected Host header's port (for loopback checks). */
   port: number;
-  /** Provider used to submit "Run now" POSTs. */
-  provider: LocalProvider;
+  /**
+   * Provider used to submit "Run now" POSTs (v1 single-node agents) and to
+   * cancel runs. Defaults to LocalProvider; the CLI injects a TemporalProvider
+   * when started with `--provider temporal`. v2 DAG agents bypass this and run
+   * in-process via executeAgentDag regardless of provider (see ADR-0013).
+   */
+  provider: Provider;
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
   /**

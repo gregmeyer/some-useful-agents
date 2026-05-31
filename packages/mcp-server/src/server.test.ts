@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
@@ -100,6 +101,74 @@ describe('MCP server multi-session', () => {
     const body = (await health.json()) as { status: string; sessions: number };
     expect(body.status).toBe('ok');
     expect(body.sessions).toBe(2);
+  });
+});
+
+/**
+ * Phase A of Temporal wiring: the CLI builds the provider (via createProvider)
+ * and injects it. An injected provider arrives already initialized, so the
+ * server must NOT re-initialize it — re-initializing a TemporalProvider would
+ * open a second client connection. Verify the injected provider is the one the
+ * server uses and that initialize() is not called on it.
+ */
+describe('MCP server provider injection', () => {
+  let dataDir: string;
+  let tokenPath: string;
+  let secretsPath: string;
+  let serverHandle: { port: number; shutdown: () => Promise<void> } | undefined;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'sua-mcp-prov-'));
+    tokenPath = join(dataDir, 'mcp-token');
+    writeFileSync(tokenPath, 't'.repeat(64));
+    chmodSync(tokenPath, 0o600);
+    secretsPath = join(dataDir, 'secrets.enc');
+  });
+
+  afterEach(async () => {
+    if (serverHandle) {
+      await serverHandle.shutdown();
+      serverHandle = undefined;
+    }
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('uses an injected provider without re-initializing it', async () => {
+    let initializeCalls = 0;
+    let shutdownCalls = 0;
+    const injected: Provider = {
+      name: 'stub',
+      async initialize() { initializeCalls++; },
+      async shutdown() { shutdownCalls++; },
+      async submitRun(_req: RunRequest): Promise<Run> {
+        return { id: 'stub-run', agentName: 'x', status: 'completed', startedAt: '2026-01-01T00:00:00Z', triggeredBy: 'mcp' };
+      },
+      async getRun(): Promise<Run | null> { return null; },
+      async listRuns(): Promise<Run[]> { return []; },
+      async cancelRun(): Promise<void> {},
+      async getRunLogs(): Promise<string> { return ''; },
+    };
+
+    serverHandle = await startMcpServer({
+      port: 0,
+      host: '127.0.0.1',
+      agentDirs: [dataDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+      provider: injected,
+    });
+
+    // Server booted on the injected provider; the CLI already initialized it,
+    // so the server left it alone.
+    expect(initializeCalls).toBe(0);
+    const health = await fetch(`http://127.0.0.1:${serverHandle.port}/health`);
+    expect(health.status).toBe(200);
+
+    await serverHandle.shutdown();
+    serverHandle = undefined;
+    // The server owns teardown of whatever provider it was handed.
+    expect(shutdownCalls).toBe(1);
   });
 });
 

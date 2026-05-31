@@ -28,6 +28,7 @@ import {
   buildLoopbackAllowlist,
   reapOrphanedRuns,
   type SecretsStore,
+  type Provider,
   type RunStatus,
   getSchedulerStatus,
 } from '@some-useful-agents/core';
@@ -101,8 +102,13 @@ export interface StartDashboardOptions {
   dashboardBaseUrl?: string;
   /** Optional SecretsStore override (tests). */
   secretsStore?: SecretsStore;
-  /** Optional LocalProvider override (tests). */
-  provider?: LocalProvider;
+  /**
+   * Provider that backs "Run now" + run cancellation. Defaults to a
+   * LocalProvider over `dbPath`. The CLI injects a TemporalProvider here when
+   * `sua dashboard start --provider temporal` is used; tests inject a
+   * LocalProvider directly.
+   */
+  provider?: Provider;
   /** Optional RunStore override (tests). */
   runStore?: RunStore;
   /** Optional AgentStore override (tests). */
@@ -356,10 +362,16 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // mode makes concurrent handles safe.
   const agentStore = opts.agentStore ?? new AgentStore(opts.dbPath);
   const secretsStore = opts.secretsStore ?? new EncryptedFileStore(opts.secretsPath);
-  const provider = opts.provider ?? new LocalProvider(opts.dbPath, secretsStore, {
-    allowUntrustedShell: opts.allowUntrustedShell,
-  });
-  await provider.initialize();
+  // An injected provider (the CLI's createProvider, or a test's) arrives
+  // already initialized — re-initializing a TemporalProvider would open a
+  // second client connection. Only initialize the fallback we construct here.
+  let provider = opts.provider;
+  if (!provider) {
+    provider = new LocalProvider(opts.dbPath, secretsStore, {
+      allowUntrustedShell: opts.allowUntrustedShell,
+    });
+    await provider.initialize();
+  }
 
   const secretsSession = new EncryptedFileSecretsSession(opts.secretsPath);
   // Tool store shares the same DB path. WAL mode makes concurrent handles safe.
