@@ -3,7 +3,8 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { EncryptedFileStore } from '@some-useful-agents/core';
 import type { AgentDefinition } from '@some-useful-agents/core';
-import { runAgentActivity } from './activities.js';
+import type { AgentNode } from '@some-useful-agents/core';
+import { runAgentActivity, runNodeActivity } from './activities.js';
 
 const TEST_DIR = join(import.meta.dirname, '__test-activities__');
 const SECRETS_PATH = join(TEST_DIR, 'secrets.enc');
@@ -114,5 +115,63 @@ describe('runAgentActivity', () => {
     expect(result.exitCode).toBe(1);
     expect(result.error).toMatch(/community shell agent/);
     expect(result.error).toMatch(/--allow-untrusted-shell/);
+  });
+});
+
+const shellNode = (overrides: Partial<AgentNode> = {}): AgentNode => ({
+  id: 'main',
+  type: 'shell',
+  command: 'echo node-from-activity',
+  ...overrides,
+});
+
+describe('runNodeActivity', () => {
+  it('runs a shell node and stamps usedWorkflowProvider=temporal', async () => {
+    const result = await runNodeActivity({
+      node: shellNode(),
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+      agentId: 'demo',
+      agentSource: 'local',
+      secretsPath: SECRETS_PATH,
+      declaredSecrets: [],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.result).toContain('node-from-activity');
+    expect(result.usedWorkflowProvider).toBe('temporal');
+  });
+
+  it('re-injects declared secrets from the worker-local store', async () => {
+    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true });
+    await store.set('NODE_SECRET', 'node-injected');
+
+    const result = await runNodeActivity({
+      node: shellNode({ command: 'echo "got=$NODE_SECRET"', secrets: ['NODE_SECRET'] }),
+      // The secret is NOT in env (the dashboard stripped it); the worker re-reads it.
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+      agentId: 'demo',
+      agentSource: 'local',
+      secretsPath: SECRETS_PATH,
+      declaredSecrets: ['NODE_SECRET'],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.result).toContain('got=node-injected');
+  });
+
+  it('fails clearly when a declared secret is missing on the worker', async () => {
+    const result = await runNodeActivity({
+      node: shellNode({ secrets: ['ABSENT'] }),
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+      agentId: 'demo',
+      agentSource: 'local',
+      secretsPath: SECRETS_PATH,
+      declaredSecrets: ['ABSENT'],
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain('Missing secrets on worker');
+    expect(result.error).toContain('ABSENT');
+    expect(result.usedWorkflowProvider).toBe('temporal');
   });
 });
