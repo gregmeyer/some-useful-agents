@@ -183,6 +183,7 @@ async function kickoffLayoutPlannerRun(args: {
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
     },
   );
 

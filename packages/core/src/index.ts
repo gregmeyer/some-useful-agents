@@ -348,6 +348,8 @@ export {
 export {
   type LlmSpawner,
   type SpawnProgress,
+  type SpawnResult,
+  type SpawnNodeFn,
   type LlmSpawnOptions,
   type LlmSettingsSnapshot,
   type LlmFailureCategory,
@@ -356,7 +358,9 @@ export {
   claudeTextSpawner,
   codexSpawner,
   getSpawner,
+  spawnNodeReal,
 } from './node-spawner.js';
+export { stripSensitiveEnv } from './node-env.js';
 export {
   LlmSettingsStore,
   LLM_PROVIDERS,

@@ -71,6 +71,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
         dashboardBaseUrl: ctx.dashboardBaseUrl,
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
+        spawnNode: ctx.workflowSpawnNode,
       },
     );
 

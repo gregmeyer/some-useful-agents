@@ -376,6 +376,7 @@ async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | nul
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
     },
   );
 
@@ -521,6 +522,7 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
     },
   );
 
@@ -722,6 +724,7 @@ Output ONLY the complete fixed YAML. Nothing else.`,
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
+        spawnNode: ctx.workflowSpawnNode,
       },
     );
 
@@ -1130,6 +1133,7 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
               variablesStore: ctx.variablesStore,
               dataRoot: ctx.agentStore.dataRoot,
               llmSettings: buildLlmSettingsSnapshot(ctx),
+              spawnNode: ctx.workflowSpawnNode,
             },
           ).catch(() => { /* surfaced as a failed run row */ });
         }

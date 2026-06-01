@@ -1,8 +1,9 @@
 import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import { randomUUID } from 'node:crypto';
-import type { Provider, RunRequest, Run, RunStatus } from '@some-useful-agents/core';
+import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn } from '@some-useful-agents/core';
 import { RunStore } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
+import { createTemporalSpawnNode } from './node-spawn.js';
 import type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';
 
 export interface TemporalProviderOptions {
@@ -49,6 +50,21 @@ export class TemporalProvider implements Provider {
   async shutdown(): Promise<void> {
     await this.connection?.close();
     this.store.close();
+  }
+
+  /**
+   * Build a node-execution backend (SpawnNodeFn) bound to this provider's
+   * client + task queue (B1b). The dashboard injects the result as
+   * `deps.spawnNode` so v2 DAG nodes run on the Temporal worker while the
+   * dashboard keeps orchestrating the DAG. Must be called after
+   * `initialize()` (the client must exist).
+   */
+  createSpawnNode(): SpawnNodeFn {
+    return createTemporalSpawnNode({
+      client: this.client,
+      secretsPath: this.options.secretsPath,
+      taskQueue: this.options.taskQueue,
+    });
   }
 
   async submitRun(request: RunRequest): Promise<Run> {

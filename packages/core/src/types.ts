@@ -1,3 +1,5 @@
+import type { SpawnNodeFn } from './node-spawner.js';
+
 export interface AgentInputSpec {
   type: 'string' | 'number' | 'boolean' | 'enum';
   values?: string[];
@@ -144,4 +146,11 @@ export interface Provider {
   listRuns(filter?: { agentName?: string; status?: RunStatus; limit?: number }): Promise<Run[]>;
   cancelRun(runId: string): Promise<void>;
   getRunLogs(runId: string): Promise<string>;
+  /**
+   * Optional: build a node-execution backend (SpawnNodeFn) for v2 DAG runs.
+   * The Temporal provider returns one that runs each node on a worker; the
+   * dashboard injects it as `deps.spawnNode`. Providers that execute in-process
+   * (local) leave this undefined and the executor uses its built-in spawner.
+   */
+  createSpawnNode?(): SpawnNodeFn;
 }

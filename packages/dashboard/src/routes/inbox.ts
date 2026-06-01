@@ -1260,6 +1260,7 @@ async function runProposedAction(
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
+        spawnNode: ctx.workflowSpawnNode,
       },
     );
     runId = run.id;
@@ -1684,6 +1685,7 @@ async function runTriageAgent(
         variablesStore: ctx.variablesStore,
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
+        spawnNode: ctx.workflowSpawnNode,
         // Forward token-level progress from the triage LLM node to
         // the SSE bus. Filtered to output_chunk so we don't spam
         // clients with turn_start / tool_use markers (those still

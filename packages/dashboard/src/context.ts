@@ -1,4 +1,4 @@
-import type { Provider, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -21,6 +21,14 @@ export interface DashboardContext {
    * in-process via executeAgentDag regardless of provider (see ADR-0013).
    */
   provider: Provider;
+  /**
+   * v2 DAG node-execution backend. Set when the provider is Temporal (built via
+   * `provider.createSpawnNode()` at startup); undefined for local. Every
+   * `executeAgentDag` call passes it as `deps.spawnNode` — undefined ⇒ the
+   * executor's in-process spawner. This is how v2 DAGs run on Temporal workers
+   * while orchestration stays in the dashboard (B1b).
+   */
+  workflowSpawnNode?: SpawnNodeFn;
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
   /**

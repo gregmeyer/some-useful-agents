@@ -1,4 +1,4 @@
-import type { AgentDefinition } from '@some-useful-agents/core';
+import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
 import {
   buildAgentEnv,
   getTrustLevel,
@@ -6,7 +6,9 @@ import {
   EncryptedFileStore,
   redactKnownSecrets,
   resolveInputs,
+  spawnNodeReal,
 } from '@some-useful-agents/core';
+import { Context } from '@temporalio/activity';
 
 export interface RunAgentActivityInput {
   agent: AgentDefinition;
@@ -110,4 +112,85 @@ export async function runAgentActivity(input: RunAgentActivityInput): Promise<Ru
       : undefined,
     warnings,
   };
+}
+
+/**
+ * Input for {@link runNodeActivity}: one v2 DAG node, executed on the worker.
+ *
+ * `env` is the SAFE env — the dashboard-side spawnNode already stripped
+ * sensitive keys (`stripSensitiveEnv`) before this crossed the activity
+ * boundary, since Temporal persists activity inputs in workflow history. The
+ * node's DECLARED secrets are named in `declaredSecrets` and re-read here from
+ * `secretsPath` on the worker, never travelling in the payload.
+ */
+export interface RunNodeActivityInput {
+  node: AgentNode;
+  /** Sensitive keys already removed; declared secrets re-injected on the worker. */
+  env: Record<string, string>;
+  agentId: string;
+  agentSource: Agent['source'];
+  /** LLM provider waterfall (names only; onFallback telemetry is not propagated). */
+  llmProviders?: string[];
+  /** Path to the encrypted secrets file, read on the worker. */
+  secretsPath: string;
+  /** Names of the node's declared secrets to re-inject from `secretsPath`. */
+  declaredSecrets: string[];
+}
+
+/**
+ * Activity: run ONE DAG node on the worker via the same `spawnNodeReal` the
+ * in-process executor uses. Heartbeats each progress event so (a) the run is
+ * cancellable — Temporal only delivers cancellation to activities that
+ * heartbeat — and (b) the Temporal UI shows liveness. The dashboard keeps
+ * owning DAG orchestration; this just offloads the node's shell/LLM spawn.
+ */
+export async function runNodeActivity(input: RunNodeActivityInput): Promise<SpawnResult> {
+  // Resolve the activity context defensively: present on a real worker (where
+  // heartbeat + cancellation matter), absent when invoked directly (unit tests).
+  let ctx: ReturnType<typeof Context.current> | undefined;
+  try { ctx = Context.current(); } catch { ctx = undefined; }
+
+  // Re-inject declared secrets from the worker-local secrets store. Only opened
+  // when the node actually declares secrets.
+  const env = { ...input.env };
+  if (input.declaredSecrets.length > 0) {
+    const all = await new EncryptedFileStore(input.secretsPath).getAll();
+    const missing: string[] = [];
+    for (const name of input.declaredSecrets) {
+      if (name in all) env[name] = all[name];
+      else missing.push(name);
+    }
+    if (missing.length > 0) {
+      return {
+        result: '',
+        exitCode: 1,
+        error: `Missing secrets on worker for node "${input.node.id}": ${missing.join(', ')}. Run 'sua secrets set <name>'.`,
+        category: 'setup',
+        usedWorkflowProvider: 'temporal',
+      };
+    }
+  }
+
+  const onProgress = (event: SpawnProgress): void => {
+    // Heartbeat the latest event. Carrying progress is refined in PR3; here it
+    // is primarily what makes the activity cancellable.
+    try { ctx?.heartbeat(event); } catch { /* heartbeat outside activity ctx — ignore */ }
+  };
+
+  const result = await spawnNodeReal(
+    input.node,
+    env,
+    {
+      agentId: input.agentId,
+      agentSource: input.agentSource,
+      // Community-shell trust is enforced by executeAgentDag before the node
+      // ever reaches a backend, so the worker needs no allowlist here.
+      allowUntrustedShell: new Set<string>(),
+      llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+    },
+    onProgress,
+    ctx?.cancellationSignal,
+  );
+
+  return { ...result, usedWorkflowProvider: 'temporal' };
 }

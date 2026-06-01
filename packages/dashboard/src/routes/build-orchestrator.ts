@@ -170,6 +170,7 @@ async function kickoffAgentRun(args: {
       variablesStore: ctx.variablesStore,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
     },
   ).catch(() => { /* failure surfaces via runStore.getRun(runId).status */ });
   return runId;

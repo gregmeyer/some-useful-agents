@@ -11,14 +11,22 @@
 This page is the operator guide: start Temporal in Docker, point `sua` at it,
 run a worker, and monitor it.
 
-> **Scope note (current release).** Only **v1 single-node agents** route through
-> Temporal today — the path behind "Run now" and `sua agent run`. **v2 DAG
-> agents** (anything multi-node: triage, build-from-goal, layout-planner, and
-> most agents built in the dashboard) run **in-process via `executeAgentDag`
-> regardless of the provider.** So with Temporal enabled, the Temporal Web UI
-> shows your v1 runs only; multi-node agents won't appear there yet. Making v2
-> DAGs execute as Temporal workflows is planned (Phase B) — see
-> `ROADMAP.md` / the Temporal wiring plan.
+> **Scope note (current release).** Both **v1 single-node agents** (behind "Run
+> now" and `sua agent run`) and **v2 DAG agents** (triage, build-from-goal,
+> layout-planner, dashboard-built agents) run on Temporal when the dashboard is
+> started with `--provider temporal`. v2 DAGs execute **one workflow per node**
+> (`sua-node-<runId>-<nodeId>`): the dashboard still orchestrates the DAG
+> in-process and offloads each node's shell/LLM work to a worker activity. So
+> node execution is durable + cancellable + visible in the UI, but the
+> *orchestration* still lives in the dashboard — a daemon crash mid-run loses the
+> in-flight run. Collapsing a whole DAG into a single durable workflow (so runs
+> survive a crash and resume) is the next step — see the Temporal wiring plan.
+>
+> Secrets a node declares are read on the worker from the secrets file and never
+> travel in the Temporal activity payload (which Temporal persists in history). A
+> few non-declared sensitive env values are dropped before crossing to the worker
+> rather than risk landing in workflow history; a payload-encryption codec to
+> lift that limitation is a planned follow-up.
 
 ## Architecture: server in Docker, worker on the host
 

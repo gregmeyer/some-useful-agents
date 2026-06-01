@@ -495,11 +495,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: agent loop still runs, just doesn't persist iterations.
   }
 
+  // v2 DAG node backend. When the provider is Temporal it builds a SpawnNodeFn
+  // that runs each node on the worker; every executeAgentDag call passes it as
+  // deps.spawnNode. Undefined for local ⇒ in-process execution (unchanged).
+  const workflowSpawnNode = provider.createSpawnNode?.();
+
   const ctx: DashboardContext = {
     token,
     allowlist: buildLoopbackAllowlist(opts.port),
     port: opts.port,
     provider,
+    workflowSpawnNode,
     runStore,
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),
