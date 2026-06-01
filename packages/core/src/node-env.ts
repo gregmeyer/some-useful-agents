@@ -221,3 +221,35 @@ export function filterEnvForLog(env: Record<string, string>, node: AgentNode): R
   }
   return out;
 }
+
+/**
+ * Split an env map into the keys that are safe to ship off-process and the
+ * sensitive keys that must not be. Used by the Temporal node backend: secret
+ * values get resolved into env before a node spawns, so before handing env to
+ * an activity (whose input Temporal persists in workflow history) we drop
+ * anything sensitive. The worker re-injects the node's *declared* secrets from
+ * `secretsPath`; non-declared sensitive keys (rare — only `LC_*` passes through
+ * from process.env) are simply dropped. Same sensitivity rules as
+ * `filterEnvForLog` (declared secrets, sensitive names, sensitive value
+ * patterns).
+ */
+export function stripSensitiveEnv(
+  env: Record<string, string>,
+  node: AgentNode,
+): { safe: Record<string, string>; strippedKeys: string[] } {
+  const safe: Record<string, string> = {};
+  const strippedKeys: string[] = [];
+  const secrets = new Set(node.secrets ?? []);
+  for (const [k, v] of Object.entries(env)) {
+    if (
+      secrets.has(k) ||
+      looksLikeSensitive(k) ||
+      SENSITIVE_VALUE_PATTERNS.some((re) => re.test(v))
+    ) {
+      strippedKeys.push(k);
+    } else {
+      safe[k] = v;
+    }
+  }
+  return { safe, strippedKeys };
+}
