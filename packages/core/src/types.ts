@@ -115,6 +115,13 @@ export interface Run {
    */
   retryOfRunId?: string;
   attempt?: number;
+  /**
+   * Which execution backend ran this: `'local'` (in-process) or `'temporal'`
+   * (durable worker). Distinct from the LLM provider axis
+   * (`NodeExecutionRecord.usedProvider`). NULL/undefined on legacy rows ↔
+   * treat as `local`.
+   */
+  usedWorkflowProvider?: string;
 }
 
 export interface RunRequest {

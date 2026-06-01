@@ -253,6 +253,9 @@ export async function executeAgentDag(
     parentNodeId: options.parentNodeId,
     retryOfRunId: options.retryOf?.originalRunId,
     attempt: options.retryOf?.attempt,
+    // v2 DAGs execute in-process today. B1b will set this to 'temporal' per
+    // node when spawns route through a Temporal activity.
+    usedWorkflowProvider: 'local',
   });
 
   const outputs = new Map<string, NodeOutput>();

@@ -636,6 +636,12 @@ export interface NodeExecutionRecord {
    * size stays bounded.
    */
   attemptedProviders?: string;
+  /**
+   * Execution backend that ran this node: `'local'` (in-process) or
+   * `'temporal'` (worker activity). Different axis from `usedProvider`
+   * above, which is the LLM provider. Undefined on legacy rows ↔ `local`.
+   */
+  usedWorkflowProvider?: string;
 }
 
 /**
