@@ -3,7 +3,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { sectionTabs } from './section-tabs.js';
-import { statusBadge, formatDuration, formatAge } from './components.js';
+import { statusBadge, formatDuration, formatAge, workflowProviderBadge } from './components.js';
 
 export interface RunsListOptions {
   rows: Run[];
@@ -39,7 +39,7 @@ export function renderRunsList(opts: RunsListOptions): string {
   const runRows = rows.map((r) => html`
     <tr>
       <td><a href="/runs/${r.id}" class="mono">${r.id.slice(0, 8)}</a></td>
-      <td><a href="/agents/${r.agentName}">${r.agentName}</a></td>
+      <td><a href="/agents/${r.agentName}">${r.agentName}</a> ${workflowProviderBadge(r.usedWorkflowProvider)}</td>
       <td>${statusBadge(r.status)}</td>
       <td class="dim">${formatAge(r.startedAt)}</td>
       <td class="dim">${formatDuration(r.startedAt, r.completedAt)}</td>

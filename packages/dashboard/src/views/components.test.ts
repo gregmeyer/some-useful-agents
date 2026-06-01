@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { formatExitCode, stripEnclosingCodeFence } from './components.js';
+import { formatExitCode, stripEnclosingCodeFence, workflowProviderBadge } from './components.js';
+import { render } from './html.js';
+
+describe('workflowProviderBadge', () => {
+  it('renders a chip only for temporal', () => {
+    expect(render(workflowProviderBadge('temporal'))).toContain('temporal');
+    expect(render(workflowProviderBadge('temporal'))).toContain('badge');
+  });
+
+  it('renders nothing for local or undefined (color stays rare)', () => {
+    expect(render(workflowProviderBadge('local'))).toBe('');
+    expect(render(workflowProviderBadge(undefined))).toBe('');
+  });
+});
 
 describe('formatExitCode', () => {
   it('renders a plain exit code', () => {

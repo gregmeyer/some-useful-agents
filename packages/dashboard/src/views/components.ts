@@ -28,6 +28,16 @@ export function sourceBadge(source: string): SafeHtml {
 }
 
 /**
+ * Execution-backend badge. Only renders for runs that ran on Temporal — the
+ * default (local / undefined) is the common case and gets no chip, keeping
+ * color rare and meaningful per DESIGN.md. Returns empty html for local.
+ */
+export function workflowProviderBadge(provider?: string): SafeHtml {
+  if (provider !== 'temporal') return html``;
+  return html`<span class="badge badge--info" title="Ran on the Temporal worker backend">temporal</span>`;
+}
+
+/**
  * Strip a single enclosing Markdown code fence. LLM nodes routinely wrap their
  * whole output in ```json … ``` (or ```), which renders as literal backticks in
  * the stdout frame. When the entire (trimmed) text is one fenced block, return
