@@ -33,6 +33,13 @@ export type SpawnResult = ExecutionResult & {
    * for shell nodes.
    */
   attemptedProviders?: string[];
+  /**
+   * Execution backend that actually ran this node: `'local'` (in-process)
+   * or `'temporal'` (worker activity). A backend (the injected spawnNode)
+   * self-reports here; the executor copies it onto the node_executions row.
+   * Distinct from `usedProvider` (the LLM provider). Undefined ↔ local.
+   */
+  usedWorkflowProvider?: string;
 };
 
 /**
@@ -94,10 +101,20 @@ export type LlmFailureCategory =
   | 'auth_required'
   | 'other';
 
+/**
+ * Pluggable node-execution backend. `spawnNodeReal` is the in-process
+ * implementation; a Temporal-backed spawnNode (B1b) implements the same
+ * signature to run the node on a worker. The trailing callbacks are optional
+ * so lightweight injectors (test doubles) can ignore them — they receive the
+ * same `onProgress` / `signal` / `onSpawn` the real spawner does.
+ */
 export type SpawnNodeFn = (
   node: AgentNode,
   env: Record<string, string>,
   opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string>; llmSettings?: LlmSettingsSnapshot },
+  onProgress?: (event: SpawnProgress) => void,
+  signal?: AbortSignal,
+  onSpawn?: (pid: number, startedAtMs: number) => void,
 ) => Promise<SpawnResult>;
 
 /**

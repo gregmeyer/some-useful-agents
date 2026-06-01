@@ -303,7 +303,7 @@ export class RunStore {
     return this.rowToRun(row);
   }
 
-  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error'>>): void {
+  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
 
@@ -312,6 +312,7 @@ export class RunStore {
     if (updates.result !== undefined) { fields.push('result = ?'); values.push(updates.result); }
     if (updates.exitCode !== undefined) { fields.push('exitCode = ?'); values.push(updates.exitCode); }
     if (updates.error !== undefined) { fields.push('error = ?'); values.push(updates.error); }
+    if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
 
     if (fields.length === 0) return;
 
