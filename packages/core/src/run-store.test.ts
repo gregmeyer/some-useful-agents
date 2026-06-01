@@ -108,6 +108,13 @@ describe('RunStore', () => {
     expect(retrieved!.exitCode).toBe(0);
   });
 
+  it('round-trips usedWorkflowProvider; undefined when unset (legacy/local)', () => {
+    store.createRun(makeRun({ id: 'r-temporal', usedWorkflowProvider: 'temporal' }));
+    store.createRun(makeRun({ id: 'r-default' }));
+    expect(store.getRun('r-temporal')!.usedWorkflowProvider).toBe('temporal');
+    expect(store.getRun('r-default')!.usedWorkflowProvider).toBeUndefined();
+  });
+
   it.skipIf(platform() === 'win32')('chmods the DB file to 0o600 on create', () => {
     const mode = statSync(TEST_DB).mode & 0o777;
     expect(mode).toBe(0o600);
@@ -281,6 +288,21 @@ describe('RunStore node_executions', () => {
     expect(got!.nodeId).toBe('fetch');
     expect(got!.status).toBe('running');
     expect(got!.errorCategory).toBeUndefined();
+  });
+
+  it('round-trips usedWorkflowProvider on a node execution', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'fetch', workflowVersion: 1,
+      status: 'completed', startedAt: new Date().toISOString(),
+      usedWorkflowProvider: 'temporal',
+    });
+    expect(store.getNodeExecution('r-x', 'fetch')!.usedWorkflowProvider).toBe('temporal');
+    // A node written without the field reads back undefined (legacy/local).
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'parse', workflowVersion: 1,
+      status: 'completed', startedAt: new Date().toISOString(),
+    });
+    expect(store.getNodeExecution('r-x', 'parse')!.usedWorkflowProvider).toBeUndefined();
   });
 
   it('persists errorCategory on failed rows', () => {

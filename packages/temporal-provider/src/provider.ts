@@ -58,6 +58,7 @@ export class TemporalProvider implements Provider {
       status: 'pending',
       startedAt: new Date().toISOString(),
       triggeredBy: request.triggeredBy,
+      usedWorkflowProvider: 'temporal',
     };
     this.store.createRun(run);
 

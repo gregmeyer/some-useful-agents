@@ -57,6 +57,7 @@ export class LocalProvider implements Provider {
       status: 'running',
       startedAt: new Date().toISOString(),
       triggeredBy: request.triggeredBy,
+      usedWorkflowProvider: 'local',
     };
 
     this.store.createRun(run);

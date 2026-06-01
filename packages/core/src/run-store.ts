@@ -180,6 +180,14 @@ export class RunStore {
     if (!runCols.has('attempt')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`);
     }
+
+    // Workflow (execution backend) provider: which provider executed this run
+    // — 'local' (in-process) or 'temporal' (worker). Distinct from the LLM
+    // provider axis (node_executions.usedProvider). Nullable; NULL ↔ legacy/
+    // local. See ~/.claude/plans/temporal-wiring.md (B1a).
+    if (!runCols.has('usedworkflowprovider')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN usedWorkflowProvider TEXT`);
+    }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_runs_retry_of
         ON runs(retry_of_run_id) WHERE retry_of_run_id IS NOT NULL;
@@ -228,6 +236,14 @@ export class RunStore {
     if (!execCols.has('attemptedproviders')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN attemptedProviders TEXT`);
     }
+
+    // Workflow (execution backend) provider per node: 'local' | 'temporal'.
+    // Different axis from `usedProvider` above, which is the LLM provider
+    // (claude/codex/apple) — read that as the "LLM provider". This one records
+    // where the node's work actually ran. Nullable; NULL ↔ legacy/local.
+    if (!execCols.has('usedworkflowprovider')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
+    }
   }
 
   /**
@@ -247,8 +263,8 @@ export class RunStore {
     const stmt = this.db.prepare(`
       INSERT INTO runs (id, agentName, status, startedAt, completedAt, result, exitCode, error, triggeredBy,
                         workflow_id, workflow_version, replayed_from_run_id, replayed_from_node_id,
-                        parent_run_id, parent_node_id, retry_of_run_id, attempt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        parent_run_id, parent_node_id, retry_of_run_id, attempt, usedWorkflowProvider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       run.id, run.agentName, run.status, run.startedAt,
@@ -258,6 +274,7 @@ export class RunStore {
       run.replayedFromRunId ?? null, run.replayedFromNodeId ?? null,
       run.parentRunId ?? null, run.parentNodeId ?? null,
       run.retryOfRunId ?? null, run.attempt ?? 1,
+      run.usedWorkflowProvider ?? null,
     );
   }
 
@@ -412,8 +429,8 @@ export class RunStore {
         startedAt, completedAt, result, exitCode, error,
         inputsJson, upstreamInputsJson, outputsJson, progressJson,
         stateBytesBefore, stateBytesAfter, childPid, childStartedAtMs,
-        usedProvider, attemptedProviders
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        usedProvider, attemptedProviders, usedWorkflowProvider
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       record.runId, record.nodeId, record.workflowVersion, record.status,
@@ -425,6 +442,7 @@ export class RunStore {
       record.stateBytesBefore ?? null, record.stateBytesAfter ?? null,
       record.childPid ?? null, record.childStartedAtMs ?? null,
       record.usedProvider ?? null, record.attemptedProviders ?? null,
+      record.usedWorkflowProvider ?? null,
     );
   }
 
@@ -432,7 +450,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedProvider' | 'attemptedProviders'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedProvider' | 'attemptedProviders' | 'usedWorkflowProvider'
     >>,
   ): void {
     const fields: string[] = [];
@@ -453,6 +471,7 @@ export class RunStore {
     if (updates.childStartedAtMs !== undefined) { fields.push('childStartedAtMs = ?'); values.push(updates.childStartedAtMs); }
     if (updates.usedProvider !== undefined) { fields.push('usedProvider = ?'); values.push(updates.usedProvider); }
     if (updates.attemptedProviders !== undefined) { fields.push('attemptedProviders = ?'); values.push(updates.attemptedProviders); }
+    if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -524,6 +543,7 @@ export class RunStore {
       parentNodeId: (row.parent_node_id as string | null) ?? undefined,
       retryOfRunId: (row.retry_of_run_id as string | null) ?? undefined,
       attempt: typeof row.attempt === 'number' ? row.attempt : 1,
+      usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
     };
   }
 
@@ -549,6 +569,7 @@ export class RunStore {
       childStartedAtMs: (row.childStartedAtMs as number | null) ?? undefined,
       usedProvider: (row.usedProvider as string | null) ?? undefined,
       attemptedProviders: (row.attemptedProviders as string | null) ?? undefined,
+      usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
     };
   }
 }
