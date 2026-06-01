@@ -261,6 +261,9 @@ export async function executeAgentDag(
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
   let firstFailure: { nodeId: string; category: NodeErrorCategory } | undefined;
+  // Roll-up of the per-node execution backend: if any node ran on Temporal,
+  // the run-level usedWorkflowProvider is promoted from its created 'local'.
+  let ranOnTemporal = false;
   let flowEnded = false;
   const skippedNodes = new Set<string>();
 
@@ -938,9 +941,7 @@ export async function executeAgentDag(
             model: node.model ?? agent.model,
           };
           const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings };
-          const spawnResult = spawnFn === spawnNodeReal
-            ? await spawnNodeReal(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
-            : await spawnFn(synthNode, env, spawnOpts);
+          const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
         }
@@ -954,9 +955,7 @@ export async function executeAgentDag(
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings };
-        const spawnResult = spawnFn === spawnNodeReal
-          ? await spawnNodeReal(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn)
-          : await spawnFn(nodeWithDefaults, env, spawnOpts);
+        const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get
@@ -987,6 +986,8 @@ export async function executeAgentDag(
     const outputsJson = structuredOutput ? JSON.stringify(structuredOutput) : undefined;
     const stateBytesAfter = deps.dataRoot ? stateDirSize(agent.id, deps.dataRoot) : undefined;
 
+    if (result.usedWorkflowProvider === 'temporal') ranOnTemporal = true;
+
     if (result.exitCode === 0) {
       outputs.set(node.id, {
         result: result.result,
@@ -1003,6 +1004,7 @@ export async function executeAgentDag(
         stateBytesAfter,
         usedProvider: result.usedProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
+        usedWorkflowProvider: result.usedWorkflowProvider,
       });
     } else {
       const category: NodeErrorCategory =
@@ -1020,6 +1022,7 @@ export async function executeAgentDag(
         outputsJson,
         usedProvider: result.usedProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
+        usedWorkflowProvider: result.usedWorkflowProvider,
         stateBytesAfter,
       });
       firstFailure = { nodeId: node.id, category };
@@ -1070,6 +1073,9 @@ export async function executeAgentDag(
     completedAt: new Date().toISOString(),
     result: lastCompleted?.result,
     error: finalError,
+    // Promote the run-level backend to 'temporal' if any node ran there;
+    // otherwise leave the 'local' stamped at creation (undefined = no change).
+    usedWorkflowProvider: ranOnTemporal ? 'temporal' : undefined,
   });
 
   const run = deps.runStore.getRun(runId);

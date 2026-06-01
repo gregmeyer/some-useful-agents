@@ -2136,3 +2136,45 @@ describe('executeAgentDag — agent wall-clock timeout (Agent.timeoutSec)', () =
     expect(execs.find((e) => e.nodeId === 'b')!.status).toBe('cancelled');
   });
 });
+
+describe('executeAgentDag spawn backend seam (B1b)', () => {
+  it('passes onProgress + signal to an injected spawnNode and stamps usedWorkflowProvider', async () => {
+    let sawOnProgress = false;
+    let sawSignal = false;
+    const backend: DagExecutorDeps['spawnNode'] = async (_node, _env, _opts, onProgress, signal) => {
+      sawOnProgress = typeof onProgress === 'function';
+      sawSignal = signal instanceof AbortSignal;
+      // A backend self-reports where it ran; the executor copies it onto the row.
+      return { result: 'done', exitCode: 0, usedWorkflowProvider: 'temporal' };
+    };
+
+    const run = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: backend },
+    );
+
+    // The widened seam hands the injected backend the same callbacks the real
+    // spawner gets — without these, a Temporal backend couldn't stream or cancel.
+    expect(sawOnProgress).toBe(true);
+    expect(sawSignal).toBe(true);
+
+    // The backend's self-reported execution provider lands on the node row and
+    // rolls up to the run.
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'main')!.usedWorkflowProvider).toBe('temporal');
+    expect(runStore.getRun(run.id)!.usedWorkflowProvider).toBe('temporal');
+  });
+
+  it('leaves usedWorkflowProvider as local when the backend does not report temporal', async () => {
+    const run = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }) },
+    );
+    // Created as 'local'; no node reported temporal, so it stays local.
+    expect(runStore.getRun(run.id)!.usedWorkflowProvider).toBe('local');
+    const execs = runStore.listNodeExecutions(run.id);
+    expect(execs.find((e) => e.nodeId === 'main')!.usedWorkflowProvider).toBeUndefined();
+  });
+});
