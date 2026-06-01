@@ -47,6 +47,7 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
       dashboardBaseUrl: ctx.dashboardBaseUrl,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
+      spawnNode: ctx.workflowSpawnNode,
     },
   );
 
