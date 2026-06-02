@@ -75,6 +75,46 @@ export function formatAge(timestamp: string): string {
   return `${Math.floor(ms / 86_400_000)}d ago`;
 }
 
+// Bare ISO-8601 timestamps that leak into agent/user prose (e.g.
+// "2026-05-30T04:15:41.198Z"). Matched loosely; validated via Date before
+// rewriting so non-date lookalikes are left untouched.
+const ISO_TS_RE = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?\b/g;
+const ABS_DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+/**
+ * Rewrite bare ISO timestamps in free text to a human form:
+ * `2026-05-30T04:15:41Z` → `May 30, 2026 (3d ago)`. Reuses `formatAge` for the
+ * relative part. Intended to run on plain text BEFORE Markdown rendering.
+ */
+export function humanizeTimestamps(text: string): string {
+  if (!text) return text;
+  return text.replace(ISO_TS_RE, (match) => {
+    const d = new Date(match);
+    if (Number.isNaN(d.getTime())) return match;
+    return `${ABS_DATE_FMT.format(d)} (${formatAge(match)})`;
+  });
+}
+
+// Bare references to run/agent detail pages. Lookbehind avoids matching when the
+// slash is already part of a longer path or token.
+const REF_RE = /(?<![A-Za-z0-9_/])\/(?:runs|agents)\/[A-Za-z0-9_-]+/g;
+// Existing Markdown links and inline code, kept intact so we don't double-link.
+const PROTECT_RE = /(\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
+
+/**
+ * Turn bare `/runs/<id>` and `/agents/<id>` references in free text into
+ * Markdown links so they become clickable after Markdown rendering. Existing
+ * Markdown links and inline-code spans are left untouched. Runs on plain text
+ * BEFORE Markdown rendering.
+ */
+export function linkifyRefs(text: string): string {
+  if (!text) return text;
+  return text
+    .split(PROTECT_RE)
+    .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF_RE, (m) => `[${m}](${m})`)))
+    .join('');
+}
+
 const EXIT_CODE_LABELS: Record<number, string> = {
   0: 'success',
   1: 'general error',
