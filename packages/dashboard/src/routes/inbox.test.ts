@@ -815,6 +815,8 @@ describe('POST /inbox/:id/actions/:rid/run — agent-catalog-search enrichment',
     expect(meta.resultSummary).toContain('weather-forecast-marker');
     // System agent must NOT appear in the injected catalog.
     expect(meta.resultSummary).not.toContain('agent-analyzer');
+    // The catalog carries createdAt so recency ("newest agent?") is answerable.
+    expect(meta.resultSummary).toContain('createdAt');
   });
 });
 

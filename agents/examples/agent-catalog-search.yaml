@@ -30,8 +30,9 @@ inputs:
     required: false
     default: ""
     description: >
-      JSON snapshot of installed agents. Each entry has
-      `{id, name, description, tags, source, status}`. Auto-injected by
+      JSON snapshot of installed agents, sorted newest-first. Each entry has
+      `{id, name, description, tags, source, status, createdAt}` where
+      `createdAt` is the ISO time the agent was installed. Auto-injected by
       the inbox route at action-run time.
 
 nodes:
@@ -79,6 +80,13 @@ nodes:
       - Rank by relevance. Score 1.0 = perfect match, 0.0 = no signal.
       - Cap at 5 matches. If nothing scores above 0.3, return zero
         matches and put a short explanation in `recommendation`.
+      - RECENCY queries ("what's the newest agent?", "most recently added",
+        "latest agent", "what did I install last?"): the catalog is sorted
+        newest-first by `createdAt`, so the FIRST eligible entry is the
+        answer. Return it as the single match (score 1.0) and state its
+        `createdAt` in `recommendation` (e.g. "node-discovery, added
+        2026-05-31"). Do NOT hedge about list order — `createdAt` is
+        authoritative.
 
       ════════════════════════════════════════════════════════════════
       OUTPUT FORMAT — exact shape, single <matches>...</matches> block
