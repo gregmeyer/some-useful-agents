@@ -3,6 +3,7 @@ import { spawnService, stopService, getServiceStatus } from '@some-useful-agents
 import { getContext } from '../context.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsTemporal } from '../views/settings-temporal.js';
+import { TEMPORAL_UI_URL } from '../lib/temporal-link.js';
 
 /**
  * Routes for /settings/temporal: the run provider, Temporal connection, and the
@@ -13,7 +14,6 @@ import { renderSettingsTemporal } from '../views/settings-temporal.js';
 export const settingsTemporalRouter: Router = Router();
 
 const DEFAULT_TEMPORAL = { address: 'localhost:7233', namespace: 'default', taskQueue: 'sua-agents' };
-const TEMPORAL_UI_URL = 'http://localhost:8233';
 
 settingsTemporalRouter.get('/settings/temporal', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
