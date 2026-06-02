@@ -113,6 +113,11 @@ of scope for this release — wrap in launchd / systemd if you need it.
         allowUntrustedShell,
         dashboardBaseUrl: getDashboardBaseUrl(config),
         provider,
+        temporal: {
+          address: config.temporalAddress ?? 'localhost:7233',
+          namespace: config.temporalNamespace ?? 'default',
+          taskQueue: config.temporalTaskQueue ?? 'sua-agents',
+        },
       });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {

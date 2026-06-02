@@ -115,9 +115,21 @@ sua worker start
 # ✓ Worker connected. Listening for agent runs...
 ```
 
-Leave it running (Ctrl-C stops it). For a long-lived setup, wrap it in
-`launchd` / `systemd`, or run it under `sua daemon` if you manage services that
-way.
+Leave it running (Ctrl-C stops it). Three ways to keep it up long-lived:
+
+- **Daemon service.** The worker is a managed `sua daemon` service. Add it to
+  `daemon.services` in `sua.config.json` (alongside `dashboard` / `mcp`), or
+  start it directly: `sua daemon start --service worker`. `sua daemon status`
+  shows it; `sua daemon stop --service worker` stops it. When
+  `provider: temporal` is set in config, `sua daemon start` also passes
+  `--provider temporal` to the dashboard + MCP server so the whole stack agrees.
+- **One command for the whole stack.** `./scripts/temporal-up.sh` brings up the
+  Temporal server (Docker), waits for health, then starts the dashboard, MCP,
+  and worker on the temporal provider — and prints the sign-in URL.
+  `./scripts/temporal-down.sh` tears it back down.
+- **From the dashboard.** `Settings → Temporal` shows the worker's status with
+  Start / Stop buttons (it manages the same daemon-tracked worker), plus the
+  active provider and the Temporal connection. `launchd` / `systemd` also work.
 
 > If you submit a Temporal run with **no worker** polling, the run sits
 > `pending` — the Temporal server has accepted the workflow but nothing is

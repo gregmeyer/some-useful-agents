@@ -36,7 +36,7 @@ describe('daemonPaths', () => {
   });
 
   it('exposes the canonical service list', () => {
-    expect(ALL_SERVICES).toEqual(['schedule', 'dashboard', 'mcp']);
+    expect(ALL_SERVICES).toEqual(['schedule', 'dashboard', 'mcp', 'worker']);
   });
 });
 

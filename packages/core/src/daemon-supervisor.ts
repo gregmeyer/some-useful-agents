@@ -19,9 +19,9 @@ import {
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 
-export type ServiceName = 'schedule' | 'dashboard' | 'mcp';
+export type ServiceName = 'schedule' | 'dashboard' | 'mcp' | 'worker';
 
-export const ALL_SERVICES: readonly ServiceName[] = ['schedule', 'dashboard', 'mcp'] as const;
+export const ALL_SERVICES: readonly ServiceName[] = ['schedule', 'dashboard', 'mcp', 'worker'] as const;
 
 export interface SpawnedService {
   name: ServiceName;
@@ -131,6 +131,10 @@ const SERVICE_ARGV: Record<ServiceName, string[]> = {
   schedule: ['schedule', 'start'],
   dashboard: ['dashboard', 'start'],
   mcp: ['mcp', 'start'],
+  // The Temporal worker. Only useful when the provider is `temporal`; it polls
+  // the task queue and executes agent/node work on the host (ADR-0004). Opt-in
+  // via `daemon.services` or `sua daemon start --service worker`.
+  worker: ['worker', 'start'],
 };
 
 /**
