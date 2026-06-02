@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Client } from '@temporalio/client';
-import type { AgentNode, SpawnResult } from '@some-useful-agents/core';
-import { createTemporalSpawnNode } from './node-spawn.js';
+import type { AgentNode, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
+import { createTemporalSpawnNode, extractHeartbeatProgress } from './node-spawn.js';
 
 const node = (overrides: Partial<AgentNode> = {}): AgentNode => ({
   id: 'fetch',
@@ -21,6 +21,10 @@ function fakeClient(behavior: {
   reject?: Error;
   onStart?: (args: { workflowType: string; options: { workflowId: string; taskQueue: string; args: unknown[] } }) => void;
   onCancel?: () => void;
+  /** When set, result() resolves only after this many ms (lets polls run first). */
+  resultAfterMs?: number;
+  /** Returns the describe() payload (e.g. pendingActivities with heartbeatDetails). */
+  describe?: () => unknown;
 }): Client {
   return {
     workflow: {
@@ -29,9 +33,11 @@ function fakeClient(behavior: {
         return {
           workflowId: options.workflowId,
           async result(): Promise<SpawnResult> {
+            if (behavior.resultAfterMs) await new Promise((r) => setTimeout(r, behavior.resultAfterMs));
             if (behavior.reject) throw behavior.reject;
             return behavior.result ?? { result: 'ok', exitCode: 0 };
           },
+          async describe() { return behavior.describe ? behavior.describe() : { pendingActivities: [] }; },
           async cancel() { behavior.onCancel?.(); },
         };
       },
@@ -103,5 +109,42 @@ describe('createTemporalSpawnNode', () => {
     expect(res.exitCode).toBe(1);
     expect(res.error).toContain('boom');
     expect(res.category).toBe('exit_nonzero');
+  });
+
+  it('re-emits heartbeated progress through onProgress, each event once', async () => {
+    const trail: SpawnProgress[] = [
+      { timestamp: 't1', type: 'turn_start', turn: 1 },
+      { timestamp: 't2', type: 'tool_use', message: 'bash' },
+    ];
+    const client = fakeClient({
+      result: { result: 'ok', exitCode: 0 },
+      resultAfterMs: 60,                       // let the poll fire before completion
+      describe: () => ({ pendingActivities: [{ heartbeatDetails: { progress: trail } }] }),
+    });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc', progressPollMs: 10 });
+
+    const seen: SpawnProgress[] = [];
+    await spawn(node(), { PATH: '/usr/bin' }, spawnOpts, (e) => seen.push(e));
+
+    // Both events surfaced exactly once, in order — despite many polls.
+    expect(seen).toEqual(trail);
+  });
+});
+
+describe('extractHeartbeatProgress', () => {
+  const trail: SpawnProgress[] = [{ timestamp: 't1', type: 'turn_start', turn: 1 }];
+
+  it('reads progress from a single heartbeatDetails object', () => {
+    expect(extractHeartbeatProgress({ pendingActivities: [{ heartbeatDetails: { progress: trail } }] })).toEqual(trail);
+  });
+
+  it('reads progress when details are wrapped in an array', () => {
+    expect(extractHeartbeatProgress({ pendingActivities: [{ heartbeatDetails: [{ progress: trail }] }] })).toEqual(trail);
+  });
+
+  it('returns [] when there is no pending activity or no heartbeat yet', () => {
+    expect(extractHeartbeatProgress({ pendingActivities: [] })).toEqual([]);
+    expect(extractHeartbeatProgress({})).toEqual([]);
+    expect(extractHeartbeatProgress({ pendingActivities: [{}] })).toEqual([]);
   });
 });
