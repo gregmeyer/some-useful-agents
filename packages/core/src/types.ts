@@ -1,4 +1,5 @@
 import type { SpawnNodeFn } from './node-spawner.js';
+import type { Agent } from './agent-v2-types.js';
 
 export interface AgentInputSpec {
   type: 'string' | 'number' | 'boolean' | 'enum';
@@ -153,4 +154,23 @@ export interface Provider {
    * (local) leave this undefined and the executor uses its built-in spawner.
    */
   createSpawnNode?(): SpawnNodeFn;
+  /**
+   * Optional: submit a whole v2 DAG agent as a DURABLE run (B2). The Temporal
+   * provider runs it as one workflow that survives a crash and resumes; the
+   * dashboard calls this for run paths whose agent resolves to the temporal
+   * backend. Returns the pending/running Run immediately. Undefined on
+   * providers without a durable path (local).
+   */
+  submitDagRun?(agent: Agent, opts: SubmitDagRunOptions): Promise<Run>;
+}
+
+/** Options for {@link Provider.submitDagRun}. */
+export interface SubmitDagRunOptions {
+  inputs?: Record<string, string>;
+  triggeredBy: Run['triggeredBy'];
+  runId?: string;
+  variablesPath?: string;
+  dataRoot?: string;
+  llmProviders?: string[];
+  allowUntrustedShell?: string[];
 }

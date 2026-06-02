@@ -354,6 +354,19 @@ export interface Agent {
   model?: string;
 
   /**
+   * Execution backend for this agent's runs (B2). Distinct from the LLM
+   * `provider` above — this is WHERE the run orchestrates:
+   *   - `'temporal'` — durable: the whole run executes as a Temporal workflow
+   *     on a worker, surviving a dashboard/worker crash and resuming.
+   *   - `'local'` — in-process (lower latency, not crash-durable).
+   *   - undefined — follow the system default (durable when the dashboard runs
+   *     with `--provider temporal`, otherwise local).
+   * Only consulted for the primary run paths (run-now, scheduler); inline
+   * sub-flows always run in-process.
+   */
+  runOn?: 'local' | 'temporal';
+
+  /**
    * Optional allowlist of sub-agent ids this agent may propose running
    * on the operator's behalf. Honored by the inbox-triage route at
    * sub-agent dispatch time: triage's `ALLOWED_SUB_AGENTS` input comes
@@ -551,6 +564,8 @@ export interface AgentVersionDag {
   permissions?: { imgSrc?: string[] };
   /** See Agent.allowedSubAgents. */
   allowedSubAgents?: string[];
+  /** See Agent.runOn. */
+  runOn?: 'local' | 'temporal';
 }
 
 /**
