@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
-import type { SpawnNodeFn, SpawnResult } from '@some-useful-agents/core';
+import type { SpawnNodeFn, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
 import { stripSensitiveEnv } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import type { RunNodeActivityInput } from './activities.js';
@@ -12,6 +12,37 @@ export interface CreateTemporalSpawnNodeOptions {
   secretsPath: string;
   /** Task queue the worker polls. Defaults to the provider's queue. */
   taskQueue?: string;
+  /**
+   * How often to poll the workflow for heartbeated progress, in ms. Defaults to
+   * 1000. The worker heartbeats the full progress trail; the poll diffs by index
+   * and re-emits new events through `onProgress`. Set 0 to disable polling.
+   */
+  progressPollMs?: number;
+}
+
+/**
+ * Minimal shape of a Temporal workflow description we read for progress. The
+ * worker heartbeats `{ progress: SpawnProgress[] }`; depending on SDK surfacing
+ * `heartbeatDetails` may arrive as that object or wrapped in a details array.
+ */
+interface DescribeLike {
+  pendingActivities?: Array<{ heartbeatDetails?: unknown }>;
+}
+
+/**
+ * Pull the accumulated progress trail out of a workflow `describe()` result.
+ * Defensive about how the data converter surfaces heartbeat details (single
+ * object vs. array-of-details). Returns [] when there's no pending activity or
+ * no heartbeat yet.
+ */
+export function extractHeartbeatProgress(description: DescribeLike): SpawnProgress[] {
+  for (const act of description.pendingActivities ?? []) {
+    const d = act.heartbeatDetails;
+    const obj = Array.isArray(d) ? d[0] : d;
+    const progress = (obj as { progress?: unknown } | undefined)?.progress;
+    if (Array.isArray(progress)) return progress as SpawnProgress[];
+  }
+  return [];
 }
 
 /**
@@ -30,7 +61,9 @@ export interface CreateTemporalSpawnNodeOptions {
 export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): SpawnNodeFn {
   const taskQueue = opts.taskQueue ?? DEFAULT_TASK_QUEUE;
 
-  return async (node, env, spawnOpts, _onProgress, signal): Promise<SpawnResult> => {
+  const pollMs = opts.progressPollMs ?? 1000;
+
+  return async (node, env, spawnOpts, onProgress, signal): Promise<SpawnResult> => {
     const { safe } = stripSensitiveEnv(env, node);
     const input: RunNodeActivityInput = {
       node,
@@ -67,6 +100,29 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
 
+    // Live progress: poll the workflow's heartbeated progress trail and re-emit
+    // any events not yet surfaced through the real onProgress. Because the
+    // executor still orchestrates in-process, this drives the normal path —
+    // node_executions.progressJson writes AND the inbox token stream — for
+    // Temporal runs, at ~poll-interval granularity (not token-by-token).
+    let progressTimer: ReturnType<typeof setTimeout> | undefined;
+    let emitted = 0;
+    let polling = false;
+    const poll = async (): Promise<void> => {
+      if (polling) return;
+      polling = true;
+      try {
+        const desc = await handle.describe();
+        const trail = extractHeartbeatProgress(desc as DescribeLike);
+        for (let i = emitted; i < trail.length; i++) onProgress?.(trail[i]);
+        emitted = Math.max(emitted, trail.length);
+      } catch { /* describe races completion — ignore, the result settles below */ }
+      finally { polling = false; }
+    };
+    if (onProgress && pollMs > 0) {
+      progressTimer = setInterval(() => { void poll(); }, pollMs);
+    }
+
     try {
       const result = await handle.result();
       // The activity stamps this too, but guarantee it from the factory so the
@@ -84,6 +140,7 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
         usedWorkflowProvider: 'temporal',
       };
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       if (signal && !signal.aborted) signal.removeEventListener('abort', onAbort);
     }
   };

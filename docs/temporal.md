@@ -22,6 +22,12 @@ run a worker, and monitor it.
 > in-flight run. Collapsing a whole DAG into a single durable workflow (so runs
 > survive a crash and resume) is the next step — see the Temporal wiring plan.
 >
+> Live progress (turn / tool-use events, the inbox "thinking…" stream) is
+> surfaced for Temporal runs too: the worker heartbeats its progress trail and
+> the dashboard re-broadcasts it at ~1s granularity (not token-by-token, and the
+> final fraction-of-a-second batch may be dropped — the run result is always
+> captured).
+>
 > Secrets a node declares are read on the worker from the secrets file and never
 > travel in the Temporal activity payload (which Temporal persists in history). A
 > few non-declared sensitive env values are dropped before crossing to the worker

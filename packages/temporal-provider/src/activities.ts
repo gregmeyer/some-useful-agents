@@ -171,10 +171,15 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
     }
   }
 
+  // Heartbeat the FULL accumulated progress trail (not just the latest event)
+  // as a single { progress } detail. A single `describe()` read on the
+  // dashboard side then sees every event so far, so the poll-rebroadcast can
+  // diff by index and re-emit any it hasn't surfaced yet — even if it missed
+  // intermediate heartbeats. The heartbeat also keeps the activity cancellable.
+  const progressTrail: SpawnProgress[] = [];
   const onProgress = (event: SpawnProgress): void => {
-    // Heartbeat the latest event. Carrying progress is refined in PR3; here it
-    // is primarily what makes the activity cancellable.
-    try { ctx?.heartbeat(event); } catch { /* heartbeat outside activity ctx — ignore */ }
+    progressTrail.push(event);
+    try { ctx?.heartbeat({ progress: progressTrail }); } catch { /* outside activity ctx — ignore */ }
   };
 
   const result = await spawnNodeReal(
