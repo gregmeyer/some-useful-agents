@@ -309,7 +309,7 @@ export {
   type TemplateGenerator,
   type TemplateGenerationRequest,
 } from './template-generator.js';
-export { sanitizeHtml, substitutePlaceholders } from './html-sanitizer.js';
+export { sanitizeHtml, substitutePlaceholders, isSafeUrl } from './html-sanitizer.js';
 export {
   mcpServerConfigSchema,
   mcpServerIdFromKey,

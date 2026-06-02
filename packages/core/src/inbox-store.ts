@@ -71,6 +71,12 @@ export interface InboxActionMeta {
   agentId: string;
   inputs: Record<string, string>;
   rationale?: string;
+  /**
+   * Optional verb-led label for the action's Run button (e.g. "Describe this
+   * agent" instead of the generic "Run"). Triage may set it so the dispatch
+   * CTA reads naturally; falls back to "Run" when absent.
+   */
+  ctaLabel?: string;
   /** Sub-agent run id once execution starts. */
   runId?: string;
   startedAt?: number;

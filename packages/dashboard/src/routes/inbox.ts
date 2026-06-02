@@ -31,6 +31,7 @@ import {
   exportAgent,
   executeAgentDag,
   extractPlanJson,
+  isSafeUrl,
   listBuiltinTools,
   parseAgent,
   LLM_PROVIDERS,
@@ -1073,6 +1074,34 @@ function collectRunSummary(
  * so the route can surface refusals as `system` responses in the
  * conversation. Unknown agent ids fall into rejected.
  */
+/** Max structured link-CTA buttons a single triage reply may carry. */
+const MAX_TRIAGE_LINKS = 4;
+
+export interface TriageLink {
+  label: string;
+  href: string;
+}
+
+/**
+ * Validate the optional `links` array on a triage <plan>. Each entry needs a
+ * short label and an href that passes the sanitizer's URL allowlist (relative
+ * or http(s)/mailto). Capped at MAX_TRIAGE_LINKS; invalid entries are dropped.
+ */
+export function parseTriageLinks(raw: unknown): TriageLink[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TriageLink[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const label = typeof e.label === 'string' ? e.label.trim().slice(0, 40) : '';
+    const href = typeof e.href === 'string' ? e.href.trim() : '';
+    if (!label || !href || !isSafeUrl(href)) continue;
+    out.push({ label, href });
+    if (out.length >= MAX_TRIAGE_LINKS) break;
+  }
+  return out;
+}
+
 function parseProposedActions(
   rawActions: unknown,
   allowlist: readonly string[],
@@ -1101,12 +1130,14 @@ function parseProposedActions(
       }
     }
     const rationale = typeof e.rationale === 'string' ? e.rationale.trim() : undefined;
+    const ctaLabel = typeof e.ctaLabel === 'string' ? e.ctaLabel.trim().slice(0, 40) : undefined;
     accepted.push({
       kind: 'action',
       status: 'proposed',
       agentId,
       inputs,
       rationale: rationale || undefined,
+      ctaLabel: ctaLabel || undefined,
     });
   }
   return { accepted, rejected };
@@ -1744,7 +1775,7 @@ async function runTriageAgent(
       );
       return;
     }
-    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown };
+    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown };
     try {
       parsed = JSON.parse(planJson);
     } catch {
@@ -1772,9 +1803,11 @@ async function runTriageAgent(
     const commitmentSummary = commitmentRaw.length >= 3 && commitmentRaw.length <= 60
       ? commitmentRaw
       : undefined;
+    const links = parseTriageLinks(parsed.links);
     const triageMeta: Record<string, string> = {};
     if (verifyHint) triageMeta.verifyHint = verifyHint;
     if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
+    if (links.length > 0) triageMeta.links = JSON.stringify(links);
     const triageReply = ctx.inboxStore.addResponse(
       messageId,
       'triage',

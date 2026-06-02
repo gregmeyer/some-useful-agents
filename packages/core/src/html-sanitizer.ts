@@ -147,7 +147,7 @@ function isAttrAllowed(tag: string, attr: string): boolean {
  * data:image/* are allowed; everything else (javascript:, vbscript:, data:
  * with non-image MIME, file:) is dropped.
  */
-function isSafeUrl(value: string): boolean {
+export function isSafeUrl(value: string): boolean {
   const v = value.trim();
   if (!v) return false;
   // Anchor / relative paths are safe.
