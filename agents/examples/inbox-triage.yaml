@@ -262,7 +262,12 @@ nodes:
         "got a cocktail recipe agent?"). Pass `QUERY` = the user's
         request in their own words. The dashboard auto-injects the
         installed-agent catalog as `AGENT_CATALOG`, so you don't
-        thread that yourself.
+        thread that yourself. ALSO use this for RECENCY / metadata
+        questions about the catalog — "what's the newest agent?",
+        "most recently added", "what did I install last?" — the
+        injected catalog carries each agent's `createdAt`, so
+        catalog-search can answer definitively. Do not answer these
+        from memory or hedge about list order; dispatch the search.
 
         Propose `agent-catalog-search` DIRECTLY when the operator
         names a concrete topic or capability. Do NOT ask "which

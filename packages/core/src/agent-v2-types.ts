@@ -348,6 +348,14 @@ export interface Agent {
    */
   version: number;
 
+  /**
+   * ISO timestamp the agent was first created/installed (the `agents` row's
+   * `created_at`). Populated on read from the store; absent on YAML-parsed
+   * agents that haven't been persisted yet. Lets the catalog answer
+   * "what's the newest agent?".
+   */
+  createdAt?: string;
+
   /** Default LLM provider for all claude-code nodes. Nodes can override. */
   provider?: LlmProvider;
   /** Default model for all claude-code nodes. Nodes can override. */

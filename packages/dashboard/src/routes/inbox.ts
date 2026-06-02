@@ -954,6 +954,9 @@ function enrichAgentCatalogSearchInputs(
     const agents = ctx.agentStore.listAgents();
     const catalog = agents
       .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
+      // Newest first, so "what's the newest agent?" is the first entry and
+      // recency questions are answerable without guessing at list order.
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((a) => ({
         id: a.id,
         name: a.name,
@@ -961,6 +964,9 @@ function enrichAgentCatalogSearchInputs(
         tags: a.tags ?? [],
         source: a.source,
         status: a.status,
+        // ISO timestamp the agent was first installed/created. Lets the
+        // catalog-search agent answer "newest / most recently added".
+        createdAt: a.createdAt,
       }));
     out.AGENT_CATALOG = JSON.stringify(catalog);
   } catch { /* swallow — empty catalog still lets the agent respond "no matches" */ }
