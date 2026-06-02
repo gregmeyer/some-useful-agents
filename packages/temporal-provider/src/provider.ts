@@ -1,28 +1,12 @@
 import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
-import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent } from '@some-useful-agents/core';
+import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent, SubmitDagRunOptions } from '@some-useful-agents/core';
 import { RunStore } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import { createTemporalSpawnNode } from './node-spawn.js';
 import type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';
 import type { RunDagActivityInput, RunDagActivityResult } from './activities.js';
-
-/** Options for submitting a durable v2 DAG run (B2). */
-export interface SubmitDagRunOptions {
-  inputs?: Record<string, string>;
-  triggeredBy: Run['triggeredBy'];
-  /** Pre-generated run id (the caller may want it before the promise resolves). */
-  runId?: string;
-  /** Global variables JSON path, passed to the worker. */
-  variablesPath?: string;
-  /** Agent-state base dir, passed to the worker. Defaults to dirname(dbPath). */
-  dataRoot?: string;
-  /** LLM provider waterfall (names only). */
-  llmProviders?: string[];
-  /** Community shell agents pre-allowed by the operator. */
-  allowUntrustedShell?: string[];
-}
 
 export interface TemporalProviderOptions {
   dbPath: string;           // local SQLite run-store for fast CLI queries

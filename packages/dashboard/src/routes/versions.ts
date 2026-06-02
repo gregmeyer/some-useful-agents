@@ -329,6 +329,45 @@ versionsRouter.post('/agents/:id/llm', (req: Request, res: Response) => {
 });
 
 /**
+ * POST /agents/:id/run-on — set the agent's execution backend (B2).
+ * Body `runOn`: '' (default — follow provider), 'local', or 'temporal'.
+ * Creates a new version since it's part of the versioned DAG.
+ */
+versionsRouter.post('/agents/:id/run-on', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const raw = typeof (req.body as Record<string, unknown>)?.runOn === 'string'
+    ? ((req.body as Record<string, string>).runOn).trim()
+    : '';
+
+  if (raw !== '' && raw !== 'local' && raw !== 'temporal') {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Invalid backend. Must be local or temporal.')}`);
+    return;
+  }
+
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+
+  const newRunOn = raw === '' ? undefined : (raw as 'local' | 'temporal');
+  if (agent.runOn === newRunOn) {
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Backend unchanged.')}`);
+    return;
+  }
+
+  try {
+    ctx.agentStore.upsertAgent({ ...agent, runOn: newRunOn }, 'dashboard', 'Updated execution backend');
+    const label = newRunOn ?? 'default (follow provider)';
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Backend set to ${label}.`)}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Backend update failed: ${msg}`)}`);
+  }
+});
+
+/**
  * POST /agents/:id/allowed-sub-agents — set the agent's
  * `allowedSubAgents` allowlist. Honored at sub-agent dispatch time
  * (today only by inbox-triage; future agent-invoke / loop dispatchers

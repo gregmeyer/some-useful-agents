@@ -11,16 +11,22 @@
 This page is the operator guide: start Temporal in Docker, point `sua` at it,
 run a worker, and monitor it.
 
-> **Scope note (current release).** Both **v1 single-node agents** (behind "Run
-> now" and `sua agent run`) and **v2 DAG agents** (triage, build-from-goal,
-> layout-planner, dashboard-built agents) run on Temporal when the dashboard is
-> started with `--provider temporal`. v2 DAGs execute **one workflow per node**
-> (`sua-node-<runId>-<nodeId>`): the dashboard still orchestrates the DAG
-> in-process and offloads each node's shell/LLM work to a worker activity. So
-> node execution is durable + cancellable + visible in the UI, but the
-> *orchestration* still lives in the dashboard — a daemon crash mid-run loses the
-> in-flight run. Collapsing a whole DAG into a single durable workflow (so runs
-> survive a crash and resume) is the next step — see the Temporal wiring plan.
+> **Scope note (current release).** With the dashboard on `--provider temporal`,
+> a v2 DAG run-now (and scheduled run) executes as **one durable workflow per
+> run** (`sua-run-<runId>`): the whole run orchestrates on a worker, so it
+> **survives a dashboard/worker crash and resumes from the last completed node**.
+> The interrupted node re-runs (at-least-once); completed nodes are skipped.
+> v1 single-node agents continue to run as `sua-run-…` durable workflows too.
+>
+> **Per-agent control.** Each agent's `runOn` (Agent config → "Execution
+> backend") selects `local` (in-process, lower latency) or `temporal` (durable);
+> unset follows the provider default (durable under `--provider temporal`).
+> Inline sub-flows (loop / agent-invoke children, build sub-agents) always run
+> in-process within the durable activity.
+>
+> (An earlier step also offered a per-NODE workflow mode — `sua-node-…` — where
+> the dashboard orchestrated and offloaded each node; the durable per-run mode
+> above supersedes it for run-now / scheduled runs.)
 >
 > Live progress (turn / tool-use events, the inbox "thinking…" stream) is
 > surfaced for Temporal runs too: the worker heartbeats its progress trail and

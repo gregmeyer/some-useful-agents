@@ -219,6 +219,9 @@ export const agentV2Schema = z.object({
    */
   allowedSubAgents: z.array(z.string().regex(/^[a-z][a-z0-9-]*$/, 'Agent ids must be lowercase kebab-case')).optional(),
 
+  /** Execution backend: 'local' (in-process) or 'temporal' (durable). See Agent.runOn. */
+  runOn: z.enum(['local', 'temporal']).optional(),
+
   inputs: z.record(
     z.string().regex(INPUT_NAME_RE, 'Input names must be UPPERCASE_WITH_UNDERSCORES'),
     inputSpecSchema,

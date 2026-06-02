@@ -273,6 +273,29 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     </form>
   `);
 
+  // Execution backend (B2). Where this agent's runs orchestrate: in-process
+  // (local) or as a durable Temporal workflow that survives a crash and
+  // resumes. Default follows the dashboard's provider.
+  const runOnValue = agent.runOn ?? '';
+  const runOnOption = (val: string, label: string) =>
+    html`<option value="${val}" ${runOnValue === val ? 'selected' : ''}>${label}</option>`;
+  const backendCard = configCard('Execution backend', html`
+    <form method="POST" action="/agents/${agent.id}/run-on" style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <div style="display: flex; gap: var(--space-2); align-items: center;">
+        <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Runs on</label>
+        <select name="runOn" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);">
+          ${runOnOption('', 'Default (follow provider)')}
+          ${runOnOption('local', 'Local (in-process)')}
+          ${runOnOption('temporal', 'Temporal (durable)')}
+        </select>
+      </div>
+      <div style="display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn btn--sm">Save</button>
+      </div>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Durable runs execute as a Temporal workflow that survives a crash and resumes — needs the dashboard on <code>--provider temporal</code> and a worker. Only the run-now and scheduler paths honor this.</p>
+    </form>
+  `);
+
   // Allowed sub-agents card. Lists the operator-picked sub-agent
   // allowlist (or "platform default" when unset). Pills are removable;
   // "Add agent…" opens the picklist modal at the bottom of the page.
@@ -402,6 +425,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     <div class="config-grid" style="margin-top: var(--space-4);">
       <div class="config-grid__col">
         ${llmCard}
+        ${backendCard}
         ${scheduleCard}
         ${visibilityCard}
         ${mcpCard}

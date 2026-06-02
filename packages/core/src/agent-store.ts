@@ -391,6 +391,7 @@ export class AgentStore {
     // allowed"). Only `undefined` is dropped — that's the "use
     // platform default" signal.
     if (agent.allowedSubAgents !== undefined) dag.allowedSubAgents = agent.allowedSubAgents;
+    if (agent.runOn !== undefined) dag.runOn = agent.runOn;
 
     // Backfill permissions.imgSrc by static analysis of the outputWidget
     // template. The drafter prompt teaches the LLM to emit this field
@@ -461,6 +462,7 @@ export class AgentStore {
       tags: dag.tags,
       permissions: dag.permissions,
       allowedSubAgents: dag.allowedSubAgents,
+      runOn: dag.runOn,
     };
     agent.capabilities = deriveCapabilities(agent);
     return agent;

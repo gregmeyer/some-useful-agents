@@ -167,6 +167,14 @@ describe('AgentStore versioning', () => {
 });
 
 describe('AgentStore.upsertAgent', () => {
+  it('round-trips the runOn execution backend (B2)', () => {
+    store.upsertAgent(seed({ runOn: 'temporal' }), 'import');
+    expect(store.getAgent('hello')!.runOn).toBe('temporal');
+    // Clearing back to undefined (follow the system default).
+    store.upsertAgent(seed({ runOn: undefined }), 'import');
+    expect(store.getAgent('hello')!.runOn).toBeUndefined();
+  });
+
   it('creates on first call, updates metadata without new version on identical DAG', () => {
     const a1 = store.upsertAgent(seed(), 'import');
     expect(a1.version).toBe(1);
