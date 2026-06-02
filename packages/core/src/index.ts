@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './schema.js';
 export * from './sqlite-open.js';
+export * from './markdown.js';
 export * from './agent-loader.js';
 export * from './run-store.js';
 export * from './run-orphan-reaper.js';
