@@ -1,11 +1,12 @@
-import type {
-  InboxMessage,
-  InboxResponse,
-  InboxResponseRole,
-  InboxActionMeta,
-  InboxActionStatus,
+import {
+  renderMarkdownSafe,
+  type InboxMessage,
+  type InboxResponse,
+  type InboxResponseRole,
+  type InboxActionMeta,
+  type InboxActionStatus,
 } from '@some-useful-agents/core';
-import { html, render, type SafeHtml } from './html.js';
+import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { formatAge } from './components.js';
@@ -168,7 +169,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const trimmedBody = message.body.trim();
   const hasBody = trimmedBody.length > 0 && trimmedBody !== '(empty)';
   const bodyBlock = hasBody ? html`
-    <div class="inbox-modal__body">${message.body}</div>
+    <div class="inbox-modal__body">${mdBody(message.body)}</div>
   ` : html``;
 
   const contextBlock = message.contextJson ? html`
@@ -303,6 +304,21 @@ function pretty(raw: string): string {
  * branch to a card renderer that surfaces Run / Skip controls + the
  * sub-agent's status.
  */
+/**
+ * Render a message body as Markdown. The single rendering path for all inbox
+ * prose (triage/user/system bodies, the producer summary, action rationale).
+ * `renderMarkdownSafe` runs the output through the HTML sanitizer (the trust
+ * boundary), so it's safe to inline via `unsafeHtml`. PR3 will wrap the input
+ * with timestamp-humanizing + ref-linkifying pre-passes here.
+ */
+function mdBody(text: string): SafeHtml {
+  // Wrap in `.inbox-md` so markdown block elements get scoped styling
+  // (reset margins, list/code/link rules, white-space: normal) without
+  // disturbing the plain-text `pre-wrap` path used by the optimistic
+  // "Sending…" placeholder, which writes textContent into the same container.
+  return unsafeHtml(`<div class="inbox-md">${renderMarkdownSafe(text)}</div>`);
+}
+
 function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml);
   const role = (ROLE_LABEL[r.role] ?? r.role);
@@ -320,7 +336,7 @@ function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): 
             <span data-inbox-copy-label>Copy</span>
           </button>
         </div>
-        <div class="inbox-msg__text" data-inbox-copy-source>${r.body}</div>
+        <div class="inbox-msg__text" data-inbox-copy-source>${mdBody(r.body)}</div>
       </div>
     </div>
   `;
@@ -439,7 +455,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string): SafeHt
             Run agent <span class="mono">${meta.agentId}</span>
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
-          ${meta.rationale ? html`<div class="inbox-action__rationale">${meta.rationale}</div>` : html``}
+          ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
           ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
             ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
             : inputsRendered}
