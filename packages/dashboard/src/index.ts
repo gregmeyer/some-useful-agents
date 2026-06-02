@@ -585,7 +585,18 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     server,
     authUrl,
     async close() {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      // `server.close()` only stops accepting NEW connections; it resolves its
+      // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
+      // keep-alives never close on their own, so a naive close() hangs forever —
+      // SIGTERM appears to do nothing and the process becomes a zombie squatting
+      // on the port (the EADDRINUSE-on-restart symptom). Force-terminate the
+      // lingering sockets after asking the server to stop. `closeAllConnections`
+      // exists on Node 18.2+; optional-chain it so older runtimes degrade to the
+      // old (hanging) behavior rather than throwing.
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+      });
       await provider.shutdown();
       runStore.close();
       agentStore.close();
