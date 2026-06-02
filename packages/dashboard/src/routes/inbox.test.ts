@@ -176,6 +176,28 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(res.text).toContain('first reply');
   });
 
+  it('renders structured link-CTA buttons from a triage reply metaJson.links', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'triage', 'Here is the agent.', JSON.stringify({
+      links: [{ label: 'Open agent', href: '/agents/foo' }],
+    }));
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('inbox-msg__ctas');
+    expect(res.text).toContain('href="/agents/foo"');
+    expect(res.text).toContain('Open agent');
+  });
+
+  it('renders the action ctaLabel on the Run button when present', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'describe it', JSON.stringify({
+      kind: 'action', status: 'proposed', agentId: 'agent-catalog-search', inputs: {}, ctaLabel: 'Describe this agent',
+    }));
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('Describe this agent');
+  });
+
   it('renders the thinking indicator when the most recent response is a recent user reply', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });

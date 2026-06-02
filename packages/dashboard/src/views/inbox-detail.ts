@@ -320,6 +320,30 @@ function mdBody(text: string): SafeHtml {
   return unsafeHtml(`<div class="inbox-md">${renderMarkdownSafe(pre)}</div>`);
 }
 
+/**
+ * Render the optional structured link-CTA buttons a triage reply may carry in
+ * its `metaJson.links`. Hrefs were already URL-validated server-side
+ * (parseTriageLinks); we re-escape on render. External links open in a new tab.
+ */
+function renderTriageLinks(metaJson?: string): SafeHtml {
+  if (!metaJson) return html``;
+  let links: Array<{ label?: unknown; href?: unknown }> = [];
+  try {
+    const parsed = JSON.parse(metaJson) as { links?: unknown };
+    if (Array.isArray(parsed.links)) links = parsed.links as typeof links;
+  } catch { return html``; }
+  const buttons = links
+    .filter((l) => typeof l.label === 'string' && typeof l.href === 'string')
+    .map((l) => {
+      const href = l.href as string;
+      const external = /^https?:\/\//i.test(href);
+      const target = external ? html` target="_blank" rel="noreferrer"` : html``;
+      return html`<a class="btn btn--xs btn--ghost" href="${href}"${target}>${l.label as string}</a>`;
+    });
+  if (buttons.length === 0) return html``;
+  return html`<div class="inbox-msg__ctas">${buttons as unknown as SafeHtml[]}</div>`;
+}
+
 function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml);
   const role = (ROLE_LABEL[r.role] ?? r.role);
@@ -338,6 +362,7 @@ function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): 
           </button>
         </div>
         <div class="inbox-msg__text" data-inbox-copy-source>${mdBody(r.body)}</div>
+        ${r.role === 'triage' ? renderTriageLinks(r.metaJson) : html``}
       </div>
     </div>
   `;
@@ -429,7 +454,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string): SafeHt
       <div class="inbox-action__controls">
         <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/run"
           data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin:0;">
-          <button type="submit" class="btn btn--xs btn--primary">Run</button>
+          <button type="submit" class="btn btn--xs btn--primary">${meta.ctaLabel || 'Run'}</button>
         </form>
         <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/skip"
           data-inbox-modal-form style="margin:0;">

@@ -2189,6 +2189,14 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border-top: 1px solid var(--color-border);
   margin: var(--space-3) 0;
 }
+
+/* Structured link-CTA buttons under a triage reply (metaJson.links). */
+.inbox-msg__ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
 /* Optimistic "Sending..." placeholder rendered by the modal JS the
  * moment Post reply submits. Dimmed so the operator can tell it's
  * not yet confirmed, but visible enough that they know their text
