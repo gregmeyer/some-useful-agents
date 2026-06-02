@@ -187,6 +187,13 @@ docker exec sua-temporal temporal task-queue describe --task-queue sua-agents
 `sua agent status [runId]`, `sua agent logs <runId>`, and the dashboard
 `/runs` page reflect Temporal runs without opening the UI.
 
+**Failed Temporal runs raise an inbox conversation.** Because a failure on a
+remote worker (or a dashboard that died mid-run) would otherwise be easy to
+miss, a failed Temporal run opens a `run-failure` thread in the dashboard inbox
+— one per run — so the triage agent picks it up like any other item. Local
+in-process failures don't (they're visible to whoever triggered them), and
+operator-cancelled runs never raise one.
+
 ### Health at a glance
 
 ```bash

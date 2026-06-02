@@ -116,6 +116,14 @@ export interface DagExecutorDeps {
    */
   inboxOnProgress?: (event: { nodeId: string; progress: import('./node-spawner.js').SpawnProgress }) => void;
   /**
+   * Optional hook fired once when a run finalizes as `failed` (not on
+   * `cancelled`, and suppressed mid-retry-chain like notify). Decoupled from
+   * core: the dashboard wires this to raise an inbox conversation so a failure
+   * on a remote Temporal worker doesn't die silently. Errors are swallowed by
+   * the caller — a misbehaving hook can't break the run path.
+   */
+  onRunFailure?: (info: { run: Run; failedNodeId?: string; errorCategory?: NodeErrorCategory }) => void;
+  /**
    * Optional dashboard URL prefix used by the notify dispatcher to embed
    * a "view run in dashboard" link in Slack messages. When absent, the
    * link is omitted; the notify still fires.
@@ -1080,6 +1088,18 @@ export async function executeAgentDag(
 
   const run = deps.runStore.getRun(runId);
   if (!run) throw new Error(`Run ${runId} vanished from store after write`);
+
+  // Failure hook: fire once when the run ends `failed` (not cancelled), on the
+  // final attempt only (suppressNotify mirrors the retry wrapper's once-on-last
+  // semantics). The dashboard raises an inbox conversation from here. Wrapped so
+  // a misbehaving hook can't bubble into the run path.
+  if (deps.onRunFailure && finalStatus === 'failed' && !options.suppressNotify) {
+    try {
+      deps.onRunFailure({ run, failedNodeId: firstFailure?.nodeId, errorCategory: firstFailure?.category });
+    } catch {
+      // Hook errors are non-fatal — the run result is already committed.
+    }
+  }
 
   // Notify dispatch fires AFTER the run row is committed. Wrapped so any
   // dispatcher exception can never bubble into the run path — the run
