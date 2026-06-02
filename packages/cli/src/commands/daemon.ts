@@ -247,9 +247,13 @@ daemonCommand
  * configured ports instead of their CLI defaults.
  */
 function portArgsForServices(config: SuaConfig): Partial<Record<ServiceName, string[]>> {
+  // When the configured provider is Temporal, the daemon-managed dashboard and
+  // MCP server must also run on it — otherwise `sua daemon start` would bring up
+  // a worker next to a `local` dashboard and v2 nodes would never reach it.
+  const providerArgs = config.provider === 'temporal' ? ['--provider', 'temporal'] : [];
   return {
-    dashboard: ['--port', String(getDashboardPort(config))],
-    mcp: ['--port', String(config.mcpPort)],
+    dashboard: ['--port', String(getDashboardPort(config)), ...providerArgs],
+    mcp: ['--port', String(config.mcpPort), ...providerArgs],
   };
 }
 

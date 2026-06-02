@@ -32,7 +32,7 @@ export interface SuaConfig {
    */
   daemon?: {
     /** Services started by `sua daemon start` (with no --service flag). */
-    services?: ('schedule' | 'dashboard' | 'mcp')[];
+    services?: ('schedule' | 'dashboard' | 'mcp' | 'worker')[];
     /** Rotate log when it exceeds this many bytes (rotate-on-start). */
     logRotateBytes?: number;
   };
@@ -124,7 +124,7 @@ export function getRetentionDays(config: SuaConfig): number {
   return config.runRetentionDays ?? 30;
 }
 
-export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' | 'mcp')[] {
+export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' | 'mcp' | 'worker')[] {
   return config.daemon?.services ?? ['schedule', 'dashboard'];
 }
 
