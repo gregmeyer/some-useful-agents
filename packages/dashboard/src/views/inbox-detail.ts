@@ -9,7 +9,7 @@ import {
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
-import { formatAge } from './components.js';
+import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 
 export interface InboxDetailOptions {
   message: InboxMessage;
@@ -308,15 +308,16 @@ function pretty(raw: string): string {
  * Render a message body as Markdown. The single rendering path for all inbox
  * prose (triage/user/system bodies, the producer summary, action rationale).
  * `renderMarkdownSafe` runs the output through the HTML sanitizer (the trust
- * boundary), so it's safe to inline via `unsafeHtml`. PR3 will wrap the input
- * with timestamp-humanizing + ref-linkifying pre-passes here.
+ * boundary), so it's safe to inline via `unsafeHtml`. Pre-passes humanize bare
+ * ISO timestamps and linkify `/runs|/agents` refs before Markdown rendering.
  */
 function mdBody(text: string): SafeHtml {
   // Wrap in `.inbox-md` so markdown block elements get scoped styling
   // (reset margins, list/code/link rules, white-space: normal) without
   // disturbing the plain-text `pre-wrap` path used by the optimistic
   // "Sending…" placeholder, which writes textContent into the same container.
-  return unsafeHtml(`<div class="inbox-md">${renderMarkdownSafe(text)}</div>`);
+  const pre = humanizeTimestamps(linkifyRefs(text));
+  return unsafeHtml(`<div class="inbox-md">${renderMarkdownSafe(pre)}</div>`);
 }
 
 function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
