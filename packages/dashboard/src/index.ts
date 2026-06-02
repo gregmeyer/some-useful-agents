@@ -539,6 +539,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     retentionDays: opts.retentionDays ?? 30,
     dbPath: opts.dbPath,
     secretsPath: opts.secretsPath,
+    variablesPath: opts.variablesPath,
     rotateToken: () => rotateMcpToken(tokenPath),
     toolStore,
     variablesStore,

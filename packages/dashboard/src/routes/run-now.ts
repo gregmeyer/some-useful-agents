@@ -6,6 +6,7 @@ import { Router, type Request, type Response } from 'express';
 import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
+import { resolveRunBackend } from '../lib/run-backend.js';
 
 export const runNowRouter: Router = Router();
 
@@ -50,6 +51,28 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
       if (k.startsWith('input_') && typeof v === 'string' && v.trim() !== '') {
         inputs[k.slice(6)] = v.trim();
       }
+    }
+
+    // Durable path (B2): when the agent resolves to the Temporal backend, submit
+    // the whole run as a durable workflow. submitDagRun pre-creates the run row
+    // and returns its id immediately, so we can redirect straight to it — no
+    // need for the in-process "find the run by most-recent" dance below.
+    if (resolveRunBackend(ctx.provider, v2Agent) === 'temporal' && ctx.provider.submitDagRun) {
+      try {
+        const run = await ctx.provider.submitDagRun(v2Agent, {
+          inputs,
+          triggeredBy: 'dashboard',
+          variablesPath: ctx.variablesPath,
+          dataRoot: ctx.agentStore.dataRoot,
+          llmProviders: buildLlmSettingsSnapshot(ctx)?.providers,
+          allowUntrustedShell: ctx.allowUntrustedShell ? [...ctx.allowUntrustedShell] : undefined,
+        });
+        res.redirect(303, `/runs/${encodeURIComponent(run.id)}${fromSuffix}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent(`Durable submit failed: ${message}`)}`);
+      }
+      return;
     }
 
     // Fire-and-forget: start the DAG executor but don't await it.

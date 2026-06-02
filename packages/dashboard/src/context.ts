@@ -78,6 +78,8 @@ export interface DashboardContext {
    * and used to re-derive the secrets session if needed.
    */
   secretsPath: string;
+  /** Path to the global variables JSON, if configured. Passed to durable runs. */
+  variablesPath?: string;
   /**
    * Rotate the MCP bearer token. Defaults to `rotateMcpToken(tokenPath)`;
    * tests inject a stub that doesn't write to `~/.sua/mcp-token`.
