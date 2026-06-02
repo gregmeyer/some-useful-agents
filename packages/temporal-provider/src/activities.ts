@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
+import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps } from '@some-useful-agents/core';
 import {
   buildAgentEnv,
   getTrustLevel,
@@ -7,8 +7,18 @@ import {
   redactKnownSecrets,
   resolveInputs,
   spawnNodeReal,
+  executeAgentDag,
+  RunStore,
+  AgentStore,
+  ToolStore,
+  IntegrationsStore,
+  VariablesStore,
 } from '@some-useful-agents/core';
 import { Context } from '@temporalio/activity';
+
+function quiet<T>(make: () => T): T | undefined {
+  try { return make(); } catch { return undefined; }
+}
 
 export interface RunAgentActivityInput {
   agent: AgentDefinition;
@@ -198,4 +208,87 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
   );
 
   return { ...result, usedWorkflowProvider: 'temporal' };
+}
+
+/**
+ * Input for {@link runDagActivity}: a whole v2 DAG run, executed on the worker.
+ * All fields are serializable. Secrets/variables/tools are reconstructed on the
+ * worker from the shared paths — nothing sensitive travels in the payload.
+ */
+export interface RunDagActivityInput {
+  agent: Agent;
+  runId: string;
+  inputs?: Record<string, string>;
+  triggeredBy: Run['triggeredBy'];
+  /** Shared SQLite path (run/agent/tool/integration stores). */
+  dbPath: string;
+  /** Encrypted secrets file path. */
+  secretsPath: string;
+  /** Global variables JSON path (optional). */
+  variablesPath?: string;
+  /** Agent-state base dir (optional). */
+  dataRoot?: string;
+  /** LLM provider waterfall (names only). */
+  llmProviders?: string[];
+  /** Community shell agents pre-allowed by the operator. */
+  allowUntrustedShell?: string[];
+}
+
+export interface RunDagActivityResult {
+  status: string;
+  error?: string;
+}
+
+/**
+ * Activity: run an ENTIRE v2 DAG on the worker via the existing in-process
+ * executor (B2 durable path). The run row is pre-created by the provider, so we
+ * always pass `resume: true` — on the first attempt that's a no-op (no completed
+ * nodes), and on a Temporal retry after a worker crash it skips finished nodes
+ * and picks up where it stopped.
+ *
+ * Returns normally for BOTH completed and failed runs — a failed agent is a
+ * legitimate terminal outcome and must NOT be retried. Only a real crash (the
+ * activity never returns → heartbeat timeout) triggers Temporal's retry, which
+ * is the resume path. Nodes run with the local spawner (we're already on the
+ * worker; no per-node round-trip).
+ */
+export async function runDagActivity(input: RunDagActivityInput): Promise<RunDagActivityResult> {
+  let ctx: ReturnType<typeof Context.current> | undefined;
+  try { ctx = Context.current(); } catch { ctx = undefined; }
+
+  const runStore = new RunStore(input.dbPath);
+  const deps: DagExecutorDeps = {
+    runStore,
+    secretsStore: new EncryptedFileStore(input.secretsPath),
+    agentStore: quiet(() => new AgentStore(input.dbPath)),
+    toolStore: quiet(() => new ToolStore(input.dbPath)),
+    integrationsStore: quiet(() => new IntegrationsStore(input.dbPath)),
+    variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
+    allowUntrustedShell: new Set(input.allowUntrustedShell ?? []),
+    llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+    dataRoot: input.dataRoot,
+    // spawnNode omitted → spawnNodeReal (local execution on this worker).
+  };
+
+  // Keep the long activity alive + cancellable: heartbeat on an interval while
+  // the DAG runs. The executor also heartbeats via node progress, but a DAG can
+  // sit between nodes; this is the floor.
+  const hb = ctx ? setInterval(() => { try { ctx?.heartbeat(); } catch { /* ignore */ } }, 10_000) : undefined;
+  try {
+    const run = await executeAgentDag(
+      input.agent,
+      {
+        runId: input.runId,
+        inputs: input.inputs,
+        triggeredBy: input.triggeredBy,
+        resume: true,
+        signal: ctx?.cancellationSignal,
+      },
+      deps,
+    );
+    return { status: run.status, error: run.error };
+  } finally {
+    if (hb) clearInterval(hb);
+    runStore.close();
+  }
 }

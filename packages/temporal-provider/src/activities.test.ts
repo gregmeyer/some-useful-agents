@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { EncryptedFileStore } from '@some-useful-agents/core';
-import type { AgentDefinition } from '@some-useful-agents/core';
+import { EncryptedFileStore, RunStore } from '@some-useful-agents/core';
+import type { AgentDefinition, Agent } from '@some-useful-agents/core';
 import type { AgentNode } from '@some-useful-agents/core';
-import { runAgentActivity, runNodeActivity } from './activities.js';
+import { runAgentActivity, runNodeActivity, runDagActivity } from './activities.js';
 
 const TEST_DIR = join(import.meta.dirname, '__test-activities__');
 const SECRETS_PATH = join(TEST_DIR, 'secrets.enc');
 
 beforeEach(() => {
   rmSync(TEST_DIR, { recursive: true, force: true });
+  mkdirSync(TEST_DIR, { recursive: true });
 });
 
 afterEach(() => {
@@ -173,5 +174,35 @@ describe('runNodeActivity', () => {
     expect(result.error).toContain('Missing secrets on worker');
     expect(result.error).toContain('ABSENT');
     expect(result.usedWorkflowProvider).toBe('temporal');
+  });
+});
+
+const dagAgent = (nodes: AgentNode[]): Agent => ({
+  id: 'dag-act', name: 'Dag', status: 'active', source: 'local', mcp: false, version: 1, nodes,
+});
+
+describe('runDagActivity', () => {
+  const DB = join(TEST_DIR, 'runs.db');
+
+  const twoNode = (): Agent => dagAgent([
+    { id: 'a', type: 'shell', command: 'echo a > /dev/null' },
+    { id: 'b', type: 'shell', command: 'echo b > /dev/null', dependsOn: ['a'] },
+  ]);
+
+  // Note: these assert on the activity's RETURN value. The full resume-on-crash
+  // behavior is covered cross-process by the core resume tests (dag-executor)
+  // and the live durability e2e — a second RunStore handle in THIS process won't
+  // reliably see another handle's writes (node:sqlite WAL), which is a test-only
+  // artifact, not how the worker (a separate process) reads the shared DB.
+
+  it('runs a whole DAG on the worker and returns completed', async () => {
+    const res = await runDagActivity({ agent: twoNode(), runId: 'r1', triggeredBy: 'dashboard', dbPath: DB, secretsPath: SECRETS_PATH });
+    expect(res.status).toBe('completed');
+  });
+
+  it('returns failed (does NOT throw) when a node fails — a failed agent must not retry', async () => {
+    const agent = dagAgent([{ id: 'boom', type: 'shell', command: 'exit 7' }]);
+    const res = await runDagActivity({ agent, runId: 'r2', triggeredBy: 'dashboard', dbPath: DB, secretsPath: SECRETS_PATH });
+    expect(res.status).toBe('failed');
   });
 });

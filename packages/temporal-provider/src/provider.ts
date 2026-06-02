@@ -1,10 +1,28 @@
 import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import { randomUUID } from 'node:crypto';
-import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn } from '@some-useful-agents/core';
+import { dirname } from 'node:path';
+import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent } from '@some-useful-agents/core';
 import { RunStore } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import { createTemporalSpawnNode } from './node-spawn.js';
 import type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';
+import type { RunDagActivityInput, RunDagActivityResult } from './activities.js';
+
+/** Options for submitting a durable v2 DAG run (B2). */
+export interface SubmitDagRunOptions {
+  inputs?: Record<string, string>;
+  triggeredBy: Run['triggeredBy'];
+  /** Pre-generated run id (the caller may want it before the promise resolves). */
+  runId?: string;
+  /** Global variables JSON path, passed to the worker. */
+  variablesPath?: string;
+  /** Agent-state base dir, passed to the worker. Defaults to dirname(dbPath). */
+  dataRoot?: string;
+  /** LLM provider waterfall (names only). */
+  llmProviders?: string[];
+  /** Community shell agents pre-allowed by the operator. */
+  allowUntrustedShell?: string[];
+}
 
 export interface TemporalProviderOptions {
   dbPath: string;           // local SQLite run-store for fast CLI queries
@@ -98,6 +116,75 @@ export class TemporalProvider implements Provider {
     void this.trackCompletion(run.id, handle.workflowId);
 
     return { ...run, status: 'running' };
+  }
+
+  /**
+   * Submit a v2 DAG agent as a DURABLE Temporal run (B2). Pre-creates the run
+   * row, starts one `sua-run-<runId>` workflow that runs the whole executor on
+   * the worker, and returns immediately. The activity owns the run-status
+   * lifecycle in the shared store; if the worker crashes, Temporal re-dispatches
+   * the activity and it resumes from the last completed node. The state root
+   * defaults to the db path's directory.
+   */
+  async submitDagRun(agent: Agent, opts: SubmitDagRunOptions): Promise<Run> {
+    const runId = opts.runId ?? randomUUID();
+    const run: Run = {
+      id: runId,
+      agentName: agent.id,
+      status: 'pending',
+      startedAt: new Date().toISOString(),
+      triggeredBy: opts.triggeredBy,
+      usedWorkflowProvider: 'temporal',
+      workflowId: agent.id,
+      workflowVersion: agent.version,
+    };
+    this.store.createRun(run);
+
+    const input: RunDagActivityInput = {
+      agent,
+      runId,
+      inputs: opts.inputs,
+      triggeredBy: opts.triggeredBy,
+      dbPath: this.options.dbPath,
+      secretsPath: this.options.secretsPath,
+      variablesPath: opts.variablesPath,
+      dataRoot: opts.dataRoot ?? dirname(this.options.dbPath),
+      llmProviders: opts.llmProviders,
+      allowUntrustedShell: opts.allowUntrustedShell ?? [...this.allowUntrustedShell],
+    };
+
+    const handle = await this.client.workflow.start('runDagWorkflow', {
+      taskQueue: this.options.taskQueue,
+      workflowId: `sua-run-${runId}`,
+      args: [input],
+    });
+
+    this.store.updateRun(runId, { status: 'running' });
+    void this.trackDagCompletion(runId, handle.workflowId);
+
+    return { ...run, status: 'running' };
+  }
+
+  /**
+   * Safety net for durable runs: the activity writes the final run status into
+   * the shared store itself, so on success we leave it alone. We only act on the
+   * reject path — workflow terminated or all crash-retries exhausted — to mark a
+   * still-running run failed so the dashboard stops polling.
+   */
+  private async trackDagCompletion(runId: string, workflowId: string): Promise<void> {
+    try {
+      await (this.client.workflow.getHandle(workflowId).result() as Promise<RunDagActivityResult>);
+      // Activity already finalized the run row; nothing to do on success.
+    } catch (err) {
+      const current = this.store.getRun(runId);
+      if (current && (current.status === 'running' || current.status === 'pending')) {
+        this.store.updateRun(runId, {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error: `Durable run workflow ended without finalizing: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
   }
 
   private async trackCompletion(runId: string, workflowId: string): Promise<void> {
