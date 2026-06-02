@@ -183,8 +183,8 @@ export class RunStore {
 
     // Workflow (execution backend) provider: which provider executed this run
     // — 'local' (in-process) or 'temporal' (worker). Distinct from the LLM
-    // provider axis (node_executions.usedProvider). Nullable; NULL ↔ legacy/
-    // local. See ~/.claude/plans/temporal-wiring.md (B1a).
+    // provider axis (node_executions.usedProvider column ↔ usedLLMProvider
+    // field). Nullable; NULL ↔ legacy/local. See ~/.claude/plans/temporal-wiring.md (B1a).
     if (!runCols.has('usedworkflowprovider')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN usedWorkflowProvider TEXT`);
     }
@@ -229,7 +229,8 @@ export class RunStore {
     // LLM provider waterfall: which provider ultimately produced the
     // result + the trail of providers attempted. Both nullable so
     // shell nodes + pre-waterfall rows stay clean. CSV is enough —
-    // the trail rarely exceeds 3 entries.
+    // the trail rarely exceeds 3 entries. The `usedProvider` COLUMN backs the
+    // `usedLLMProvider` field (column name kept for back-compat).
     if (!execCols.has('usedprovider')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedProvider TEXT`);
     }
@@ -238,9 +239,9 @@ export class RunStore {
     }
 
     // Workflow (execution backend) provider per node: 'local' | 'temporal'.
-    // Different axis from `usedProvider` above, which is the LLM provider
-    // (claude/codex/apple) — read that as the "LLM provider". This one records
-    // where the node's work actually ran. Nullable; NULL ↔ legacy/local.
+    // Different axis from `usedLLMProvider` (the `usedProvider` column), which is
+    // the LLM provider (claude/codex/apple). This one records where the node's
+    // work actually ran. Nullable; NULL ↔ legacy/local.
     if (!execCols.has('usedworkflowprovider')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
     }
@@ -442,7 +443,9 @@ export class RunStore {
       record.outputsJson ?? null, record.progressJson ?? null,
       record.stateBytesBefore ?? null, record.stateBytesAfter ?? null,
       record.childPid ?? null, record.childStartedAtMs ?? null,
-      record.usedProvider ?? null, record.attemptedProviders ?? null,
+      // The `usedProvider` column holds the LLM provider (field renamed to
+      // usedLLMProvider; column name kept for back-compat).
+      record.usedLLMProvider ?? null, record.attemptedProviders ?? null,
       record.usedWorkflowProvider ?? null,
     );
   }
@@ -451,7 +454,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedProvider' | 'attemptedProviders' | 'usedWorkflowProvider'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedLLMProvider' | 'attemptedProviders' | 'usedWorkflowProvider'
     >>,
   ): void {
     const fields: string[] = [];
@@ -470,7 +473,7 @@ export class RunStore {
     if (updates.stateBytesAfter !== undefined) { fields.push('stateBytesAfter = ?'); values.push(updates.stateBytesAfter); }
     if (updates.childPid !== undefined) { fields.push('childPid = ?'); values.push(updates.childPid); }
     if (updates.childStartedAtMs !== undefined) { fields.push('childStartedAtMs = ?'); values.push(updates.childStartedAtMs); }
-    if (updates.usedProvider !== undefined) { fields.push('usedProvider = ?'); values.push(updates.usedProvider); }
+    if (updates.usedLLMProvider !== undefined) { fields.push('usedProvider = ?'); values.push(updates.usedLLMProvider); }
     if (updates.attemptedProviders !== undefined) { fields.push('attemptedProviders = ?'); values.push(updates.attemptedProviders); }
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
     if (fields.length === 0) return;
@@ -583,7 +586,7 @@ export class RunStore {
       stateBytesAfter: (row.stateBytesAfter as number | null) ?? undefined,
       childPid: (row.childPid as number | null) ?? undefined,
       childStartedAtMs: (row.childStartedAtMs as number | null) ?? undefined,
-      usedProvider: (row.usedProvider as string | null) ?? undefined,
+      usedLLMProvider: (row.usedProvider as string | null) ?? undefined,
       attemptedProviders: (row.attemptedProviders as string | null) ?? undefined,
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
     };

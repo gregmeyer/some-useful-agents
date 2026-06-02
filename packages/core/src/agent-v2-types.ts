@@ -646,12 +646,15 @@ export interface NodeExecutionRecord {
    */
   childStartedAtMs?: number;
   /**
-   * LLM provider that actually produced the result for this node. Set
-   * for llm-prompt nodes only; undefined for shell. When the provider
-   * waterfall fell back through multiple CLIs (e.g. claude failed →
-   * tried codex), this is the LAST one tried.
+   * LLM provider that actually produced the result for this node (claude /
+   * codex / apple). Set for llm-prompt nodes only; undefined for shell. When
+   * the provider waterfall fell back through multiple CLIs (e.g. claude failed →
+   * tried codex), this is the LAST one tried. Distinct from
+   * `usedWorkflowProvider` (the execution backend: local / temporal). Persisted
+   * in the `node_executions.usedProvider` column (the column name is kept for
+   * back-compat).
    */
-  usedProvider?: string;
+  usedLLMProvider?: string;
   /**
    * Comma-separated trail of every provider attempted in waterfall
    * order. Length 1 means no fallback fired. Stored as CSV (not JSON)
@@ -661,7 +664,7 @@ export interface NodeExecutionRecord {
   attemptedProviders?: string;
   /**
    * Execution backend that ran this node: `'local'` (in-process) or
-   * `'temporal'` (worker activity). Different axis from `usedProvider`
+   * `'temporal'` (worker activity). Different axis from `usedLLMProvider`
    * above, which is the LLM provider. Undefined on legacy rows ↔ `local`.
    */
   usedWorkflowProvider?: string;

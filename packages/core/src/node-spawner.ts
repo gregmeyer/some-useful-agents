@@ -20,16 +20,16 @@ import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
 export type SpawnResult = ExecutionResult & {
   category?: NodeErrorCategory;
   /**
-   * Provider that ultimately produced this result. Set by spawnNodeReal
+   * LLM provider that ultimately produced this result. Set by spawnNodeReal
    * for llm-prompt nodes only. When the waterfall ran multiple providers
    * before one succeeded (or all failed), this is the LAST provider
    * attempted — paired with `attemptedProviders` for the full trail.
    * Undefined for shell nodes.
    */
-  usedProvider?: string;
+  usedLLMProvider?: string;
   /**
    * Ordered trail of every provider the waterfall tried, including the
-   * one in `usedProvider`. Length 1 means no fallback fired. Undefined
+   * one in `usedLLMProvider`. Length 1 means no fallback fired. Undefined
    * for shell nodes.
    */
   attemptedProviders?: string[];
@@ -37,7 +37,7 @@ export type SpawnResult = ExecutionResult & {
    * Execution backend that actually ran this node: `'local'` (in-process)
    * or `'temporal'` (worker activity). A backend (the injected spawnNode)
    * self-reports here; the executor copies it onto the node_executions row.
-   * Distinct from `usedProvider` (the LLM provider). Undefined ↔ local.
+   * Distinct from `usedLLMProvider` (the LLM provider). Undefined ↔ local.
    */
   usedWorkflowProvider?: string;
 };
@@ -631,7 +631,7 @@ export async function spawnNodeReal(
       // breadcrumb.
       return {
         ...result,
-        usedProvider: provider,
+        usedLLMProvider: provider,
         attemptedProviders,
         error: attemptedProviders.length > 1
           ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
@@ -663,7 +663,7 @@ export async function spawnNodeReal(
   // operator can see what was tried.
   return {
     ...(lastResult ?? { result: '', exitCode: 1 }),
-    usedProvider: attemptedProviders[attemptedProviders.length - 1],
+    usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
     attemptedProviders,
   };
 }
