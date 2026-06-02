@@ -1,6 +1,6 @@
 import { proxyActivities, ActivityCancellationType } from '@temporalio/workflow';
 import type * as activities from './activities.js';
-import type { RunNodeActivityInput } from './activities.js';
+import type { RunNodeActivityInput, RunDagActivityInput, RunDagActivityResult } from './activities.js';
 import type { SpawnResult } from '@some-useful-agents/core';
 
 const { runAgentActivity } = proxyActivities<typeof activities>({
@@ -70,4 +70,28 @@ export async function runAgentWorkflow(input: RunAgentWorkflowInput): Promise<Ru
  */
 export async function runNodeWorkflow(input: RunNodeActivityInput): Promise<SpawnResult> {
   return runNodeActivity(input);
+}
+
+// Durable whole-DAG run (B2). One long activity runs the entire executor on the
+// worker. `maximumAttempts: 3` is the crash-resume engine: if the worker dies,
+// the activity stops heartbeating, Temporal reschedules it, and it resumes the
+// run from the last completed node. A failed AGENT does not retry — the activity
+// returns normally for failed runs, so only an infra crash re-dispatches.
+const { runDagActivity } = proxyActivities<typeof activities>({
+  startToCloseTimeout: '1 hour',
+  heartbeatTimeout: '60 seconds',
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+  retry: {
+    maximumAttempts: 3,
+    initialInterval: '5 seconds',
+  },
+});
+
+/**
+ * One durable workflow per v2 DAG run (`sua-run-<runId>`). Thin wrapper: the
+ * activity holds all the logic + state (in the shared RunStore). The workflow
+ * exists so the run is durable + re-dispatchable across worker restarts.
+ */
+export async function runDagWorkflow(input: RunDagActivityInput): Promise<RunDagActivityResult> {
+  return runDagActivity(input);
 }
