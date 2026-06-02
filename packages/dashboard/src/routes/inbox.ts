@@ -945,18 +945,16 @@ function enrichAgentAnalyzerInputs(
  * tokens and prevents the LLM from accidentally proposing a system
  * agent even on edge cases.
  */
-function enrichAgentCatalogSearchInputs(
-  ctx: ReturnType<typeof getContext>,
-  inputs: Record<string, string>,
-): Record<string, string> {
-  const out: Record<string, string> = { ...inputs };
-  if (out.AGENT_CATALOG && out.AGENT_CATALOG.trim().length > 0) return out;
+/**
+ * Build the installed-agent catalog (newest first, system/scaffolding agents
+ * excluded). Shared by the catalog-search enrichment and the triage-turn
+ * injection. Newest-first ordering means entry [0] answers "what's the newest
+ * agent?" without guessing at list order.
+ */
+function buildAgentCatalogJson(ctx: ReturnType<typeof getContext>): string {
   try {
-    const agents = ctx.agentStore.listAgents();
-    const catalog = agents
+    const catalog = ctx.agentStore.listAgents()
       .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
-      // Newest first, so "what's the newest agent?" is the first entry and
-      // recency questions are answerable without guessing at list order.
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((a) => ({
         id: a.id,
@@ -965,12 +963,53 @@ function enrichAgentCatalogSearchInputs(
         tags: a.tags ?? [],
         source: a.source,
         status: a.status,
-        // ISO timestamp the agent was first installed/created. Lets the
-        // catalog-search agent answer "newest / most recently added".
         createdAt: a.createdAt,
       }));
-    out.AGENT_CATALOG = JSON.stringify(catalog);
-  } catch { /* swallow — empty catalog still lets the agent respond "no matches" */ }
+    return JSON.stringify(catalog);
+  } catch {
+    return '[]';
+  }
+}
+
+// Budget for the catalog injected into the triage turn itself. Triage sees a
+// trimmed view (newest N, short descriptions) so it can answer recency /
+// "what does agent X do" directly; deep capability search still dispatches
+// agent-catalog-search, which gets the full catalog.
+const TRIAGE_CATALOG_MAX_AGENTS = 40;
+const TRIAGE_CATALOG_DESC_CAP = 200;
+
+/**
+ * Trimmed catalog for the triage turn: id, name, short description, createdAt,
+ * tags — newest TRIAGE_CATALOG_MAX_AGENTS only. Drops source/status to save
+ * tokens. Returns the JSON plus a flag noting whether older agents were elided.
+ */
+function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): string {
+  try {
+    const all = ctx.agentStore.listAgents()
+      .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+    const shown = all.slice(0, TRIAGE_CATALOG_MAX_AGENTS).map((a) => ({
+      id: a.id,
+      name: a.name,
+      description: (a.description ?? '').slice(0, TRIAGE_CATALOG_DESC_CAP),
+      tags: a.tags ?? [],
+      createdAt: a.createdAt,
+    }));
+    const payload: { agents: typeof shown; truncated?: number } = { agents: shown };
+    if (all.length > shown.length) payload.truncated = all.length - shown.length;
+    return JSON.stringify(payload);
+  } catch {
+    return JSON.stringify({ agents: [] });
+  }
+}
+
+function enrichAgentCatalogSearchInputs(
+  ctx: ReturnType<typeof getContext>,
+  inputs: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...inputs };
+  if (out.AGENT_CATALOG && out.AGENT_CATALOG.trim().length > 0) return out;
+  out.AGENT_CATALOG = buildAgentCatalogJson(ctx);
   return out;
 }
 
@@ -1713,6 +1752,10 @@ async function runTriageAgent(
           CONTEXT_JSON: message.contextJson ?? '',
           CONVERSATION: conversation,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
+          // Trimmed installed-agent catalog (newest first) so triage can answer
+          // recency / "what does agent X do" directly, with a link, instead of
+          // dispatching agent-catalog-search for a simple lookup.
+          AGENT_CATALOG: buildTriageCatalogJson(ctx),
         },
         runId,
         signal: abortController.signal,

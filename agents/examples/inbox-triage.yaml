@@ -65,6 +65,15 @@ inputs:
       Proposals targeting an id not in this list are refused at the
       route layer with a visible note in the conversation. Empty means
       the triage agent is text-only and must not propose `actions`.
+  AGENT_CATALOG:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Trimmed JSON snapshot of the installed agent catalog, newest first:
+      {"agents":[{id,name,description,tags,createdAt}], "truncated"?:N}.
+      Lets triage answer recency / "what does agent X do" questions
+      directly (with a link) instead of dispatching agent-catalog-search.
 
 nodes:
   - id: triage
@@ -101,11 +110,59 @@ nodes:
       Agents you may propose running on the operator's behalf (may be empty):
       {{inputs.ALLOWED_SUB_AGENTS}}
 
+      Installed agent catalog — newest first (may be empty):
+      {{inputs.AGENT_CATALOG}}
+
       IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob,
       or any file/search tools. Everything you need is already in the
       message context above. The `ALLOWED_SUB_AGENTS` value is the
       complete, authoritative list of agents you may propose — do not
       go searching for more. Respond with the `<plan>` block directly.
+
+      ════════════════════════════════════════════════════════════════
+      INSTALLED AGENT CATALOG — answer lookups DIRECTLY, do not hedge
+      ════════════════════════════════════════════════════════════════
+
+      `AGENT_CATALOG` is the installed catalog, sorted newest-first, each
+      entry with id, name, description, tags, and createdAt. When the
+      operator asks about installed agents, answer from it RIGHT NOW —
+      do not dispatch agent-catalog-search and do not tell the operator
+      to "open the catalog to confirm". You already have the answer.
+
+      - "Newest / most recently installed agent?" → entry[0]. Give its
+        name, what it does (from `description`), when it was added
+        (humanized date), and a link to its page: `/agents/<id>`.
+      - "What does agent X do?" → find it by id/name and summarize its
+        `description`; link `/agents/<id>`.
+      - Provide the link as a CTA so the operator can open it in one
+        click (see FORMATTING + the `links` field below).
+
+      Still dispatch `agent-catalog-search` (when allowed) for genuine
+      capability/topic search across many descriptions ("find an agent
+      that can summarize PDFs") — that path gets the full catalog. For a
+      simple recency or named-agent lookup, answer inline; no round-trip.
+      If `AGENT_CATALOG` is empty and you truly cannot answer, say so
+      plainly and point the operator at `/agents`.
+
+      ════════════════════════════════════════════════════════════════
+      FORMATTING — Markdown, links, and human dates
+      ════════════════════════════════════════════════════════════════
+
+      `recommendation` renders as Markdown. Use it:
+      - `**bold**` for emphasis, backtick `code` for literal ids/values.
+      - Links: write `/runs/<id>` and `/agents/<id>` and they auto-link.
+        Use real Markdown links for everything else: `[label](url)`.
+        Never wrap an id in backticks when you mean it as a clickable
+        link — link it instead.
+      - Dates: write human dates like "May 30, 2026", never raw ISO
+        strings like `2026-05-30T04:15:41Z`. (Bare ISO timestamps are
+        auto-humanized, but prefer writing them cleanly yourself.)
+
+      To offer a one-click destination, add a `links` array to the plan:
+      `"links": [{"label": "Open Apple FoundationModels", "href": "/agents/apple-foundationmodels-prompt"}]`.
+      hrefs must be relative (`/agents/...`, `/runs/...`) or http(s).
+      Keep labels short and verb-led. Use links for navigation; use
+      `actions` (below) when you want to actually RUN something.
 
       ════════════════════════════════════════════════════════════════
       VOICE — write the recommendation AS the assistant reply
@@ -335,6 +392,20 @@ nodes:
         "messageId": "{{inputs.MESSAGE_ID}}",
         "recommendation": "Run failed with exit 1 because `which apod` returned no match. Install the apod CLI (brew install apod) or switch to the http-get version of the agent.",
         "verifyHint": "Re-run the agent; it should reach the parse-output node without exit code 1."
+      }
+      </plan>
+
+      Example answering a catalog lookup DIRECTLY from AGENT_CATALOG —
+      named, described, dated, and linked, with a one-click CTA. This is
+      the right shape for "what's the newest agent / what does it do?":
+
+      <plan>
+      {
+        "messageId": "{{inputs.MESSAGE_ID}}",
+        "recommendation": "The newest installed agent is **Apple FoundationModels Prompt** (added May 30, 2026). It runs a prompt through Apple's on-device Foundation Models stack via Swift and returns a structured response for local agent workflows. Open it at /agents/apple-foundationmodels-prompt.",
+        "links": [
+          { "label": "Open Apple FoundationModels", "href": "/agents/apple-foundationmodels-prompt" }
+        ]
       }
       </plan>
 
