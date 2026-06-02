@@ -20,7 +20,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput } from './agent-v2-types.js';
+import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, NodeExecutionRecord } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
@@ -225,8 +225,41 @@ export interface DagExecuteOptions {
    * otherwise collide on the same most-recent row).
    */
   runId?: string;
+  /**
+   * Resume an interrupted run in place. Requires `runId` to point at an
+   * existing run. The executor does NOT create a new run row; instead it skips
+   * nodes already `completed` in that run (reloading their stored outputs),
+   * clears any incomplete node rows so they re-run cleanly, and continues from
+   * the first not-completed node. Used by the durable Temporal path (B2): on a
+   * worker/activity retry the run picks up where it crashed rather than
+   * restarting. No-op-safe: a fully-completed run resumes to its terminal state.
+   */
+  resume?: boolean;
 }
 
+
+/**
+ * Seed the in-memory `outputs` map from a stored completed node execution, so
+ * downstream nodes see the same upstream snapshot the original run produced.
+ * Reused by both replay (copy prior run's nodes) and resume (this run's nodes).
+ * Prefers the structured `outputsJson` when present, falling back to `result`.
+ */
+function seedOutputFromExec(
+  outputs: Map<string, NodeOutput>,
+  exec: NodeExecutionRecord,
+  source: Agent['source'],
+): void {
+  let structured: NodeStructuredOutput | undefined;
+  if (exec.outputsJson) {
+    try { structured = JSON.parse(exec.outputsJson) as NodeStructuredOutput; } catch { /* fall back to result */ }
+  }
+  outputs.set(exec.nodeId, {
+    result: exec.result ?? '',
+    exitCode: 0,
+    source,
+    outputs: structured,
+  });
+}
 
 /**
  * Execute an agent's DAG end-to-end. Creates the parent `runs` row,
@@ -245,26 +278,38 @@ export async function executeAgentDag(
   const runId = options.runId ?? randomUUID();
   const startedAt = new Date().toISOString();
 
-  // Parent run row created up-front in 'running' state. Lets anyone polling
-  // the DB see the run exists + links to per-node rows as they land.
-  deps.runStore.createRun({
-    id: runId,
-    agentName: agent.id,
-    status: 'running',
-    startedAt,
-    triggeredBy: options.triggeredBy,
-    workflowId: agent.id,
-    workflowVersion: agent.version,
-    replayedFromRunId: options.replayFrom?.priorRunId,
-    replayedFromNodeId: options.replayFrom?.fromNodeId,
-    parentRunId: options.parentRunId,
-    parentNodeId: options.parentNodeId,
-    retryOfRunId: options.retryOf?.originalRunId,
-    attempt: options.retryOf?.attempt,
-    // v2 DAGs execute in-process today. B1b will set this to 'temporal' per
-    // node when spawns route through a Temporal activity.
-    usedWorkflowProvider: 'local',
-  });
+  // Resume mode (B2): when asked to resume an existing run, reuse its row +
+  // completed node executions instead of creating a fresh run. Falls back to a
+  // normal fresh run if the row doesn't actually exist (e.g. first attempt).
+  const resumingRun = options.resume && options.runId ? deps.runStore.getRun(options.runId) : null;
+
+  if (resumingRun) {
+    // Flip the row back to running (a crash/reaper may have marked it failed)
+    // and drop any incomplete node rows so they re-run without a PK conflict.
+    deps.runStore.updateRun(runId, { status: 'running' });
+    deps.runStore.clearIncompleteNodeExecutions(runId);
+  } else {
+    // Parent run row created up-front in 'running' state. Lets anyone polling
+    // the DB see the run exists + links to per-node rows as they land.
+    deps.runStore.createRun({
+      id: runId,
+      agentName: agent.id,
+      status: 'running',
+      startedAt,
+      triggeredBy: options.triggeredBy,
+      workflowId: agent.id,
+      workflowVersion: agent.version,
+      replayedFromRunId: options.replayFrom?.priorRunId,
+      replayedFromNodeId: options.replayFrom?.fromNodeId,
+      parentRunId: options.parentRunId,
+      parentNodeId: options.parentNodeId,
+      retryOfRunId: options.retryOf?.originalRunId,
+      attempt: options.retryOf?.attempt,
+      // v2 DAGs execute in-process today. B1b will set this to 'temporal' per
+      // node when spawns route through a Temporal activity.
+      usedWorkflowProvider: 'local',
+    });
+  }
 
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
@@ -363,9 +408,21 @@ export async function executeAgentDag(
         workflowVersion: agent.version,
         // Keep the original startedAt/completedAt so the audit trail is clear.
       });
-      outputs.set(id, { result: prior.result!, exitCode: 0, source: agent.source });
+      seedOutputFromExec(outputs, prior, agent.source);
     }
     replaySkipIds = new Set(priorIds);
+  }
+
+  // Resume pre-load (B2): the completed node rows already live in THIS run, so
+  // we don't copy them — just seed their outputs and skip them. Incomplete rows
+  // were cleared above, so the executor re-runs from the first unfinished node.
+  if (resumingRun) {
+    for (const exec of deps.runStore.listNodeExecutions(runId)) {
+      if (exec.status === 'completed') {
+        seedOutputFromExec(outputs, exec, agent.source);
+        replaySkipIds.add(exec.nodeId);
+      }
+    }
   }
 
   for (const node of order) {

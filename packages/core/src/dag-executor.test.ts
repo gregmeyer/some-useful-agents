@@ -2216,3 +2216,78 @@ describe('executeAgentDag onRunFailure hook (B1c)', () => {
     expect(fired).toBe(0);
   });
 });
+
+describe('executeAgentDag resume in place (B2)', () => {
+  const chain = (): Agent => makeAgent({
+    nodes: [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+      { id: 'c', type: 'shell', command: 'echo c', dependsOn: ['b'] },
+    ],
+  });
+
+  function recordingSpawner(
+    responses: Record<string, { exitCode: number; result?: string; error?: string }>,
+    calls: string[],
+  ): DagExecutorDeps['spawnNode'] {
+    return async (node) => {
+      calls.push(node.id);
+      const r = responses[node.id] ?? { exitCode: 0, result: 'ok' };
+      return { result: r.result ?? '', exitCode: r.exitCode, error: r.error };
+    };
+  }
+
+  it('resumes an interrupted run, re-running only the unfinished node', async () => {
+    // First attempt: a + b complete, c fails — the run ends 'failed'.
+    const firstCalls: string[] = [];
+    const run1 = await executeAgentDag(
+      chain(),
+      { triggeredBy: 'cli', runId: 'r-res' },
+      { runStore, spawnNode: recordingSpawner({ a: { exitCode: 0, result: 'A' }, b: { exitCode: 0, result: 'B' }, c: { exitCode: 1, error: 'boom' } }, firstCalls) },
+    );
+    expect(run1.status).toBe('failed');
+    expect(firstCalls).toEqual(['a', 'b', 'c']);
+
+    // Resume the SAME run: a + b are skipped (their stored outputs reused), only
+    // c re-runs — and this time succeeds, so the run completes.
+    const resumeCalls: string[] = [];
+    const run2 = await executeAgentDag(
+      chain(),
+      { triggeredBy: 'cli', runId: 'r-res', resume: true },
+      { runStore, spawnNode: recordingSpawner({ c: { exitCode: 0, result: 'C' } }, resumeCalls) },
+    );
+    expect(resumeCalls).toEqual(['c']);
+    expect(run2.id).toBe('r-res');
+    expect(run2.status).toBe('completed');
+
+    // a + b kept their original completed rows; c is now completed too.
+    const execs = runStore.listNodeExecutions('r-res');
+    expect(execs.filter((e) => e.status === 'completed').map((e) => e.nodeId).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('resume of a fully completed run re-finalizes without re-running nodes', async () => {
+    await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli', runId: 'r-done' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }) },
+    );
+    const calls: string[] = [];
+    const run2 = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli', runId: 'r-done', resume: true },
+      { runStore, spawnNode: recordingSpawner({}, calls) },
+    );
+    expect(calls).toEqual([]);
+    expect(run2.status).toBe('completed');
+  });
+
+  it('falls back to a fresh run when resume is set but the run does not exist', async () => {
+    const run = await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli', runId: 'r-new', resume: true },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }) },
+    );
+    expect(run.id).toBe('r-new');
+    expect(run.status).toBe('completed');
+  });
+});
