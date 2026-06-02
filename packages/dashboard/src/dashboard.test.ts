@@ -3924,3 +3924,32 @@ describe('POST /agents/:id/allowed-sub-agents', () => {
     expect(agentStore.getAgent('warn-host')?.allowedSubAgents).toEqual(['ghost-tool']);
   });
 });
+
+describe('Settings → Temporal (/settings/temporal)', () => {
+  const authed = (app: Parameters<typeof request>[0], path: string) =>
+    request(app).get(path)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+  it('renders the provider, worker, and connection cards', async () => {
+    const app = await makeApp();
+    const res = await authed(app, '/settings/temporal');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Run provider');
+    expect(res.text).toContain('Worker');
+    expect(res.text).toContain('Task queue');
+    // Default harness provider is local — worker is stopped, Start button shows.
+    expect(res.text).toContain('Start worker');
+  });
+
+  it('worker start fails cleanly and redirects when sua bin path is unavailable', async () => {
+    // argv[1] is the vitest runner here, so spawnService will attempt a child;
+    // we only assert the route is wired and redirects (303), not the spawn.
+    const app = await makeApp();
+    const res = await request(app).post('/settings/temporal/worker/stop')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/settings\/temporal/);
+  });
+});

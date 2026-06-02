@@ -55,6 +55,7 @@ import { assetsRouter } from './routes/assets.js';
 import { outputFilesRouter } from './routes/output-files.js';
 import { settingsRouter } from './routes/settings.js';
 import { settingsMcpRouter } from './routes/settings-mcp.js';
+import { settingsTemporalRouter } from './routes/settings-temporal.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
@@ -94,6 +95,8 @@ export interface StartDashboardOptions {
   allowUntrustedShell?: Set<string>;
   /** Run-history retention in days (shown on /settings/general). Defaults to 30. */
   retentionDays?: number;
+  /** Temporal connection config, shown read-only on /settings/temporal. */
+  temporal?: { address: string; namespace: string; taskQueue: string };
   /**
    * Public base URL the dashboard is reachable at. Used to build clickable
    * run links inside notify handler payloads (Slack, etc). Falls back to
@@ -267,6 +270,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(runMutationsRouter);
   app.use(widgetRunRouter);
   app.use(settingsMcpRouter);
+  app.use(settingsTemporalRouter);
   app.use(settingsRouter);
   app.use(helpRouter);
   app.use(versionsRouter);
@@ -506,6 +510,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     port: opts.port,
     provider,
     workflowSpawnNode,
+    temporal: opts.temporal,
     runStore,
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),

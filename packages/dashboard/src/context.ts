@@ -29,6 +29,11 @@ export interface DashboardContext {
    * while orchestration stays in the dashboard (B1b).
    */
   workflowSpawnNode?: SpawnNodeFn;
+  /**
+   * Temporal connection config (shown read-only on /settings/temporal). Set by
+   * the CLI from sua.config.json; the worker uses these same values.
+   */
+  temporal?: { address: string; namespace: string; taskQueue: string };
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
   /**
