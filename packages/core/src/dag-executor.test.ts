@@ -2178,3 +2178,41 @@ describe('executeAgentDag spawn backend seam (B1b)', () => {
     expect(execs.find((e) => e.nodeId === 'main')!.usedWorkflowProvider).toBeUndefined();
   });
 });
+
+describe('executeAgentDag onRunFailure hook (B1c)', () => {
+  it('fires once on a failed run with the failed node + category', async () => {
+    const calls: Array<{ runId: string; failedNodeId?: string; errorCategory?: string }> = [];
+    await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      {
+        runStore,
+        spawnNode: cannedSpawner({ main: { exitCode: 2, error: 'boom' } }),
+        onRunFailure: (info) => calls.push({ runId: info.run.id, failedNodeId: info.failedNodeId, errorCategory: info.errorCategory }),
+      },
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].failedNodeId).toBe('main');
+    expect(calls[0].errorCategory).toBe('exit_nonzero');
+  });
+
+  it('does not fire on a completed run', async () => {
+    let fired = 0;
+    await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 0, result: 'ok' } }), onRunFailure: () => { fired++; } },
+    );
+    expect(fired).toBe(0);
+  });
+
+  it('does not fire mid-retry-chain (suppressNotify)', async () => {
+    let fired = 0;
+    await executeAgentDag(
+      makeAgent(),
+      { triggeredBy: 'cli', suppressNotify: true },
+      { runStore, spawnNode: cannedSpawner({ main: { exitCode: 2, error: 'boom' } }), onRunFailure: () => { fired++; } },
+    );
+    expect(fired).toBe(0);
+  });
+});
