@@ -3,6 +3,7 @@ import type { RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderRunsList } from '../views/runs-list.js';
 import { renderRunDetail } from '../views/run-detail.js';
+import { temporalWorkflowLink } from '../lib/temporal-link.js';
 import {
   parseHiddenFieldsParam,
   parseSortParamsFromQuery,
@@ -123,7 +124,9 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     page: parsePageParamsFromQuery(req.query as Record<string, unknown>),
   };
 
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls }));
+  const temporalLink = temporalWorkflowLink(run, ctx.temporal?.namespace);
+
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

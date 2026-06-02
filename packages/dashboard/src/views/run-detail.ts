@@ -21,6 +21,11 @@ export interface RunDetailOptions {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** URL-driven state for the output widget's interactive controls. */
   widgetControls?: WidgetControlState;
+  /**
+   * Deep link to this run's workflow in the Temporal Web UI. Set by the route
+   * only for runs that executed on Temporal (workflow id `sua-run-<runId>`).
+   */
+  temporalLink?: string;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
@@ -175,7 +180,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
-          <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}</dd>
+          <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
           ${replayedFrom}
           ${retryOf}
         </dl>
