@@ -121,7 +121,7 @@ export interface Run {
   /**
    * Which execution backend ran this: `'local'` (in-process) or `'temporal'`
    * (durable worker). Distinct from the LLM provider axis
-   * (`NodeExecutionRecord.usedProvider`). NULL/undefined on legacy rows ↔
+   * (`NodeExecutionRecord.usedLLMProvider`). NULL/undefined on legacy rows ↔
    * treat as `local`.
    */
   usedWorkflowProvider?: string;

@@ -1067,7 +1067,7 @@ export async function executeAgentDag(
         exitCode: 0,
         outputsJson,
         stateBytesAfter,
-        usedProvider: result.usedProvider,
+        usedLLMProvider: result.usedLLMProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
       });
@@ -1085,7 +1085,7 @@ export async function executeAgentDag(
         exitCode: result.exitCode,
         error: result.error ?? `Process exited with code ${result.exitCode}`,
         outputsJson,
-        usedProvider: result.usedProvider,
+        usedLLMProvider: result.usedLLMProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
         stateBytesAfter,

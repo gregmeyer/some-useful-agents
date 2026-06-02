@@ -453,10 +453,10 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     let waterfallChip: SafeHtml = html``;
     if (e.attemptedProviders) {
       const trail = e.attemptedProviders.split(',').filter(Boolean);
-      if (trail.length > 1 && e.usedProvider) {
+      if (trail.length > 1 && e.usedLLMProvider) {
         const failedFrom = trail.slice(0, -1).join(', ');
         const verdict = e.status === 'completed' ? 'ran on' : 'ended on';
-        waterfallChip = html`<span class="badge badge--muted" title="LLM waterfall: ${trail.join(' → ')}">${verdict} <span class="mono">${e.usedProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
+        waterfallChip = html`<span class="badge badge--muted" title="LLM waterfall: ${trail.join(' → ')}">${verdict} <span class="mono">${e.usedLLMProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
       }
     }
 
