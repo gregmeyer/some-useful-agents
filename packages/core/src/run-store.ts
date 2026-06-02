@@ -505,6 +505,21 @@ export class RunStore {
   }
 
   /**
+   * Delete this run's node executions that are NOT `completed` (running,
+   * failed, skipped, etc.). Used when resuming an interrupted run: completed
+   * rows are kept + skipped on replay, while incomplete rows are cleared so the
+   * executor can re-create them cleanly without a (runId, nodeId) PK conflict.
+   * Returns the number of rows removed.
+   */
+  clearIncompleteNodeExecutions(runId: string): number {
+    const stmt = this.db.prepare(
+      `DELETE FROM node_executions WHERE runId = ? AND status != 'completed'`,
+    );
+    const result = stmt.run(runId);
+    return Number(result.changes ?? 0);
+  }
+
+  /**
    * Node executions that failed with a given category. Used by
    * `sua workflow logs --category=timeout`.
    */
