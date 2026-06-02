@@ -34,6 +34,12 @@ export interface DashboardContext {
    * the CLI from sua.config.json; the worker uses these same values.
    */
   temporal?: { address: string; namespace: string; taskQueue: string };
+  /**
+   * Run-failure hook passed into every executeAgentDag call. Raises an inbox
+   * conversation when a Temporal run fails so the triage agent sees it (B1c).
+   * Undefined when there's no inbox store.
+   */
+  onRunFailure?: (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => void;
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
   /**

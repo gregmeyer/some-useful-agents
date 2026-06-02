@@ -191,6 +191,7 @@ async function kickoffDashboardPlannerRun(args: {
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
       spawnNode: ctx.workflowSpawnNode,
+      onRunFailure: ctx.onRunFailure,
     },
   );
 

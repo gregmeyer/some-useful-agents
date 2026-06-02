@@ -63,6 +63,7 @@ import { inboxRouter } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
+import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -453,6 +454,23 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // before real producers ship in PR 3. No-op without the env flag.
   seedInboxDemoIfRequested(inboxStore, agentStore);
 
+  // B1c: surface failed Temporal runs in the inbox so the triage agent notices.
+  // The reusable hook is passed into every executeAgentDag call (in-band
+  // failures); the loop below covers the silent case — runs orphaned because a
+  // prior dashboard process died mid-run, just finalized as failed by the
+  // reaper above. Both no-op for local runs and dedupe by runId.
+  const dashboardBaseUrl = (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, '');
+  const onRunFailure = inboxStore
+    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) =>
+        raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl)
+    : undefined;
+  if (inboxStore) {
+    for (const rid of reapResult.reapedRunIds) {
+      const orphan = runStore.getRun(rid);
+      if (orphan) raiseRunFailureInbox(inboxStore, { run: orphan, errorCategory: 'abandoned' }, dashboardBaseUrl);
+    }
+  }
+
   // Integrations store. Same DB file. Independently optional from packs/
   // dashboards so a schema issue in either doesn't keep the other offline.
   let integrationsStore: IntegrationsStore | undefined;
@@ -511,6 +529,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     provider,
     workflowSpawnNode,
     temporal: opts.temporal,
+    onRunFailure,
     runStore,
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),
@@ -545,7 +564,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(),
     dataDir: dirname(opts.dbPath),
-    dashboardBaseUrl: (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, ''),
+    dashboardBaseUrl,
   };
 
   const app = buildDashboardApp(ctx);
