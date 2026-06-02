@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { openStoreDb } from './sqlite-open.js';
 
 type SqlValue = string | number | null | bigint | Uint8Array;
 import { mkdirSync, existsSync } from 'node:fs';
@@ -54,7 +55,7 @@ export class RunStore {
       mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new DatabaseSync(dbPath);
+    this.db = openStoreDb(dbPath);
     this.ownsConnection = true;
     // Lock the DB file down to user-only. Agent stdout can contain secrets
     // and the DB is unencrypted plaintext; the only at-rest protection is

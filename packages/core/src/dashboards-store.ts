@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { openStoreDb } from './sqlite-open.js';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { chmod600Safe } from './fs-utils.js';
@@ -43,7 +44,7 @@ export class DashboardsStore {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    this.db = new DatabaseSync(dbPath);
+    this.db = openStoreDb(dbPath);
     this.ownsConnection = true;
     chmod600Safe(dbPath);
     this.dataRoot = dir;
