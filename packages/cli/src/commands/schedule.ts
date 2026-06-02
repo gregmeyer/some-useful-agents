@@ -1,6 +1,5 @@
 import { resolve, join, dirname } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -17,6 +16,7 @@ import {
   cronToHuman,
   getSchedulerStatus,
   nextFireTime,
+  openStoreDb,
 } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs, getSecretsPath, getDbPath, getDashboardBaseUrl } from '../config.js';
 import { createProvider } from '../provider-factory.js';
@@ -197,7 +197,7 @@ scheduleCommand
     const dbPath = getDbPath(config);
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
-    const sharedDb = new DatabaseSync(dbPath);
+    const sharedDb = openStoreDb(dbPath);
     const agentStore = AgentStore.fromHandle(sharedDb);
     const v2Agents = agentStore.listAgents().filter(
       (a) => a.schedule && a.status === 'active',

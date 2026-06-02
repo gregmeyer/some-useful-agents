@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { openStoreDb } from './sqlite-open.js';
 import type { ToolDefinition, ToolSource } from './tool-types.js';
 import type { McpServerConfig, McpTransport } from './mcp-server-types.js';
 
@@ -14,7 +15,7 @@ export class ToolStore {
   private readonly db: DatabaseSync;
 
   constructor(dbPath: string) {
-    this.db = new DatabaseSync(dbPath);
+    this.db = openStoreDb(dbPath);
     this.db.exec('PRAGMA journal_mode = WAL');
     this.ensureSchema();
   }
