@@ -138,6 +138,25 @@ describe('GET /inbox', () => {
     expect(res.text).toContain('class="inbox-rail"');
     expect(res.text).toContain(`data-inbox-rail-id="${starred.id}"`);
   });
+
+  it('shows an always-visible one-line preview with de-markdowned latest activity', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'has reply', body: '(empty)' });
+    inboxStore.addResponse(m.id, 'triage', 'The newest agent is **Apple FM** — open [it](/agents/apple-fm).');
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('inbox-row2__preview-line');
+    // Snippet is plain text: markdown markers stripped, link unwrapped to label.
+    expect(res.text).toContain('The newest agent is Apple FM — open it.');
+    expect(res.text).not.toContain('**Apple FM**');
+    expect(res.text).not.toContain('](/agents/apple-fm)');
+  });
+
+  it('falls back to a muted hint when a thread has no replies', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'low', source: 'manual', title: 'empty thread', body: '(empty)' });
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('No replies yet');
+  });
 });
 
 describe('GET /inbox/:id and /:id/fragment', () => {

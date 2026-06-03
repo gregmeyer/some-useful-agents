@@ -1,7 +1,7 @@
-import type { InboxMessage, InboxPriority, InboxResponseRole, InboxSource, InboxStatus } from '@some-useful-agents/core';
+import { markdownToText, type InboxMessage, type InboxPriority, type InboxResponseRole, type InboxSource, type InboxStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
-import { formatAge } from './components.js';
+import { formatAge, humanizeTimestamps } from './components.js';
 import { renderInboxModalShell } from './inbox-modal.js';
 
 /**
@@ -120,8 +120,18 @@ const PREVIEW_ROLE_AVATAR: Partial<Record<InboxResponseRole, string>> = {
   system: 'Sys',
 };
 
-/** Max characters in the preview's activity-excerpt body before truncating. */
-const PREVIEW_EXCERPT_CAP = 160;
+/** Max characters in the always-visible one-line row preview. */
+const PREVIEW_LINE_CAP = 120;
+
+/**
+ * Reduce a (Markdown) message body to a clean one-line snippet for list
+ * previews: strip Markdown to plain text, humanize bare ISO timestamps, then
+ * truncate at a word boundary. Keeps the inbox skimmable without raw `**`/`](`
+ * syntax leaking through.
+ */
+function cleanSnippet(body: string, cap: number): string {
+  return excerpt(humanizeTimestamps(markdownToText(body)), cap);
+}
 
 /**
  * Human labels for the inbox-status enum. The raw snake_case values
@@ -226,7 +236,7 @@ export function renderInboxList(opts: InboxListOptions): string {
       <div>
         <h1 style="margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl);">Inbox</h1>
         <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
-          Conversations that need your attention. Click a row to open, or the chevron for a quick preview.
+          Conversations that need your attention. Click a row to open, or the chevron for full detail.
         </p>
       </div>
       <div class="inbox-page-head__actions">
@@ -527,8 +537,9 @@ function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined)
         <button type="submit" class="inbox-star ${m.starred ? 'inbox-star--on' : ''}" aria-label="${m.starred ? 'Unstar' : 'Star'}">★</button>
       </form>
       <button type="button" class="inbox-row2__chevron" data-inbox-row-chevron
-        aria-label="Toggle preview" aria-expanded="false">›</button>
+        aria-label="Toggle details" aria-expanded="false">›</button>
 
+      ${renderPreviewLine(m, preview)}
       ${renderPreview(m, preview)}
     </div>
   `;
@@ -554,28 +565,57 @@ function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined)
  *     legacy body excerpt so producers that seed real body text
  *     still get a useful preview.
  */
+/**
+ * Always-visible one-line activity preview under the row title. Shows the
+ * latest non-action response (avatar + role + clean snippet); falls back to a
+ * proposed-action hint, then a muted "no replies" note. Lets the operator skim
+ * the whole inbox without expanding each row.
+ */
+function renderPreviewLine(m: InboxMessage, preview: InboxRowPreviewPayload | undefined): SafeHtml {
+  const latest = preview?.latestResponse;
+  const proposed = preview?.proposedActions;
+  if (latest) {
+    return html`
+      <div class="inbox-row2__preview-line" role="cell">
+        <span class="inbox-msg__avatar inbox-msg__avatar--${latest.role} inbox-row2__preview-avatar">${PREVIEW_ROLE_AVATAR[latest.role] ?? latest.role.slice(0, 3)}</span>
+        <span class="inbox-row2__preview-role">${PREVIEW_ROLE_LABEL[latest.role] ?? latest.role}</span>
+        <span class="inbox-row2__preview-snippet">${cleanSnippet(latest.body, PREVIEW_LINE_CAP)}</span>
+      </div>
+    `;
+  }
+  if (proposed && proposed.count > 0) {
+    return html`
+      <div class="inbox-row2__preview-line inbox-row2__preview-line--hint" role="cell">
+        <span class="inbox-row2__preview-snippet dim">▸ ${proposed.count} proposed action${proposed.count === 1 ? '' : 's'}${proposed.firstAgentId ? html` · <span class="mono">${proposed.firstAgentId}</span>` : html``}</span>
+      </div>
+    `;
+  }
+  const trimmedBody = m.body.trim();
+  const hasMeaningfulBody = trimmedBody.length > 0 && trimmedBody !== '(empty)';
+  const text = hasMeaningfulBody ? cleanSnippet(m.body, PREVIEW_LINE_CAP) : 'No replies yet';
+  return html`
+    <div class="inbox-row2__preview-line inbox-row2__preview-line--hint" role="cell">
+      <span class="inbox-row2__preview-snippet dim">${text}</span>
+    </div>
+  `;
+}
+
 function renderPreview(m: InboxMessage, preview: InboxRowPreviewPayload | undefined): SafeHtml {
   const latest = preview?.latestResponse;
   const proposed = preview?.proposedActions;
-  const trimmedBody = m.body.trim();
-  const hasMeaningfulBody = trimmedBody.length > 0 && trimmedBody !== '(empty)';
 
+  // The latest-response snippet is now shown always-on in the row preview line
+  // (renderPreviewLine); the expanded panel carries the "extras" — full
+  // timestamp on the latest entry, proposed actions, context payload, tags, and
+  // the Open-thread CTA. When there are no replies at all, surface a hint.
   const activityBlock = latest
     ? html`
-      <div class="inbox-row2__activity">
-        <span class="inbox-msg__avatar inbox-msg__avatar--${latest.role}">${PREVIEW_ROLE_AVATAR[latest.role] ?? latest.role.slice(0, 3)}</span>
-        <div class="inbox-row2__activity-body">
-          <div class="inbox-row2__activity-meta">
-            <span class="inbox-row2__activity-role">${PREVIEW_ROLE_LABEL[latest.role] ?? latest.role}</span>
-            <span class="dim">${formatAge(new Date(latest.createdAt).toISOString())}</span>
-          </div>
-          <div class="inbox-row2__activity-excerpt">${excerpt(latest.body, PREVIEW_EXCERPT_CAP)}</div>
-        </div>
+      <div class="inbox-row2__activity-meta">
+        <span class="inbox-row2__activity-role">${PREVIEW_ROLE_LABEL[latest.role] ?? latest.role}</span>
+        <span class="dim">${formatAge(new Date(latest.createdAt).toISOString())}</span>
       </div>
     `
-    : hasMeaningfulBody
-      ? html`<div class="inbox-row2__body-excerpt">${excerpt(m.body, PREVIEW_EXCERPT_CAP * 2)}</div>`
-      : html`<div class="inbox-row2__no-activity dim">No replies yet. Open the thread to start the conversation.</div>`;
+    : html`<div class="inbox-row2__no-activity dim">No replies yet. Open the thread to start the conversation.</div>`;
 
   const actionsBlock = proposed && proposed.count > 0
     ? html`
