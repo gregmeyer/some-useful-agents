@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderMarkdown, renderMarkdownSafe } from './markdown.js';
+import { renderMarkdown, renderMarkdownSafe, markdownToText } from './markdown.js';
 
 describe('renderMarkdown', () => {
   it('renders bold and italic', () => {
@@ -78,5 +78,46 @@ describe('renderMarkdownSafe (composition with sanitizer)', () => {
     const html = renderMarkdownSafe('**bold** and `code`');
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain('<code>code</code>');
+  });
+});
+
+describe('markdownToText', () => {
+  it('strips bold/italic/underscore/code markers, keeping content', () => {
+    expect(markdownToText('**bold** and *italic* and _em_ and `code`')).toBe('bold and italic and em and code');
+  });
+
+  it('unwraps links to their label', () => {
+    expect(markdownToText('open [the agent](/agents/foo) now')).toBe('open the agent now');
+  });
+
+  it('unwraps images to their alt text', () => {
+    expect(markdownToText('![alt text](/img.png)')).toBe('alt text');
+  });
+
+  it('drops heading, list, and blockquote markers', () => {
+    expect(markdownToText('# Title')).toBe('Title');
+    expect(markdownToText('- a\n- b')).toBe('a b');
+    expect(markdownToText('1. one\n2. two')).toBe('one two');
+    expect(markdownToText('> quoted')).toBe('quoted');
+  });
+
+  it('collapses newlines and whitespace to single spaces', () => {
+    expect(markdownToText('line one\n\nline   two')).toBe('line one line two');
+  });
+
+  it('keeps fenced code contents without the fences', () => {
+    expect(markdownToText('```js\nx()\n```')).toBe('x()');
+  });
+
+  it('drops horizontal rules', () => {
+    expect(markdownToText('a\n\n---\n\nb')).toBe('a b');
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(markdownToText('')).toBe('');
+  });
+
+  it('leaves plain text untouched', () => {
+    expect(markdownToText('just a normal sentence.')).toBe('just a normal sentence.');
   });
 });
