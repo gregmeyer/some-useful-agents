@@ -125,6 +125,14 @@ export interface Run {
    * treat as `local`.
    */
   usedWorkflowProvider?: string;
+  /**
+   * Temporal workflow execution runId, set only for DURABLE per-run executions
+   * (the `sua-run-<id>` workflow started by `submitDagRun`). Lets the dashboard
+   * build a precise Temporal Web UI deep link
+   * (`/workflows/sua-run-<id>/<temporalRunId>/history`). Absent for per-node
+   * Temporal runs (which have no single run-level workflow) and local runs.
+   */
+  temporalRunId?: string;
 }
 
 export interface RunRequest {
