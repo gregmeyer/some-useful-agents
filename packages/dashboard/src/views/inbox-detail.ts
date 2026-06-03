@@ -285,7 +285,9 @@ export function renderInboxDetail(opts: InboxDetailOptions): string {
       back: { href: '/inbox', label: 'Inbox' },
     })}
     <section class="card" style="margin-top: var(--space-3);">
-      ${renderInboxDetailFragment(opts)}
+      <div data-inbox-page-detail data-inbox-message-id="${message.id}">
+        ${renderInboxDetailFragment(opts)}
+      </div>
     </section>
   `;
   return render(layout({

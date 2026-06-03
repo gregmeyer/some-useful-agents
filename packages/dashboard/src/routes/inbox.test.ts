@@ -186,6 +186,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const res = await request(app).get(`/inbox/${m.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Detail title');
+    expect(res.text).toContain(`data-inbox-page-detail data-inbox-message-id="${m.id}"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/respond"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/dismiss"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/triage"`);
