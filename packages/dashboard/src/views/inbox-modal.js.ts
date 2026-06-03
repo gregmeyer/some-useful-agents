@@ -33,6 +33,9 @@ export const INBOX_MODAL_JS = `
   // server hasn't yet attached a triageRunId to the message — the
   // dag-executor + run-store insertion is racy with our 200ms wait.
   var keepPollingUntil = 0;
+  // Preserve the inbox list URL we opened from so closing the modal
+  // returns to that exact filter/search view instead of a bare /inbox.
+  var modalBaseHref = '';
 
   // SSE state. eventSource carries the active connection; sseAliveAt
   // records the last event (or open) timestamp so the watchdog can
@@ -51,7 +54,7 @@ export const INBOX_MODAL_JS = `
     modal.classList.add('is-open');
     document.body.style.overflow = 'hidden';
   }
-  function close() {
+  function teardownModal() {
     modal.hidden = true;
     modal.classList.remove('is-open');
     document.body.style.overflow = '';
@@ -60,6 +63,46 @@ export const INBOX_MODAL_JS = `
     keepPollingUntil = 0;
     stopPoll();
     closeEventSource();
+  }
+  function close(opts) {
+    opts = opts || {};
+    var fromHistory = !!opts.fromHistory;
+    if (!fromHistory && currentId && window.history && window.history.state
+      && window.history.state.inboxModalId === currentId) {
+      window.history.back();
+      return;
+    }
+    teardownModal();
+    if (fromHistory && !isInboxThreadPath(window.location.pathname)) {
+      modalBaseHref = '';
+    }
+  }
+
+  function currentLocationHref() {
+    return window.location.pathname + window.location.search + window.location.hash;
+  }
+
+  function inboxThreadHref(id) {
+    return '/inbox/' + encodeURIComponent(id);
+  }
+
+  function isInboxThreadPath(pathname) {
+    return /^\\/inbox\\/[^/]+$/.test(pathname || '');
+  }
+
+  function syncModalHistory(id, mode) {
+    if (!window.history || typeof window.history.pushState !== 'function') return;
+    var state = {
+      inboxModalId: id,
+      inboxModalBaseHref: modalBaseHref || '/inbox',
+    };
+    try {
+      if (mode === 'replace' && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(state, '', inboxThreadHref(id));
+      } else {
+        window.history.pushState(state, '', inboxThreadHref(id));
+      }
+    } catch (_) { /* noop */ }
   }
 
   function closeEventSource() {
@@ -510,7 +553,22 @@ export const INBOX_MODAL_JS = `
     if (btn) btn.focus();
   }
 
-  function openFor(id) {
+  function openFor(id, opts) {
+    opts = opts || {};
+    var fromHistory = !!opts.fromHistory;
+    var wasOpen = !modal.hidden;
+    if (!wasOpen) {
+      modalBaseHref = currentLocationHref();
+    } else if (!modalBaseHref) {
+      modalBaseHref = currentLocationHref();
+    }
+    if (!fromHistory) {
+      syncModalHistory(id, wasOpen ? 'replace' : 'push');
+    } else if (window.history && window.history.state
+      && typeof window.history.state.inboxModalBaseHref === 'string'
+      && window.history.state.inboxModalBaseHref) {
+      modalBaseHref = window.history.state.inboxModalBaseHref;
+    }
     currentId = id;
     seenMsgIds = Object.create(null);
     keepPollingUntil = 0;
@@ -690,6 +748,15 @@ export const INBOX_MODAL_JS = `
     if (e.key === 'Escape' && !modal.hidden) close();
   });
 
+  window.addEventListener('popstate', function () {
+    var match = window.location.pathname.match(/^\\/inbox\\/([^/]+)$/);
+    if (match) {
+      openFor(decodeURIComponent(match[1]), { fromHistory: true });
+      return;
+    }
+    if (!modal.hidden) close({ fromHistory: true });
+  });
+
   // Intercept Reply / Dismiss / Triage form submits inside the modal.
   modal.addEventListener('submit', function (e) {
     var form = e.target;
@@ -760,7 +827,7 @@ export const INBOX_MODAL_JS = `
           // the now-terminal row. The prior approach (remove row +
           // close modal) left those counts stale until the operator
           // manually refreshed.
-          window.location.reload();
+          window.location.assign(modalBaseHref || '/inbox');
         } else {
           refresh();
         }

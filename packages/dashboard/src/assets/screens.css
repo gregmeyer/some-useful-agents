@@ -3495,7 +3495,17 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   flex: 1;
   word-break: break-word;
 }
+.inbox-modal__title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
 .inbox-modal__star-form { margin: 0; flex-shrink: 0; }
+.inbox-modal__permalink {
+  white-space: nowrap;
+  text-decoration: none;
+}
 
 .inbox-modal__meta {
   display: flex;
