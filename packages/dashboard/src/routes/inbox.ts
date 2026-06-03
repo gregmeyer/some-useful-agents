@@ -837,6 +837,35 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
   return null;
 }
 
+function stableStringifyInputs(inputs: Record<string, string>): string {
+  return JSON.stringify(
+    Object.keys(inputs)
+      .sort()
+      .reduce<Record<string, string>>((acc, key) => {
+        acc[key] = inputs[key];
+        return acc;
+      }, {}),
+  );
+}
+
+function hasMatchingFailedAction(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  candidate: InboxActionMeta,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  const candidateInputs = stableStringifyInputs(candidate.inputs);
+  for (const response of ctx.inboxStore.listResponses(messageId)) {
+    const existing = parseActionMeta(response);
+    if (!existing) continue;
+    if (existing.agentId !== candidate.agentId) continue;
+    if (existing.status !== 'failed' && existing.status !== 'refused') continue;
+    if (stableStringifyInputs(existing.inputs) !== candidateInputs) continue;
+    return true;
+  }
+  return false;
+}
+
 /**
  * Build the effective allowlist of sub-agent ids triage may propose
  * running. For entries not yet installed, attempt a one-shot import
@@ -1893,10 +1922,21 @@ async function runTriageAgent(
     // declined and why.
     if (allowlist.length > 0) {
       const { accepted, rejected } = parseProposedActions(parsed.actions, allowlist);
+      const dedupedAccepted: InboxActionMeta[] = [];
+      for (const action of accepted) {
+        if (hasMatchingFailedAction(ctx, messageId, action)) {
+          rejected.push({
+            agentId: action.agentId,
+            reason: 'same action already failed on this thread; revise the inputs or choose a different next step',
+          });
+          continue;
+        }
+        dedupedAccepted.push(action);
+      }
       const existing = countActionsOnMessage(ctx, messageId);
       const budget = Math.max(0, MAX_ACTIONS_PER_MESSAGE - existing);
-      const toInsert = accepted.slice(0, budget);
-      const overflow = accepted.length - toInsert.length;
+      const toInsert = dedupedAccepted.slice(0, budget);
+      const overflow = dedupedAccepted.length - toInsert.length;
       for (const action of toInsert) {
         const body = action.rationale
           ?? `Run agent \`${action.agentId}\`.`;
