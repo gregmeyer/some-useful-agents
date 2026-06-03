@@ -98,12 +98,12 @@ describe('humanizeTimestamps', () => {
 });
 
 describe('linkifyRefs', () => {
-  it('linkifies a bare /agents ref', () => {
-    expect(linkifyRefs('see /agents/foo for details')).toBe('see [/agents/foo](/agents/foo) for details');
+  it('linkifies a bare /agents ref with the id as the label', () => {
+    expect(linkifyRefs('see /agents/foo for details')).toBe('see [foo](/agents/foo) for details');
   });
 
-  it('linkifies a bare /runs ref', () => {
-    expect(linkifyRefs('run /runs/abc-123 failed')).toBe('run [/runs/abc-123](/runs/abc-123) failed');
+  it('linkifies a bare /runs ref with the id as the label', () => {
+    expect(linkifyRefs('run /runs/abc-123 failed')).toBe('run [abc-123](/runs/abc-123) failed');
   });
 
   it('leaves an existing Markdown link untouched (no double-linking)', () => {

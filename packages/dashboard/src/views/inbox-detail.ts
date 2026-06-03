@@ -317,13 +317,18 @@ function mdBody(text: string): SafeHtml {
   // disturbing the plain-text `pre-wrap` path used by the optimistic
   // "Sending…" placeholder, which writes textContent into the same container.
   const pre = humanizeTimestamps(linkifyRefs(text));
-  return unsafeHtml(`<div class="inbox-md">${renderMarkdownSafe(pre)}</div>`);
+  // Open links in a new tab so following an agent/run link keeps the inbox
+  // modal open. Applied after sanitize (target/rel are allowlisted); safe
+  // because we control the injected attributes.
+  const rendered = renderMarkdownSafe(pre).replace(/<a /g, '<a target="_blank" rel="noreferrer" ');
+  return unsafeHtml(`<div class="inbox-md">${rendered}</div>`);
 }
 
 /**
  * Render the optional structured link-CTA buttons a triage reply may carry in
  * its `metaJson.links`. Hrefs were already URL-validated server-side
- * (parseTriageLinks); we re-escape on render. External links open in a new tab.
+ * (parseTriageLinks); we re-escape on render. Links open in a new tab so
+ * following a CTA keeps the inbox open.
  */
 function renderTriageLinks(metaJson?: string): SafeHtml {
   if (!metaJson) return html``;
@@ -336,9 +341,7 @@ function renderTriageLinks(metaJson?: string): SafeHtml {
     .filter((l) => typeof l.label === 'string' && typeof l.href === 'string')
     .map((l) => {
       const href = l.href as string;
-      const external = /^https?:\/\//i.test(href);
-      const target = external ? html` target="_blank" rel="noreferrer"` : html``;
-      return html`<a class="btn btn--xs btn--ghost" href="${href}"${target}>${l.label as string}</a>`;
+      return html`<a class="btn btn--xs btn--ghost" href="${href}" target="_blank" rel="noreferrer">${l.label as string}</a>`;
     });
   if (buttons.length === 0) return html``;
   return html`<div class="inbox-msg__ctas">${buttons as unknown as SafeHtml[]}</div>`;

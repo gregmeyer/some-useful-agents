@@ -3442,6 +3442,21 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 
 /* ---------- Modal close × in top-right ---------- */
 .inbox-modal { position: relative; }
+
+/* Subtle scrollbar for the modal's scroll container. The default opaque OS
+ * scrollbar reads as a heavy gray slab against the dark surface; a thin,
+ * muted, transparent-track bar keeps the focus on the conversation. */
+#inbox-modal-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+#inbox-modal-content::-webkit-scrollbar { width: 8px; }
+#inbox-modal-content::-webkit-scrollbar-track { background: transparent; }
+#inbox-modal-content::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+#inbox-modal-content::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 .inbox-modal__close {
   position: absolute;
   top: var(--space-2);
