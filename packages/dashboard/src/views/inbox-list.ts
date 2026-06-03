@@ -175,7 +175,6 @@ function buildSuggestions(rows: InboxMessage[]): Array<{ label: string; count: n
   const open = rows.filter((r) => r.status === 'open' || r.status === 'triaged');
   const highOpen = open.filter((r) => r.priority === 'high');
   const untriaged = open.filter((r) => r.status === 'open');
-  const awaiting = rows.filter((r) => r.status === 'awaiting_user');
 
   if (highOpen.length > 0) {
     out.push({
@@ -193,14 +192,9 @@ function buildSuggestions(rows: InboxMessage[]): Array<{ label: string; count: n
       href: untriaged[0] ? `#row-${untriaged[0].id}` : undefined,
     });
   }
-  if (awaiting.length > 0) {
-    out.push({
-      label: `Reply to triage`,
-      count: awaiting.length,
-      tag: 'awaiting',
-      href: awaiting[0] ? `#row-${awaiting[0].id}` : undefined,
-    });
-  }
+  // `awaiting_user` ("Your turn") threads are surfaced by the dedicated
+  // "Needs you" section pinned at the top of the list, so they no longer need a
+  // banner suggestion.
   return out;
 }
 
@@ -213,12 +207,13 @@ export function renderInboxList(opts: InboxListOptions): string {
 
   const starredAll = rows.filter((r) => r.starred);
   const suggestions = archiveView ? [] : buildSuggestions(rows);
+  const awaitingCount = rows.filter((r) => r.status === 'awaiting_user').length;
   const previewPayloads = opts.previewPayloads ?? new Map<string, InboxRowPreviewPayload>();
 
   const filterBar = renderFilterBar(filter, allTags);
   const suggestBanner = archiveView
     ? renderArchiveHeader(archiveView, rows.length)
-    : renderSuggestBanner(suggestions, rows.length, terminalCount);
+    : renderSuggestBanner(suggestions, rows.length, terminalCount, awaitingCount);
   const rail = renderRail(starredAll);
   const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads);
   const archiveLink = !archiveView && terminalCount > 0
@@ -319,7 +314,7 @@ function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, a
   `;
 }
 
-function renderSuggestBanner(suggestions: Array<{ label: string; count: number; href?: string; tag: string }>, totalRows: number, terminalCount: number): SafeHtml {
+function renderSuggestBanner(suggestions: Array<{ label: string; count: number; href?: string; tag: string }>, totalRows: number, terminalCount: number, awaitingCount = 0): SafeHtml {
   if (totalRows === 0) {
     // When the active inbox is empty AND there's a terminal-state
     // history, acknowledge the cleanup so the operator can see "yes,
@@ -356,16 +351,25 @@ function renderSuggestBanner(suggestions: Array<{ label: string; count: number; 
     `;
   }
   if (suggestions.length === 0) {
+    // When the only outstanding work is "Your turn" threads, the pinned
+    // "Needs you" section is the signal — point at it instead of the
+    // (misleading) "all resolved" copy.
+    const body = awaitingCount > 0
+      ? html`<span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+            ${awaitingCount} thread${awaitingCount === 1 ? '' : 's'} need${awaitingCount === 1 ? 's' : ''} your reply — see <strong>Needs you</strong> above.
+          </span>`
+      : html`<span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+            All ${totalRows} items are resolved or dismissed. Browse below if you want to revisit.
+          </span>`;
+    const title = awaitingCount > 0 ? 'Over to you' : 'Nothing pressing';
     return html`
       <div class="inbox-suggest inbox-suggest--clean" id="inbox-suggest">
         <div class="inbox-suggest__head">
-          <span class="inbox-suggest__title">Nothing pressing</span>
+          <span class="inbox-suggest__title">${title}</span>
           <button type="button" class="inbox-suggest__toggle" data-inbox-suggest-toggle aria-expanded="true">Hide</button>
         </div>
         <div class="inbox-suggest__items">
-          <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
-            All ${totalRows} items are resolved or dismissed. Browse below if you want to revisit.
-          </span>
+          ${body}
         </div>
       </div>
     `;
@@ -428,15 +432,38 @@ function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir,
       </div>
     `;
   }
-  // Flat sortable list. The priority-group cards are gone — the
-  // priority dot on each row + the (sorted) order carry the
-  // urgency cue without the structural overhead.
-  return html`
-    <div class="inbox-list" role="table">
-      ${renderListHeader(sort, dir, filter)}
-      ${rows.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
-    </div>
-  `;
+  // "Needs you" pinned section: awaiting_user ("Your turn") threads float to a
+  // dedicated block at the top, longest-waiting-first (oldest last activity), so
+  // what needs an operator reply is always first and ordered by neglect. They
+  // are removed from the main list below to avoid double-listing.
+  const needsYou = rows
+    .filter((m) => m.status === 'awaiting_user')
+    .sort((a, b) => (a.lastActivityAt ?? a.createdAt) - (b.lastActivityAt ?? b.createdAt));
+  const rest = rows.filter((m) => m.status !== 'awaiting_user');
+
+  const needsYouBlock = needsYou.length > 0
+    ? html`
+      <section class="inbox-needs-you" aria-label="Needs you">
+        <div class="inbox-needs-you__head">Needs you <span class="inbox-needs-you__count">${needsYou.length}</span></div>
+        <div class="inbox-list inbox-list--needs-you" role="table">
+          ${needsYou.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
+        </div>
+      </section>
+    `
+    : html``;
+
+  // Flat sortable list (everything not awaiting a reply). The priority-group
+  // cards are gone — the priority dot + sorted order carry the urgency cue.
+  const mainBlock = rest.length > 0
+    ? html`
+      <div class="inbox-list" role="table">
+        ${renderListHeader(sort, dir, filter)}
+        ${rest.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
+      </div>
+    `
+    : html``;
+
+  return html`${needsYouBlock}${mainBlock}`;
 }
 
 /**

@@ -157,6 +157,23 @@ describe('GET /inbox', () => {
     const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.text).toContain('No replies yet');
   });
+
+  it('pins awaiting_user threads in a "Needs you" section above the main list, not duplicated', async () => {
+    const app = await makeApp();
+    const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: 'awaiting-thread', body: 'b' });
+    inboxStore.updateStatus(waiting.id, 'awaiting_user');
+    inboxStore.add({ priority: 'high', source: 'run-failure', title: 'open-thread', body: 'b' });
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // Section header present, and the awaiting row sits above the main list.
+    expect(res.text).toContain('inbox-needs-you');
+    expect(res.text).toContain('Needs you');
+    expect(res.text.indexOf('inbox-needs-you')).toBeLessThan(res.text.indexOf('inbox-list__header'));
+    // The awaiting row appears exactly once (in the section, not the main list).
+    const occurrences = res.text.split(`data-inbox-row-id="${waiting.id}"`).length - 1;
+    expect(occurrences).toBe(1);
+    // The redundant "Reply to triage" suggestion is gone.
+    expect(res.text).not.toContain('Reply to triage');
+  });
 });
 
 describe('GET /inbox/:id and /:id/fragment', () => {
