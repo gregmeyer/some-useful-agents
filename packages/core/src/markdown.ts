@@ -171,3 +171,34 @@ export function renderMarkdown(src: string): string {
 export function renderMarkdownSafe(src: string): string {
   return sanitizeHtml(renderMarkdown(src));
 }
+
+/**
+ * Reduce Markdown to clean, single-line plain text — for list previews and
+ * other one-line snippets where rendered markup would be noise. Unwraps links
+ * to their label, drops emphasis/code/heading/list/quote markers, and collapses
+ * all whitespace (including newlines) to single spaces. NOT for HTML output —
+ * use `renderMarkdownSafe` there. Correctness only; the caller's `html\`\``
+ * template escapes the result on interpolation.
+ */
+export function markdownToText(src: string): string {
+  if (!src) return '';
+  let s = src;
+  // Inline + fenced code: keep the contents, drop the backticks.
+  s = s.replace(/```[^\n]*\n?([\s\S]*?)```/g, '$1'); // fenced
+  s = s.replace(/`([^`]+)`/g, '$1');                  // inline
+  // Links + images: keep the visible label, drop the target.
+  s = s.replace(/!?\[([^\]]*)\]\([^)\s]*(?:\s+"[^"]*")?\)/g, '$1');
+  // Bold / italic / underscore emphasis markers (run twice for ** then *).
+  s = s.replace(/(\*\*|__)(.*?)\1/g, '$2');
+  s = s.replace(/(\*|_)(.*?)\1/g, '$2');
+  // Line-leading block markers: headings, list bullets, ordered numbers,
+  // blockquotes. Applied per line before whitespace collapse.
+  s = s.replace(/^[ \t]*#{1,6}[ \t]+/gm, '');         // headings
+  s = s.replace(/^[ \t]*>[ \t]?/gm, '');              // blockquote
+  s = s.replace(/^[ \t]*[-*+][ \t]+/gm, '');          // unordered list
+  s = s.replace(/^[ \t]*\d+[.)][ \t]+/gm, '');        // ordered list
+  s = s.replace(/^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, ''); // hr lines
+  // Collapse all whitespace/newlines to single spaces.
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
