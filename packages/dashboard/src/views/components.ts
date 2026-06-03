@@ -103,15 +103,19 @@ const PROTECT_RE = /(\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
 
 /**
  * Turn bare `/runs/<id>` and `/agents/<id>` references in free text into
- * Markdown links so they become clickable after Markdown rendering. Existing
- * Markdown links and inline-code spans are left untouched. Runs on plain text
- * BEFORE Markdown rendering.
+ * Markdown links so they become clickable after Markdown rendering. The visible
+ * label is the trailing id (e.g. `apple-fm`), not the raw path, so prose stays
+ * readable; the href keeps the full path. Existing Markdown links and
+ * inline-code spans are left untouched. Runs on plain text BEFORE rendering.
  */
 export function linkifyRefs(text: string): string {
   if (!text) return text;
   return text
     .split(PROTECT_RE)
-    .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF_RE, (m) => `[${m}](${m})`)))
+    .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF_RE, (m) => {
+      const label = m.slice(m.lastIndexOf('/') + 1);
+      return `[${label}](${m})`;
+    })))
     .join('');
 }
 
