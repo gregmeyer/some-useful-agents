@@ -186,6 +186,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const res = await request(app).get(`/inbox/${m.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Detail title');
+    expect(res.text).toContain(`data-inbox-page-detail data-inbox-message-id="${m.id}"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/respond"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/dismiss"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/triage"`);
@@ -471,6 +472,8 @@ describe('Row + fragment rendering for star + tags', () => {
     const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.text).toContain('inbox-detail__header');
     expect(res.text).toContain('inbox-detail__thread');
+    expect(res.text).toContain(`href="/inbox/${m.id}"`);
+    expect(res.text).toContain('Open page');
     expect(res.text).toContain(`action="/inbox/${m.id}/star"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/tags"`);
     expect(res.text).toContain('value="auth"');

@@ -143,6 +143,9 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
     </form>
   `;
+  const permalinkControl = html`
+    <a href="/inbox/${message.id}" class="btn btn--ghost btn--xs inbox-modal__permalink">Open page</a>
+  `;
 
   // Tags as pills with inline ×. The form submits the full tag set on
   // every change (existing route contract — `tags` is a CSV); JS
@@ -236,7 +239,10 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       <div class="inbox-detail__header">
         <header class="inbox-modal__title-row">
           <h3 id="inbox-modal-title" class="inbox-modal__title">${message.title}</h3>
-          ${starControl}
+          <div class="inbox-modal__title-actions">
+            ${permalinkControl}
+            ${starControl}
+          </div>
         </header>
         ${headerMeta}
         ${tagsBlock}
@@ -279,7 +285,9 @@ export function renderInboxDetail(opts: InboxDetailOptions): string {
       back: { href: '/inbox', label: 'Inbox' },
     })}
     <section class="card" style="margin-top: var(--space-3);">
-      ${renderInboxDetailFragment(opts)}
+      <div data-inbox-page-detail data-inbox-message-id="${message.id}">
+        ${renderInboxDetailFragment(opts)}
+      </div>
     </section>
   `;
   return render(layout({
@@ -637,4 +645,3 @@ function renderThinkingIndicator(messageId: string): SafeHtml {
     </div>
   `;
 }
-

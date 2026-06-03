@@ -19,9 +19,12 @@
 export const INBOX_MODAL_JS = `
 (function () {
   var modal = document.getElementById('inbox-modal');
-  if (!modal) return;
-  var content = document.getElementById('inbox-modal-content');
+  var pageDetail = document.querySelector('[data-inbox-page-detail]');
+  var content = modal
+    ? document.getElementById('inbox-modal-content')
+    : pageDetail;
   if (!content) return;
+  var isPageDetail = !modal && !!pageDetail;
 
   // Per-open state.
   var currentId = null;
@@ -33,6 +36,9 @@ export const INBOX_MODAL_JS = `
   // server hasn't yet attached a triageRunId to the message — the
   // dag-executor + run-store insertion is racy with our 200ms wait.
   var keepPollingUntil = 0;
+  // Preserve the inbox list URL we opened from so closing the modal
+  // returns to that exact filter/search view instead of a bare /inbox.
+  var modalBaseHref = '';
 
   // SSE state. eventSource carries the active connection; sseAliveAt
   // records the last event (or open) timestamp so the watchdog can
@@ -47,11 +53,13 @@ export const INBOX_MODAL_JS = `
   var SSE_WATCHDOG_MS = 20000;
 
   function open() {
+    if (!modal) return;
     modal.hidden = false;
     modal.classList.add('is-open');
     document.body.style.overflow = 'hidden';
   }
-  function close() {
+  function teardownModal() {
+    if (!modal) return;
     modal.hidden = true;
     modal.classList.remove('is-open');
     document.body.style.overflow = '';
@@ -60,6 +68,47 @@ export const INBOX_MODAL_JS = `
     keepPollingUntil = 0;
     stopPoll();
     closeEventSource();
+  }
+  function close(opts) {
+    if (!modal) return;
+    opts = opts || {};
+    var fromHistory = !!opts.fromHistory;
+    if (!fromHistory && currentId && window.history && window.history.state
+      && window.history.state.inboxModalId === currentId) {
+      window.history.back();
+      return;
+    }
+    teardownModal();
+    if (fromHistory && !isInboxThreadPath(window.location.pathname)) {
+      modalBaseHref = '';
+    }
+  }
+
+  function currentLocationHref() {
+    return window.location.pathname + window.location.search + window.location.hash;
+  }
+
+  function inboxThreadHref(id) {
+    return '/inbox/' + encodeURIComponent(id);
+  }
+
+  function isInboxThreadPath(pathname) {
+    return /^\\/inbox\\/[^/]+$/.test(pathname || '');
+  }
+
+  function syncModalHistory(id, mode) {
+    if (!window.history || typeof window.history.pushState !== 'function') return;
+    var state = {
+      inboxModalId: id,
+      inboxModalBaseHref: modalBaseHref || '/inbox',
+    };
+    try {
+      if (mode === 'replace' && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(state, '', inboxThreadHref(id));
+      } else {
+        window.history.pushState(state, '', inboxThreadHref(id));
+      }
+    } catch (_) { /* noop */ }
   }
 
   function closeEventSource() {
@@ -461,7 +510,7 @@ export const INBOX_MODAL_JS = `
   /**
    * True if the operator is actively interacting with the modal — they
    * have a non-empty text selection anchored inside it (highlighting
-   * text to copy), or they are typing into a non-empty input. In
+   * text to copy), or they are typing into a non-empty field. In
    * either case, a poll-driven refresh should NOT swap the DOM
    * because that wipes the selection or in-progress text.
    *
@@ -485,10 +534,14 @@ export const INBOX_MODAL_JS = `
         } else {
           return true;
         }
-      } else {
-        // Any non-input element with focus (button, link, details
-        // summary) is genuine interaction.
+      } else if (tag === 'SELECT') {
         return true;
+      } else if (active.isContentEditable) {
+        return true;
+      } else {
+        // Focused buttons/links after a click must NOT block refreshes
+        // indefinitely or the thread will appear stuck on "thinking".
+        // Fall through to the selection check below.
       }
     }
     var sel = window.getSelection && window.getSelection();
@@ -510,7 +563,23 @@ export const INBOX_MODAL_JS = `
     if (btn) btn.focus();
   }
 
-  function openFor(id) {
+  function openFor(id, opts) {
+    if (!modal) return;
+    opts = opts || {};
+    var fromHistory = !!opts.fromHistory;
+    var wasOpen = !modal.hidden;
+    if (!wasOpen) {
+      modalBaseHref = currentLocationHref();
+    } else if (!modalBaseHref) {
+      modalBaseHref = currentLocationHref();
+    }
+    if (!fromHistory) {
+      syncModalHistory(id, wasOpen ? 'replace' : 'push');
+    } else if (window.history && window.history.state
+      && typeof window.history.state.inboxModalBaseHref === 'string'
+      && window.history.state.inboxModalBaseHref) {
+      modalBaseHref = window.history.state.inboxModalBaseHref;
+    }
     currentId = id;
     seenMsgIds = Object.create(null);
     keepPollingUntil = 0;
@@ -687,11 +756,21 @@ export const INBOX_MODAL_JS = `
   })();
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !modal.hidden) close();
+    if (modal && e.key === 'Escape' && !modal.hidden) close();
+  });
+
+  window.addEventListener('popstate', function () {
+    if (!modal) return;
+    var match = window.location.pathname.match(/^\\/inbox\\/([^/]+)$/);
+    if (match) {
+      openFor(decodeURIComponent(match[1]), { fromHistory: true });
+      return;
+    }
+    if (!modal.hidden) close({ fromHistory: true });
   });
 
   // Intercept Reply / Dismiss / Triage form submits inside the modal.
-  modal.addEventListener('submit', function (e) {
+  document.addEventListener('submit', function (e) {
     var form = e.target;
     if (!(form instanceof HTMLFormElement)) return;
     if (!form.hasAttribute('data-inbox-modal-form')) return;
@@ -760,7 +839,7 @@ export const INBOX_MODAL_JS = `
           // the now-terminal row. The prior approach (remove row +
           // close modal) left those counts stale until the operator
           // manually refreshed.
-          window.location.reload();
+          window.location.assign(isPageDetail ? '/inbox' : (modalBaseHref || '/inbox'));
         } else {
           refresh();
         }
@@ -874,17 +953,26 @@ export const INBOX_MODAL_JS = `
     }
   })();
 
+  if (isPageDetail) {
+    currentId = pageDetail.getAttribute('data-inbox-message-id');
+    applyAnimations();
+    if (currentId) {
+      openEventSource(currentId);
+      maybeSchedulePoll();
+    }
+  }
+
   // ── Tag pills inside the modal (add / remove with quiet submit) ──
   // The remove buttons + the Add-tag input live in the rendered
   // fragment; we delegate on the modal element since the fragment
   // refreshes after every save.
-  modal.addEventListener('click', function (e) {
+  document.addEventListener('click', function (e) {
     var rm = e.target.closest && e.target.closest('[data-inbox-tag-remove]');
     if (!rm) return;
     e.preventDefault();
     e.stopPropagation();
     var tag = rm.getAttribute('data-inbox-tag-remove');
-    var hidden = modal.querySelector('[data-inbox-tags-input]');
+    var hidden = content.querySelector('[data-inbox-tags-input]');
     if (!hidden) return;
     var current = String(hidden.value).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     var next = current.filter(function (t) { return t !== tag; });
@@ -893,7 +981,7 @@ export const INBOX_MODAL_JS = `
     if (form && form.requestSubmit) form.requestSubmit();
     else if (form) form.submit();
   });
-  modal.addEventListener('keydown', function (e) {
+  document.addEventListener('keydown', function (e) {
     // Cmd+Enter (Mac) or Ctrl+Enter submits the reply composer / inline
     // reply / triage form the textarea lives in. Plain Enter still
     // inserts a newline.
@@ -915,7 +1003,7 @@ export const INBOX_MODAL_JS = `
     e.preventDefault();
     var raw = String(add.value).trim().toLowerCase();
     if (!raw) return;
-    var hidden = modal.querySelector('[data-inbox-tags-input]');
+    var hidden = content.querySelector('[data-inbox-tags-input]');
     if (!hidden) return;
     var current = String(hidden.value).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
     if (current.indexOf(raw) === -1) current.push(raw);
