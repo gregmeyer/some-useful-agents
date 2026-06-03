@@ -3008,8 +3008,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-row2 {
   display: grid;
   grid-template-columns: 12px 1fr auto auto auto 24px 24px;
+  /* Row 1: title + metadata cells. Row 2: always-on preview line. Row 3:
+   * the chevron-expanded detail panel. The seven top cells auto-place into
+   * row 1; the preview line and panel are explicitly placed below. */
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: var(--space-3);
+  row-gap: 2px;
+  column-gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   cursor: pointer;
@@ -3068,12 +3073,43 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-row2__chevron:hover { color: var(--color-text); background: var(--color-surface); }
 .inbox-row2__chevron[aria-expanded="true"] { transform: rotate(90deg); color: var(--color-text); }
 
+/* Always-visible one-line activity preview under the title (row 2). Lets the
+ * operator skim the latest message on every row without expanding. Muted, single
+ * line, ellipsized — no new accent color (DESIGN.md: color stays rare). */
+.inbox-row2__preview-line {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.inbox-row2__preview-avatar {
+  flex: 0 0 auto;
+  transform: translateY(2px);
+}
+.inbox-row2__preview-role {
+  flex: 0 0 auto;
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+.inbox-row2__preview-snippet {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Expanded preview — activity strip replaces the body-only excerpt.
  * Avatar + role + first ~160 chars of the latest non-action
  * response. Pending-actions summary chip. Tags + Open thread CTA
  * + source label in a right-aligned footer. */
 .inbox-row2__preview {
   grid-column: 1 / -1;
+  grid-row: 3;
   background: var(--color-surface-raised);
   border-top: 1px solid var(--color-border);
   padding: var(--space-3);
