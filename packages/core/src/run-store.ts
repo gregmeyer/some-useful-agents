@@ -189,6 +189,12 @@ export class RunStore {
     if (!runCols.has('usedworkflowprovider')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN usedWorkflowProvider TEXT`);
     }
+    // Temporal workflow execution runId for durable per-run executions
+    // (`sua-run-<id>`). Drives the precise "View in Temporal" deep link.
+    // Nullable; NULL ↔ per-node or local runs.
+    if (!runCols.has('temporal_run_id')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN temporal_run_id TEXT`);
+    }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_runs_retry_of
         ON runs(retry_of_run_id) WHERE retry_of_run_id IS NOT NULL;
@@ -305,7 +311,7 @@ export class RunStore {
     return this.rowToRun(row);
   }
 
-  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider'>>): void {
+  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
 
@@ -315,6 +321,7 @@ export class RunStore {
     if (updates.exitCode !== undefined) { fields.push('exitCode = ?'); values.push(updates.exitCode); }
     if (updates.error !== undefined) { fields.push('error = ?'); values.push(updates.error); }
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
+    if (updates.temporalRunId !== undefined) { fields.push('temporal_run_id = ?'); values.push(updates.temporalRunId); }
 
     if (fields.length === 0) return;
 
@@ -564,6 +571,7 @@ export class RunStore {
       retryOfRunId: (row.retry_of_run_id as string | null) ?? undefined,
       attempt: typeof row.attempt === 'number' ? row.attempt : 1,
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
+      temporalRunId: (row.temporal_run_id as string | null) ?? undefined,
     };
   }
 
