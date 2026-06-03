@@ -143,7 +143,9 @@ export class TemporalProvider implements Provider {
       args: [input],
     });
 
-    this.store.updateRun(runId, { status: 'running' });
+    // Persist the Temporal execution runId so the dashboard can deep-link to
+    // this durable workflow's history (`/workflows/sua-run-<id>/<runId>/history`).
+    this.store.updateRun(runId, { status: 'running', temporalRunId: handle.firstExecutionRunId });
     void this.trackDagCompletion(runId, handle.workflowId);
 
     return { ...run, status: 'running' };

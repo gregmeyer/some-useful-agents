@@ -196,6 +196,24 @@ function publishInboxEvent(
   catch { /* telemetry path — never break a route */ }
 }
 
+/**
+ * Add a `system`-role message AND publish the `message:created` SSE event so an
+ * open modal refreshes live. Every triage system note must go through this — a
+ * bare `addResponse` leaves the message invisible until a manual page refresh
+ * (the bug where triage "finished" but the thread didn't update).
+ */
+function addSystemMessage(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  body: string,
+): InboxResponse {
+  const reply = ctx.inboxStore!.addResponse(messageId, 'system', body);
+  publishInboxEvent(ctx, messageId, 'message:created', {
+    responseId: reply.id, role: 'system', body: reply.body, createdAt: reply.createdAt,
+  });
+  return reply;
+}
+
 function parseSort(req: Request): { sort: InboxSortKey; dir: InboxSortDir } {
   const sortRaw = typeof req.query.sort === 'string' ? req.query.sort : '';
   const dirRaw = typeof req.query.dir === 'string' ? req.query.dir : '';
@@ -1802,18 +1820,18 @@ async function runTriageAgent(
     // waiting) — same friendly silence.
     if (run?.status === 'cancelled') return;
     if (!run || run.status !== 'completed' || !run.result) {
-      ctx.inboxStore.addResponse(
+      addSystemMessage(
+        ctx,
         messageId,
-        'system',
         `Triage agent did not complete (${run?.status ?? 'unknown'}). ${run?.error ?? ''}`.trim(),
       );
       return;
     }
     const planJson = extractPlanJson(run.result);
     if (!planJson) {
-      ctx.inboxStore.addResponse(
+      addSystemMessage(
+        ctx,
         messageId,
-        'system',
         'Triage agent returned no <plan>…</plan> block; raw response was discarded.',
       );
       return;
@@ -1822,7 +1840,7 @@ async function runTriageAgent(
     try {
       parsed = JSON.parse(planJson);
     } catch {
-      ctx.inboxStore.addResponse(messageId, 'system', 'Triage agent returned malformed JSON.');
+      addSystemMessage(ctx, messageId, 'Triage agent returned malformed JSON.');
       return;
     }
     const rec = typeof parsed.recommendation === 'string' ? parsed.recommendation.trim() : '';
