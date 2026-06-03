@@ -1016,7 +1016,6 @@ export const INBOX_MODAL_JS = `
 
     sync();
   })();
-
   if (isPageDetail) {
     currentId = pageDetail.getAttribute('data-inbox-message-id');
     applyAnimations();
