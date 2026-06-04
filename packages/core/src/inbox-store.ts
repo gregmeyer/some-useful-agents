@@ -176,6 +176,19 @@ export interface ListMessagesOpts {
 export type InboxSortKey = 'priority' | 'status' | 'age' | 'title' | 'agent';
 export type InboxSortDir = 'asc' | 'desc';
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, '\\$1');
+}
+
+function tokenizeSearchQuery(q: string): string[] {
+  return q
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /**
  * Priority ranking for ORDER BY — `high` first. SQLite sorts strings
  * alphabetically by default which would put `low` before `medium`
@@ -437,22 +450,29 @@ export class InboxStore {
       params.push(`%"${opts.tag.toLowerCase().trim()}"%`);
     }
     if (typeof opts.q === 'string' && opts.q.trim()) {
-      // Match title, body, agent_id, OR any conversation response
-      // body. The subquery uses EXISTS so we don't duplicate rows on
-      // multiple matching responses. Case-insensitive via LIKE +
-      // lowercasing both sides.
-      const pattern = `%${opts.q.toLowerCase().trim()}%`;
-      where.push(`(
-        LOWER(title) LIKE ?
-        OR LOWER(body) LIKE ?
-        OR LOWER(IFNULL(agent_id, '')) LIKE ?
-        OR EXISTS (
-          SELECT 1 FROM inbox_responses
-            WHERE inbox_responses.message_id = inbox_messages.id
-              AND LOWER(inbox_responses.body) LIKE ?
-        )
-      )`);
-      params.push(pattern, pattern, pattern, pattern);
+      // Token-based search across id/title/body/agent/tags and the full
+      // conversation thread. Terms are ANDed so "joke judge" matches a
+      // row like "joke-judge-two" without needing the exact substring.
+      const terms = tokenizeSearchQuery(opts.q);
+      if (terms.length > 0) {
+        const termClauses = terms.map(() => `(
+          LOWER(id) LIKE ? ESCAPE '\\'
+          OR LOWER(title) LIKE ? ESCAPE '\\'
+          OR LOWER(body) LIKE ? ESCAPE '\\'
+          OR LOWER(IFNULL(agent_id, '')) LIKE ? ESCAPE '\\'
+          OR LOWER(tags_json) LIKE ? ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1 FROM inbox_responses
+              WHERE inbox_responses.message_id = inbox_messages.id
+                AND LOWER(inbox_responses.body) LIKE ? ESCAPE '\\'
+          )
+        )`);
+        where.push(`(${termClauses.join(' AND ')})`);
+        for (const term of terms) {
+          const pattern = `%${escapeLike(term)}%`;
+          params.push(pattern, pattern, pattern, pattern, pattern, pattern);
+        }
+      }
     }
     const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
     const orderBy = buildOrderBy(opts.sort, opts.dir);

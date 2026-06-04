@@ -953,6 +953,70 @@ export const INBOX_MODAL_JS = `
     }
   })();
 
+  (function setupInboxBulkActions() {
+    var bar = document.querySelector('[data-inbox-bulkbar]');
+    if (!bar) return;
+    var idsInput = bar.querySelector('[data-inbox-bulk-ids]');
+    var countEl = bar.querySelector('[data-inbox-bulk-count]');
+    var selectAllBtn = bar.querySelector('[data-inbox-bulk-select-all]');
+    var clearBtn = bar.querySelector('[data-inbox-bulk-clear]');
+    var master = document.querySelector('[data-inbox-bulk-toggle-all]');
+
+    function getBoxes() {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-inbox-bulk-checkbox]'));
+    }
+
+    function sync() {
+      var boxes = getBoxes();
+      var selected = [];
+      for (var i = 0; i < boxes.length; i++) {
+        var box = boxes[i];
+        var row = box.closest && box.closest('[data-inbox-row-id]');
+        if (row) row.classList.toggle('inbox-row2--selected', !!box.checked);
+        if (box.checked) selected.push(box.value);
+      }
+      if (idsInput) idsInput.value = selected.join(',');
+      if (countEl) countEl.textContent = selected.length === 1 ? '1 selected' : String(selected.length) + ' selected';
+      if (bar) bar.hidden = selected.length === 0;
+      if (master) {
+        master.checked = boxes.length > 0 && selected.length === boxes.length;
+        master.indeterminate = selected.length > 0 && selected.length < boxes.length;
+      }
+    }
+
+    document.addEventListener('change', function (e) {
+      var box = e.target.closest && e.target.closest('[data-inbox-bulk-checkbox]');
+      if (!box) return;
+      sync();
+    });
+
+    if (master) {
+      master.addEventListener('change', function () {
+        var boxes = getBoxes();
+        for (var i = 0; i < boxes.length; i++) boxes[i].checked = !!master.checked;
+        sync();
+      });
+    }
+
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', function () {
+        var boxes = getBoxes();
+        for (var i = 0; i < boxes.length; i++) boxes[i].checked = true;
+        sync();
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        var boxes = getBoxes();
+        for (var i = 0; i < boxes.length; i++) boxes[i].checked = false;
+        sync();
+      });
+    }
+
+    sync();
+  })();
+
   if (isPageDetail) {
     currentId = pageDetail.getAttribute('data-inbox-message-id');
     applyAnimations();

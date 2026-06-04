@@ -422,6 +422,53 @@ inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
   }
 });
 
+inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, '/inbox?error=' + encodeURIComponent('Inbox is unavailable.'));
+    return;
+  }
+  const rawIds = typeof req.body?.ids === 'string' ? req.body.ids : '';
+  const ids: string[] = Array.from(new Set(
+    rawIds
+      .split(',')
+      .map((id: string) => id.trim())
+      .filter(Boolean),
+  ));
+  const returnTo = typeof req.body?.returnTo === 'string' && req.body.returnTo.startsWith('/inbox')
+    ? req.body.returnTo
+    : '/inbox';
+  if (ids.length === 0) {
+    if (isAjax(req)) { res.status(400).json({ error: 'No messages selected.' }); return; }
+    res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}error=${encodeURIComponent('No messages selected.')}`);
+    return;
+  }
+
+  let dismissed = 0;
+  for (const id of ids) {
+    const row = ctx.inboxStore.get(id);
+    if (!row) continue;
+    try {
+      ctx.inboxStore.dismiss(id);
+      dismissed += 1;
+    } catch {
+      // Skip per-row failures so one bad id doesn't block the whole bulk action.
+    }
+  }
+
+  if (isAjax(req)) {
+    res.status(dismissed > 0 ? 200 : 404).json({ dismissed, requested: ids.length });
+    return;
+  }
+  if (dismissed === 0) {
+    res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}error=${encodeURIComponent('No selected messages could be dismissed.')}`);
+    return;
+  }
+  const label = dismissed === 1 ? 'Dismissed 1 message.' : `Dismissed ${dismissed} messages.`;
+  res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}ok=${encodeURIComponent(label)}`);
+});
+
 inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
