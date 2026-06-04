@@ -35,6 +35,8 @@ import {
   listBuiltinTools,
   parseAgent,
   LLM_PROVIDERS,
+  unallowedWidgetImageHosts,
+  type Agent,
   type LlmProvider,
   type RunStatus,
   type InboxActionMeta,
@@ -54,8 +56,9 @@ import {
   INBOX_DEFAULT_SORT,
 } from '../views/inbox-list.js';
 import { renderInboxDetail, renderInboxDetailFragment } from '../views/inbox-detail.js';
-import { render } from '../views/html.js';
+import { html, render, type SafeHtml } from '../views/html.js';
 import { renderNotFoundPage } from '../views/not-found.js';
+import { renderOutputWidget } from '../views/output-widgets.js';
 
 export const inboxRouter: Router = Router();
 
@@ -131,6 +134,13 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-editor',
   'agent-catalog-search',
   'agent-builder',
+]);
+
+const INLINE_INBOX_WIDGET_TYPES: ReadonlySet<string> = new Set([
+  'ai-template',
+  'key-value',
+  'dashboard',
+  'raw',
 ]);
 
 /**
@@ -343,7 +353,15 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
   const responses = ctx.inboxStore.listResponses(id);
   const triagePending = isTriagePending(ctx, message, responses);
   const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
-  res.type('html').send(renderInboxDetail({ message, responses, flash: parseFlash(req), triagePending, currentTargetYaml }));
+  const inlineActionWidgets = buildInlineActionWidgets(ctx, message.id, responses);
+  res.type('html').send(renderInboxDetail({
+    message,
+    responses,
+    flash: parseFlash(req),
+    triagePending,
+    currentTargetYaml,
+    inlineActionWidgets,
+  }));
 });
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
@@ -361,7 +379,14 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const responses = ctx.inboxStore.listResponses(id);
   const triagePending = isTriagePending(ctx, message, responses);
   const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
-  res.type('html').send(render(renderInboxDetailFragment({ message, responses, triagePending, currentTargetYaml })));
+  const inlineActionWidgets = buildInlineActionWidgets(ctx, message.id, responses);
+  res.type('html').send(render(renderInboxDetailFragment({
+    message,
+    responses,
+    triagePending,
+    currentTargetYaml,
+    inlineActionWidgets,
+  })));
 });
 
 /**
@@ -910,69 +935,91 @@ function ensureSystemAgentCurrent(
   }
 }
 
-/**
- * Ids of user agents that were built (and committed) earlier in THIS
- * thread by an agent-builder action. Triage may then propose running
- * them — that's how "build me an agent, now run it" works in one thread.
- * Derived, not stored: scan the thread's completed agent-builder actions,
- * read the built id out of their `{agentId}` resultSummary, and keep only
- * those that actually landed in the store (the maybeCommitBuiltAgent
- * commit succeeded). A build that was refused/clobber-guarded never
- * appears here because its agent isn't in the catalog.
- */
-export function builtAgentIdsInThread(
-  ctx: ReturnType<typeof getContext>,
-  messageId: string,
-): string[] {
-  if (!ctx.inboxStore) return [];
-  const ids = new Set<string>();
-  for (const r of ctx.inboxStore.listResponses(messageId)) {
-    if (r.role !== 'action') continue;
-    const m = parseActionMeta(r);
-    if (!m || m.agentId !== 'agent-builder' || m.status !== 'completed' || !m.resultSummary) continue;
-    try {
-      const summary = JSON.parse(m.resultSummary) as { agentId?: unknown };
-      const builtId = typeof summary.agentId === 'string' ? summary.agentId : undefined;
-      if (builtId && ctx.agentStore.getAgent(builtId)) ids.add(builtId);
-    } catch { /* non-JSON summary — nothing to surface */ }
-  }
-  return [...ids];
-}
-
-function getSubAgentAllowlist(
-  ctx: ReturnType<typeof getContext>,
-  messageId?: string,
-): string[] {
-  // Per-agent override on inbox-triage. When the operator has edited
-  // the agent's `allowedSubAgents` list via /agents/inbox-triage/config,
-  // that wins over the hardcoded fallback. Empty array = "text-only,
-  // no sub-agents allowed." Undefined = use the platform default
-  // (auto-installable system agents).
+export function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
+  // Per-agent override on inbox-triage controls the system-agent
+  // portion of the allowlist. Explicitly inbox-runnable user agents
+  // are always appended when installed.
   const triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
   const operatorOverride = triage?.allowedSubAgents;
-  const base: string[] = [];
+  const available = new Set<string>();
   if (operatorOverride !== undefined) {
-    // Operator-set list: only surface ids that are actually installed.
-    // Unlike the system-default path we do NOT auto-import here —
-    // operator-listed entries are assumed to be user agents already
-    // sitting in the store.
-    base.push(...operatorOverride.filter((id) => ctx.agentStore.getAgent(id)));
+    for (const id of operatorOverride) {
+      if (ctx.agentStore.getAgent(id) !== undefined) available.add(id);
+    }
   } else {
     for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
       if (ensureSystemAgentCurrent(ctx, id, 'inbox triage allowlist')) {
-        base.push(id);
+        available.add(id);
       }
     }
   }
-  // Agents built earlier in this thread are proposable too, so triage can
-  // run what it just created. These are NOT in TRIAGE_AUTO_APPROVE_AGENTS,
-  // so the run is proposed and waits for operator approval before it fires.
-  if (messageId) {
-    for (const id of builtAgentIdsInThread(ctx, messageId)) {
-      if (!base.includes(id)) base.push(id);
-    }
+
+  for (const agent of ctx.agentStore.listAgents()) {
+    if (!agent.permissions?.inboxRunnable) continue;
+    if (agent.source !== 'local' && agent.source !== 'community') continue;
+    if (SYSTEM_AGENT_IDS.has(agent.id)) continue;
+    available.add(agent.id);
   }
-  return base;
+
+  return Array.from(available);
+}
+
+function canRenderInlineInboxWidget(agent: Agent | null | undefined): agent is Agent & { outputWidget: NonNullable<Agent['outputWidget']> } {
+  if (!agent?.outputWidget) return false;
+  return INLINE_INBOX_WIDGET_TYPES.has(agent.outputWidget.type);
+}
+
+function renderBlockedInlineWidgetNotice(
+  agentId: string,
+  messageId: string,
+  blockedHosts: readonly string[],
+): SafeHtml {
+  const forms = blockedHosts.map((host) => html`
+    <form method="POST" action="/agents/${agentId}/permissions/allow-host" style="display: inline; margin: 0;">
+      <input type="hidden" name="host" value="${host}">
+      <input type="hidden" name="redirect" value="/inbox/${messageId}">
+      <button type="submit" class="btn btn--xs btn--ghost">Allow ${host}</button>
+    </form>
+  `);
+  return html`
+    <div class="flash flash--error" style="margin-top: var(--space-2);">
+      <div style="font-size: var(--font-size-xs); margin-bottom: var(--space-2);">
+        Inline widget hidden. It references blocked image host${blockedHosts.length === 1 ? '' : 's'}.
+      </div>
+      <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+        ${forms as unknown as SafeHtml[]}
+      </div>
+    </div>
+  `;
+}
+
+function buildInlineActionWidgets(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  responses: readonly InboxResponse[],
+): Record<string, SafeHtml | undefined> {
+  const inlineWidgets: Record<string, SafeHtml | undefined> = {};
+  for (const response of responses) {
+    const meta = parseActionMeta(response);
+    if (!meta || meta.status !== 'completed' || !meta.runId) continue;
+    const agent = ctx.agentStore.getAgent(meta.agentId);
+    if (!canRenderInlineInboxWidget(agent)) continue;
+    const run = ctx.runStore.getRun(meta.runId);
+    if (!run?.result) continue;
+
+    const blockedHosts = unallowedWidgetImageHosts({
+      outputWidget: agent.outputWidget,
+      permissions: agent.permissions,
+      result: run.result,
+    });
+    if (blockedHosts.length > 0) {
+      inlineWidgets[response.id] = renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
+      continue;
+    }
+
+    inlineWidgets[response.id] = renderOutputWidget(agent.outputWidget, run.result, agent.id);
+  }
+  return inlineWidgets;
 }
 
 /**
@@ -1091,6 +1138,32 @@ function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): string {
   }
 }
 
+function buildRunnableAgentSpecsJson(
+  ctx: ReturnType<typeof getContext>,
+  allowlist: readonly string[],
+): string {
+  try {
+    const specs = allowlist
+      .map((id) => ctx.agentStore.getAgent(id))
+      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent))
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        description: agent.description ?? '',
+        inputs: Object.entries(agent.inputs ?? {}).map(([name, spec]) => ({
+          name,
+          type: spec.type,
+          description: spec.description ?? '',
+          default: 'default' in spec ? spec.default : undefined,
+          required: spec.required ?? false,
+        })),
+      }));
+    return JSON.stringify(specs);
+  } catch {
+    return '[]';
+  }
+}
+
 function enrichAgentCatalogSearchInputs(
   ctx: ReturnType<typeof getContext>,
   inputs: Record<string, string>,
@@ -1124,6 +1197,16 @@ function enrichAgentBuilderInputs(
   // so executeAgentDag's input-resolution doesn't reject it as an
   // undeclared key.
   delete out.PROVIDER;
+  const focusHints = [
+    'Prefer the simplest viable agent for the goal.',
+    'Use one llm-prompt node when possible instead of a multi-step DAG.',
+    'Infer explicit run inputs from the request instead of leaving them implicit.',
+    'Include a basic output widget for the final structured result.',
+    'Set permissions.inboxRunnable: true so inbox triage can run the installed agent from threads.',
+  ].join(' ');
+  out.FOCUS = out.FOCUS && out.FOCUS.trim().length > 0
+    ? `${out.FOCUS.trim()} ${focusHints}`.trim()
+    : focusHints;
   try {
     const builtins = listBuiltinTools();
     let userTools: ToolDefinition[] = [];
@@ -1195,6 +1278,18 @@ function collectRunSummary(
   return out.length > 3000 ? out.slice(0, 3000) + '\n...(truncated)' : out;
 }
 
+function deriveRunFailureReason(
+  ctx: ReturnType<typeof getContext>,
+  runId: string,
+  fallback: string | undefined,
+): string | undefined {
+  try {
+    const failedExec = ctx.runStore.listNodeExecutions(runId).find((exec) => exec.status === 'failed');
+    if (failedExec?.error && failedExec.error.trim().length > 0) return failedExec.error.trim();
+  } catch { /* ignore */ }
+  return fallback;
+}
+
 /**
  * Parse + validate the `actions` field from a triage `<plan>` block.
  * Returns valid action proposals + the rejected ones (with a reason)
@@ -1203,10 +1298,28 @@ function collectRunSummary(
  */
 /** Max structured link-CTA buttons a single triage reply may carry. */
 const MAX_TRIAGE_LINKS = 4;
+const TRIAGE_REJECTION_RECOVERY_NOTE =
+  'The proposed action was rejected before execution. Choose a different next step or offer alternatives/links instead of retrying the same action.';
 
 export interface TriageLink {
   label: string;
   href: string;
+}
+
+function hasRecoveryRefireSinceLastUser(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    if (response.role === 'user') return false;
+    if (response.role === 'system' && response.body.trim() === TRIAGE_REJECTION_RECOVERY_NOTE) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1241,6 +1354,47 @@ export function parseTriageLinks(
     if (out.length >= MAX_TRIAGE_LINKS) break;
   }
   return out;
+}
+
+function findLatestTriageLinks(
+  responses: readonly InboxResponse[],
+): TriageLink[] {
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    if (response.role !== 'triage' || !response.metaJson) continue;
+    try {
+      const parsed = JSON.parse(response.metaJson) as { links?: unknown };
+      const links = parseTriageLinks(parsed.links);
+      if (links.length > 0) return links;
+    } catch { /* ignore */ }
+  }
+  return [];
+}
+
+function postTriageFailureFallback(
+  ctx: ReturnType<typeof getContext>,
+  message: { id: string; agentId?: string },
+  responses: readonly InboxResponse[],
+): void {
+  const priorLinks = findLatestTriageLinks(responses);
+  const links = priorLinks.length > 0
+    ? priorLinks
+    : message.agentId
+      ? [{ label: 'Open agent', href: `/agents/${message.agentId}` }]
+      : [{ label: 'Open agents', href: '/agents' }];
+  const body = priorLinks.length > 0
+    ? 'I hit a triage failure before I could suggest a new step. Use the last concrete destination below and continue from there.'
+    : message.agentId
+      ? `I hit a triage failure before I could suggest a new step. Open /agents/${message.agentId} to continue directly.`
+      : 'I hit a triage failure before I could suggest a new step. Open /agents to continue directly, or retry triage.';
+  const metaJson = JSON.stringify({ links });
+  const reply = ctx.inboxStore!.addResponse(message.id, 'triage', body, metaJson);
+  publishInboxEvent(ctx, message.id, 'triage:complete', {
+    responseId: reply.id,
+    role: 'triage',
+    body,
+    createdAt: reply.createdAt,
+  });
 }
 
 function parseProposedActions(
@@ -1451,7 +1605,7 @@ async function runProposedAction(
         : fullResult;
     } else {
       nextStatus = 'failed';
-      refusalReason = run.error ?? `Run ended in status ${run.status}.`;
+      refusalReason = deriveRunFailureReason(ctx, run.id, run.error ?? `Run ended in status ${run.status}.`);
     }
   } catch (err) {
     nextStatus = 'failed';
@@ -1488,6 +1642,8 @@ async function runProposedAction(
   // with the parsed YAML.
   if (meta.agentId === 'agent-analyzer' && nextStatus === 'completed' && runId) {
     maybeAutoProposeEditorAction(ctx, messageId, runId);
+  } else if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
+    maybeAutoProposeBuilderInstallAction(ctx, messageId, runId);
   }
 
   // After agent-builder completes, the designed agent only exists as a
@@ -1587,9 +1743,16 @@ export function maybeCommitBuiltAgent(
 
   // Commit as a draft regardless of what status the YAML declared — an
   // LLM-designed agent should not go live or scheduled without review.
+  // Stamp `permissions.inboxRunnable` so the draft is immediately runnable
+  // from this thread via the runnable-agent model (getSubAgentAllowlist),
+  // approval-gated — "build me an agent, now run it" in one thread.
   try {
     ctx.agentStore.upsertAgent(
-      { ...parsed, status: 'draft' },
+      {
+        ...parsed,
+        status: 'draft',
+        permissions: { ...parsed.permissions, inboxRunnable: true },
+      },
       'import',
       `Auto-committed (draft) from inbox build on thread ${messageId}`,
     );
@@ -1681,7 +1844,6 @@ function executeAgentEditor(
   messageId: string,
   meta: InboxActionMeta,
 ): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
-  void messageId;
   const agentId = meta.inputs.AGENT_ID;
   const newYaml = meta.inputs.NEW_YAML;
   if (!agentId || !newYaml) {
@@ -1715,10 +1877,31 @@ function executeAgentEditor(
   }
   const after = ctx.agentStore.getAgent(agentId);
   const version = after?.version ?? '?';
+  const message = ctx.inboxStore?.get(messageId);
+  const installed = !message?.agentId || message.agentId !== agentId;
   return {
     status: 'completed',
-    summary: `Updated agent \`${agentId}\` to v${version}.`,
+    summary: installed
+      ? `Installed agent \`${agentId}\` at v${version}.`
+      : `Updated agent \`${agentId}\` to v${version}.`,
   };
+}
+
+function extractYamlBlockFromRunNodes(
+  ctx: ReturnType<typeof getContext>,
+  runId: string,
+  preferredNodeIds: readonly string[],
+): string | undefined {
+  const execs = ctx.runStore.listNodeExecutions(runId);
+  for (const nodeId of preferredNodeIds) {
+    const exec = execs.find((entry) => entry.nodeId === nodeId && entry.status === 'completed');
+    const source = (exec?.result ?? '').toString();
+    const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
+    if (!match) continue;
+    const yaml = match[1].trim();
+    if (yaml.length >= 10) return yaml;
+  }
+  return undefined;
 }
 
 /**
@@ -1734,19 +1917,8 @@ function maybeAutoProposeEditorAction(
   analyzerRunId: string,
 ): void {
   if (!ctx.inboxStore) return;
-  // The analyzer DAG ends in a `validate` shell node whose tiny
-  // {valid:true} output overshadows the LLM's full response at the
-  // run-level `.result`. The actual YAML lives in the `analyze` or
-  // `fix` node's output. Prefer `fix` (later in the chain, runs only
-  // when validate found issues) over `analyze`.
-  const execs = ctx.runStore.listNodeExecutions(analyzerRunId);
-  const fix = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
-  const analyze = execs.find((e) => e.nodeId === 'analyze' && e.status === 'completed');
-  const source = (fix?.result ?? analyze?.result ?? '').toString();
-  const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
-  if (!match) return;
-  const proposedYaml = match[1].trim();
-  if (proposedYaml.length < 10) return;
+  const proposedYaml = extractYamlBlockFromRunNodes(ctx, analyzerRunId, ['fix', 'analyze']);
+  if (!proposedYaml) return;
   let parsed;
   try { parsed = parseAgent(proposedYaml); } catch { return; }
 
@@ -1777,6 +1949,62 @@ function maybeAutoProposeEditorAction(
     messageId,
     'action',
     action.rationale!,
+    JSON.stringify(action),
+  );
+  publishInboxEvent(ctx, messageId, 'action:created', {
+    responseId: editorResp.id,
+    agentId: action.agentId,
+    rationale: action.rationale,
+    inputs: action.inputs,
+    createdAt: editorResp.createdAt,
+  });
+}
+
+function maybeAutoProposeBuilderInstallAction(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  builderRunId: string,
+): void {
+  if (!ctx.inboxStore) return;
+  const rawYaml = extractYamlBlockFromRunNodes(ctx, builderRunId, ['fix', 'design']);
+  if (!rawYaml) return;
+  let parsed;
+  try { parsed = parseAgent(rawYaml); } catch { return; }
+  parsed = {
+    ...parsed,
+    permissions: {
+      ...(parsed.permissions ?? {}),
+      inboxRunnable: true,
+    },
+  };
+  const proposedYaml = exportAgent(parsed);
+
+  if (countActionsOnMessage(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
+
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    if (m && m.agentId === 'agent-editor'
+      && (m.status === 'proposed' || m.status === 'running' || m.status === 'completed')
+      && m.inputs.NEW_YAML === proposedYaml) return;
+  }
+
+  const alreadyInstalled = ctx.agentStore.getAgent(parsed.id);
+  const rationale = alreadyInstalled
+    ? `Apply the drafted update for \`${parsed.id}\`.`
+    : `Install the drafted agent \`${parsed.id}\` into this catalog.`;
+  const action: InboxActionMeta = {
+    kind: 'action',
+    status: 'proposed',
+    agentId: 'agent-editor',
+    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
+    rationale,
+    ctaLabel: alreadyInstalled ? 'Apply draft' : 'Install draft',
+  };
+  const editorResp = ctx.inboxStore.addResponse(
+    messageId,
+    'action',
+    rationale,
     JSON.stringify(action),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
@@ -1900,7 +2128,8 @@ async function runTriageAgent(
     })
     .join('\n');
 
-  const allowlist = getSubAgentAllowlist(ctx, messageId);
+  const allowlist = getSubAgentAllowlist(ctx);
+  const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
 
   // Pre-generate the runId + AbortController so the cancel route
   // (/inbox/:id/triage/cancel) can find and abort the in-flight run
@@ -1936,6 +2165,7 @@ async function runTriageAgent(
           CONTEXT_JSON: message.contextJson ?? '',
           CONVERSATION: conversation,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
+          RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           // Trimmed installed-agent catalog (newest first) so triage can answer
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
@@ -1991,6 +2221,7 @@ async function runTriageAgent(
         messageId,
         `Triage agent did not complete (${run?.status ?? 'unknown'}). ${run?.error ?? ''}`.trim(),
       );
+      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
     const planJson = extractPlanJson(run.result);
@@ -2000,6 +2231,7 @@ async function runTriageAgent(
         messageId,
         'Triage agent returned no <plan>…</plan> block; raw response was discarded.',
       );
+      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
     let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown };
@@ -2007,6 +2239,7 @@ async function runTriageAgent(
       parsed = JSON.parse(planJson);
     } catch {
       addSystemMessage(ctx, messageId, 'Triage agent returned malformed JSON.');
+      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
     const rec = typeof parsed.recommendation === 'string' ? parsed.recommendation.trim() : '';
@@ -2015,6 +2248,7 @@ async function runTriageAgent(
       publishInboxEvent(ctx, messageId, 'message:created', {
         responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
       });
+      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
     const verifyHint = typeof parsed.verifyHint === 'string' && parsed.verifyHint.trim()
@@ -2126,6 +2360,13 @@ async function runTriageAgent(
         publishInboxEvent(ctx, messageId, 'message:created', {
           responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
         });
+      }
+      if (rejected.length > 0
+        && toInsert.length === 0
+        && !hasRecoveryRefireSinceLastUser(ctx, messageId)
+        && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
+        addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
+        void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
       }
     }
 

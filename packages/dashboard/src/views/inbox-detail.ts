@@ -30,6 +30,8 @@ export interface InboxDetailOptions {
    * when the message has no target agent or it isn't installed.
    */
   currentTargetYaml?: string;
+  /** Pre-rendered compact widgets for completed action rows, keyed by response id. */
+  inlineActionWidgets?: Record<string, SafeHtml | undefined>;
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -102,7 +104,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
 
@@ -183,7 +185,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   ` : html``;
 
   const timeline = responses.map((r) => html`
-    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml)}</li>
+    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets)}</li>
   `);
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
@@ -355,8 +357,12 @@ function renderTriageLinks(metaJson?: string): SafeHtml {
   return html`<div class="inbox-msg__ctas">${buttons as unknown as SafeHtml[]}</div>`;
 }
 
-function renderConversationEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
-  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml);
+function renderConversationEntry(
+  r: InboxResponse,
+  currentTargetYaml?: string,
+  inlineActionWidgets?: Record<string, SafeHtml | undefined>,
+): SafeHtml {
+  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id]);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
   return html`
@@ -437,7 +443,7 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
 }
 
 /** Render an action-role row as a card whose body depends on status. */
-function renderActionEntry(r: InboxResponse, currentTargetYaml?: string): SafeHtml {
+function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineWidget?: SafeHtml): SafeHtml {
   const meta = parseActionMeta(r);
   if (!meta) {
     // Malformed action row — fall back to plain rendering so the
@@ -476,7 +482,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string): SafeHt
     : html``;
   void messageId;
 
-  const detailBlock = renderActionStatusBody(meta);
+  const detailBlock = renderActionStatusBody(meta, inlineWidget);
 
   return html`
     <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
@@ -515,7 +521,7 @@ function renderActionInputs(inputs: Record<string, string>): SafeHtml {
   `;
 }
 
-function renderActionStatusBody(meta: InboxActionMeta): SafeHtml {
+function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml): SafeHtml {
   switch (meta.status) {
     case 'proposed':
       return html``;
@@ -534,10 +540,21 @@ function renderActionStatusBody(meta: InboxActionMeta): SafeHtml {
     case 'completed': {
       const dur = formatDuration(meta);
       const preview = meta.resultSummary?.trim();
+      const hasInlineWidget = !!inlineWidget;
       return html`
-        <div class="inbox-action__result inbox-action__result--ok">
-          Completed${dur ? ` in ${dur}` : ''}.
-          ${preview ? html`<pre class="inbox-action__preview mono">${preview}</pre>` : html``}
+        <div class="inbox-action__result inbox-action__result--ok ${hasInlineWidget ? 'inbox-action__result--widget' : ''}">
+          <div class="inbox-action__result-meta">
+            <span class="badge badge--ok">Completed</span>
+            ${dur ? html`<span class="inbox-action__result-duration">${dur}</span>` : html``}
+          </div>
+          ${inlineWidget ? html`<div class="inbox-action__inline-widget">${inlineWidget}</div>` : html``}
+          ${preview && !hasInlineWidget ? html`<pre class="inbox-action__preview mono">${preview}</pre>` : html``}
+          ${preview && hasInlineWidget ? html`
+            <details class="inbox-action__raw-result">
+              <summary>Raw result</summary>
+              <pre class="inbox-action__preview mono">${preview}</pre>
+            </details>
+          ` : html``}
         </div>
       `;
     }

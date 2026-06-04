@@ -177,6 +177,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   `);
 
   const permImgSrc = agent.permissions?.imgSrc ?? [];
+  const inboxRunnable = agent.permissions?.inboxRunnable ?? false;
 
   // Recently-blocked img-src pills. The CSP-violation listener
   // (csp-img-report.js.ts) reports blocks server-side; this surfaces them
@@ -234,6 +235,13 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     </p>
     ${blockedHostsBlock}
     <form method="POST" action="/agents/${agent.id}/permissions" style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <label style="display: flex; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-1);">
+        <input type="checkbox" name="inboxRunnable" value="1" ${inboxRunnable ? 'checked' : ''} style="margin-top: 2px;">
+        <span>
+          <span style="display: block; font-size: var(--font-size-sm); color: var(--color-text);">Runnable from inbox triage</span>
+          <span class="dim" style="display: block; font-size: var(--font-size-xs);">Allows inbox triage to propose this agent as a runnable action in threads. User agents remain manual-run from inbox.</span>
+        </span>
+      </label>
       <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">img-src hosts (one per line)</label>
       <textarea name="imgSrc" rows="3" placeholder="images.unsplash.com&#10;*.unsplash.com"
         class="form-field mono"

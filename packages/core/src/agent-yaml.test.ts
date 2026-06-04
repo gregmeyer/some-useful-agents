@@ -229,6 +229,27 @@ nodes:
     expect(a2.outputs).toEqual(a1.outputs);
   });
 
+  it('round-trips permissions.inboxRunnable', () => {
+    const yaml = `
+id: inbox-tool
+name: Inbox Tool
+status: active
+source: local
+mcp: false
+version: 1
+permissions:
+  inboxRunnable: true
+nodes:
+  - id: main
+    type: shell
+    command: echo ok
+`.trim();
+    const parsed = parseAgent(yaml);
+    expect(parsed.permissions?.inboxRunnable).toBe(true);
+    const roundTripped = parseAgent(exportAgent(parsed));
+    expect(roundTripped.permissions?.inboxRunnable).toBe(true);
+  });
+
   it('emits outputs after inputs and before nodes', () => {
     const a: Agent = {
       id: 'x', name: 'X', status: 'active', source: 'local', mcp: false, version: 1,

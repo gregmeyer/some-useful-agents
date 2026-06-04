@@ -2549,11 +2549,26 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   margin-top: var(--space-2);
   font-size: var(--font-size-sm);
 }
+.inbox-action__result-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.inbox-action__result-duration {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
 .inbox-action__result--ok { color: var(--color-text); }
 .inbox-action__result--err { color: var(--color-danger, #f87171); }
 .inbox-action__result--muted { color: var(--color-text-muted); }
+.inbox-action__result--widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 .inbox-action__preview {
-  margin-top: 4px;
+  margin-top: 0;
   padding: 6px 8px;
   background: var(--color-surface-raised, #1f2430);
   border-radius: 3px;
@@ -2562,6 +2577,45 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   overflow: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+.inbox-action__inline-widget {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised, #1f2430);
+}
+.inbox-action__inline-widget .widget-controls,
+.inbox-action__inline-widget form[action^="/agents/"] {
+  margin-top: 0;
+}
+.inbox-action__inline-widget .iw form,
+.inbox-action__inline-widget [data-iw-form],
+.inbox-action__inline-widget [data-iw-submit],
+.inbox-action__inline-widget [data-iw-cancel-run],
+.inbox-action__inline-widget [data-iw-retry] {
+  display: none !important;
+}
+.inbox-action__inline-widget .iw {
+  min-height: 0;
+}
+.inbox-action__inline-widget .iw-pane {
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto;
+  transform: none !important;
+}
+.inbox-action__inline-widget .iw-pane-running,
+.inbox-action__inline-widget .iw-pane-stuck,
+.inbox-action__inline-widget .iw-pane-error {
+  display: none !important;
+}
+.inbox-action__raw-result {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.inbox-action__raw-result summary {
+  cursor: pointer;
+  user-select: none;
 }
 .inbox-action__reason {
   margin-top: 4px;

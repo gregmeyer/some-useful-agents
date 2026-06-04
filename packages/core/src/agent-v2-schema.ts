@@ -214,6 +214,7 @@ export const agentV2Schema = z.object({
    */
   permissions: z.object({
     imgSrc: z.array(z.string().regex(/^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/, 'imgSrc hosts must be lowercase host names, optional leading "*." for wildcard subdomains')).optional(),
+    inboxRunnable: z.boolean().optional(),
   }).optional(),
 
   provider: providerEnumSchema.optional(),

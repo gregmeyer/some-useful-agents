@@ -483,6 +483,7 @@ versionsRouter.post('/agents/:id/permissions', (req: Request, res: Response) => 
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const body = (req.body ?? {}) as Record<string, unknown>;
   const raw = typeof body.imgSrc === 'string' ? body.imgSrc : '';
+  const inboxRunnable = body.inboxRunnable === '1' || body.inboxRunnable === 1 || body.inboxRunnable === true;
 
   const agent = ctx.agentStore.getAgent(id);
   if (!agent) {
@@ -514,23 +515,43 @@ versionsRouter.post('/agents/:id/permissions', (req: Request, res: Response) => 
 
   const existing = (agent.permissions?.imgSrc ?? []).slice().sort();
   const next = hosts.slice().sort();
-  if (existing.length === next.length && existing.every((h, i) => h === next[i])) {
+  const existingInboxRunnable = agent.permissions?.inboxRunnable ?? false;
+  if (existing.length === next.length && existing.every((h, i) => h === next[i]) && existingInboxRunnable === inboxRunnable) {
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent('Permissions unchanged.')}`);
     return;
   }
 
   try {
+    const imgSrcChanged = existing.length !== next.length || !existing.every((h, i) => h === next[i]);
+    const inboxChanged = existingInboxRunnable !== inboxRunnable;
     const newPermissions = hosts.length > 0 ? { ...agent.permissions, imgSrc: hosts } : (() => {
       // Drop imgSrc; if no other permissions remain, drop the whole field.
       const rest = { ...agent.permissions };
       delete rest.imgSrc;
       return Object.keys(rest).length > 0 ? rest : undefined;
     })();
-    const updated = { ...agent, permissions: newPermissions };
-    ctx.agentStore.upsertAgent(updated, 'dashboard', `Updated img-src permissions (${hosts.length} host${hosts.length === 1 ? '' : 's'})`);
-    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(
-      hosts.length === 0 ? 'img-src permissions cleared.' : `img-src updated (${hosts.length} host${hosts.length === 1 ? '' : 's'}).`,
-    )}`);
+    const mergedPermissions = inboxRunnable
+      ? { ...(newPermissions ?? {}), inboxRunnable: true }
+      : (() => {
+        const rest = { ...(newPermissions ?? {}) };
+        delete rest.inboxRunnable;
+        return Object.keys(rest).length > 0 ? rest : undefined;
+      })();
+    const updated = { ...agent, permissions: mergedPermissions };
+    const parts: string[] = [];
+    if (imgSrcChanged) {
+      parts.push(hosts.length === 0 ? 'cleared img-src permissions' : `updated img-src permissions (${hosts.length} host${hosts.length === 1 ? '' : 's'})`);
+    }
+    if (inboxChanged) parts.push(`set inbox runnable ${inboxRunnable ? 'on' : 'off'}`);
+    ctx.agentStore.upsertAgent(updated, 'dashboard', parts.join('; '));
+    const flashParts: string[] = [];
+    if (imgSrcChanged) {
+      flashParts.push(hosts.length === 0 ? 'img-src permissions cleared.' : `img-src updated (${hosts.length} host${hosts.length === 1 ? '' : 's'}).`);
+    }
+    if (inboxChanged) {
+      flashParts.push(`Inbox runnable ${inboxRunnable ? 'enabled' : 'disabled'}.`);
+    }
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(flashParts.join(' '))}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Permissions update failed: ${msg}`)}`);

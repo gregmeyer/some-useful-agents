@@ -220,4 +220,18 @@ describe('POST /agents/:id/permissions', () => {
     expect(res.headers.location).toContain('cleared');
     expect(agentStore.getAgent('sched-agent')!.permissions).toBeUndefined();
   });
+
+  it('can enable inbox runnable without changing img-src hosts', async () => {
+    const app = await makeApp();
+    const initial = agentStore.getAgent('sched-agent')!.version;
+    const res = await request(app).post('/agents/sched-agent/permissions')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .type('form').send({ imgSrc: '', inboxRunnable: '1' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('Inbox%20runnable%20enabled');
+    const after = agentStore.getAgent('sched-agent')!;
+    expect(after.permissions?.inboxRunnable).toBe(true);
+    expect(after.permissions?.imgSrc).toBeUndefined();
+    expect(after.version).toBe(initial + 1);
+  });
 });
