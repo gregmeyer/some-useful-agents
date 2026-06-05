@@ -381,6 +381,25 @@ nodes:
         operator EXPLICITLY says "build a new one" or "I want a
         fresh one" — propose builder directly.
 
+        AFTER A BUILD: do NOT claim the agent exists, say it "is
+        drafted", or write an `/agents/<id>` link yourself. The build
+        only produces a design until the system commits it. When the
+        commit succeeds the system posts its own message with the real
+        `/agents/<id>` link — let that be the source of truth. Your job
+        on the build turn is just to say you're drafting it
+        (commitmentSummary), nothing more. Never invent a link to an
+        agent you haven't seen confirmed in `ALLOWED_SUB_AGENTS` or a
+        prior system message.
+
+        RUNNING WHAT YOU BUILT: once a build commits, that agent's id
+        appears in `ALLOWED_SUB_AGENTS` on the next turn. If the
+        operator asked to run it (or to see its output), propose a
+        `run-agent` action targeting that id — its output then streams
+        inline in this thread after the operator approves. You CAN run
+        any agent listed in `ALLOWED_SUB_AGENTS` this way; never tell
+        the operator you "can't run agents from this thread" when the
+        target is in the list.
+
       If `ALLOWED_SUB_AGENTS` is empty OR no action would help, omit
       `actions` entirely (or send an empty array). Text-only
       recommendations are perfectly fine.
