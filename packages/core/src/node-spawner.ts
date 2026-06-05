@@ -17,6 +17,17 @@ import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
+/**
+ * One failed provider attempt in the LLM waterfall: which provider, the
+ * classified failure category (timeout / credit_exhausted / binary_missing /
+ * …), and a short error snippet for diagnosis.
+ */
+export interface ProviderFailure {
+  provider: string;
+  category: string;
+  error?: string;
+}
+
 export type SpawnResult = ExecutionResult & {
   category?: NodeErrorCategory;
   /**
@@ -33,6 +44,13 @@ export type SpawnResult = ExecutionResult & {
    * for shell nodes.
    */
   attemptedProviders?: string[];
+  /**
+   * Per-attempt failure reasons for every provider the waterfall tried and
+   * abandoned (the winner is not listed). Lets the dashboard show WHY each
+   * skipped provider was skipped (e.g. "codex: timeout") instead of a bare
+   * "codex failed". Undefined when no provider failed.
+   */
+  providerFailures?: ProviderFailure[];
   /**
    * Execution backend that actually ran this node: `'local'` (in-process)
    * or `'temporal'` (worker activity). A backend (the injected spawnNode)
@@ -617,6 +635,10 @@ export async function spawnNodeReal(
   const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers);
 
   const attemptedProviders: string[] = [];
+  // Per-attempt failure trail: why each non-winning provider was skipped.
+  // Surfaced on the node card and logged below so a successful fallback run
+  // still records WHY the earlier providers failed.
+  const providerFailures: ProviderFailure[] = [];
   let lastResult: SpawnResult | undefined;
   let lastCategory: LlmFailureCategory = 'other';
 
@@ -633,6 +655,7 @@ export async function spawnNodeReal(
         ...result,
         usedLLMProvider: provider,
         attemptedProviders,
+        providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
         error: attemptedProviders.length > 1
           ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
           : result.error,
@@ -641,6 +664,16 @@ export async function spawnNodeReal(
 
     lastResult = result;
     lastCategory = classifyLlmFailure(result);
+
+    // Record + log WHY this provider failed, so a successful fallback run
+    // still leaves a diagnosable trail (the per-attempt error is otherwise
+    // discarded once a later provider wins).
+    const errSnippet = (result.error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined });
+    process.stderr.write(
+      `[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} failed (${lastCategory})` +
+      `${errSnippet ? `: ${errSnippet}` : ''}\n`,
+    );
 
     // Decide whether to continue the waterfall.
     if (!shouldFallback(lastCategory)) break;
@@ -665,6 +698,7 @@ export async function spawnNodeReal(
     ...(lastResult ?? { result: '', exitCode: 1 }),
     usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
     attemptedProviders,
+    providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
   };
 }
 

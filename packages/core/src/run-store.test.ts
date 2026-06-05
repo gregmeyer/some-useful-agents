@@ -317,6 +317,23 @@ describe('RunStore node_executions', () => {
     expect(got.error).toBe('Timed out after 30s');
   });
 
+  it('round-trips providerFailures (per-attempt LLM failure reasons)', () => {
+    store.createNodeExecution({
+      runId: 'r-x', nodeId: 'triage', workflowVersion: 1,
+      status: 'running', startedAt: new Date().toISOString(),
+    });
+    const failures = JSON.stringify([{ provider: 'codex', category: 'timeout', error: 'hard wall-clock cap' }]);
+    store.updateNodeExecution('r-x', 'triage', {
+      status: 'completed', completedAt: new Date().toISOString(), exitCode: 0,
+      usedLLMProvider: 'apple-foundation-models',
+      attemptedProviders: 'codex,apple-foundation-models',
+      providerFailures: failures,
+    });
+    const got = store.getNodeExecution('r-x', 'triage')!;
+    expect(got.providerFailures).toBe(failures);
+    expect(JSON.parse(got.providerFailures!)[0]).toMatchObject({ provider: 'codex', category: 'timeout' });
+  });
+
   it('updateNodeExecution applies a partial patch', () => {
     store.createNodeExecution({
       runId: 'r-x', nodeId: 'fetch', workflowVersion: 1,

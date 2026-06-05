@@ -663,6 +663,14 @@ export interface NodeExecutionRecord {
    */
   attemptedProviders?: string;
   /**
+   * JSON array of per-attempt failure reasons for providers the waterfall
+   * tried and abandoned (the winner is excluded): `[{provider, category,
+   * error?}]`. Lets the dashboard show WHY each skipped provider was skipped
+   * (e.g. "codex: timeout"). Stored as JSON (structured); undefined when no
+   * provider failed.
+   */
+  providerFailures?: string;
+  /**
    * Execution backend that ran this node: `'local'` (in-process) or
    * `'temporal'` (worker activity). Different axis from `usedLLMProvider`
    * above, which is the LLM provider. Undefined on legacy rows ↔ `local`.

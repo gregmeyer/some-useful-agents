@@ -1069,6 +1069,7 @@ export async function executeAgentDag(
         stateBytesAfter,
         usedLLMProvider: result.usedLLMProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
+        providerFailures: result.providerFailures ? JSON.stringify(result.providerFailures) : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
       });
     } else {
@@ -1087,6 +1088,7 @@ export async function executeAgentDag(
         outputsJson,
         usedLLMProvider: result.usedLLMProvider,
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
+        providerFailures: result.providerFailures ? JSON.stringify(result.providerFailures) : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
         stateBytesAfter,
       });

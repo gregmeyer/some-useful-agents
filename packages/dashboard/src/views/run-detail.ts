@@ -459,9 +459,23 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     if (e.attemptedProviders) {
       const trail = e.attemptedProviders.split(',').filter(Boolean);
       if (trail.length > 1 && e.usedLLMProvider) {
-        const failedFrom = trail.slice(0, -1).join(', ');
+        // Per-attempt failure reasons (why each skipped provider was skipped),
+        // so the chip reads "codex (timeout) failed" instead of "codex failed".
+        let failures: Array<{ provider: string; category: string; error?: string }> = [];
+        if (e.providerFailures) {
+          try { failures = JSON.parse(e.providerFailures); } catch { /* leave empty */ }
+        }
+        const reasonOf = new Map(failures.map((f) => [f.provider, f.category]));
+        const failedFrom = trail
+          .slice(0, -1)
+          .map((p) => (reasonOf.has(p) ? `${p} (${reasonOf.get(p)})` : p))
+          .join(', ');
+        // Hover detail: full per-provider category + error snippet when present.
+        const titleDetail = failures.length > 0
+          ? failures.map((f) => `${f.provider}: ${f.category}${f.error ? ` — ${f.error}` : ''}`).join('\n')
+          : `LLM waterfall: ${trail.join(' → ')}`;
         const verdict = e.status === 'completed' ? 'ran on' : 'ended on';
-        waterfallChip = html`<span class="badge badge--muted" title="LLM waterfall: ${trail.join(' → ')}">${verdict} <span class="mono">${e.usedLLMProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
+        waterfallChip = html`<span class="badge badge--muted" title="${titleDetail}">${verdict} <span class="mono">${e.usedLLMProvider}</span> · <span class="mono">${failedFrom}</span> failed</span>`;
       }
     }
 
