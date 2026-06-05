@@ -78,6 +78,12 @@ inputs:
 nodes:
   - id: triage
     type: llm-prompt
+    # A 0-exit result that doesn't contain a <plan> block is a fallback-worthy
+    # failure (invalid_output) — escalate the provider waterfall to a stronger
+    # model instead of accepting useless output from a weak one.
+    outputContract:
+      mustMatch: '<plan>[\s\S]*?</plan>'
+      description: a <plan> block
     prompt: |
       You are the Inbox Triage agent for the sua agent platform. The
       operator opened an inbox message and either explicitly asked for
