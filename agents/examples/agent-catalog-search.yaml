@@ -38,6 +38,11 @@ inputs:
 nodes:
   - id: search
     type: llm-prompt
+    # No <matches> block means the model didn't produce a usable result —
+    # treat as a fallback-worthy failure so the waterfall escalates.
+    outputContract:
+      mustMatch: '<matches>[\s\S]*?</matches>'
+      description: a <matches> block
     prompt: |
       You are the Agent Catalog Search agent for the sua platform. The
       operator is looking for an existing agent that matches a query.
