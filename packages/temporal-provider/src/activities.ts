@@ -192,22 +192,40 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
     try { ctx?.heartbeat({ progress: progressTrail }); } catch { /* outside activity ctx — ignore */ }
   };
 
-  const result = await spawnNodeReal(
-    input.node,
-    env,
-    {
-      agentId: input.agentId,
-      agentSource: input.agentSource,
-      // Community-shell trust is enforced by executeAgentDag before the node
-      // ever reaches a backend, so the worker needs no allowlist here.
-      allowUntrustedShell: new Set<string>(),
-      llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
-    },
-    onProgress,
-    ctx?.cancellationSignal,
-  );
+  // Keepalive heartbeat: a node that produces no progress event for longer than
+  // the workflow's heartbeatTimeout (30s) — e.g. an LLM that thinks before its
+  // first streamed token — would otherwise look dead to Temporal and get killed
+  // with "activity Heartbeat timeout" even though the child is working fine. Beat
+  // on an interval regardless of progress, re-sending the current trail so the
+  // dashboard's describe-poll still sees every event. Mirrors runDagActivity.
+  const keepalive = ctx
+    ? setInterval(() => {
+        try {
+          ctx?.heartbeat(progressTrail.length ? { progress: progressTrail } : undefined);
+        } catch { /* ignore */ }
+      }, 10_000)
+    : undefined;
 
-  return { ...result, usedWorkflowProvider: 'temporal' };
+  try {
+    const result = await spawnNodeReal(
+      input.node,
+      env,
+      {
+        agentId: input.agentId,
+        agentSource: input.agentSource,
+        // Community-shell trust is enforced by executeAgentDag before the node
+        // ever reaches a backend, so the worker needs no allowlist here.
+        allowUntrustedShell: new Set<string>(),
+        llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+      },
+      onProgress,
+      ctx?.cancellationSignal,
+    );
+
+    return { ...result, usedWorkflowProvider: 'temporal' };
+  } finally {
+    if (keepalive) clearInterval(keepalive);
+  }
 }
 
 /**
