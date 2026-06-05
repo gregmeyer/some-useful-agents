@@ -215,7 +215,7 @@ export function renderInboxList(opts: InboxListOptions): string {
     ? renderArchiveHeader(archiveView, rows.length)
     : renderSuggestBanner(suggestions, rows.length, terminalCount, awaitingCount);
   const rail = renderRail(starredAll);
-  const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads);
+  const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads, archiveView);
   const archiveLink = !archiveView && terminalCount > 0
     ? html`
       <div class="inbox-archive-footer">
@@ -294,7 +294,7 @@ function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, a
     <form class="inbox-toolbar" method="GET" action="/inbox" role="search" data-inbox-toolbar>
       <div class="inbox-toolbar__search">
         <span class="inbox-toolbar__search-icon" aria-hidden="true">⌕</span>
-        <input type="text" name="q" value="${filter.q}" placeholder="Search messages…"
+        <input type="text" name="q" value="${filter.q}" placeholder="Search titles, replies, agents, tags…"
           class="inbox-toolbar__q" data-inbox-toolbar-q>
         ${filter.q ? html`<button type="button" class="inbox-toolbar__clear" data-inbox-toolbar-clear aria-label="Clear search">×</button>` : html``}
       </div>
@@ -421,7 +421,31 @@ function renderRail(starred: InboxMessage[]): SafeHtml {
   `;
 }
 
-function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir, filter: { q: string; starred: boolean; tag: string }, previewPayloads: Map<string, InboxRowPreviewPayload>): SafeHtml {
+function currentInboxHref(
+  sort: InboxSortKey,
+  dir: InboxSortDir,
+  filter: { q: string; starred: boolean; tag: string },
+  archiveView?: 'dismissed' | 'resolved',
+): string {
+  const params = new URLSearchParams();
+  if (filter.q) params.set('q', filter.q);
+  if (filter.starred) params.set('starred', '1');
+  if (filter.tag) params.set('tag', filter.tag);
+  if (archiveView) params.set('status', archiveView);
+  if (sort !== INBOX_DEFAULT_SORT.sort) params.set('sort', sort);
+  if (dir !== INBOX_DEFAULT_SORT.dir) params.set('dir', dir);
+  const suffix = params.toString();
+  return suffix ? `/inbox?${suffix}` : '/inbox';
+}
+
+function renderMain(
+  rows: InboxMessage[],
+  sort: InboxSortKey,
+  dir: InboxSortDir,
+  filter: { q: string; starred: boolean; tag: string },
+  previewPayloads: Map<string, InboxRowPreviewPayload>,
+  archiveView?: 'dismissed' | 'resolved',
+): SafeHtml {
   if (rows.length === 0) {
     return html`
       <div class="card" style="padding: var(--space-6); text-align: center; color: var(--color-text-muted);">
@@ -440,13 +464,30 @@ function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir,
     .filter((m) => m.status === 'awaiting_user')
     .sort((a, b) => (a.lastActivityAt ?? a.createdAt) - (b.lastActivityAt ?? b.createdAt));
   const rest = rows.filter((m) => m.status !== 'awaiting_user');
+  const bulkEnabled = !archiveView;
+  const returnTo = currentInboxHref(sort, dir, filter, archiveView);
+
+  const bulkBar = bulkEnabled
+    ? html`
+      <form method="POST" action="/inbox/bulk-dismiss" class="inbox-bulkbar" data-inbox-bulkbar hidden>
+        <input type="hidden" name="ids" value="" data-inbox-bulk-ids>
+        <input type="hidden" name="returnTo" value="${returnTo}">
+        <div class="inbox-bulkbar__summary">
+          <strong data-inbox-bulk-count>0 selected</strong>
+          <button type="button" class="btn btn--ghost btn--xs" data-inbox-bulk-select-all>Select all visible</button>
+          <button type="button" class="btn btn--ghost btn--xs" data-inbox-bulk-clear>Clear</button>
+        </div>
+        <button type="submit" class="btn btn--sm btn--ghost">Dismiss selected</button>
+      </form>
+    `
+    : html``;
 
   const needsYouBlock = needsYou.length > 0
     ? html`
       <section class="inbox-needs-you" aria-label="Needs you">
         <div class="inbox-needs-you__head">Needs you <span class="inbox-needs-you__count">${needsYou.length}</span></div>
         <div class="inbox-list inbox-list--needs-you" role="table">
-          ${needsYou.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
+          ${needsYou.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}
         </div>
       </section>
     `
@@ -457,13 +498,13 @@ function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir,
   const mainBlock = rest.length > 0
     ? html`
       <div class="inbox-list" role="table">
-        ${renderListHeader(sort, dir, filter)}
-        ${rest.map((m) => renderRow(m, previewPayloads.get(m.id))) as unknown as SafeHtml[]}
+        ${renderListHeader(sort, dir, filter, bulkEnabled)}
+        ${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}
       </div>
     `
     : html``;
 
-  return html`${needsYouBlock}${mainBlock}`;
+  return html`${bulkBar}${needsYouBlock}${mainBlock}`;
 }
 
 /**
@@ -475,7 +516,12 @@ function renderMain(rows: InboxMessage[], sort: InboxSortKey, dir: InboxSortDir,
  * The chevron and star columns get no label (they're per-row
  * affordances, not data dimensions).
  */
-function renderListHeader(sort: InboxSortKey, dir: InboxSortDir, filter: { q: string; starred: boolean; tag: string }): SafeHtml {
+function renderListHeader(
+  sort: InboxSortKey,
+  dir: InboxSortDir,
+  filter: { q: string; starred: boolean; tag: string },
+  bulkEnabled: boolean,
+): SafeHtml {
   const link = (key: InboxSortKey, label: string, defaultDir: InboxSortDir = 'desc'): SafeHtml => {
     const isActive = sort === key;
     // Active column: click flips direction. Inactive: jump to the
@@ -496,6 +542,9 @@ function renderListHeader(sort: InboxSortKey, dir: InboxSortDir, filter: { q: st
   };
   return html`
     <div class="inbox-list__header" role="row">
+      <span>
+        ${bulkEnabled ? html`<input type="checkbox" data-inbox-bulk-toggle-all aria-label="Select all visible rows">` : html``}
+      </span>
       <span></span>
       <span role="columnheader">${link('priority', 'Priority', 'asc')}</span>
       <span role="columnheader" class="inbox-list__header-title">${link('title', 'Title', 'asc')}</span>
@@ -523,7 +572,7 @@ function renderListHeader(sort: InboxSortKey, dir: InboxSortDir, filter: { q: st
  * activity strip that shows the most recent triage/user/system
  * reply + a pending-actions summary. See renderPreview.
  */
-function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined): SafeHtml {
+function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined, bulkEnabled: boolean): SafeHtml {
   const tagChips = m.tags.length === 0
     ? html``
     : html`<span class="inbox-row2__tags">${m.tags.map((t) => html`<span class="inbox-tag-chip">${t}</span>`) as unknown as SafeHtml[]}</span>`;
@@ -549,6 +598,17 @@ function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined)
     : `created ${formatAge(new Date(m.createdAt).toISOString())}`;
   return html`
     <div class="inbox-row2" data-inbox-row-id="${m.id}" id="row-${m.id}" role="row" data-inbox-status="${m.status}">
+      <span class="inbox-row2__select" role="cell">
+        ${bulkEnabled ? html`
+          <input
+            type="checkbox"
+            class="inbox-row2__checkbox"
+            data-inbox-bulk-checkbox
+            data-inbox-row-stop
+            value="${m.id}"
+            aria-label="Select ${m.title}">
+        ` : html``}
+      </span>
       <span class="inbox-modal__priority inbox-modal__priority--${m.priority}" title="${m.priority} priority"></span>
       <span class="inbox-row2__title" role="cell">
         <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>

@@ -285,6 +285,38 @@ describe('POST /inbox/:id/dismiss', () => {
   });
 });
 
+describe('POST /inbox/bulk-dismiss', () => {
+  it('dismisses selected rows and redirects back to the current inbox view', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'b' });
+    const b = inboxStore.add({ priority: 'medium', source: 'manual', title: 'b', body: 'b' });
+    const keep = inboxStore.add({ priority: 'medium', source: 'manual', title: 'keep', body: 'b' });
+    const res = await request(app)
+      .post('/inbox/bulk-dismiss')
+      .type('form')
+      .send({ ids: `${a.id},${b.id}`, returnTo: '/inbox?q=keep' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/^\/inbox\?q=keep&ok=/);
+    expect(inboxStore.get(a.id)!.status).toBe('dismissed');
+    expect(inboxStore.get(b.id)!.status).toBe('dismissed');
+    expect(inboxStore.get(keep.id)!.status).not.toBe('dismissed');
+  });
+
+  it('returns 400 for empty selection over AJAX', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/bulk-dismiss')
+      .type('form')
+      .send({ ids: '' })
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('POST /inbox/:id/respond', () => {
   it('appends a user response; 303 for form, 204 for AJAX', async () => {
     const app = await makeApp();
@@ -397,14 +429,35 @@ describe('GET /inbox with filters', () => {
     expect(res.text).toContain('cherry-fruit');
   });
 
+  it('filters by multi-word ?q across normalized agent names and tags', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'other', body: 'body' });
+    const tagged = inboxStore.add({ priority: 'medium', source: 'manual', title: 'tagged-thread', body: 'body', agentId: 'joke-judge-two' });
+    inboxStore.setTags(tagged.id, ['auth']);
+    const byAgent = await request(app).get('/inbox?q=joke%20judge').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(byAgent.text).toContain('tagged-thread');
+    const byTag = await request(app).get('/inbox?q=auth').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(byTag.text).toContain('tagged-thread');
+  });
+
   it('renders the toolbar with current search value and a Reset link', async () => {
     const app = await makeApp();
     const res = await request(app).get('/inbox?q=hello').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.text).toContain('class="inbox-toolbar"');
     expect(res.text).toContain('value="hello"');
+    expect(res.text).toContain('Search titles, replies, agents, tags…');
     expect(res.text).toMatch(/href="\/inbox"[^>]*>Reset</);
     // Apply button replaced by autosubmit.
     expect(res.text).not.toContain('>Apply<');
+  });
+
+  it('renders bulk dismiss controls on the active inbox', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'row-one', body: 'x' });
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('data-inbox-bulkbar');
+    expect(res.text).toContain('data-inbox-bulk-checkbox');
+    expect(res.text).toContain('Dismiss selected');
   });
 });
 
