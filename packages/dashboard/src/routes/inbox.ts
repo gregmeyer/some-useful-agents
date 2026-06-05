@@ -1603,7 +1603,13 @@ async function runProposedAction(
         'dashboard',
         'Granted inboxRunnable via inbox approve-to-run',
       );
-      const note = `Granted **${subAgent.name}** permission to run from inbox threads (revoke in its Config). Running it now…`;
+      // Past-tense + no "running it now…": the grant note's created_at is
+      // later than the action card (proposed earlier), so it renders BELOW
+      // the run result. "Running it now…" then reads as if the run hasn't
+      // happened — confusing the operator AND the follow-up triage turn into
+      // "wait for the result" when it already finished. State only the durable
+      // fact; the action card itself shows the run's outcome.
+      const note = `Enabled **${subAgent.name}** to run from inbox threads — revoke any time in its Config tab.`;
       const sysReply = ctx.inboxStore.addResponse(messageId, 'system', note);
       publishInboxEvent(ctx, messageId, 'message:created', {
         responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
