@@ -912,13 +912,11 @@ function ensureSystemAgentCurrent(
 
 /**
  * Ids of user agents that were built (and committed) earlier in THIS
- * thread by an agent-builder action. Triage may then propose running
- * them — that's how "build me an agent, now run it" works in one thread.
- * Derived, not stored: scan the thread's completed agent-builder actions,
- * read the built id out of their `{agentId}` resultSummary, and keep only
- * those that actually landed in the store (the maybeCommitBuiltAgent
- * commit succeeded). A build that was refused/clobber-guarded never
- * appears here because its agent isn't in the catalog.
+ * thread. Triage may then propose running them — that's how "build me an
+ * agent, now run it" works in one thread. Sourced from the `committedAgentId`
+ * that maybeCommitBuiltAgent stamps on its system message: the commit is the
+ * source of truth, not the run result (whose shape varies). Kept only when
+ * the agent still exists, so a since-deleted draft drops out.
  */
 export function builtAgentIdsInThread(
   ctx: ReturnType<typeof getContext>,
@@ -927,14 +925,12 @@ export function builtAgentIdsInThread(
   if (!ctx.inboxStore) return [];
   const ids = new Set<string>();
   for (const r of ctx.inboxStore.listResponses(messageId)) {
-    if (r.role !== 'action') continue;
-    const m = parseActionMeta(r);
-    if (!m || m.agentId !== 'agent-builder' || m.status !== 'completed' || !m.resultSummary) continue;
+    if (r.role !== 'system' || !r.metaJson) continue;
     try {
-      const summary = JSON.parse(m.resultSummary) as { agentId?: unknown };
-      const builtId = typeof summary.agentId === 'string' ? summary.agentId : undefined;
-      if (builtId && ctx.agentStore.getAgent(builtId)) ids.add(builtId);
-    } catch { /* non-JSON summary — nothing to surface */ }
+      const meta = JSON.parse(r.metaJson) as { committedAgentId?: unknown };
+      const id = typeof meta.committedAgentId === 'string' ? meta.committedAgentId : undefined;
+      if (id && ctx.agentStore.getAgent(id)) ids.add(id);
+    } catch { /* non-JSON meta — nothing to surface */ }
   }
   return [...ids];
 }
@@ -1599,11 +1595,16 @@ export function maybeCommitBuiltAgent(
 
   const href = `/agents/${parsed.id}`;
   const note = `Created **${parsed.name}** as a draft at ${href}. Review it, then approve a run to see its output here.`;
+  // `committedAgentId` is the durable record that THIS thread built THIS
+  // agent — builtAgentIdsInThread reads it to make the agent proposable.
+  // Stamped here (the commit is the source of truth) rather than parsed
+  // back out of the run result, whose shape varies (validate-node JSON vs
+  // a raw <yaml> block depending on the build path).
   const sysReply = ctx.inboxStore.addResponse(
     messageId,
     'system',
     note,
-    JSON.stringify({ links: [{ label: `Open ${parsed.name}`, href }] }),
+    JSON.stringify({ committedAgentId: parsed.id, links: [{ label: `Open ${parsed.name}`, href }] }),
   );
   publishInboxEvent(ctx, messageId, 'message:created', {
     responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,

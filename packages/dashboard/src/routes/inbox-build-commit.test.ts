@@ -121,29 +121,40 @@ describe('maybeCommitBuiltAgent', () => {
 });
 
 describe('builtAgentIdsInThread', () => {
-  it('returns ids of agents built (and committed) in the thread', () => {
+  it('returns the id that maybeCommitBuiltAgent committed in the thread', () => {
     setup();
     const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    // Committed agent referenced by a completed agent-builder action.
-    agentStore.createAgent({
-      id: 'random-xkcd', name: 'Random XKCD', status: 'draft', source: 'local', mcp: false,
-      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
-    }, 'import');
-    inboxStore.addResponse(msg.id, 'action', 'built it', JSON.stringify({
-      kind: 'action', status: 'completed', agentId: 'agent-builder',
-      resultSummary: JSON.stringify({ valid: true, agentId: 'random-xkcd' }),
-    }));
+    seedBuildRun('run-1', XKCD_YAML);
+    // Drive the real commit so the source-of-truth system message is posted.
+    // This also proves the signal survives a <yaml>-shaped resultSummary
+    // (the bug the live dogfood caught — JSON-parsing it threw).
+    maybeCommitBuiltAgent(makeCtx() as never, msg.id, 'run-1');
 
     expect(builtAgentIdsInThread(makeCtx() as never, msg.id)).toEqual(['random-xkcd']);
   });
 
-  it('excludes builds whose agent never landed in the store', () => {
+  it('excludes an agent that was committed then deleted', () => {
     setup();
     const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    inboxStore.addResponse(msg.id, 'action', 'built it', JSON.stringify({
-      kind: 'action', status: 'completed', agentId: 'agent-builder',
-      resultSummary: JSON.stringify({ valid: true, agentId: 'ghost-agent' }),
+    // A system message claims a commit, but the agent isn't in the store.
+    inboxStore.addResponse(msg.id, 'system', 'Created **Ghost** as a draft.', JSON.stringify({
+      committedAgentId: 'ghost-agent',
     }));
+    expect(builtAgentIdsInThread(makeCtx() as never, msg.id)).toEqual([]);
+  });
+
+  it('ignores the clobber-guard system note (no committedAgentId)', () => {
+    setup();
+    const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    // Pre-existing non-draft agent → commit is refused, note has no committedAgentId.
+    agentStore.createAgent({
+      id: 'random-xkcd', name: 'Mine', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    seedBuildRun('run-1', XKCD_YAML);
+    maybeCommitBuiltAgent(makeCtx() as never, msg.id, 'run-1');
+    // The real agent exists, but it wasn't built by this thread, so it must
+    // not be surfaced as proposable.
     expect(builtAgentIdsInThread(makeCtx() as never, msg.id)).toEqual([]);
   });
 });
