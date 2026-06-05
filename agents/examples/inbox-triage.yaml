@@ -148,11 +148,22 @@ nodes:
       Runnable sub-agent specs with exact input names (may be empty):
       {{inputs.RUNNABLE_AGENT_SPECS}}
 
+      Installed agents you may ALSO propose running, which haven't been
+      granted inbox-run permission yet — proposing one becomes a one-click
+      "Enable & run" (may be empty):
+      {{inputs.RUNNABLE_CANDIDATES}}
+
+      Input specs for those candidates (may be empty):
+      {{inputs.RUNNABLE_CANDIDATE_SPECS}}
+
       IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob,
       or any file/search tools. Everything you need is already in the
-      message context above. The `ALLOWED_SUB_AGENTS` value is the
-      complete, authoritative list of agents you may propose — do not
-      go searching for more. Respond with the `<plan>` block directly.
+      message context above. You may propose any agent listed in
+      `ALLOWED_SUB_AGENTS` OR `RUNNABLE_CANDIDATES` — together these are
+      the complete, authoritative set you may run; do not go searching
+      for more. If the operator names an agent that appears in
+      `RUNNABLE_CANDIDATES`, propose it (it becomes "Enable & run") rather
+      than saying you can't run it. Respond with the `<plan>` block directly.
 
       ════════════════════════════════════════════════════════════════
       INSTALLED AGENT CATALOG — answer lookups DIRECTLY, do not hedge
@@ -255,10 +266,13 @@ nodes:
          turn. The proposed action is the commitment — when the
          operator approves it and it completes, you get re-invoked
          and post the result.
-      2. If no agent in ALLOWED_SUB_AGENTS can do the work, be honest
-         in `recommendation` and point the operator at the right
-         tool ("Use /build to draft a new agent — I can't author
-         one from this thread"). When you know the destination,
+      2. If no agent in ALLOWED_SUB_AGENTS OR RUNNABLE_CANDIDATES can do
+         the work, be honest in `recommendation` and point the operator
+         at the right tool ("Use /build to draft a new agent — I can't
+         author one from this thread"). But if a RUNNABLE_CANDIDATES agent
+         CAN do it (the operator named it, or its description matches),
+         propose running it — do not refuse just because it isn't in
+         ALLOWED_SUB_AGENTS. When you know the destination,
          include a one-click `links` CTA to the relevant
          `/agents/<id>` or `/runs/<id>` page rather than ending on a
          dead "pick something different" note. Honest limitations
