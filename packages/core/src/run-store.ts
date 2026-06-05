@@ -244,6 +244,12 @@ export class RunStore {
     if (!execCols.has('attemptedproviders')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN attemptedProviders TEXT`);
     }
+    // Per-attempt failure reasons (JSON `[{provider,category,error?}]`) for the
+    // providers the waterfall tried and abandoned. Surfaces WHY each skipped
+    // provider was skipped. Nullable; NULL ↔ no provider failed.
+    if (!execCols.has('provider_failures_json')) {
+      this.db.exec(`ALTER TABLE node_executions ADD COLUMN provider_failures_json TEXT`);
+    }
 
     // Workflow (execution backend) provider per node: 'local' | 'temporal'.
     // Different axis from `usedLLMProvider` (the `usedProvider` column), which is
@@ -462,7 +468,7 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedLLMProvider' | 'attemptedProviders' | 'usedWorkflowProvider'
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedLLMProvider' | 'attemptedProviders' | 'providerFailures' | 'usedWorkflowProvider'
     >>,
   ): void {
     const fields: string[] = [];
@@ -483,6 +489,7 @@ export class RunStore {
     if (updates.childStartedAtMs !== undefined) { fields.push('childStartedAtMs = ?'); values.push(updates.childStartedAtMs); }
     if (updates.usedLLMProvider !== undefined) { fields.push('usedProvider = ?'); values.push(updates.usedLLMProvider); }
     if (updates.attemptedProviders !== undefined) { fields.push('attemptedProviders = ?'); values.push(updates.attemptedProviders); }
+    if (updates.providerFailures !== undefined) { fields.push('provider_failures_json = ?'); values.push(updates.providerFailures); }
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
     if (fields.length === 0) return;
 
@@ -597,6 +604,7 @@ export class RunStore {
       childStartedAtMs: (row.childStartedAtMs as number | null) ?? undefined,
       usedLLMProvider: (row.usedProvider as string | null) ?? undefined,
       attemptedProviders: (row.attemptedProviders as string | null) ?? undefined,
+      providerFailures: (row.provider_failures_json as string | null) ?? undefined,
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
     };
   }
