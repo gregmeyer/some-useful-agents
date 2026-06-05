@@ -370,6 +370,7 @@ export interface Agent {
    */
   permissions?: {
     imgSrc?: string[];
+    inboxRunnable?: boolean;
   };
   /**
    * The agent_versions row number. On parse from YAML this is the author's
@@ -597,8 +598,8 @@ export interface AgentVersionDag {
   retry?: RetryPolicy;
   author?: string;
   tags?: string[];
-  /** CSP allowlist contributions (e.g. img-src hosts) — see Agent.permissions. */
-  permissions?: { imgSrc?: string[] };
+  /** CSP allowlist contributions + inbox execution capabilities — see Agent.permissions. */
+  permissions?: { imgSrc?: string[]; inboxRunnable?: boolean };
   /** See Agent.allowedSubAgents. */
   allowedSubAgents?: string[];
   /** See Agent.runOn. */

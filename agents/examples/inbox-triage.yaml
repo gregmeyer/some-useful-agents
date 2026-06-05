@@ -74,6 +74,15 @@ inputs:
       {"agents":[{id,name,description,tags,createdAt}], "truncated"?:N}.
       Lets triage answer recency / "what does agent X do" questions
       directly (with a link) instead of dispatching agent-catalog-search.
+  RUNNABLE_AGENT_SPECS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      JSON array of runnable sub-agent specs with exact input names,
+      types, defaults, and descriptions. Use this when proposing
+      actions so installed agents are called with their real input
+      keys instead of guessed names.
 
 nodes:
   - id: triage
@@ -118,6 +127,9 @@ nodes:
 
       Installed agent catalog — newest first (may be empty):
       {{inputs.AGENT_CATALOG}}
+
+      Runnable sub-agent specs with exact input names (may be empty):
+      {{inputs.RUNNABLE_AGENT_SPECS}}
 
       IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob,
       or any file/search tools. Everything you need is already in the
@@ -229,8 +241,11 @@ nodes:
       2. If no agent in ALLOWED_SUB_AGENTS can do the work, be honest
          in `recommendation` and point the operator at the right
          tool ("Use /build to draft a new agent — I can't author
-         one from this thread"). Honest limitations beat fake
-         promises every time.
+         one from this thread"). When you know the destination,
+         include a one-click `links` CTA to the relevant
+         `/agents/<id>` or `/runs/<id>` page rather than ending on a
+         dead "pick something different" note. Honest limitations
+         beat fake promises every time.
 
       When you DO propose an action (path 1), also set
       `commitmentSummary` to a short verb-led phrase the operator
@@ -296,6 +311,9 @@ nodes:
 
       Rules:
       - Only propose `agentId`s that appear verbatim in `ALLOWED_SUB_AGENTS`.
+      - When `RUNNABLE_AGENT_SPECS` includes the target agent, use its
+        EXACT declared input names. Do not invent variants like
+        `JOKE_1` when the schema says `JOKE_A`.
       - At most 3 actions per turn. Keep them tight and complementary,
         not redundant.
       - `inputs` keys must be plausible inputs for the target agent

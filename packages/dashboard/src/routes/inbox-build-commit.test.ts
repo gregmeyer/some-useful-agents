@@ -2,15 +2,15 @@
  * Tests for the inbox auto-commit of agent-builder builds. When a build
  * action completes, the designed agent only exists as a `<yaml>` block in the
  * run output — agent-builder never writes to the catalog. maybeCommitBuiltAgent
- * persists it as a draft so `/agents/<id>` resolves and triage can run it;
- * builtAgentIdsInThread surfaces those ids back into the proposable allowlist.
+ * persists it as a draft (stamped inboxRunnable) so `/agents/<id>` resolves
+ * and triage can run it inline via the runnable-agent model.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore, RunStore, InboxStore } from '@some-useful-agents/core';
-import { maybeCommitBuiltAgent, builtAgentIdsInThread } from './inbox.js';
+import { maybeCommitBuiltAgent } from './inbox.js';
 
 let dir: string;
 let agentStore: AgentStore;
@@ -76,6 +76,8 @@ describe('maybeCommitBuiltAgent', () => {
     const committed = agentStore.getAgent('random-xkcd');
     expect(committed).not.toBeNull();
     expect(committed?.status).toBe('draft');
+    // Stamped runnable so triage can run it from the thread.
+    expect(committed?.permissions?.inboxRunnable).toBe(true);
 
     // A real system message with the working link is posted.
     const sys = inboxStore.listResponses(msg.id).find((r) => r.role === 'system');
@@ -118,32 +120,12 @@ describe('maybeCommitBuiltAgent', () => {
     maybeCommitBuiltAgent(makeCtx() as never, msg.id, 'run-1');
     expect(inboxStore.listResponses(msg.id)).toHaveLength(0);
   });
-});
 
-describe('builtAgentIdsInThread', () => {
-  it('returns ids of agents built (and committed) in the thread', () => {
+  it('stamps inboxRunnable so the built draft is runnable from the thread', () => {
     setup();
     const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    // Committed agent referenced by a completed agent-builder action.
-    agentStore.createAgent({
-      id: 'random-xkcd', name: 'Random XKCD', status: 'draft', source: 'local', mcp: false,
-      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
-    }, 'import');
-    inboxStore.addResponse(msg.id, 'action', 'built it', JSON.stringify({
-      kind: 'action', status: 'completed', agentId: 'agent-builder',
-      resultSummary: JSON.stringify({ valid: true, agentId: 'random-xkcd' }),
-    }));
-
-    expect(builtAgentIdsInThread(makeCtx() as never, msg.id)).toEqual(['random-xkcd']);
-  });
-
-  it('excludes builds whose agent never landed in the store', () => {
-    setup();
-    const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    inboxStore.addResponse(msg.id, 'action', 'built it', JSON.stringify({
-      kind: 'action', status: 'completed', agentId: 'agent-builder',
-      resultSummary: JSON.stringify({ valid: true, agentId: 'ghost-agent' }),
-    }));
-    expect(builtAgentIdsInThread(makeCtx() as never, msg.id)).toEqual([]);
+    seedBuildRun('run-1', XKCD_YAML);
+    maybeCommitBuiltAgent(makeCtx() as never, msg.id, 'run-1');
+    expect(agentStore.getAgent('random-xkcd')?.permissions?.inboxRunnable).toBe(true);
   });
 });
