@@ -46,6 +46,26 @@ export function extractHeartbeatProgress(description: DescribeLike): SpawnProgre
 }
 
 /**
+ * A Temporal `WorkflowFailedError`'s own `.message` is always the generic
+ * "Workflow execution failed" — the real reason (activity error, heartbeat
+ * timeout, etc.) lives in its `.cause` chain. Walk to the deepest cause with a
+ * message so the run record shows something actionable instead of boilerplate.
+ */
+export function describeWorkflowError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  let cur: Error = err;
+  const seen = new Set<Error>();
+  // Descend while a cause carries a usable message. Stop at the deepest one.
+  while (cur.cause instanceof Error && !seen.has(cur.cause)) {
+    seen.add(cur);
+    const next = cur.cause;
+    if (!next.message) break;
+    cur = next;
+  }
+  return cur.message || err.message || String(err);
+}
+
+/**
  * Build a {@link SpawnNodeFn} that runs each DAG node on a Temporal worker
  * (B1b). The dashboard injects this as `deps.spawnNode` when the provider is
  * Temporal; `executeAgentDag` keeps orchestrating in-process and calls this per
@@ -135,7 +155,7 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
         exitCode: cancelled ? 143 : 1,
         error: cancelled
           ? `Node "${node.id}" cancelled`
-          : `Temporal node workflow failed: ${err instanceof Error ? err.message : String(err)}`,
+          : `Temporal node workflow failed: ${describeWorkflowError(err)}`,
         category: cancelled ? 'cancelled' : 'exit_nonzero',
         usedWorkflowProvider: 'temporal',
       };

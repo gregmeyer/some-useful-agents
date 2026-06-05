@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Client } from '@temporalio/client';
 import type { AgentNode, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
-import { createTemporalSpawnNode, extractHeartbeatProgress } from './node-spawn.js';
+import { createTemporalSpawnNode, extractHeartbeatProgress, describeWorkflowError } from './node-spawn.js';
 
 const node = (overrides: Partial<AgentNode> = {}): AgentNode => ({
   id: 'fetch',
@@ -111,6 +111,20 @@ describe('createTemporalSpawnNode', () => {
     expect(res.category).toBe('exit_nonzero');
   });
 
+  it('surfaces the underlying cause, not the generic WorkflowFailedError message', async () => {
+    // Temporal's WorkflowFailedError.message is always "Workflow execution
+    // failed"; the real reason (here, a heartbeat timeout) lives in .cause.
+    const generic = new Error('Workflow execution failed');
+    generic.cause = new Error('activity Heartbeat timeout');
+    const client = fakeClient({ reject: generic });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc' });
+
+    const res = await spawn(node(), { PATH: '/usr/bin' }, spawnOpts);
+
+    expect(res.error).toContain('activity Heartbeat timeout');
+    expect(res.error).not.toBe('Temporal node workflow failed: Workflow execution failed');
+  });
+
   it('re-emits heartbeated progress through onProgress, each event once', async () => {
     const trail: SpawnProgress[] = [
       { timestamp: 't1', type: 'turn_start', turn: 1 },
@@ -146,5 +160,30 @@ describe('extractHeartbeatProgress', () => {
     expect(extractHeartbeatProgress({ pendingActivities: [] })).toEqual([]);
     expect(extractHeartbeatProgress({})).toEqual([]);
     expect(extractHeartbeatProgress({ pendingActivities: [{}] })).toEqual([]);
+  });
+});
+
+describe('describeWorkflowError', () => {
+  it('unwraps to the deepest cause message', () => {
+    const top = new Error('Workflow execution failed');
+    top.cause = new Error('Activity task timed out');
+    (top.cause as Error).cause = new Error('activity Heartbeat timeout');
+    expect(describeWorkflowError(top)).toBe('activity Heartbeat timeout');
+  });
+
+  it('falls back to the top message when there is no cause', () => {
+    expect(describeWorkflowError(new Error('plain boom'))).toBe('plain boom');
+  });
+
+  it('stringifies non-Error values', () => {
+    expect(describeWorkflowError('weird')).toBe('weird');
+  });
+
+  it('does not loop on a cyclic cause chain', () => {
+    const a = new Error('a');
+    const b = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(typeof describeWorkflowError(a)).toBe('string');
   });
 });
