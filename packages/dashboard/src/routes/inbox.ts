@@ -1011,6 +1011,28 @@ export function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string
   return Array.from(available);
 }
 
+/**
+ * Installed user agents that triage COULD run but haven't been granted
+ * `inboxRunnable` yet — the inverse of the allowlist's runnable filter.
+ * Triage proposes running one anyway; the dashboard turns that into a
+ * one-click "Enable & run" action (grantsInboxRunnable). Without this,
+ * triage dead-ends on "I can't run X from this thread" and the operator
+ * has to go hunt for the agent's Config toggle. System agents and
+ * already-runnable agents are excluded.
+ */
+export function getRunnableCandidates(ctx: ReturnType<typeof getContext>): string[] {
+  const runnable = new Set(getSubAgentAllowlist(ctx));
+  const candidates: string[] = [];
+  for (const agent of ctx.agentStore.listAgents()) {
+    if (agent.permissions?.inboxRunnable) continue;        // already runnable
+    if (agent.source !== 'local' && agent.source !== 'community') continue;
+    if (SYSTEM_AGENT_IDS.has(agent.id)) continue;
+    if (runnable.has(agent.id)) continue;                  // operator-allowlisted
+    candidates.push(agent.id);
+  }
+  return candidates;
+}
+
 function canRenderInlineInboxWidget(agent: Agent | null | undefined): agent is Agent & { outputWidget: NonNullable<Agent['outputWidget']> } {
   if (!agent?.outputWidget) return false;
   return INLINE_INBOX_WIDGET_TYPES.has(agent.outputWidget.type);
@@ -1444,14 +1466,16 @@ function postTriageFailureFallback(
   });
 }
 
-function parseProposedActions(
+export function parseProposedActions(
   rawActions: unknown,
   allowlist: readonly string[],
+  candidates: readonly string[] = [],
 ): { accepted: InboxActionMeta[]; rejected: { agentId: string; reason: string }[] } {
   const accepted: InboxActionMeta[] = [];
   const rejected: { agentId: string; reason: string }[] = [];
   if (!Array.isArray(rawActions)) return { accepted, rejected };
   const allowSet = new Set(allowlist);
+  const candidateSet = new Set(candidates);
   for (const entry of rawActions.slice(0, 3)) {
     if (!entry || typeof entry !== 'object') continue;
     const e = entry as Record<string, unknown>;
@@ -1461,8 +1485,14 @@ function parseProposedActions(
       rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
       continue;
     }
-    if (!allowSet.has(agentId)) {
-      rejected.push({ agentId, reason: 'not in ALLOWED_SUB_AGENTS' });
+    // An agent that's already runnable runs directly. An installed
+    // candidate is accepted as an "Enable & run": approving it grants
+    // inboxRunnable first (grantsInboxRunnable), then runs. Anything else
+    // is rejected.
+    const isRunnable = allowSet.has(agentId);
+    const isCandidate = !isRunnable && candidateSet.has(agentId);
+    if (!isRunnable && !isCandidate) {
+      rejected.push({ agentId, reason: 'not in ALLOWED_SUB_AGENTS or RUNNABLE_CANDIDATES' });
       continue;
     }
     const inputs: Record<string, string> = {};
@@ -1479,7 +1509,10 @@ function parseProposedActions(
       agentId,
       inputs,
       rationale: rationale || undefined,
-      ctaLabel: ctaLabel || undefined,
+      // For a candidate, override the CTA so the operator sees they're
+      // granting run permission, not just running.
+      ctaLabel: isCandidate ? (ctaLabel || 'Enable & run') : (ctaLabel || undefined),
+      ...(isCandidate ? { grantsInboxRunnable: true } : {}),
     });
   }
   return { accepted, rejected };
@@ -1556,6 +1589,26 @@ async function runProposedAction(
       refusalReason,
     });
     return;
+  }
+
+  // "Enable & run": the operator approved running an agent that hadn't
+  // been granted inbox-run permission. The approval IS the grant — flip
+  // permissions.inboxRunnable durably, then fall through to the normal
+  // run. Idempotent if it's somehow already set. Revocable from the
+  // agent's Config tab. Never auto-runs without this explicit approval.
+  if (meta.grantsInboxRunnable && !subAgent.permissions?.inboxRunnable) {
+    try {
+      ctx.agentStore.upsertAgent(
+        { ...subAgent, permissions: { ...subAgent.permissions, inboxRunnable: true } },
+        'dashboard',
+        'Granted inboxRunnable via inbox approve-to-run',
+      );
+      const note = `Granted **${subAgent.name}** permission to run from inbox threads (revoke in its Config). Running it now…`;
+      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', note);
+      publishInboxEvent(ctx, messageId, 'message:created', {
+        responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
+      });
+    } catch { /* grant is best-effort — fall through and let the run proceed */ }
   }
 
   // Per-agent input enrichment. Triage's prompt context can't carry
@@ -2177,6 +2230,10 @@ async function runTriageAgent(
 
   const allowlist = getSubAgentAllowlist(ctx);
   const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
+  // Installed agents triage may propose running even though they aren't
+  // granted yet — proposing one yields an approval-gated "Enable & run".
+  const candidates = getRunnableCandidates(ctx);
+  const candidateAgentSpecs = buildRunnableAgentSpecsJson(ctx, candidates);
 
   // Pre-generate the runId + AbortController so the cancel route
   // (/inbox/:id/triage/cancel) can find and abort the in-flight run
@@ -2213,6 +2270,8 @@ async function runTriageAgent(
           CONVERSATION: conversation,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
+          RUNNABLE_CANDIDATES: candidates.join(', '),
+          RUNNABLE_CANDIDATE_SPECS: candidateAgentSpecs,
           // Trimmed installed-agent catalog (newest first) so triage can answer
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
@@ -2339,7 +2398,7 @@ async function runTriageAgent(
     // single grouped `system` note so the operator can see what was
     // declined and why.
     if (allowlist.length > 0) {
-      const { accepted, rejected } = parseProposedActions(parsed.actions, allowlist);
+      const { accepted, rejected } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       for (const action of accepted) {
         if (hasMatchingFailedAction(ctx, messageId, action)) {

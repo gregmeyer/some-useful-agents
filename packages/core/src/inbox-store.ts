@@ -77,6 +77,13 @@ export interface InboxActionMeta {
    * CTA reads naturally; falls back to "Run" when absent.
    */
   ctaLabel?: string;
+  /**
+   * When true, approving this run first grants `permissions.inboxRunnable`
+   * to `agentId` (a one-click "Enable & run"). Set by the dashboard when
+   * triage proposes running an installed agent that hasn't been granted
+   * inbox-run permission yet — the operator's approval is the grant.
+   */
+  grantsInboxRunnable?: boolean;
   /** Sub-agent run id once execution starts. */
   runId?: string;
   startedAt?: number;

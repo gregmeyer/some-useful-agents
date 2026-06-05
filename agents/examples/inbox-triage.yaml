@@ -83,6 +83,23 @@ inputs:
       types, defaults, and descriptions. Use this when proposing
       actions so installed agents are called with their real input
       keys instead of guessed names.
+  RUNNABLE_CANDIDATES:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Comma-separated ids of installed agents you may PROPOSE running
+      that have not been granted inbox-run permission yet. Proposing one
+      becomes an approval-gated "Enable & run": the operator's approval
+      grants permission and runs it. Never dead-end with "I can't run it"
+      when the target is here.
+  RUNNABLE_CANDIDATE_SPECS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      JSON array of input specs for RUNNABLE_CANDIDATES, same shape as
+      RUNNABLE_AGENT_SPECS.
 
 nodes:
   - id: triage
@@ -310,10 +327,18 @@ nodes:
       then get a follow-up turn to summarize what came back.
 
       Rules:
-      - Only propose `agentId`s that appear verbatim in `ALLOWED_SUB_AGENTS`.
-      - When `RUNNABLE_AGENT_SPECS` includes the target agent, use its
-        EXACT declared input names. Do not invent variants like
-        `JOKE_1` when the schema says `JOKE_A`.
+      - Propose `agentId`s that appear verbatim in `ALLOWED_SUB_AGENTS`
+        OR in `RUNNABLE_CANDIDATES`. An ALLOWED_SUB_AGENTS agent runs on
+        approval. A RUNNABLE_CANDIDATES agent is one the operator has
+        installed but not yet granted inbox-run permission — propose it
+        the same way (`type: run-agent`); the dashboard turns it into an
+        "Enable & run" card whose approval grants permission AND runs it.
+        So when the operator asks to run an installed agent that isn't in
+        ALLOWED_SUB_AGENTS but IS in RUNNABLE_CANDIDATES, propose the run
+        — do NOT reply "I can't run it from this thread."
+      - When `RUNNABLE_AGENT_SPECS` or `RUNNABLE_CANDIDATE_SPECS` includes
+        the target agent, use its EXACT declared input names. Do not invent
+        variants like `JOKE_1` when the schema says `JOKE_A`.
       - At most 3 actions per turn. Keep them tight and complementary,
         not redundant.
       - `inputs` keys must be plausible inputs for the target agent
