@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, type SpawnResult } from './node-spawner.js';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, validateOutputContract, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -89,8 +89,53 @@ describe('shouldFallback (waterfall trigger)', () => {
     expect(shouldFallback('rate_limited')).toBe(true);
   });
 
+  it('falls back on invalid_output (a weak model that whiffed the format — escalate)', () => {
+    expect(shouldFallback('invalid_output')).toBe(true);
+  });
+
   it('does NOT fall back on other — silent switching would mask real bugs', () => {
     expect(shouldFallback('other')).toBe(false);
+  });
+});
+
+describe('classifyLlmFailure — invalid_output passthrough', () => {
+  it('maps a contract-failed result (category invalid_output) to invalid_output', () => {
+    expect(classifyLlmFailure(r({ exitCode: 1, category: 'invalid_output', error: 'Output failed contract: missing <plan>' }))).toBe('invalid_output');
+  });
+  it('still returns other for a zero-exit result regardless of category', () => {
+    expect(classifyLlmFailure(r({ exitCode: 0, category: 'invalid_output' }))).toBe('other');
+  });
+});
+
+describe('validateOutputContract', () => {
+  it('passes when no contract is set', () => {
+    expect(validateOutputContract(undefined, 'anything')).toEqual({ ok: true });
+  });
+
+  it('passes when the output matches mustMatch (dotAll across newlines)', () => {
+    const c = { mustMatch: '<plan>[\\s\\S]*?</plan>', description: 'a <plan> block' };
+    expect(validateOutputContract(c, 'sure:\n<plan>\n{"x":1}\n</plan>\nok')).toEqual({ ok: true });
+  });
+
+  it('fails (with reason) when mustMatch is absent from the output', () => {
+    const c = { mustMatch: '<plan>[\\s\\S]*?</plan>', description: 'a <plan> block' };
+    const res = validateOutputContract(c, 'here is a plain prose answer, no block');
+    expect(res.ok).toBe(false);
+    expect((res as { reason: string }).reason).toContain('a <plan> block');
+  });
+
+  it('fails when output is shorter than minChars (non-whitespace)', () => {
+    expect(validateOutputContract({ minChars: 10 }, '  hi  ').ok).toBe(false);
+    expect(validateOutputContract({ minChars: 10 }, 'plenty of content here').ok).toBe(true);
+  });
+
+  it('treats empty output as failing a non-zero minChars', () => {
+    expect(validateOutputContract({ minChars: 1 }, '').ok).toBe(false);
+    expect(validateOutputContract({ minChars: 1 }, undefined).ok).toBe(false);
+  });
+
+  it('treats a malformed mustMatch regex as no constraint (never blocks on operator typo)', () => {
+    expect(validateOutputContract({ mustMatch: '([unclosed' }, 'whatever')).toEqual({ ok: true });
   });
 });
 
