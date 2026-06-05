@@ -455,6 +455,19 @@ describe('InboxStore.list filters (q, starred, tag)', () => {
     expect(store.list({ q: '  nasa  ' }).map((r) => r.title)).toEqual(['NASA Astronomy']);
   });
 
+  it('q matches multiple terms across normalized fields', () => {
+    addMinimal({ title: 'joke-judge-two', body: 'compares jokes' });
+    addMinimal({ title: 'judge only', body: 'plain comparison' });
+    expect(store.list({ q: 'joke judge' }).map((r) => r.title)).toEqual(['joke-judge-two']);
+  });
+
+  it('q matches message ids and tags', () => {
+    const msg = addMinimal({ title: 'tagged thread' });
+    store.setTags(msg.id, ['auth']);
+    expect(store.list({ q: 'auth' }).map((r) => r.title)).toEqual(['tagged thread']);
+    expect(store.list({ q: msg.id.slice(0, 8) }).map((r) => r.title)).toEqual(['tagged thread']);
+  });
+
   it('combines filters (starred + tag + q)', () => {
     const a = addMinimal({ title: 'auth issue' });
     const b = addMinimal({ title: 'auth issue starred' });

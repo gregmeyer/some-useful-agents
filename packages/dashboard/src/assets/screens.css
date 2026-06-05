@@ -3058,9 +3058,30 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-list--needs-you {
   border-left: 3px solid var(--color-warn, #f59e0b);
 }
+.inbox-bulkbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.inbox-bulkbar__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
 .inbox-list__header {
   display: grid;
-  grid-template-columns: 12px 1fr auto auto auto 24px 24px;
+  grid-template-columns: 20px 12px 1fr auto auto auto 24px 24px;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-3);
@@ -3093,7 +3114,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 
 .inbox-row2 {
   display: grid;
-  grid-template-columns: 12px 1fr auto auto auto 24px 24px;
+  grid-template-columns: 20px 12px 1fr auto auto auto 24px 24px;
   /* Row 1: title + metadata cells. Row 2: always-on preview line. Row 3:
    * the chevron-expanded detail panel. The seven top cells auto-place into
    * row 1; the preview line and panel are explicitly placed below. */
@@ -3108,6 +3129,15 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-row2:last-child { border-bottom: 0; }
 .inbox-row2:hover { background: var(--color-surface-raised); }
+.inbox-row2--selected {
+  background: color-mix(in srgb, var(--color-primary-soft) 65%, var(--color-surface) 35%);
+}
+.inbox-row2__select {
+  justify-self: center;
+}
+.inbox-row2__checkbox {
+  margin: 0;
+}
 /* Subtle left-edge accent for the row that needs a click — mirrors
  * the loud "Your turn" badge in a color cue for the row itself. */
 .inbox-row2[data-inbox-status="awaiting_user"] {
@@ -3163,7 +3193,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
  * operator skim the latest message on every row without expanding. Muted, single
  * line, ellipsized — no new accent color (DESIGN.md: color stays rare). */
 .inbox-row2__preview-line {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
   grid-row: 2;
   display: flex;
   align-items: baseline;
@@ -3286,9 +3316,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
  * aligned. */
 @media (max-width: 720px) {
   .inbox-list__header,
-  .inbox-row2 { grid-template-columns: 12px 1fr auto auto 24px 24px; }
+  .inbox-row2 { grid-template-columns: 20px 12px 1fr auto auto 24px 24px; }
   .inbox-row2__agent,
-  .inbox-list__header > [role="columnheader"]:nth-child(4) { display: none; }
+  .inbox-list__header > [role="columnheader"]:nth-child(5) { display: none; }
+  .inbox-bulkbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 /* ---------- Modal timeline ---------- */
