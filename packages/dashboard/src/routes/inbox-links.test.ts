@@ -34,4 +34,33 @@ describe('parseTriageLinks', () => {
     expect(parseTriageLinks(undefined)).toEqual([]);
     expect(parseTriageLinks('nope')).toEqual([]);
   });
+
+  describe('agentExists predicate (fabricated-link guard)', () => {
+    it('drops /agents/<id> links when the agent does not exist', () => {
+      expect(parseTriageLinks(
+        [{ label: 'Open Random XKCD', href: '/agents/random-xkcd' }],
+        () => false,
+      )).toEqual([]);
+    });
+
+    it('keeps /agents/<id> links when the agent exists', () => {
+      expect(parseTriageLinks(
+        [{ label: 'Open Random XKCD', href: '/agents/random-xkcd' }],
+        (id) => id === 'random-xkcd',
+      )).toEqual([{ label: 'Open Random XKCD', href: '/agents/random-xkcd' }]);
+    });
+
+    it('matches ids even with a trailing path/query/hash', () => {
+      const exists = (id: string): boolean => id === 'real';
+      expect(parseTriageLinks([{ label: 'run', href: '/agents/real/run' }], exists)).toHaveLength(1);
+      expect(parseTriageLinks([{ label: 'ghost', href: '/agents/ghost/run' }], exists)).toEqual([]);
+    });
+
+    it('leaves non-agent links untouched by the predicate', () => {
+      expect(parseTriageLinks(
+        [{ label: 'A run', href: '/runs/abc' }, { label: 'Docs', href: 'https://example.com' }],
+        () => false,
+      )).toHaveLength(2);
+    });
+  });
 });

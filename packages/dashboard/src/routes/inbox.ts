@@ -910,7 +910,39 @@ function ensureSystemAgentCurrent(
   }
 }
 
-function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
+/**
+ * Ids of user agents that were built (and committed) earlier in THIS
+ * thread by an agent-builder action. Triage may then propose running
+ * them — that's how "build me an agent, now run it" works in one thread.
+ * Derived, not stored: scan the thread's completed agent-builder actions,
+ * read the built id out of their `{agentId}` resultSummary, and keep only
+ * those that actually landed in the store (the maybeCommitBuiltAgent
+ * commit succeeded). A build that was refused/clobber-guarded never
+ * appears here because its agent isn't in the catalog.
+ */
+export function builtAgentIdsInThread(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): string[] {
+  if (!ctx.inboxStore) return [];
+  const ids = new Set<string>();
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    if (!m || m.agentId !== 'agent-builder' || m.status !== 'completed' || !m.resultSummary) continue;
+    try {
+      const summary = JSON.parse(m.resultSummary) as { agentId?: unknown };
+      const builtId = typeof summary.agentId === 'string' ? summary.agentId : undefined;
+      if (builtId && ctx.agentStore.getAgent(builtId)) ids.add(builtId);
+    } catch { /* non-JSON summary — nothing to surface */ }
+  }
+  return [...ids];
+}
+
+function getSubAgentAllowlist(
+  ctx: ReturnType<typeof getContext>,
+  messageId?: string,
+): string[] {
   // Per-agent override on inbox-triage. When the operator has edited
   // the agent's `allowedSubAgents` list via /agents/inbox-triage/config,
   // that wins over the hardcoded fallback. Empty array = "text-only,
@@ -918,20 +950,29 @@ function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string[] {
   // (auto-installable system agents).
   const triage = ctx.agentStore.getAgent(TRIAGE_AGENT_ID);
   const operatorOverride = triage?.allowedSubAgents;
+  const base: string[] = [];
   if (operatorOverride !== undefined) {
     // Operator-set list: only surface ids that are actually installed.
     // Unlike the system-default path we do NOT auto-import here —
     // operator-listed entries are assumed to be user agents already
     // sitting in the store.
-    return operatorOverride.filter((id) => ctx.agentStore.getAgent(id) !== undefined);
-  }
-  const available: string[] = [];
-  for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
-    if (ensureSystemAgentCurrent(ctx, id, 'inbox triage allowlist')) {
-      available.push(id);
+    base.push(...operatorOverride.filter((id) => ctx.agentStore.getAgent(id)));
+  } else {
+    for (const id of TRIAGE_SUB_AGENT_ALLOWLIST) {
+      if (ensureSystemAgentCurrent(ctx, id, 'inbox triage allowlist')) {
+        base.push(id);
+      }
     }
   }
-  return available;
+  // Agents built earlier in this thread are proposable too, so triage can
+  // run what it just created. These are NOT in TRIAGE_AUTO_APPROVE_AGENTS,
+  // so the run is proposed and waits for operator approval before it fires.
+  if (messageId) {
+    for (const id of builtAgentIdsInThread(ctx, messageId)) {
+      if (!base.includes(id)) base.push(id);
+    }
+  }
+  return base;
 }
 
 /**
@@ -1172,8 +1213,18 @@ export interface TriageLink {
  * Validate the optional `links` array on a triage <plan>. Each entry needs a
  * short label and an href that passes the sanitizer's URL allowlist (relative
  * or http(s)/mailto). Capped at MAX_TRIAGE_LINKS; invalid entries are dropped.
+ *
+ * `agentExists`, when supplied, kills fabricated agent links: triage likes to
+ * claim it built an agent and link `/agents/<id>` before any such agent
+ * exists. A dead link reads as "it's there, go click it" when it 404s. With
+ * the predicate, an `/agents/<id>` href whose agent isn't in the store is
+ * dropped — only real agents get linked. The genuine link is emitted by the
+ * system after the build actually commits (see maybeCommitBuiltAgent).
  */
-export function parseTriageLinks(raw: unknown): TriageLink[] {
+export function parseTriageLinks(
+  raw: unknown,
+  agentExists?: (id: string) => boolean,
+): TriageLink[] {
   if (!Array.isArray(raw)) return [];
   const out: TriageLink[] = [];
   for (const entry of raw) {
@@ -1182,6 +1233,10 @@ export function parseTriageLinks(raw: unknown): TriageLink[] {
     const label = typeof e.label === 'string' ? e.label.trim().slice(0, 40) : '';
     const href = typeof e.href === 'string' ? e.href.trim() : '';
     if (!label || !href || !isSafeUrl(href)) continue;
+    if (agentExists) {
+      const m = href.match(/^\/agents\/([a-zA-Z0-9_-]+)(?:[/?#].*)?$/);
+      if (m && !agentExists(m[1])) continue; // fabricated agent link — drop it
+    }
     out.push({ label, href });
     if (out.length >= MAX_TRIAGE_LINKS) break;
   }
@@ -1435,6 +1490,16 @@ async function runProposedAction(
     maybeAutoProposeEditorAction(ctx, messageId, runId);
   }
 
+  // After agent-builder completes, the designed agent only exists as a
+  // `<yaml>` block in the run output — agent-builder validates but never
+  // commits. Persist it (as a draft) so `/agents/<id>` actually resolves
+  // and triage can propose running it. Without this the agent is a ghost:
+  // triage reports success on a build that produced text, not a catalog
+  // entry.
+  if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
+    maybeCommitBuiltAgent(ctx, messageId, runId);
+  }
+
   maybeRefireTriage(ctx, messageId);
 }
 
@@ -1471,6 +1536,78 @@ function countConsecutiveTriageTurns(
     if (r.role === 'triage') count += 1;
   }
   return count;
+}
+
+/**
+ * Commit the agent that agent-builder just designed. The build DAG
+ * (design → validate → fix) emits a validated `<yaml>` block in the
+ * `design` (or `fix`) node output but never writes to the catalog — the
+ * dashboard wizard commits separately via `/agents/build/commit`. When a
+ * build runs as an inbox action there's no such step, so the agent is a
+ * ghost: `/agents/<id>` 404s and triage can't run it.
+ *
+ * This closes that gap: parse the YAML and upsert the agent as a DRAFT
+ * (visible + runnable on demand, but not live/scheduled until the operator
+ * reviews it). Emits a system note with a REAL link so the operator — and
+ * triage's follow-up turn — see an agent that actually exists.
+ *
+ * Guards: never clobber an existing non-draft agent (a real user agent
+ * sharing the id wins); skip silently when no parseable YAML is present.
+ */
+export function maybeCommitBuiltAgent(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  builderRunId: string,
+): void {
+  if (!ctx.inboxStore) return;
+  const execs = ctx.runStore.listNodeExecutions(builderRunId);
+  // Prefer `fix` (runs only when validate found issues) over `design`.
+  const fix = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
+  const design = execs.find((e) => e.nodeId === 'design' && e.status === 'completed');
+  const source = (fix?.result ?? design?.result ?? '').toString();
+  const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
+  if (!match) return;
+  const builtYaml = match[1].trim();
+  if (builtYaml.length < 10) return;
+
+  let parsed;
+  try { parsed = parseAgent(builtYaml); } catch { return; }
+
+  // Never overwrite a real (non-draft) agent that already owns this id.
+  // A draft of the same id is fair game to re-commit (iterating a build).
+  const existing = ctx.agentStore.getAgent(parsed.id);
+  if (existing && existing.status !== 'draft') {
+    const note = `Built **${parsed.name}** but an agent with id \`${parsed.id}\` already exists and is not a draft — not overwriting it. Review the build output and pick a different id if needed.`;
+    const sysReply = ctx.inboxStore.addResponse(messageId, 'system', note);
+    publishInboxEvent(ctx, messageId, 'message:created', {
+      responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
+    });
+    return;
+  }
+
+  // Commit as a draft regardless of what status the YAML declared — an
+  // LLM-designed agent should not go live or scheduled without review.
+  try {
+    ctx.agentStore.upsertAgent(
+      { ...parsed, status: 'draft' },
+      'import',
+      `Auto-committed (draft) from inbox build on thread ${messageId}`,
+    );
+  } catch {
+    return; // store rejected it (e.g. constraint) — leave the thread untouched
+  }
+
+  const href = `/agents/${parsed.id}`;
+  const note = `Created **${parsed.name}** as a draft at ${href}. Review it, then approve a run to see its output here.`;
+  const sysReply = ctx.inboxStore.addResponse(
+    messageId,
+    'system',
+    note,
+    JSON.stringify({ links: [{ label: `Open ${parsed.name}`, href }] }),
+  );
+  publishInboxEvent(ctx, messageId, 'message:created', {
+    responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
+  });
 }
 
 /** Hoisted from the end of `runProposedAction` so route-handled and
@@ -1763,7 +1900,7 @@ async function runTriageAgent(
     })
     .join('\n');
 
-  const allowlist = getSubAgentAllowlist(ctx);
+  const allowlist = getSubAgentAllowlist(ctx, messageId);
 
   // Pre-generate the runId + AbortController so the cancel route
   // (/inbox/:id/triage/cancel) can find and abort the in-flight run
@@ -1893,7 +2030,7 @@ async function runTriageAgent(
     const commitmentSummary = commitmentRaw.length >= 3 && commitmentRaw.length <= 60
       ? commitmentRaw
       : undefined;
-    const links = parseTriageLinks(parsed.links);
+    const links = parseTriageLinks(parsed.links, (id) => Boolean(ctx.agentStore.getAgent(id)));
     const triageMeta: Record<string, string> = {};
     if (verifyHint) triageMeta.verifyHint = verifyHint;
     if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
