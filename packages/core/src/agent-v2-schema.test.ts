@@ -422,3 +422,22 @@ describe('extractUpstreamReferences', () => {
     expect([...extractUpstreamReferences('{{upstream.a.data.nested.field}}')]).toEqual(['a']);
   });
 });
+
+describe('agentV2Schema — outputContract', () => {
+  it('accepts a node with an outputContract', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{
+        id: 'main', type: 'llm-prompt', prompt: 'do it',
+        outputContract: { mustMatch: '<plan>[\\s\\S]*?</plan>', minChars: 10, description: 'a <plan> block' },
+      }],
+    }));
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects a non-string mustMatch', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'main', type: 'llm-prompt', prompt: 'x', outputContract: { mustMatch: 123 } }],
+    }));
+    expect(r.success).toBe(false);
+  });
+});

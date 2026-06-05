@@ -114,6 +114,31 @@ describe('exportAgent + round-trip', () => {
     expect(a2).toEqual(a1);
   });
 
+  it('preserves a node outputContract through parse + export round-trip', () => {
+    const yaml = `
+id: contract-agent
+name: Contract Agent
+description: has a node output contract
+status: active
+source: examples
+nodes:
+  - id: main
+    type: llm-prompt
+    prompt: do it
+    outputContract:
+      mustMatch: '<plan>[\\s\\S]*?</plan>'
+      minChars: 10
+      description: a <plan> block
+`;
+    const a1 = parseAgent(yaml);
+    expect(a1.nodes[0].outputContract).toEqual({
+      mustMatch: '<plan>[\\s\\S]*?</plan>', minChars: 10, description: 'a <plan> block',
+    });
+    // And survives export → re-parse.
+    const a2 = parseAgent(exportAgent(a1));
+    expect(a2.nodes[0].outputContract).toEqual(a1.nodes[0].outputContract);
+  });
+
   it('emits fields in stable order (id, name, description, ... nodes, ...)', () => {
     const a = parseAgent(THREE_NODE_YAML);
     const yaml = exportAgent(a);

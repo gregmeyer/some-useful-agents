@@ -159,6 +159,7 @@ const ERROR_CATEGORY_LABELS: Record<string, string> = {
   upstream_failed: 'Skipped (upstream failed)',
   condition_not_met: 'Skipped (condition not met)',
   flow_ended: 'Flow ended',
+  invalid_output: 'Output failed the task contract',
 };
 
 export function formatErrorCategory(category: string): string {

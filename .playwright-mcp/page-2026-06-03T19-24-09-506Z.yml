@@ -1,0 +1,41 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - link "sua" [ref=e3] [cursor=pointer]:
+      - /url: /
+    - navigation [ref=e4]:
+      - link "Inbox" [ref=e5] [cursor=pointer]:
+        - /url: /inbox
+      - link "Pulse" [ref=e6] [cursor=pointer]:
+        - /url: /pulse
+      - link "Agents" [ref=e7] [cursor=pointer]:
+        - /url: /agents
+      - link "Settings" [ref=e8] [cursor=pointer]:
+        - /url: /settings
+      - link "Help" [ref=e9] [cursor=pointer]:
+        - /url: /help
+    - button "Toggle theme" [ref=e10] [cursor=pointer]:
+      - generic [ref=e11]: light
+  - main [ref=e12]:
+    - generic [ref=e13]:
+      - heading "Sign in required" [level=1] [ref=e14]
+      - paragraph [ref=e15]:
+        - text: The dashboard is locked until you visit the one-time URL that
+        - code [ref=e16]: sua dashboard start
+        - text: printed to your terminal.
+      - paragraph [ref=e17]: "Look for a line starting with:"
+      - generic [ref=e18]: Dashboard ready at http://127.0.0.1:3000/auth#token=<...>
+      - paragraph [ref=e19]:
+        - text: Click it once to set a session cookie; after that, bookmark
+        - link "http://127.0.0.1:3000/" [ref=e20] [cursor=pointer]:
+          - /url: /
+        - text: .
+  - contentinfo [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]: sua v0.22.0 · bbc7964
+      - navigation [ref=e24]:
+        - link "Help & tutorial" [ref=e25] [cursor=pointer]:
+          - /url: /help
+        - link "GitHub" [ref=e26] [cursor=pointer]:
+          - /url: https://github.com/gregmeyer/some-useful-agents
+        - link "Docs" [ref=e27] [cursor=pointer]:
+          - /url: https://github.com/gregmeyer/some-useful-agents/tree/main/docs

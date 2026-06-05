@@ -92,6 +92,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(n.loopConfig && { loopConfig: n.loopConfig }),
     ...(n.agentInvokeConfig && { agentInvokeConfig: n.agentInvokeConfig }),
     ...(n.endMessage !== undefined && { endMessage: n.endMessage }),
+    ...(n.outputContract && { outputContract: n.outputContract }),
     ...(n.position && { position: n.position }),
   }));
 
@@ -160,6 +161,7 @@ const NODE_KEY_ORDER = [
   // control flow
   'onlyIf', 'conditionalConfig', 'switchConfig', 'loopConfig', 'agentInvokeConfig',
   'endMessage',
+  'outputContract',
   'position',
 ] as const;
 

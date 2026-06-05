@@ -127,6 +127,15 @@ export const agentNodeSchema = z.object({
 
   dependsOn: z.array(z.string()).optional(),
 
+  // Output contract for llm-prompt nodes — a 0-exit result that fails this is
+  // a fallback-worthy failure (category invalid_output) so the waterfall
+  // escalates to a stronger provider. Opt-in.
+  outputContract: z.object({
+    mustMatch: z.string().optional(),
+    minChars: z.number().int().nonnegative().optional(),
+    description: z.string().optional(),
+  }).optional(),
+
   // Flow control
   onlyIf: onlyIfSchema.optional(),
   conditionalConfig: conditionalConfigSchema.optional(),

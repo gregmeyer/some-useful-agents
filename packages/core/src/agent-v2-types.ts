@@ -86,6 +86,13 @@ export type NodeErrorCategory =
   | 'condition_not_met'
   | 'flow_ended'
   /**
+   * An llm-prompt node exited 0 but its output failed the node's declared
+   * `outputContract` (e.g. a weak fallback model returned no `<plan>` block).
+   * Treated as a fallback-worthy failure so the provider waterfall escalates;
+   * terminal only when every provider's output failed the contract.
+   */
+  | 'invalid_output'
+  /**
    * Tool-policy denied this node. Set when a future enforcement engine
    * (PR C of the tool-policies feature) refuses a tool call against a
    * resource the project policy blocks. Lives in the enum from PR B
@@ -279,10 +286,32 @@ export interface AgentNode {
   endMessage?: string;
 
   /**
+   * Optional output contract for llm-prompt nodes. A 0-exit result that fails
+   * the contract is treated as a fallback-worthy failure (category
+   * `invalid_output`) so the provider waterfall escalates to a stronger model
+   * instead of accepting useless output from a weak one. Opt-in: free-form
+   * nodes that omit this are never judged. Enforced in `node-spawner.ts`.
+   */
+  outputContract?: OutputContract;
+
+  /**
    * Optional layout hint for the v0.14 drag/drop editor. Ignored by the
    * executor. Stored in the DAG JSON so layouts survive export/import.
    */
   position?: { x: number; y: number };
+}
+
+/**
+ * What a node's output must satisfy to count as a real success. Checked against
+ * the node's text result after a 0-exit spawn.
+ */
+export interface OutputContract {
+  /** Regex (tested with the dotAll flag) the result must match — e.g. `<plan>[\s\S]*?</plan>`. */
+  mustMatch?: string;
+  /** Minimum non-whitespace character count — catches empty / near-empty output. */
+  minChars?: number;
+  /** Human label for the contract, used in failure messages + the node card hover. */
+  description?: string;
 }
 
 /**

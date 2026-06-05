@@ -9,7 +9,7 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
-import type { Agent, AgentNode, NodeErrorCategory } from './agent-v2-types.js';
+import type { Agent, AgentNode, NodeErrorCategory, OutputContract } from './agent-v2-types.js';
 import type { ExecutionResult } from './agent-executor.js';
 import { substituteInputs } from './input-resolver.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
@@ -117,6 +117,7 @@ export type LlmFailureCategory =
   | 'timeout'
   | 'rate_limited'
   | 'auth_required'
+  | 'invalid_output'
   | 'other';
 
 /**
@@ -645,20 +646,35 @@ export async function spawnNodeReal(
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     attemptedProviders.push(provider);
-    const result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
 
+    // A 0-exit result still has to satisfy the node's output contract. A weak
+    // fallback model that ignores the required format (e.g. no <plan> block)
+    // "succeeds" at the CLI level but produced nothing useful — treat that as a
+    // fallback-worthy failure so the waterfall escalates to a stronger model.
     if (result.exitCode === 0) {
-      // Success — annotate with the trail so the dashboard can show
-      // "ran on codex after claude failed" without parsing the error
-      // breadcrumb.
-      return {
+      const check = validateOutputContract(node.outputContract, result.result);
+      if (check.ok) {
+        // Success — annotate with the trail so the dashboard can show
+        // "ran on codex after claude failed" without parsing the error
+        // breadcrumb.
+        return {
+          ...result,
+          usedLLMProvider: provider,
+          attemptedProviders,
+          providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
+          error: attemptedProviders.length > 1
+            ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
+            : result.error,
+        };
+      }
+      // Contract failed: rewrite the 0-exit result into a failure so the
+      // shared failure path below records it + decides whether to fall back.
+      result = {
         ...result,
-        usedLLMProvider: provider,
-        attemptedProviders,
-        providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
-        error: attemptedProviders.length > 1
-          ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
-          : result.error,
+        exitCode: 1,
+        category: 'invalid_output',
+        error: `Output failed contract: ${check.reason}`,
       };
     }
 
@@ -870,6 +886,8 @@ export function buildProviderChain(
  */
 export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   if (result.exitCode === 0) return 'other';
+  // Output-contract violations are pre-classified by the waterfall.
+  if (result.category === 'invalid_output') return 'invalid_output';
   const haystack = `${result.error ?? ''}\n${result.result ?? ''}`.toLowerCase();
   if (result.category === 'spawn_failure'
     || haystack.includes('command not found')
@@ -932,7 +950,37 @@ export function shouldFallback(category: LlmFailureCategory): boolean {
     || category === 'binary_missing'
     || category === 'timeout'
     || category === 'auth_required'
-    || category === 'rate_limited';
+    || category === 'rate_limited'
+    || category === 'invalid_output';
+}
+
+/**
+ * Validate a node's text output against its declared {@link OutputContract}. A
+ * 0-exit result that fails this is treated as a fallback-worthy failure so the
+ * provider waterfall escalates to a stronger model instead of accepting useless
+ * output. Opt-in: a missing/empty contract always passes. A malformed
+ * `mustMatch` regex is treated as no constraint (never blocks on operator typo).
+ */
+export function validateOutputContract(
+  contract: OutputContract | undefined,
+  output: string | undefined,
+): { ok: true } | { ok: false; reason: string } {
+  if (!contract) return { ok: true };
+  const text = output ?? '';
+  if (typeof contract.minChars === 'number' && contract.minChars > 0) {
+    const nonWs = text.replace(/\s+/g, '').length;
+    if (nonWs < contract.minChars) {
+      return { ok: false, reason: `output too short (${nonWs} < ${contract.minChars} chars)` };
+    }
+  }
+  if (contract.mustMatch) {
+    let re: RegExp | undefined;
+    try { re = new RegExp(contract.mustMatch, 's'); } catch { re = undefined; }
+    if (re && !re.test(text)) {
+      return { ok: false, reason: `missing ${contract.description ?? `/${contract.mustMatch}/`}` };
+    }
+  }
+  return { ok: true };
 }
 
 // ── Process spawner ────────────────────────────────────────────────────
