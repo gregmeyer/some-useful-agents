@@ -601,6 +601,34 @@ export class InboxStore {
   }
 
   /**
+   * Patch mutable thread metadata: the linked `agent_id` (used by inbox
+   * "retarget" — point a thread at a different agent) and `context_json`
+   * (used to record provenance like `forkedFrom`). Pass `null` to clear a
+   * column; omit a field to leave it untouched. No-ops on an empty patch.
+   */
+  updateMessage(
+    id: string,
+    patch: { agentId?: string | null; contextJson?: string | null },
+  ): void {
+    const fields: string[] = [];
+    const params: (string | null)[] = [];
+    if (patch.agentId !== undefined) {
+      fields.push('agent_id = ?');
+      params.push(patch.agentId);
+    }
+    if (patch.contextJson !== undefined) {
+      fields.push('context_json = ?');
+      params.push(patch.contextJson);
+    }
+    if (fields.length === 0) return;
+    params.push(id);
+    const result = this.db.prepare(
+      `UPDATE inbox_messages SET ${fields.join(', ')} WHERE id = ?`,
+    ).run(...params);
+    if (result.changes === 0) throw new Error(`InboxStore.updateMessage: no message with id "${id}"`);
+  }
+
+  /**
    * Append a conversation entry to a message. Roles:
    *   `user`   — operator reply via the dashboard or CLI
    *   `triage` — triage agent recommendation / follow-up

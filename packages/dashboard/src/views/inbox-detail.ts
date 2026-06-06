@@ -32,6 +32,19 @@ export interface InboxDetailOptions {
   currentTargetYaml?: string;
   /** Pre-rendered compact widgets for completed action rows, keyed by response id. */
   inlineActionWidgets?: Record<string, SafeHtml | undefined>;
+  /**
+   * Derived thread summary (goal / latest result / next step), computed by the
+   * route via buildThreadSummary. Rendered as a compact summary block on longer
+   * threads. Absent → no block.
+   */
+  threadSummary?: {
+    currentGoal: string;
+    latestResult?: string;
+    currentStatus: string;
+    nextStep?: string;
+  };
+  /** Installed non-system agent ids offered as fork/retarget targets. */
+  forkableAgentIds?: string[];
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -104,7 +117,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, forkableAgentIds = [] } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
 
@@ -184,6 +197,47 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   ` : html``;
 
+  // Derived thread summary — a "what is this thread about" header for longer
+  // conversations. No LLM; built by the route from the existing responses.
+  const summaryBlock = threadSummary ? html`
+    <details class="inbox-thread-summary">
+      <summary class="inbox-thread-summary__summary">Thread summary</summary>
+      <div class="inbox-thread-summary__row"><span class="inbox-thread-summary__label">Goal</span><span class="inbox-thread-summary__value">${threadSummary.currentGoal}</span></div>
+      <div class="inbox-thread-summary__row"><span class="inbox-thread-summary__label">Status</span><span class="inbox-thread-summary__value">${threadSummary.currentStatus}</span></div>
+      ${threadSummary.latestResult ? html`<div class="inbox-thread-summary__row"><span class="inbox-thread-summary__label">Latest result</span><span class="inbox-thread-summary__value">${threadSummary.latestResult}</span></div>` : html``}
+      ${threadSummary.nextStep ? html`<div class="inbox-thread-summary__row"><span class="inbox-thread-summary__label">Next step</span><span class="inbox-thread-summary__value">${threadSummary.nextStep}</span></div>` : html``}
+    </details>
+  ` : html``;
+
+  // Thread actions: summarize, reopen (terminal only), and move the thread's
+  // work to another agent — fork (new thread, keeps provenance) or retarget
+  // (rewrite this thread's agent link). Each is a small AJAX form reusing the
+  // existing inbox-modal submit pattern; no new client JS.
+  const forkOptions = forkableAgentIds.map((agentId) => html`<option value="${agentId}"></option>`);
+  const threadActions = html`
+    <section class="inbox-thread-actions">
+      <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form style="margin: 0;">
+        <button type="submit" class="btn btn--sm btn--ghost">Summarize</button>
+      </form>
+      ${isTerminal ? html`
+        <form method="POST" action="/inbox/${message.id}/reopen" data-inbox-modal-form style="margin: 0;">
+          <button type="submit" class="btn btn--sm btn--ghost">Reopen</button>
+        </form>
+      ` : html``}
+      ${forkableAgentIds.length > 0 ? html`
+        <datalist id="forkable-agents-${message.id}">${forkOptions as unknown as SafeHtml[]}</datalist>
+        <form method="POST" action="/inbox/${message.id}/fork" data-inbox-modal-form class="inbox-thread-actions__move">
+          <input type="text" name="agentId" list="forkable-agents-${message.id}" class="inbox-thread-actions__input" placeholder="agent id" aria-label="Fork to agent id" required>
+          <button type="submit" class="btn btn--sm btn--ghost" title="Create a new thread targeting this agent, carrying a summary of this one">Fork to agent</button>
+        </form>
+        <form method="POST" action="/inbox/${message.id}/retarget" data-inbox-modal-form class="inbox-thread-actions__move">
+          <input type="text" name="agentId" list="forkable-agents-${message.id}" class="inbox-thread-actions__input" placeholder="agent id" aria-label="Retarget to agent id" required>
+          <button type="submit" class="btn btn--sm btn--ghost" title="Point THIS thread at a different agent (rewrites the agent link)">Retarget</button>
+        </form>
+      ` : html``}
+    </section>
+  `;
+
   const timeline = responses.map((r) => html`
     <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets)}</li>
   `);
@@ -251,6 +305,8 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ${flashBlock}
         ${bodyBlock}
         ${contextBlock}
+        ${summaryBlock}
+        ${threadActions}
       </div>
       <div class="inbox-detail__thread">
         ${timelineBlock}
