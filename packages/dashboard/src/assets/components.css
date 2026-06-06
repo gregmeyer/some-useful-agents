@@ -1053,6 +1053,37 @@
 }
 .wc-group--filter,
 .wc-group--replay { gap: var(--space-1); }
+
+/* Stateless icon buttons: copy + capture-image. Ghost-styled, icon-led,
+   reveal a transient text label ("Copied!" / "Saved") on success. */
+.wc-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  cursor: pointer;
+  transition: color 80ms ease-out, background 80ms ease-out, border-color 80ms ease-out;
+}
+.wc-iconbtn:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.wc-iconbtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.wc-iconbtn[aria-busy='true'] { opacity: 0.7; cursor: progress; }
+.wc-iconbtn .wc-icon { display: block; flex: none; }
+.wc-iconbtn__label:empty { display: none; }
+.wc-iconbtn--ok { color: var(--color-ok, #34d399); border-color: var(--color-ok, #34d399); }
+.wc-iconbtn--err { color: var(--color-err, #ef4444); border-color: var(--color-err, #ef4444); }
 .wc-label {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);

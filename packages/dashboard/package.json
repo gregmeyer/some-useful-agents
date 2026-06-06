@@ -11,13 +11,14 @@
   "dependencies": {
     "@some-useful-agents/core": "*",
     "cytoscape": "^3.30.0",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "html2canvas": "1.4.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
     "@types/express": "^5.0.0",
     "@types/supertest": "^6.0.2",
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "typescript": "^5.8.0"
   },
   "license": "MIT",
   "type": "module",

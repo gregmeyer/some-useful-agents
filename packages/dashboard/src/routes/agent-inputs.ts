@@ -192,7 +192,7 @@ const VALID_WIDGET_TYPES = new Set<string>(['dashboard', 'key-value', 'diff-appl
 const VALID_FIELD_TYPES = new Set<string>(['text', 'code', 'badge', 'action', 'metric', 'stat', 'preview', 'table']);
 const VALID_COLUMN_FORMATS = new Set<string>(['text', 'link']);
 
-const VALID_CONTROL_TYPES = new Set<string>(['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch']);
+const VALID_CONTROL_TYPES = new Set<string>(['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch', 'copy', 'capture-image']);
 
 /**
  * Pull a comma-separated list of bare tokens, dropping blanks. Used for
@@ -223,7 +223,7 @@ function parseControlsFromBody(body: Record<string, unknown>): WidgetControl[] {
   for (let i = 0; i < 50; i++) {
     const rawType = body[`controlType_${i}`];
     if (typeof rawType !== 'string' || !VALID_CONTROL_TYPES.has(rawType)) continue;
-    const type = rawType as 'sort' | 'filter' | 'paginate' | 'replay' | 'field-toggle' | 'view-switch';
+    const type = rawType as 'sort' | 'filter' | 'paginate' | 'replay' | 'field-toggle' | 'view-switch' | 'copy' | 'capture-image';
     const labelRaw = body[`controlLabel_${i}_${type}`];
     const label = typeof labelRaw === 'string' && labelRaw.trim() ? labelRaw.trim() : undefined;
 
@@ -274,6 +274,16 @@ function parseControlsFromBody(body: Record<string, unknown>): WidgetControl[] {
       try { views = JSON.parse(rawJson); } catch { continue; }
       if (!Array.isArray(views)) continue;
       out.push({ type, label, views, default: defView });
+    } else if (type === 'copy') {
+      out.push({ type, ...(label ? { label } : {}) });
+    } else if (type === 'capture-image') {
+      const fnameRaw = body[`controlFilename_${i}`];
+      const filename = typeof fnameRaw === 'string' && fnameRaw.trim() ? fnameRaw.trim().slice(0, 120) : undefined;
+      out.push({
+        type,
+        ...(label ? { label } : {}),
+        ...(filename ? { filename } : {}),
+      });
     }
   }
   return out;
