@@ -589,6 +589,41 @@ export const agentV2Schema = z.object({
             `Replace {{upstream.${first}.result}} with $UPSTREAM_${first.toUpperCase().replace(/-/g, '_')}_RESULT in the command.`,
         });
       }
+      // Shell env-var upstream refs ($UPSTREAM_<NODE>_RESULT) must point at a
+      // DECLARED dependency. The executor only injects UPSTREAM_<dep>_RESULT for
+      // direct dependsOn edges, so a reference to a non-dependency is unbound and
+      // crashes the node under `set -u`. This is a common LLM-codegen bug (e.g.
+      // agent-builder wiring a command to an ancestor it forgot to depend on);
+      // catching it here makes the builder's validate→fix loop self-correct.
+      // Matches `$UPSTREAM_X_RESULT` and `${UPSTREAM_X_RESULT}` but not a
+      // defaulted `${UPSTREAM_X_RESULT:-…}`, which is safe under set -u.
+      const idByToken = new Map(
+        [...nodeIds].map((id) => [id.toUpperCase().replace(/-/g, '_'), id] as const),
+      );
+      const shellTokens = new Set<string>();
+      for (const m of node.command.matchAll(/\$UPSTREAM_([A-Z0-9_]+)_RESULT\b/g)) shellTokens.add(m[1]);
+      for (const m of node.command.matchAll(/\$\{UPSTREAM_([A-Z0-9_]+)_RESULT\}/g)) shellTokens.add(m[1]);
+      for (const token of shellTokens) {
+        const refId = idByToken.get(token);
+        if (!refId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['nodes', i, 'command'],
+            message:
+              `Shell command references $UPSTREAM_${token}_RESULT, but no node maps to "${token}". ` +
+              `Check the upstream node id.`,
+          });
+        } else if (refId !== node.id && !deps.has(refId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['nodes', i, 'command'],
+            message:
+              `Shell command reads $UPSTREAM_${token}_RESULT (node "${refId}") but "${node.id}" does not ` +
+              `declare "${refId}" in dependsOn. Add "${refId}" to dependsOn — otherwise the variable is ` +
+              `unbound and the node crashes under set -u.`,
+          });
+        }
+      }
     }
 
     if (node.type === 'claude-code' || node.type === 'llm-prompt') {

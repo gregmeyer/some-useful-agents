@@ -28,13 +28,15 @@ nodes:
     type: shell
     command: |
       echo "TECH ALERT: $UPSTREAM_CLASSIFY_RESULT"
-    dependsOn: [check]
+    # classify is listed so $UPSTREAM_CLASSIFY_RESULT is injected — the executor
+    # only passes DIRECT dependencies' outputs, not transitive ancestors.
+    dependsOn: [check, classify]
     onlyIf: { upstream: check, field: matched, equals: true }
   - id: general-path
     type: shell
     command: |
       echo "General news: $UPSTREAM_CLASSIFY_RESULT"
-    dependsOn: [check]
+    dependsOn: [check, classify]
     onlyIf: { upstream: check, field: matched, notEquals: true }
   - id: merge
     type: branch
