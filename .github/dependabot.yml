@@ -1,14 +1,48 @@
-# Keep SHA-pinned GitHub Actions fresh.
+# Dependabot keeps our pinned dependencies fresh by opening review-able PRs.
 #
-# Actions are pinned to full SHAs in .github/workflows/ so a compromise of
-# the upstream org can't silently ship malicious code through a moving tag.
-# Dependabot opens PRs weekly with the new SHA + release notes so we can
-# review and merge rather than running unpinned tags.
+# Both ecosystems below are PINNED on purpose — npm deps to exact versions in
+# every package.json, GitHub Actions to full SHAs in .github/workflows/ — so an
+# upstream compromise can't silently ship through a moving tag/range. Pinning
+# trades "automatic latest" for "you decide what to update": Dependabot watches
+# for new releases and opens a PR with the bump + release notes, which we review
+# and merge (or close).
 #
-# npm deps are managed manually via changesets for now.
+# npm tuning: minor+patch bumps are grouped into a couple of low-noise PRs;
+# MAJOR bumps arrive as individual PRs so each breaking upgrade is a deliberate
+# decision. `versioning-strategy: increase` rewrites the exact pin to the new
+# version (it doesn't loosen it back into a range).
 
 version: 2
 updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    versioning-strategy: "increase"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    labels:
+      - "dependencies"
+    groups:
+      # One PR for all backwards-compatible production bumps.
+      prod-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      # One PR for all dev-tooling minor/patch bumps (typescript, vitest, types…).
+      dev-minor-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Workspace links — these are local, not registry deps.
+      - dependency-name: "@some-useful-agents/*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
