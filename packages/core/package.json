@@ -12,9 +12,9 @@
     "@modelcontextprotocol/sdk": "1.29.0",
     "cron-parser": "5.5.0",
     "node-cron": "4.2.1",
-    "pg": "8.20.0",
+    "pg": "8.21.0",
     "uuid": "11.1.0",
-    "yaml": "2.8.3",
+    "yaml": "2.9.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
