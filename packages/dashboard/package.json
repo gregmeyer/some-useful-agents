@@ -11,7 +11,8 @@
   "dependencies": {
     "@some-useful-agents/core": "*",
     "cytoscape": "3.33.2",
-    "express": "5.2.1"
+    "express": "5.2.1",
+    "html2canvas": "1.4.1"
   },
   "devDependencies": {
     "typescript": "5.9.3",

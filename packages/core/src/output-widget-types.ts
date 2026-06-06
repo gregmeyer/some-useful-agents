@@ -167,4 +167,23 @@ export type WidgetControl =
       type: 'paginate';
       field: string;
       pageSize: number;
+    }
+  | {
+      /**
+       * Copy the rendered widget's text to the clipboard. Pure client-side
+       * affordance — renders a button with a copy glyph; no state, no URL.
+       */
+      type: 'copy';
+      label?: string;
+    }
+  | {
+      /**
+       * Capture the rendered widget as a PNG and download it. Client-side
+       * (html2canvas, lazy-loaded). External images that don't send CORS
+       * headers may rasterize blank — a browser security limit, not a bug.
+       */
+      type: 'capture-image';
+      label?: string;
+      /** Download filename stem (no extension). Defaults to the agent id. */
+      filename?: string;
     };

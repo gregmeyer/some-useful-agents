@@ -174,7 +174,7 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-const CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch'] as const;
+const CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch', 'copy', 'capture-image'] as const;
 type ControlType = typeof CONTROL_TYPES[number];
 
 /**
@@ -206,7 +206,7 @@ function renderActionRow(idx: number, action?: { id?: string; label?: string; en
  * single textarea (rarest control type; nested editing would be a UI
  * project of its own). Server validates the JSON before save.
  */
-function renderControlRow(idx: number, control?: { type?: string; label?: string; field?: string; columns?: string[]; default?: string; placeholder?: string; pageSize?: number; inputs?: string[]; fields?: string[]; views?: Array<{ id: string; fields: string[] }> }): string {
+function renderControlRow(idx: number, control?: { type?: string; label?: string; field?: string; columns?: string[]; default?: string; placeholder?: string; pageSize?: number; inputs?: string[]; fields?: string[]; views?: Array<{ id: string; fields: string[] }>; filename?: string }): string {
   const c = control ?? {};
   const currentType = (typeof c.type === 'string' && (CONTROL_TYPES as readonly string[]).includes(c.type)) ? c.type as ControlType : 'sort';
   const csv = (arr?: string[]) => Array.isArray(arr) ? arr.join(', ') : '';
@@ -250,6 +250,15 @@ function renderControlRow(idx: number, control?: { type?: string; label?: string
         <label style="${LBL} flex: 1; min-width: 100%;">Label <input type="text" name="controlLabel_${idx}_view-switch" value="${escapeAttr(c.label ?? '')}" placeholder="Units" style="${COL_INPUT} width: 10rem;"></label>
         <label style="${LBL} flex: 1; min-width: 100%;">Views (JSON: <code>[{id, fields:[...]}]</code>) <textarea name="controlViews_${idx}" rows="4" style="${COL_INPUT} font-family: var(--font-mono); width: 100%;">${escapeAttr(viewsJson)}</textarea></label>
         <label style="${LBL}">Default view id <input type="text" name="controlDefault_${idx}_view-switch" value="${escapeAttr(c.default ?? '')}" placeholder="metric" style="${COL_INPUT} width: 10rem;"></label>
+      </div>
+      <div data-control-inputs="copy" style="${ROW} ${show('copy')}">
+        <label style="${LBL}">Label (optional) <input type="text" name="controlLabel_${idx}_copy" value="${escapeAttr(c.label ?? '')}" placeholder="Copy" style="${COL_INPUT} width: 10rem;"></label>
+        <span style="${LBL} align-self: center;">Adds a copy-to-clipboard button that copies the rendered widget text.</span>
+      </div>
+      <div data-control-inputs="capture-image" style="${ROW} ${show('capture-image')}">
+        <label style="${LBL}">Label (optional) <input type="text" name="controlLabel_${idx}_capture-image" value="${escapeAttr(c.label ?? '')}" placeholder="PNG" style="${COL_INPUT} width: 10rem;"></label>
+        <label style="${LBL}">Filename (no extension) <input type="text" name="controlFilename_${idx}" value="${escapeAttr(c.filename ?? '')}" placeholder="defaults to agent id" style="${COL_INPUT} width: 12rem;"></label>
+        <span style="${LBL} align-self: center;">Saves the widget as a PNG. External images without CORS may capture blank.</span>
       </div>
     </div>
   `;
@@ -766,7 +775,7 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       var controlsList = document.getElementById('ow-controls-list');
       var addControlBtn = document.getElementById('ow-add-control');
       var nextControlIdx = controlsList ? controlsList.querySelectorAll('[data-control-row]').length : 0;
-      var CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch'];
+      var CONTROL_TYPES = ['sort', 'filter', 'paginate', 'replay', 'field-toggle', 'view-switch', 'copy', 'capture-image'];
 
       function controlRowHtml(idx) {
         // Bare scaffold for new rows; matches the SSR template above but
@@ -817,6 +826,15 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
             '<label style="' + LBL + 'flex:1;min-width:100%;">Label ' + input('controlLabel_' + idx + '_view-switch', 'Units', 'width:10rem;') + '</label>' +
             '<label style="' + LBL + 'flex:1;min-width:100%;">Views (JSON) <textarea name="controlViews_' + idx + '" rows="4" style="' + COL_INPUT_STYLE + 'font-family:var(--font-mono);width:100%;"></textarea></label>' +
             '<label style="' + LBL + '">Default view id ' + input('controlDefault_' + idx + '_view-switch', 'metric', 'width:10rem;') + '</label>'
+          ) +
+          block('copy',
+            '<label style="' + LBL + '">Label (optional) ' + input('controlLabel_' + idx + '_copy', 'Copy', 'width:10rem;') + '</label>' +
+            '<span style="' + LBL + 'align-self:center;">Copies the rendered widget text to the clipboard.</span>'
+          ) +
+          block('capture-image',
+            '<label style="' + LBL + '">Label (optional) ' + input('controlLabel_' + idx + '_capture-image', 'PNG', 'width:10rem;') + '</label>' +
+            '<label style="' + LBL + '">Filename (no extension) ' + input('controlFilename_' + idx, 'defaults to agent id', 'width:12rem;') + '</label>' +
+            '<span style="' + LBL + 'align-self:center;">Saves the widget as a PNG. External images without CORS may capture blank.</span>'
           ) +
         '</div>';
       }

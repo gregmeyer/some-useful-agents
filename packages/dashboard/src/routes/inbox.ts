@@ -46,7 +46,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
-import { formatToolCatalog } from './run-now-build.js';
+import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
 import { applyProviderPin } from './build-orchestrator.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
@@ -1829,7 +1829,12 @@ export function maybeCommitBuiltAgent(
   const source = (fix?.result ?? design?.result ?? '').toString();
   const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
   if (!match) return;
-  const builtYaml = match[1].trim();
+  // Run the same repair the dashboard wizard applies before committing an
+  // LLM-built agent. Most important here: autoFixYaml un-escapes `{ {` back to
+  // `{{` in outputWidget.template / prompts — the template pipeline escapes
+  // `{{` → `{ {` to prevent re-expansion, and without this repair the inbox path
+  // persists the escaped form, so the widget renders a literal `{ {outputs.X}}`.
+  const builtYaml = autoFixYaml(match[1].trim());
   if (builtYaml.length < 10) return;
 
   let parsed;

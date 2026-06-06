@@ -128,6 +128,23 @@ export const widgetControlSchema = z.discriminatedUnion('type', [
     field: z.string().min(1, 'paginate.field is required (e.g. "rows" or "daily").'),
     pageSize: z.number().int().positive().max(1000, 'paginate.pageSize is capped at 1000 — use sort/filter to narrow before paginating.'),
   }),
+  /**
+   * `copy` — renders a copy-to-clipboard button. No config beyond an
+   * optional label; copies the rendered widget text client-side.
+   */
+  z.object({
+    type: z.literal('copy'),
+    label: z.string().min(1).optional(),
+  }),
+  /**
+   * `capture-image` — renders a "save as PNG" button. Client-side capture
+   * via html2canvas. Optional `filename` stem (defaults to the agent id).
+   */
+  z.object({
+    type: z.literal('capture-image'),
+    label: z.string().min(1).optional(),
+    filename: z.string().min(1).max(120).optional(),
+  }),
 ]);
 
 export const outputWidgetSchema = z.object({
