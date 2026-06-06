@@ -53,6 +53,30 @@ const CYTOSCAPE_PATH = resolveCytoscapePath();
 const CYTOSCAPE_JS = CYTOSCAPE_PATH ? readFileSync(CYTOSCAPE_PATH, 'utf-8') : '';
 
 /**
+ * Resolve html2canvas the same way as cytoscape — it backs the `capture-image`
+ * widget control (DOM → PNG). Served from `'self'` because the CSP blocks CDN
+ * scripts; lazy-loaded client-side only when a capture button is clicked.
+ */
+function resolveHtml2CanvasPath(): string | undefined {
+  try {
+    return require.resolve('html2canvas/dist/html2canvas.min.js');
+  } catch { /* fall through */ }
+  const here = dirname(fileURLToPath(import.meta.url));
+  let current = here;
+  for (let i = 0; i < 8; i++) {
+    const candidate = join(current, 'node_modules', 'html2canvas', 'dist', 'html2canvas.min.js');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return undefined;
+}
+
+const HTML2CANVAS_PATH = resolveHtml2CanvasPath();
+const HTML2CANVAS_JS = HTML2CANVAS_PATH ? readFileSync(HTML2CANVAS_PATH, 'utf-8') : '';
+
+/**
  * Read and concatenate the dashboard CSS files at startup. Order matters:
  *   tokens (:root vars) → base (element defaults) → components → screens
  *
@@ -623,6 +647,15 @@ assetsRouter.get('/assets/cytoscape.min.js', (_req: Request, res: Response) => {
   }
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   res.type('application/javascript').send(CYTOSCAPE_JS);
+});
+
+assetsRouter.get('/assets/html2canvas.min.js', (_req: Request, res: Response) => {
+  if (!HTML2CANVAS_JS) {
+    res.status(500).type('text/plain').send('html2canvas not resolved at startup');
+    return;
+  }
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.type('application/javascript').send(HTML2CANVAS_JS);
 });
 
 assetsRouter.get('/assets/graph-render.js', (_req: Request, res: Response) => {

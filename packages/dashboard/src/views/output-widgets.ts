@@ -481,10 +481,24 @@ export function renderOutputWidget(
       return undefined;
   }
 
-  if (!controlState) return body;
-  const effectiveSchema = ensureReplayControl(schema, agentInputs);
-  if (!effectiveSchema.controls?.length) return body;
-  const controlsRow = renderControlsRow(effectiveSchema, agentId, controlState, agentInputs, arrayMeta);
+  // `copy` / `capture-image` are stateless client-side affordances — they need
+  // no URL state, so they render even in static mode (inbox inline widgets,
+  // pulse/home tiles) where `controlState` is absent. Stateful controls
+  // (replay/sort/filter/...) stay detail-page-only. The widget body is always
+  // the controls row's next sibling, so the client JS targets it without a
+  // wrapper element.
+  const isStateless = (c: WidgetControl): boolean => c.type === 'copy' || c.type === 'capture-image';
+  const controls = controlState
+    ? (ensureReplayControl(schema, agentInputs).controls ?? [])
+    : (schema.controls ?? []).filter(isStateless);
+  if (controls.length === 0) return body;
+  const controlsRow = renderControlsRow(
+    { ...schema, controls },
+    agentId,
+    controlState ?? {},
+    agentInputs,
+    arrayMeta,
+  );
   return html`${controlsRow}${body}`;
 }
 
@@ -528,6 +542,8 @@ function renderControlsRow(
     if (c.type === 'sort') return renderSortControl(c, state, arrayMeta);
     if (c.type === 'filter') return renderFilterControl(c, state, arrayMeta);
     if (c.type === 'paginate') return renderPaginateControl(c, state, arrayMeta);
+    if (c.type === 'copy') return renderCopyControl(c);
+    if (c.type === 'capture-image') return renderCaptureImageControl(c, agentId);
     return html``;
   });
   // Classes are intentionally minimal — appearance is owned by the
@@ -538,6 +554,45 @@ function renderControlsRow(
     <div class="wc-row" data-widget-control-row="">
       ${groups as unknown as SafeHtml[]}
     </div>
+  `;
+}
+
+/**
+ * `copy` control — a stateless button that copies the rendered widget text to
+ * the clipboard. The target is the controls row's next sibling (the widget
+ * body); behaviour lives in WIDGET_COPY_JS. Icon is Material "content_copy"
+ * (two overlapping rounded squares). The empty label span is where the JS
+ * shows a transient "Copied!".
+ */
+function renderCopyControl(control: Extract<WidgetControl, { type: 'copy' }>): SafeHtml {
+  const label = control.label?.trim() ?? '';
+  return html`
+    <button type="button" class="wc-group wc-group--copy wc-iconbtn" data-widget-copy
+      title="Copy to clipboard" aria-label="Copy widget contents to clipboard">
+      <svg class="wc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+      <span class="wc-iconbtn__label" data-widget-copy-label>${label}</span>
+    </button>
+  `;
+}
+
+/**
+ * `capture-image` control — a stateless button that rasterizes the widget body
+ * to a PNG and downloads it (WIDGET_CAPTURE_JS, html2canvas lazy-loaded). Icon
+ * is a camera glyph. `filename` defaults to the agent id.
+ */
+function renderCaptureImageControl(
+  control: Extract<WidgetControl, { type: 'capture-image' }>,
+  agentId: string,
+): SafeHtml {
+  const label = control.label?.trim() ?? '';
+  const filename = control.filename?.trim() || agentId;
+  return html`
+    <button type="button" class="wc-group wc-group--capture-image wc-iconbtn" data-widget-capture
+      data-widget-capture-filename="${filename}"
+      title="Save as PNG" aria-label="Save widget as a PNG image">
+      <svg class="wc-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+      <span class="wc-iconbtn__label" data-widget-capture-label>${label}</span>
+    </button>
   `;
 }
 

@@ -23,6 +23,28 @@ describe('outputWidgetSchema controls', () => {
     expect(r.success).toBe(true);
   });
 
+  it('accepts a copy control (with and without a label)', () => {
+    expect(outputWidgetSchema.safeParse({ ...baseDashboard, controls: [{ type: 'copy' }] }).success).toBe(true);
+    expect(outputWidgetSchema.safeParse({ ...baseDashboard, controls: [{ type: 'copy', label: 'Copy' }] }).success).toBe(true);
+  });
+
+  it('accepts a capture-image control with an optional filename', () => {
+    expect(outputWidgetSchema.safeParse({ ...baseDashboard, controls: [{ type: 'capture-image' }] }).success).toBe(true);
+    expect(outputWidgetSchema.safeParse({
+      ...baseDashboard,
+      controls: [{ type: 'capture-image', label: 'PNG', filename: 'comic' }],
+    }).success).toBe(true);
+  });
+
+  it('allows copy / capture-image on an ai-template widget (no field deps)', () => {
+    const r = outputWidgetSchema.safeParse({
+      type: 'ai-template',
+      template: '<div>{{outputs.title}}</div>',
+      controls: [{ type: 'copy' }, { type: 'capture-image' }],
+    });
+    expect(r.success).toBe(true);
+  });
+
   it('accepts a field-toggle control referencing declared fields', () => {
     const r = outputWidgetSchema.safeParse({
       ...baseDashboard,
