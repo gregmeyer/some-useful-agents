@@ -76,6 +76,48 @@ describe('agentV2Schema — happy paths', () => {
     expect(r.success).toBe(false);
   });
 
+  it('rejects a shell node reading $UPSTREAM_<NODE>_RESULT for a non-dependency', () => {
+    // The xkcd/conditional-router class of bug: command reads an ancestor's
+    // output without depending on it directly, so the var is unbound under set -u.
+    const r = agentV2Schema.safeParse({
+      id: 'broken', name: 'Broken',
+      nodes: [
+        { id: 'pick-random', type: 'shell', command: 'echo {}' },
+        { id: 'fetch-comic', type: 'shell', command: 'echo $UPSTREAM_PICK_RANDOM_RESULT', dependsOn: ['pick-random'] },
+        { id: 'shape', type: 'shell', command: 'echo $UPSTREAM_PICK_RANDOM_RESULT', dependsOn: ['fetch-comic'] },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((iss) => /UPSTREAM_PICK_RANDOM_RESULT.*dependsOn|dependsOn.*pick-random/.test(iss.message))).toBe(true);
+    }
+  });
+
+  it('accepts $UPSTREAM_<NODE>_RESULT when the node IS a declared dependency', () => {
+    const r = agentV2Schema.safeParse({
+      id: 'ok', name: 'Ok',
+      nodes: [
+        { id: 'pick-random', type: 'shell', command: 'echo {}' },
+        { id: 'shape', type: 'shell', command: 'echo $UPSTREAM_PICK_RANDOM_RESULT', dependsOn: ['pick-random'] },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects a shell node reading $UPSTREAM_<NODE>_RESULT for a non-existent node', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'main', type: 'shell', command: 'echo $UPSTREAM_GHOST_RESULT' }],
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('does not flag a defaulted ${UPSTREAM_X_RESULT:-fallback} (safe under set -u)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      nodes: [{ id: 'main', type: 'shell', command: 'echo "${UPSTREAM_GHOST_RESULT:-none}"' }],
+    }));
+    expect(r.success).toBe(true);
+  });
+
   it('accepts a three-node DAG with declared dependencies', () => {
     const r = agentV2Schema.safeParse({
       id: 'news-digest',
