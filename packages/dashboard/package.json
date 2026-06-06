@@ -10,14 +10,14 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
-    "cytoscape": "^3.30.0",
-    "express": "^5.1.0"
+    "cytoscape": "3.33.2",
+    "express": "5.2.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/express": "^5.0.0",
-    "@types/supertest": "^6.0.2",
-    "supertest": "^7.0.0"
+    "typescript": "5.9.3",
+    "@types/express": "5.0.6",
+    "@types/supertest": "6.0.3",
+    "supertest": "7.2.2"
   },
   "license": "MIT",
   "type": "module",
