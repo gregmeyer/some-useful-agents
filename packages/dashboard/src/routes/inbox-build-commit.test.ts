@@ -85,6 +85,30 @@ describe('maybeCommitBuiltAgent', () => {
     expect(sys?.metaJson).toContain('/agents/random-xkcd');
   });
 
+  it('un-escapes "{ {outputs.X}}" in the widget template via autoFixYaml', () => {
+    setup();
+    const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    // The build pipeline escapes {{ -> { { to stop re-expansion; the inbox
+    // path must repair it (as the wizard does) or the widget renders the
+    // literal "{ {outputs.X}}".
+    seedBuildRun('run-1', `id: tmpl-agent
+name: Tmpl Agent
+source: local
+nodes:
+  - id: n
+    type: shell
+    command: echo hi
+    dependsOn: []
+outputWidget:
+  type: ai-template
+  template: "XKCD #{ {outputs.comic_num}} - { {outputs.title}}"
+`);
+    maybeCommitBuiltAgent(makeCtx() as never, msg.id, 'run-1');
+    const committed = agentStore.getAgent('tmpl-agent');
+    expect(committed?.outputWidget?.template).toContain('{{outputs.comic_num}}');
+    expect(committed?.outputWidget?.template).not.toContain('{ {');
+  });
+
   it('forces draft status even when the YAML declares active', () => {
     setup();
     const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
