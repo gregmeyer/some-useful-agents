@@ -16,7 +16,7 @@
     "@temporalio/activity": "1.17.2"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   },
   "license": "MIT",
   "type": "module",
