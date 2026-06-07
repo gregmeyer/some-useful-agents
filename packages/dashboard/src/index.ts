@@ -606,3 +606,5 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
 
 export { buildDashboardApp as _buildDashboardApp };
 export type { DashboardContext } from './context.js';
+export { getBuildInfo } from './build-info.js';
+export type { BuildInfo } from './build-info.js';
