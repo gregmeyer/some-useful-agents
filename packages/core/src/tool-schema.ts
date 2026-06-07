@@ -56,7 +56,7 @@ export const toolDefinitionSchema = z.object({
   description: z.string().optional(),
   source: z.enum(['local', 'examples', 'community', 'builtin']).default('local'),
 
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
   inputs: z.record(z.string(), toolInputFieldSchema).default({}),
   outputs: z.record(z.string(), toolOutputFieldSchema).default({}),
   actions: z.record(z.string(), toolActionSchema).optional(),
