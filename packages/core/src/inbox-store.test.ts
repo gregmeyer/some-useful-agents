@@ -251,6 +251,32 @@ describe('InboxStore.updateStatus / dismiss', () => {
   });
 });
 
+describe('InboxStore.updateMessage', () => {
+  it('retargets the agent link and records provenance contextJson', () => {
+    const m = addMinimal({ agentId: 'old-agent' });
+    store.updateMessage(m.id, { agentId: 'new-agent', contextJson: '{"forkedFrom":"x"}' });
+    const got = store.get(m.id)!;
+    expect(got.agentId).toBe('new-agent');
+    expect(got.contextJson).toBe('{"forkedFrom":"x"}');
+  });
+
+  it('clears a column when passed null', () => {
+    const m = addMinimal({ agentId: 'old-agent' });
+    store.updateMessage(m.id, { agentId: null });
+    expect(store.get(m.id)!.agentId).toBeUndefined();
+  });
+
+  it('no-ops on an empty patch', () => {
+    const m = addMinimal({ agentId: 'keep' });
+    store.updateMessage(m.id, {});
+    expect(store.get(m.id)!.agentId).toBe('keep');
+  });
+
+  it('throws when the id does not exist', () => {
+    expect(() => store.updateMessage('nope', { agentId: 'x' })).toThrow(/no message with id/);
+  });
+});
+
 describe('InboxStore.addResponse + listResponses', () => {
   it('round-trips responses in chronological order', async () => {
     const m = addMinimal();
