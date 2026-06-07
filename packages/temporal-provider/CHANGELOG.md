@@ -1,5 +1,2076 @@
 # @some-useful-agents/temporal-provider
 
+## 0.23.0
+
+### Minor Changes
+
+- 6d0e45a: feat: per-agent allowedSubAgents allowlist + picklist UI on /agents/:id/config
+
+  Previously the only "sub-agents this agent may propose" allowlist was a
+  hardcoded const in `routes/inbox.ts` (`TRIAGE_SUB_AGENT_ALLOWLIST` —
+  `agent-analyzer`, `agent-editor`, `agent-catalog-search`) feeding the
+  inbox-triage agent's `ALLOWED_SUB_AGENTS` input. Operators couldn't
+  customize it without editing code.
+
+  This PR adds a first-class `allowedSubAgents?: string[]` field on the
+  Agent schema:
+
+  - **Type + schema + YAML round-trip.** Added to `Agent`,
+    `AgentVersionDag`, the Zod schema (with kebab-case validation), the
+    YAML import/export, and the agent-store DAG serialisation.
+  - **Runtime wiring.** `getSubAgentAllowlist` in `routes/inbox.ts`
+    reads `triage.allowedSubAgents` first when set; falls back to the
+    hardcoded system-agent list when undefined. Empty array = "text-
+    only, no sub-agents allowed."
+  - **New route.** `POST /agents/:id/allowed-sub-agents` saves a comma-
+    separated `agentIds` list (validates kebab-case, drops self-
+    references and duplicates) or accepts `clear=1` to revert to the
+    platform default.
+  - **Config UI.** New "Allowed sub-agents" card on
+    `/agents/:id/config`: shows the current list as removable pills,
+    warns when entries aren't installed, exposes "Pick agents…" /
+    "Revert to default" buttons. A picklist modal (search + agent
+    cards, mirrors the Add Tile pattern) lets the operator stage
+    multiple additions before saving.
+  - **Tests.** 6 new route tests cover save / dedupe / self-reference /
+    empty list / clear / not-installed-warning paths. Full suite 1791
+    passing.
+
+- ddade0e: agent-analyzer: friendlier missing-AGENT_YAML error + outputWidget + signal.
+
+  The analyzer used to fail at setup time with an opaque generic
+  "missing required input" error whenever it was invoked without the
+  dashboard's automatic YAML injection (manual run, scheduled trigger,
+  programmatic call). The input is now `required: false` with an empty
+  default, and a new `preflight` shell node runs first to validate it.
+  On empty input the operator sees a one-shot human-readable message
+  naming the three ways to supply the YAML — not a stack trace.
+
+  Also adds the missing `outputWidget` (key-value with classification,
+  summary, has_suggested_yaml, source_node) and `signal` (text-headline
+  for Pulse), driven by a new trailing `summarize` shell node that
+  emits a JSON envelope extracted from the analyze (or fix) output.
+
+  Regression test in `agent-yaml.test.ts` locks in the preflight-first
+  ordering + widget+signal declaration.
+
+- 45b220b: New system agent: agent-catalog-search.
+
+  The inbox triage agent can now answer "find me an agent that does X"
+  by proposing a `run-agent` action targeting `agent-catalog-search`.
+  The dashboard auto-injects a JSON snapshot of every installed
+  non-system agent as `AGENT_CATALOG`, so the LLM has the full picture
+  without needing any file or grep tool. The search agent returns up to
+  5 ranked matches with a one-line `why` for each.
+
+  This unblocks discovery-style triage flows that previously dead-ended
+  ("No suitable agent is available in the current allowlist") because
+  triage's allowlist only knew about analyzer + editor. Triage's prompt
+  now includes a short agent guide describing when to propose each
+  allowlisted sub-agent.
+
+- b9c3c1b: Agents expose a created-at timestamp; the catalog can answer "what's the newest agent?".
+
+  `Agent.createdAt` is now populated from the `agents` table on read. The inbox
+  agent-catalog snapshot includes `createdAt`, sorted newest-first, so
+  `agent-catalog-search` can answer recency questions ("newest / most recently
+  added agent") definitively instead of guessing at list order. Inbox triage now
+  routes those questions to the catalog search.
+
+- 4720543: fix(core,dashboard): apple-foundation-models reaches the schema + every UI dropdown
+
+  Follow-up to #416. The provider was added to the LlmProvider union and
+  spawner registry, but five other sites still hardcoded only
+  `['claude', 'codex']`:
+
+  - **agent-v2-schema.ts** — Zod `z.enum(['claude', 'codex'])` on the
+    agent-level and node-level `provider` fields. Any agent YAML with
+    `provider: apple-foundation-models` would fail schema validation
+    before reaching the executor. Now driven by `PROVIDER_IDS` so new
+    providers register through one place.
+  - **dashboard/routes/versions.ts** — `VALID_PROVIDERS` set + the
+    agent-llm save handler's `'claude' | 'codex'` cast both refused the
+    new provider. Now sourced from `LLM_PROVIDERS`; error message
+    enumerates the full set.
+  - **dashboard/views/agent-detail/config.ts** — the per-agent LLM
+    defaults card's provider select listed only claude + codex. Apple
+    FM was reachable via per-node pin (llm-options.ts) but the
+    agent-default UI couldn't pick it.
+  - **core/node-catalog.ts** — `llm-prompt` / `claude-code` node docs
+    said `'claude' | 'codex'` in the type string and "Run an LLM
+    (Claude or Codex)" in the description.
+  - **dashboard/views/settings-llm.ts** — intro paragraph still claimed
+    "Rate limits, auth failures, and other errors stay on the same
+    provider" after PR #415 expanded `shouldFallback` to include both.
+    Now reflects the post-#415 policy.
+
+  No new tests — existing 1785-test suite covers the schema + route
+  paths via the bundled apple-foundationmodels-prompt agent and the
+  node-spawner tests added in #416.
+
+- 22e4023: feat(core): apple-foundation-models LLM provider (on-device, system option)
+
+  Adds `apple-foundation-models` as a third LLM provider alongside
+  `claude` and `codex`. Runs entirely on-device via Apple's
+  `SystemLanguageModel` / `FoundationModels` framework — no API key, no
+  network. macOS 26+ with Xcode CLT (`xcrun`) required.
+
+  **How it works:** A tiny Swift runner ships embedded in
+  `packages/core/src/apple-foundationmodels-runner.ts`. On first use
+  (`ensureAppleRunner`) we write the source to `~/.sua/runners/`,
+  compile with `xcrun swiftc -parse-as-library`, and cache the binary +
+  a source-hash sidecar. Subsequent invocations hit the cache. On non-
+  macOS hosts or hosts without `xcrun`, the bootstrap returns
+  `unsupported` without raising and the LLM waterfall falls through to
+  the next provider.
+
+  **Spawner shape:** The runner reads `PROMPT` + `SYSTEM_PROMPT` from
+  its environment (not stdin or argv) and prints a single JSON line
+  `{ status, response_text, model_name, error_message }`. The new
+  `LlmSpawner` fields `resolveBinary`, `buildEnv`, `promptEnvVar`,
+  `classifyResult`, and `simulateStream` are all opt-in extensions that
+  keep the claude / codex spawners unchanged. `status: "unavailable" |
+"unsupported"` map to `binary_missing` so the waterfall falls through
+  to the next provider when the host can't actually run the model.
+
+  **Simulated streaming.** Apple FM has no native token-delta stream,
+  but the dashboard's typewriter UX expects `output_chunk` events.
+  After a successful run the spawner chunks the response text into
+  ~30-char pieces and emits synthetic `output_chunk` events at ~8 ms
+  intervals (capped at ~1.5 s total). Same code path as real streaming
+  on the client.
+
+  **System agent.** The existing `apple-foundationmodels-prompt` user
+  agent (which compiles Swift + runs the binary directly via shell
+  nodes) is now bundled in `agents/examples/` as a system agent so it
+  ships with sua. It demos the underlying mechanics; new agents can
+  just set `provider: apple-foundation-models` on any `llm-prompt`
+  node and skip the boilerplate.
+
+  **Dashboard:** Per-node provider select (`llm-options.ts`) and the
+  `/settings/llm` chain editor (`settings-llm.ts`) now list the new
+  provider. Probe results show "reachable" on macOS hosts that compile
+  the runner, "unavailable" elsewhere.
+
+- c4f57a1: Auto-detect CSP-blocked image hosts and offer one-click "Allow" on the
+  agent config page.
+
+  The dashboard's per-agent CSP `img-src` allowlist is empty by default,
+  so a freshly-installed widget that loads an external image (e.g.
+  `apod.nasa.gov`) renders broken until the user copies the offending
+  hostname from the console into the agent config form. This PR closes
+  that loop: a small client listener (`csp-img-report.js.ts`) catches
+  `securitypolicyviolation` events filtered to the `img-src` directive,
+  finds the owning `.pulse-tile[data-agent-id]`, and POSTs `{agentId,
+host}` to `/api/img-block-report`. The new `BlockedImgHostsStore`
+  records the pair (with a count + last-seen timestamp). The agent's
+  **Config → Permissions** card now shows a **Recently blocked** panel
+  above the textarea with one-click pills — clicking `+ apod.nasa.gov`
+  hits the existing `/permissions/allow-host` endpoint and clears the
+  suggestion.
+
+  Best-effort throughout: missing store, malformed hosts, IP literals,
+  and offline POSTs are all silently dropped — the page-render path
+  never fails because telemetry is unavailable.
+
+- 63aa99c: feat(dashboard): "Build from goal" honors an optional LLM provider pin
+
+  The Build-from-goal modal now exposes an "LLM provider" select that
+  defaults to "Use system default (waterfall from /settings/llm)" and
+  offers every registered provider (claude, codex, apple-foundation-
+  models). When the operator picks a provider, the chosen id pins the
+  head of the waterfall for every llm-prompt node in the surveyor /
+  drafter / designer chain. The global fallback chain still applies on
+  classified failures (binary missing, timeout, quota, auth, rate-
+  limit) — the pin says "try this first," not "use only this."
+
+  Threaded through:
+
+  - `build-from-goal-modal.ts` — new `<select id="build-provider">` with
+    every `LLM_PROVIDERS` entry.
+  - `build-from-goal.js.ts` — appends `provider=…` to the POST body.
+  - `POST /agents/build` + `POST /agents/draft-one` — validate against
+    `LLM_PROVIDERS`, pass through.
+  - `startBuildSession` + `startDraftOneSession` accept `provider`,
+    persist as `session.providerPin`.
+  - `kickoffAgentRun` gains a `providerPin` arg; when set, clones the
+    agent and stamps every `llm-prompt` (or legacy `claude-code`) node
+    with the pin via a new `applyProviderPin` helper. Non-LLM nodes
+    (shell, file-write, control flow) are unchanged.
+  - Drafter retries + designer kickoff read `session.providerPin` so
+    the pin survives the full build flow.
+
+  Unset → existing behavior (each node inherits its declared provider,
+  the agent's default, or the global primary).
+
+- ceadf1e: Codex spawner: per-event streaming parallel to Claude (PR 4.5).
+
+  Parallel to PR #404 — extends `codexSpawner` to opt into
+  `codex exec --json` and forward the structured event stream into
+  the inbox SSE pipeline. Triage replies running on codex now stream
+  into the typewriter bubble shipped in PR #405 instead of arriving
+  all at once after `addResponse`.
+
+  **Changes** in `packages/core/src/node-spawner.ts`:
+
+  - `buildArgs` adds `--json` so codex emits a JSONL event stream
+    instead of raw prose.
+  - `parseProgress` handles the codex shape (sampled live):
+    - `turn.started` → `turn_start`
+    - `item.completed` with `item.type=agent_message` → `output_chunk`
+      carrying the full `item.text`
+    - `turn.completed` → `turn_complete` with `usage.output_tokens`
+      as the turn-count proxy
+    - Other event types (thread.started, future tool_use, reasoning,
+      etc.) are silently skipped.
+  - `extractResult` walks back to the last `agent_message` item and
+    returns its text — `--json` makes stdout JSONL, so the previous
+    identity passthrough would have stored the raw event stream as
+    the run's `result`. Falls back to raw stdout if no
+    agent_message line is found (defensive for future event shapes).
+
+  **Caveat (same as PR #404 plan).** Codex emits the full assistant
+  text in a single `agent_message` item, not token-by-token deltas
+  like claude's `--output-format stream-json`. So the typewriter
+  reveal with codex feels like "whole reply arrives ~RTT before
+  turn.completed" rather than ChatGPT-style streaming — still a
+  visible win over the prior "reply lands at addResponse time"
+  behavior, just less dramatic.
+
+  **Live-verified end-to-end** with codex as waterfall primary:
+  posted a reply, observed `triage:token` event over the SSE stream
+  carrying the full plan JSON before `triage:complete`. The dashboard
+  typewriter bubble renders the chunk live.
+
+  13 new codex unit tests covering buildArgs flags, all parseProgress
+  branches, agent_message preference in extractResult, raw-stdout
+  fallback. 1863 tests pass (+13).
+
+- a1fa57e: Resume an interrupted DAG run in place.
+
+  `executeAgentDag` accepts `options.resume`: given an existing run id, it reuses
+  that run's completed node executions (reloading their outputs), clears any
+  incomplete node rows, and continues from the first unfinished node instead of
+  starting over. This is the foundation for durable Temporal runs (B2) — on a
+  worker/activity retry the run picks up where it crashed. No behavior change for
+  normal runs. New `RunStore.clearIncompleteNodeExecutions`.
+
+- 2425945: Dashboard crash logging: stack traces + signal names in `dashboard.log`.
+
+  Before this PR, `dashboard.log` only contained the startup banner. If
+  the dashboard hit an uncaught exception, an unhandled promise rejection,
+  or any route threw, the process died with no trace — operators saw
+  "daemon status: stopped" and an empty log.
+
+  Now:
+
+  - A 4-arg Express error middleware (`error-middleware.ts`) catches any
+    route that throws synchronously or via `next(err)`, writes a
+    timestamped line to stderr (`[ts] ERROR METHOD PATH → STATUS: msg`
+    - full stack), and responds with a 500 that points at the log
+  - The CLI `dashboard start` command registers
+    `process.on('uncaughtException')` and `process.on('unhandledRejection')`
+    handlers that write `FATAL ...` lines before exiting 1
+  - Shutdown signals name themselves: `dashboard shutting down (SIGTERM)` /
+    `(SIGINT)` so the log distinguishes graceful stops from crashes
+
+  The daemon supervisor already pipes stderr to `dashboard.log`, so
+  nothing changes operationally — the contents just become useful.
+
+- cb9553d: Auto-backfill `permissions.imgSrc` from outputWidget template at agent
+  create/upsert time.
+
+  The drafter prompt teaches the LLM to declare `permissions.imgSrc` for
+  external image hosts, but the field is optional and the LLM
+  occasionally forgets — leaving the user with a broken-image tile on
+  Pulse + a CSP error in the console.
+
+  `AgentStore.createAgent` / `upsertAgent` now run a defense-in-depth
+  static-analysis pass: any `<img src="https://HOST/…">` in
+  `outputWidget.template` has its hostname extracted, baseline CSP
+  hosts filtered out (img.youtube.com, i.vimeocdn.com), and the union
+  merged into `permissions.imgSrc` before persistence. Wildcard entries
+  the drafter declared (e.g. `*.unsplash.com`) are preserved — the
+  analyser can't infer those. Idempotent — re-saving an agent whose
+  hosts are already declared doesn't bump the version.
+
+  Belt-and-suspenders with the runtime inline-allow card (#377): every
+  new draft now ships with correct permissions; existing agents pick up
+  the backfill on their next save. The card stays as the catch-all for
+  late-binding images and edge cases.
+
+- 2f5741a: Improve-layout: wireframe preview + layout-quality pills.
+
+  The plan view now renders a 4-column wireframe mockup above the Top
+  agents list. Each cell shows the agent title, the planner's chosen
+  size, tileFit indicator (↕ grow / ⇵ scroll), and pinned height when
+  set. System tiles get a dashed border to distinguish them. The
+  preview is a `<details open>` so users can collapse it.
+
+  Suggestion pills gain three layout-quality intents — **Remove gaps**,
+  **Make tables scrollable**, **Compact everything** — that drive the
+  planner to use `suggestedSize` / `suggestedTileFit` /
+  `suggestedHeight` aggressively. They appear ahead of the existing
+  agent-curation pills (Group by topic, Rank by reliability, etc.).
+  Max suggestions bumped from 5 to 6 so the new pills don't crowd out
+  the popular ones.
+
+- 462e223: Inbox triage can now propose running `agent-analyzer` (the agent
+  behind the "Suggest improvements" button) as a sub-agent action.
+
+  When triage proposes `{type:'run-agent', agentId:'agent-analyzer',
+inputs:{FOCUS:'…'}}` in its `<plan>`, the route auto-injects the
+  failing agent's full YAML as `AGENT_YAML` and the most recent run
+  output as `LAST_RUN_OUTPUT` — same enrichment the analyze route on
+  the agent detail page uses. Triage only has to provide a one-sentence
+  `FOCUS`; it doesn't have to thread the YAML through its prompt
+  context. The agent is lazy-imported from `agents/examples/` on first
+  call, so no manual install step is required.
+
+  Hooks the inbox's action loop into a real, useful agent instead of a
+  stub. Future allowlist entries can add their own per-agent input
+  enrichment using the same pattern.
+
+- 1bacb32: Inbox triage can now apply YAML fixes to agents, not just suggest them.
+
+  After `agent-analyzer` completes inside an inbox triage action, the
+  route extracts the `<yaml>...</yaml>` block from the analyzer's
+  `analyze` (or `fix`) node output and auto-proposes an `agent-editor`
+  action card with a unified diff against the agent's current YAML.
+  The operator reviews the diff in-place, clicks Run, and the route
+  commits a new version via `agentStore.upsertAgent` (undo via the
+  agent detail page's version history).
+
+  - New `agents/examples/agent-editor.yaml` — minimal stub documenting
+    the contract. The actual write is performed synchronously inside
+    `runProposedAction` (special-cased via `ROUTE_HANDLED_AGENTS`),
+    not by dispatching the DAG.
+  - New `transitionActionStatus` already in place from PR #388 gives
+    the editor the same race-safe idempotent treatment as analyzer.
+  - Validation: refuses NEW_YAML that fails `parseAgent`, refuses when
+    parsed id doesn't match `AGENT_ID` (prevents accidental cross-agent
+    edits).
+  - Triage prompt updated to clarify: do NOT propose `agent-editor`
+    directly — propose `agent-analyzer` and the route's auto-propose
+    handles the rest.
+  - Unified-diff renderer in the action card (hand-rolled LCS, ~50
+    LOC, no new deps) with `+`/`-`/` ` line styling.
+
+  Verified end-to-end in browser: demo-failing-agent → reply →
+  analyzer proposed → run → editor auto-proposed with diff →
+  run → demo-failing-agent committed at v2.
+
+- 6569863: feat(dashboard): auto-approve trusted sub-agent chain from triage
+
+  When triage proposes an action against a known-safe system agent
+  (`agent-analyzer`, `agent-editor`, `agent-catalog-search`), the action
+  card now transitions straight from `proposed` to `running` without
+  waiting for an operator click. Anything outside this set still requires
+  manual Run.
+
+  The transition uses the same atomic `transitionActionStatus` pattern as
+  the manual /run route, so a concurrent operator click no-ops idempotently.
+  The Layer 1 commitment chip stays pulsing through the run; on completion,
+  the existing `runProposedAction` path publishes the terminal
+  `action:status` event exactly as it would after a manual click.
+
+  Layer 2 of the triage follow-through plan
+  (`~/.claude/plans/triage-follow-through.md`). Layer 3 (sub-agent
+  completion re-invokes triage for a wrap-up turn) ships next.
+
+- 5755df3: Inbox: bulk dismiss + better search, and live-updating direct threads.
+
+  - Select multiple inbox messages and dismiss them in one action, with improved
+    search over the message list.
+  - Direct inbox threads now live-update as responses arrive, instead of needing a
+    manual refresh.
+
+  (Restores work that lived only on an unmerged branch; landed onto main as part of
+  the inbox-branch consolidation.)
+
+- bede673: Add CTA affordances to inbox triage replies.
+
+  Triage can now attach an optional `ctaLabel` to a proposed action (so the
+  dispatch button reads "Describe this agent" instead of the generic "Run") and
+  an optional `links` array to its plan, rendered as link-CTA buttons under the
+  reply. Link hrefs are validated against the sanitizer's URL allowlist (relative
+  or http(s)/mailto only). Dispatch CTAs reuse the existing action pipeline, so
+  they still run and update the conversation inline without a refresh.
+
+- 4170a87: Inbox MVP — dashboard surface (PR 2/2 of the Inbox MVP).
+
+  Wires the `InboxStore` from PR 1 into the dashboard:
+
+  - Top nav gains an **Inbox** entry between Scheduled and Agents
+    (`activeNav: 'inbox'`)
+  - `GET /inbox` renders a priority-grouped list (High / Medium / Low
+    sections) with row columns: agent, title, source, age, status.
+    Mirrors the runs-list table pattern.
+  - `GET /inbox/:id` renders a detail page with priority/source/age/status
+    badges, the message body, a collapsible Context payload, and a
+    placeholder for the conversation thread + recommendation that
+    arrive in PR 4
+  - `inboxStore` wired into `DashboardContext` (optional — booting
+    without it renders the empty state)
+  - New `SUA_INBOX_DEMO=1` env flag seeds one message per priority on
+    boot so the UI is visible before producers are wired in PR 3.
+    Disappears when PR 3 lands.
+
+  The MVP is read-only. Producer hooks (failed runs, CSP-block
+  escalation, cadence agent), mutation routes (dismiss / respond /
+  triage), CLI verbs, and verification all ship in follow-up PRs.
+
+- b42da56: Humanize timestamps and auto-link run/agent references in inbox messages.
+
+  Bare ISO timestamps in message prose (e.g. `2026-05-30T04:15:41.198Z`) now
+  render as `May 30, 2026 (3d ago)`, and bare `/runs/<id>` / `/agents/<id>`
+  references become clickable links. Both run as pre-passes before Markdown
+  rendering, so existing Markdown links and inline code are left intact.
+
+- 10830bb: Render inbox message bodies as Markdown.
+
+  Triage, user, and system messages, the producer summary, and action rationale
+  now render through the Markdown pipeline (`renderMarkdownSafe`, wrapped in a
+  scoped `.inbox-md` container) instead of plain escaped text — bold, code,
+  lists, links, and headings display properly in conversations. Output is still
+  sanitized, so raw HTML stays inert.
+
+- d2f44ae: Add a zero-dependency Markdown renderer for chat/message bodies.
+
+  New `renderMarkdown` / `renderMarkdownSafe` helpers in core render the small
+  Markdown subset used in conversations (bold, italic, inline + fenced code,
+  links, lists, blockquotes, headings, soft line breaks). `renderMarkdownSafe`
+  composes the renderer with the existing HTML sanitizer as the trust boundary,
+  so output is safe to inline. This is the foundation for rendering inbox triage
+  messages as formatted text instead of plain escaped strings.
+
+- 57853de: Add markdownToText for clean one-line previews.
+
+  New `markdownToText` helper in core reduces Markdown to single-line plain text —
+  unwrapping links to their label, dropping emphasis/code/heading/list/quote
+  markers, and collapsing whitespace. Foundation for de-noising the `/inbox`
+  list-row previews (which currently show raw Markdown syntax).
+
+- 49b4d7c: Inbox modal: preserve selections + triage now dispatches CSP permission edits.
+
+  Two fixes bundled:
+
+  1. **Selection-preserving polls.** The modal polls every 1.5s and used
+     to replace `content.innerHTML` unconditionally, destroying any
+     text the operator had highlighted in the conversation (e.g.
+     copying triage's reply) and pulling focus out of the composer.
+     The poll now skips the DOM swap entirely when the operator is
+     actively interacting — focus inside the modal or a text selection
+     anchored inside it — and just reschedules the next tick.
+
+  2. **Triage dispatches CSP-block permission requests.** Previously the
+     triage prompt told operators to open Config → Permissions and
+     edit the agent by hand. Now it routes csp-block messages through
+     the existing analyzer → editor pipeline: it proposes
+     `agent-analyzer` with a surgical FOCUS that names the exact host
+     to add to `permissions.imgSrc`, which emits a minimal YAML diff
+     and auto-proposes an `agent-editor` action card for one-click
+     approval. New OUTPUT FORMAT example covers the
+     apod.nasa.gov / demo-astro-tile case verbatim.
+
+- 4d80c00: Inbox modal: thinking indicator now shows after Post reply, timeline
+  no longer scrolls behind the composer, witty waiting labels rotate.
+
+  Three fixes bundled — both bugs surfaced live while building the
+  streaming UX (plan path B, PR 1 of 4):
+
+  1. **Thinking indicator never appeared after Post reply.** PR #397's
+     `userIsInteracting()` skipped the DOM refresh whenever focus was
+     inside the modal. Post-reply the textarea clears but focus stays
+     in it, so the refresh would silently skip forever — the operator
+     saw nothing happen and couldn't tell whether triage was running
+     or had crashed. Refresh only worked on full page reload.
+     `userIsInteracting()` now treats an empty focused textarea/input
+     as NOT interacting (no caret position to wipe, no in-progress
+     text). Selections and non-empty inputs still suppress refresh,
+     so the original "don't wipe text selections" guarantee from
+     PR #397 holds.
+
+  2. **Timeline avatars scrolled behind the composer.** The composer
+     uses `position: sticky` but the timeline avatars carry
+     `z-index: 1` so they punch through the rail line. Without an
+     explicit stacking context, the avatars from the last messages
+     bled through the sticky composer on long conversations.
+     Composer now gets `z-index: 2` on top of its solid background.
+
+  3. **Witty waiting labels.** The thinking indicator now rotates
+     through a curated phase-aware label set: triage thinking gets
+     "Pondering…", "Distilling tokens…", "Marinating thoughts…",
+     "Cogitating…", etc; action-running gets "Dispatching…",
+     "Crunching…", "Tracing call graph…"; verifying gets
+     "Double-checking…", "Sanity-checking…". 2s cadence with a 220ms
+     cross-fade. `renderThinkingIndicator` gains a
+     `data-thinking-phase` attribute so the right label set is used.
+     The action-card running state picks up the same affordance.
+
+- 64efb83: Pin a "Needs you" section at the top of the inbox.
+
+  Threads awaiting your reply (status "Your turn") now float into a dedicated
+  "Needs you" section at the top of `/inbox`, ordered longest-waiting-first, so
+  what needs an operator reply is always first. They're removed from the main
+  list (no double-listing), and the now-redundant "Reply to triage" banner
+  suggestion is dropped; the suggested-actions banner points at the section
+  instead of showing misleading "all resolved" copy.
+
+- a8d6750: Inbox is now the primary productivity surface: tighter nav, gridded
+  list with inline preview, suggested-next-actions banner, favorited
+  threads rail, + New conversation button, and a vertical timeline
+  modal with a pinned composer.
+
+  - **Top nav reorder**: Inbox moves to the leftmost position. Scheduled
+    moves into the Agents sub-nav (joins Tools / Nodes / Runs / Packs).
+    No URL changes — `/scheduled` still works.
+  - **/inbox shell**: two-column grid with a collapsible "★ Favorited"
+    left rail (state persisted in `localStorage`), a `⚡ Suggested next
+actions` banner above the list (deterministic counts of
+    high-priority / untriaged / awaiting items; collapsible), and a
+    priority-grouped main list of gridded rows.
+  - **Inline preview**: every row gains a chevron that toggles a body +
+    context-payload preview in place with an "Open thread" button. No
+    modal needed for a quick triage glance.
+  - **+ New conversation**: button in the page header. `POST /inbox/new`
+    creates a `source: manual` row, returns `X-Inbox-Id` for AJAX, opens
+    the modal on the new empty thread; first reply auto-fires triage.
+  - **Modal timeline**: conversation rendered as a `<ul.inbox-timeline>`
+    with a vertical rail line and avatar dots at each entry. The
+    existing `.inbox-msg` / `.inbox-action` / `.inbox-action__diff`
+    cards become typed objects on the timeline — no data-shape changes.
+  - **Pinned composer**: textarea + actions row stick to the bottom of
+    the modal so the reply box never disappears while scrolling long
+    threads.
+
+  Tests updated for the new shell; new tests cover `POST /inbox/new`
+  (AJAX 204 with `X-Inbox-Id`, plain-form 303, empty-title fallback)
+  and the favorited rail. 1789 tests pass.
+
+- 7b02df8: Inbox modal: optimistic reply UI + double-submit guard.
+
+  Operators were double-clicking Post reply during the network +
+  LLM-kickoff window and getting duplicate "You" messages in the
+  conversation. The disable-on-submit only fired in the current event
+  loop and didn't survive `refresh()` re-rendering the form, so the
+  second submit slipped through to the route.
+
+  Two fixes:
+
+  1. **In-flight guard.** `data-inflight="1"` on the form is checked at
+     the very top of the submit handler — a duplicate submit (rapid
+     double-click, Enter-then-click) is dropped before fetch fires.
+     The flag clears on success and failure so legitimate retries
+     after a failed POST still work.
+
+  2. **Optimistic reply.** For the Post-reply path, the modal JS
+     echoes the operator's message into the timeline immediately:
+     a `<li>` matching renderConversationEntry's structure with a
+     `data-pending="1"` marker, italic + 0.55 opacity styling, "You ·
+     Sending…" meta. The textarea clears, the viewport scrolls to
+     the new entry. On success, refresh() replaces the placeholder
+     with the canonical server-rendered entry; on failure, the
+     placeholder is removed and the textarea text restored so the
+     operator can edit and retry without losing their input.
+
+- 784becb: Inbox: triage can request permission to run an agent instead of dead-ending.
+
+  Previously, when an installed agent hadn't been granted `inboxRunnable`, triage
+  would refuse ("I can't run X from this thread") and the operator had to go find
+  the agent's Config toggle. Now triage may propose running such a "candidate"
+  agent, and the dashboard renders it as a one-click **"Enable & run"** card:
+  approving it grants `permissions.inboxRunnable` to the agent (revocable from its
+  Config) and runs it in the same step, with output rendered inline.
+
+  The grant only happens on explicit operator approval — candidates are never
+  auto-run — and is scoped to installed local/community agents (never system
+  agents).
+
+- 0099381: Inbox UX polish pack: row signal column, resizable modal, copy
+  button on conversation turns, dismiss-aware empty state, and
+  read-only archive view.
+
+  **Right-side row signal.** Raw snake_case status badges
+  (`awaiting_user`, `open`, `triaged`) replaced with human labels
+  ("Your turn", "Open", "Triaged", etc.). "Your turn" gets the warn
+  (amber) badge variant plus a subtle left-edge accent on the row —
+  the only state that demands a click stays loud, the rest fade. Age
+  and status now live in one signal cell on the right so the eye
+  scans them together. Modal status badge picks up the same
+  vocabulary.
+
+  **Resizable modal.** Drag the bottom-right gripper to grow the whole
+  modal. The composer stays pinned at the bottom; the conversation
+  timeline gets the extra room. Replaces the prior `resize: vertical`
+  on the textarea (which expanded just that one cell — not what
+  operators reached for).
+
+  **Copy button on conversation turns.** Each user/triage/system entry
+  gets a "Copy" affordance in its meta row, invisible until the row
+  is hovered. Clicking copies the message body via
+  `navigator.clipboard.writeText` (with a textarea-select fallback for
+  older browsers). The label briefly switches to "Copied" / "Copy
+  failed" and the button picks up an ok/err color for 1.5s.
+
+  **Dismiss audit trail + dismiss-aware empty state.** Dismissing via
+  the modal now hard-reloads the inbox page so the suggestion banner
+  counts, priority group headers, and favorited rail all stay in
+  sync. An "Inbox cleared" empty-state copy replaces the generic
+  "Nothing in your inbox" when there's terminal-state history,
+  acknowledging the cleanup work and offering the archive link. A
+  quiet "View N dismissed / resolved →" footer link sits below the
+  active list whenever the archive isn't empty.
+
+  **Read-only archive view.** `?status=dismissed` and `?status=resolved`
+  on `/inbox` show the terminal-state rows under a muted header with
+  a "← Active inbox" back link, so operators can review or confirm
+  what they just cleared.
+
+- bb521bd: Show an always-visible one-line preview on every inbox row.
+
+  Each `/inbox` row now renders a clean one-line preview of the latest activity
+  (avatar + role + de-markdowned snippet via `markdownToText` + humanized dates)
+  directly under the title, so the inbox is skimmable without expanding each row.
+  The chevron still expands the full detail panel (proposed actions, context,
+  tags, Open-thread). Fixes raw Markdown (`**bold**`, `[x](/agents/y)`, ISO
+  timestamps) leaking into list previews.
+
+- a2abb92: Inbox: run agents in a thread and see their output rendered inline.
+
+  - New per-agent `permissions.inboxRunnable` opt-in. Triage can propose running
+    any installed local/community agent that declares it, approval-gated.
+  - Completed inbox action results now render the agent's output widget **inline**
+    in the thread (with a "Raw result" fallback), instead of just a text preview.
+    Inline widget images are gated by the agent's CSP image-host allowlist, with a
+    one-click "Allow host" affordance when a host is blocked.
+  - Agents auto-committed from an inbox build are now stamped `inboxRunnable: true`,
+    so "build me an agent, then run it" works inline in a single thread without an
+    extra install step.
+
+  (Consolidation: supersedes the thread-scoped inline-run heuristic shipped in #464
+  with the first-class `inboxRunnable` capability model.)
+
+- 23dcf9d: Inbox: in-place modal + Slack-style triage conversation.
+
+  Dogfood feedback: "doesn't feel fluid to have to go to a new page load
+  to have a conversation about the current row, and I'd like the triage
+  agent to join the thread." A previous take stalled because the modal
+  polled on a `triageRunId` marker that races the dag-executor — when
+  the executor's run-store row landed after the modal's first refresh,
+  polling stopped and the agent's reply never appeared.
+
+  This PR:
+
+  - **Single sortable grid** (Priority / Source / Agent / Title / Age /
+    Status) replacing the three priority-grouped tables. Click any
+    column header to sort; the active column shows ↑/↓. Priority and
+    Source render as colored badges (warn/info/muted) so high-pri and
+    run-failure rows pop visually.
+  - **In-place modal** opens on row click — no page navigation. The
+    `<a href="/inbox/:id">` link still works as a fallback for
+    right-click "open in new tab" and no-JS users. Esc / backdrop /
+    Close all dismiss.
+  - **Slack-style conversation thread**: avatar + name + timestamp +
+    body per entry, colour-coded by role (YOU teal, TRI info-blue,
+    SYS muted). New entries on each fragment refresh get a one-shot
+    `inbox-msg--new` slide-in animation. The conversation pane
+    auto-scrolls to the bottom when new content lands.
+  - **Animated "thinking..." indicator** with three pulsing dots
+    (Slack-style typing). Replaces the previous static text.
+  - **Reliable polling**: the modal force-polls for 30s after every
+    Reply / Ask-triage submit, in addition to honouring the
+    `data-triage-pending="1"` marker. The server-side fragment also
+    reports pending when the latest response is a user reply <30s old
+    with no later triage/system reply — covers the unavoidable race
+    between POST returning 204 and the dag-executor's run-store row
+    appearing.
+  - **`agents/examples/inbox-triage.yaml`** — `source: examples`
+    system agent. Single llm-prompt node; takes message + context +
+    conversation as inputs; emits `<plan>{messageId, recommendation,
+verifyHint}</plan>` parsed by the route (mirrors layout-planner
+    pattern; no new built-in tool, no SSRF whitelist).
+  - **`POST /inbox/:id/triage`** inserts a synthetic "Asked triage to
+    take another look" user marker before kicking off the agent, so
+    the operator's action is visible in the thread.
+  - **Dual-mode mutation routes**: 204 with no body for AJAX (modal
+    fetch), 303 redirect for plain form posts (fallback page).
+  - 16 route tests cover sort, fragment rendering with avatars,
+    pending-indicator derivation, all three mutation routes in both
+    modes, and synthetic-marker insertion on /triage.
+
+- 1ccb34d: Inbox conversation SSE: structured event bus + EventSource client.
+
+  Plan path B, PR 2 of 4. Replaces the 1.5s fragment poll for active
+  conversations with a server-sent-events stream so action card
+  transitions and triage replies land at network RTT instead of poll
+  cadence. The fragment poll stays as a fallback when SSE is
+  unavailable or disconnects.
+
+  **Event bus.** `packages/dashboard/src/lib/inbox-event-bus.ts` —
+  in-memory pub/sub keyed by `messageId`. Each channel keeps a
+  50-event ring buffer for `Last-Event-ID` replay; a 5-minute idle GC
+  drops abandoned channels. Listener errors are swallowed so one bad
+  subscriber can't starve the rest.
+
+  **SSE endpoint.** `GET /inbox/:id/events` in
+  `packages/dashboard/src/routes/inbox-events.ts`. Standard SSE
+  headers (`text/event-stream`, `Cache-Control: no-cache, no-transform`,
+  `X-Accel-Buffering: no`), 2KB initial padding to defeat proxy
+  buffering, 15s heartbeat. Honors `Last-Event-ID` for reconnect
+  catch-up. Cookie auth (EventSource sends same-origin cookies
+  automatically).
+
+  **Publish hooks** in `routes/inbox.ts` at every lifecycle sync point:
+  user reply persisted → `message:created`; `runTriageAgent` start →
+  `triage:started` + `state(thinking)`; triage reply persisted →
+  `triage:complete` + `state(done)`; each proposed action card →
+  `action:created`; every action status transition (running, skipped,
+  completed, failed, refused) → `action:status`.
+
+  **Client.** `inbox-modal.js.ts` opens an `EventSource` per modal,
+  listens to all event types, and schedules a single `refresh()` per
+  animation frame on any event (the SSE notification is the wake-up
+  signal; canonical state still comes from `/fragment`). A 20s
+  watchdog forces a fragment refresh if no events or heartbeats
+  arrive, keeping the UI consistent even when SSE proxies misbehave.
+
+  PR 3 will start emitting per-token `triage:token` events from the
+  claude CLI; PR 4 will start patching DOM incrementally for those.
+
+  Tests: 14 new bus tests covering publish/subscribe semantics, ring
+  buffer overflow, Last-Event-ID replay, idle GC, throwing-listener
+  isolation. 4 new SSE route tests covering wire format, auth, 404,
+  and Last-Event-ID replay. Total 1841 pass (+18).
+
+- e83b3ea: Inbox: star + tags + search/filter + sticky modal header.
+
+  Dogfood feedback: the modal title + body scrolled off-screen while the
+  conversation grew, and there was no way to find a specific thread
+  without scrolling the list.
+
+  - **`InboxStore` schema**: adds `starred` (boolean) and `tags_json`
+    (JSON array) columns to `inbox_messages`. ALTER TABLE migrations
+    are idempotent so existing installs pick them up. New helper
+    `normalizeTags` lowercases / dedupes / sorts / drops invalid
+    entries (must match `^[a-z0-9][a-z0-9_-]{0,31}$`).
+  - **`InboxStore.list`** gains `q` (full-text across title, body,
+    agent_id, AND any conversation response body), `starred`, and
+    `tag` (exact lowercase match, not substring) filters. Starred
+    messages always sort above non-starred at the same priority.
+  - **`InboxStore.setStarred` / `setTags` / `listAllTags`** new
+    methods.
+  - **Routes**: `POST /inbox/:id/star` (toggle / explicit value),
+    `POST /inbox/:id/tags` (comma-separated input, normalized
+    server-side). `GET /inbox` reads `?q` `?starred` `?tag` query
+    params; all live in the URL so filtered views are bookmarkable.
+  - **List view** gains a filter bar (search input + Starred-only
+    checkbox + All-tags dropdown), a star column, and tag chips on
+    each row's title cell. Chips link to `/inbox?tag=…` for one-click
+    filtering.
+  - **Modal**: the title + meta + tags + details + context wrap in
+    `.inbox-detail__header` which uses `position: sticky` so the
+    conversation thread scrolls below an always-visible header. Star
+    toggle lives in the meta row; tag editor sits beneath the meta.
+    Both forms POST via the existing modal `fetch` interceptor —
+    in-place updates, no page reload.
+  - 36 new tests across the store (10 for star/tags/list-filters) and
+    routes (~10 for filter rendering + the two new mutation routes +
+    list-row + fragment rendering).
+
+- 762574f: Inbox store foundation — SQLite-backed queue for "needs your attention".
+
+  First of a 5-PR sequence (this is the MVP base; the dashboard UI lands
+  in PR 2). Adds `InboxStore` in core with:
+
+  - `inbox_messages` table keyed by id, with priority (high/medium/low),
+    source (run-failure / permission-request / cadence / manual),
+    status (open → triaged → awaiting_user → verifying → resolved, plus
+    `dismissed` as terminal), and a `dedupe_key` UNIQUE column so
+    producers can fire-and-forget without state
+  - `inbox_responses` table for per-message conversation threads
+    (role: user / triage / system), used by later PRs
+  - Public API: `add`, `list`, `get`, `findByDedupeKey`, `updateStatus`,
+    `dismiss`, `addResponse`, `listResponses`, `clear` — mirrors the
+    canonical pattern from `BlockedImgHostsStore` / `LayoutHintsStore`
+
+  `list()` default-orders by priority (high first via CASE expression,
+  since alphabetical sort would put low before medium) then created_at
+  DESC, and default-excludes `dismissed` and `resolved` so the queue
+  shows only active work.
+
+  Producers, dashboard UI, top-nav entry, triage system agent, CLI verbs,
+  and verification loop all ship in follow-up PRs. The schema is locked
+  now (including unused-in-MVP columns like `triage_run_id` and
+  `recommendation`) to avoid migrations.
+
+- adf70b5: InboxStore: sortable list + derived last-activity timestamp.
+
+  Foundation for the inbox queue UX pass (PR 1 of 2). Adds:
+
+  **`ListMessagesOpts.sort` + `dir`.** New `InboxSortKey` union
+  (`priority` | `status` | `age` | `title` | `agent`) and
+  `InboxSortDir` (`asc` | `desc`). Default sort stays
+  priority-then-last-activity-desc so existing callers see no
+  behavior change.
+
+  **`InboxMessage.lastActivityAt?: number`.** Derived at `list()`
+  time via a correlated `MAX(inbox_responses.created_at)` subquery,
+  falling back to the message's `created_at` when no replies
+  exist. Drives the queue's "Age" column under default sort and
+  the explicit `?sort=age` case. `get()` and other single-row
+  reads leave it undefined (no join cost on the hot path).
+
+  **ORDER BY composition** via `buildOrderBy(sort, dir)`. All sorts
+  tie-break by last-activity desc so results are stable when the
+  primary key has duplicates. Starred messages float to the top
+  regardless of sort. `agent` sort puts unagented rows last
+  regardless of direction so they don't crowd the head of the
+  list. Unknown keys fall back to priority semantics.
+
+  Adds 9 new store tests covering: lastActivityAt derivation +
+  fallback, default sort (priority desc + activity bump), `age`
+  sort both directions, `status` sort with "Your turn" first,
+  `title` sort case-insensitive, `agent` sort with nulls-last,
+  starred-pinning, unknown-key fallback. 1873 total tests pass
+  (+10 — 9 new + 1 from the existing dashboard tests picking up
+  the lastActivityAt field).
+
+  PR 2 wires the route + view to honor the new sort knobs, drops
+  the priority-group cards, adds the sticky sortable header, and
+  rebuilds the expanded preview as an activity strip.
+
+- bc062ce: feat(inbox): auto-rename "New conversation" threads from first reply
+
+  When the operator posts the first reply on a manual-source thread that
+  still carries the default `"New conversation"` title, the route now
+  replaces the title with a single-line, ellipsized version of the body
+  (up to 60 chars). Threads created with an explicit title are
+  preserved; subsequent replies never re-rename; non-manual sources are
+  untouched.
+
+  fix(dashboard): Add tile click no longer triggers Chrome "Leave site?"
+  guard. The agent-card click handler in `add-tile-modal.js.ts` called
+  `form.submit()` directly, which bypasses the form's `submit` event —
+  so `widget-layout.js`'s edit-mode beforeunload guard never got a
+  chance to clear `intentionalNav` and Chrome's generic dialog stacked
+  on top of the legit POST. Switched to `form.requestSubmit()` (same
+  fix pattern as the inbox Cmd/Ctrl+Enter handler).
+
+- 5448687: Inbox streaming: per-token capture from Claude CLI to SSE bus.
+
+  Plan path B, PR 3 of 4. Extends the SSE pipeline so triage replies
+  stream text chunks live instead of materializing all at once when
+  the DAG completes. PR 4 will hang the typewriter reveal off these
+  events.
+
+  **Core change.** `claudeSpawner.parseProgress`
+  (`packages/core/src/node-spawner.ts`) now inspects the `content`
+  array of every `assistant` event from the `--output-format stream-json`
+  output. Each text chunk emits an `output_chunk` SpawnProgress with
+  the actual text in `message`. Tool-use content still produces
+  `tool_use` events. Empty assistant events fall back to `turn_start`
+  ("Claude is responding…") so the UI keeps an alive signal.
+
+  **Decoupling hook.** New optional `DagExecutorDeps.inboxOnProgress`
+  forwarder. The dag-executor's existing progress collector
+  synchronously calls it (alongside the DB `progressJson` write)
+  with `{nodeId, progress}`. Errors swallowed so a misbehaving
+  adapter can't break a run. Core knows nothing about the bus.
+
+  **Dashboard adapter.** `runTriageAgent` passes an `inboxOnProgress`
+  that filters `output_chunk` and republishes as `triage:token`
+  SSE events with `{nodeId, chunk, at}` payload.
+
+  Live-verified: with claude as the waterfall primary, posting to
+  /inbox/:id/triage produced a `triage:token` event over the SSE
+  stream with the assistant's full plan JSON chunk before the
+  `triage:complete` event fired. Codex still doesn't stream per-token
+  (parseProgress returns null) — out of scope for this PR; future
+  work can wire it in the same shape.
+
+  8 new parseProgress unit tests covering text deltas, tool-use,
+  text+tool-use priority, empty assistant events, empty text deltas,
+  result events, top-level tool_use, unknown event types. 1850 tests
+  pass (+9).
+
+- 5e9689a: Inbox toolbar + modal polish — tighter, denser, fewer competing
+  visual elements.
+
+  **Toolbar** (`/inbox` upper-right):
+
+  - Drops the bordered card around the filter group; controls sit on
+    the page background.
+  - Search input becomes a single 32px-tall pill with inline `⌕` icon
+    and `×` clear button; submits on Enter and 350ms debounced input.
+  - "Starred" checkbox → chip toggle (active state filled, inactive
+    outlined). Auto-submits on change.
+  - "All tags" → unstyled select inside a `# tags` chip. Auto-submits.
+  - Apply button removed entirely.
+  - `Clear` link renamed to `Reset` for consistency with other
+    toolbars.
+
+  **Modal** (per-thread):
+
+  - `×` close button in the top-right corner; the separate "Close"
+    link at the bottom-right is gone.
+  - Title row tightened: title + star only. Source label removed
+    (it's implicit in the agent/run links and surfaced on the list).
+  - Meta row consolidated: priority dot + status badge + agent link +
+    run link + age (right-aligned). Replaces the old loose flex of
+    pills and timestamps.
+  - Tags now render as pills with inline `×` to remove; an
+    always-present "Add tag…" input appends on Enter. Replaces the
+    textarea + Save tags button.
+  - "DETAILS" and "CONTEXT PAYLOAD" headings removed — body lands
+    directly; context becomes a small `▸` disclosure.
+  - "Reply" label dropped (placeholder is enough).
+  - Footer consolidated to ONE right-aligned row: `Ask triage`,
+    `Dismiss`, and `Post reply` cluster together so the eye finds the
+    primary action in a predictable spot. The primary button reaches
+    the textarea form via `form="..."` so the composer + actions can
+    occupy distinct visual zones without nesting.
+  - Grid-row unification: list-view rows and the modal share the same
+    priority-dot + agent/run-link vocabulary, and the group headings on
+    the list lighten (no uppercase, no raised background, no hard
+    bottom border) so they read as section labels rather than
+    competing chrome.
+  - Empty-body conversations (manual `+ New conversation` threads with
+    no seeded body) hide the `(empty)` placeholder so the modal opens
+    clean until the operator's first reply lands.
+  - Add-tag input renders as a dashed pill so it visually matches the
+    existing tag pills instead of showing a bare borderless field with
+    a heavy browser focus outline.
+
+  All CSS uses existing design tokens. No schema or route changes.
+  1808 tests pass.
+
+- d938114: Inbox triage can now propose running sub-agents on your behalf.
+
+  The `inbox-triage` agent learns about an `ALLOWED_SUB_AGENTS` allowlist
+  and may include an `actions[]` array in its `<plan>` block. The
+  dashboard renders each proposed action as a card in the conversation
+  thread with Run / Skip controls — nothing executes until the operator
+  clicks Run. Running an action invokes the target agent via
+  `executeAgentDag`, streams the row through `proposed → running →
+completed | failed`, and surfaces a result preview + run link. After
+  the last proposed action resolves and at least one ran, triage gets a
+  follow-up turn to summarize what came back.
+
+  New: `action` response role, `InboxActionMeta` payload (stored in
+  `inbox_responses.meta_json`), and routes `POST /inbox/:id/actions/:rid/run`
+  and `/skip`. Modal polling extends to keep refreshing while any action
+  is in `running` state. Hard cap of 10 actions per message guards
+  against runaway proposal loops; out-of-allowlist or malformed actions
+  land as `system` refusal notes.
+
+  The v1 allowlist is hardcoded to `suggest-improvements` (intersected
+  with installed agents at runtime).
+
+- cd970d2: inbox-triage: auto-refresh the triage agent itself from bundled YAML.
+
+  PR #398 added auto-refresh for the SUB-agent allowlist (analyzer,
+  editor, catalog-search) but `inbox-triage` itself was left out. So
+  operators who installed inbox-triage before PR #395 — which added
+  the VOICE section telling the model to write the recommendation AS
+  the assistant reply, not as stage directions — kept seeing
+  "Reply directly with X: ..." prefixes on every triage turn, even
+  after running the latest dashboard build.
+
+  Extracts the diff-and-refresh logic into `ensureSystemAgentCurrent`
+  and calls it for the triage agent at the start of `runTriageAgent`.
+  Same diff trigger: refresh fires when the installed exported YAML
+  differs from `agents/examples/inbox-triage.yaml` on disk.
+
+- 52043c5: Let inbox triage answer catalog questions directly.
+
+  The triage agent now receives a trimmed installed-agent catalog (newest first,
+  with descriptions and install dates) on its own turn, so questions like "what's
+  the newest agent and what does it do?" are answered immediately — named,
+  described, dated in human form, and linked to `/agents/<id>` — instead of
+  dispatching a catalog-search round-trip and hedging. The prompt also instructs
+  triage to write Markdown, link runs/agents, humanize dates, and offer link CTAs.
+  Genuine capability/topic search still dispatches agent-catalog-search (with the
+  full catalog).
+
+- f73a8fc: feat(dashboard): triage commitment chip + Cmd/Ctrl+Enter to send
+
+  **Triage no longer promises prose-only work.** The `inbox-triage` prompt now
+  forbids commitments like "I'll draft that for you in a few minutes" — every
+  promise must either propose an `<actions>` entry that does the work, or
+  honestly route the operator to the right tool when no agent can. When triage
+  DOES propose an action, it also emits a short `commitmentSummary` string
+  (e.g. "searching catalog for trivia agents") that the modal renders as a
+  pulsing pill next to the status badge. The chip stays alive while any of
+  the proposed actions are still in proposed/running state and clears once
+  they all terminate. Plan-envelope schema, route parsing, and SSE
+  `triage:complete` payload all carry the new field; existing replies without
+  a `commitmentSummary` render exactly as before.
+
+  **Cmd+Enter (Mac) / Ctrl+Enter (other) sends the reply.** A keydown delegate
+  on the modal catches the shortcut inside any `textarea[name="body"]` and
+  calls `form.requestSubmit()` on its enclosing `data-inbox-modal-form`. The
+  Post reply button gains a `title="Cmd/Ctrl + Enter"` tooltip for
+  discoverability. Plain Enter still inserts a newline.
+
+  First layer of the triage follow-through plan
+  (`~/.claude/plans/triage-follow-through.md`). Layers 2 (auto-approve trusted
+  chain) and 3 (sub-agent completion re-invokes triage) close the rest of
+  the "did you finish?" loop and ship as separate PRs.
+
+- 945b236: feat(dashboard): cap consecutive auto-triage turns at 5
+
+  Closes the runaway-loop risk Layer 2 introduced. The existing
+  `maybeRefireTriage` (which already re-invokes triage after each
+  sub-agent action resolves) now counts consecutive `triage` responses
+  since the most recent `user` reply. When that count hits 5, instead of
+  firing another triage turn we post a system note ("Auto-follow-up
+  paused after 5 consecutive triage turns. Reply or dismiss to continue."),
+  flip the thread to `awaiting_user`, and stop. The operator's next
+  reply resets the counter so fresh user input always gets a fresh
+  budget.
+
+  Layer 3 of the triage follow-through plan
+  (`~/.claude/plans/triage-follow-through.md`). The other half of Layer 3
+  — passing sub-agent results to the follow-up triage turn — was already
+  in place: `runTriageAgent`'s CONVERSATION snapshot includes each action's
+  status and `resultSummary` (lines 1319-1328), so triage already sees
+  what came back without any new input plumbing.
+
+  Closes the "did you finish?" pain end-to-end:
+
+  - Layer 1 (#411) — triage emits structured commitments; chip surfaces
+    pending work in the modal header.
+  - Layer 2 (#412) — trusted sub-agent proposals auto-approve to running.
+  - Layer 3 (this) — sub-agent completion re-invokes triage to summarize,
+    capped at 5 turns to prevent runaways.
+
+- a387270: Inbox streaming: typewriter UI for triage replies.
+
+  Plan path B, PR 4 of 4 — completes the streaming work. Triage's
+  reply now paints into a live bubble as the LLM streams text,
+  replacing the prior "wall of text materializes at LLM finish"
+  moment with a ChatGPT-style incremental reveal.
+
+  **Modal JS** (`packages/dashboard/src/views/inbox-modal.js.ts`)
+  listens for three new SSE event types:
+
+  - `triage:started` — creates a streaming bubble with the Tri avatar
+    and a "Writing…" meta label. The server-rendered thinking
+    indicator is removed so the operator doesn't see "Triage agent
+    is thinking…" sitting above the live reply.
+  - `triage:token` — appends `chunk` to the bubble's text. Chunks
+    accumulate into a string queue and flush once per animation
+    frame via `requestAnimationFrame` so a burst of tokens doesn't
+    thrash layout. Uses `appendChild(createTextNode(...))` — never
+    innerHTML — so any "<" or "&" in the model output renders as
+    text, not markup. Auto-scrolls only when the operator was
+    already near the bottom (preserves their reading position).
+  - `triage:complete` — clears `data-streaming`, sets
+    `data-settled="1"`. The blinking caret hides; the canonical
+    fragment refresh that follows (via the existing onAnyEvent
+    scheduler) replaces the bubble with the persisted entry,
+    no flicker.
+
+  **CSS** (`packages/dashboard/src/assets/screens.css`) adds the
+  streaming caret — a black-vertical-rectangle pseudo-element after
+  `.inbox-msg__text`, blinking at 900ms via `inbox-stream-caret`
+  keyframes. Settled state hides it.
+
+  Live-verified end-to-end: posted a reply, watched
+  `bubble-text-len=582 streaming=true` at t=9s and
+  `settled=true` at t=10s with the screenshot showing the bubble
+  mid-write (avatar + "Writing…" meta + visible streamed text
+  ending in `<plan>` `{`).
+
+  1850 tests pass (no test changes — pure runtime behavior).
+
+- fc32f65: Inbox queue: flat sortable list + right-side actions + activity-strip
+  preview.
+
+  PR 2 of 2 in the queue UX pass (PR 1 was #407: store-layer sort +
+  last-activity). Replaces the priority-segmented layout with one
+  flat list under a sticky sortable column header, reorders the row
+  so star + chevron sit on the right next to the metadata they
+  modify, and rebuilds the expanded preview as an activity strip
+  showing the actual conversation signal.
+
+  **Flat list.** Drops `renderGroup` and the priority-group cards.
+  The priority dot stays on each row — that's the urgency cue at a
+  glance. The (sorted) row order carries the rest.
+
+  **Sticky sortable header.** Five column links — Priority · Title ·
+  Agent · Status · Age — each render as a sort link that flips
+  direction on click. The active column shows a `↑` / `↓` arrow;
+  inactive columns are clickable but show no arrow. URL drives the
+  sort state (`?sort=X&dir=Y`); active filters (`q` / `starred` /
+  `tag`) are preserved through clicks. The chevron + star columns
+  get no label.
+
+  **Row layout reorder.** Operator feedback: "the grid row left side
+  doesn't make sense - think it should be right side." Star and
+  chevron move to the right. New grid template
+  (`12px 1fr auto auto auto 24px 24px`): priority dot + title (+
+  inline tags) on the left, agent · status · age · star · chevron
+  on the right. Drops the `—` placeholder for missing agents —
+  empty space reads as "no agent" without adding ink. The
+  left-edge amber accent for `awaiting_user` stays.
+
+  **Activity-strip preview** replaces the body-only excerpt:
+
+  1. Latest non-action response (triage / user / system) with
+     avatar + role + first ~160 chars (word-boundary truncation).
+  2. Pending-actions summary chip when triage proposed actions:
+     `▸ 1 proposed action: agent-catalog-search`.
+  3. Context payload disclosure (only when present).
+  4. Tag chips move from the title cell into the preview.
+  5. Right-aligned footer: Open thread → · Source label.
+
+  Empty cases: manual conversation with no replies shows an italic
+  "No replies yet. Open the thread to start the conversation." with
+  the Open thread CTA. The `(empty)` body sentinel from the store's
+  NOT NULL workaround is suppressed (mirrors the modal's filter at
+  inbox-detail.ts:135). Rows with no responses but a real body fall
+  back to a body excerpt (~320 chars).
+
+  **Route preview payload.** `GET /inbox` computes per-row
+  `{latestResponse, proposedActions}` in one pass per row via
+  `listResponses(m.id)` — cheap at the default ≤200 row page size.
+  Walks responses from newest to oldest with an early exit once both
+  signals are captured. If pagination grows the row count
+  materially, fold into a bulk store helper that joins
+  `inbox_responses` once.
+
+  **Mobile fallback.** At <720px the priority + agent columns
+  collapse on both the row and the sticky header. The chevron and
+  star stay on the right so operators can still triage on phones.
+
+  1873 tests pass (no behavior tests added — pure markup +
+  ordering). Dogfooded live with `SUA_INBOX_DEMO=1`: flat list
+  rendered, sort links navigated to the right URL with the right
+  arrow indicator, activity-strip preview showed the system reply
+
+  - proposed-action chip + Open thread footer.
+
+- f403090: CSP-blocked images now show an inline "Allow this host" card on the tile.
+
+  Building on #376 (which surfaces blocked hosts as pills on the agent
+  config page), this PR closes the friction loop without forcing the user
+  to navigate at all: when an `<img>` is blocked by the page CSP, a small
+  themed card appears in place of the broken image with a `+ Allow <host>`
+  button. Clicking it POSTs to `/agents/:id/permissions/allow-host`, adds
+  the host to the agent's allowlist, and shows a Refresh button (the
+  current page's CSP header is frozen for its lifetime, so a fresh
+  document render is needed to pick up the new policy).
+
+  Also fixes a latent bug in the existing CSP-violation listener
+  (introduced in #376): for `img-src` violations Chrome sets `e.target`
+  to `HTMLDocument`, not the offending `<img>` element, so
+  `findOwningAgentId` never found the owning tile and nothing was ever
+  reported in the wild. Now uses `e.blockedURI` to match against
+  `<img>` `src` / `currentSrc` / `data-failed-src` to locate the
+  element. Tests passed because they POST directly to the endpoint;
+  the client capture wasn't actually firing until this fix.
+
+  A tiny `securitypolicyviolation` buffer in `<head>` catches violations
+  that fire during body parse, before the main script bundle at the end
+  of `<body>` has registered its listener. The main listener drains the
+  buffer on load.
+
+- 57e08c4: Named dashboards: per-placement layout overrides.
+
+  `DashboardSection` gains an optional `placements` map keyed by agent id —
+  `{ size?, tileFit?, height? }`. The dashboard Improve-layout commit
+  endpoint reads the planner's `topAgents` entries and writes per-section
+  placements on the new layout, so two dashboards can size the same agent
+  differently. The renderer applies placement on top of the agent-global
+  `LayoutHintsStore` entry; any undefined placement field falls through to
+  the hint, then to the agent's `signal.size` / `outputWidget.tileFit`,
+  then to the renderer defaults.
+
+  Backwards-compatible: existing dashboards without `placements` render
+  exactly as before. Round-trips through the dashboard store.
+
+- b924ade: Foundation for per-agent layout hints (size, tileFit, height).
+
+  Adds a new `LayoutHintsStore` (SQLite-backed, decoupled from the
+  versioned agent schema) and threads `suggestedTileFit` / `suggestedHeight`
+  into the layout-plan schema. The Pulse renderer now reads hints through
+  a fallback chain (`hint → signal/outputWidget → default`); no commit
+  path writes hints yet, so this ships zero visible behaviour change.
+  Later PRs teach the layout-planner agent to suggest tileFit/height and
+  wire the Improve-layout wizard's commit endpoint to persist them.
+
+- 1e8c77c: Improve-layout now persists per-tile size, tileFit, and height.
+
+  The layout-planner agent is taught to emit `suggestedTileFit`
+  (`grow` / `scroll`) and `suggestedHeight` (CSS pixels) alongside the
+  existing `suggestedSize`. The Pulse "Apply" button forwards the
+  planner's `topAgents` entries to the commit endpoint, which writes
+  them into `LayoutHintsStore`. Pulse and named-dashboard renderers
+  load hints in one batched lookup per page and let them override the
+  agent's declared `signal.size` / `outputWidget.tileFit` defaults.
+  Re-running Improve layout only overwrites fields the planner actually
+  emitted — other hints are preserved.
+
+  Named-dashboard per-placement overrides (so two dashboards can size the
+  same agent differently) ship in a follow-up.
+
+- 7661d89: fix(core): LLM waterfall now falls back on auth_required and rate_limited
+
+  Pre-fix, the waterfall in `node-spawner.ts` only swapped providers on
+  `binary_missing`, `timeout`, `quota_exceeded`, and `credit_exhausted`.
+  A node pinned to claude with an expired session (`auth_required`) or a
+  429 (`rate_limited`) returned a hard failure even when the operator
+  had wired a multi-provider chain in `/settings/llm` — defeating the
+  whole point of the waterfall.
+
+  `shouldFallback` is now exported and returns true for those two
+  additional categories. `other` stays excluded so unclassified errors
+  still surface as real bugs instead of being silently masked by a
+  provider swap. Five new unit tests cover the expanded policy.
+
+- 11f7834: LLM fallback policy: when the primary provider fails with a
+  recognized credit/quota/binary-missing/timeout error, node-spawner
+  automatically retries the same prompt under a configured fallback
+  provider. Operators configure both providers from a new
+  `/settings/llm` page that also includes a Probe button for liveness
+  checks and a "last fallback fired" status line.
+
+  - New `LlmSettingsStore` (file-backed JSON at
+    `data/.sua/llm-settings.json`) — `{ primary, fallback?, lastFallback? }`
+  - New `classifyLlmFailure(SpawnResult)` buckets failures into
+    `credit_exhausted | quota_exceeded | binary_missing | timeout |
+rate_limited | auth_required | other`. Only the first four trigger
+    a fallback; rate limits stay on the primary (transient), auth
+    failures bubble up (operator action required), `other` is treated
+    as a real bug we don't want to mask.
+  - `spawnNodeReal` accepts an `llmSettings` snapshot in opts and
+    retries with the fallback provider when applicable. The snapshot
+    carries an `onFallback` callback that records telemetry back to
+    the store so the settings page can show "fallback fired 3m ago on
+    agent X because credit_exhausted."
+  - `DagExecutorDeps.llmSettings` threads the snapshot through; every
+    dashboard `executeAgentDag` call site (inbox, run-now, build,
+    layout planners, widget-run, run-mutations) is wired up.
+  - New `/settings/llm` route + view with primary/fallback dropdowns,
+    Save button, Probe button (spawns each CLI with `--version`,
+    reports reachable/failed inline), and a status panel for last
+    fallback telemetry. New "LLM" tab in the settings shell nav.
+
+  19 new tests covering store CRUD + the failure classifier.
+
+- 7d308ec: Treat contract-violating LLM output as a fallback-worthy failure.
+
+  A node can now declare an `outputContract` (`mustMatch` regex / `minChars`). When
+  a 0-exit LLM result fails it — e.g. a weak fallback model returns no `<plan>`
+  block — the provider waterfall now classifies it as a new fallback-worthy
+  category `invalid_output` and escalates to the next (stronger) provider instead
+  of accepting useless output. If every provider fails the contract, the run fails
+  honestly instead of being a silent success. Opt-in: nodes without a contract are
+  unaffected.
+
+- 870aae9: Record and surface WHY each LLM provider was skipped in the fallback waterfall.
+
+  When the LLM provider waterfall falls back (e.g. codex → apple-foundation-models),
+  the per-attempt failure reason used to be discarded once a later provider
+  succeeded. Each failed attempt is now captured (`{provider, category, error}`),
+  persisted on the node execution (`provider_failures_json`), and logged to stderr
+  (`[llm-fallback] agent/node: codex failed (timeout): …`). The run-detail node
+  card now reads "ran on apple-foundation-models · codex (timeout) failed" with the
+  full error in the hover, instead of a bare "codex failed".
+
+- 71510dd: LLM provider waterfall + pinned-provider fallback fix.
+
+  The previous one-primary + one-fallback model bricked runs in two
+  common scenarios: (a) an agent or node pinned to a single provider
+  (e.g. `provider: claude`) silently disabled fallback so any CLI
+  outage took the run down with it; (b) the chain stopped after one
+  hop even when more providers were available.
+
+  Replaces both with an ordered waterfall.
+
+  **Schema.** `LlmSettings.providers: LlmProvider[]` (ordered;
+  `providers[0]` is the primary). The old `{ primary, fallback? }`
+  shape is auto-migrated on first read. Empty chains are rejected — at
+  least one provider must remain so every llm-prompt node has
+  something to dispatch to.
+
+  **Waterfall.** `spawnNodeReal` now builds a chain via the new
+  `buildProviderChain(pinnedProvider, configuredOrder)` helper: the
+  node's pinned provider (if any) goes first, then the configured
+  global order follows, deduplicated. The loop walks the chain in
+  order; on classified failures (credit / quota / binary-missing /
+  hard-timeout) it advances to the next provider, fires per-hop
+  telemetry, and continues. Rate-limit / auth / other errors still
+  short-circuit the chain.
+
+  **Telemetry.** `NodeExecutionRecord` gains `usedProvider` (the
+  provider that actually produced the result) and `attemptedProviders`
+  (CSV trail in order). The run detail page surfaces a "ran on codex ·
+  claude failed" chip on node rows whenever the trail has more than
+  one entry. `LlmSettingsSnapshot.onFallback` now fires once per hop
+  with `from`/`to` instead of a single primary/fallback callback.
+
+  **Dashboard `/settings/llm`.** Replaces the primary + fallback
+  dropdowns with an ordered chain UI: rank, provider id + label,
+  Primary/Fallback chip, Up/Down/Remove per row, plus an "Add
+  provider" dropdown when not all known providers are in the chain.
+  Routes split into `POST /settings/llm/add`, `/remove`, `/move`.
+
+  **Tests.** New unit tests for `buildProviderChain` (5 cases
+  covering: configured order with no pin, pin biases head, dedup, no
+  config defaults to claude, pin survives empty config, three-provider
+  order). Store tests rewritten for the new API plus three migration
+  cases (v1 → v2, v1-without-fallback, v1 lastFallback preservation)
+  and two defensive-parse cases for hand-edited v2 files.
+
+- d8176e6: fix(mcp): expose dashboard-managed (v2) agents alongside filesystem (v1) agents
+
+  `list-agents` only ever returned a single agent because the MCP server
+  reads agents from filesystem YAML directories (`loadAgents`). Every
+  dashboard-managed agent lives in the SQLite agent store (DB), not on
+  disk, so they were all invisible to MCP regardless of their `mcp:
+true` flag.
+
+  This PR makes the MCP server consult both sources:
+
+  - **AgentStore (v2, DB)** is the canonical source for dashboard-managed
+    agents. Filter: `mcp = true` AND `status = active`.
+  - **Filesystem (v1, legacy)** still works for pre-DB YAML files. DB
+    entries win on id collision.
+  - `loadMcpExposedAgents` now takes an options bag (`{ agentStore,
+agentDirs }`) and returns a discriminated `McpAgentEntry` so the
+    `run-agent` tool can dispatch v2 agents through `executeAgentDag`
+    and v1 agents through the existing `provider.submitRun` path.
+  - `startMcpServer` opens dedicated `AgentStore` + `RunStore` +
+    `VariablesStore` handles against the same SQLite DB (safe under
+    WAL, same pattern the dashboard + scheduler already use).
+  - `list-agents` JSON output gains a `source: "v2" | "v1"` field so
+    callers can distinguish dashboard-managed from filesystem-loaded.
+
+  The `run-agent` tool now successfully starts v2 agents from MCP. Run
+  results come back synchronously (v1 path) or wait for the DAG
+  executor to complete and return the run summary (v2 path).
+
+- e127cb9: feat(dashboard): node-discovery picklist on the add-node form
+
+  Closes the "node discovery for flow building" item from
+  `memory/project_next_features.md`: previously the add-node form
+  showed 5 hardcoded quick-start patterns and a flat dropdown of
+  every built-in tool, user tool, and invocable agent mixed together.
+  Operators had to know what each entry did before they could pick.
+
+  A new "Discover nodes…" button next to the Quick start patterns
+  opens a search-driven picklist modal grouped by source:
+
+  - **Quick patterns** — the existing `NODE_PATTERNS` set with
+    pre-filled defaults
+  - **Built-in tools** — `shell-exec`, `http-get`, `http-post`,
+    `file-read`, `file-write`, `json-parse`, `json-path`,
+    `template`, `csv-to-chart-json`, `llm-prompt`
+  - **User tools** — agent-defined tools from the `toolStore`
+  - **Invocable agents** — other installed agents (current agent
+    excluded; active only)
+
+  Each card shows name + description + the source-group chip + the
+  toolId in mono. Search filters by name / description / id; group
+  headers hide when all their cards are filtered out. Click a card →
+  sets the existing `#node-tool-select` dropdown, dispatches change
+  so the dynamic toolInput section re-renders, and pre-fills any
+  declared defaults (for pattern cards). Click outside / press Esc /
+  hit the × closes.
+
+  Wiring:
+
+  - New `views/node-discovery-modal.ts` builds the entries +
+    renders the modal scaffold + cards.
+  - New `views/node-discovery.js.ts` carries the open/filter/select
+    client JS, added to the layout's bundled-scripts string.
+  - `views/agent-add-node.ts` mounts the button next to the existing
+    pattern strip and the modal at the end of the page body.
+  - New CSS for the modal in `components.css` keyed off
+    `.node-discovery__*`.
+
+- 9e6a669: Pulse + dashboards: masonry-style packing eliminates grid voids.
+
+  The 4-column Pulse grid used to lock every row's height to its tallest
+  tile (with `align-items: start`), turning the space below shorter tiles
+  into voids that belonged to the short tile's own grid cell —
+  undrop-targetable, unfillable, visually ugly. Dragging a tile into a
+  visual gap would either rearrange the layout or reject the drop.
+
+  The grid now declares `grid-auto-rows: 8px` + `grid-auto-flow: dense`,
+  and a small JS module (`pulse-masonry.js.ts`) computes `grid-row: span N`
+  per tile from its rendered height. A 200px tile takes ~9 row-units, an
+  1115px tile takes ~48. Columns pack independently (Pinterest-style),
+  no voids. ResizeObserver re-packs on content height changes (image
+  load, widget body swap, manual resize). MutationObserver re-packs when
+  tiles are added/removed via drag-drop or planner Apply. Window resize
+  also triggers a re-pack.
+
+  `.pulse-tile--1x2` and `.pulse-tile--2x2` no longer declare
+  `grid-row: span 2` — the row-span is computed. Their `max-height: 600px`
+  cap is preserved so the planner's wide-and-tall intent still means a
+  ceiling on height. Applies to named-dashboard `.pulse-grid` instances
+  too — same packer, same triggers.
+
+- 3e12b1d: Promote Scheduled to a top-level nav entry.
+
+  The header now reads sua | Pulse | **Scheduled** | Agents | Settings |
+  Help. `/scheduled` previously lived as a sub-tab under Agents, which
+  made it hard to find — it carries cross-agent state (paused agents,
+  next-run timing) that doesn't fit the per-building-block grouping.
+  Dropping it from the Agents tab strip; promoting to global nav.
+
+- d7914e8: Make the DAG node-spawn seam pluggable for alternate execution backends.
+
+  `SpawnNodeFn` now receives the same `onProgress` / `signal` / `onSpawn`
+  callbacks the in-process spawner gets, and `SpawnResult` carries an optional
+  `usedWorkflowProvider` a backend self-reports. The executor copies that onto the
+  node execution row and rolls it up to the run. This is the seam a Temporal-
+  backed node executor plugs into; behavior is unchanged for the default
+  in-process path.
+
+- 810141a: Fix the "View in Temporal" deep link (no more 404).
+
+  Durable per-run executions now persist their Temporal execution runId
+  (`temporal_run_id`), so the run-detail "View in Temporal" link points at the
+  real history page (`/workflows/sua-run-<id>/<runId>/history`) instead of a bare
+  workflow id that 404s. Per-node Temporal runs (e.g. inbox-dispatched agents,
+  which have no single run-level workflow) now land on the namespace's workflows
+  list rather than a guessed `sua-run-<id>` that doesn't exist.
+
+- 0059585: Durable v2 DAG runs on Temporal (provider layer).
+
+  The Temporal provider gains `submitDagRun`, which runs a whole v2 DAG as one
+  durable `sua-run-<id>` workflow: a long worker activity (`runDagActivity`) runs
+  the existing executor against the shared store. If the worker crashes, Temporal
+  re-dispatches the activity and it resumes the run from the last completed node
+  (via `resume`). A failed agent returns normally and does NOT retry — only an
+  infra crash re-dispatches. Not yet wired into the dashboard run paths (next PR).
+
+- f3c4dd1: Failed Temporal runs raise an inbox conversation.
+
+  A run that fails on a Temporal worker — or one orphaned because the dashboard
+  died mid-run — now opens a `run-failure` thread in the dashboard inbox (one per
+  run, deduped) so the triage agent notices instead of the failure dying silently.
+  Local in-process failures don't raise one (they're visible to whoever triggered
+  them) and operator-cancelled runs never do. The executor exposes a decoupled
+  `onRunFailure` hook; the dashboard wires it (and covers boot-time orphan-reaped
+  runs).
+
+- df79938: Live progress for v2 DAG nodes running on Temporal.
+
+  The node activity now heartbeats its full progress trail, and the dashboard-side
+  spawnNode polls the workflow and re-broadcasts new progress events through the
+  normal `onProgress` path — so `node_executions.progressJson` and the inbox
+  "thinking…" token stream update for Temporal runs, at ~1s granularity. Final
+  sub-second progress may be dropped; the run result is always captured.
+
+- dd0e5cb: Run v2 DAG nodes on Temporal workers.
+
+  When the dashboard is started with `--provider temporal`, multi-node (v2 DAG)
+  agents now execute each node as a Temporal worker activity (one
+  `sua-node-<runId>-<nodeId>` workflow per node) instead of in-process. The
+  dashboard still orchestrates the DAG; node shell/LLM work is offloaded to the
+  worker, made cancellable (the activity heartbeats), and shown in the Temporal
+  UI. Runs and node executions are stamped `usedWorkflowProvider`.
+
+  Declared secrets are read on the worker from the secrets file and never travel
+  in the Temporal activity payload; non-declared sensitive env values are dropped
+  before crossing to the worker (a payload-encryption codec to lift that is a
+  planned follow-up). Durable whole-DAG-as-workflow orchestration is the next step.
+
+- be68e97: Dashboard and MCP server honor the configured run provider.
+
+  `sua dashboard start` and `sua mcp start` now accept `--provider <local|temporal>`
+  (also respecting `SUA_PROVIDER` and `sua.config.json`) and route "Run now" /
+  run-submission through that provider instead of always using the local one. The
+  selected provider is shown in the startup banner, and an unreachable Temporal
+  server fails fast with a clear hint instead of hanging. New operator guide at
+  `docs/temporal.md` covers running Temporal in Docker and monitoring it via the
+  Temporal Web UI.
+
+  Note: this routes v1 single-node agents through Temporal; multi-node (v2 DAG)
+  agents still run in-process. Executing v2 DAGs on Temporal is planned next.
+
+- 10dad23: Route run-now through durable Temporal runs, with a per-agent backend control.
+
+  Under `--provider temporal`, a v2 agent's run-now now submits a durable
+  `sua-run-<id>` workflow (crash-survivable, resumes from the last completed node)
+  instead of running in-process. A new per-agent `runOn` field (Agent config →
+  "Execution backend": local / temporal / default) decides: `local` opts out,
+  `temporal` or unset runs durably under a Temporal provider. Non-temporal
+  providers always run local. Inline sub-flows stay in-process.
+
+  This completes the B2 line: v2 DAG runs are durable end to end.
+
+- 0589dfc: Manage the Temporal worker as a first-class service.
+
+  The Temporal worker is now a managed `sua daemon` service: add `worker` to
+  `daemon.services` or run `sua daemon start --service worker`. When
+  `provider: temporal` is configured, `sua daemon start` also passes
+  `--provider temporal` to the dashboard + MCP server so the whole stack agrees.
+  New `scripts/temporal-up.sh` / `temporal-down.sh` bring the entire stack
+  (Temporal server + dashboard + MCP + worker) up and down in one command.
+
+  A new **Settings → Temporal** page shows the active run provider, the Temporal
+  connection (address / namespace / task queue), and the worker's status with
+  Start / Stop controls (managing the same daemon-tracked worker — the worker
+  still runs on the host, never inside the web process).
+
+- c16e607: feat(dashboard,examples): triage dispatches agent-builder with auto-injected catalogs
+
+  Closes the gap flagged in PR #411: when the operator asks triage to
+  "build me an X agent" and no installed agent matches a prior catalog-
+  search, triage now proposes an `agent-builder` action instead of
+  telling the operator to run `/build` themselves.
+
+  ### What landed
+
+  - `agent-builder` is now in `TRIAGE_SUB_AGENT_ALLOWLIST`,
+    `TRIAGE_AUTO_APPROVE_AGENTS`, and `SYSTEM_AGENT_IDS`. The proposal
+    auto-runs on emit (no operator click), the commitment chip pulses
+    through the run, and catalog-search hides it from results so it
+    isn't recommended as a generic match.
+  - New `enrichAgentBuilderInputs` helper in `routes/inbox.ts` injects
+    `AVAILABLE_TOOLS` (formatted tool catalog) + `DISCOVERY_CATALOG`
+    (built via `buildDiscoveryCatalog` from agent + tool + template +
+    dashboard + pack stores). Mirrors the `/agents/new` "Build from
+    goal" flow's input shape so triage-dispatched builds see the same
+    context as the dashboard button path.
+  - `inbox-triage.yaml` prompt now documents `agent-builder` under the
+    Agent guide:
+    - Pass `GOAL` verbatim from the operator's request.
+    - `FOCUS` is opt-in for genuine constraints only.
+    - Auto-injection is called out so triage doesn't try to thread the
+      catalogs through `inputs`.
+    - Order-of-operations rule: propose `agent-catalog-search` FIRST
+      when the operator names a topic, then propose `agent-builder`
+      only after a confirmed miss (or when the operator explicitly
+      asked for a fresh build).
+  - Added an `agent-builder` example to the OUTPUT FORMAT block with
+    the right `commitmentSummary` shape ("drafting trivia-night
+    agent").
+
+  After restart, triage stops bouncing operators to `/build` for
+  "build me an agent" requests — Layer 2 auto-approves the proposal,
+  the chip pulses while it runs, and Layer 3 wraps with a summary the
+  operator can act on.
+
+- 01731d6: feat(dashboard,examples): inbox triage honors a provider hint when dispatching agent-builder
+
+  When the operator says "build it on apple" (or names any provider in
+  the conversation), the inbox-triage prompt now emits an optional
+  `PROVIDER` field in the action's `inputs` map. The route extracts it
+  as a provider pin, strips it from the agent inputs (so input-
+  resolution doesn't reject an undeclared key), and applies the pin to
+  every llm-prompt node in the agent-builder agent via the
+  `applyProviderPin` helper exported from build-orchestrator.
+
+  Mirrors PR #422's "Build from goal" provider picker but driven from
+  the conversation instead of a UI control. The global fallback chain
+  in `/settings/llm` still applies on classified failures — the pin
+  says "try this first," not "use only this."
+
+  Triage prompt updates:
+
+  - Maps loose phrasings: "apple" / "on-device" / "foundation models"
+    → `apple-foundation-models`; "claude" → `claude`; "codex" /
+    "openai" → `codex`.
+  - Hard rule: omit `PROVIDER` entirely when the operator didn't name
+    a provider. Never invent the hint.
+  - New OUTPUT FORMAT example shows the shape.
+
+  The validator drops PROVIDER if the operator didn't supply one or if
+  the value isn't in `LLM_PROVIDERS`, so a malformed hint silently
+  falls back to the system default chain.
+
+- f927ac5: feat(dashboard): concurrent-triage guard — one in-flight turn per thread + don't auto-fire on pending actions
+
+  Plan item #4 from
+  `~/.claude/plans/triage-followups-2026-05-30.md`. Two races closed:
+
+  **(a) Two triage runs racing on the same thread.** When triage was
+  already running and an operator reply arrived (or a sibling tab hit
+  `/triage`), `runTriageAgent` happily started a second run. Two replies
+  would land out-of-order; message-status updates raced.
+
+  `runTriageAgent` now checks `ctx.inboxTriageAbortControllers.has(messageId)`
+  at the top and defers re-entry by adding the message to a new
+  `ctx.inboxTriagePendingRefires` Set. The in-flight run's `finally`
+  block drains the pending refire via `setImmediate` after clearing
+  its own controller — so the operator's reply still gets a triage
+  turn, just sequential instead of concurrent. The drain is gated on
+  `!signal.aborted` so operator-cancelled runs don't auto-restart.
+
+  **(b) Triage auto-firing while a proposed action is pending.** When
+  triage proposed an action and the operator replied before the action
+  ran, `POST /inbox/:id/respond` would auto-fire triage anyway —
+  triage would then propose ANOTHER action or comment on the pending
+  one. The action also might auto-approve and run concurrently with
+  the fresh triage turn.
+
+  `POST /respond` now skips the auto-fire when any action on the
+  thread is in `proposed` or `running` state. The user reply is still
+  recorded; the post-action `maybeRefireTriage` (which fires when all
+  actions resolve) gives triage the full picture in one turn instead
+  of two. Operator can still hit "Ask triage" explicitly to force a
+  turn.
+
+  **Set membership is idempotent** — N stacked re-entries collapse to
+  one queued refire. The in-flight run only sees CONVERSATION as of
+  its start time, so the queued refire ensures every reply gets a
+  response.
+
+  Tests: 4 new route tests cover (a)+(b). Full suite: 1839 passing.
+
+- 2263802: inbox-triage: direct-voice prompt + stronger catalog-search trigger.
+
+  The triage `recommendation` is rendered verbatim in the conversation
+  thread, but the model sometimes emitted stage directions instead of
+  the actual message — e.g. "Reply with a clarifying question before
+  routing: ask whether they want…" or "shortlist request: ask what
+  platform or directory they want the existing trivia agent from"
+  instead of just asking the question or proposing the catalog search.
+
+  Adds a VOICE section near the top of the prompt with bad-vs-good
+  examples (first-person direct reply, no meta-narration about
+  routing/shortlisting) and two new OUTPUT FORMAT examples: a
+  clarifying question done right, and a catalog-search proposal for a
+  concrete topic.
+
+  Also strengthens the agent guide for `agent-catalog-search` (shipped
+  in #393) so the model proposes it DIRECTLY when the operator names a
+  topic ("trivia", "cocktail", "weather"), without first asking which
+  platform or directory — the installed catalog IS the directory.
+
+- 05d5549: Inbox triage: auto-refresh stale allowlist agents + clear error when dispatch target is missing.
+
+  Two compounding bugs that broke the analyzer dispatch path shipped
+  in #397:
+
+  1. **Stale system allowlist agents.** The auto-import in
+     `getSubAgentAllowlist` only fired when an allowlist agent
+     (analyzer / editor / catalog-search) wasn't installed at all —
+     never when the bundled YAML on disk had changed since install.
+     Operators who installed `agent-analyzer` before PR #394 still had
+     the pre-preflight version (`AGENT_YAML: required: true`, no
+     preflight node) and any dispatch died at input resolution with a
+     generic "Missing required input AGENT_YAML" — looking like an
+     analyzer bug rather than a stale-install issue. Now compares the
+     installed exported YAML against the bundled file and re-imports
+     when they differ. Scoped to allowlist entries only; user agents
+     are never touched.
+
+  2. **Silent enrichment when target agent is missing.** When the
+     inbox message referenced an agent that wasn't installed (e.g. a
+     permission-request for `demo-astro-tile` on a fresh catalog),
+     `enrichAgentAnalyzerInputs` silently left `AGENT_YAML` empty and
+     the analyzer dispatch went through anyway — surfacing the same
+     confusing "missing required input" rather than the real cause.
+     Now the route refuses the dispatch upfront, sets the action card
+     to failed with a clear refusalReason, and posts a system response
+     to the conversation: "Can't dispatch agent-analyzer — the target
+     agent <id> is not installed in this catalog."
+
+- aded19a: feat(dashboard): stop button on the triage thinking indicator
+
+  While triage is in flight, the modal's "Triage agent is thinking…"
+  indicator now ships with a square stop button on the right edge.
+  Clicking it aborts the underlying DAG run, kills any spawned LLM
+  processes, marks the run cancelled, posts a system note ("Triage
+  stopped by operator."), and re-enables the composer so the operator
+  can send a new message immediately.
+
+  Implementation:
+
+  - New `inboxTriageAbortControllers: Map<messageId, { runId, controller }>`
+    on `DashboardContext`. `runTriageAgent` now pre-generates the runId
+    (via `randomUUID`), creates an `AbortController`, registers in both
+    `activeRuns` (by runId) and `inboxTriageAbortControllers` (by
+    messageId), and passes the abort signal into `executeAgentDag`.
+    Cleared on completion in a `finally` block so even crashes don't
+    leave stale entries.
+  - New `POST /inbox/:id/triage/cancel` route: looks up the controller
+    by message id, aborts it, calls `provider.cancelRun` as belt-and-
+    suspenders, and force-finalizes the run + node executions if the
+    executor didn't get to its own teardown before the response. Idempotent
+    — missing entries (run already finished, dashboard restarted)
+    return 204 with "Nothing to cancel."
+  - View update in `inbox-detail.ts`: the thinking indicator now
+    contains a `<form data-inbox-modal-form>` posting to the cancel
+    route. Reuses the modal's existing submit interceptor so the
+    fragment refresh after cancel is the same path tags / star / reply
+    already use.
+  - New `.inbox-thinking__stop` CSS: 28×28 square with a small filled
+    square icon, hover state, sits at the end of the thinking row.
+  - 3 new route tests: abort + cleanup (entries removed, run flipped to
+    cancelled, system note inserted), idempotent no-op on a thread
+    with no in-flight triage, 404 on unknown id.
+
+- 82f8f30: Inbox typewriter: strip the `<plan>` envelope from the streamed
+  bubble so the operator sees only the recommendation text.
+
+  The triage agent's stream is the raw plan envelope
+  (`<plan>{"messageId":"…","recommendation":"…","actions":…}</plan>`).
+  The canonical persisted entry (post-`extractPlanJson`) shows only
+  the `recommendation` value, but the streaming bubble was showing
+  the raw envelope for the few seconds between `triage:token` arriving
+  and the canonical fragment refresh swapping in.
+
+  Fix: accumulate the full token buffer per turn, then on each
+  animation-frame tick try to extract just the `recommendation`
+  value (handles escaped chars including `\"`, `\\`, `\n`, `\t`,
+  `\uXXXX`). Returns whatever partial value has been streamed up to
+  the cursor, so the typewriter still paints incrementally. Falls
+  back to the raw streamed text when the recommendation key hasn't
+  arrived yet (envelope preamble) so non-plan responses still show
+  something useful. Buffer resets on each new `triage:started`.
+
+  Verified the parser correctness via five-case inline trace:
+
+  - Full plan → recommendation text only
+  - Mid-stream (no closing quote yet) → partial value as buffered
+  - Early stream (no recommendation key yet) → null → caller falls
+    back to raw streamed text
+  - Escaped quote / newline → render as literal characters
+
+- bf2c73a: Record which execution backend ran each run.
+
+  Runs and node executions now carry a `usedWorkflowProvider` field
+  (`local` | `temporal`) so you can tell where work actually ran. This is a
+  distinct axis from the LLM provider (`usedProvider`, claude/codex/apple). The
+  local and Temporal providers stamp it at submit time; v2 DAG runs record
+  `local`. The runs list shows a `temporal` chip for Temporal runs and the run
+  detail page shows a Backend row. Legacy rows read back as local.
+
+- 0e378e3: Validate that shell `$UPSTREAM_<NODE>_RESULT` references point at a declared dependency.
+
+  The executor only injects an upstream node's output as `$UPSTREAM_<NODE>_RESULT`
+  for DIRECT `dependsOn` edges. A shell command that reads a transitive ancestor's
+  output gets an unbound variable — which crashes the node under `set -u` (and
+  silently yields empty output without it). This was a recurring LLM-codegen bug:
+  agent-builder would wire a command to an ancestor it forgot to depend on, and the
+  schema check only caught the `{{upstream.X}}` template form, not the shell env-var
+  form.
+
+  Agent schema validation now flags a `$UPSTREAM_<NODE>_RESULT` (or
+  `${UPSTREAM_<NODE>_RESULT}`) reference whose node isn't a declared dependency (or
+  doesn't exist), while leaving safe defaulted forms `${UPSTREAM_X_RESULT:-…}` alone.
+  Because agent-builder's `validate` node runs this check, the builder's `fix` step
+  now self-corrects this class of bug. Also fixes the bundled `conditional-router`
+  example, which had exactly this latent bug (an empty "TECH ALERT:" output).
+
+- b235bec: Output widgets: copy-to-clipboard and save-as-PNG controls.
+
+  Two new opt-in widget control types an agent can declare on its `outputWidget`:
+
+  - `copy` — a copy button (Material content_copy glyph + tooltip) that copies the
+    rendered widget text to the clipboard.
+  - `capture-image` — a button that rasterizes the widget to a PNG and downloads it
+    (html2canvas, vendored locally and lazy-loaded; CSP blocks CDN scripts). Optional
+    `filename`. Note: external images that don't send CORS headers may capture blank —
+    a browser security limit, surfaced as a clear message rather than a blank PNG.
+
+  Both are stateless, so they render in static contexts too (inbox inline widgets,
+  pulse/home tiles) — not just the run/agent detail pages. Configurable from the
+  output-widget editor's Controls section.
+
+### Patch Changes
+
+- e86bcd3: fix(core): apple-foundation-models spawner uses ESM import, not CJS require
+
+  `appleFoundationModelsSpawner.resolveBinary` called `require()` to
+  lazily load the runner module. The core package is ESM — `require`
+  isn't defined at runtime — so every invocation of the Apple FM
+  provider threw `ReferenceError: require is not defined` before
+  reaching the runner. Replaced with a static top-of-file
+  `import { ensureAppleRunner } from './apple-foundationmodels-runner.js'`.
+
+  The "lazy load to keep the cold-path light on non-macOS hosts"
+  justification didn't hold up — the runner module imports only
+  Node built-ins (child_process, crypto, fs, os, path) that core
+  already loads transitively. Eager-loading costs nothing.
+
+- d81715d: Fix dashboard hanging on SIGTERM/SIGINT.
+
+  The dashboard's graceful shutdown called `server.close()`, which only stops
+  accepting new connections and waits for existing ones to drain. The inbox SSE
+  stream and the 2s poll keep-alives never close on their own, so shutdown hung
+  forever and the process became a zombie squatting on the port — surfacing as
+  recurring "dashboard crashed on startup" (EADDRINUSE) errors. Shutdown now
+  pairs `server.close()` with `server.closeAllConnections()` (Node 18.2+) to
+  force-terminate the lingering sockets, so the dashboard stops promptly.
+
+- 535314d: Require a structured output block from triage + catalog-search.
+
+  The `inbox-triage` and `agent-catalog-search` system agents now declare an
+  `outputContract` (`<plan>` / `<matches>`). If a provider returns 0-exit output
+  without the required block — e.g. a weak fallback model that ignores the
+  format — the waterfall escalates to a stronger provider instead of accepting it,
+  and only fails the run if every provider whiffs.
+
+- dba970d: Inbox: agents built from a thread are now real, runnable, and honestly reported.
+
+  When triage built a new agent (e.g. "make me a random XKCD viewer"), the build
+  ran but nothing committed it — `agent-builder` only designs and validates YAML,
+  and the inbox action path skipped the commit the dashboard wizard does. The
+  agent existed only as text in the run output, so `/agents/<id>` 404'd and triage
+  would still claim it was "drafted" and link a dead URL.
+
+  Three fixes:
+
+  - **Auto-commit built agents (as drafts).** When an `agent-builder` action
+    completes, the validated YAML is parsed and committed to the catalog as a
+    draft (visible + runnable on demand, not live/scheduled until reviewed). A real
+    `/agents/<id>` link is posted once it lands. An existing non-draft agent of the
+    same id is never overwritten.
+  - **No more fabricated links.** Triage `/agents/<id>` links are dropped unless the
+    agent actually exists in the store, and the triage prompt no longer claims an
+    agent exists before the system confirms the commit.
+  - **Run what you just built, inline.** Agents built earlier in a thread become
+    proposable, so triage can run them and stream output inline — gated on operator
+    approval (they are not auto-approved).
+
+- bf40edf: Fix inbox-built agents rendering literal `{ {outputs.X}}` in their widget.
+
+  The template pipeline escapes `{{` → `{ {` to prevent re-expansion. The dashboard
+  build wizard repairs this before committing (via `autoFixYaml`), but the inbox
+  auto-commit path (agent built from a thread) skipped that repair, so the escaped
+  form was persisted and the output widget rendered a literal `{ {outputs.X}}`. The
+  inbox commit path now runs the same `autoFixYaml` repair the wizard does.
+
+- 1cfa4ee: Inbox: fix the "Enable & run" grant note reading as if the run is still pending.
+
+  The approve-to-run grant note said "Granted X… Running it now…", but it's posted
+  after the action card (proposed earlier), so it renders below the already-finished
+  run result. "Running it now…" then misled both the operator and the follow-up
+  triage turn ("the run was just started, wait for the result") even when the run
+  had already completed or failed. The note now states only the durable fact —
+  "Enabled X to run from inbox threads — revoke in its Config tab" — and the action
+  card remains the source of truth for the run's outcome.
+
+- 1ab7d5f: Polish inbox links and modal scrollbar.
+
+  Auto-linked `/agents/<id>` and `/runs/<id>` references now show the id as the
+  link label (not the raw path), and all links in inbox messages and triage CTAs
+  open in a new tab so following one keeps the inbox open. The modal's scroll
+  container gets a thin, muted scrollbar instead of the heavy default slab.
+
+- 9d728dc: fix(dashboard): escape backslashes inside INBOX_MODAL_JS template literal
+
+  PR #409's `extractRecommendationFromStream` used un-doubled backslash escapes
+  (`'\\'`, `'\n'`, `\s`) inside the `INBOX_MODAL_JS` backtick template literal.
+  Template processing collapsed each `\\` → `\` at module-load time, producing
+  invalid served JavaScript: `'\'` was an unterminated string and `'\n'`/`'\t'`/
+  `'\r'` placed literal control characters inside single-quoted strings. The
+  browser threw a parse error during the inline IIFE, so every click delegate
+  in the inbox modal layer silently failed to attach — chevron toggle, row →
+  modal click, rail collapse, suggest banner, copy button, new conversation,
+  modal close.
+
+  Doubled the backslashes in source so they survive template processing and
+  produce valid JS in the served output. No behavior change to the parser
+  itself.
+
+- 139efbb: Fix inbox thread not updating when triage finishes with an error.
+
+  Several triage completion branches ("did not complete", "no <plan>", "malformed
+  JSON") added a system message to the conversation without emitting the
+  `message:created` SSE event, so an open thread didn't refresh and the operator
+  had to reload the page to see it. All triage system messages now route through a
+  helper that always publishes the event, so the thread updates live.
+
+- ebff232: Fix two issues found dogfooding the inbox-triage action loop in-browser.
+
+  - **Triage hit max-turns**: with `maxTurns: 1` and no tool-use policy
+    in the prompt, the LLM probed the filesystem (Bash + Read + Glob)
+    before responding and timed out. Tightened the prompt with an
+    explicit "do not use Bash/Read/Grep/Glob; the inputs are
+    authoritative" instruction and bumped `maxTurns` to 2 as a safety
+    buffer.
+
+  - **AGENT_YAML enrichment silently no-op'd in the demo**: the inbox
+    demo seed referenced `agentId: demo-failing-agent` but no such
+    agent was installed. The route's enrichment skipped (correctly),
+    leaving `agent-analyzer` to fail with "Missing required input
+    AGENT_YAML". The demo seed now installs a stub `demo-failing-agent`
+    YAML that intentionally references `shell-exec` (matches the demo
+    message body "shell-exec: command not found") so the analyzer has
+    a real failure to diagnose.
+
+  Verified end-to-end: triage proposes the action card, operator clicks
+  Run, agent-analyzer runs with auto-injected AGENT_YAML + LAST_RUN_OUTPUT,
+  result lands in the thread, triage re-fires for a summary turn.
+
+- 6145ffe: Pin all dependencies to exact versions.
+
+  Every external dependency across the workspace is now pinned to an exact version
+  (no `^`/`~` ranges), matching what was already installed in the lockfile. This
+  makes installs fully reproducible and removes silent range-drift. Dependabot is
+  configured to open weekly review-able PRs (grouped minor/patch, individual
+  majors) so new releases are a deliberate decision rather than an automatic pull.
+
+- c23e826: Link a run to its Temporal workflow.
+
+  The run detail page's Backend row now shows a "View in Temporal ↗" deep link for
+  runs that executed on Temporal, opening the run's `sua-run-<id>` workflow in the
+  Temporal Web UI (honoring the configured namespace). Local runs are unaffected.
+
+- d2660ca: Guard SQLite stores against startup lock contention.
+
+  Stores set `PRAGMA journal_mode = WAL` but never a busy timeout, so `node:sqlite`
+  raised `database is locked` the instant it couldn't grab a lock. When the daemon
+  restarts the schedule, worker, and dashboard services at once they race to open
+  the same DB file, and one would crash on startup ("Could not start the temporal
+  provider: database is locked"). Stores now open through a shared `openStoreDb`
+  helper that applies `PRAGMA busy_timeout` (5s), so SQLite waits and retries
+  instead of failing. Behavior-preserving in the uncontended case.
+
+- 28cc824: Fix Temporal node runs dying on a false heartbeat timeout.
+
+  `runNodeActivity` only heartbeated when a node emitted a progress event, with a
+  30s heartbeat timeout and no keepalive. An LLM node that thinks for longer than
+  30s before its first streamed token (e.g. agent-builder's `design` step,
+  inbox-triage's `triage` step) went silent, so Temporal killed the activity with
+  "activity Heartbeat timeout" even though the child process was working fine — the
+  run was recorded as a generic "Temporal node workflow failed: Workflow execution
+  failed". A keepalive heartbeat now fires every 10s while the node runs, matching
+  the whole-DAG activity.
+
+  Also unwrap the underlying cause when a node workflow fails: the dashboard now
+  surfaces the real reason (the activity error or heartbeat timeout) instead of
+  Temporal's boilerplate "Workflow execution failed".
+
+- d1433bc: fix(dashboard): triage stop button no longer double-posts an unfriendly "did not complete" note
+
+  Race after PR #425: the cancel route posted "Triage stopped by
+  operator." and force-finalized the run, but `runTriageAgent`'s
+  continuation kept running and saw the executor's terminal status
+  (either `'failed'` or `'cancelled'` depending on who won the race to
+  update the row). It then added a second, scary system message like
+  `Triage agent did not complete (failed). Failed at node "triage"
+(timeout)`. Operator saw two messages back-to-back, the second
+  implying something broke when nothing did.
+
+  `runTriageAgent` now short-circuits both the continuation AND the
+  catch-block whenever `abortController.signal.aborted` is set — that
+  bit is the load-bearing operator-intent signal regardless of which
+  status the run row ended up at. Also added a defensive
+  `run?.status === 'cancelled'` check for the rare case where a
+  sibling tab hit `POST /runs/:id/cancel` while triage was waiting.
+
+  The cancel-route system message was also reworded from "Triage
+  stopped by operator." to "Triage agent cancelled." per the
+  operator's preference.
+
+- aef466f: Rename the LLM-provider field to usedLLMProvider for clarity.
+
+  `SpawnResult.usedProvider` and `NodeExecutionRecord.usedProvider` are renamed to
+  `usedLLMProvider`, so the LLM-provider axis (claude/codex/apple) reads clearly
+  next to the execution-backend axis (`usedWorkflowProvider`, local/temporal). The
+  SQLite column stays named `usedProvider` (mapped in the run store), so there's no
+  migration and existing data is untouched.
+
+- Updated dependencies [6d0e45a]
+- Updated dependencies [ddade0e]
+- Updated dependencies [45b220b]
+- Updated dependencies [b9c3c1b]
+- Updated dependencies [4720543]
+- Updated dependencies [e86bcd3]
+- Updated dependencies [22e4023]
+- Updated dependencies [c4f57a1]
+- Updated dependencies [63aa99c]
+- Updated dependencies [ceadf1e]
+- Updated dependencies [a1fa57e]
+- Updated dependencies [2425945]
+- Updated dependencies [d81715d]
+- Updated dependencies [cb9553d]
+- Updated dependencies [2f5741a]
+- Updated dependencies [462e223]
+- Updated dependencies [535314d]
+- Updated dependencies [1bacb32]
+- Updated dependencies [6569863]
+- Updated dependencies [dba970d]
+- Updated dependencies [5755df3]
+- Updated dependencies [bf40edf]
+- Updated dependencies [bede673]
+- Updated dependencies [4170a87]
+- Updated dependencies [b42da56]
+- Updated dependencies [1cfa4ee]
+- Updated dependencies [1ab7d5f]
+- Updated dependencies [10830bb]
+- Updated dependencies [d2f44ae]
+- Updated dependencies [57853de]
+- Updated dependencies [49b4d7c]
+- Updated dependencies [4d80c00]
+- Updated dependencies [9d728dc]
+- Updated dependencies [64efb83]
+- Updated dependencies [a8d6750]
+- Updated dependencies [7b02df8]
+- Updated dependencies [784becb]
+- Updated dependencies [0099381]
+- Updated dependencies [bb521bd]
+- Updated dependencies [a2abb92]
+- Updated dependencies [23dcf9d]
+- Updated dependencies [1ccb34d]
+- Updated dependencies [e83b3ea]
+- Updated dependencies [762574f]
+- Updated dependencies [adf70b5]
+- Updated dependencies [bc062ce]
+- Updated dependencies [5448687]
+- Updated dependencies [5e9689a]
+- Updated dependencies [d938114]
+- Updated dependencies [cd970d2]
+- Updated dependencies [52043c5]
+- Updated dependencies [f73a8fc]
+- Updated dependencies [139efbb]
+- Updated dependencies [ebff232]
+- Updated dependencies [945b236]
+- Updated dependencies [a387270]
+- Updated dependencies [fc32f65]
+- Updated dependencies [f403090]
+- Updated dependencies [57e08c4]
+- Updated dependencies [b924ade]
+- Updated dependencies [1e8c77c]
+- Updated dependencies [7661d89]
+- Updated dependencies [11f7834]
+- Updated dependencies [7d308ec]
+- Updated dependencies [870aae9]
+- Updated dependencies [71510dd]
+- Updated dependencies [d8176e6]
+- Updated dependencies [e127cb9]
+- Updated dependencies [6145ffe]
+- Updated dependencies [9e6a669]
+- Updated dependencies [c23e826]
+- Updated dependencies [3e12b1d]
+- Updated dependencies [d7914e8]
+- Updated dependencies [d2660ca]
+- Updated dependencies [810141a]
+- Updated dependencies [0059585]
+- Updated dependencies [f3c4dd1]
+- Updated dependencies [df79938]
+- Updated dependencies [dd0e5cb]
+- Updated dependencies [28cc824]
+- Updated dependencies [be68e97]
+- Updated dependencies [10dad23]
+- Updated dependencies [0589dfc]
+- Updated dependencies [c16e607]
+- Updated dependencies [01731d6]
+- Updated dependencies [d1433bc]
+- Updated dependencies [f927ac5]
+- Updated dependencies [2263802]
+- Updated dependencies [05d5549]
+- Updated dependencies [aded19a]
+- Updated dependencies [82f8f30]
+- Updated dependencies [aef466f]
+- Updated dependencies [bf2c73a]
+- Updated dependencies [0e378e3]
+- Updated dependencies [b235bec]
+  - @some-useful-agents/core@0.23.0
+
 ## 0.22.0
 
 ### Minor Changes
