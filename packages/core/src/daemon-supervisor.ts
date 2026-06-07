@@ -129,7 +129,12 @@ export interface SpawnOptions {
 
 const SERVICE_ARGV: Record<ServiceName, string[]> = {
   schedule: ['schedule', 'start'],
-  dashboard: ['dashboard', 'start'],
+  // --replace: the daemon owns this port, so a leftover/orphaned dashboard
+  // (e.g. one started by hand with `sua dashboard start` and never stopped)
+  // should be reclaimed rather than silently leaving stale code serving.
+  // The supervisor spawn is non-interactive, so without --replace it would
+  // refuse to clobber and exit; with it, a stale instance is taken over.
+  dashboard: ['dashboard', 'start', '--replace'],
   mcp: ['mcp', 'start'],
   // The Temporal worker. Only useful when the provider is `temporal`; it polls
   // the task queue and executes agent/node work on the host (ADR-0004). Opt-in
