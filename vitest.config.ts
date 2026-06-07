@@ -16,5 +16,11 @@ export default defineConfig({
   test: {
     globals: true,
     include: ['packages/*/src/**/*.test.ts'],
+    // Several integration tests spin up real Express/MCP HTTP servers + sqlite.
+    // On 2-core CI runners the suite oversubscribes the CPU (≈140s of test work
+    // in ≈62s wall-clock), starving those tests so they tip past the default 5s
+    // wall-clock deadline. Give them headroom; a genuine hang still fails, later.
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
 });
