@@ -10,14 +10,14 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
-    "cytoscape": "3.33.2",
+    "cytoscape": "3.34.0",
     "express": "5.2.1",
     "html2canvas": "1.4.1"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "@types/express": "5.0.6",
-    "@types/supertest": "6.0.3",
+    "@types/supertest": "7.2.0",
     "supertest": "7.2.2"
   },
   "license": "MIT",
