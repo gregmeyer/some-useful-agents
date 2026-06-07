@@ -1,5 +1,35 @@
 # @some-useful-agents/core
 
+## 0.24.0
+
+### Minor Changes
+
+- 96a11bb: Inbox thread usability (control-plane Phase 2): summary, reopen, fork, retarget.
+
+  A thread is now a stable working surface, not just a transcript:
+
+  - A derived **thread summary** block (goal / status / latest result / next step),
+    computed from the thread's responses — no LLM call.
+  - **Summarize** pins that summary into the transcript as a system note.
+  - **Reopen** flips a resolved/dismissed thread back to open.
+  - **Fork to agent** opens a new thread targeting a chosen agent, carrying the
+    summary + `forkedFrom` provenance (original thread is untouched).
+  - **Retarget** points the current thread at a different agent in place.
+
+  Fork/retarget targets are installed non-system agents. New
+  `InboxStore.updateMessage` patches a thread's agent link / context.
+
+### Patch Changes
+
+- 842dea8: Migrate core schemas to zod 4.
+
+  `@some-useful-agents/core` now depends on zod 4 (4.4.3). The only breaking change
+  that touched our code was `z.record(valueSchema)` → `z.record(z.string(), valueSchema)`;
+  applied across the agent / tool / config schemas. Validation behavior is unchanged
+  (full schema test suite green). The MCP server stays on zod 3 to match the
+  `@modelcontextprotocol/sdk` types (its bundled `zod-to-json-schema` pins zod 3);
+  the two never exchange zod schema instances, so the split is safe.
+
 ## 0.23.0
 
 ### Minor Changes
