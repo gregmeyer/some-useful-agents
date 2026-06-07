@@ -67,7 +67,7 @@ export const agentDefinitionSchema = z.object({
 
   // Common
   timeout: z.number().positive().default(300),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   schedule: z.string().optional(),
   /**
    * Bypass the default cron frequency cap (60s minimum interval, 5-field only).

@@ -80,19 +80,19 @@ const conditionalConfigSchema = z.object({
 
 const switchConfigSchema = z.object({
   field: z.string(),
-  cases: z.record(z.unknown()),
+  cases: z.record(z.string(), z.unknown()),
 });
 
 const loopConfigSchema = z.object({
   over: z.string(),
   agentId: z.string(),
   maxIterations: z.number().int().positive().optional(),
-  inputMapping: z.record(z.string()).optional(),
+  inputMapping: z.record(z.string(), z.string()).optional(),
 });
 
 const agentInvokeConfigSchema = z.object({
   agentId: z.string(),
-  inputMapping: z.record(z.string()).optional(),
+  inputMapping: z.record(z.string(), z.string()).optional(),
 });
 
 export const agentNodeSchema = z.object({
@@ -104,7 +104,7 @@ export const agentNodeSchema = z.object({
 
   tool: z.string().optional(),
   action: z.string().optional(),
-  toolInputs: z.record(z.unknown()).optional(),
+  toolInputs: z.record(z.string(), z.unknown()).optional(),
 
   command: z.string().optional(),
   prompt: z.string().optional(),
@@ -119,7 +119,7 @@ export const agentNodeSchema = z.object({
   append: z.boolean().optional(),
 
   timeout: z.number().positive().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   envAllowlist: z.array(z.string()).optional(),
   secrets: z.array(z.string().regex(SECRET_NAME_RE, 'Secret names must be UPPERCASE_WITH_UNDERSCORES')).optional(),
   redactSecrets: z.boolean().optional(),
@@ -255,7 +255,7 @@ export const agentV2Schema = z.object({
     icon: z.string().optional(),
     // v2 template system
     template: z.enum(['metric', 'time-series', 'text-headline', 'text-image', 'image', 'table', 'status', 'media', 'widget', 'comparison', 'key-value', 'story', 'funnel']).optional(),
-    mapping: z.record(z.string()).optional(),
+    mapping: z.record(z.string(), z.string()).optional(),
     // v1 (deprecated, still accepted)
     format: z.enum(['text', 'number', 'table', 'json', 'chart']).optional(),
     field: z.string().optional(),
