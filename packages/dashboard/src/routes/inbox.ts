@@ -216,12 +216,111 @@ function addSystemMessage(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   body: string,
+  metaJson?: string,
 ): InboxResponse {
-  const reply = ctx.inboxStore!.addResponse(messageId, 'system', body);
+  const reply = ctx.inboxStore!.addResponse(messageId, 'system', body, metaJson);
   publishInboxEvent(ctx, messageId, 'message:created', {
     responseId: reply.id, role: 'system', body: reply.body, createdAt: reply.createdAt,
   });
   return reply;
+}
+
+/** Humanize an inbox status for the thread-summary block. */
+function humanInboxStatus(status: string): string {
+  switch (status) {
+    case 'awaiting_user': return 'Your turn';
+    case 'run-failure': return 'Run failure';
+    default: return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+}
+
+/** Collapse whitespace and clip to `max` chars with an ellipsis. */
+function summarizeInline(text: string | undefined, max = 180): string | undefined {
+  const single = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (!single) return undefined;
+  if (single.length <= max) return single;
+  return single.slice(0, max - 1).trimEnd() + '…';
+}
+
+/** Installed non-system agents a thread can be forked/retargeted to. */
+function listForkableAgentIds(ctx: ReturnType<typeof getContext>): string[] {
+  try {
+    return ctx.agentStore.listAgents()
+      .filter((agent) => !SYSTEM_AGENT_IDS.has(agent.id))
+      .map((agent) => agent.id)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Derive a thread summary (goal / latest result / next step) purely from the
+ * thread's existing responses — no LLM call. The goal is the latest real user
+ * ask; the latest result is the most recent completed action / triage / system
+ * note; the next step is the most recent still-proposed action. Used by the
+ * summary block and the fork/summarize routes.
+ */
+function buildThreadSummary(
+  message: { title: string; status: string; body: string },
+  responses: readonly InboxResponse[],
+): { currentGoal: string; latestResult?: string; currentStatus: string; nextStep?: string } {
+  let currentGoal = summarizeInline(message.title, 140)
+    ?? summarizeInline(message.body, 140)
+    ?? 'Continue the thread';
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    if (response.role !== 'user') continue;
+    if (response.body.trim() === '(Asked triage to take another look.)') continue;
+    currentGoal = summarizeInline(response.body, 140) ?? currentGoal;
+    break;
+  }
+
+  let latestResult: string | undefined;
+  let nextStep: string | undefined;
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    const action = parseActionMeta(response);
+    if (!latestResult && action?.status === 'completed') {
+      latestResult = summarizeInline(action.resultSummary ?? response.body, 180);
+    }
+    if (!latestResult && (response.role === 'triage' || response.role === 'system')) {
+      latestResult = summarizeInline(response.body, 180);
+    }
+    if (!nextStep && action?.status === 'proposed') {
+      nextStep = summarizeInline(action.rationale ?? `Run ${action.agentId}`, 160);
+    }
+    if (latestResult && nextStep) break;
+  }
+
+  return { currentGoal, latestResult, currentStatus: humanInboxStatus(message.status), nextStep };
+}
+
+/** Parse a message's contextJson into a plain object (empty on absent/invalid). */
+function normalizeContextJson(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Retarget a thread: point its agent link at `agentId`, recording provenance. */
+function updateThreadAgentLink(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  agentId: string,
+): void {
+  if (!ctx.inboxStore) return;
+  const message = ctx.inboxStore.get(messageId);
+  if (!message) return;
+  const context = normalizeContextJson(message.contextJson);
+  ctx.inboxStore.updateMessage(messageId, {
+    agentId,
+    contextJson: JSON.stringify({ ...context, linkedAgentId: agentId, linkedAt: Date.now() }),
+  });
 }
 
 function parseSort(req: Request): { sort: InboxSortKey; dir: InboxSortDir } {
@@ -361,6 +460,8 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     triagePending,
     currentTargetYaml,
     inlineActionWidgets,
+    threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
+    forkableAgentIds: listForkableAgentIds(ctx),
   }));
 });
 
@@ -386,6 +487,8 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     triagePending,
     currentTargetYaml,
     inlineActionWidgets,
+    threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
+    forkableAgentIds: listForkableAgentIds(ctx),
   })));
 });
 
@@ -740,6 +843,144 @@ inboxRouter.post('/inbox/:id/tags', (req: Request, res: Response) => {
   }
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Tags updated.')}`);
+});
+
+// ── Thread usability: reopen / summarize / fork / retarget ──────────────
+// Make one thread a stable working surface — reopen a closed thread, pin a
+// derived summary, and move work to a different agent (fork = new thread with
+// provenance; retarget = rewrite this thread's agent link in place).
+
+inboxRouter.post('/inbox/:id/reopen', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  try {
+    ctx.inboxStore.updateStatus(id, 'open');
+    addSystemMessage(ctx, id, 'Thread reopened.');
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Reopened.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Reopen failed: ${msg}`)}`);
+  }
+});
+
+inboxRouter.post('/inbox/:id/summarize', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const message = ctx.inboxStore.get(id);
+  if (!message) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const summary = buildThreadSummary(message, ctx.inboxStore.listResponses(id));
+  const body = [
+    `Thread summary`,
+    `Goal: ${summary.currentGoal}`,
+    `Status: ${summary.currentStatus}`,
+    summary.latestResult ? `Latest result: ${summary.latestResult}` : '',
+    summary.nextStep ? `Next step: ${summary.nextStep}` : '',
+  ].filter(Boolean).join('\n');
+  addSystemMessage(ctx, id, body);
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Summary added.')}`);
+});
+
+inboxRouter.post('/inbox/:id/fork', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const message = ctx.inboxStore.get(id);
+  if (!message) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
+  const targetAgent = agentId ? ctx.agentStore.getAgent(agentId) : null;
+  if (!agentId || !targetAgent || SYSTEM_AGENT_IDS.has(agentId)) {
+    if (isAjax(req)) { res.status(400).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Agent "${agentId || '<none>'}" is not available for forking.`)}`);
+    return;
+  }
+  const summary = buildThreadSummary(message, ctx.inboxStore.listResponses(id));
+  const forkBody = [
+    `Forked from thread ${id}.`,
+    `Goal: ${summary.currentGoal}`,
+    summary.latestResult ? `Latest result: ${summary.latestResult}` : '',
+    summary.nextStep ? `Next step: ${summary.nextStep}` : '',
+  ].filter(Boolean).join('\n');
+  try {
+    const forked = ctx.inboxStore.add({
+      priority: message.priority,
+      source: 'manual',
+      title: `${message.title} → ${agentId}`,
+      body: forkBody,
+      agentId,
+      contextJson: JSON.stringify({
+        forkedFromThreadId: id,
+        forkedFromAgentId: message.agentId ?? null,
+        summary,
+      }),
+    });
+    addSystemMessage(ctx, id, `Forked this thread to \`${agentId}\` as ${forked.id.slice(0, 8)}.`,
+      JSON.stringify({ links: [{ label: 'Open forked thread', href: `/inbox/${forked.id}` }] }));
+    addSystemMessage(ctx, forked.id, `Forked from thread ${id.slice(0, 8)} into agent \`${agentId}\`.`,
+      JSON.stringify({ links: [{ label: 'Open source thread', href: `/inbox/${id}` }] }));
+    if (isAjax(req)) { res.setHeader('X-Inbox-Id', forked.id); res.status(204).end(); return; }
+    res.redirect(303, `/inbox/${encodeURIComponent(forked.id)}?ok=${encodeURIComponent('Thread forked.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Fork failed: ${msg}`)}`);
+  }
+});
+
+inboxRouter.post('/inbox/:id/retarget', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
+  const targetAgent = agentId ? ctx.agentStore.getAgent(agentId) : null;
+  if (!agentId || !targetAgent || SYSTEM_AGENT_IDS.has(agentId)) {
+    if (isAjax(req)) { res.status(400).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Agent "${agentId || '<none>'}" is not available to retarget to.`)}`);
+    return;
+  }
+  try {
+    updateThreadAgentLink(ctx, id, agentId);
+    addSystemMessage(ctx, id, `Retargeted this thread to \`${agentId}\`.`,
+      JSON.stringify({ links: [{ label: `Open ${agentId}`, href: `/agents/${agentId}` }] }));
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Thread retargeted.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Retarget failed: ${msg}`)}`);
+  }
 });
 
 /**

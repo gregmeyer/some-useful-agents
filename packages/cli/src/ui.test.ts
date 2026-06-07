@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import {
   SYMBOLS,
   STATUS_COLORS,
@@ -18,8 +18,8 @@ import {
   id,
 } from './ui.js';
 
-let stdoutSpy: ReturnType<typeof vi.spyOn>;
-let stderrSpy: ReturnType<typeof vi.spyOn>;
+let stdoutSpy: MockInstance<typeof console.log>;
+let stderrSpy: MockInstance<typeof console.error>;
 
 beforeEach(() => {
   stdoutSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

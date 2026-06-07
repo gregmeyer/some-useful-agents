@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { BuildPlan } from '../build-plan-schema.js';
+import type { PriorPlanCandidate } from './memory-retrieval.js';
 import type { PlannerTelemetryStore } from '../planner-telemetry-store.js';
 import { PlannerLoopRunner } from './runner.js';
+
+type KickoffFn = (args: { goal: string; criticFeedback: string; priorPlans?: PriorPlanCandidate[] }) => Promise<string | null>;
+type AutofixFn = (yaml: string) => string;
 
 /**
  * A minimal valid BuildPlan that the critic will accept (no newAgents,
@@ -47,16 +51,16 @@ function stubTelemetry(): PlannerTelemetryStore & {
 
 describe('PlannerLoopRunner', () => {
   function makeRunner(overrides: Partial<{
-    kickoff: ReturnType<typeof vi.fn>;
-    autofix: ReturnType<typeof vi.fn>;
+    kickoff: Mock<KickoffFn>;
+    autofix: Mock<AutofixFn>;
     existingIds: Set<string>;
     knownToolIds: Set<string>;
     telemetry: ReturnType<typeof stubTelemetry>;
     maxRetries: number;
   }> = {}) {
     const telemetry = overrides.telemetry ?? stubTelemetry();
-    const kickoff = overrides.kickoff ?? vi.fn(async () => 'retry-run-123');
-    const autofix = overrides.autofix ?? vi.fn((yaml: string) => yaml);
+    const kickoff = overrides.kickoff ?? vi.fn<KickoffFn>(async () => 'retry-run-123');
+    const autofix = overrides.autofix ?? vi.fn<AutofixFn>((yaml: string) => yaml);
     const runner = new PlannerLoopRunner({
       telemetryStore: telemetry,
       kickoffPlannerRun: kickoff,
@@ -138,7 +142,7 @@ describe('PlannerLoopRunner', () => {
       ...TRIVIAL_PLAN,
       newAgents: [{ id: 'broken', purpose: 'broken', yaml: '!!!not valid yaml at all' }],
     };
-    const kickoff = vi.fn(async () => 'retry-run-abc');
+    const kickoff = vi.fn<KickoffFn>(async () => 'retry-run-abc');
     const { runner, telemetry } = makeRunner({ kickoff });
     const out = await runner.advance({
       runId: 'r6',
@@ -182,7 +186,7 @@ describe('PlannerLoopRunner', () => {
       ...TRIVIAL_PLAN,
       newAgents: [{ id: 'broken', purpose: 'broken', yaml: '!!!not valid yaml at all' }],
     };
-    const kickoff = vi.fn(async () => null);
+    const kickoff = vi.fn<KickoffFn>(async () => null);
     const { runner } = makeRunner({ kickoff });
     const out = await runner.advance({ runId: 'r8', runResult: wrapInPlan(badPlan), planMs: 1 });
     expect(out.kind).toBe('done');
@@ -193,7 +197,7 @@ describe('PlannerLoopRunner', () => {
   });
 
   it('runs autoFixYaml on every newAgent and records the modification count', async () => {
-    const autofix = vi.fn((yaml: string) => `${yaml}\n# autofixed`);
+    const autofix = vi.fn<AutofixFn>((yaml: string) => `${yaml}\n# autofixed`);
     const { runner } = makeRunner({ autofix, existingIds: new Set(['noop']) });
     const out = await runner.advance({
       runId: 'r9',
@@ -235,7 +239,7 @@ describe('PlannerLoopRunner', () => {
         yaml: 'id: unknown-tool\nname: unknown-tool\nnodes:\n  - id: a\n    type: shell\n    tool: not-a-real-tool\n',
       }],
     };
-    const kickoff = vi.fn(async () => 'retry-xyz');
+    const kickoff = vi.fn<KickoffFn>(async () => 'retry-xyz');
     const { runner, telemetry } = makeRunner({
       kickoff,
       existingIds: new Set(['unknown-tool']),
@@ -292,7 +296,7 @@ describe('PlannerLoopRunner', () => {
         planExtractStatus: 'pending', planValidationErrors: 0, planAutofixCount: 0,
         timeToPlanMs: null, timeToCommitMs: null, committedAt: null,
       })) as typeof tele.get;
-      const kickoff = vi.fn(async () => 'retry-mem');
+      const kickoff = vi.fn<KickoffFn>(async () => 'retry-mem');
       const runner = new PlannerLoopRunner({
         telemetryStore: tele,
         kickoffPlannerRun: kickoff,
@@ -329,7 +333,7 @@ describe('PlannerLoopRunner', () => {
       ...TRIVIAL_PLAN,
       newAgents: [{ id: 'broken', purpose: 'p', yaml: '!!!not valid yaml at all' }],
     };
-    const kickoff = vi.fn(async () => 'retry-abc');
+    const kickoff = vi.fn<KickoffFn>(async () => 'retry-abc');
     const { runner } = makeRunner({ kickoff });
     const out = await runner.advance({
       runId: 'r12',
