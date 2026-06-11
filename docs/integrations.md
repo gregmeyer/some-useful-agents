@@ -38,6 +38,7 @@ Config never stores raw credentials — sensitive values are kept in the encrypt
 | `csv` | Query a CSV file | `path`, `has_header`, `delimiter` | yes |
 | `postgres` | Query a Postgres database | `url_secret` (DSN secret, default `DATABASE_URL`), `schemas` | yes |
 | `sqlite` | Query a SQLite database file | `path` | yes |
+| `apple` | macOS Reminders & Notes (experimental) | none (discovered at add-time) | yes |
 
 For the data-source kinds, sua introspects the schema when you save the
 integration and stores a snapshot, so the generated tools know the available
@@ -54,6 +55,49 @@ prefix stripped — `user:customers` → `customers`):
 | `csv` | `csv.<slug>.read`, `csv.<slug>.count` |
 | `postgres` | `postgres.<slug>.<table>.find`, `…find-one`, `…count` (a `<schema>.` segment is inserted for non-`public` schemas) |
 | `sqlite` | `sqlite.<slug>.<table>.find`, `…find-one`, `…count` |
+| `apple` | `apple.<slug>.reminder-create`, `…reminder-read`, `…reminder-update`, `…note-create`, `…note-read` |
+
+## Apple (Reminders & Notes) — experimental, macOS-only
+
+Lets agents create/read reminders and create/read notes on the owner's Mac. It
+compiles a tiny Swift runner on demand (cached at `~/.sua/runners/apple_reminders`)
+that talks to **EventKit** for Reminders and drives **Notes.app via AppleScript**
+for Notes. Unlike the read-only data-source kinds, this kind exposes
+**side-effecting write tools** — `reminder-create`, `reminder-update`, and
+`note-create` change your real data.
+
+**Enable it** (off by default — the engine ships dormant):
+
+```jsonc
+// sua.config.json
+{ "experimental": { "apple": true } }
+```
+
+or `export SUA_EXPERIMENTAL_APPLE=1`. The dashboard **Apple** tab and the
+`apple.*` tools stay hidden/unresolved until this is on.
+
+**Authorize macOS access** once, from a Terminal (not the daemon — a headless
+prompt is silently denied):
+
+```bash
+sua apple authorize
+```
+
+This triggers the **Reminders** permission prompt (EventKit) and the
+**Automation → Notes** prompt (AppleScript) so you can click Allow. The prompts
+attribute to whatever launched the process, not to "sua".
+
+**Add the integration** in Settings → Integrations → Apple. sua introspects your
+authorized reminder lists and note folders and stores them as the snapshot.
+**Adding the integration is the authorization gesture** — it's what grants agents
+the ability to create/read your reminders and notes. No secret to manage; nothing
+personal is stored outside your local `data/runs.db`.
+
+**Caveats.** Reminders is solid (EventKit). **Notes is best-effort**: there is no
+first-party Notes API, so it goes through AppleScript — `note-create` works but
+returns no reliable id, and `note-read` is slow and capped (default 20). Off
+macOS, or without Xcode Command Line Tools (`xcrun`), the tools fail with a clear
+"macOS-only" error.
 
 Common shapes:
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,6 +14,7 @@ import {
   sqliteFindToolId,
   sqliteCountToolId,
   sqliteFindOneToolId,
+  appleToolId,
 } from './generated-tools.js';
 
 let dir: string;
@@ -290,5 +291,102 @@ describe('postgres tool synthesis', () => {
     seedPostgres();
     const find = getGeneratedTool(store, 'postgres.main-db.users.find')!;
     await expect(find.execute({}, {})).rejects.toThrow(/secretsStore/);
+  });
+});
+
+// ── Apple (Reminders & Notes) ─────────────────────────────────────────────
+
+function seedApple() {
+  store.upsertIntegration({
+    id: 'user:apple',
+    packId: null,
+    kind: 'apple',
+    name: 'My Apple',
+    config: {
+      schema: {
+        reminderLists: [{ id: 'L1', title: 'Groceries' }, { id: 'L2', title: 'Work' }],
+        noteFolders: [{ id: 'F1', name: 'Notes' }],
+        introspectedAt: '2026-06-11T00:00:00.000Z',
+      },
+    },
+    secretRefs: [],
+  });
+}
+
+/** Executable fake runner echoing a canned ok response per subcommand. */
+function fakeAppleBinary(): { binaryPath: string } {
+  const path = join(dir, 'fake-apple');
+  writeFileSync(path, `#!/usr/bin/env bash
+sub="\${@: -1}"
+payload=$(cat)
+case "$sub" in
+  reminder-create) echo '{"status":"ok","data":{"id":"r1","title":"t","list":"Groceries"},"error_message":null}' ;;
+  reminder-read) echo '{"status":"ok","data":{"reminders":[{"id":"r1","title":"t"}],"count":1},"error_message":null}' ;;
+  reminder-update) echo '{"status":"ok","data":{"id":"r1","completed":true},"error_message":null}' ;;
+  note-create) echo '{"status":"ok","data":{"id":null,"title":"t","folder":"Notes"},"error_message":null}' ;;
+  note-read) echo '{"status":"ok","data":{"notes":[],"count":0},"error_message":null}' ;;
+  *) echo '{"status":"error","data":null,"error_message":"unknown"}'; exit 1 ;;
+esac
+`, 'utf-8');
+  chmodSync(path, 0o755);
+  return { binaryPath: path };
+}
+
+describe('apple integration tools', () => {
+  beforeEach(() => { process.env.SUA_EXPERIMENTAL_APPLE = '1'; });
+  afterEach(() => { delete process.env.SUA_EXPERIMENTAL_APPLE; });
+
+  it('synthesises all five verbs when the flag is on', () => {
+    seedApple();
+    const tools = listGeneratedTools(store);
+    const appleIds = Array.from(tools.keys()).filter((k) => k.startsWith('apple.')).sort();
+    expect(appleIds).toEqual([
+      'apple.apple.note-create',
+      'apple.apple.note-read',
+      'apple.apple.reminder-create',
+      'apple.apple.reminder-read',
+      'apple.apple.reminder-update',
+    ]);
+  });
+
+  it('synthesises NOTHING when the flag is off', () => {
+    delete process.env.SUA_EXPERIMENTAL_APPLE;
+    seedApple();
+    const tools = listGeneratedTools(store);
+    expect(Array.from(tools.keys()).filter((k) => k.startsWith('apple.'))).toEqual([]);
+    expect(getGeneratedTool(store, appleToolId({ id: 'user:apple' }, 'reminder-create'))).toBeUndefined();
+  });
+
+  it('reminder-create executes through the runner and returns parsed data', async () => {
+    seedApple();
+    const tool = getGeneratedTool(store, 'apple.apple.reminder-create', { appleRunner: fakeAppleBinary() })!;
+    const out = await tool.execute({ title: 'Buy milk', list: 'Groceries' }, {});
+    expect(out.id).toBe('r1');
+    expect(out.list).toBe('Groceries');
+  });
+
+  it('rejects an unauthorized reminder list before spawning', async () => {
+    seedApple();
+    const tool = getGeneratedTool(store, 'apple.apple.reminder-create', { appleRunner: fakeAppleBinary() })!;
+    await expect(tool.execute({ title: 'x', list: 'Nonexistent' }, {})).rejects.toThrow(/No reminder list named "Nonexistent"/);
+  });
+
+  it('rejects an unauthorized note folder before spawning', async () => {
+    seedApple();
+    const tool = getGeneratedTool(store, 'apple.apple.note-create', { appleRunner: fakeAppleBinary() })!;
+    await expect(tool.execute({ title: 'x', folder: 'Secret' }, {})).rejects.toThrow(/No note folder named "Secret"/);
+  });
+
+  it('resolveAppleTool returns undefined for an unknown verb', () => {
+    seedApple();
+    expect(getGeneratedTool(store, 'apple.apple.bogus-verb')).toBeUndefined();
+  });
+
+  it('the reminder-create definition declares the documented io shape', () => {
+    seedApple();
+    const tool = getGeneratedTool(store, 'apple.apple.reminder-create', { appleRunner: fakeAppleBinary() })!;
+    expect(tool.definition.source).toBe('builtin');
+    expect(Object.keys(tool.definition.inputs ?? {})).toEqual(['title', 'notes', 'dueDate', 'list']);
+    expect(tool.definition.outputs?.id?.type).toBe('string');
   });
 });

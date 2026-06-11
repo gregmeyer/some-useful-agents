@@ -36,6 +36,19 @@ export interface SuaConfig {
     /** Rotate log when it exceeds this many bytes (rotate-on-start). */
     logRotateBytes?: number;
   };
+  /**
+   * Opt-ins for capabilities that ship dormant in the package. Each flag is
+   * bridged onto its `SUA_EXPERIMENTAL_*` env var by `loadConfig()` so core
+   * can gate on a single runtime source of truth.
+   */
+  experimental?: {
+    /**
+     * Enable the macOS-only Apple Reminders/Notes integration (the `apple`
+     * integration kind + its generated tools + the dashboard tab). Default
+     * off. Equivalent to `SUA_EXPERIMENTAL_APPLE=1`.
+     */
+    apple?: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: SuaConfig = {
@@ -57,16 +70,29 @@ const DEFAULT_CONFIG: SuaConfig = {
 export function loadConfig(): SuaConfig {
   const configPath = join(process.cwd(), 'sua.config.json');
   if (!existsSync(configPath)) {
-    return DEFAULT_CONFIG;
+    return applyExperimentalFlags(DEFAULT_CONFIG);
   }
 
   try {
     const raw = readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_CONFIG, ...parsed };
+    return applyExperimentalFlags({ ...DEFAULT_CONFIG, ...parsed });
   } catch {
-    return DEFAULT_CONFIG;
+    return applyExperimentalFlags(DEFAULT_CONFIG);
   }
+}
+
+/**
+ * Bridge persistent `experimental.*` config flags onto their
+ * `SUA_EXPERIMENTAL_*` env vars so core can gate on a single runtime source
+ * of truth (see core's `isAppleIntegrationEnabled`). Never unsets an env var
+ * the operator set explicitly — env wins over config.
+ */
+function applyExperimentalFlags(config: SuaConfig): SuaConfig {
+  if (config.experimental?.apple && process.env.SUA_EXPERIMENTAL_APPLE === undefined) {
+    process.env.SUA_EXPERIMENTAL_APPLE = '1';
+  }
+  return config;
 }
 
 /**
