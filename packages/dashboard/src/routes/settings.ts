@@ -364,9 +364,14 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
     } catch { /* tools surface stays empty — form shows the empty hint */ }
   }
 
+  const appleRem = typeof req.query.appleRem === 'string' ? req.query.appleRem : undefined;
+  const appleNotes = typeof req.query.appleNotes === 'string' ? req.query.appleNotes : undefined;
+  const appleAccess = appleRem || appleNotes ? { reminders: appleRem, notes: appleNotes } : undefined;
+
   const body = renderSettingsIntegrations({
     integrations, activeTab, addError, mcpServers, mcpToolsByServer,
     appleEnabled: isAppleIntegrationEnabled(),
+    appleAccess,
   });
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
@@ -594,6 +599,55 @@ settingsRouter.post('/settings/integrations/add', async (req: Request, res: Resp
     return fail(err instanceof Error ? err.message : String(err));
   }
   res.redirect(303, `/settings/integrations?tab=${kind}&flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
+});
+
+// Probe the two macOS TCC buckets (Reminders, Notes/Automation) via the runner
+// with zero-content reads, and report per-bucket status back on the Apple tab.
+settingsRouter.post('/settings/integrations/apple/check', async (req: Request, res: Response) => {
+  if (!isAppleIntegrationEnabled()) {
+    res.redirect(303, '/settings/integrations?tab=apple');
+    return;
+  }
+  const handle = ensureAppleRunner();
+  if (handle.status !== 'ready') {
+    res.redirect(303, '/settings/integrations?tab=apple&appleRem=unsupported&appleNotes=unsupported');
+    return;
+  }
+  const probe = async (sub: string): Promise<string> => {
+    try {
+      const r = await runAppleSubcommand(handle.binaryPath, sub, { limit: 0 }, { timeoutSec: 120 });
+      return r.status;
+    } catch {
+      return 'error';
+    }
+  };
+  const reminders = await probe('reminder-read');
+  const notes = await probe('note-read');
+  res.redirect(303, `/settings/integrations?tab=apple&appleRem=${encodeURIComponent(reminders)}&appleNotes=${encodeURIComponent(notes)}`);
+});
+
+// Open a real Terminal window running `sua apple authorize` so the macOS
+// permission prompts appear in a foreground GUI session (a background daemon's
+// prompt is silently denied). macOS-only; needs the one-time Automation grant
+// to control Terminal the first time.
+settingsRouter.post('/settings/integrations/apple/open-terminal', (req: Request, res: Response) => {
+  if (!isAppleIntegrationEnabled()) {
+    res.redirect(303, '/settings/integrations?tab=apple');
+    return;
+  }
+  if (process.platform !== 'darwin') {
+    res.redirect(303, `/settings/integrations?tab=apple&errKind=apple&errMsg=${encodeURIComponent('Opening Terminal is macOS-only.')}`);
+    return;
+  }
+  const repo = process.cwd().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const script = `tell application "Terminal"\nactivate\ndo script "cd \\"${repo}\\" && sua apple authorize"\nend tell`;
+  try {
+    const child = spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' });
+    child.unref();
+    res.redirect(303, `/settings/integrations?tab=apple&flash=${encodeURIComponent('Opened a Terminal running `sua apple authorize` — approve the macOS prompts there, then click “Check access”.')}`);
+  } catch (err) {
+    res.redirect(303, `/settings/integrations?tab=apple&errKind=apple&errMsg=${encodeURIComponent(`Could not open Terminal: ${(err as Error).message}`)}`);
+  }
 });
 
 settingsRouter.post('/settings/integrations/delete', (req: Request, res: Response) => {

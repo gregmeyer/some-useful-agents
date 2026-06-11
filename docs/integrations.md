@@ -93,11 +93,35 @@ authorized reminder lists and note folders and stores them as the snapshot.
 the ability to create/read your reminders and notes. No secret to manage; nothing
 personal is stored outside your local `data/runs.db`.
 
-**Caveats.** Reminders is solid (EventKit). **Notes is best-effort**: there is no
-first-party Notes API, so it goes through AppleScript — `note-create` works but
-returns no reliable id, and `note-read` is slow and capped (default 20). Off
-macOS, or without Xcode Command Line Tools (`xcrun`), the tools fail with a clear
-"macOS-only" error.
+From the dashboard you can also click **Check access** (probes both permission
+buckets with zero-content reads and shows granted/denied) and **Open Terminal &
+authorize** (launches a Terminal running `sua apple authorize` for you).
+
+### The TCC + daemon gotcha (important)
+
+macOS ties the **Reminders** grant to the *responsible process tree*. When you
+run `sua apple authorize` in Terminal, the grant attaches to **Terminal.app** —
+**not** to sua's background daemons. So a detached process (the dashboard, and
+the **temporal worker** that executes agent nodes) can report **denied** even
+after you authorized in a Terminal, and it can't show its own prompt. (Notes /
+Automation grants are broader and usually carry over.)
+
+What this means for actually running the tools:
+
+- **Reliable today:** run from a Terminal with the local provider, where the node
+  executes in Terminal's (granted) process tree:
+  `SUA_PROVIDER=local sua workflow run apple-reminder-demo`.
+- **For temporal / scheduled runs:** the worker daemon needs the grant too. Start
+  the worker in a **foreground Terminal** (`sua worker start`, not the detached
+  daemon) so it inherits Terminal's grant. The dashboard **Check access** button
+  reflects the daemon's state, so use it to confirm.
+- A durable fix (code-signing the runner with a stable identity + entitlements so
+  TCC keys on the binary) is out of scope for this experimental version.
+
+**Other caveats.** Reminders is solid (EventKit). **Notes is best-effort**: no
+first-party API, so AppleScript — `note-create` works but returns no reliable id,
+and `note-read` is slow and capped (default 20). Off macOS, or without Xcode
+Command Line Tools (`xcrun`), the tools fail with a clear "macOS-only" error.
 
 Common shapes:
 
