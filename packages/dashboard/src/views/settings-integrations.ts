@@ -17,6 +17,8 @@ export interface SettingsIntegrationsArgs {
   mcpToolsByServer?: Record<string, Array<{ name: string; description?: string }>>;
   /** When true, the experimental Apple (Reminders/Notes) tab is shown. Default off. */
   appleEnabled?: boolean;
+  /** Last "Check access" result per TCC bucket (status strings from the runner). */
+  appleAccess?: { reminders?: string; notes?: string };
 }
 
 /**
@@ -505,10 +507,62 @@ function renderFileForm(args: SettingsIntegrationsArgs): SafeHtml {
   `;
 }
 
+function applePill(status?: string): SafeHtml {
+  if (status === 'ok') return html`<span class="badge badge--ok">granted</span>`;
+  if (status === 'denied') return html`<span class="badge badge--warn">denied</span>`;
+  if (status === 'unsupported') return html`<span class="badge">unavailable</span>`;
+  if (!status) return html`<span class="dim">not checked yet</span>`;
+  return html`<span class="badge">${status}</span>`;
+}
+
+function renderAppleAccessCard(args: SettingsIntegrationsArgs): SafeHtml {
+  const access = args.appleAccess;
+  const cmd = 'sua apple authorize';
+  const checked = !!access;
+  const denied = checked && (access!.reminders !== 'ok' || access!.notes !== 'ok');
+  return html`
+    <div class="card">
+      <p class="card__title">macOS access</p>
+      <p class="dim" style="font-size: var(--font-size-sm);">
+        Reminders and Notes each need a one-time macOS permission. Prompts only
+        appear from a foreground GUI session, so the reliable grant path is a
+        Terminal — the dashboard can open one running <code>${cmd}</code> for you.
+      </p>
+      <p class="dim" style="font-size: var(--font-size-xs);">
+        This check reflects the <strong>dashboard/worker daemon's</strong> access —
+        which is what background (scheduled / temporal) runs use. macOS ties the
+        Reminders grant to the granting process tree, so a detached daemon can show
+        <em>denied</em> even after you authorized in a Terminal. If so, run agents
+        from a Terminal with <code>SUA_PROVIDER=local</code>, or start the worker in
+        a foreground Terminal. See docs/integrations.md.
+      </p>
+      <div style="display: flex; gap: var(--space-4); align-items: center; margin: var(--space-2) 0 var(--space-3);">
+        <span>Reminders: ${applePill(access?.reminders)}</span>
+        <span>Notes: ${applePill(access?.notes)}</span>
+      </div>
+      <div style="display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap;">
+        <form action="/settings/integrations/apple/check" method="post" style="display: inline;">
+          <button type="submit" class="btn btn--sm">Check access</button>
+        </form>
+        <form action="/settings/integrations/apple/open-terminal" method="post" style="display: inline;">
+          <button type="submit" class="btn btn--sm btn--primary">Open Terminal &amp; authorize</button>
+        </form>
+        <code id="apple-authorize-cmd" style="padding: var(--space-1) var(--space-2); background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);">${cmd}</code>
+        <button type="button" class="btn btn--sm btn--ghost"
+          onclick="navigator.clipboard.writeText('${cmd}').then(()=>{this.textContent='Copied';setTimeout(()=>{this.textContent='Copy';},1200);})">Copy</button>
+      </div>
+      ${denied ? html`<p class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-2);">
+        A bucket shows denied — click “Open Terminal &amp; authorize” (or run the command), approve the macOS dialog, then “Check access” again.
+      </p>` : unsafeHtml('')}
+    </div>
+  `;
+}
+
 function renderAppleForm(args: SettingsIntegrationsArgs): SafeHtml {
   const err = args.addError?.kind === 'apple' ? args.addError : undefined;
   const v = err?.values ?? {};
   return html`
+    ${renderAppleAccessCard(args)}
     <div class="card">
       <p class="card__title">Add Apple (Reminders &amp; Notes) integration</p>
       <p class="dim">
