@@ -1,7 +1,7 @@
 import type { Integration } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 
-export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite';
+export type IntegrationsTab = 'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite' | 'apple';
 
 export interface SettingsIntegrationsArgs {
   integrations: Integration[];
@@ -15,6 +15,8 @@ export interface SettingsIntegrationsArgs {
   mcpServers?: Array<{ id: string; name: string }>;
   /** Cached MCP tools — populates the mcp-tool form's tool dropdown, keyed by server id. */
   mcpToolsByServer?: Record<string, Array<{ name: string; description?: string }>>;
+  /** When true, the experimental Apple (Reminders/Notes) tab is shown. Default off. */
+  appleEnabled?: boolean;
 }
 
 /**
@@ -43,7 +45,7 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
         built-in. <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/integrations.md" target="_blank" rel="noopener">Learn more →</a>
       </p>
       ${args.inlineNote ? html`<div class="flash flash--${args.inlineNote.kind} mb-3">${args.inlineNote.message}</div>` : unsafeHtml('')}
-      ${renderTabStrip(tab, args.integrations)}
+      ${renderTabStrip(tab, args.integrations, args.appleEnabled ?? false)}
       ${renderIntegrationsTable(filtered, tab)}
     </div>
 
@@ -54,10 +56,11 @@ export function renderSettingsIntegrations(args: SettingsIntegrationsArgs): Safe
     ${tab === 'csv' ? renderCsvForm(args) : unsafeHtml('')}
     ${tab === 'postgres' ? renderPostgresForm(args) : unsafeHtml('')}
     ${tab === 'sqlite' ? renderSqliteForm(args) : unsafeHtml('')}
+    ${tab === 'apple' && (args.appleEnabled ?? false) ? renderAppleForm(args) : unsafeHtml('')}
   `;
 }
 
-function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): SafeHtml {
+function renderTabStrip(active: IntegrationsTab, integrations: Integration[], appleEnabled: boolean): SafeHtml {
   const counts: Record<string, number> = {};
   for (const i of integrations) counts[i.kind] = (counts[i.kind] ?? 0) + 1;
   const tab = (id: IntegrationsTab, label: string) => {
@@ -75,6 +78,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[]): S
       ${tab('csv', 'CSV')}
       ${tab('postgres', 'Postgres')}
       ${tab('sqlite', 'SQLite')}
+      ${appleEnabled ? tab('apple', 'Apple') : html``}
     </nav>
   `;
 }
@@ -165,6 +169,12 @@ function describeConfig(i: Integration): SafeHtml {
       const schema = i.config.schema as { tables?: Record<string, unknown> } | undefined;
       const tableCount = schema?.tables ? Object.keys(schema.tables).length : 0;
       return unsafeHtml(`<code>${esc(path)}</code> <span class="dim">(${tableCount} table${tableCount === 1 ? '' : 's'})</span>`);
+    }
+    case 'apple': {
+      const schema = i.config.schema as { reminderLists?: unknown[]; noteFolders?: unknown[] } | undefined;
+      const lists = Array.isArray(schema?.reminderLists) ? schema!.reminderLists.length : 0;
+      const folders = Array.isArray(schema?.noteFolders) ? schema!.noteFolders.length : 0;
+      return unsafeHtml(`<span class="dim">${lists} reminder list${lists === 1 ? '' : 's'}, ${folders} note folder${folders === 1 ? '' : 's'}</span>`);
     }
     default:
       return unsafeHtml('<span class="dim">—</span>');
@@ -489,6 +499,39 @@ function renderFileForm(args: SettingsIntegrationsArgs): SafeHtml {
 
         <div class="settings-form__actions">
           <button type="submit" class="btn btn--primary">Add File integration</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderAppleForm(args: SettingsIntegrationsArgs): SafeHtml {
+  const err = args.addError?.kind === 'apple' ? args.addError : undefined;
+  const v = err?.values ?? {};
+  return html`
+    <div class="card">
+      <p class="card__title">Add Apple (Reminders &amp; Notes) integration</p>
+      <p class="dim">
+        <strong>Experimental · macOS-only.</strong> Connects to your local
+        Reminders (EventKit) and Notes (AppleScript). On add, sua introspects
+        the reminder lists and note folders you've authorized and generates
+        these tools your nodes can call:
+      </p>
+      <ul class="dim" style="margin: var(--space-1) 0 var(--space-3) var(--space-5); font-size: var(--font-size-sm);">
+        <li><code>apple.&lt;id&gt;.reminder-create</code> / <code>.reminder-read</code> / <code>.reminder-update</code></li>
+        <li><code>apple.&lt;id&gt;.note-create</code> / <code>.note-read</code> <span class="dim">(Notes is best-effort)</span></li>
+      </ul>
+      <p class="dim" style="font-size: var(--font-size-sm);">
+        Grant macOS access first by running <code>sua apple authorize</code> in a
+        Terminal. Adding this integration is what authorizes agents to create and
+        read your reminders/notes — no secret to manage.
+      </p>
+      ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      <form action="/settings/integrations/add" method="post" class="settings-form">
+        <input type="hidden" name="kind" value="apple">
+        ${idAndNameFields(v)}
+        <div class="settings-form__actions">
+          <button type="submit" class="btn btn--primary">Add Apple integration</button>
         </div>
       </form>
     </div>

@@ -48,6 +48,8 @@ import {
   type SqliteTableSpec,
   type SqliteConnectionConfig,
 } from './sqlite-driver.js';
+import { ensureAppleRunner, runAppleSubcommand, type AppleSnapshot } from './apple-runner.js';
+import { isAppleIntegrationEnabled } from '../experimental.js';
 
 /**
  * Strip the `<owner>:` prefix from an integration id to get the
@@ -86,6 +88,9 @@ export function sqliteFindOneToolId(integration: Pick<Integration, 'id'>, table:
 export function sqliteCountToolId(integration: Pick<Integration, 'id'>, table: string): string {
   return `sqlite.${integrationSlug(integration.id)}.${table}.count`;
 }
+export function appleToolId(integration: Pick<Integration, 'id'>, verb: string): string {
+  return `apple.${integrationSlug(integration.id)}.${verb}`;
+}
 
 /**
  * Synthesis options shared by every kind. `secretsStore` is required
@@ -95,6 +100,12 @@ export function sqliteCountToolId(integration: Pick<Integration, 'id'>, table: s
  */
 export interface GeneratedToolDeps {
   secretsStore?: SecretsStore;
+  /**
+   * Override the compiled Apple runner binary. Tests inject a fake binary
+   * here so the apple tools exercise the spawn/JSON-parse path without
+   * compiling Swift or touching the developer's real Reminders/Notes.
+   */
+  appleRunner?: { binaryPath: string };
 }
 
 /**
@@ -117,6 +128,8 @@ export function listGeneratedTools(
       addPostgresEntries(out, integ, deps);
     } else if (integ.kind === 'sqlite') {
       addSqliteEntries(out, integ);
+    } else if (integ.kind === 'apple' && isAppleIntegrationEnabled()) {
+      addAppleEntries(out, integ, deps);
     }
   }
   return out;
@@ -134,6 +147,7 @@ export function getGeneratedTool(
   if (toolId.startsWith('csv.')) return resolveCsvTool(store, toolId);
   if (toolId.startsWith('postgres.')) return resolvePostgresTool(store, toolId, deps);
   if (toolId.startsWith('sqlite.')) return resolveSqliteTool(store, toolId);
+  if (toolId.startsWith('apple.') && isAppleIntegrationEnabled()) return resolveAppleTool(store, toolId, deps);
   return undefined;
 }
 
@@ -617,5 +631,256 @@ function buildSqliteCountEntry(
       return { count, result: JSON.stringify({ count }) };
     },
   };
+}
+
+// ── Apple (Reminders & Notes) resolution + synthesis ───────────────────
+//
+// Unlike csv/postgres/sqlite (read-only find/count), the apple kind exposes
+// WRITE / side-effecting verbs (reminder-create, reminder-update, note-create)
+// alongside reads. Each verb maps 1:1 to a subcommand of the compiled Swift
+// runner; `execute()` shells to the binary and parses one JSON line. The kind
+// is experimental and macOS-only — callers gate on `isAppleIntegrationEnabled()`
+// before reaching here.
+
+/** Pull the Apple snapshot (authorized lists/folders) off an integration row. */
+function readAppleSnapshot(integ: Integration): AppleSnapshot | undefined {
+  const raw = integ.config.schema;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj.reminderLists) || !Array.isArray(obj.noteFolders)) return undefined;
+  return obj as unknown as AppleSnapshot;
+}
+
+/** Resolve the runner binary — injected fake for tests, else compile-on-demand. */
+function resolveAppleBinary(deps: GeneratedToolDeps): string {
+  if (deps.appleRunner?.binaryPath) return deps.appleRunner.binaryPath;
+  const handle = ensureAppleRunner();
+  if (handle.status !== 'ready') {
+    throw new Error(`Apple runner unavailable: ${handle.message ?? handle.status}`);
+  }
+  return handle.binaryPath;
+}
+
+interface AppleVerbSpec {
+  verb: string;
+  subcommand: string;
+  name: string;
+  description: string;
+  inputs: Record<string, ToolInputField>;
+  outputs: Record<string, ToolOutputField>;
+  /** Map tool inputs → runner stdin payload. May throw on snapshot validation. */
+  buildPayload: (inputs: Record<string, unknown>, snapshot: AppleSnapshot) => Record<string, unknown>;
+}
+
+function assertReminderList(snapshot: AppleSnapshot, name: unknown): void {
+  if (typeof name !== 'string' || name === '') return;
+  if (!snapshot.reminderLists.some((l) => l.title === name)) {
+    const avail = snapshot.reminderLists.map((l) => l.title).join(', ') || '(none)';
+    throw new Error(`No reminder list named "${name}". Authorized lists: ${avail}`);
+  }
+}
+function assertNoteFolder(snapshot: AppleSnapshot, name: unknown): void {
+  if (typeof name !== 'string' || name === '') return;
+  if (!snapshot.noteFolders.some((f) => f.name === name)) {
+    const avail = snapshot.noteFolders.map((f) => f.name).join(', ') || '(none)';
+    throw new Error(`No note folder named "${name}". Authorized folders: ${avail}`);
+  }
+}
+
+const reminderRowProps: Record<string, ToolOutputField> = {
+  id: { type: 'string' },
+  title: { type: 'string' },
+  notes: { type: 'string' },
+  completed: { type: 'boolean' },
+  dueDate: { type: 'string', description: 'ISO 8601, or null' },
+  list: { type: 'string' },
+};
+const noteRowProps: Record<string, ToolOutputField> = {
+  id: { type: 'string' },
+  title: { type: 'string' },
+  body: { type: 'string', description: 'HTML body (best-effort)' },
+  folder: { type: 'string' },
+};
+
+const APPLE_VERBS: AppleVerbSpec[] = [
+  {
+    verb: 'reminder-create',
+    subcommand: 'reminder-create',
+    name: 'Create a reminder',
+    description: 'Create a reminder in macOS Reminders. Side-effecting.',
+    inputs: {
+      title: { type: 'string', description: 'Reminder title.', required: true },
+      notes: { type: 'string', description: 'Optional notes body.' },
+      dueDate: { type: 'string', description: 'Optional due date, ISO 8601 (e.g. 2026-06-12T17:00:00Z).' },
+      list: { type: 'string', description: 'Reminder list name. Defaults to the system default list.' },
+    },
+    outputs: {
+      id: { type: 'string', description: 'Identifier of the created reminder.' },
+      title: { type: 'string' },
+      list: { type: 'string' },
+    },
+    buildPayload: (inputs, snapshot) => {
+      assertReminderList(snapshot, inputs.list);
+      return {
+        title: inputs.title,
+        ...(inputs.notes !== undefined ? { notes: inputs.notes } : {}),
+        ...(inputs.dueDate !== undefined ? { dueDate: inputs.dueDate } : {}),
+        ...(inputs.list !== undefined ? { list: inputs.list } : {}),
+      };
+    },
+  },
+  {
+    verb: 'reminder-read',
+    subcommand: 'reminder-read',
+    name: 'Read reminders',
+    description: 'List reminders from macOS Reminders, optionally filtered by list and completion.',
+    inputs: {
+      list: { type: 'string', description: 'Restrict to this reminder list.' },
+      completed: { type: 'boolean', description: 'Filter by completion state. Omit for all.' },
+      limit: { type: 'number', description: 'Maximum reminders to return. Defaults to 100.', default: 100 },
+    },
+    outputs: {
+      reminders: { type: 'array', description: 'Matching reminders.', items: { type: 'object', properties: reminderRowProps } },
+      count: { type: 'number' },
+    },
+    buildPayload: (inputs, snapshot) => {
+      assertReminderList(snapshot, inputs.list);
+      return {
+        ...(inputs.list !== undefined ? { list: inputs.list } : {}),
+        ...(inputs.completed !== undefined ? { completed: inputs.completed } : {}),
+        limit: typeof inputs.limit === 'number' ? inputs.limit : 100,
+      };
+    },
+  },
+  {
+    verb: 'reminder-update',
+    subcommand: 'reminder-update',
+    name: 'Update a reminder',
+    description: 'Mark a reminder complete or edit its fields. Side-effecting.',
+    inputs: {
+      id: { type: 'string', description: 'Reminder identifier (from reminder-read/create).', required: true },
+      completed: { type: 'boolean', description: 'Set completion state.' },
+      title: { type: 'string', description: 'New title.' },
+      notes: { type: 'string', description: 'New notes body.' },
+      dueDate: { type: 'string', description: 'New due date, ISO 8601.' },
+    },
+    outputs: {
+      id: { type: 'string' },
+      completed: { type: 'boolean' },
+    },
+    buildPayload: (inputs) => ({
+      id: inputs.id,
+      ...(inputs.completed !== undefined ? { completed: inputs.completed } : {}),
+      ...(inputs.title !== undefined ? { title: inputs.title } : {}),
+      ...(inputs.notes !== undefined ? { notes: inputs.notes } : {}),
+      ...(inputs.dueDate !== undefined ? { dueDate: inputs.dueDate } : {}),
+    }),
+  },
+  {
+    verb: 'note-create',
+    subcommand: 'note-create',
+    name: 'Create a note',
+    description: 'Create a note in macOS Notes (via AppleScript, best-effort). Side-effecting.',
+    inputs: {
+      title: { type: 'string', description: 'Note title.', required: true },
+      body: { type: 'string', description: 'Note body (plain text; wrapped as HTML).' },
+      folder: { type: 'string', description: 'Notes folder. Defaults to the default account folder.' },
+    },
+    outputs: {
+      id: { type: 'string', description: 'Best-effort note id; may be null.' },
+      title: { type: 'string' },
+      folder: { type: 'string' },
+    },
+    buildPayload: (inputs, snapshot) => {
+      assertNoteFolder(snapshot, inputs.folder);
+      return {
+        title: inputs.title,
+        body: typeof inputs.body === 'string' ? inputs.body : '',
+        ...(inputs.folder !== undefined ? { folder: inputs.folder } : {}),
+      };
+    },
+  },
+  {
+    verb: 'note-read',
+    subcommand: 'note-read',
+    name: 'Read notes',
+    description: 'List notes from macOS Notes (via AppleScript, best-effort, slow). Side-effecting reads.',
+    inputs: {
+      folder: { type: 'string', description: 'Restrict to this Notes folder.' },
+      limit: { type: 'number', description: 'Maximum notes to return. Defaults to 20.', default: 20 },
+    },
+    outputs: {
+      notes: { type: 'array', description: 'Matching notes (best-effort).', items: { type: 'object', properties: noteRowProps } },
+      count: { type: 'number' },
+    },
+    buildPayload: (inputs, snapshot) => {
+      assertNoteFolder(snapshot, inputs.folder);
+      return {
+        ...(inputs.folder !== undefined ? { folder: inputs.folder } : {}),
+        limit: typeof inputs.limit === 'number' ? inputs.limit : 20,
+      };
+    },
+  },
+];
+
+function buildAppleEntry(
+  integ: Integration,
+  snapshot: AppleSnapshot,
+  spec: AppleVerbSpec,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry {
+  const id = appleToolId(integ, spec.verb);
+  const definition: ToolDefinition = {
+    id,
+    name: spec.name,
+    description: `${spec.description} (integration "${integ.id}")`,
+    source: 'builtin',
+    inputs: spec.inputs,
+    outputs: spec.outputs,
+    implementation: { type: 'builtin', builtinName: id },
+  };
+  return {
+    definition,
+    async execute(inputs) {
+      const payload = spec.buildPayload(inputs, snapshot); // may throw on validation
+      const binaryPath = resolveAppleBinary(deps);
+      const res = await runAppleSubcommand(binaryPath, spec.subcommand, payload, { timeoutSec: 30 });
+      if (res.status !== 'ok') {
+        throw new Error(res.errorMessage ?? `apple ${spec.subcommand} failed (${res.status})`);
+      }
+      const data = (res.data && typeof res.data === 'object' ? res.data : {}) as Record<string, unknown>;
+      return { ...data, result: JSON.stringify(data) };
+    },
+  };
+}
+
+function addAppleEntries(out: Map<string, BuiltinToolEntry>, integ: Integration, deps: GeneratedToolDeps): void {
+  const snapshot = readAppleSnapshot(integ);
+  if (!snapshot) return;
+  for (const spec of APPLE_VERBS) {
+    const entry = buildAppleEntry(integ, snapshot, spec, deps);
+    out.set(entry.definition.id, entry);
+  }
+}
+
+function resolveAppleTool(
+  store: IntegrationsStore,
+  toolId: string,
+  deps: GeneratedToolDeps,
+): BuiltinToolEntry | undefined {
+  // Format: apple.<integration-slug>.<verb>. Slugs have no dots; verbs have
+  // no dots (only hyphens), so the verb is everything after the last dot.
+  const rest = toolId.slice('apple.'.length);
+  const dot = rest.lastIndexOf('.');
+  if (dot <= 0) return undefined;
+  const slug = rest.slice(0, dot);
+  const verb = rest.slice(dot + 1);
+  const spec = APPLE_VERBS.find((v) => v.verb === verb);
+  if (!spec) return undefined;
+  const integ = store.getIntegration(`user:${slug}`);
+  if (!integ || integ.kind !== 'apple') return undefined;
+  const snapshot = readAppleSnapshot(integ);
+  if (!snapshot) return undefined;
+  return buildAppleEntry(integ, snapshot, spec, deps);
 }
 

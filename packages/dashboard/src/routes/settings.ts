@@ -6,6 +6,10 @@ import {
   closePostgresPool,
   inferSqliteSnapshot,
   closeSqliteDatabase,
+  isAppleIntegrationEnabled,
+  ensureAppleRunner,
+  runAppleSubcommand,
+  type AppleSnapshot,
   LLM_PROVIDERS,
   isProvider,
   type LlmProvider,
@@ -314,7 +318,7 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
 const INTEGRATION_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
-const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres', 'sqlite']);
+const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres', 'sqlite', 'apple']);
 
 settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -336,7 +340,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   // user sees their preserved values on the right form) or to "all".
   const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
-    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite';
+    'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite' | 'apple';
 
   const integrations = ctx.integrationsStore.listIntegrations();
 
@@ -362,6 +366,7 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
 
   const body = renderSettingsIntegrations({
     integrations, activeTab, addError, mcpServers, mcpToolsByServer,
+    appleEnabled: isAppleIntegrationEnabled(),
   });
   res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
 });
@@ -546,6 +551,33 @@ settingsRouter.post('/settings/integrations/add', async (req: Request, res: Resp
         return fail('No tables found in this SQLite file (or every table name is unsafe to splice into SQL).');
       }
       config = { path, schema: snapshot };
+      secretRefs = [];
+      break;
+    }
+    case 'apple': {
+      if (!isAppleIntegrationEnabled()) {
+        return fail('The Apple integration is experimental and disabled. Enable it with experimental.apple in sua.config.json (or SUA_EXPERIMENTAL_APPLE=1) and restart.');
+      }
+      const handle = ensureAppleRunner();
+      if (handle.status !== 'ready') {
+        return fail(`Apple runner unavailable: ${handle.message ?? handle.status}`);
+      }
+      let snapshot: AppleSnapshot;
+      try {
+        const res = await runAppleSubcommand(handle.binaryPath, 'lists', {}, { timeoutSec: 120 });
+        if (res.status !== 'ok') {
+          return fail(`Could not read Reminders/Notes: ${res.errorMessage ?? res.status}. Run \`sua apple authorize\` in a Terminal first.`);
+        }
+        const data = (res.data ?? {}) as { reminder_lists?: { id: string; title: string }[]; note_folders?: { id: string; name: string }[] };
+        snapshot = {
+          reminderLists: Array.isArray(data.reminder_lists) ? data.reminder_lists : [],
+          noteFolders: Array.isArray(data.note_folders) ? data.note_folders : [],
+          introspectedAt: new Date().toISOString(),
+        };
+      } catch (err) {
+        return fail(`Could not reach the Apple runner: ${(err as Error).message}`);
+      }
+      config = { schema: snapshot };
       secretRefs = [];
       break;
     }

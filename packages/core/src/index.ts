@@ -158,8 +158,20 @@ export {
   sqliteFindToolId,
   sqliteFindOneToolId,
   sqliteCountToolId,
+  appleToolId,
   integrationSlug,
 } from './integrations/generated-tools.js';
+export {
+  ensureAppleRunner,
+  runAppleSubcommand,
+  appleReminderBinaryPath,
+  appleRunnerVersionString,
+  APPLE_SWIFT_SOURCE,
+  type AppleSnapshot,
+  type AppleRunnerHandle,
+  type AppleRunResult,
+} from './integrations/apple-runner.js';
+export { isAppleIntegrationEnabled } from './experimental.js';
 export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,
