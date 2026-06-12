@@ -38,7 +38,7 @@ import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } fr
 import { substituteInputs } from './input-resolver.js';
 import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
-import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog } from './node-env.js';
+import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
 import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
@@ -906,7 +906,11 @@ export async function executeAgentDag(
         // like file-write can template path/content from upstream
         // output, inputs, and the per-agent state directory.
         const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
-        const resolvedInputs = options.inputs ?? {};
+        // Apply agent-level input defaults (and required-input validation) the
+        // same way shell/llm nodes do via node-env — so `{{inputs.X}}` in a
+        // tool node's toolInputs resolves declared defaults, not just the
+        // caller's --input pairs.
+        const resolvedInputs = mergedInputs(agent, options.inputs ?? {});
         const stateDir = deps.dataRoot ? stateDirFor(agent.id, deps.dataRoot) : undefined;
         const resolveStr = (s: string): string =>
           substituteInputs(
