@@ -468,6 +468,28 @@ describe('executeAgentDag — inputs', () => {
     expect(env!.STYLE).toBe('haiku');
   });
 
+  it('applies agent-level input defaults to {{inputs.X}} in a builtin tool node', async () => {
+    // Regression: the builtin-tool path resolved {{inputs.X}} against the
+    // caller's --input pairs only, ignoring declared defaults — so a tool node
+    // templating a defaulted input got an empty string. It must match the
+    // shell/llm path and apply defaults.
+    const agent: Agent = {
+      id: 'parser', name: 'Parser', status: 'active', source: 'local', mcp: false, version: 1,
+      inputs: { PAYLOAD: { type: 'string', default: '{"ok":true}' } },
+      nodes: [{ id: 'parse', type: 'shell', tool: 'json-parse', toolInputs: { text: '{{inputs.PAYLOAD}}' } }],
+    };
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'cli' },
+      { runStore, spawnNode: cannedSpawner({}) },
+    );
+    expect(run.status).toBe('completed');
+    const node = runStore.listNodeExecutions(run.id).find((n) => n.nodeId === 'parse');
+    expect(node?.status).toBe('completed');
+    // json-parse re-serializes the parsed default; empty input would have thrown.
+    expect(node?.result).toContain('"ok":true');
+  });
+
   it('fails with setup when a required input is missing at runtime', async () => {
     const agent: Agent = {
       id: 'weather', name: 'Weather', status: 'active', source: 'local', mcp: false, version: 1,
