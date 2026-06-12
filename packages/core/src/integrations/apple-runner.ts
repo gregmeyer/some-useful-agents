@@ -85,7 +85,11 @@ func isoString(_ d: Date?) -> Any {
 // ── AppleScript helper (Notes has no first-party framework) ─────────────
 
 func runAppleScript(_ src: String) -> (String?, String?) {
-    guard let script = NSAppleScript(source: src) else {
+    // Wrap in \`with timeout\` so a blocked Apple event — e.g. driving Notes.app
+    // from a process without a GUI session or Automation grant, which otherwise
+    // hangs until the caller's 30s spawn timeout — fails fast with a clear error.
+    let wrapped = "with timeout of 10 seconds\\n" + src + "\\nend timeout"
+    guard let script = NSAppleScript(source: wrapped) else {
         return (nil, "could not compile AppleScript")
     }
     var errorDict: NSDictionary?
@@ -93,6 +97,12 @@ func runAppleScript(_ src: String) -> (String?, String?) {
     if let err = errorDict {
         let num = (err["NSAppleScriptErrorNumber"] as? Int) ?? 0
         let msg = (err["NSAppleScriptErrorMessage"] as? String) ?? "AppleScript error"
+        if num == -1712 {
+            return (nil, "Notes did not respond (AppleEvent timed out after 10s). The worker likely lacks a GUI session — run it via \`sua worker install-launchagent\` and approve the macOS prompt.")
+        }
+        if num == -1743 {
+            return (nil, "Automation access to Notes is denied. Grant it in System Settings > Privacy & Security > Automation, or run \`sua apple authorize\`.")
+        }
         return (nil, "AppleScript error \\(num): \\(msg)")
     }
     return (result.stringValue ?? "", nil)
