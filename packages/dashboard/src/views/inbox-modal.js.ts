@@ -784,7 +784,10 @@ export const INBOX_MODAL_JS = `
     if (form.getAttribute('data-inflight') === '1') return;
     form.setAttribute('data-inflight', '1');
 
-    var action = form.getAttribute('action');
+    // Respect a submit button's formaction so one form can drive multiple
+    // routes (e.g. the thread-actions Fork/Retarget buttons share one select).
+    var submitter = e.submitter || null;
+    var action = (submitter && submitter.getAttribute('formaction')) || form.getAttribute('action');
     var method = (form.getAttribute('method') || 'POST').toUpperCase();
     var formData = new FormData(form);
     var submits = form.querySelectorAll('button[type="submit"]');

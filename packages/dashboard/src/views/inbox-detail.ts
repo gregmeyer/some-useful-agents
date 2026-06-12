@@ -43,8 +43,8 @@ export interface InboxDetailOptions {
     currentStatus: string;
     nextStep?: string;
   };
-  /** Installed non-system agent ids offered as fork/retarget targets. */
-  forkableAgentIds?: string[];
+  /** Installed non-system agents offered as fork/retarget targets. */
+  forkableAgents?: { id: string; name: string }[];
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -117,7 +117,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, forkableAgentIds = [] } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, forkableAgents = [] } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
 
@@ -213,26 +213,26 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // work to another agent — fork (new thread, keeps provenance) or retarget
   // (rewrite this thread's agent link). Each is a small AJAX form reusing the
   // existing inbox-modal submit pattern; no new client JS.
-  const forkOptions = forkableAgentIds.map((agentId) => html`<option value="${agentId}"></option>`);
+  const agentOptions = forkableAgents.map((a) => html`<option value="${a.id}">${a.name}</option>`);
   const threadActions = html`
     <section class="inbox-thread-actions">
       <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form style="margin: 0;">
-        <button type="submit" class="btn btn--sm btn--ghost">Summarize</button>
+        <button type="submit" class="btn btn--sm btn--ghost" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
       </form>
       ${isTerminal ? html`
         <form method="POST" action="/inbox/${message.id}/reopen" data-inbox-modal-form style="margin: 0;">
           <button type="submit" class="btn btn--sm btn--ghost">Reopen</button>
         </form>
       ` : html``}
-      ${forkableAgentIds.length > 0 ? html`
-        <datalist id="forkable-agents-${message.id}">${forkOptions as unknown as SafeHtml[]}</datalist>
+      ${forkableAgents.length > 0 ? html`
         <form method="POST" action="/inbox/${message.id}/fork" data-inbox-modal-form class="inbox-thread-actions__move">
-          <input type="text" name="agentId" list="forkable-agents-${message.id}" class="inbox-thread-actions__input" placeholder="agent id" aria-label="Fork to agent id" required>
-          <button type="submit" class="btn btn--sm btn--ghost" title="Create a new thread targeting this agent, carrying a summary of this one">Fork to agent</button>
-        </form>
-        <form method="POST" action="/inbox/${message.id}/retarget" data-inbox-modal-form class="inbox-thread-actions__move">
-          <input type="text" name="agentId" list="forkable-agents-${message.id}" class="inbox-thread-actions__input" placeholder="agent id" aria-label="Retarget to agent id" required>
-          <button type="submit" class="btn btn--sm btn--ghost" title="Point THIS thread at a different agent (rewrites the agent link)">Retarget</button>
+          <span class="inbox-thread-actions__move-label">Move to</span>
+          <select name="agentId" class="inbox-thread-actions__select" required aria-label="Target agent">
+            <option value="" disabled selected>Choose agent…</option>
+            ${agentOptions as unknown as SafeHtml[]}
+          </select>
+          <button type="submit" class="btn btn--sm btn--ghost" title="Fork: start a new thread for the chosen agent, carrying a summary of this one (this thread is untouched)">Fork</button>
+          <button type="submit" formaction="/inbox/${message.id}/retarget" class="btn btn--sm btn--ghost" title="Retarget: point THIS thread at the chosen agent (no new thread)">Retarget</button>
         </form>
       ` : html``}
     </section>
