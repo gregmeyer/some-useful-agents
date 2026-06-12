@@ -111,12 +111,23 @@ What this means for actually running the tools:
 - **Reliable today:** run from a Terminal with the local provider, where the node
   executes in Terminal's (granted) process tree:
   `SUA_PROVIDER=local sua workflow run apple-reminder-demo`.
-- **For temporal / scheduled runs:** the worker daemon needs the grant too. Start
-  the worker in a **foreground Terminal** (`sua worker start`, not the detached
-  daemon) so it inherits Terminal's grant. The dashboard **Check access** button
-  reflects the daemon's state, so use it to confirm.
-- A durable fix (code-signing the runner with a stable identity + entitlements so
-  TCC keys on the binary) is out of scope for this experimental version.
+- **For temporal / scheduled runs**, the worker that executes nodes needs the
+  grant too. Two options, easiest first:
+  - **Quick:** run the worker in a **foreground Terminal** (`sua worker start`,
+    not the detached daemon) so it inherits Terminal's grant.
+  - **Durable (recommended):** `sua worker install-launchagent` installs a user
+    LaunchAgent that runs the worker in your **GUI login session**, where macOS
+    *can* surface the permission prompt and persist the grant across reboots. The
+    first reminder run prompts once; approve it. Stop the detached daemon worker
+    first (`sua daemon stop --service worker`) so they don't both consume the
+    queue. Manage it with `sua worker launchagent-status` /
+    `sua worker uninstall-launchagent`.
+  The dashboard **Check access** button reflects the daemon's state, so use it to
+  confirm which path the worker is on.
+- The fully distributable fix — code-signing the runner so TCC keys on the binary
+  regardless of launching process — is captured in
+  [ADR-0026](adr/0026-apple-runner-code-signing.md), to do when the integration
+  is un-gated for distribution.
 
 **Other caveats.** Reminders is solid (EventKit). **Notes is best-effort**: no
 first-party API, so AppleScript — `note-create` works but returns no reliable id,
