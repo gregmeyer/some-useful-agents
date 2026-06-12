@@ -3785,17 +3785,27 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-thread-actions__move {
   display: inline-flex;
-  gap: var(--space-1);
+  gap: var(--space-2);
   align-items: center;
   margin: 0;
 }
-.inbox-thread-actions__input {
-  min-width: 9rem;
+.inbox-thread-actions__move-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+.inbox-thread-actions__select {
+  min-width: 10rem;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 .inbox-modal__timeline-section {

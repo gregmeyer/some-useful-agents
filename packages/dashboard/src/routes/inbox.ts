@@ -243,12 +243,12 @@ function summarizeInline(text: string | undefined, max = 180): string | undefine
 }
 
 /** Installed non-system agents a thread can be forked/retargeted to. */
-function listForkableAgentIds(ctx: ReturnType<typeof getContext>): string[] {
+function listForkableAgents(ctx: ReturnType<typeof getContext>): { id: string; name: string }[] {
   try {
     return ctx.agentStore.listAgents()
       .filter((agent) => !SYSTEM_AGENT_IDS.has(agent.id))
-      .map((agent) => agent.id)
-      .sort((a, b) => a.localeCompare(b));
+      .map((agent) => ({ id: agent.id, name: agent.name || agent.id }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return [];
   }
@@ -461,7 +461,7 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     currentTargetYaml,
     inlineActionWidgets,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
-    forkableAgentIds: listForkableAgentIds(ctx),
+    forkableAgents: listForkableAgents(ctx),
   }));
 });
 
@@ -488,7 +488,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     currentTargetYaml,
     inlineActionWidgets,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
-    forkableAgentIds: listForkableAgentIds(ctx),
+    forkableAgents: listForkableAgents(ctx),
   })));
 });
 
