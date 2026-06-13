@@ -940,7 +940,10 @@ export async function executeAgentDag(
       } else if (toolId && deps.toolStore) {
         const userTool = deps.toolStore.getTool(toolId);
         if (!userTool) {
-          throw new Error(`Tool "${toolId}" not found in registry or store.`);
+          throw new Error(
+            `Tool "${toolId}" did not resolve — not a built-in, a generated integration tool, or a stored tool. ` +
+              `The integration may be disabled (experimental flag off), not installed, or this worker may be running stale code (restart it).`,
+          );
         }
 
         if (userTool.implementation.type === 'mcp') {

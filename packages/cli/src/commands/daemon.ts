@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -236,8 +237,33 @@ daemonCommand
       }
     }
 
+    // Competing-worker guard: under Temporal, more than one worker polling the
+    // task queue means a run can land on an unintended (ungranted / stale)
+    // worker — the cause of flaky "tool did not resolve" failures. Warn loudly.
+    if (config.provider === 'temporal') {
+      const workers = countWorkerProcesses();
+      if (workers > 1) {
+        ui.warn(`${workers} worker processes are running.`);
+        console.error(ui.dim(
+          '  Multiple workers compete for the Temporal task queue, so a run can execute on an\n' +
+          '  unintended worker (e.g. one lacking macOS grants or running stale code). Keep exactly one:\n' +
+          '  stop extras with `sua daemon stop --service worker` / `sua worker uninstall-launchagent`.',
+        ));
+      }
+    }
+
     console.log(ui.dim(`\nLogs: ${daemonPaths(dataDir).logsDir}\n`));
   });
+
+/** Count host processes running a Temporal worker (`… worker start`). */
+function countWorkerProcesses(): number {
+  try {
+    const out = execFileSync('pgrep', ['-f', 'worker start'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.split('\n').map((s) => s.trim()).filter(Boolean).length;
+  } catch {
+    return 0; // pgrep exits non-zero when there are no matches (or isn't available)
+  }
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────
 

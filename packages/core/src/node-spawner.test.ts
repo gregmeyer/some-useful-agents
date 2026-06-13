@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, validateOutputContract, type SpawnResult } from './node-spawner.js';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, spawnNodeReal, validateOutputContract, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -422,3 +422,24 @@ describe('codexSpawner', () => {
   });
 });
 
+
+describe('spawnNodeReal — unresolved tool node', () => {
+  const opts = { agentId: 'a', agentSource: 'local' as const };
+
+  it('reports a clear "tool did not resolve" error when a tool node reaches the shell path', async () => {
+    const res = await spawnNodeReal(
+      { id: 'create', type: 'shell', tool: 'apple.apple.reminder-create' },
+      {},
+      opts,
+    );
+    expect(res.category).toBe('setup');
+    expect(res.error).toContain('Tool "apple.apple.reminder-create" did not resolve');
+    expect(res.error).toMatch(/disabled|not installed|stale/);
+    expect(res.error).not.toContain('has no command');
+  });
+
+  it('keeps "has no command" for a plain shell node with no tool', async () => {
+    const res = await spawnNodeReal({ id: 'x', type: 'shell' }, {}, opts);
+    expect(res.error).toBe('Shell node "x" has no command');
+  });
+});
