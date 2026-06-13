@@ -117,7 +117,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, forkableAgents = [] } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
 
@@ -139,32 +139,10 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // operator's primary "what state is this in" signal. Source is now
   // implicit via the priority + agent + runId combination (it's
   // surfaced on the list view).
-  const headerMeta = html`
-    <div class="inbox-modal__meta">
-      <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
-      <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
-      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="Triage is working on a proposed action">${pendingCommitment}…</span>` : html``}
-      ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
-      ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
-      <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
-    </div>
-  `;
-
-  // Star control sits in the title row, top-right (mirrors the
-  // modal-shell ✕ close button alignment).
-  const starControl = html`
-    <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form class="inbox-modal__star-form">
-      <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
-      <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
-    </form>
-  `;
-  const permalinkControl = html`
-    <a href="/inbox/${message.id}" class="btn btn--ghost btn--xs inbox-modal__permalink">Open page</a>
-  `;
-
   // Tags as pills with inline ×. The form submits the full tag set on
   // every change (existing route contract — `tags` is a CSV); JS
-  // handles add/remove deltas client-side and then submits.
+  // handles add/remove deltas client-side and then submits. Defined
+  // before headerMeta because it now lives INSIDE the meta band.
   const tagPills = message.tags.map((t) => html`
     <span class="inbox-pill" data-inbox-tag="${t}">
       ${t}<button type="button" class="inbox-pill__remove" data-inbox-tag-remove="${t}" aria-label="Remove tag ${t}">×</button>
@@ -178,6 +156,33 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       <input type="text" class="inbox-modal__tag-add" placeholder="Add tag…" aria-label="Add tag"
         data-inbox-tag-add maxlength="32">
     </form>
+  `;
+
+  // Tight meta band: priority dot + status + agent link + run link + tags,
+  // with age pushed to the right. Tags share this band (one fewer vertical
+  // band); the row wraps on narrow widths.
+  const headerMeta = html`
+    <div class="inbox-modal__meta">
+      <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
+      <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
+      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="Triage is working on a proposed action">${pendingCommitment}…</span>` : html``}
+      ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
+      ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
+      ${tagsBlock}
+      <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
+    </div>
+  `;
+
+  // Star control sits in the title row, top-right (mirrors the
+  // modal-shell ✕ close button alignment).
+  const starControl = html`
+    <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form class="inbox-modal__star-form">
+      <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
+      <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
+    </form>
+  `;
+  const permalinkControl = html`
+    <a href="/inbox/${message.id}" class="btn btn--ghost btn--xs inbox-modal__permalink">Open full page</a>
   `;
 
   // Body lands without a heading — it IS the content, no label needed.
@@ -209,33 +214,33 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   ` : html``;
 
-  // Thread actions: summarize, reopen (terminal only), and move the thread's
-  // work to another agent — fork (new thread, keeps provenance) or retarget
-  // (rewrite this thread's agent link). Each is a small AJAX form reusing the
-  // existing inbox-modal submit pattern; no new client JS.
-  const agentOptions = forkableAgents.map((a) => html`<option value="${a.id}">${a.name}</option>`);
-  const threadActions = html`
-    <section class="inbox-thread-actions">
-      <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form style="margin: 0;">
-        <button type="submit" class="btn btn--sm btn--ghost" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
-      </form>
-      ${isTerminal ? html`
-        <form method="POST" action="/inbox/${message.id}/reopen" data-inbox-modal-form style="margin: 0;">
-          <button type="submit" class="btn btn--sm btn--ghost">Reopen</button>
+  // Overflow (⋯) actions menu — rare, low-frequency verbs tucked behind a
+  // disclosure so the header foregrounds state + identity. Native <details>
+  // (same primitive as dashboards-dropdown) — no menu framework, no new JS;
+  // a small click-outside handler in inbox-modal.js closes it. Each item is
+  // an AJAX form reusing the existing inbox-modal submit pattern, so acting
+  // refreshes the fragment and dismisses the menu.
+  //   - Summarize: pin a derived goal/status/next-step summary into the thread.
+  //   - Reopen (terminal only): move a resolved/dismissed thread back to open.
+  // (The /fork and /retarget routes still exist for the build/diagnose loop,
+  //  but both confused humans — fork hands the thread off to another agent as
+  //  a new thread, retarget re-points this thread's agent — so neither is in
+  //  the human UI anymore.)
+  // Summarize is always available, so the menu always renders.
+  const actionsMenu = html`
+    <details class="inbox-modal__menu" data-inbox-menu>
+      <summary class="inbox-modal__menu-trigger" role="button" aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</summary>
+      <div class="inbox-modal__menu-panel" role="menu">
+        <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form class="inbox-modal__menu-form">
+          <button type="submit" class="inbox-modal__menu-item" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
         </form>
-      ` : html``}
-      ${forkableAgents.length > 0 ? html`
-        <form method="POST" action="/inbox/${message.id}/fork" data-inbox-modal-form class="inbox-thread-actions__move">
-          <span class="inbox-thread-actions__move-label">Move to</span>
-          <select name="agentId" class="inbox-thread-actions__select" required aria-label="Target agent">
-            <option value="" disabled selected>Choose agent…</option>
-            ${agentOptions as unknown as SafeHtml[]}
-          </select>
-          <button type="submit" class="btn btn--sm btn--ghost" title="Fork: start a new thread for the chosen agent, carrying a summary of this one (this thread is untouched)">Fork</button>
-          <button type="submit" formaction="/inbox/${message.id}/retarget" class="btn btn--sm btn--ghost" title="Retarget: point THIS thread at the chosen agent (no new thread)">Retarget</button>
-        </form>
-      ` : html``}
-    </section>
+        ${isTerminal ? html`
+          <form method="POST" action="/inbox/${message.id}/reopen" data-inbox-modal-form class="inbox-modal__menu-form">
+            <button type="submit" class="inbox-modal__menu-item">Reopen</button>
+          </form>
+        ` : html``}
+      </div>
+    </details>
   `;
 
   const timeline = responses.map((r) => html`
@@ -298,15 +303,14 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
           <div class="inbox-modal__title-actions">
             ${permalinkControl}
             ${starControl}
+            ${actionsMenu}
           </div>
         </header>
         ${headerMeta}
-        ${tagsBlock}
         ${flashBlock}
         ${bodyBlock}
         ${contextBlock}
         ${summaryBlock}
-        ${threadActions}
       </div>
       <div class="inbox-detail__thread">
         ${timelineBlock}
