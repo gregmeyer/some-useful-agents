@@ -672,21 +672,33 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     body: bodyRaw,
     createdAt: userResponse.createdAt,
   });
-  // Auto-fire triage UNLESS a proposed-or-running action is pending
-  // on this thread. The prior action either is awaiting an operator
-  // click (proposed) or is mid-execution (running); auto-firing
-  // triage now would race against the action's lifecycle and could
-  // pile up redundant proposals. The follow-up triage turn that
-  // `maybeRefireTriage` schedules at action-completion picks up the
-  // operator's reply (it lives in the same CONVERSATION snapshot)
-  // so nothing is lost. Operator can still hit "Ask triage"
-  // explicitly when they want a fresh turn now.
+  // A RUNNING action is mid-execution — we can't safely yank it, so
+  // hold off: don't fire triage and don't touch the card. The
+  // follow-up turn `maybeRefireTriage` schedules at completion picks
+  // up this reply (same CONVERSATION snapshot), so nothing is lost.
+  //
+  // A PROPOSED action is just awaiting a click. The operator typing a
+  // reply instead of clicking Run usually means they've redirected, so
+  // we auto-retire the proposed card (attributed to triage — it's a
+  // supersede, not the operator declining) and fire a fresh triage
+  // turn that re-plans against their latest request (CURRENT_REQUEST).
+  // If the reply didn't actually supersede it, triage just re-proposes.
   const responsesNow = ctx.inboxStore.listResponses(id);
-  const actionPending = responsesNow.some((r) => {
-    const m = parseActionMeta(r);
-    return m && (m.status === 'proposed' || m.status === 'running');
-  });
-  if (!actionPending) {
+  const runningPending = responsesNow.some((r) => parseActionMeta(r)?.status === 'running');
+  if (!runningPending) {
+    for (const r of responsesNow) {
+      const m = parseActionMeta(r);
+      if (!m || m.status !== 'proposed') continue;
+      const superseded: InboxActionMeta = { ...m, status: 'skipped', skippedBy: 'triage', endedAt: Date.now() };
+      if (ctx.inboxStore.transitionActionStatus(r.id, 'proposed', JSON.stringify(superseded))) {
+        publishInboxEvent(ctx, id, 'action:status', {
+          responseId: r.id,
+          status: 'skipped',
+          agentId: m.agentId,
+          endedAt: superseded.endedAt,
+        });
+      }
+    }
     // Fire-and-forget; the modal polls /fragment for the response.
     // The conversation thread itself signals "in progress" via the
     // user-reply-within-30s heuristic in isTriagePending.
@@ -1105,7 +1117,7 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
     return;
   }
   // Atomic claim — same race-free transition as /run uses.
-  const skippedMeta: InboxActionMeta = { ...meta, status: 'skipped', endedAt: Date.now() };
+  const skippedMeta: InboxActionMeta = { ...meta, status: 'skipped', skippedBy: 'operator', endedAt: Date.now() };
   const claimed = ctx.inboxStore.transitionActionStatus(rid, 'proposed', JSON.stringify(skippedMeta));
   if (!claimed) {
     if (isAjax(req)) { res.status(204).end(); return; }
