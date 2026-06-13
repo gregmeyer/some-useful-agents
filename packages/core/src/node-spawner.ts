@@ -594,6 +594,18 @@ export async function spawnNodeReal(
 ): Promise<SpawnResult> {
   if (node.type === 'shell') {
     if (!node.command) {
+      // A node carrying a `tool:` reference should have been resolved + executed
+      // by the dag-executor before ever reaching the shell spawn path. If it
+      // lands here with no command, the tool did NOT resolve — give an
+      // actionable reason instead of the misleading "has no command".
+      if (node.tool) {
+        return {
+          result: '',
+          exitCode: 1,
+          error: `Tool "${node.tool}" did not resolve for node "${node.id}". The integration may be disabled (experimental flag off), not installed, or this worker may be running stale code (restart it).`,
+          category: 'setup',
+        };
+      }
       return { result: '', exitCode: 1, error: `Shell node "${node.id}" has no command`, category: 'setup' };
     }
     return spawnProcess('bash', ['-c', node.command], {
