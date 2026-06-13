@@ -296,6 +296,29 @@ function buildThreadSummary(
   return { currentGoal, latestResult, currentStatus: humanInboxStatus(message.status), nextStep };
 }
 
+/**
+ * The operator's most recent real ask in the thread — the authoritative
+ * "current intent" for triage. Scans responses newest-first for a `user`
+ * row, skipping the synthetic "Ask triage" marker. Returns undefined when
+ * the operator hasn't replied yet (triage is the first responder), in
+ * which case the original message body is the only intent on record.
+ *
+ * Triage gets this as a first-class `CURRENT_REQUEST` input so a mid-thread
+ * pivot ("actually, run the HN summary instead") wins over the frozen
+ * original `MESSAGE_BODY`, which never changes after the thread is created.
+ */
+export function latestUserRequest(responses: readonly InboxResponse[]): string | undefined {
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    if (response.role !== 'user') continue;
+    const body = response.body.trim();
+    if (body === '(Asked triage to take another look.)') continue;
+    if (!body) continue;
+    return body;
+  }
+  return undefined;
+}
+
 /** Parse a message's contextJson into a plain object (empty on absent/invalid). */
 function normalizeContextJson(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -2469,7 +2492,8 @@ async function runTriageAgent(
   // Build conversation snapshot for the prompt. For action-role rows,
   // include the structured status so the model can see what already
   // ran rather than just the rationale body.
-  const conversation = ctx.inboxStore.listResponses(messageId)
+  const responsesSnapshot = ctx.inboxStore.listResponses(messageId);
+  const conversation = responsesSnapshot
     .map((r) => {
       if (r.role === 'action') {
         const m = parseActionMeta(r);
@@ -2479,6 +2503,13 @@ async function runTriageAgent(
       return `[${r.role}] ${r.body}`;
     })
     .join('\n');
+
+  // The operator's latest real ask is the authoritative current intent.
+  // MESSAGE_BODY is frozen at thread creation, so on a mid-thread pivot
+  // (or an auto-follow-up turn after a pivot) it would otherwise pull
+  // triage back to the original request. Falls back to the message body
+  // when the operator hasn't replied yet (triage is first responder).
+  const currentRequest = latestUserRequest(responsesSnapshot) ?? message.body;
 
   const allowlist = getSubAgentAllowlist(ctx);
   const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
@@ -2516,6 +2547,7 @@ async function runTriageAgent(
           MESSAGE_ID: message.id,
           MESSAGE_TITLE: message.title,
           MESSAGE_BODY: message.body,
+          CURRENT_REQUEST: currentRequest,
           MESSAGE_PRIORITY: message.priority,
           MESSAGE_SOURCE: message.source,
           CONTEXT_JSON: message.contextJson ?? '',
