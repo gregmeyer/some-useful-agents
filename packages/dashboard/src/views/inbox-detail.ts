@@ -622,7 +622,9 @@ function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml):
         </div>
       `;
     case 'skipped':
-      return html`<div class="inbox-action__result inbox-action__result--muted">Skipped by operator.</div>`;
+      return html`<div class="inbox-action__result inbox-action__result--muted">${
+        meta.skippedBy === 'triage' ? 'Superseded by your reply.' : 'Skipped by operator.'
+      }</div>`;
     case 'refused':
       return html`
         <div class="inbox-action__result inbox-action__result--err">
