@@ -296,6 +296,29 @@ function buildThreadSummary(
   return { currentGoal, latestResult, currentStatus: humanInboxStatus(message.status), nextStep };
 }
 
+/**
+ * The operator's most recent real ask in the thread — the authoritative
+ * "current intent" for triage. Scans responses newest-first for a `user`
+ * row, skipping the synthetic "Ask triage" marker. Returns undefined when
+ * the operator hasn't replied yet (triage is the first responder), in
+ * which case the original message body is the only intent on record.
+ *
+ * Triage gets this as a first-class `CURRENT_REQUEST` input so a mid-thread
+ * pivot ("actually, run the HN summary instead") wins over the frozen
+ * original `MESSAGE_BODY`, which never changes after the thread is created.
+ */
+export function latestUserRequest(responses: readonly InboxResponse[]): string | undefined {
+  for (let i = responses.length - 1; i >= 0; i -= 1) {
+    const response = responses[i];
+    if (response.role !== 'user') continue;
+    const body = response.body.trim();
+    if (body === '(Asked triage to take another look.)') continue;
+    if (!body) continue;
+    return body;
+  }
+  return undefined;
+}
+
 /** Parse a message's contextJson into a plain object (empty on absent/invalid). */
 function normalizeContextJson(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -649,21 +672,33 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     body: bodyRaw,
     createdAt: userResponse.createdAt,
   });
-  // Auto-fire triage UNLESS a proposed-or-running action is pending
-  // on this thread. The prior action either is awaiting an operator
-  // click (proposed) or is mid-execution (running); auto-firing
-  // triage now would race against the action's lifecycle and could
-  // pile up redundant proposals. The follow-up triage turn that
-  // `maybeRefireTriage` schedules at action-completion picks up the
-  // operator's reply (it lives in the same CONVERSATION snapshot)
-  // so nothing is lost. Operator can still hit "Ask triage"
-  // explicitly when they want a fresh turn now.
+  // A RUNNING action is mid-execution — we can't safely yank it, so
+  // hold off: don't fire triage and don't touch the card. The
+  // follow-up turn `maybeRefireTriage` schedules at completion picks
+  // up this reply (same CONVERSATION snapshot), so nothing is lost.
+  //
+  // A PROPOSED action is just awaiting a click. The operator typing a
+  // reply instead of clicking Run usually means they've redirected, so
+  // we auto-retire the proposed card (attributed to triage — it's a
+  // supersede, not the operator declining) and fire a fresh triage
+  // turn that re-plans against their latest request (CURRENT_REQUEST).
+  // If the reply didn't actually supersede it, triage just re-proposes.
   const responsesNow = ctx.inboxStore.listResponses(id);
-  const actionPending = responsesNow.some((r) => {
-    const m = parseActionMeta(r);
-    return m && (m.status === 'proposed' || m.status === 'running');
-  });
-  if (!actionPending) {
+  const runningPending = responsesNow.some((r) => parseActionMeta(r)?.status === 'running');
+  if (!runningPending) {
+    for (const r of responsesNow) {
+      const m = parseActionMeta(r);
+      if (!m || m.status !== 'proposed') continue;
+      const superseded: InboxActionMeta = { ...m, status: 'skipped', skippedBy: 'triage', endedAt: Date.now() };
+      if (ctx.inboxStore.transitionActionStatus(r.id, 'proposed', JSON.stringify(superseded))) {
+        publishInboxEvent(ctx, id, 'action:status', {
+          responseId: r.id,
+          status: 'skipped',
+          agentId: m.agentId,
+          endedAt: superseded.endedAt,
+        });
+      }
+    }
     // Fire-and-forget; the modal polls /fragment for the response.
     // The conversation thread itself signals "in progress" via the
     // user-reply-within-30s heuristic in isTriagePending.
@@ -1082,7 +1117,7 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
     return;
   }
   // Atomic claim — same race-free transition as /run uses.
-  const skippedMeta: InboxActionMeta = { ...meta, status: 'skipped', endedAt: Date.now() };
+  const skippedMeta: InboxActionMeta = { ...meta, status: 'skipped', skippedBy: 'operator', endedAt: Date.now() };
   const claimed = ctx.inboxStore.transitionActionStatus(rid, 'proposed', JSON.stringify(skippedMeta));
   if (!claimed) {
     if (isAjax(req)) { res.status(204).end(); return; }
@@ -2469,7 +2504,8 @@ async function runTriageAgent(
   // Build conversation snapshot for the prompt. For action-role rows,
   // include the structured status so the model can see what already
   // ran rather than just the rationale body.
-  const conversation = ctx.inboxStore.listResponses(messageId)
+  const responsesSnapshot = ctx.inboxStore.listResponses(messageId);
+  const conversation = responsesSnapshot
     .map((r) => {
       if (r.role === 'action') {
         const m = parseActionMeta(r);
@@ -2479,6 +2515,13 @@ async function runTriageAgent(
       return `[${r.role}] ${r.body}`;
     })
     .join('\n');
+
+  // The operator's latest real ask is the authoritative current intent.
+  // MESSAGE_BODY is frozen at thread creation, so on a mid-thread pivot
+  // (or an auto-follow-up turn after a pivot) it would otherwise pull
+  // triage back to the original request. Falls back to the message body
+  // when the operator hasn't replied yet (triage is first responder).
+  const currentRequest = latestUserRequest(responsesSnapshot) ?? message.body;
 
   const allowlist = getSubAgentAllowlist(ctx);
   const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
@@ -2516,6 +2559,7 @@ async function runTriageAgent(
           MESSAGE_ID: message.id,
           MESSAGE_TITLE: message.title,
           MESSAGE_BODY: message.body,
+          CURRENT_REQUEST: currentRequest,
           MESSAGE_PRIORITY: message.priority,
           MESSAGE_SOURCE: message.source,
           CONTEXT_JSON: message.contextJson ?? '',

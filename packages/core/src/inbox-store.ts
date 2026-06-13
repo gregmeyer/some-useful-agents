@@ -92,6 +92,14 @@ export interface InboxActionMeta {
   resultSummary?: string;
   /** Set when status is `refused` or `failed`. */
   refusalReason?: string;
+  /**
+   * Who skipped this action (only meaningful when status is `skipped`).
+   * `operator` = the operator clicked Skip. `triage` = the action was
+   * auto-retired because the operator's newer reply superseded it (the
+   * route skips it, then fires a fresh triage turn). Absent → treat as
+   * `operator` for back-compat with cards skipped before this field.
+   */
+  skippedBy?: 'operator' | 'triage';
 }
 
 export interface InboxMessage {

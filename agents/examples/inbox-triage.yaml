@@ -32,7 +32,20 @@ inputs:
   MESSAGE_BODY:
     type: string
     required: true
-    description: The producer's short markdown summary.
+    description: >
+      The producer's short markdown summary — the ORIGINAL request that
+      opened the thread. Frozen at creation; it does NOT change as the
+      conversation evolves. Treat it as background, not current intent.
+  CURRENT_REQUEST:
+    type: string
+    required: false
+    default: ""
+    description: >
+      The operator's most recent real ask in the thread — the
+      AUTHORITATIVE current intent. Equals MESSAGE_BODY on the first
+      triage turn, but after the operator replies it is their latest
+      message. When CURRENT_REQUEST and MESSAGE_BODY disagree, follow
+      CURRENT_REQUEST — the operator has pivoted.
   MESSAGE_PRIORITY:
     type: string
     required: true
@@ -130,8 +143,17 @@ nodes:
       source:   {{inputs.MESSAGE_SOURCE}}
       title:    {{inputs.MESSAGE_TITLE}}
 
-      Body:
+      Original request (frozen at thread creation — background, may be stale):
       {{inputs.MESSAGE_BODY}}
+
+      ── CURRENT REQUEST — the operator's latest ask, AUTHORITATIVE ──
+      {{inputs.CURRENT_REQUEST}}
+
+      The CURRENT REQUEST is what the operator wants RIGHT NOW. If it
+      differs from the Original request above, the operator has pivoted —
+      act on the CURRENT REQUEST and do not drag the thread back to the
+      original goal. Use the conversation below for history and to see
+      what already ran, not to re-derive the goal.
 
       Context (may be empty / JSON / arbitrary):
       {{inputs.CONTEXT_JSON}}
@@ -362,6 +384,13 @@ nodes:
       - If the conversation already shows a prior action of the same
         kind that ran and completed, DO NOT propose it again — instead
         summarize its result in `recommendation`.
+      - Do NOT blindly re-propose an action that already FAILED. A failed
+        action that the CURRENT REQUEST no longer asks for is dead — drop
+        it. Only retry a failed action when the CURRENT REQUEST still wants
+        that exact outcome AND something has changed that would make the
+        retry succeed (e.g. the operator supplied a missing input or fixed
+        a setup issue). If neither holds, move on to the CURRENT REQUEST
+        instead of looping on the stale failure.
       - DO NOT propose `agent-editor` directly. It is managed by the
         dashboard: when `agent-analyzer` produces a corrected YAML in
         its run output, the route automatically inserts an

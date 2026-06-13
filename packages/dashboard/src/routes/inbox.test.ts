@@ -226,6 +226,24 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(res.text).not.toContain('Move to');
   });
 
+  it('attributes a skipped action card to triage vs operator', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'skip-attr', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'op skip', JSON.stringify({
+      kind: 'action', status: 'skipped', skippedBy: 'operator', agentId: 'a', inputs: {},
+    }));
+    inboxStore.addResponse(m.id, 'action', 'triage skip', JSON.stringify({
+      kind: 'action', status: 'skipped', skippedBy: 'triage', agentId: 'b', inputs: {},
+    }));
+    inboxStore.addResponse(m.id, 'action', 'legacy skip', JSON.stringify({
+      kind: 'action', status: 'skipped', agentId: 'c', inputs: {},
+    }));
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Superseded by your reply.');   // skippedBy: triage
+    expect(res.text).toContain('Skipped by operator.');        // skippedBy: operator AND legacy (absent → operator)
+  });
+
   it('renders conversation entries with data-msg-id + role avatars', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
@@ -1448,10 +1466,10 @@ describe('POST /inbox/:id/triage/cancel', () => {
 });
 
 describe('Concurrent-triage guard (POST /respond)', () => {
-  it('does NOT auto-fire triage when a proposed action is pending', async () => {
+  it('retires a pending PROPOSED action (skipped by triage) on reply, then re-plans', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
+    const action = inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
       kind: 'action',
       status: 'proposed',
       agentId: 'agent-analyzer',
@@ -1459,28 +1477,29 @@ describe('Concurrent-triage guard (POST /respond)', () => {
       rationale: 'rationale',
     }));
 
-    const app2 = app as unknown as { locals: { inboxTriageAbortControllers: Map<string, unknown> } };
-    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
-
     await request(app)
       .post(`/inbox/${m.id}/respond`)
-      .type('form').send({ body: 'follow-up reply' })
+      .type('form').send({ body: 'actually never mind, do this instead' })
       .set('X-Requested-With', 'fetch')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
-    // Give the fire-and-forget a tick to land if it were going to.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+    // The proposed card is retired synchronously by the route, attributed
+    // to triage (a supersede, not an operator decline). This is the
+    // race-free signal of the new behavior; the triage re-plan that
+    // follows is the same fire-and-forget path covered elsewhere.
+    const retired = JSON.parse(inboxStore.getResponse(action.id)!.metaJson!);
+    expect(retired.status).toBe('skipped');
+    expect(retired.skippedBy).toBe('triage');
 
     // The user reply still landed on the thread.
     const userReplies = inboxStore.listResponses(m.id).filter((r) => r.role === 'user');
-    expect(userReplies.map((r) => r.body)).toEqual(['follow-up reply']);
+    expect(userReplies.map((r) => r.body)).toEqual(['actually never mind, do this instead']);
   });
 
-  it('does NOT auto-fire triage when a running action is pending', async () => {
+  it('does NOT auto-fire triage or touch the card when a RUNNING action is pending', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
+    const action = inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
       kind: 'action',
       status: 'running',
       agentId: 'agent-analyzer',
@@ -1490,34 +1509,19 @@ describe('Concurrent-triage guard (POST /respond)', () => {
     }));
 
     const app2 = app as unknown as { locals: { inboxTriageAbortControllers: Map<string, unknown> } };
-    await request(app)
+    const res = await request(app)
       .post(`/inbox/${m.id}/respond`)
       .type('form').send({ body: 'follow-up reply' })
       .set('X-Requested-With', 'fetch')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
-  });
-
-  it('still records the user reply when triage is skipped', async () => {
-    const app = await makeApp();
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    inboxStore.addResponse(m.id, 'action', 'rationale', JSON.stringify({
-      kind: 'action',
-      status: 'proposed',
-      agentId: 'agent-analyzer',
-      inputs: {},
-      rationale: 'r',
-    }));
-
-    const res = await request(app)
-      .post(`/inbox/${m.id}/respond`)
-      .type('form').send({ body: 'guarded reply' })
-      .set('X-Requested-With', 'fetch')
-      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(204);
+    await new Promise((r) => setTimeout(r, 50));
+    // Triage did not fire and the mid-flight card was left running.
+    expect(app2.locals.inboxTriageAbortControllers.has(m.id)).toBe(false);
+    expect(JSON.parse(inboxStore.getResponse(action.id)!.metaJson!).status).toBe('running');
+    // The user reply still landed on the thread.
     const userReplies = inboxStore.listResponses(m.id).filter((r) => r.role === 'user');
-    expect(userReplies.map((r) => r.body)).toEqual(['guarded reply']);
+    expect(userReplies.map((r) => r.body)).toEqual(['follow-up reply']);
   });
 
   it('runTriageAgent re-entry queues a pending refire (idempotent)', async () => {
