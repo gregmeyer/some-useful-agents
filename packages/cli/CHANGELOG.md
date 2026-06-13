@@ -1,5 +1,156 @@
 # @some-useful-agents/cli
 
+## 0.25.0
+
+### Minor Changes
+
+- 5b2d822: Apple integration: dashboard "macOS access" panel — check status + authorize from a Terminal.
+
+  The Apple tab now shows a macOS-access card with per-bucket status (Reminders /
+  Notes), a **Check access** button that probes both TCC buckets with zero-content
+  reads, and an **Open Terminal & authorize** button that launches a Terminal
+  running `sua apple authorize` (so the permission prompts appear in a foreground
+  GUI session). The panel and docs explain the TCC + daemon gotcha: macOS ties the
+  Reminders grant to the granting process tree, so a detached daemon (and the
+  temporal worker that runs agent nodes) can show denied even after you authorized
+  in a Terminal — run agents from a Terminal with `SUA_PROVIDER=local`, or start the
+  worker in a foreground Terminal.
+
+- 4f69867: Add `sua apple connect` to register the Apple integration from a granted Terminal.
+
+  The dashboard "Add Apple integration" flow introspects via the background daemon,
+  which usually lacks Reminders access (macOS ties the grant to the granting process
+  tree). `sua apple connect` runs the `lists` introspection in the user's own
+  Terminal — where `sua apple authorize` granted access — then upserts the `apple`
+  integration (default id `apple`) with the discovered lists/folders, so the
+  generated tools become available. Pairs with running agents via
+  `SUA_PROVIDER=local` from the same Terminal.
+
+- d35a509: Add an owner-authorized Apple Reminders & Notes integration (experimental, macOS-only, default off).
+
+  A new `apple` integration kind lets agents create/read reminders and create/read
+  notes on the owner's Mac. It compiles a tiny Swift runner on demand (EventKit for
+  Reminders, AppleScript for Notes) — the same compile-on-demand pattern as the
+  Apple Foundation Models provider. Saving the integration in the dashboard
+  generates `apple.<slug>.reminder-create` / `reminder-read` / `reminder-update` /
+  `note-create` / `note-read` tools.
+
+  The engine ships dormant: the `apple` kind, its tools, and the dashboard tab stay
+  hidden until the owner enables `experimental.apple` in `sua.config.json` (or sets
+  `SUA_EXPERIMENTAL_APPLE=1`). A new `sua apple authorize` command triggers the macOS
+  permission prompts from a foreground Terminal so the first grant isn't swallowed by
+  a headless daemon. Notes is best-effort (no first-party API). Off macOS the tools
+  fail with a clear macOS-only error.
+
+- b2abd8d: Dashboard start: clearer "already running" message + reclaim a stale instance.
+
+  When a dashboard is already bound to the port, `sua dashboard start` now probes
+  its `/health` build stamp and tells you the pid, commit, and build time — and
+  flags when the running instance is an OLDER build than the one you're starting
+  (the "I deployed but still see old code" trap). On a TTY it offers to stop that
+  process and take over; a new `--replace` flag does the same non-interactively.
+  A foreign (non-dashboard) process on the port is never killed.
+
+  The daemon now starts the dashboard with `--replace`, so a leftover hand-started
+  dashboard is reclaimed on restart instead of silently leaving stale code serving.
+
+- 0fc9193: Tighten the inbox detail modal header.
+
+  The thread-action row (Summarize / Move to / Fork / Retarget) is gone. Rare verbs now
+  live behind a single overflow (⋯) menu in the title row: Summarize and Reopen (terminal
+  threads only). The two confusing cross-agent controls are removed from the human UI —
+  "Fork" handed the thread off to another agent as a new thread, and "Retarget" re-pointed
+  this thread's agent; both routes remain for the build/diagnose loop, but neither is
+  surfaced. Tags now share the meta band instead of taking their own row, and "Open page"
+  is clarified to "Open full page". The header collapses from four stacked bands to two.
+
+- 89294b9: Add `sua worker install-launchagent` for a durable, GUI-session worker (macOS).
+
+  A detached daemon worker can't get the macOS Reminders TCC grant, so background
+  agents using the Apple integration's reminder tools were denied. The new
+  `sua worker install-launchagent` writes a user LaunchAgent that runs the worker
+  in your GUI login session (via `launchctl bootstrap gui/$UID`), where macOS can
+  surface the permission prompt and persist the grant across reboots — so
+  scheduled/temporal reminder agents work. Paired with `uninstall-launchagent` and
+  `launchagent-status`. The fully distributable fix (code-signing the runner) is
+  captured in ADR-0026.
+
+### Patch Changes
+
+- e5b3adb: Apple Notes: fail fast instead of hanging 30s when the worker lacks a GUI session.
+
+  `note-create`/`note-read`/`lists` drive Notes.app via AppleScript. From a process
+  without a GUI session or Automation grant (e.g. the background temporal worker),
+  the Apple event blocks until the 30s spawn timeout ("produced no output"). The
+  runner now wraps every AppleScript in `with timeout of 10 seconds` and maps the
+  timeout (-1712) and not-permitted (-1743) errors to clear, actionable messages
+  ("run it via sua worker install-launchagent", or "grant Automation access").
+
+- df7b0c4: Clearer error when a tool node fails to resolve + multi-worker warning.
+
+  When a node references a `tool:` that doesn't resolve (integration disabled via the
+  experimental flag, not installed, or the worker running stale code), the executor
+  reported the misleading "Shell node X has no command" / "not found in registry or
+  store". It now says: tool "<id>" did not resolve — integration may be disabled, not
+  installed, or this worker may be stale (restart it). `sua daemon status` also warns
+  when more than one worker is polling the Temporal queue, since competing workers are
+  a common cause of these flaky failures (a run lands on an ungranted/stale worker).
+
+- 8f39b45: Clean up the inbox thread-actions UI (fork / retarget).
+
+  Replaced the two free-text "agent id" boxes with a single labeled "Move to"
+  dropdown listing installed agents by name, shared by the Fork and Retarget
+  buttons (Retarget uses the submit button's formaction so one select drives both
+  routes). The inbox AJAX form handler now honors a submitter's formaction. Clearer,
+  no more typing exact agent ids.
+
+- b8d2ecd: Fix: apply agent input defaults to `{{inputs.X}}` in builtin/generated tool nodes.
+
+  The builtin-tool execution path resolved `{{inputs.X}}` templates against the
+  caller's `--input` pairs only, ignoring declared input defaults — so a tool node
+  templating a defaulted input received an empty string (e.g. a required field
+  failing with "title is required"). Shell/LLM nodes already applied defaults via
+  node-env; the tool path now uses the same `mergedInputs` merge, so defaults and
+  required-input validation are consistent across node types.
+
+- 98c9ce6: Fix triage reverting to an earlier goal when the operator pivots mid-thread.
+
+  Inbox triage was anchored to the original message body (`MESSAGE_BODY`), which
+  is frozen at thread creation. When the operator changed their mind partway
+  through a thread, triage kept pursuing the first request and, on auto-follow-up
+  turns, re-proposed stale actions (including ones that had already failed),
+  ignoring the newer ask. Triage now receives the operator's latest message as a
+  first-class `CURRENT_REQUEST` input that takes precedence over the frozen
+  original, and the inbox-triage prompt no longer re-proposes failed actions the
+  current request has moved past.
+
+- 98c9ce6: Inbox: a reply over a pending proposed action now retires the card and re-plans.
+
+  Previously, replying while a triage-proposed Run/Skip card was still pending did
+  nothing — triage was suppressed until you manually skipped the card. Now a reply
+  auto-retires any pending _proposed_ card (shown as "Superseded by your reply",
+  attributed to triage rather than the operator) and immediately fires a fresh
+  triage turn that plans against your latest message. Running actions are left
+  untouched — they can't be safely cancelled mid-flight. Manual skips are now
+  explicitly attributed to the operator.
+
+- Updated dependencies [5b2d822]
+- Updated dependencies [4f69867]
+- Updated dependencies [e5b3adb]
+- Updated dependencies [d35a509]
+- Updated dependencies [df7b0c4]
+- Updated dependencies [b2abd8d]
+- Updated dependencies [0fc9193]
+- Updated dependencies [8f39b45]
+- Updated dependencies [b8d2ecd]
+- Updated dependencies [98c9ce6]
+- Updated dependencies [98c9ce6]
+- Updated dependencies [89294b9]
+  - @some-useful-agents/core@0.25.0
+  - @some-useful-agents/mcp-server@0.25.0
+  - @some-useful-agents/temporal-provider@0.25.0
+  - @some-useful-agents/dashboard@0.25.0
+
 ## 0.24.0
 
 ### Minor Changes
