@@ -594,6 +594,18 @@ export const INBOX_MODAL_JS = `
 
   // Row click → modal. Chevron click is checked first and toggles the
   // inline preview without opening the modal.
+  // Overflow (⋯) actions menu uses native <details>, which stays open
+  // until toggled. Close any open menu when the click lands outside it
+  // so it behaves like a normal popover. (Acting on a menu item submits
+  // an AJAX form that refresh()es the fragment, which closes it anyway.)
+  document.addEventListener('click', function (e) {
+    var menus = document.querySelectorAll('details[data-inbox-menu][open]');
+    for (var i = 0; i < menus.length; i++) {
+      var menu = menus[i];
+      if (!menu.contains(e.target)) menu.removeAttribute('open');
+    }
+  });
+
   document.addEventListener('click', function (e) {
     // Copy-message button on a conversation entry. Reads the
     // sibling .inbox-msg__text textContent so we copy what the

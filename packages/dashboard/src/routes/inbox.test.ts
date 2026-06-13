@@ -204,6 +204,28 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(res.text).toContain('id="inbox-modal-title"');
   });
 
+  it('renders the overflow actions menu (Summarize); no cross-agent fork/retarget controls or old "MOVE TO" label', async () => {
+    const app = await makeApp();
+    // Seed a forkable agent to prove the menu still omits the agent picker.
+    agentStore.createAgent({
+      id: 'target-agent', name: 'Target', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'Menu', body: 'b' });
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    // Overflow menu present with Summarize.
+    expect(res.text).toContain('data-inbox-menu');
+    expect(res.text).toContain('Summarize');
+    // Cross-agent routing is gone from the UI (routes still exist), as is the
+    // old label and agent picker.
+    expect(res.text).not.toContain('/fork');
+    expect(res.text).not.toContain('/retarget');
+    expect(res.text).not.toContain('Copy to new thread');
+    expect(res.text).not.toContain('Choose agent');
+    expect(res.text).not.toContain('Move to');
+  });
+
   it('renders conversation entries with data-msg-id + role avatars', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
@@ -684,7 +706,7 @@ describe('Row + fragment rendering for star + tags', () => {
     expect(res.text).toContain('inbox-detail__header');
     expect(res.text).toContain('inbox-detail__thread');
     expect(res.text).toContain(`href="/inbox/${m.id}"`);
-    expect(res.text).toContain('Open page');
+    expect(res.text).toContain('Open full page');
     expect(res.text).toContain(`action="/inbox/${m.id}/star"`);
     expect(res.text).toContain(`action="/inbox/${m.id}/tags"`);
     expect(res.text).toContain('value="auth"');
