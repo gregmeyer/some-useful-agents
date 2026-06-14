@@ -319,6 +319,24 @@ export function latestUserRequest(responses: readonly InboxResponse[]): string |
   return undefined;
 }
 
+/**
+ * Current wall-clock time as an ISO 8601 string WITH the machine's local UTC
+ * offset (e.g. `2026-06-14T14:50:00-07:00`), not the `Z`/UTC form. sua is
+ * local-first, so the dashboard process timezone IS the operator's, which
+ * lets triage turn relative phrasing ("before 4:30pm today", "tomorrow 9am")
+ * into a correct absolute timestamp it can hand to a reminder agent. The
+ * offset form round-trips through Swift's ISO8601DateFormatter (it accepts
+ * `.withInternetDateTime` offsets), so the computed due-date lands correctly.
+ * Takes an optional `now` so the formatting is unit-testable.
+ */
+export function localIsoNow(now: Date = new Date()): string {
+  const offsetMin = -now.getTimezoneOffset(); // minutes east of UTC
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const pad = (n: number): string => String(Math.floor(Math.abs(n))).padStart(2, '0');
+  const local = new Date(now.getTime() + offsetMin * 60_000).toISOString().slice(0, 19);
+  return `${local}${sign}${pad(offsetMin / 60)}:${pad(offsetMin % 60)}`;
+}
+
 /** Parse a message's contextJson into a plain object (empty on absent/invalid). */
 function normalizeContextJson(raw: string | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -2560,6 +2578,7 @@ async function runTriageAgent(
           MESSAGE_TITLE: message.title,
           MESSAGE_BODY: message.body,
           CURRENT_REQUEST: currentRequest,
+          NOW: localIsoNow(),
           MESSAGE_PRIORITY: message.priority,
           MESSAGE_SOURCE: message.source,
           CONTEXT_JSON: message.contextJson ?? '',
