@@ -48,6 +48,7 @@ import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
 import { applyProviderPin } from './build-orchestrator.js';
+import { loadTriageKernel, loadTriagePlaybook } from './triage-prompt.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
@@ -2591,6 +2592,11 @@ async function runTriageAgent(
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
           AGENT_CATALOG: buildTriageCatalogJson(ctx),
+          // Compose the prompt from fragments on disk: the shared kernel
+          // (voice, action mechanics, <plan> schema) + the one playbook that
+          // matches this thread's source. Deterministic — no classifier LLM.
+          TRIAGE_KERNEL: loadTriageKernel(),
+          SOURCE_PLAYBOOK: loadTriagePlaybook(message.source),
         },
         runId,
         signal: abortController.signal,
