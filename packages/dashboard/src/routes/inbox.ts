@@ -1502,6 +1502,18 @@ function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): string {
   }
 }
 
+/**
+ * Compact runnable-agent specs for the triage prompt. The load-bearing fact
+ * is the input NAMES (so triage proposes actions with real keys, not guesses);
+ * the full prose descriptions are the bulk of the prompt's token weight. We
+ * drop the agent-level description (the AGENT_CATALOG already carries it),
+ * truncate each input's description, and omit empty/false fields. This roughly
+ * halves the specs block — the single biggest chunk of a triage turn — with no
+ * correctness loss. The shape (`{id,name,inputs:[{name,type,required?,desc?,default?}]}`)
+ * still gives triage exact input names; the kernel still says "use EXACT names".
+ */
+const TRIAGE_SPEC_INPUT_DESC_CAP = 80;
+
 function buildRunnableAgentSpecsJson(
   ctx: ReturnType<typeof getContext>,
   allowlist: readonly string[],
@@ -1513,14 +1525,19 @@ function buildRunnableAgentSpecsJson(
       .map((agent) => ({
         id: agent.id,
         name: agent.name,
-        description: agent.description ?? '',
-        inputs: Object.entries(agent.inputs ?? {}).map(([name, spec]) => ({
-          name,
-          type: spec.type,
-          description: spec.description ?? '',
-          default: 'default' in spec ? spec.default : undefined,
-          required: spec.required ?? false,
-        })),
+        inputs: Object.entries(agent.inputs ?? {}).map(([name, spec]) => {
+          const out: Record<string, unknown> = { name, type: spec.type };
+          if (spec.required) out.required = true;
+          const desc = (spec.description ?? '').trim().replace(/\s+/g, ' ');
+          if (desc) {
+            out.desc = desc.length > TRIAGE_SPEC_INPUT_DESC_CAP
+              ? `${desc.slice(0, TRIAGE_SPEC_INPUT_DESC_CAP)}…`
+              : desc;
+          }
+          const def = 'default' in spec ? spec.default : undefined;
+          if (def !== undefined && def !== '' && def !== null) out.default = String(def).slice(0, 48);
+          return out;
+        }),
       }));
     return JSON.stringify(specs);
   } catch {
