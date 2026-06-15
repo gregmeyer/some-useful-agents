@@ -48,6 +48,7 @@ import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
 import { applyProviderPin } from './build-orchestrator.js';
+import { loadTriageKernel, loadTriagePlaybook } from './triage-prompt.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
@@ -1501,6 +1502,18 @@ function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): string {
   }
 }
 
+/**
+ * Compact runnable-agent specs for the triage prompt. The load-bearing fact
+ * is the input NAMES (so triage proposes actions with real keys, not guesses);
+ * the full prose descriptions are the bulk of the prompt's token weight. We
+ * drop the agent-level description (the AGENT_CATALOG already carries it),
+ * truncate each input's description, and omit empty/false fields. This roughly
+ * halves the specs block — the single biggest chunk of a triage turn — with no
+ * correctness loss. The shape (`{id,name,inputs:[{name,type,required?,desc?,default?}]}`)
+ * still gives triage exact input names; the kernel still says "use EXACT names".
+ */
+const TRIAGE_SPEC_INPUT_DESC_CAP = 80;
+
 function buildRunnableAgentSpecsJson(
   ctx: ReturnType<typeof getContext>,
   allowlist: readonly string[],
@@ -1512,14 +1525,19 @@ function buildRunnableAgentSpecsJson(
       .map((agent) => ({
         id: agent.id,
         name: agent.name,
-        description: agent.description ?? '',
-        inputs: Object.entries(agent.inputs ?? {}).map(([name, spec]) => ({
-          name,
-          type: spec.type,
-          description: spec.description ?? '',
-          default: 'default' in spec ? spec.default : undefined,
-          required: spec.required ?? false,
-        })),
+        inputs: Object.entries(agent.inputs ?? {}).map(([name, spec]) => {
+          const out: Record<string, unknown> = { name, type: spec.type };
+          if (spec.required) out.required = true;
+          const desc = (spec.description ?? '').trim().replace(/\s+/g, ' ');
+          if (desc) {
+            out.desc = desc.length > TRIAGE_SPEC_INPUT_DESC_CAP
+              ? `${desc.slice(0, TRIAGE_SPEC_INPUT_DESC_CAP)}…`
+              : desc;
+          }
+          const def = 'default' in spec ? spec.default : undefined;
+          if (def !== undefined && def !== '' && def !== null) out.default = String(def).slice(0, 48);
+          return out;
+        }),
       }));
     return JSON.stringify(specs);
   } catch {
@@ -2591,6 +2609,11 @@ async function runTriageAgent(
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
           AGENT_CATALOG: buildTriageCatalogJson(ctx),
+          // Compose the prompt from fragments on disk: the shared kernel
+          // (voice, action mechanics, <plan> schema) + the one playbook that
+          // matches this thread's source. Deterministic — no classifier LLM.
+          TRIAGE_KERNEL: loadTriageKernel(),
+          SOURCE_PLAYBOOK: loadTriagePlaybook(message.source),
         },
         runId,
         signal: abortController.signal,
