@@ -135,6 +135,7 @@ export class TemporalProvider implements Provider {
       dataRoot: opts.dataRoot ?? dirname(this.options.dbPath),
       llmProviders: opts.llmProviders,
       allowUntrustedShell: opts.allowUntrustedShell ?? [...this.allowUntrustedShell],
+      experimentalApple: opts.experimentalApple,
     };
 
     const handle = await this.client.workflow.start('runDagWorkflow', {

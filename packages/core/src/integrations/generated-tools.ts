@@ -106,6 +106,20 @@ export interface GeneratedToolDeps {
    * compiling Swift or touching the developer's real Reminders/Notes.
    */
   appleRunner?: { binaryPath: string };
+  /**
+   * Run-scoped override for the experimental Apple gate. When set, it wins
+   * over the `SUA_EXPERIMENTAL_APPLE` env var so apple-tool availability
+   * travels WITH the run instead of depending on the worker process's
+   * environment (which varied by launch path and caused intermittent
+   * "tool did not resolve" failures on the Temporal worker). Undefined →
+   * fall back to the env var (local/CLI runs that bridge config → env).
+   */
+  experimentalApple?: boolean;
+}
+
+/** Apple gate: run-scoped flag wins; otherwise the env-bridged config flag. */
+function appleEnabled(deps: GeneratedToolDeps): boolean {
+  return deps.experimentalApple ?? isAppleIntegrationEnabled();
 }
 
 /**
@@ -128,7 +142,7 @@ export function listGeneratedTools(
       addPostgresEntries(out, integ, deps);
     } else if (integ.kind === 'sqlite') {
       addSqliteEntries(out, integ);
-    } else if (integ.kind === 'apple' && isAppleIntegrationEnabled()) {
+    } else if (integ.kind === 'apple' && appleEnabled(deps)) {
       addAppleEntries(out, integ, deps);
     }
   }
@@ -147,7 +161,7 @@ export function getGeneratedTool(
   if (toolId.startsWith('csv.')) return resolveCsvTool(store, toolId);
   if (toolId.startsWith('postgres.')) return resolvePostgresTool(store, toolId, deps);
   if (toolId.startsWith('sqlite.')) return resolveSqliteTool(store, toolId);
-  if (toolId.startsWith('apple.') && isAppleIntegrationEnabled()) return resolveAppleTool(store, toolId, deps);
+  if (toolId.startsWith('apple.') && appleEnabled(deps)) return resolveAppleTool(store, toolId, deps);
   return undefined;
 }
 

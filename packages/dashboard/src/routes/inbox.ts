@@ -31,6 +31,7 @@ import {
   exportAgent,
   executeAgentDag,
   extractPlanJson,
+  isAppleIntegrationEnabled,
   isSafeUrl,
   listBuiltinTools,
   parseAgent,
@@ -38,6 +39,7 @@ import {
   unallowedWidgetImageHosts,
   type Agent,
   type LlmProvider,
+  type Run,
   type RunStatus,
   type InboxActionMeta,
   type InboxActionStatus,
@@ -49,6 +51,7 @@ import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
 import { applyProviderPin } from './build-orchestrator.js';
 import { loadTriageKernel, loadTriagePlaybook } from './triage-prompt.js';
+import { resolveRunBackend } from '../lib/run-backend.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import {
   renderInboxList,
@@ -1830,11 +1833,89 @@ export function parseProposedActions(
   return { accepted, rejected };
 }
 
+/** Poll the shared run row until it reaches a terminal status (the worker
+ * activity owns the lifecycle for durable runs). Returns the last-seen run on
+ * timeout so a long build isn't mis-reported as failed prematurely. */
+async function awaitRunTerminal(
+  ctx: ReturnType<typeof getContext>,
+  runId: string,
+  capMs = 600_000,
+): Promise<Run | null> {
+  const terminal = new Set<RunStatus>(['completed', 'failed', 'cancelled']);
+  const deadline = Date.now() + capMs;
+  for (;;) {
+    let run: Run | null;
+    try { run = ctx.runStore.getRun(runId); } catch { run = null; }
+    if (run && terminal.has(run.status)) return run;
+    if (Date.now() >= deadline) return run;
+    await new Promise((r) => setTimeout(r, 750));
+  }
+}
+
+/**
+ * Run a dispatched sub-agent to completion via the right backend.
+ *
+ * Temporal: submit the WHOLE DAG to the worker (submitDagRun) and poll the run
+ * row to terminal — NOT per-node orchestration from the dashboard. Integration
+ * tools (apple, csv, sqlite, postgres) only resolve where an IntegrationsStore
+ * exists (the worker activity builds one), and the apple runner needs the GUI
+ * worker's TCC grants; orchestrating here would fail to resolve or execute in
+ * the grant-less dashboard. Local: no worker, so run in-process WITH the
+ * integration/tool/agent stores. Either way the experimental Apple gate is
+ * read from this (reliable) process and threaded to wherever the run lands.
+ */
+async function runDispatchedAgentToTerminal(
+  ctx: ReturnType<typeof getContext>,
+  agent: Agent,
+  inputs: Record<string, string>,
+): Promise<{ id: string; status: RunStatus; result?: string; error?: string }> {
+  if (resolveRunBackend(ctx.provider, agent) === 'temporal' && ctx.provider.submitDagRun) {
+    const submitted = await ctx.provider.submitDagRun(agent, {
+      inputs,
+      triggeredBy: 'dashboard',
+      variablesPath: ctx.variablesPath,
+      dataRoot: ctx.agentStore.dataRoot,
+      llmProviders: buildLlmSettingsSnapshot(ctx)?.providers,
+      allowUntrustedShell: ctx.allowUntrustedShell ? [...ctx.allowUntrustedShell] : undefined,
+      experimentalApple: isAppleIntegrationEnabled(),
+    });
+    const final = await awaitRunTerminal(ctx, submitted.id);
+    return {
+      id: submitted.id,
+      status: final?.status ?? 'failed',
+      result: typeof final?.result === 'string' ? final.result : undefined,
+      error: final?.error ?? (final ? undefined : 'Run did not finish within the dispatch window.'),
+    };
+  }
+  const run = await executeAgentDag(
+    agent,
+    { triggeredBy: 'dashboard', inputs },
+    {
+      runStore: ctx.runStore,
+      secretsStore: ctx.secretsStore,
+      variablesStore: ctx.variablesStore,
+      integrationsStore: ctx.integrationsStore,
+      toolStore: ctx.toolStore,
+      agentStore: ctx.agentStore,
+      dataRoot: ctx.agentStore.dataRoot,
+      llmSettings: buildLlmSettingsSnapshot(ctx),
+      onRunFailure: ctx.onRunFailure,
+      experimentalApple: isAppleIntegrationEnabled(),
+    },
+  );
+  return {
+    id: run.id,
+    status: run.status,
+    result: typeof run.result === 'string' ? run.result : undefined,
+    error: run.error,
+  };
+}
+
 /**
  * Execute a single proposed action: walks meta through `running`,
- * dispatches `executeAgentDag` on the sub-agent, then patches meta to
- * `completed | failed` with run lineage + a short result preview. When
- * all proposed actions on the parent message have resolved (any
+ * dispatches the sub-agent (on the Temporal worker when that's the backend),
+ * then patches meta to `completed | failed` with run lineage + a short result
+ * preview. When all proposed actions on the parent message have resolved (any
  * non-`proposed` state) AND at least one ran, re-fire triage so it can
  * summarize the outcome in the conversation.
  */
@@ -1998,26 +2079,11 @@ async function runProposedAction(
   let refusalReason: string | undefined;
   let fullResult = '';
   try {
-    const run = await executeAgentDag(
-      dispatchAgent,
-      {
-        triggeredBy: 'dashboard',
-        inputs: effectiveInputs,
-      },
-      {
-        runStore: ctx.runStore,
-        secretsStore: ctx.secretsStore,
-        variablesStore: ctx.variablesStore,
-        dataRoot: ctx.agentStore.dataRoot,
-        llmSettings: buildLlmSettingsSnapshot(ctx),
-        spawnNode: ctx.workflowSpawnNode,
-        onRunFailure: ctx.onRunFailure,
-      },
-    );
+    const run = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs);
     runId = run.id;
     if (run.status === 'completed') {
       nextStatus = 'completed';
-      fullResult = typeof run.result === 'string' ? run.result : '';
+      fullResult = run.result ?? '';
       resultSummary = fullResult.length > ACTION_RESULT_PREVIEW_LIMIT
         ? fullResult.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
         : fullResult;
