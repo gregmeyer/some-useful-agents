@@ -250,6 +250,12 @@ export interface RunDagActivityInput {
   llmProviders?: string[];
   /** Community shell agents pre-allowed by the operator. */
   allowUntrustedShell?: string[];
+  /**
+   * Run-scoped experimental Apple gate (from config at submit time). Lets the
+   * worker resolve apple tools regardless of its own process env — fixes the
+   * intermittent "tool did not resolve" on the Temporal worker.
+   */
+  experimentalApple?: boolean;
 }
 
 export interface RunDagActivityResult {
@@ -283,6 +289,7 @@ export async function runDagActivity(input: RunDagActivityInput): Promise<RunDag
     integrationsStore: quiet(() => new IntegrationsStore(input.dbPath)),
     variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
     allowUntrustedShell: new Set(input.allowUntrustedShell ?? []),
+    experimentalApple: input.experimentalApple,
     llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
     dataRoot: input.dataRoot,
     // spawnNode omitted → spawnNodeReal (local execution on this worker).

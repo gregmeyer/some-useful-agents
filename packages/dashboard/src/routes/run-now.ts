@@ -3,7 +3,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { executeAgentWithRetry, type RunStatus } from '@some-useful-agents/core';
+import { executeAgentWithRetry, isAppleIntegrationEnabled, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { resolveRunBackend } from '../lib/run-backend.js';
@@ -66,6 +66,10 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
           dataRoot: ctx.agentStore.dataRoot,
           llmProviders: buildLlmSettingsSnapshot(ctx)?.providers,
           allowUntrustedShell: ctx.allowUntrustedShell ? [...ctx.allowUntrustedShell] : undefined,
+          // Source the apple gate from THIS process (the dashboard reliably has
+          // the env bridged from config at start) and thread it to the worker,
+          // so apple-tool resolution doesn't depend on the worker's own env.
+          experimentalApple: isAppleIntegrationEnabled(),
         });
         res.redirect(303, `/runs/${encodeURIComponent(run.id)}${fromSuffix}`);
       } catch (err) {
@@ -96,6 +100,7 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
         llmSettings: buildLlmSettingsSnapshot(ctx),
         spawnNode: ctx.workflowSpawnNode,
         onRunFailure: ctx.onRunFailure,
+        experimentalApple: isAppleIntegrationEnabled(),
       },
     );
 

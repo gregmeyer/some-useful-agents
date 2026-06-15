@@ -155,6 +155,15 @@ export interface DagExecutorDeps {
    * so PR C can drop in real allow/deny logic without changing dispatch.
    */
   policyDocument?: PolicyDocument;
+  /**
+   * Run-scoped experimental Apple gate. Sourced from `experimental.apple`
+   * in config at run-submit time and threaded here so apple-tool resolution
+   * is identical on every worker, regardless of that process's environment.
+   * Undefined → fall back to the `SUA_EXPERIMENTAL_APPLE` env var (local/CLI
+   * runs that bridge config → env at startup). Fixes the intermittent
+   * "tool did not resolve" on the Temporal worker (#499).
+   */
+  experimentalApple?: boolean;
 }
 
 export interface DagExecuteOptions {
@@ -866,7 +875,7 @@ export async function executeAgentDag(
     const builtinEntry = toolId
       ? (getBuiltinTool(toolId)
         ?? (deps.integrationsStore
-          ? getGeneratedTool(deps.integrationsStore, toolId, { secretsStore: deps.secretsStore })
+          ? getGeneratedTool(deps.integrationsStore, toolId, { secretsStore: deps.secretsStore, experimentalApple: deps.experimentalApple })
           : undefined))
       : undefined;
 

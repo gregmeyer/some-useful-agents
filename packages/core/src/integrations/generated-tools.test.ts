@@ -390,3 +390,30 @@ describe('apple integration tools', () => {
     expect(tool.definition.outputs?.id?.type).toBe('string');
   });
 });
+
+// Regression for the intermittent "tool did not resolve" on the Temporal
+// worker (#499): apple availability must travel WITH the run, not depend on
+// the worker process's SUA_EXPERIMENTAL_APPLE env. `deps.experimentalApple`
+// is run-scoped and wins over the env in both directions.
+describe('apple gate is run-scoped (deps.experimentalApple overrides env)', () => {
+  afterEach(() => { delete process.env.SUA_EXPERIMENTAL_APPLE; });
+
+  it('resolves apple tools via the run-scoped flag even when the env is unset', () => {
+    delete process.env.SUA_EXPERIMENTAL_APPLE;
+    seedApple();
+    // Env off → not available by default (a worker that never got the env)...
+    expect(getGeneratedTool(store, 'apple.apple.note-create')).toBeUndefined();
+    // ...but the run carries the flag, so the same worker resolves it.
+    expect(getGeneratedTool(store, 'apple.apple.note-create', { experimentalApple: true })).toBeDefined();
+    const appleIds = Array.from(listGeneratedTools(store, { experimentalApple: true }).keys())
+      .filter((k) => k.startsWith('apple.'));
+    expect(appleIds.length).toBe(5);
+  });
+
+  it('experimentalApple:false overrides the env being on', () => {
+    process.env.SUA_EXPERIMENTAL_APPLE = '1';
+    seedApple();
+    expect(getGeneratedTool(store, 'apple.apple.note-create')).toBeDefined(); // env on
+    expect(getGeneratedTool(store, 'apple.apple.note-create', { experimentalApple: false })).toBeUndefined();
+  });
+});

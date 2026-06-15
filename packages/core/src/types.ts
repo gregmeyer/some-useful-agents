@@ -181,4 +181,10 @@ export interface SubmitDagRunOptions {
   dataRoot?: string;
   llmProviders?: string[];
   allowUntrustedShell?: string[];
+  /**
+   * Run-scoped experimental Apple gate, from `experimental.apple` in config.
+   * Threaded to the worker so apple-tool resolution doesn't depend on the
+   * worker process's env (the cause of intermittent "tool did not resolve").
+   */
+  experimentalApple?: boolean;
 }
