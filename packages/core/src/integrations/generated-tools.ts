@@ -782,13 +782,21 @@ const APPLE_VERBS: AppleVerbSpec[] = [
       id: { type: 'string' },
       completed: { type: 'boolean' },
     },
-    buildPayload: (inputs) => ({
-      id: inputs.id,
-      ...(inputs.completed !== undefined ? { completed: inputs.completed } : {}),
-      ...(inputs.title !== undefined ? { title: inputs.title } : {}),
-      ...(inputs.notes !== undefined ? { notes: inputs.notes } : {}),
-      ...(inputs.dueDate !== undefined ? { dueDate: inputs.dueDate } : {}),
-    }),
+    buildPayload: (inputs) => {
+      // Empty-string optional fields mean "leave unchanged", not "blank it".
+      // Tool inputs arrive as templated strings (no type coercion), so an
+      // edit agent that maps every field would otherwise clobber the ones the
+      // operator didn't set — e.g. an unset TITLE would erase the title. Only
+      // forward fields that carry a real value.
+      const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+      return {
+        id: inputs.id,
+        ...(inputs.completed !== undefined ? { completed: inputs.completed } : {}),
+        ...(nonEmpty(inputs.title) ? { title: inputs.title } : {}),
+        ...(nonEmpty(inputs.notes) ? { notes: inputs.notes } : {}),
+        ...(nonEmpty(inputs.dueDate) ? { dueDate: inputs.dueDate } : {}),
+      };
+    },
   },
   {
     verb: 'note-create',

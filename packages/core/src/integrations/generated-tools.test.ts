@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -380,6 +380,27 @@ describe('apple integration tools', () => {
   it('resolveAppleTool returns undefined for an unknown verb', () => {
     seedApple();
     expect(getGeneratedTool(store, 'apple.apple.bogus-verb')).toBeUndefined();
+  });
+
+  it('reminder-update omits empty optional fields so an edit does not clobber unset ones', async () => {
+    seedApple();
+    // Fake runner that captures the JSON payload it receives on stdin.
+    const payloadFile = join(dir, 'update-payload.json');
+    const bin = join(dir, 'fake-apple-capture');
+    writeFileSync(bin, `#!/usr/bin/env bash
+payload=$(cat)
+echo "$payload" > "${payloadFile}"
+echo '{"status":"ok","data":{"id":"r1","completed":false},"error_message":null}'
+`, 'utf-8');
+    chmodSync(bin, 0o755);
+    const tool = getGeneratedTool(store, 'apple.apple.reminder-update', { appleRunner: { binaryPath: bin } })!;
+    // Reschedule only: TITLE/NOTES come through empty (operator didn't set them).
+    await tool.execute({ id: 'r1', dueDate: '2026-06-15T19:00:00-07:00', title: '', notes: '' }, {});
+    const sent = JSON.parse(readFileSync(payloadFile, 'utf-8'));
+    expect(sent.id).toBe('r1');
+    expect(sent.dueDate).toBe('2026-06-15T19:00:00-07:00');
+    expect('title' in sent).toBe(false); // empty → omitted, would otherwise blank the title
+    expect('notes' in sent).toBe(false);
   });
 
   it('the reminder-create definition declares the documented io shape', () => {
