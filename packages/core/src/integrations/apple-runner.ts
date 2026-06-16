@@ -334,6 +334,40 @@ func cmdNoteRead(_ input: [String: Any], dryRun: Bool) {
     emitOk(["notes": rows, "count": rows.count])
 }
 
+func cmdNoteUpdate(_ input: [String: Any], dryRun: Bool) {
+    let title = (input["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !title.isEmpty else { emitError("title is required"); return }
+    let body = (input["body"] as? String) ?? ""
+    let newTitle = (input["newTitle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let folder = input["folder"] as? String
+    let heading = (newTitle != nil && !(newTitle!.isEmpty)) ? newTitle! : title
+    if dryRun { emitOk(["title": heading, "folder": jsonValue(folder), "dryRun": true]); return }
+    // Notes' AppleScript body is HTML; mirror cmdNoteCreate's wrapping so the
+    // edited note keeps a title heading (the name derives from the first line).
+    let htmlBody = "<div><b>" + asEscape(heading) + "</b></div><div>" + asEscape(body) + "</div>"
+    let nameLit = "\\"" + asEscape(title) + "\\""
+    let bodyLit = "\\"" + asEscape(htmlBody) + "\\""
+    let scope: String
+    if let folder = folder, !folder.isEmpty {
+        scope = "notes of folder \\"" + asEscape(folder) + "\\""
+    } else {
+        scope = "notes"
+    }
+    // Match by name; signal NOTFOUND rather than throwing on an empty match.
+    let script = "tell application \\"Notes\\"\\nset matches to (\\(scope) whose name is \\(nameLit))\\nif (count of matches) is 0 then\\nreturn \\"NOTFOUND\\"\\nend if\\nset theNote to item 1 of matches\\nset body of theNote to \\(bodyLit)\\nreturn \\"OK\\"\\nend tell"
+    let (out, err) = runAppleScript(script)
+    if let err = err {
+        emitDenied("Could not update note: \\(err). Grant Automation access for Notes, or run: sua apple authorize")
+        return
+    }
+    if (out?.trimmingCharacters(in: .whitespacesAndNewlines)) == "NOTFOUND" {
+        let where_ = (folder != nil && !(folder!.isEmpty)) ? " in folder \\"\\(folder!)\\"" : ""
+        emitError("No note named \\"\\(title)\\" found\\(where_).")
+        return
+    }
+    emitOk(["title": heading, "folder": jsonValue(folder)])
+}
+
 // ── Entry point ─────────────────────────────────────────────────────────
 
 @main
@@ -361,6 +395,7 @@ struct Runner {
         case "reminder-update", "reminder-complete": await cmdReminderUpdate(input, dryRun: dryRun)
         case "note-create": cmdNoteCreate(input, dryRun: dryRun)
         case "note-read", "note-list": cmdNoteRead(input, dryRun: dryRun)
+        case "note-update": cmdNoteUpdate(input, dryRun: dryRun)
         default: emit(status: "unsupported", data: nil, error: "unknown subcommand: \\(sub)")
         }
     }
