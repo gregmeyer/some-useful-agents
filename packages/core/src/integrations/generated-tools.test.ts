@@ -325,6 +325,7 @@ case "$sub" in
   reminder-update) echo '{"status":"ok","data":{"id":"r1","completed":true},"error_message":null}' ;;
   note-create) echo '{"status":"ok","data":{"id":null,"title":"t","folder":"Notes"},"error_message":null}' ;;
   note-read) echo '{"status":"ok","data":{"notes":[],"count":0},"error_message":null}' ;;
+  note-update) echo '{"status":"ok","data":{"title":"t","folder":"Notes"},"error_message":null}' ;;
   *) echo '{"status":"error","data":null,"error_message":"unknown"}'; exit 1 ;;
 esac
 `, 'utf-8');
@@ -336,13 +337,14 @@ describe('apple integration tools', () => {
   beforeEach(() => { process.env.SUA_EXPERIMENTAL_APPLE = '1'; });
   afterEach(() => { delete process.env.SUA_EXPERIMENTAL_APPLE; });
 
-  it('synthesises all five verbs when the flag is on', () => {
+  it('synthesises all six verbs when the flag is on', () => {
     seedApple();
     const tools = listGeneratedTools(store);
     const appleIds = Array.from(tools.keys()).filter((k) => k.startsWith('apple.')).sort();
     expect(appleIds).toEqual([
       'apple.apple.note-create',
       'apple.apple.note-read',
+      'apple.apple.note-update',
       'apple.apple.reminder-create',
       'apple.apple.reminder-read',
       'apple.apple.reminder-update',
@@ -380,6 +382,14 @@ describe('apple integration tools', () => {
   it('resolveAppleTool returns undefined for an unknown verb', () => {
     seedApple();
     expect(getGeneratedTool(store, 'apple.apple.bogus-verb')).toBeUndefined();
+  });
+
+  it('note-update resolves and executes (edit an existing note by title)', async () => {
+    seedApple();
+    const tool = getGeneratedTool(store, 'apple.apple.note-update', { appleRunner: fakeAppleBinary() })!;
+    const out = await tool.execute({ title: 'Old', body: 'new body', newTitle: 'New' }, {});
+    expect(out.title).toBe('t');
+    expect(Object.keys(tool.definition.inputs ?? {})).toEqual(['title', 'body', 'newTitle', 'folder']);
   });
 
   it('reminder-update omits empty optional fields so an edit does not clobber unset ones', async () => {
@@ -428,7 +438,7 @@ describe('apple gate is run-scoped (deps.experimentalApple overrides env)', () =
     expect(getGeneratedTool(store, 'apple.apple.note-create', { experimentalApple: true })).toBeDefined();
     const appleIds = Array.from(listGeneratedTools(store, { experimentalApple: true }).keys())
       .filter((k) => k.startsWith('apple.'));
-    expect(appleIds.length).toBe(5);
+    expect(appleIds.length).toBe(6);
   });
 
   it('experimentalApple:false overrides the env being on', () => {

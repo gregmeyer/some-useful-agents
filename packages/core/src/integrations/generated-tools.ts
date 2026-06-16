@@ -843,6 +843,32 @@ const APPLE_VERBS: AppleVerbSpec[] = [
       };
     },
   },
+  {
+    verb: 'note-update',
+    subcommand: 'note-update',
+    name: 'Update a note',
+    description: 'Replace the body (and optionally retitle) of an existing macOS note, matched by title. Side-effecting.',
+    inputs: {
+      title: { type: 'string', description: 'Title of the existing note to edit (matched by name).', required: true },
+      body: { type: 'string', description: 'New note body (plain text; wrapped as HTML). Replaces the current content.', required: true },
+      newTitle: { type: 'string', description: 'Optional new title/heading. Defaults to the matched title.' },
+      folder: { type: 'string', description: 'Folder to search in. Defaults to all folders.' },
+    },
+    outputs: {
+      title: { type: 'string', description: 'The note title after the update.' },
+      folder: { type: 'string' },
+    },
+    buildPayload: (inputs, snapshot) => {
+      assertNoteFolder(snapshot, inputs.folder);
+      const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+      return {
+        title: inputs.title,
+        body: typeof inputs.body === 'string' ? inputs.body : '',
+        ...(nonEmpty(inputs.newTitle) ? { newTitle: inputs.newTitle } : {}),
+        ...(inputs.folder !== undefined ? { folder: inputs.folder } : {}),
+      };
+    },
+  },
 ];
 
 function buildAppleEntry(
