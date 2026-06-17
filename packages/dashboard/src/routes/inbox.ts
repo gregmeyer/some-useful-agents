@@ -1785,10 +1785,15 @@ export function parseProposedActions(
   rawActions: unknown,
   allowlist: readonly string[],
   candidates: readonly string[] = [],
-): { accepted: InboxActionMeta[]; rejected: { agentId: string; reason: string }[] } {
+): {
+  accepted: InboxActionMeta[];
+  rejected: { agentId: string; reason: string }[];
+  deferred: { agentId: string }[];
+} {
   const accepted: InboxActionMeta[] = [];
   const rejected: { agentId: string; reason: string }[] = [];
-  if (!Array.isArray(rawActions)) return { accepted, rejected };
+  const deferred: { agentId: string }[] = [];
+  if (!Array.isArray(rawActions)) return { accepted, rejected, deferred };
   const allowSet = new Set(allowlist);
   const candidateSet = new Set(candidates);
   for (const entry of rawActions.slice(0, 3)) {
@@ -1818,19 +1823,39 @@ export function parseProposedActions(
     }
     const rationale = typeof e.rationale === 'string' ? e.rationale.trim() : undefined;
     const ctaLabel = typeof e.ctaLabel === 'string' ? e.ctaLabel.trim().slice(0, 40) : undefined;
+    // `write` mutates external state; anything else (incl. absent) is `read`.
+    const effect: 'read' | 'write' = e.effect === 'write' ? 'write' : 'read';
     accepted.push({
       kind: 'action',
       status: 'proposed',
       agentId,
       inputs,
       rationale: rationale || undefined,
+      effect,
       // For a candidate, override the CTA so the operator sees they're
       // granting run permission, not just running.
       ctaLabel: isCandidate ? (ctaLabel || 'Enable & run') : (ctaLabel || undefined),
       ...(isCandidate ? { grantsInboxRunnable: true } : {}),
     });
   }
-  return { accepted, rejected };
+  // Sequence side effects: keep at most ONE `write` action per turn so the
+  // operator confirms one mutation before the next is even proposed. Extra
+  // writes are deferred — once the first completes, the follow-up triage turn
+  // re-plans and proposes the next from the updated state. `read` actions
+  // (search, diagnosis, list probes) still batch freely.
+  let sawWrite = false;
+  const sequenced: InboxActionMeta[] = [];
+  for (const action of accepted) {
+    if (action.effect === 'write') {
+      if (sawWrite) {
+        deferred.push({ agentId: action.agentId });
+        continue;
+      }
+      sawWrite = true;
+    }
+    sequenced.push(action);
+  }
+  return { accepted: sequenced, rejected, deferred };
 }
 
 /** Poll the shared run row until it reaches a terminal status (the worker
@@ -2802,7 +2827,7 @@ async function runTriageAgent(
     // single grouped `system` note so the operator can see what was
     // declined and why.
     if (allowlist.length > 0) {
-      const { accepted, rejected } = parseProposedActions(parsed.actions, allowlist, candidates);
+      const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       for (const action of accepted) {
         if (hasMatchingFailedAction(ctx, messageId, action)) {
@@ -2864,6 +2889,9 @@ async function runTriageAgent(
       }
       if (overflow > 0) {
         notes.push(`Skipped ${overflow} additional proposed action${overflow === 1 ? '' : 's'} — message has reached the per-thread action cap (${MAX_ACTIONS_PER_MESSAGE}).`);
+      }
+      if (deferred.length > 0) {
+        notes.push(`Holding ${deferred.length} more side-effecting action${deferred.length === 1 ? '' : 's'} until the one above completes — I'll propose the next once it's done.`);
       }
       if (notes.length > 0) {
         const sysReply = ctx.inboxStore.addResponse(messageId, 'system', notes.join('\n'));

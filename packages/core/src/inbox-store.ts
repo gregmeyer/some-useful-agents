@@ -78,6 +78,16 @@ export interface InboxActionMeta {
    */
   ctaLabel?: string;
   /**
+   * Whether running this action mutates external state (`write` — e.g. creating
+   * or editing an Apple note/reminder, sending something) or only reads/diagnoses
+   * (`read` — catalog search, run analysis, list-* probes). Triage declares it in
+   * the `<plan>`; the route uses it to sequence side effects: at most ONE `write`
+   * action is proposed per turn so the operator confirms one before the next
+   * fires, while `read` actions still batch. Absent → treated as `read` for
+   * back-compat (older proposals never set it).
+   */
+  effect?: 'read' | 'write';
+  /**
    * When true, approving this run first grants `permissions.inboxRunnable`
    * to `agentId` (a one-click "Enable & run"). Set by the dashboard when
    * triage proposes running an installed agent that hasn't been granted

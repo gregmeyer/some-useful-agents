@@ -64,6 +64,47 @@ describe('parseProposedActions — candidates', () => {
   });
 });
 
+describe('parseProposedActions — side-effect sequencing', () => {
+  it('defaults a missing effect to read and batches reads', () => {
+    const { accepted, deferred } = parseProposedActions(
+      [
+        { type: 'run-agent', agentId: 'a' },
+        { type: 'run-agent', agentId: 'b', effect: 'read' },
+      ],
+      ['a', 'b'],
+    );
+    expect(accepted).toHaveLength(2);
+    expect(accepted[0].effect).toBe('read');
+    expect(deferred).toHaveLength(0);
+  });
+
+  it('keeps only the first write and defers the rest', () => {
+    const { accepted, deferred } = parseProposedActions(
+      [
+        { type: 'run-agent', agentId: 'make-note', effect: 'write' },
+        { type: 'run-agent', agentId: 'make-reminder', effect: 'write' },
+      ],
+      ['make-note', 'make-reminder'],
+    );
+    expect(accepted.map((a) => a.agentId)).toEqual(['make-note']);
+    expect(accepted[0].effect).toBe('write');
+    expect(deferred).toEqual([{ agentId: 'make-reminder' }]);
+  });
+
+  it('pairs one write with reads, deferring only extra writes', () => {
+    const { accepted, deferred } = parseProposedActions(
+      [
+        { type: 'run-agent', agentId: 'search', effect: 'read' },
+        { type: 'run-agent', agentId: 'write-1', effect: 'write' },
+        { type: 'run-agent', agentId: 'write-2', effect: 'write' },
+      ],
+      ['search', 'write-1', 'write-2'],
+    );
+    expect(accepted.map((a) => a.agentId)).toEqual(['search', 'write-1']);
+    expect(deferred).toEqual([{ agentId: 'write-2' }]);
+  });
+});
+
 describe('getRunnableCandidates', () => {
   let dir: string;
   let agentStore: AgentStore;

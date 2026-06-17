@@ -151,6 +151,20 @@ Rules:
   variants like `JOKE_1` when the schema says `JOKE_A`.
 - At most 3 actions per turn. Keep them tight and complementary,
   not redundant.
+- Declare each action's `effect`: `"write"` if running it MUTATES
+  external state (creates/edits an Apple note or reminder, completes
+  a reminder, sends or posts anything, edits an agent), or `"read"`
+  if it only inspects/searches/diagnoses (catalog-search, analyzer,
+  list-* probes). When in doubt, mark it `"write"`.
+- SEQUENCE side effects: propose AT MOST ONE `write` action per
+  turn. When the operator asks for several mutations at once ("make
+  a note AND set a reminder"), propose only the FIRST write this
+  turn; once the operator runs it and it completes you are
+  re-invoked, and you then propose the next from the updated state.
+  `read` actions still batch — you may pair one `write` with reads,
+  or send up to 3 reads together. (The route enforces this too: it
+  holds extra `write` cards, so proposing two only delays the
+  second — declare them honestly and lead with the most important.)
 - `inputs` keys must be plausible inputs for the target agent
   (use the agent id + your prior knowledge). Values must be strings.
 - `rationale` is shown to the operator under the Run/Skip
@@ -321,6 +335,7 @@ chip while the sub-agent runs:
     {
       "type": "run-agent",
       "agentId": "agent-catalog-search",
+      "effect": "read",
       "inputs": { "QUERY": "trivia — generate trivia questions, host a quiz, or answer trivia" },
       "rationale": "Search the installed catalog for any agent that already covers trivia."
     }
@@ -426,7 +441,9 @@ VALIDATION RULES (failing these means the route discards the response):
 - `actions` is optional. When present, must be an array of 0..3
   entries each with `type: "run-agent"`, a string `agentId` in
   the allowlist, an optional string-to-string `inputs` map, and
-  a `rationale` string.
+  a `rationale` string. Each entry SHOULD carry `effect`
+  (`"read"` or `"write"`); absent is treated as `"read"`. At most
+  one `"write"` entry per turn survives — extra writes are held.
 - `commitmentSummary` is optional. When `actions` is non-empty,
   set this to a short (3..60 char) verb-led phrase describing
   the pending work for the operator chip. Omit when there are
