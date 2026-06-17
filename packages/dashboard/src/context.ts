@@ -206,6 +206,18 @@ export interface DashboardContext {
    */
   inboxTriagePendingRefires: Set<string>;
   /**
+   * Per-message count of CONSECUTIVE triage runs that crashed with an infra
+   * error (provider/worker/network), keyed by inbox message id. A transient
+   * failure shouldn't permanently strand a thread, so the crash handler
+   * auto-retries triage a bounded number of times before posting a terminal
+   * "crashed" note. Reset to 0 on the first successful turn and whenever the
+   * operator posts a fresh reply / asks triage to re-look. In-memory only — a
+   * dashboard restart resets the budget, which is the desired behavior (a
+   * restart is itself a recovery). Optional so existing ctx literals (tests)
+   * compile; `runTriageAgent` lazily initializes it.
+   */
+  inboxTriageCrashRetries?: Map<string, number>;
+  /**
    * Data directory path. Used by the health endpoint to read the scheduler
    * heartbeat file and report scheduler status.
    */
