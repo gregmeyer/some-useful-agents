@@ -1465,6 +1465,35 @@ describe('POST /inbox/:id/triage/cancel', () => {
   });
 });
 
+describe('Triage crash-retry budget reset', () => {
+  it('a fresh reply clears a thread\'s crash-retry budget', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const app2 = app as unknown as { locals: { inboxTriageCrashRetries?: Map<string, number> } };
+    // Simulate a thread that already burned its auto-retry budget.
+    (app2.locals.inboxTriageCrashRetries ??= new Map()).set(m.id, 1);
+
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'try again please' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    expect(app2.locals.inboxTriageCrashRetries?.has(m.id)).toBe(false);
+  });
+
+  it('the explicit /triage path clears the crash-retry budget', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const app2 = app as unknown as { locals: { inboxTriageCrashRetries?: Map<string, number> } };
+    (app2.locals.inboxTriageCrashRetries ??= new Map()).set(m.id, 1);
+
+    await request(app)
+      .post(`/inbox/${m.id}/triage`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    expect(app2.locals.inboxTriageCrashRetries?.has(m.id)).toBe(false);
+  });
+});
+
 describe('Concurrent-triage guard (POST /respond)', () => {
   it('retires a pending PROPOSED action (skipped by triage) on reply, then re-plans', async () => {
     const app = await makeApp();

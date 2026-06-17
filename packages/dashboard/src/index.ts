@@ -564,6 +564,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     activeRuns: new Map(),
     inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(),
+    inboxTriageCrashRetries: new Map(),
     dataDir: dirname(opts.dbPath),
     dashboardBaseUrl,
   };

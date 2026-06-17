@@ -721,6 +721,9 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
         });
       }
     }
+    // A fresh operator reply restores the transient-crash retry budget — this
+    // is genuine new input, not a crash loop, so it deserves a clean slate.
+    resetTriageCrashRetries(ctx, id);
     // Fire-and-forget; the modal polls /fragment for the response.
     // The conversation thread itself signals "in progress" via the
     // user-reply-within-30s heuristic in isTriagePending.
@@ -752,6 +755,8 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
       createdAt: marker.createdAt,
     });
   } catch { /* swallow */ }
+  // Operator explicitly asked for another look — fresh retry budget.
+  resetTriageCrashRetries(ctx, id);
   void runTriageAgent(ctx, id).catch(() => { /* swallow */ });
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Triage agent invoked.')}`);
@@ -2183,6 +2188,48 @@ async function runProposedAction(
 const MAX_AUTO_TRIAGE_TURNS = 5;
 
 /**
+ * How many times a triage run may crash with an infra error before we stop
+ * auto-retrying and post a terminal "crashed" note. A transient blip
+ * (provider hiccup, worker dispatch race, network) shouldn't permanently
+ * strand the thread; a persistent outage shouldn't spin forever. One retry
+ * (two attempts total) covers the overwhelming majority of transient cases.
+ */
+const MAX_TRIAGE_CRASH_RETRIES = 1;
+
+/** Delay before an auto-retry so a transient backend has a moment to recover. */
+const TRIAGE_CRASH_RETRY_DELAY_MS = 2000;
+
+/** Lazily-initialized per-message crash-retry counter (see DashboardContext). */
+function triageCrashRetries(ctx: ReturnType<typeof getContext>): Map<string, number> {
+  return (ctx.inboxTriageCrashRetries ??= new Map());
+}
+
+/** Clear a thread's crash-retry budget (a fresh user turn or a success). */
+function resetTriageCrashRetries(ctx: ReturnType<typeof getContext>, messageId: string): void {
+  triageCrashRetries(ctx).delete(messageId);
+}
+
+/**
+ * Decide how to recover from a crashed triage run, given how many auto-retries
+ * have already been spent on this thread. Pure so the branching (retry vs.
+ * terminal note, the operator-facing copy) is unit-testable without forcing a
+ * real crash. `willRetry` true → schedule another attempt and bump the count;
+ * false → the budget is spent, post a terminal note and clear the count.
+ */
+export function planTriageCrashRecovery(
+  used: number,
+  errorMessage: string,
+): { willRetry: boolean; noteBody: string } {
+  if (used < MAX_TRIAGE_CRASH_RETRIES) {
+    return { willRetry: true, noteBody: `Triage hit a transient error (${errorMessage}). Retrying…` };
+  }
+  return {
+    willRetry: false,
+    noteBody: `Triage agent crashed after ${used + 1} attempts: ${errorMessage}. Reply or ask triage to try again.`,
+  };
+}
+
+/**
  * Count the number of `triage` responses since the most recent `user`
  * response (or message creation if no user reply yet). Drives the
  * auto-refire cap — the operator hitting Reply resets the counter so
@@ -2911,6 +2958,9 @@ async function runTriageAgent(
     try {
       ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
     } catch { /* ignore */ }
+    // A turn completed cleanly — the thread isn't in a crash loop, so refund
+    // the auto-retry budget for any future transient failure.
+    resetTriageCrashRetries(ctx, messageId);
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   } catch (err) {
     // Operator-cancelled exceptions look like crashes here (the
@@ -2921,12 +2971,33 @@ async function runTriageAgent(
     if (!abortController.signal.aborted) {
       const msg = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[inbox-triage] run failed: ${msg}\n${(err as Error)?.stack ?? ''}\n`);
+      // A triage crash is almost always a transient infra failure (provider
+      // hiccup, worker dispatch race, network). Don't strand the thread on the
+      // first blip: auto-retry a bounded number of times with a short backoff,
+      // and only post a terminal "crashed" note once the budget is spent. The
+      // thread is left `awaiting_user` either way so it stays actionable (the
+      // operator can reply or hit "ask triage" even if the retry never lands).
+      const retries = triageCrashRetries(ctx);
+      const used = retries.get(messageId) ?? 0;
+      const { willRetry, noteBody } = planTriageCrashRecovery(used, msg);
       try {
-        const sysReply = ctx.inboxStore.addResponse(messageId, 'system', `Triage agent crashed: ${msg}`);
+        const sysReply = ctx.inboxStore.addResponse(messageId, 'system', noteBody);
         publishInboxEvent(ctx, messageId, 'message:created', {
           responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
         });
       } catch { /* ignore */ }
+      try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }
+      if (willRetry) {
+        retries.set(messageId, used + 1);
+        // Fire AFTER this run's `finally` clears the abort-controller guard
+        // (the delay comfortably outlasts the synchronous teardown), so the
+        // retry isn't deferred as a concurrent run.
+        setTimeout(() => {
+          void runTriageAgent(ctx, messageId).catch(() => { /* swallow — terminal note posts on final failure */ });
+        }, TRIAGE_CRASH_RETRY_DELAY_MS);
+      } else {
+        retries.delete(messageId);
+      }
     }
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
   } finally {

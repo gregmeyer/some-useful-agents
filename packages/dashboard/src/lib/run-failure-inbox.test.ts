@@ -33,6 +33,31 @@ describe('buildRunFailureMessage', () => {
     expect(msg.body).toContain('boom');
     expect(msg.body).toContain('/runs/run-abc12345-xyz'); // trailing slash on base url normalized
   });
+
+  it('omits the Temporal mention + UI link for a setup failure (no temporalRunId)', () => {
+    const msg = buildRunFailureMessage(
+      { run: run({ usedWorkflowProvider: 'temporal', error: 'gate rejected' }) },
+      'http://127.0.0.1:3000',
+    );
+    expect(msg.title).toBe('Run failed: news-digest');
+    expect(msg.title).not.toContain('Temporal');
+    expect(msg.body).not.toContain('Temporal');
+    expect(msg.body).not.toContain('localhost:8233');
+    expect(msg.body).toContain('/runs/run-abc12345-xyz'); // run page still linked
+  });
+
+  it('mentions Temporal + deep-links the workflow when temporalRunId is present', () => {
+    const msg = buildRunFailureMessage(
+      { run: run({ usedWorkflowProvider: 'temporal', temporalRunId: 'exec-99' }) },
+      'http://127.0.0.1:3000',
+    );
+    expect(msg.title).toBe('Temporal run failed: news-digest');
+    expect(msg.body).toContain('Temporal worker');
+    // Real deep link to the sua-run-<id> workflow history in the Temporal UI.
+    expect(msg.body).toContain('localhost:8233');
+    expect(msg.body).toContain('sua-run-run-abc12345-xyz');
+    expect(msg.body).toContain('exec-99');
+  });
 });
 
 describe('raiseRunFailureInbox', () => {
