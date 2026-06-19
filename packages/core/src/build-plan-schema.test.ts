@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPlanSchema, extractPlanJson, type BuildPlanInput } from './build-plan-schema.js';
+import { buildPlanSchema, extractPlanJson, extractTaggedJson, type BuildPlanInput } from './build-plan-schema.js';
 
 function basePlan(overrides: Partial<BuildPlanInput> = {}): BuildPlanInput {
   return {
@@ -158,5 +158,25 @@ describe('extractPlanJson', () => {
 
   it('returns null when no plan block is found', () => {
     expect(extractPlanJson('Sorry, I can\'t do that.')).toBeNull();
+  });
+});
+
+describe('extractTaggedJson', () => {
+  it('extracts from a custom <learning>…</learning> wrapper', () => {
+    const out = extractTaggedJson('Result:\n<learning>{"lesson":"do X"}</learning>\nok', 'learning');
+    expect(out).toBe('{"lesson":"do X"}');
+  });
+
+  it('is case-insensitive on the tag', () => {
+    expect(extractTaggedJson('<LEARNING>{"lesson":null}</LEARNING>', 'learning')).toBe('{"lesson":null}');
+  });
+
+  it('falls back to a ```json fence, then bare JSON', () => {
+    expect(extractTaggedJson('```json\n{"lesson":"y"}\n```', 'learning')).toBe('{"lesson":"y"}');
+    expect(extractTaggedJson('  {"lesson":"z"}  ', 'learning')).toBe('{"lesson":"z"}');
+  });
+
+  it('returns null when nothing matches', () => {
+    expect(extractTaggedJson('no json here', 'learning')).toBeNull();
   });
 });

@@ -96,7 +96,11 @@ export {
   INBOX_SOURCES,
   INBOX_RESPONSE_ROLES,
   INBOX_ACTION_STATUSES,
+  LEARNING_STATUSES,
+  LEARNING_SCOPES,
+  LEARNING_CATEGORIES,
   normalizeTags,
+  normalizeLesson,
   type InboxMessage,
   type InboxResponse,
   type InboxPriority,
@@ -107,6 +111,11 @@ export {
   type InboxActionMeta,
   type AddMessageInput,
   type ListMessagesOpts,
+  type TriageLearning,
+  type LearningStatus,
+  type LearningScope,
+  type LearningCategory,
+  type AddLearningInput,
 } from './inbox-store.js';
 export {
   IntegrationsStore,
@@ -171,7 +180,7 @@ export {
   type AppleRunnerHandle,
   type AppleRunResult,
 } from './integrations/apple-runner.js';
-export { isAppleIntegrationEnabled } from './experimental.js';
+export { isAppleIntegrationEnabled, isTriageLearningsEnabled } from './experimental.js';
 export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,
@@ -202,6 +211,7 @@ export {
 export {
   buildPlanSchema,
   extractPlanJson,
+  extractTaggedJson,
   type BuildPlan,
   type BuildPlanInput,
 } from './build-plan-schema.js';

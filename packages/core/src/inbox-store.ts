@@ -155,6 +155,53 @@ export interface InboxResponse {
   metaJson?: string;
 }
 
+/**
+ * Cross-thread triage learnings (experimental). A `pending` lesson is
+ * distilled by the extractor when a thread is resolved; the operator
+ * `approve`s or `reject`s it. Only `approved` lessons are ever retrieved
+ * into a future triage prompt — the approval gate is the trust boundary.
+ */
+export const LEARNING_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export type LearningStatus = typeof LEARNING_STATUSES[number];
+
+/**
+ * How broadly a lesson applies, which decides its retrieval key:
+ *   `agent`  — keyed on `agentId` (default; most specific)
+ *   `source` — keyed on `source` only (any agent with that source)
+ *   `global` — matches every thread (use sparingly)
+ */
+export const LEARNING_SCOPES = ['agent', 'source', 'global'] as const;
+export type LearningScope = typeof LEARNING_SCOPES[number];
+
+export const LEARNING_CATEGORIES = ['fix', 'config', 'permission', 'workflow', 'other'] as const;
+export type LearningCategory = typeof LEARNING_CATEGORIES[number];
+
+export interface TriageLearning {
+  id: string;
+  createdAt: number;
+  status: LearningStatus;
+  source: InboxSource;
+  /** Retrieval key; present for run-failure / permission-request sources. */
+  agentId?: string;
+  scope: LearningScope;
+  category?: LearningCategory;
+  lesson: string;
+  /** Provenance: the thread + triage run this lesson was distilled from. */
+  sourceMessageId?: string;
+  sourceRunId?: string;
+  approvedAt?: number;
+}
+
+export interface AddLearningInput {
+  source: InboxSource;
+  agentId?: string;
+  scope?: LearningScope;
+  category?: LearningCategory;
+  lesson: string;
+  sourceMessageId?: string;
+  sourceRunId?: string;
+}
+
 export interface AddMessageInput {
   priority: InboxPriority;
   source: InboxSource;
@@ -399,6 +446,31 @@ export class InboxStore {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_inbox_responses_msg
         ON inbox_responses(message_id, created_at)
+    `);
+    // Cross-thread triage learnings (experimental, flag-gated at the route
+    // layer). A lesson distilled from a resolved thread, held `pending` until
+    // an operator approves it, then retrieved by structured keys (agent_id,
+    // source) into future triage turns. See docs + the experimental flag
+    // SUA_EXPERIMENTAL_TRIAGE_LEARNINGS.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS triage_learnings (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT NOT NULL,
+        agent_id TEXT,
+        scope TEXT NOT NULL DEFAULT 'agent',
+        category TEXT,
+        lesson TEXT NOT NULL,
+        lesson_norm TEXT,
+        source_message_id TEXT,
+        source_run_id TEXT,
+        approved_at INTEGER
+      )
+    `);
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_learnings_retrieval
+        ON triage_learnings(status, source, agent_id, approved_at DESC)
     `);
   }
 
@@ -752,10 +824,128 @@ export class InboxStore {
     return rows.map((r) => this.rowToResponse(r));
   }
 
-  /** Drop every row from both tables. Test + dev tooling. */
+  // ── triage learnings (experimental) ────────────────────────────────
+
+  /**
+   * Insert a `pending` learning. Dedups against existing `pending`/`approved`
+   * rows with the same `(agent_id, source)` and a matching normalized lesson —
+   * returns the existing row's id is NOT needed, so a dup simply yields `null`
+   * (nothing inserted). Returns the new learning on insert.
+   */
+  addLearning(input: AddLearningInput): TriageLearning | null {
+    this.validateSource(input.source);
+    if (!input.lesson || !input.lesson.trim()) {
+      throw new Error('InboxStore.addLearning: lesson is required');
+    }
+    const lesson = input.lesson.trim();
+    const norm = normalizeLesson(lesson);
+    const agentId = input.agentId ?? null;
+    // Dedup: same key + same normalized lesson, still live (pending/approved).
+    const dup = this.db.prepare(`
+      SELECT 1 FROM triage_learnings
+        WHERE status IN ('pending', 'approved')
+          AND source = ?
+          AND (agent_id IS ? OR agent_id = ?)
+          AND lesson_norm = ?
+        LIMIT 1
+    `).get(input.source, agentId, agentId, norm);
+    if (dup) return null;
+
+    const id = randomUUID();
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO triage_learnings (
+        id, created_at, status, source, agent_id, scope, category,
+        lesson, lesson_norm, source_message_id, source_run_id
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      now,
+      input.source,
+      agentId,
+      input.scope ?? 'agent',
+      input.category ?? null,
+      lesson,
+      norm,
+      input.sourceMessageId ?? null,
+      input.sourceRunId ?? null,
+    );
+    return this.getLearning(id);
+  }
+
+  getLearning(id: string): TriageLearning | null {
+    const row = this.db.prepare(`SELECT * FROM triage_learnings WHERE id = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToLearning(row) : null;
+  }
+
+  /** List learnings, optionally filtered by source thread and/or status. */
+  listLearnings(opts: { messageId?: string; status?: LearningStatus } = {}): TriageLearning[] {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (opts.messageId !== undefined) {
+      where.push('source_message_id = ?');
+      params.push(opts.messageId);
+    }
+    if (opts.status !== undefined) {
+      where.push('status = ?');
+      params.push(opts.status);
+    }
+    const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = this.db.prepare(
+      `SELECT * FROM triage_learnings ${clause} ORDER BY created_at DESC`,
+    ).all(...params) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToLearning(r));
+  }
+
+  /**
+   * Atomically transition a `pending` learning to `approved` or `rejected`.
+   * Returns true when it committed, false when it lost the race (missing row
+   * or already decided). Approving stamps `approved_at`.
+   */
+  updateLearningStatus(id: string, status: 'approved' | 'rejected'): boolean {
+    const approvedAt = status === 'approved' ? Date.now() : null;
+    const result = this.db.prepare(`
+      UPDATE triage_learnings
+      SET status = ?, approved_at = ?
+      WHERE id = ? AND status = 'pending'
+    `).run(status, approvedAt, id);
+    return result.changes === 1;
+  }
+
+  deleteLearning(id: string): void {
+    this.db.prepare(`DELETE FROM triage_learnings WHERE id = ?`).run(id);
+  }
+
+  /**
+   * Retrieve approved lessons relevant to a thread being triaged, newest-
+   * approved first. Matches `global` always, `source` lessons by source, and
+   * `agent` lessons by `agentId` (when present). Capped at `limit` (default 5).
+   */
+  listApprovedLearningsForTriage(
+    opts: { agentId?: string; source: InboxSource },
+    limit = 5,
+  ): TriageLearning[] {
+    const agentId = opts.agentId ?? null;
+    const rows = this.db.prepare(`
+      SELECT * FROM triage_learnings
+        WHERE status = 'approved'
+          AND (
+            scope = 'global'
+            OR (scope = 'source' AND source = ?)
+            OR (scope = 'agent' AND agent_id IS NOT NULL AND agent_id = ?)
+          )
+        ORDER BY approved_at DESC
+        LIMIT ?
+    `).all(opts.source, agentId, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToLearning(r));
+  }
+
+  /** Drop every row from all tables. Test + dev tooling. */
   clear(): void {
     this.db.exec(`DELETE FROM inbox_responses`);
     this.db.exec(`DELETE FROM inbox_messages`);
+    this.db.exec(`DELETE FROM triage_learnings`);
   }
 
   close(): void {
@@ -828,4 +1018,33 @@ export class InboxStore {
       metaJson: (row.meta_json as string | null) ?? undefined,
     };
   }
+
+  private rowToLearning(row: Record<string, unknown>): TriageLearning {
+    return {
+      id: row.id as string,
+      createdAt: row.created_at as number,
+      status: row.status as LearningStatus,
+      source: row.source as InboxSource,
+      agentId: (row.agent_id as string | null) ?? undefined,
+      scope: (row.scope as LearningScope | null) ?? 'agent',
+      category: (row.category as LearningCategory | null) ?? undefined,
+      lesson: row.lesson as string,
+      sourceMessageId: (row.source_message_id as string | null) ?? undefined,
+      sourceRunId: (row.source_run_id as string | null) ?? undefined,
+      approvedAt: (row.approved_at as number | null) ?? undefined,
+    };
+  }
+}
+
+/**
+ * Normalize a lesson for dedup: lowercase, strip punctuation, collapse
+ * whitespace. Two lessons that differ only in casing/punctuation/spacing
+ * collapse to the same key so near-identical lessons aren't stored twice.
+ */
+export function normalizeLesson(lesson: string): string {
+  return lesson
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

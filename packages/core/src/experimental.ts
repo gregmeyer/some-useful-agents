@@ -26,3 +26,14 @@ function envTrue(name: string): boolean {
 export function isAppleIntegrationEnabled(): boolean {
   return envTrue('SUA_EXPERIMENTAL_APPLE');
 }
+
+/**
+ * True when the owner has enabled experimental cross-thread triage learnings —
+ * via `experimental.triageLearnings: true` in `sua.config.json` (bridged to the
+ * env var on load) or `SUA_EXPERIMENTAL_TRIAGE_LEARNINGS=1` directly. Default
+ * off. When off: no lessons are extracted on resolve and none are injected into
+ * triage prompts (the global kill switch).
+ */
+export function isTriageLearningsEnabled(): boolean {
+  return envTrue('SUA_EXPERIMENTAL_TRIAGE_LEARNINGS');
+}
