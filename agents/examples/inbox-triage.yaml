@@ -71,6 +71,15 @@ inputs:
     description: >
       Structured producer payload (failed-run details, blocked host,
       stale-agent list, etc.). Parse if useful.
+  RELEVANT_LEARNINGS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Operator-approved lessons from past triage of similar threads (same
+      agent or source), one per numbered line. Advisory priors — empty when
+      none apply or the feature is off. See the kernel's RELEVANT LEARNINGS
+      section for how to use them.
   CONVERSATION:
     type: string
     required: false
@@ -227,6 +236,10 @@ nodes:
 
       Context (may be empty / JSON / arbitrary):
       {{inputs.CONTEXT_JSON}}
+
+      Relevant learnings — operator-approved priors, advisory only (may be
+      empty); see the RELEVANT LEARNINGS section above for how to use them:
+      {{inputs.RELEVANT_LEARNINGS}}
 
       Conversation so far (may be empty — you are the first responder):
       {{inputs.CONVERSATION}}

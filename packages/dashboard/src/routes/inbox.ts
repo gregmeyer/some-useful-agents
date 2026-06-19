@@ -50,6 +50,7 @@ import {
   type InboxResponse,
   type LearningCategory,
   type LearningScope,
+  type TriageLearning,
   type ToolDefinition,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -2706,6 +2707,28 @@ function countActionsOnMessage(
  * `action` rows carry their status + a result preview so the model sees what
  * already ran. Shared by triage and the learning extractor.
  */
+/** Byte budget for the RELEVANT_LEARNINGS prompt block (after the top-K cap). */
+const LEARNINGS_PROMPT_BUDGET = 1500;
+
+/**
+ * Render retrieved lessons as a numbered plain-text block for the triage
+ * prompt: `N. [category] lesson`. Already top-K capped by the store query;
+ * this trims to a byte budget so a burst of lessons can't bloat the prompt.
+ * Returns '' for an empty list (the kernel section then no-ops).
+ */
+export function formatLearnings(learnings: readonly TriageLearning[]): string {
+  const lines: string[] = [];
+  let bytes = 0;
+  for (let i = 0; i < learnings.length; i += 1) {
+    const l = learnings[i];
+    const line = `${lines.length + 1}. ${l.category ? `[${l.category}] ` : ''}${l.lesson}`;
+    bytes += line.length + 1;
+    if (bytes > LEARNINGS_PROMPT_BUDGET) break;
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
 function formatConversationSnapshot(responses: readonly InboxResponse[]): string {
   return responses
     .map((r) => {
@@ -2851,6 +2874,11 @@ async function runTriageAgent(
   // granted yet — proposing one yields an approval-gated "Enable & run".
   const candidates = getRunnableCandidates(ctx);
   const candidateAgentSpecs = buildRunnableAgentSpecsJson(ctx, candidates);
+  // Approved cross-thread lessons relevant to this thread (experimental).
+  // Empty string when the flag is off → the kernel section degrades to a no-op.
+  const relevantLearnings = isTriageLearningsEnabled()
+    ? formatLearnings(ctx.inboxStore.listApprovedLearningsForTriage({ agentId: message.agentId, source: message.source }))
+    : '';
 
   // Pre-generate the runId + AbortController so the cancel route
   // (/inbox/:id/triage/cancel) can find and abort the in-flight run
@@ -2886,6 +2914,7 @@ async function runTriageAgent(
           MESSAGE_PRIORITY: message.priority,
           MESSAGE_SOURCE: message.source,
           CONTEXT_JSON: message.contextJson ?? '',
+          RELEVANT_LEARNINGS: relevantLearnings,
           CONVERSATION: conversation,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
