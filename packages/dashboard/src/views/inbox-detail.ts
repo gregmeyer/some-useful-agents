@@ -5,6 +5,7 @@ import {
   type InboxResponseRole,
   type InboxActionMeta,
   type InboxActionStatus,
+  type TriageLearning,
 } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -45,6 +46,12 @@ export interface InboxDetailOptions {
   };
   /** Installed non-system agents offered as fork/retarget targets. */
   forkableAgents?: { id: string; name: string }[];
+  /**
+   * Pending triage learnings extracted from this thread, awaiting the
+   * operator's approve/discard. Experimental (flag-gated); empty/absent when
+   * the feature is off or nothing was distilled.
+   */
+  pendingLearnings?: TriageLearning[];
 }
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -117,9 +124,12 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * standard dashboard layout for direct-link access + accessibility.
  */
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
+  const learningsBlock = (pendingLearnings ?? []).length > 0
+    ? html`<div class="inbox-learnings">${(pendingLearnings ?? []).map((l) => renderLearningCard(message.id, l)) as unknown as SafeHtml[]}</div>`
+    : html``;
 
   const flashBlock = flash ? html`
     <div class="flash flash--${flash.kind}" style="margin: 0 0 var(--space-2);">${flash.message}</div>
@@ -280,6 +290,9 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
               ${triagePending ? 'Triaging…' : 'Ask triage'}
             </button>
           </form>
+          <form method="POST" action="/inbox/${message.id}/resolve" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
+            <button type="submit" class="btn btn--sm btn--ghost" title="Mark this thread fixed">Mark resolved</button>
+          </form>
           <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
             <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
           </form>
@@ -314,6 +327,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       </div>
       <div class="inbox-detail__thread">
         ${timelineBlock}
+        ${learningsBlock}
       </div>
       ${composer}
     </div>
@@ -500,6 +514,47 @@ function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
     }
   } catch { /* swallow */ }
   return null;
+}
+
+/**
+ * Render a pending triage-learning as an approve/discard card. Shown only
+ * when the experimental feature distilled a lesson from this thread. Approving
+ * makes the lesson retrievable into future triage; discarding kills it.
+ */
+function renderLearningCard(messageId: string, l: TriageLearning): SafeHtml {
+  const scopeNote = l.scope === 'agent' && l.agentId
+    ? html`agent <span class="mono">${l.agentId}</span>`
+    : l.scope === 'source'
+      ? html`any <span class="mono">${l.source}</span> thread`
+      : html`all threads`;
+  return html`
+    <div class="inbox-msg inbox-msg--learning inbox-learning" data-learning-id="${l.id}">
+      <div class="inbox-msg__avatar inbox-msg__avatar--learning">💡</div>
+      <div class="inbox-msg__body">
+        <div class="inbox-msg__meta">
+          <span class="inbox-msg__meta-name">Triage learned something</span>
+          ${l.category ? html`<span class="inbox-action__status">${l.category}</span>` : html``}
+          <span>applies to ${scopeNote}</span>
+        </div>
+        <div class="inbox-action__card">
+          <div class="inbox-learning__lesson">${mdBody(l.lesson)}</div>
+          <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-xs);">
+            Approve to let triage use this in future ${l.source} threads, or discard it.
+          </p>
+          <div class="inbox-action__controls">
+            <form method="POST" action="/inbox/${messageId}/learnings/${l.id}/approve"
+              data-inbox-modal-form data-inbox-modal-quiet="1" style="margin:0;">
+              <button type="submit" class="btn btn--xs btn--primary">Approve</button>
+            </form>
+            <form method="POST" action="/inbox/${messageId}/learnings/${l.id}/reject"
+              data-inbox-modal-form data-inbox-modal-quiet="1" style="margin:0;">
+              <button type="submit" class="btn btn--xs btn--ghost">Discard</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 /** Render an action-role row as a card whose body depends on status. */

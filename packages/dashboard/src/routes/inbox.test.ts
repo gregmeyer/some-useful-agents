@@ -22,6 +22,7 @@ import {
   buildLoopbackAllowlist,
   loadAgents,
   parseAgent,
+  type InboxMessage,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
@@ -512,6 +513,96 @@ describe('POST /inbox/bulk-dismiss', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', COOKIE);
     expect(res.status).toBe(400);
+  });
+});
+
+describe('Triage learnings (PR2)', () => {
+  const LEARN_FLAG = 'SUA_EXPERIMENTAL_TRIAGE_LEARNINGS';
+  const post = (app: Awaited<ReturnType<typeof makeApp>>, path: string) =>
+    request(app).post(path).set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+  afterEach(() => { delete process.env[LEARN_FLAG]; });
+
+  // A run-failure thread with a triage reply — but extraction never fires in
+  // these tests because we keep the FLAG OFF (or trip an earlier gate), so the
+  // real extractor LLM is never invoked.
+  const seedFailureThread = (): InboxMessage => {
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'news-digest', title: 'fail', body: 'boom' });
+    inboxStore.addResponse(m.id, 'triage', 'Here is what went wrong.');
+    return m;
+  };
+
+  it('POST /resolve sets status=resolved; flag OFF creates no learning', async () => {
+    const app = await makeApp();
+    const m = seedFailureThread();
+    const res = await post(app, `/inbox/${m.id}/resolve`);
+    expect(res.status).toBe(204);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(inboxStore.get(m.id)!.status).toBe('resolved');
+    expect(inboxStore.listLearnings({ messageId: m.id })).toEqual([]);
+  });
+
+  it('flag ON but non-learnable source → no extraction (early gate)', async () => {
+    process.env[LEARN_FLAG] = '1';
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'triage', 'noted');
+    await post(app, `/inbox/${m.id}/resolve`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(inboxStore.listLearnings({ messageId: m.id })).toEqual([]);
+  });
+
+  it('flag ON, learnable source, but no triage activity → no extraction (early gate)', async () => {
+    process.env[LEARN_FLAG] = '1';
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'a', title: 'fail', body: 'boom' });
+    await post(app, `/inbox/${m.id}/resolve`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(inboxStore.listLearnings({ messageId: m.id })).toEqual([]);
+  });
+
+  it('approve makes a pending learning retrievable; reject does not', async () => {
+    const app = await makeApp();
+    const m = seedFailureThread();
+    const approved = inboxStore.addLearning({ source: 'run-failure', agentId: 'news-digest', scope: 'agent', lesson: 'Install the CLI first.', sourceMessageId: m.id })!;
+    const rejected = inboxStore.addLearning({ source: 'run-failure', agentId: 'news-digest', scope: 'agent', lesson: 'A different lesson entirely.', sourceMessageId: m.id })!;
+
+    expect((await post(app, `/inbox/${m.id}/learnings/${approved.id}/approve`)).status).toBe(204);
+    expect((await post(app, `/inbox/${m.id}/learnings/${rejected.id}/reject`)).status).toBe(204);
+
+    expect(inboxStore.getLearning(approved.id)!.status).toBe('approved');
+    expect(inboxStore.getLearning(rejected.id)!.status).toBe('rejected');
+    const retrieved = inboxStore.listApprovedLearningsForTriage({ agentId: 'news-digest', source: 'run-failure' });
+    expect(retrieved.map((l) => l.lesson)).toEqual(['Install the CLI first.']);
+  });
+
+  it('approve is idempotent on a double-click (second is a stale no-op)', async () => {
+    const app = await makeApp();
+    const m = seedFailureThread();
+    const l = inboxStore.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'x', sourceMessageId: m.id })!;
+    await post(app, `/inbox/${m.id}/learnings/${l.id}/approve`);
+    await post(app, `/inbox/${m.id}/learnings/${l.id}/reject`); // loses the race
+    expect(inboxStore.getLearning(l.id)!.status).toBe('approved');
+  });
+
+  it('404s a learning that belongs to a different thread', async () => {
+    const app = await makeApp();
+    const m = seedFailureThread();
+    const other = inboxStore.add({ priority: 'low', source: 'run-failure', agentId: 'a', title: 'o', body: 'o' });
+    const l = inboxStore.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'x', sourceMessageId: other.id })!;
+    expect((await post(app, `/inbox/${m.id}/learnings/${l.id}/approve`)).status).toBe(404);
+  });
+
+  it('renders a pending-learning card with approve/discard in the fragment', async () => {
+    const app = await makeApp();
+    const m = seedFailureThread();
+    inboxStore.addLearning({ source: 'run-failure', agentId: 'news-digest', lesson: 'Install the apod CLI before retrying.', sourceMessageId: m.id });
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Triage learned something');
+    expect(res.text).toContain('Install the apod CLI before retrying.');
+    expect(res.text).toContain(`/inbox/${m.id}/learnings/`);
+    expect(res.text).toContain('Mark resolved');
   });
 });
 

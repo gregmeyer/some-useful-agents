@@ -31,11 +31,15 @@ import {
   exportAgent,
   executeAgentDag,
   extractPlanJson,
+  extractTaggedJson,
   isAppleIntegrationEnabled,
+  isTriageLearningsEnabled,
   isSafeUrl,
   listBuiltinTools,
   parseAgent,
   LLM_PROVIDERS,
+  LEARNING_CATEGORIES,
+  LEARNING_SCOPES,
   unallowedWidgetImageHosts,
   type Agent,
   type LlmProvider,
@@ -44,6 +48,8 @@ import {
   type InboxActionMeta,
   type InboxActionStatus,
   type InboxResponse,
+  type LearningCategory,
+  type LearningScope,
   type ToolDefinition,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -69,6 +75,12 @@ export const inboxRouter: Router = Router();
 const SORT_KEYS = new Set<InboxSortKey>(['priority', 'source', 'agent', 'title', 'age', 'status']);
 const SORT_DIRS = new Set<InboxSortDir>(['asc', 'desc']);
 const TRIAGE_AGENT_ID = 'inbox-triage';
+/** Experimental learnings extractor — route-dispatched on thread resolve. */
+const LEARNING_EXTRACTOR_AGENT_ID = 'inbox-learning-extractor';
+/** Sources rich enough to learn from (agentId reliably present). */
+const LEARNING_SOURCES: ReadonlySet<string> = new Set(['run-failure', 'permission-request']);
+/** Cap a stored lesson; the extractor is told ~280, this is the hard limit. */
+const LEARNING_MAX_CHARS = 600;
 const PENDING_USER_REPLY_WINDOW_MS = 30_000;
 
 /**
@@ -157,6 +169,7 @@ const INLINE_INBOX_WIDGET_TYPES: ReadonlySet<string> = new Set([
  */
 const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'inbox-triage',
+  'inbox-learning-extractor',
   'agent-analyzer',
   'agent-editor',
   'agent-catalog-search',
@@ -507,6 +520,7 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     inlineActionWidgets,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
+    pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
   }));
 });
 
@@ -534,6 +548,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     inlineActionWidgets,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
+    pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
   })));
 });
 
@@ -592,6 +607,33 @@ inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     if (isAjax(req)) { res.status(500).end(); return; }
     res.redirect(303, `/inbox/${encodeURIComponent(id)}?error=${encodeURIComponent(`Dismiss failed: ${msg}`)}`);
+  }
+});
+
+/**
+ * Mark a thread resolved (the operator fixed it). Distinct from dismiss
+ * ("I don't care") — resolve is the high-signal terminal state, so it's the
+ * trigger for learning extraction. Fire-and-forget: the extractor runs in the
+ * background (flag-gated; no-op when the flag is off), so the response returns
+ * immediately.
+ */
+inboxRouter.post('/inbox/:id/resolve', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+    if (isAjax(req)) { res.status(404).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+    return;
+  }
+  try {
+    ctx.inboxStore.updateStatus(id, 'resolved');
+    void maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ });
+    if (isAjax(req)) { res.status(204).end(); return; }
+    res.redirect(303, `/inbox?ok=${encodeURIComponent('Resolved.')}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `/inbox/${encodeURIComponent(id)}?error=${encodeURIComponent(`Resolve failed: ${msg}`)}`);
   }
 });
 
@@ -1160,6 +1202,42 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Skipped.')}`);
 });
+
+/**
+ * POST /inbox/:id/learnings/:lid/(approve|reject) — operator decides on a
+ * `pending` triage learning. Approve makes it retrievable into future triage;
+ * reject leaves it dead (never retrieved). Atomic via updateLearningStatus, so
+ * a double-click resolves once.
+ */
+function handleLearningDecision(decision: 'approved' | 'rejected') {
+  return (req: Request, res: Response): void => {
+    const ctx = getContext(req.app.locals);
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const lid = Array.isArray(req.params.lid) ? req.params.lid[0] : req.params.lid;
+    const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+    if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
+      if (isAjax(req)) { res.status(404).end(); return; }
+      res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
+      return;
+    }
+    const learning = ctx.inboxStore.getLearning(lid);
+    if (!learning || learning.sourceMessageId !== id) {
+      if (isAjax(req)) { res.status(404).end(); return; }
+      res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Learning not found.')}`);
+      return;
+    }
+    const committed = ctx.inboxStore.updateLearningStatus(lid, decision);
+    if (committed) {
+      publishInboxEvent(ctx, id, 'learning:status', { learningId: lid, status: decision });
+    }
+    if (isAjax(req)) { res.status(204).end(); return; }
+    const ok = decision === 'approved' ? 'Learning approved.' : 'Learning discarded.';
+    const stale = 'Learning already decided.';
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent(committed ? ok : stale)}`);
+  };
+}
+inboxRouter.post('/inbox/:id/learnings/:lid/approve', handleLearningDecision('approved'));
+inboxRouter.post('/inbox/:id/learnings/:lid/reject', handleLearningDecision('rejected'));
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -2624,6 +2702,85 @@ function countActionsOnMessage(
 }
 
 /**
+ * Render the thread transcript as `[role] body` lines for an LLM prompt.
+ * `action` rows carry their status + a result preview so the model sees what
+ * already ran. Shared by triage and the learning extractor.
+ */
+function formatConversationSnapshot(responses: readonly InboxResponse[]): string {
+  return responses
+    .map((r) => {
+      if (r.role === 'action') {
+        const m = parseActionMeta(r);
+        const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
+        return `[action] ${r.body}${suffix}`;
+      }
+      return `[${r.role}] ${r.body}`;
+    })
+    .join('\n');
+}
+
+/**
+ * After a thread is RESOLVED, distill a durable lesson via the
+ * inbox-learning-extractor sub-agent and store it as a `pending` learning for
+ * the operator to approve. Experimental + flag-gated. Cheapest-first gates keep
+ * the common case free; only run-failure / permission-request threads with real
+ * triage activity ever reach the (one) LLM call. Best-effort — never throws
+ * into the resolve route.
+ */
+async function maybeExtractLearning(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): Promise<void> {
+  if (!isTriageLearningsEnabled()) return;                 // global kill switch
+  if (!ctx.inboxStore) return;
+  const message = ctx.inboxStore.get(messageId);
+  if (!message) return;
+  if (!LEARNING_SOURCES.has(message.source)) return;       // only lesson-rich sources
+  const responses = ctx.inboxStore.listResponses(messageId);
+  if (!responses.some((r) => r.role === 'triage')) return; // nothing was triaged
+  if (!ensureSystemAgentCurrent(ctx, LEARNING_EXTRACTOR_AGENT_ID, 'inbox learning extraction')) return;
+  const extractor = ctx.agentStore.getAgent(LEARNING_EXTRACTOR_AGENT_ID);
+  if (!extractor) return;
+
+  try {
+    const run = await runDispatchedAgentToTerminal(ctx, extractor, {
+      MESSAGE_SOURCE: message.source,
+      AGENT_ID: message.agentId ?? '',
+      TERMINAL_STATE: 'resolved',
+      CONVERSATION: formatConversationSnapshot(responses),
+      CONTEXT_JSON: message.contextJson ?? '',
+    });
+    if (run.status !== 'completed' || !run.result) return;
+    const json = extractTaggedJson(run.result, 'learning');
+    if (!json) return;
+    let parsed: { lesson?: unknown; category?: unknown; scope?: unknown };
+    try { parsed = JSON.parse(json); } catch { return; }
+    const lesson = typeof parsed.lesson === 'string' ? parsed.lesson.trim() : '';
+    if (!lesson) return;                                    // null/empty ⇒ no durable lesson
+    const category = (LEARNING_CATEGORIES as readonly string[]).includes(parsed.category as string)
+      ? (parsed.category as LearningCategory) : undefined;
+    const scope = (LEARNING_SCOPES as readonly string[]).includes(parsed.scope as string)
+      ? (parsed.scope as LearningScope) : 'agent';
+    const created = ctx.inboxStore.addLearning({
+      source: message.source,
+      agentId: message.agentId,
+      scope,
+      category,
+      lesson: lesson.slice(0, LEARNING_MAX_CHARS),
+      sourceMessageId: messageId,
+      sourceRunId: message.triageRunId,
+    });
+    if (created) {
+      publishInboxEvent(ctx, messageId, 'learning:created', {
+        learningId: created.id, lesson: created.lesson, category: created.category,
+      });
+    }
+  } catch (err) {
+    process.stderr.write(`[inbox-learning] extraction failed for ${messageId}: ${(err as Error)?.message ?? err}\n`);
+  }
+}
+
+/**
  * Spawn the inbox-triage system agent for a message. Lazy-installs the
  * YAML on first call (mirrors layout-planner). After the run
  * completes, parses the `<plan>{...}</plan>` block and appends a
@@ -2679,16 +2836,7 @@ async function runTriageAgent(
   // include the structured status so the model can see what already
   // ran rather than just the rationale body.
   const responsesSnapshot = ctx.inboxStore.listResponses(messageId);
-  const conversation = responsesSnapshot
-    .map((r) => {
-      if (r.role === 'action') {
-        const m = parseActionMeta(r);
-        const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
-        return `[action] ${r.body}${suffix}`;
-      }
-      return `[${r.role}] ${r.body}`;
-    })
-    .join('\n');
+  const conversation = formatConversationSnapshot(responsesSnapshot);
 
   // The operator's latest real ask is the authoritative current intent.
   // MESSAGE_BODY is frozen at thread creation, so on a mid-thread pivot

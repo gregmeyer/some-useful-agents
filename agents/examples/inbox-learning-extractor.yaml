@@ -1,0 +1,140 @@
+# Inbox Learning Extractor — distills at most one durable, reusable LESSON
+# from a RESOLVED inbox triage thread, or returns none.
+#
+# Experimental (flag-gated by SUA_EXPERIMENTAL_TRIAGE_LEARNINGS). The inbox
+# route runs this from `maybeExtractLearning` when a thread is marked resolved.
+# It is route-dispatched only — NOT in the triage sub-agent allowlist, never
+# proposed to the operator. Its `<learning>` output is parsed with
+# extractTaggedJson, validated, and stored as a `pending` learning that the
+# operator approves/rejects. Approved lessons are retrieved by structured keys
+# (agentId, source) into future triage turns.
+
+id: inbox-learning-extractor
+name: Inbox Learning Extractor
+description: >
+  Reads a resolved inbox triage thread and distills at most one durable,
+  reusable lesson for future triage of similar issues — or returns none when
+  the thread holds nothing generalizable.
+status: active
+source: examples
+
+inputs:
+  MESSAGE_SOURCE:
+    type: string
+    required: true
+    description: >
+      The thread's source — `run-failure` or `permission-request`. Tells you
+      what kind of incident this was.
+  AGENT_ID:
+    type: string
+    required: false
+    default: ""
+    description: The agent the thread is about (when known), e.g. `news-digest`.
+  TERMINAL_STATE:
+    type: string
+    required: true
+    description: How the thread ended — always `resolved` here.
+  CONVERSATION:
+    type: string
+    required: false
+    default: ""
+    description: >
+      The full thread transcript: `[user] …`, `[triage] …`, and `[action] …`
+      lines (actions carry their status + result). This is what you distill.
+  CONTEXT_JSON:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Structured context for the source (e.g. run-failure:
+      `{exitCode, durationMs, lastErrorLine}`; permission-request:
+      `{host, blockedCount}`). May be empty.
+
+nodes:
+  - id: extract
+    type: llm-prompt
+    # No <learning> block means the model didn't produce a usable result.
+    outputContract:
+      mustMatch: '<learning>[\s\S]*?</learning>'
+      description: a <learning> JSON block
+    prompt: |
+      You are the Inbox Learning Extractor for the sua platform. A triage
+      thread was just RESOLVED. Your job: distill AT MOST ONE durable,
+      reusable lesson that would help triage a SIMILAR future issue — or
+      decide there's nothing worth remembering and return none.
+
+      IMPORTANT — TOOL USE POLICY: do NOT use Bash, Read, Grep, Glob, or any
+      file/search tools. Work only from the transcript and context below.
+
+      ════════════════════════════════════════════════════════════════
+      THREAD
+      ════════════════════════════════════════════════════════════════
+
+      Source: {{inputs.MESSAGE_SOURCE}}
+      Agent: {{inputs.AGENT_ID}}
+      Ended: {{inputs.TERMINAL_STATE}}
+
+      Context: {{inputs.CONTEXT_JSON}}
+
+      Transcript:
+      {{inputs.CONVERSATION}}
+
+      ════════════════════════════════════════════════════════════════
+      WHAT MAKES A GOOD LESSON
+      ════════════════════════════════════════════════════════════════
+
+      A lesson is a SHORT, GENERAL, ACTIONABLE rule a future triage turn
+      could apply — not a play-by-play of this thread.
+
+      - GOOD: "When this agent fails with `exit 1` on a missing CLI tool,
+        recommend installing it (e.g. `brew install <tool>`) before retrying."
+      - GOOD: "A CSP image-host block for this agent is fixed by adding the
+        host to permissions.imgSrc via agent-analyzer."
+      - BAD (too specific / not reusable): "The operator installed apod at
+        4:15pm and the run passed."
+      - BAD (no durable rule): "The thread was resolved after some back and
+        forth."
+
+      Return NO lesson (set "lesson": null) when:
+      - The resolution was a one-off with no generalizable rule.
+      - Nothing was actually diagnosed or fixed.
+      - The lesson would just restate what triage already does by default.
+
+      Be conservative: when in doubt, return null. One precise lesson beats
+      a vague one.
+
+      Keep `lesson` under ~280 characters, imperative voice, no thread-
+      specific timestamps or ids.
+
+      `category` (optional): one of fix | config | permission | workflow | other.
+      `scope` (optional, default "agent"): how broadly the lesson applies —
+        "agent"  → only this agent (most common; the default)
+        "source" → any thread of this source, regardless of agent
+        "global" → every thread (use VERY sparingly; only truly universal rules)
+
+      ════════════════════════════════════════════════════════════════
+      OUTPUT FORMAT — exact shape, single <learning>...</learning> block
+      ════════════════════════════════════════════════════════════════
+
+      Wrap the JSON in <learning>…</learning> tags. Output ONLY the
+      <learning> block — no preamble, no markdown fences.
+
+      A lesson worth keeping:
+
+      <learning>
+      {
+        "lesson": "When this agent fails with exit 1 on a missing CLI tool, recommend installing the tool (brew install <tool>) before retrying.",
+        "category": "fix",
+        "scope": "agent"
+      }
+      </learning>
+
+      Nothing durable to keep:
+
+      <learning>
+      {
+        "lesson": null
+      }
+      </learning>
+    maxTurns: 2
+    timeout: 60
