@@ -2112,6 +2112,9 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg__avatar--triage { background: var(--color-info, #60a5fa); }
 .inbox-msg__avatar--system { background: var(--color-text-muted, #8b93a7); }
 .inbox-msg__avatar--action { background: var(--color-warn, #f59e0b); }
+.inbox-msg__avatar--learning { background: var(--color-primary, #2dd4bf); }
+.inbox-learnings { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.inbox-learning__lesson { font-size: var(--font-size-sm); }
 .inbox-msg__body { flex: 1; min-width: 0; }
 .inbox-msg__meta {
   font-size: var(--font-size-xs);
