@@ -146,3 +146,23 @@ export function extractPlanJson(raw: string): string | null {
 
   return null;
 }
+
+/**
+ * Generalized version of {@link extractPlanJson} for any XML-ish wrapper tag
+ * (e.g. `<learning>…</learning>`). Strips, in order: `<tag>…</tag>`, a ```json
+ * (or bare ```) fence, then a bare `{…}` blob. Returns the trimmed JSON text
+ * ready for `JSON.parse`, or null when nothing matches. The `tag` is matched
+ * case-insensitively; callers pass a simple alphanumeric tag name.
+ */
+export function extractTaggedJson(raw: string, tag: string): string | null {
+  const tagged = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i').exec(raw);
+  if (tagged) return tagged[1].trim();
+
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
+  if (fenced) return fenced[1].trim();
+
+  const bare = raw.trim();
+  if (bare.startsWith('{') && bare.endsWith('}')) return bare;
+
+  return null;
+}

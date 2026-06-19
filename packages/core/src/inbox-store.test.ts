@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InboxStore, normalizeTags, type InboxMessage } from './inbox-store.js';
+import { InboxStore, normalizeTags, normalizeLesson, type InboxMessage } from './inbox-store.js';
 
 let dir: string;
 let store: InboxStore;
@@ -503,5 +503,134 @@ describe('InboxStore.list filters (q, starred, tag)', () => {
     store.setTags(b.id, ['auth']);
     const out = store.list({ starred: true, tag: 'auth', q: 'auth' });
     expect(out.map((r) => r.title)).toEqual(['auth issue starred']);
+  });
+});
+
+describe('normalizeLesson', () => {
+  it('lowercases, strips punctuation, collapses whitespace', () => {
+    expect(normalizeLesson('Run  `brew install apod`, then retry!'))
+      .toBe('run brew install apod then retry');
+  });
+  it('collapses near-identical lessons to the same key', () => {
+    expect(normalizeLesson('Check the host allowlist.'))
+      .toBe(normalizeLesson('check the   host allowlist'));
+  });
+});
+
+describe('InboxStore triage learnings', () => {
+  it('addLearning round-trips with defaults + provenance', () => {
+    const l = store.addLearning({
+      source: 'run-failure',
+      agentId: 'news-digest',
+      category: 'fix',
+      lesson: 'Install the apod CLI before retrying.',
+      sourceMessageId: 'msg-1',
+      sourceRunId: 'run-1',
+    });
+    expect(l).not.toBeNull();
+    expect(l!.status).toBe('pending');
+    expect(l!.scope).toBe('agent');           // default
+    expect(l!.agentId).toBe('news-digest');
+    expect(l!.category).toBe('fix');
+    expect(l!.sourceMessageId).toBe('msg-1');
+    expect(l!.sourceRunId).toBe('run-1');
+    expect(store.getLearning(l!.id)).toEqual(l);
+  });
+
+  it('dedups a near-identical lesson on the same (agentId, source)', () => {
+    const a = store.addLearning({ source: 'run-failure', agentId: 'x', lesson: 'Fix the thing.' });
+    const dup = store.addLearning({ source: 'run-failure', agentId: 'x', lesson: 'fix   the THING!' });
+    expect(a).not.toBeNull();
+    expect(dup).toBeNull();
+    expect(store.listLearnings()).toHaveLength(1);
+  });
+
+  it('does NOT dedup the same lesson under a different agent or source', () => {
+    store.addLearning({ source: 'run-failure', agentId: 'x', lesson: 'Fix the thing.' });
+    expect(store.addLearning({ source: 'run-failure', agentId: 'y', lesson: 'Fix the thing.' })).not.toBeNull();
+    expect(store.addLearning({ source: 'permission-request', agentId: 'x', lesson: 'Fix the thing.' })).not.toBeNull();
+    expect(store.listLearnings()).toHaveLength(3);
+  });
+
+  it('listLearnings filters by messageId and status', () => {
+    store.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'one', sourceMessageId: 'm1' });
+    store.addLearning({ source: 'run-failure', agentId: 'b', lesson: 'two', sourceMessageId: 'm2' });
+    expect(store.listLearnings({ messageId: 'm1' })).toHaveLength(1);
+    expect(store.listLearnings({ status: 'pending' })).toHaveLength(2);
+    expect(store.listLearnings({ status: 'approved' })).toHaveLength(0);
+  });
+
+  it('updateLearningStatus approves once (stamps approved_at) and is race-safe', () => {
+    const l = store.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'lesson' })!;
+    expect(store.updateLearningStatus(l.id, 'approved')).toBe(true);
+    const approved = store.getLearning(l.id)!;
+    expect(approved.status).toBe('approved');
+    expect(approved.approvedAt).toBeGreaterThan(0);
+    // A second transition loses the race (already decided).
+    expect(store.updateLearningStatus(l.id, 'rejected')).toBe(false);
+    expect(store.getLearning(l.id)!.status).toBe('approved');
+  });
+
+  it('updateLearningStatus returns false for a missing row', () => {
+    expect(store.updateLearningStatus('nope', 'approved')).toBe(false);
+  });
+
+  it('deleteLearning removes the row', () => {
+    const l = store.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'x' })!;
+    store.deleteLearning(l.id);
+    expect(store.getLearning(l.id)).toBeNull();
+  });
+
+  describe('listApprovedLearningsForTriage', () => {
+    const approve = (input: Parameters<InboxStore['addLearning']>[0]): void => {
+      const l = store.addLearning(input)!;
+      store.updateLearningStatus(l.id, 'approved');
+    };
+
+    it('matches agent-scoped lessons by agentId', () => {
+      approve({ source: 'run-failure', agentId: 'news', scope: 'agent', lesson: 'news lesson' });
+      approve({ source: 'run-failure', agentId: 'other', scope: 'agent', lesson: 'other lesson' });
+      const out = store.listApprovedLearningsForTriage({ agentId: 'news', source: 'run-failure' });
+      expect(out.map((l) => l.lesson)).toEqual(['news lesson']);
+    });
+
+    it('matches source-scoped lessons regardless of agent, and global always', () => {
+      approve({ source: 'run-failure', agentId: 'a', scope: 'source', lesson: 'src lesson' });
+      approve({ source: 'run-failure', agentId: 'b', scope: 'global', lesson: 'global lesson' });
+      const out = store.listApprovedLearningsForTriage({ agentId: 'zzz', source: 'run-failure' });
+      expect(out.map((l) => l.lesson).sort()).toEqual(['global lesson', 'src lesson']);
+    });
+
+    it('excludes pending and rejected lessons', () => {
+      store.addLearning({ source: 'run-failure', agentId: 'a', scope: 'agent', lesson: 'still pending' });
+      const rej = store.addLearning({ source: 'run-failure', agentId: 'a', scope: 'agent', lesson: 'will reject' })!;
+      store.updateLearningStatus(rej.id, 'rejected');
+      expect(store.listApprovedLearningsForTriage({ agentId: 'a', source: 'run-failure' })).toEqual([]);
+    });
+
+    it('does not match agent-scoped lessons when agentId is absent', () => {
+      approve({ source: 'cadence', agentId: 'a', scope: 'agent', lesson: 'agent lesson' });
+      approve({ source: 'cadence', scope: 'source', lesson: 'source lesson' });
+      const out = store.listApprovedLearningsForTriage({ source: 'cadence' });
+      expect(out.map((l) => l.lesson)).toEqual(['source lesson']);
+    });
+
+    it('orders newest-approved first and caps at the limit', () => {
+      for (let i = 0; i < 7; i += 1) approve({ source: 'run-failure', agentId: 'a', scope: 'agent', lesson: `lesson ${i}` });
+      const out = store.listApprovedLearningsForTriage({ agentId: 'a', source: 'run-failure' });
+      expect(out).toHaveLength(5);                 // default LIMIT
+      const limited = store.listApprovedLearningsForTriage({ agentId: 'a', source: 'run-failure' }, 2);
+      expect(limited).toHaveLength(2);
+    });
+  });
+
+  it('ensureSchema is idempotent across reopen (table + rows survive)', () => {
+    const dbPath = join(dir, 'reopen.db');
+    const s1 = new InboxStore(dbPath);
+    const l = s1.addLearning({ source: 'run-failure', agentId: 'a', lesson: 'persist me' })!;
+    s1.close();
+    const s2 = new InboxStore(dbPath);   // re-runs ensureSchema
+    expect(s2.getLearning(l.id)?.lesson).toBe('persist me');
+    s2.close();
   });
 });

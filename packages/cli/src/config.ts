@@ -48,6 +48,13 @@ export interface SuaConfig {
      * off. Equivalent to `SUA_EXPERIMENTAL_APPLE=1`.
      */
     apple?: boolean;
+    /**
+     * Enable experimental cross-thread triage learnings (extract a lesson on
+     * resolve, hold pending approval, retrieve approved lessons into future
+     * triage prompts). Default off. Equivalent to
+     * `SUA_EXPERIMENTAL_TRIAGE_LEARNINGS=1`.
+     */
+    triageLearnings?: boolean;
   };
 }
 
@@ -91,6 +98,9 @@ export function loadConfig(): SuaConfig {
 function applyExperimentalFlags(config: SuaConfig): SuaConfig {
   if (config.experimental?.apple && process.env.SUA_EXPERIMENTAL_APPLE === undefined) {
     process.env.SUA_EXPERIMENTAL_APPLE = '1';
+  }
+  if (config.experimental?.triageLearnings && process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS === undefined) {
+    process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS = '1';
   }
   return config;
 }
