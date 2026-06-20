@@ -449,6 +449,7 @@ export class AgentStore {
       dashboardVisible: row.dashboard_visible == null ? undefined : (row.dashboard_visible as number) === 1,
       stateMaxBytes: row.state_max_bytes == null ? undefined : (row.state_max_bytes as number),
       createdAt: (row.created_at as string | null) ?? undefined,
+      updatedAt: (row.updated_at as string | null) ?? undefined,
       version: row.current_version as number,
       provider: dag.provider,
       model: dag.model,
