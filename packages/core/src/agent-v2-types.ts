@@ -386,6 +386,14 @@ export interface Agent {
    */
   createdAt?: string;
 
+  /**
+   * ISO timestamp of the most recent change to the agent (the `agents` row's
+   * `updated_at`; bumped by both metadata edits and new versions). Populated on
+   * read from the store; absent on YAML-parsed agents not yet persisted. Lets
+   * callers tell whether an agent changed since some earlier event.
+   */
+  updatedAt?: string;
+
   /** Default LLM provider for all claude-code nodes. Nodes can override. */
   provider?: LlmProvider;
   /** Default model for all claude-code nodes. Nodes can override. */

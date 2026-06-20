@@ -195,9 +195,12 @@ Rules:
   action that the CURRENT REQUEST no longer asks for is dead — drop
   it. Only retry a failed action when the CURRENT REQUEST still wants
   that exact outcome AND something has changed that would make the
-  retry succeed (e.g. the operator supplied a missing input or fixed
-  a setup issue). If neither holds, move on to the CURRENT REQUEST
-  instead of looping on the stale failure.
+  retry succeed (e.g. the operator supplied a missing input, fixed a
+  setup issue, or EDITED THE TARGET AGENT). When the operator says
+  they fixed the agent, re-propose the run — the route allows the
+  retry once the agent was edited after the failure (it no longer
+  treats it as the same dead action). If nothing changed, move on to
+  the CURRENT REQUEST instead of looping on the stale failure.
 - DO NOT propose `agent-editor` directly. It is managed by the
   dashboard: when `agent-analyzer` produces a corrected YAML in
   its run output, the route automatically inserts an

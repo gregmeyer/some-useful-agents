@@ -1302,19 +1302,32 @@ function stableStringifyInputs(inputs: Record<string, string>): string {
   );
 }
 
-function hasMatchingFailedAction(
+export function hasMatchingFailedAction(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   candidate: InboxActionMeta,
 ): boolean {
   if (!ctx.inboxStore) return false;
   const candidateInputs = stableStringifyInputs(candidate.inputs);
+  // When the target agent was edited AFTER a failure, that failure is stale —
+  // the operator fixing the agent is exactly the "something changed that would
+  // make a retry succeed" case. Without this, an inputs-less agent (every
+  // re-proposal looks identical) is blocked forever even after a fix, and the
+  // "revise the inputs" advice is impossible to follow. Compare the agent's
+  // updatedAt against the failed action's end time.
+  let agentUpdatedAt = 0;
+  try {
+    const raw = ctx.agentStore.getAgent(candidate.agentId)?.updatedAt;
+    if (raw) agentUpdatedAt = Date.parse(raw);
+  } catch { /* agent gone — fall through, treat as no edit */ }
   for (const response of ctx.inboxStore.listResponses(messageId)) {
     const existing = parseActionMeta(response);
     if (!existing) continue;
     if (existing.agentId !== candidate.agentId) continue;
     if (existing.status !== 'failed' && existing.status !== 'refused') continue;
     if (stableStringifyInputs(existing.inputs) !== candidateInputs) continue;
+    // Agent changed since this failure → the prior failure no longer applies.
+    if (agentUpdatedAt && existing.endedAt && agentUpdatedAt > existing.endedAt) continue;
     return true;
   }
   return false;
