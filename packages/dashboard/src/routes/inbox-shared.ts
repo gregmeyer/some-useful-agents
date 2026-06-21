@@ -53,6 +53,10 @@ export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'agent-builder',
 ]);
 
+/** The inbox-triage system agent id. Lives here (the leaf) because both the
+ *  catalog and the engine reference it. */
+export const TRIAGE_AGENT_ID = 'inbox-triage';
+
 /**
  * Thin wrapper around `ctx.inboxEventBus.publish`. Swallows errors so
  * a misbehaving subscriber can't break a route. Bus presence is
