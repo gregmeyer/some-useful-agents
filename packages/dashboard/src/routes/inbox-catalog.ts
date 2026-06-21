@@ -12,8 +12,7 @@ import {
 import { getContext } from '../context.js';
 import { formatToolCatalog } from './run-now-build.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
-import { SYSTEM_AGENT_IDS } from './inbox-shared.js';
-import { TRIAGE_AGENT_ID } from './inbox.js';
+import { SYSTEM_AGENT_IDS, TRIAGE_AGENT_ID } from './inbox-shared.js';
 
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
