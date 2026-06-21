@@ -9,7 +9,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore } from '@some-useful-agents/core';
-import { parseProposedActions, getRunnableCandidates } from './inbox.js';
+import { parseProposedActions } from './inbox-plan.js';
+import { getRunnableCandidates } from './inbox-catalog.js';
 
 describe('parseProposedActions — candidates', () => {
   it('runs an allowlisted agent directly (no grant flag)', () => {

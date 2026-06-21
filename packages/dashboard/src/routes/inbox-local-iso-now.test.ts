@@ -5,7 +5,7 @@
  * preserve the absolute instant on any machine timezone.
  */
 import { describe, it, expect } from 'vitest';
-import { localIsoNow } from './inbox.js';
+import { localIsoNow } from './inbox-shared.js';
 
 describe('localIsoNow', () => {
   it('emits ISO 8601 with a numeric UTC offset, not the Z/UTC form', () => {

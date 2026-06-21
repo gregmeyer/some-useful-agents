@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore, InboxStore, type InboxActionMeta } from '@some-useful-agents/core';
-import { hasMatchingFailedAction } from './inbox.js';
+import { hasMatchingFailedAction } from './inbox-plan.js';
 
 let dir: string;
 let agentStore: AgentStore;

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { InboxResponse } from '@some-useful-agents/core';
-import { latestUserRequest } from './inbox.js';
+import { latestUserRequest } from './inbox-shared.js';
 
 const r = (role: InboxResponse['role'], body: string, createdAt: number): InboxResponse =>
   ({ id: `${role}-${createdAt}`, messageId: 'm', role, body, createdAt });

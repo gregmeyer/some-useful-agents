@@ -1,3 +1,17 @@
+/**
+ * Inbox view-data + in-thread widget boundary.
+ *
+ * This is the SINGLE place "what the inbox renders for a thread" is assembled:
+ * the thread summary, the fork/retarget target list, and — most relevant for
+ * future work — the inline rendering of agent OUTPUT WIDGETS inside a
+ * conversation (`buildInlineActionWidgets` + `INLINE_INBOX_WIDGET_TYPES`, which
+ * already allows the `dashboard` widget type). Routes and the detail views call
+ * into here; they don't re-derive view data inline.
+ *
+ * Extension point: to surface dashboard/output widgets in threads more richly
+ * (a planned "inbox span of control" capability), widen `INLINE_INBOX_WIDGET_TYPES`
+ * and the render path HERE — not in the route file.
+ */
 import {
   exportAgent,
   unallowedWidgetImageHosts,
