@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { TriageLearning } from '@some-useful-agents/core';
-import { formatLearnings } from './inbox.js';
+import { formatLearnings } from './inbox-shared.js';
 
 const learning = (over: Partial<TriageLearning> = {}): TriageLearning => ({
   id: 'l', createdAt: 1, status: 'approved', source: 'run-failure',

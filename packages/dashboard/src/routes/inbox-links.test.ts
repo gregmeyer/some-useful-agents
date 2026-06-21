@@ -4,7 +4,7 @@
  * with inbox.test.ts's stateful afterEach teardown.
  */
 import { describe, it, expect } from 'vitest';
-import { parseTriageLinks } from './inbox.js';
+import { parseTriageLinks } from './inbox-plan.js';
 
 describe('parseTriageLinks', () => {
   it('keeps valid label + relative href entries', () => {

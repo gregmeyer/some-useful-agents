@@ -6,7 +6,7 @@
  * here without forcing a real crash.
  */
 import { describe, it, expect } from 'vitest';
-import { planTriageCrashRecovery } from './inbox.js';
+import { planTriageCrashRecovery } from './inbox-plan.js';
 
 describe('planTriageCrashRecovery', () => {
   it('retries on the first crash (budget available)', () => {

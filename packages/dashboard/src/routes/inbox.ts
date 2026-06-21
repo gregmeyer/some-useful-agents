@@ -20,6 +20,15 @@
  *     within the last 30s with no later triage/system reply. Covers
  *     the race where the dag-executor hasn't yet inserted its
  *     run-store row when the modal first polls.
+ *
+ * This file is the ROUTE LAYER only (handlers + router wiring). The
+ * supporting logic lives in cohesive siblings; add a new endpoint here and
+ * compose these — don't grow this file back into a god module:
+ *   - inbox-shared.ts   — http/util helpers + shared constants + formatters
+ *   - inbox-catalog.ts  — sub-agent allowlist / catalog / input enrichment
+ *   - inbox-plan.ts     — plan/action/link parsing + crash recovery
+ *   - inbox-widgets.ts  — thread view-data + in-thread widget assembly
+ *   - inbox-engine.ts   — triage + action-execution + learning-extraction engine
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -58,26 +67,6 @@ import {
   isTriagePending,
 } from './inbox-engine.js';
 
-// Re-export shims so sibling test files that import these from './inbox.js'
-// keep resolving after the leaf split.
-export {
-  latestUserRequest,
-  localIsoNow,
-  formatLearnings,
-} from './inbox-shared.js';
-export {
-  getSubAgentAllowlist,
-  getRunnableCandidates,
-} from './inbox-catalog.js';
-export {
-  parseProposedActions,
-  parseTriageLinks,
-  planTriageCrashRecovery,
-  hasMatchingFailedAction,
-} from './inbox-plan.js';
-export { maybeCommitBuiltAgent } from './inbox-engine.js';
-export { type TriageLink } from './inbox-plan.js';
-
 export const inboxRouter: Router = Router();
 
 /**
@@ -87,6 +76,10 @@ export const inboxRouter: Router = Router();
  * placeholder with something derived from the operator's actual words.
  */
 const DEFAULT_NEW_CONVERSATION_TITLE = 'New conversation';
+
+// ════════════════════════════════════════════════════════════════
+// Read — list + thread views
+// ════════════════════════════════════════════════════════════════
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -244,6 +237,10 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
  * gets a 303 redirect to `/inbox/:id`. Triage does NOT auto-fire
  * here — it kicks in normally on the operator's first POST /respond.
  */
+// ════════════════════════════════════════════════════════════════
+// Thread lifecycle — create, close, bulk
+// ════════════════════════════════════════════════════════════════
+
 inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.inboxStore) {
@@ -368,6 +365,10 @@ inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
   const label = dismissed === 1 ? 'Dismissed 1 message.' : `Dismissed ${dismissed} messages.`;
   res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}ok=${encodeURIComponent(label)}`);
 });
+
+// ════════════════════════════════════════════════════════════════
+// Conversation + triage
+// ════════════════════════════════════════════════════════════════
 
 inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -576,6 +577,10 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
  * for AJAX, 303 for plain form posts (always back to /inbox so the
  * list reflects the new starred-sort position).
  */
+// ════════════════════════════════════════════════════════════════
+// Thread metadata + transforms — star, tags, reopen, summarize, fork, retarget
+// ════════════════════════════════════════════════════════════════
+
 inboxRouter.post('/inbox/:id/star', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -780,6 +785,10 @@ inboxRouter.post('/inbox/:id/retarget', (req: Request, res: Response) => {
  * non-skipped actions for this message are in a terminal state, fires
  * a follow-up triage turn so the agent can summarize what came back.
  */
+// ════════════════════════════════════════════════════════════════
+// Sub-agent actions — run / skip a proposed action
+// ════════════════════════════════════════════════════════════════
+
 inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -894,6 +903,10 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
  * reject leaves it dead (never retrieved). Atomic via updateLearningStatus, so
  * a double-click resolves once.
  */
+// ════════════════════════════════════════════════════════════════
+// Learnings — approve / reject an extracted lesson (experimental)
+// ════════════════════════════════════════════════════════════════
+
 function handleLearningDecision(decision: 'approved' | 'rejected') {
   return (req: Request, res: Response): void => {
     const ctx = getContext(req.app.locals);

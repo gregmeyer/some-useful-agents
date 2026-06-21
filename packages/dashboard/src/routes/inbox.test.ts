@@ -28,7 +28,7 @@ import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
-import { getSubAgentAllowlist } from './inbox.js';
+import { getSubAgentAllowlist } from './inbox-catalog.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3993;

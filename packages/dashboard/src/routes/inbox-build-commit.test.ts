@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore, RunStore, InboxStore } from '@some-useful-agents/core';
-import { maybeCommitBuiltAgent } from './inbox.js';
+import { maybeCommitBuiltAgent } from './inbox-engine.js';
 
 let dir: string;
 let agentStore: AgentStore;
