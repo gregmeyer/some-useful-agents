@@ -13,6 +13,7 @@ import { getContext } from '../context.js';
 import { formatToolCatalog } from './run-now-build.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { SYSTEM_AGENT_IDS, TRIAGE_AGENT_ID } from './inbox-shared.js';
+import { canRenderInlineInboxWidget } from './inbox-widgets.js';
 
 const TRIAGE_SUB_AGENT_ALLOWLIST: readonly string[] = [
   'agent-analyzer',
@@ -183,6 +184,9 @@ export function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): stri
       description: (a.description ?? '').slice(0, TRIAGE_CATALOG_DESC_CAP),
       tags: a.tags ?? [],
       createdAt: a.createdAt,
+      // Whether this agent has an inline-able output widget — lets triage pick a
+      // sensible target for a `show-widget` action. Omitted when false (token thrift).
+      ...(canRenderInlineInboxWidget(a) ? { hasWidget: true } : {}),
     }));
     const payload: { agents: typeof shown; truncated?: number } = { agents: shown };
     if (all.length > shown.length) payload.truncated = all.length - shown.length;
