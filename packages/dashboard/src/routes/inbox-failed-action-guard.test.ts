@@ -77,4 +77,14 @@ describe('hasMatchingFailedAction', () => {
     seedFailedAction(m.id, Date.now() - 60_000); // would clear IF we could read updatedAt
     expect(hasMatchingFailedAction(ctx, m.id, candidate())).toBe(true);
   });
+
+  it('NEVER blocks a show-widget re-proposal (read-only, empty inputs)', () => {
+    const ctx = setup();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    // A prior show-widget failed ("no completed run yet"), agent unedited since.
+    const failed: InboxActionMeta = { kind: 'action', mode: 'show-widget', status: 'failed', agentId: 'opener', inputs: {}, endedAt: Date.now() + 60_000 };
+    inboxStore.addResponse(m.id, 'action', 'no run yet', JSON.stringify(failed));
+    const reSummon: InboxActionMeta = { kind: 'action', mode: 'show-widget', status: 'proposed', agentId: 'opener', inputs: {} };
+    expect(hasMatchingFailedAction(ctx, m.id, reSummon)).toBe(false);
+  });
 });

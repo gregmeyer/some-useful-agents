@@ -604,13 +604,15 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
-          <span class="inbox-msg__meta-name">Triage proposed</span>
-          <span class="inbox-action__status">${statusLabel}</span>
+          <span class="inbox-msg__meta-name">${meta.mode === 'show-widget' ? 'Widget' : 'Triage proposed'}</span>
+          ${meta.mode === 'show-widget' ? html`` : html`<span class="inbox-action__status">${statusLabel}</span>`}
           <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
         </div>
         <div class="inbox-action__card">
           <div class="inbox-action__headline">
-            Run agent <span class="mono">${meta.agentId}</span>
+            ${meta.mode === 'show-widget'
+              ? html`Latest <span class="mono">${meta.agentId}</span> output`
+              : html`Run agent <span class="mono">${meta.agentId}</span>`}
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
           ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
@@ -653,9 +655,18 @@ function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml):
         </div>
       `;
     case 'completed': {
+      const hasInlineWidget = !!inlineWidget;
+      // show-widget is a read-only snapshot — drop the run chrome (duration,
+      // "Completed" badge, raw-result preview) and show just the widget.
+      if (meta.mode === 'show-widget') {
+        return html`
+          <div class="inbox-action__result inbox-action__result--widget">
+            ${inlineWidget ? html`<div class="inbox-action__inline-widget">${inlineWidget}</div>` : html`<div class="inbox-action__reason dim">Widget could not be rendered.</div>`}
+          </div>
+        `;
+      }
       const dur = formatDuration(meta);
       const preview = meta.resultSummary?.trim();
-      const hasInlineWidget = !!inlineWidget;
       return html`
         <div class="inbox-action__result inbox-action__result--ok ${hasInlineWidget ? 'inbox-action__result--widget' : ''}">
           <div class="inbox-action__result-meta">
