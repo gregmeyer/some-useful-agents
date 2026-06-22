@@ -24,6 +24,12 @@ export function hasMatchingFailedAction(
   candidate: InboxActionMeta,
 ): boolean {
   if (!ctx.inboxStore) return false;
+  // show-widget actions are read-only with empty inputs, so every re-proposal
+  // looks identical — the dedup guard would block re-summon forever (and the
+  // agent-edit escape hatch below doesn't fire when "a new run appeared", which
+  // is exactly the change that unblocks a "no completed run yet" failure). Never
+  // treat a show-widget as a stale-failed match.
+  if (candidate.mode === 'show-widget') return false;
   const candidateInputs = stableStringifyInputs(candidate.inputs);
   // When the target agent was edited AFTER a failure, that failure is stale —
   // the operator fixing the agent is exactly the "something changed that would
@@ -174,6 +180,28 @@ export function parseProposedActions(
     const e = entry as Record<string, unknown>;
     const type = typeof e.type === 'string' ? e.type : '';
     const agentId = typeof e.agentId === 'string' ? e.agentId : '';
+    const rationaleRaw = typeof e.rationale === 'string' ? e.rationale.trim() : undefined;
+    // `show-widget` summons an agent's latest output widget inline (read-only,
+    // no dispatch). Not gated on the run allowlist — any INSTALLED agent is
+    // fair game (the engine's dedup loop rejects uninstalled ones, where it has
+    // agentStore access). No inputs (the agent isn't run).
+    if (type === 'show-widget') {
+      if (!agentId) {
+        rejected.push({ agentId: '<unknown>', reason: 'show-widget missing agentId' });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        mode: 'show-widget',
+        status: 'proposed',
+        agentId,
+        inputs: {},
+        rationale: rationaleRaw || undefined,
+        effect: 'read',
+        ctaLabel: 'Show widget',
+      });
+      continue;
+    }
     if (type !== 'run-agent' || !agentId) {
       rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
       continue;

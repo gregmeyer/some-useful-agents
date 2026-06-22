@@ -67,6 +67,7 @@ import {
   planTriageCrashRecovery,
   hasMatchingFailedAction,
 } from './inbox-plan.js';
+import { canRenderInlineInboxWidget } from './inbox-widgets.js';
 
 /** Experimental learnings extractor — route-dispatched on thread resolve. */
 const LEARNING_EXTRACTOR_AGENT_ID = 'inbox-learning-extractor';
@@ -660,6 +661,40 @@ async function executeRouteHandledAgent(
 }
 
 /**
+ * Resolve a `show-widget` action: point it at the target agent's LATEST
+ * COMPLETED run so the existing inline-widget render path
+ * (`buildInlineActionWidgets`) displays that run's output widget. Pure lookup —
+ * no dispatch, no run cost. Returns the resolved runId on success, or a clear
+ * reason when there's nothing to show.
+ */
+export function resolveShowWidgetAction(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; runId?: string; summary?: string; refusalReason?: string } {
+  const agent = ctx.agentStore.getAgent(meta.agentId);
+  if (!agent) {
+    return { status: 'failed', refusalReason: `Agent "${meta.agentId}" is not installed.` };
+  }
+  if (!canRenderInlineInboxWidget(agent)) {
+    return { status: 'failed', refusalReason: `${agent.name || meta.agentId} has no inline output widget.` };
+  }
+  let latest;
+  try {
+    latest = ctx.runStore.listRuns({ agentName: meta.agentId, status: 'completed', limit: 1 })[0];
+  } catch {
+    latest = undefined;
+  }
+  if (!latest) {
+    return { status: 'failed', refusalReason: `No completed run yet for ${agent.name || meta.agentId} — run it first.` };
+  }
+  return {
+    status: 'completed',
+    runId: latest.id,
+    summary: `Latest output from ${agent.name || meta.agentId} · run ${latest.id.slice(0, 8)}.`,
+  };
+}
+
+/**
  * Apply a YAML change to an existing agent. Validates:
  *   - `AGENT_ID` input is present
  *   - `NEW_YAML` parses cleanly via `parseAgent`
@@ -861,7 +896,7 @@ function allActionsResolved(
   return true;
 }
 
-function atLeastOneActionExecuted(
+export function atLeastOneActionExecuted(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
 ): boolean {
@@ -870,6 +905,10 @@ function atLeastOneActionExecuted(
   for (const r of responses) {
     if (r.role !== 'action') continue;
     const m = parseActionMeta(r);
+    // show-widget is a read-only snapshot, not an execution — it must not
+    // count as "something ran" (else it would trigger a follow-up triage turn,
+    // risking a show→refire→show loop).
+    if (m?.mode === 'show-widget') continue;
     if (m && (m.status === 'completed' || m.status === 'failed')) return true;
   }
   return false;
@@ -1201,10 +1240,21 @@ export async function runTriageAgent(
     // non-empty). Refusals (out-of-allowlist or malformed) get a
     // single grouped `system` note so the operator can see what was
     // declined and why.
-    if (allowlist.length > 0) {
+    // Enter when there are runnable sub-agents OR the plan summons a widget
+    // (show-widget is read-only and isn't gated on the run allowlist, so it
+    // works on threads with no runnable agents, e.g. a manual "show me X").
+    const rawActionList = Array.isArray(parsed.actions) ? parsed.actions : [];
+    const planHasShowWidget = rawActionList.some(
+      (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
+    );
+    if (allowlist.length > 0 || planHasShowWidget) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       for (const action of accepted) {
+        if (action.mode === 'show-widget' && !ctx.agentStore.getAgent(action.agentId)) {
+          rejected.push({ agentId: action.agentId, reason: 'agent is not installed' });
+          continue;
+        }
         if (hasMatchingFailedAction(ctx, messageId, action)) {
           rejected.push({
             agentId: action.agentId,
@@ -1220,7 +1270,9 @@ export async function runTriageAgent(
       const overflow = dedupedAccepted.length - toInsert.length;
       for (const action of toInsert) {
         const body = action.rationale
-          ?? `Run agent \`${action.agentId}\`.`;
+          ?? (action.mode === 'show-widget'
+            ? `Show the latest output from \`${action.agentId}\`.`
+            : `Run agent \`${action.agentId}\`.`);
         const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,
@@ -1229,6 +1281,36 @@ export async function runTriageAgent(
           inputs: action.inputs,
           createdAt: actionResp.createdAt,
         });
+        // show-widget resolves synchronously to the agent's latest completed
+        // run (read-only, no dispatch) → proposed → completed/failed in one
+        // step. No `running` phase (a zero-latency lookup), and NO refire (it's
+        // a snapshot, not an outcome to summarize). The existing
+        // buildInlineActionWidgets then renders the widget on the next fragment.
+        if (action.mode === 'show-widget') {
+          const resolved = resolveShowWidgetAction(ctx, action);
+          const now = Date.now();
+          const resolvedMeta: InboxActionMeta = {
+            ...action,
+            status: resolved.status,
+            runId: resolved.runId,
+            resultSummary: resolved.summary,
+            refusalReason: resolved.refusalReason,
+            startedAt: now,
+            endedAt: now,
+          };
+          if (ctx.inboxStore.transitionActionStatus(actionResp.id, 'proposed', JSON.stringify(resolvedMeta))) {
+            publishInboxEvent(ctx, messageId, 'action:status', {
+              responseId: actionResp.id,
+              status: resolved.status,
+              agentId: action.agentId,
+              runId: resolved.runId,
+              resultSummary: resolved.summary,
+              refusalReason: resolved.refusalReason,
+              endedAt: now,
+            });
+          }
+          continue;
+        }
         // Auto-approve trusted system agents. The proposed -> running
         // transition is atomic via transitionActionStatus, so a
         // concurrent operator click on /run no-ops idempotently. The

@@ -88,6 +88,14 @@ export interface InboxActionMeta {
    */
   effect?: 'read' | 'write';
   /**
+   * What this action DOES. `run` (default; absent ⇒ run, back-compat) dispatches
+   * the agent. `show-widget` summons the agent's LATEST COMPLETED run's output
+   * widget inline WITHOUT dispatching — a read-only snapshot that resolves
+   * `proposed → completed` by pointing `runId` at that latest run, so the
+   * existing inline-widget render path displays it.
+   */
+  mode?: 'run' | 'show-widget';
+  /**
    * When true, approving this run first grants `permissions.inboxRunnable`
    * to `agentId` (a one-click "Enable & run"). Set by the dashboard when
    * triage proposes running an installed agent that hasn't been granted

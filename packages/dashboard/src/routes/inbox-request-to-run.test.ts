@@ -65,6 +65,45 @@ describe('parseProposedActions — candidates', () => {
   });
 });
 
+describe('parseProposedActions — show-widget', () => {
+  it('accepts show-widget for any agent (not gated on the run allowlist)', () => {
+    const { accepted, rejected } = parseProposedActions(
+      [{ type: 'show-widget', agentId: 'weather-dashboard', rationale: 'show the latest weather' }],
+      [], // empty allowlist — show-widget is read-only, still accepted
+      [],
+    );
+    expect(rejected).toHaveLength(0);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].mode).toBe('show-widget');
+    expect(accepted[0].agentId).toBe('weather-dashboard');
+    expect(accepted[0].effect).toBe('read');           // never deferred by the write-sequencer
+    expect(accepted[0].ctaLabel).toBe('Show widget');
+    expect(accepted[0].inputs).toEqual({});
+    expect(accepted[0].rationale).toBe('show the latest weather');
+  });
+
+  it('rejects a show-widget with no agentId', () => {
+    const { accepted, rejected } = parseProposedActions(
+      [{ type: 'show-widget' }],
+      ['x'],
+    );
+    expect(accepted).toHaveLength(0);
+    expect(rejected[0].reason).toContain('show-widget');
+  });
+
+  it('a show-widget never counts as a write (read effect) so it is not deferred', () => {
+    const { accepted, deferred } = parseProposedActions(
+      [
+        { type: 'show-widget', agentId: 'a' },
+        { type: 'show-widget', agentId: 'b' },
+      ],
+      [],
+    );
+    expect(accepted).toHaveLength(2);
+    expect(deferred).toHaveLength(0);
+  });
+});
+
 describe('parseProposedActions — side-effect sequencing', () => {
   it('defaults a missing effect to read and batches reads', () => {
     const { accepted, deferred } = parseProposedActions(
