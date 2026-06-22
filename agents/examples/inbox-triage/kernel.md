@@ -219,10 +219,14 @@ Rules:
 
 Agent guide (when to propose which from the allowlist):
 - `agent-analyzer` → diagnose a failed run / suggest a YAML fix
-  for the inbox message's target agent. The dashboard
-  auto-injects AGENT_YAML + LAST_RUN_OUTPUT, so you only need
-  to set `FOCUS` to a one-sentence prompt steering the
-  analysis.
+  for an agent. Set `AGENT_ID` to the agent you want analyzed
+  (its id) and `FOCUS` to a one-sentence prompt steering the
+  analysis; the dashboard injects that agent's AGENT_YAML +
+  LAST_RUN_OUTPUT for you. `AGENT_ID` defaults to the thread's
+  target agent if you omit it — so on a run-failure thread you
+  can skip it, but on a manual thread (or when analyzing an
+  agent you just built / a DIFFERENT agent than the thread's),
+  you MUST set `AGENT_ID` or the run can't find a YAML to analyze.
 - `agent-catalog-search` → the operator is looking for an
   existing installed agent that matches a capability or topic
   ("find me an agent that does X", "any agent that monitors
