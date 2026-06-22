@@ -367,6 +367,22 @@ export class RunStore {
   }
 
   /**
+   * Most-recent run `startedAt` per agent, keyed by `agentName`. Any status
+   * counts as "used" (a failed/running agent is still recently touched). One
+   * GROUP BY — avoids N per-agent `listRuns` calls when ranking the triage
+   * catalog by recency-of-use. `startedAt` is an ISO string, sortable
+   * lexicographically. Backed by the idx_runs_agent / idx_runs_startedAt indexes.
+   */
+  latestRunAtByAgent(): Map<string, string> {
+    const rows = this.db.prepare(
+      'SELECT agentName, MAX(startedAt) AS latestAt FROM runs GROUP BY agentName',
+    ).all() as Array<{ agentName: string; latestAt: string }>;
+    const out = new Map<string, string>();
+    for (const r of rows) out.set(r.agentName, r.latestAt);
+    return out;
+  }
+
+  /**
    * Richer query for the dashboard. Supports filter composition (AND across
    * fields, OR within `statuses`), pagination, and returns a total count
    * alongside the rows so callers can render "Showing N–M of T" without a
