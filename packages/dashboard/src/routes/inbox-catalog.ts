@@ -6,6 +6,7 @@ import {
   listBuiltinTools,
   parseAgent,
   LLM_PROVIDERS,
+  type Agent,
   type LlmProvider,
   type ToolDefinition,
 } from '@some-useful-agents/core';
@@ -167,18 +168,103 @@ export function buildAgentCatalogJson(ctx: ReturnType<typeof getContext>): strin
 // agent-catalog-search, which gets the full catalog.
 const TRIAGE_CATALOG_MAX_AGENTS = 40;
 const TRIAGE_CATALOG_DESC_CAP = 200;
+/** Most relevance matches surfaced for one request (so a vague ask can't flood). */
+const TRIAGE_RELEVANCE_CAP = 15;
+/** Slots reserved for newest-created agents so brand-new (never-run) ones appear. */
+const TRIAGE_CREATED_RESERVE = 6;
+
+/**
+ * Generic filler words to ignore when matching the operator's request against
+ * agent id/name/tags. Deliberately small — topic words like "weather",
+ * "dashboard", "pr", "review" must still match.
+ */
+const CATALOG_STOPWORDS: ReadonlySet<string> = new Set([
+  'show', 'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'does',
+  'are', 'you', 'can', 'get', 'see', 'pull', 'run', 'now', 'again', 'latest',
+  'current', 'output', 'please', 'give', 'tell', 'about', 'into', 'out', 'any',
+  'all', 'how', 'why', 'who', 'when', 'where', 'has', 'have', 'want', 'need',
+]);
+
+/** Meaningful tokens (≥3 chars, not stopwords) from free text. */
+function catalogTokens(text: string): string[] {
+  return Array.from(new Set(
+    text.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !CATALOG_STOPWORDS.has(t)),
+  ));
+}
+
+/** Relevance score of an agent to the request tokens: id/name/tags weigh more
+ *  than description. 0 = no signal. */
+function catalogRelevance(agent: Agent, tokens: readonly string[]): number {
+  if (tokens.length === 0) return 0;
+  const strong = `${agent.id} ${agent.name} ${(agent.tags ?? []).join(' ')}`.toLowerCase();
+  const weak = (agent.description ?? '').toLowerCase();
+  let score = 0;
+  for (const t of tokens) {
+    if (strong.includes(t)) score += 3;
+    else if (weak.includes(t)) score += 1;
+  }
+  return score;
+}
+
+/**
+ * Pick + order the agents triage sees, blending three signals so the operator
+ * can reach the agent they mean even with many installed (the createdAt-only
+ * cut truncated named/used agents). Pure + exported for testing.
+ *
+ *  1. RELEVANCE — agents matching the current request (front of the list so
+ *     triage sees the likely target), score-ranked, capped.
+ *  2. RECENTLY USED — fill by last-run recency (`lastUsedAt`, fallback createdAt).
+ *  3. RECENTLY CREATED — reserve a few tail slots for newest agents so brand-new
+ *     (never-run) ones and "what's the newest?" lookups still work.
+ *
+ * Deduped, capped at `max`. With ≤ max agents, all appear (just reordered).
+ */
+export function selectTriageCatalog(
+  agents: readonly Agent[],
+  lastUsedAt: ReadonlyMap<string, string>,
+  currentRequest: string,
+  max = TRIAGE_CATALOG_MAX_AGENTS,
+): Agent[] {
+  const tokens = catalogTokens(currentRequest);
+  const recencyKey = (a: Agent): string => lastUsedAt.get(a.id) ?? a.createdAt ?? '';
+
+  const relevant = agents
+    .map((a) => ({ a, score: catalogRelevance(a, tokens) }))
+    .filter((x) => x.score > 0)
+    .sort((x, y) => y.score - x.score || recencyKey(y.a).localeCompare(recencyKey(x.a)))
+    .slice(0, TRIAGE_RELEVANCE_CAP)
+    .map((x) => x.a);
+  const usedDesc = [...agents].sort((a, b) => recencyKey(b).localeCompare(recencyKey(a)));
+  const createdDesc = [...agents].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+
+  const selected: Agent[] = [];
+  const seen = new Set<string>();
+  const add = (a: Agent): void => { if (!seen.has(a.id) && selected.length < max) { seen.add(a.id); selected.push(a); } };
+
+  relevant.forEach(add);                                              // 1. relevance, front
+  for (const a of usedDesc) { if (selected.length >= max - TRIAGE_CREATED_RESERVE) break; add(a); } // 2. recently used
+  let reserved = 0;                                                  // 3. newest-created reserve
+  for (const a of createdDesc) { if (reserved >= TRIAGE_CREATED_RESERVE || selected.length >= max) break; if (!seen.has(a.id)) { add(a); reserved += 1; } }
+  usedDesc.forEach(add);                                             // 4. top off if reserve underfilled
+  return selected;
+}
 
 /**
  * Trimmed catalog for the triage turn: id, name, short description, createdAt,
- * tags — newest TRIAGE_CATALOG_MAX_AGENTS only. Drops source/status to save
- * tokens. Returns the JSON plus a flag noting whether older agents were elided.
+ * tags (+ hasWidget). Selected by relevance to `currentRequest` + recency-of-use
+ * + newest-created (see selectTriageCatalog), capped at TRIAGE_CATALOG_MAX_AGENTS.
+ * Returns the JSON plus a `truncated` count of elided agents. Deep capability
+ * search still dispatches agent-catalog-search, which gets the FULL catalog.
  */
-export function buildTriageCatalogJson(ctx: ReturnType<typeof getContext>): string {
+export function buildTriageCatalogJson(
+  ctx: ReturnType<typeof getContext>,
+  currentRequest = '',
+): string {
   try {
-    const all = ctx.agentStore.listAgents()
-      .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
-      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-    const shown = all.slice(0, TRIAGE_CATALOG_MAX_AGENTS).map((a) => ({
+    const all = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id));
+    const lastUsedAt = ctx.runStore.latestRunAtByAgent();
+    const selected = selectTriageCatalog(all, lastUsedAt, currentRequest);
+    const shown = selected.map((a) => ({
       id: a.id,
       name: a.name,
       description: (a.description ?? '').slice(0, TRIAGE_CATALOG_DESC_CAP),

@@ -505,4 +505,20 @@ describe('RunStore retry chain', () => {
   it('getRetryChain returns empty array for unknown run id', () => {
     expect(store.getRetryChain('does-not-exist')).toEqual([]);
   });
+
+  describe('latestRunAtByAgent', () => {
+    it('returns the max startedAt per agent (any status)', () => {
+      store.createRun(makeRun({ id: 'a1', agentName: 'alpha', status: 'completed', startedAt: '2026-06-01T00:00:00.000Z' }));
+      store.createRun(makeRun({ id: 'a2', agentName: 'alpha', status: 'failed', startedAt: '2026-06-20T00:00:00.000Z' }));
+      store.createRun(makeRun({ id: 'b1', agentName: 'beta', status: 'running', startedAt: '2026-06-10T00:00:00.000Z' }));
+      const m = store.latestRunAtByAgent();
+      expect(m.get('alpha')).toBe('2026-06-20T00:00:00.000Z'); // newest wins, failed counts
+      expect(m.get('beta')).toBe('2026-06-10T00:00:00.000Z');  // running counts as "used"
+      expect(m.has('gamma')).toBe(false);                       // never-run agent absent
+    });
+
+    it('is empty when there are no runs', () => {
+      expect(store.latestRunAtByAgent().size).toBe(0);
+    });
+  });
 });

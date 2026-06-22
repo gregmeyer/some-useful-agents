@@ -1113,7 +1113,7 @@ export async function runTriageAgent(
           // Trimmed installed-agent catalog (newest first) so triage can answer
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
-          AGENT_CATALOG: buildTriageCatalogJson(ctx),
+          AGENT_CATALOG: buildTriageCatalogJson(ctx, currentRequest),
           // Compose the prompt from fragments on disk: the shared kernel
           // (voice, action mechanics, <plan> schema) + the one playbook that
           // matches this thread's source. Deterministic — no classifier LLM.
