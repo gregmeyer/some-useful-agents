@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import type { ScheduledTask } from 'node-cron';
 import type { AgentDefinition, Provider, Run } from './types.js';
 import type { Agent } from './agent-v2-types.js';
 import { validateScheduleInterval } from './cron-validator.js';
@@ -87,8 +88,8 @@ export interface LocalSchedulerOptions {
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export class LocalScheduler {
-  private tasks: Array<{ agent: AgentDefinition; task: cron.ScheduledTask }> = [];
-  private v2Tasks: Array<{ agent: Agent; task: cron.ScheduledTask }> = [];
+  private tasks: Array<{ agent: AgentDefinition; task: ScheduledTask }> = [];
+  private v2Tasks: Array<{ agent: Agent; task: ScheduledTask }> = [];
   private readonly provider: Provider;
   private readonly agents: Map<string, AgentDefinition>;
   private readonly v2Agents: Agent[];
