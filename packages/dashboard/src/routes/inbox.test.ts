@@ -1117,6 +1117,75 @@ describe('POST /inbox/:id/actions/:rid/run — agent-analyzer enrichment', () =>
     expect(systemReply).toBeDefined();
     expect(systemReply!.body).toMatch(/ghost-agent-not-installed/);
   });
+
+  it('injects AGENT_YAML from inputs.AGENT_ID on a thread with no target agent', async () => {
+    // The bug: agent-analyzer keyed its YAML off the MESSAGE's agentId, so on a
+    // MANUAL thread (no agentId) — e.g. analyzing an agent triage just built —
+    // AGENT_YAML was empty and preflight always exit-1'd. Now triage can name
+    // the agent via inputs.AGENT_ID and the route injects that agent's YAML.
+    const app = await makeApp();
+    agentStore.upsertAgent(parseAgent([
+      'id: built-by-triage', 'name: Built By Triage', 'description: token built-marker',
+      'nodes:', '  - id: noop', '    type: shell', '    command: echo ok',
+    ].join('\n')), 'dashboard', 'test fixture');
+    agentStore.upsertAgent(parseAgent([
+      'id: agent-analyzer', 'name: Agent Analyzer', 'description: echo stub',
+      'inputs:', '  AGENT_YAML:', '    type: string', '    required: true',
+      'nodes:', '  - id: echo', '    type: shell', '    command: "echo received: $AGENT_YAML"',
+    ].join('\n')), 'dashboard', 'test fixture');
+
+    // MANUAL thread — no agentId on the message.
+    const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 'chat', body: 'fix the opener' });
+    const proposed = inboxStore.addResponse(msg.id, 'action', 'analyze it', JSON.stringify({
+      kind: 'action', status: 'proposed', agentId: 'agent-analyzer',
+      inputs: { AGENT_ID: 'built-by-triage', FOCUS: 'why does it fail' },
+      rationale: 'diagnose the just-built agent',
+    }));
+
+    await request(app).post(`/inbox/${msg.id}/actions/${proposed.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    const deadline = Date.now() + 2000;
+    let after = inboxStore.getResponse(proposed.id);
+    while (Date.now() < deadline) {
+      after = inboxStore.getResponse(proposed.id);
+      const m = after?.metaJson ? JSON.parse(after.metaJson) : null;
+      if (m && m.status !== 'proposed' && m.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('completed');
+    expect(meta.resultSummary).toContain('built-marker'); // YAML of built-by-triage reached the analyzer
+  });
+
+  it('refuses up front when there is NO agent to analyze (no AGENT_ID, no thread target)', async () => {
+    const app = await makeApp();
+    agentStore.upsertAgent(parseAgent([
+      'id: agent-analyzer', 'name: Agent Analyzer', 'description: stub',
+      'nodes:', '  - id: noop', '    type: shell', '    command: echo ok',
+    ].join('\n')), 'dashboard', 'test fixture');
+
+    const msg = inboxStore.add({ priority: 'medium', source: 'manual', title: 'chat', body: 'help' });
+    const proposed = inboxStore.addResponse(msg.id, 'action', 'analyze', JSON.stringify({
+      kind: 'action', status: 'proposed', agentId: 'agent-analyzer', inputs: { FOCUS: 'x' },
+    }));
+
+    await request(app).post(`/inbox/${msg.id}/actions/${proposed.id}/run`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+    const deadline = Date.now() + 1500;
+    let after = inboxStore.getResponse(proposed.id);
+    while (Date.now() < deadline) {
+      after = inboxStore.getResponse(proposed.id);
+      const m = after?.metaJson ? JSON.parse(after.metaJson) : null;
+      if (m && m.status !== 'proposed' && m.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const meta = JSON.parse(after!.metaJson!);
+    expect(meta.status).toBe('failed');
+    expect(meta.refusalReason).toMatch(/no agent to analyze/i);
+    expect(inboxStore.listResponses(msg.id).some((r) => r.role === 'system')).toBe(true);
+  });
 });
 
 describe('POST /inbox/:id/actions/:rid/run — agent-catalog-search enrichment', () => {

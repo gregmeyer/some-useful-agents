@@ -351,18 +351,18 @@ export function enrichAgentCatalogSearchInputs(
  */
 export function enrichAgentAnalyzerInputs(
   ctx: ReturnType<typeof getContext>,
-  messageAgentId: string | undefined,
+  targetAgentId: string | undefined,
   inputs: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = { ...inputs };
-  if (!out.AGENT_YAML && messageAgentId) {
-    const target = ctx.agentStore.getAgent(messageAgentId);
+  if (!out.AGENT_YAML && targetAgentId) {
+    const target = ctx.agentStore.getAgent(targetAgentId);
     if (target) {
       try { out.AGENT_YAML = exportAgent(target); } catch { /* swallow */ }
     }
   }
-  if (!out.LAST_RUN_OUTPUT && messageAgentId) {
-    const summary = collectRunSummary(ctx, messageAgentId);
+  if (!out.LAST_RUN_OUTPUT && targetAgentId) {
+    const summary = collectRunSummary(ctx, targetAgentId);
     if (summary) out.LAST_RUN_OUTPUT = summary;
   }
   return out;

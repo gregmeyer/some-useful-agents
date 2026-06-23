@@ -354,8 +354,30 @@ export async function runProposedAction(
   let effectiveInputs = meta.inputs;
   if (meta.agentId === 'agent-analyzer') {
     const parentMessage = ctx.inboxStore.get(messageId);
-    const targetAgentId = parentMessage?.agentId;
-    if (targetAgentId && !ctx.agentStore.getAgent(targetAgentId)) {
+    // The agent to analyze: an explicit AGENT_ID from triage (so it can analyze
+    // ANY agent, e.g. one it just built, or on a manual thread) wins; otherwise
+    // fall back to the thread's own target agent. Without this, the analyzer's
+    // preflight node hard-fails (exit 1, "requires AGENT_YAML") whenever the
+    // thread has no agentId — the bug that made every analyzer run on a manual
+    // thread fail.
+    const targetAgentId = meta.inputs.AGENT_ID?.trim() || parentMessage?.agentId;
+    if (!targetAgentId) {
+      const reason = `Can't run agent-analyzer — there's no agent to analyze on this thread. Tell me which installed agent to look at (or run it from its /agents/<id> page).`;
+      const endedAt = Date.now();
+      ctx.inboxStore.updateResponse(response.id, {
+        metaJson: JSON.stringify({ ...meta, status: 'failed', startedAt, endedAt, refusalReason: reason }),
+      });
+      publishInboxEvent(ctx, messageId, 'action:status', {
+        responseId: response.id, status: 'failed', agentId: meta.agentId, startedAt, endedAt, refusalReason: reason,
+      });
+      const sysReply = ctx.inboxStore.addResponse(messageId, 'system', reason);
+      publishInboxEvent(ctx, messageId, 'message:created', {
+        responseId: sysReply.id, role: 'system', body: reason, createdAt: sysReply.createdAt,
+      });
+      maybeRefireTriage(ctx, messageId);
+      return;
+    }
+    if (!ctx.agentStore.getAgent(targetAgentId)) {
       const reason = `Can't dispatch agent-analyzer — the target agent "${targetAgentId}" is not installed in this catalog. Install it (e.g. from agents/examples or via the Agents → Import page) and try again.`;
       const endedAt = Date.now();
       ctx.inboxStore.updateResponse(response.id, {
