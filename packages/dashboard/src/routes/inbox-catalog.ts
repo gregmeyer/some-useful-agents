@@ -273,6 +273,10 @@ export function buildTriageCatalogJson(
       // Whether this agent has an inline-able output widget — lets triage pick a
       // sensible target for a `show-widget` action. Omitted when false (token thrift).
       ...(canRenderInlineInboxWidget(a) ? { hasWidget: true } : {}),
+      // Whether this agent has a Pulse signal — only signal agents render as
+      // dashboard tiles, so triage uses this to pick valid `dashboard-editor`
+      // add-tile targets. Omitted when false (token thrift).
+      ...(a.signal ? { hasSignal: true } : {}),
     }));
     const payload: { agents: typeof shown; truncated?: number } = { agents: shown };
     if (all.length > shown.length) payload.truncated = all.length - shown.length;

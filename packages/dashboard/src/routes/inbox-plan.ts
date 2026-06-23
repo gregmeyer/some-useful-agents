@@ -202,6 +202,41 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `dashboard-editor` WRITES to a user dashboard (route-handled pseudo-agent,
+    // like agent-editor). The op lives in `inputs.op`; the engine executor does
+    // the real validation (agent installed, has a signal). Not gated on the run
+    // allowlist. Parser checks shape only.
+    if (type === 'dashboard-editor') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof k === 'string' && typeof v === 'string') inputs[k] = v;
+        }
+      }
+      const op = inputs.op;
+      if (op !== 'add-tile' && op !== 'create') {
+        rejected.push({ agentId: 'dashboard-editor', reason: 'dashboard-editor needs inputs.op = add-tile | create' });
+        continue;
+      }
+      if (!inputs.DASHBOARD) {
+        rejected.push({ agentId: 'dashboard-editor', reason: 'dashboard-editor requires inputs.DASHBOARD' });
+        continue;
+      }
+      if (op === 'add-tile' && !inputs.AGENT_ID) {
+        rejected.push({ agentId: 'dashboard-editor', reason: 'add-tile requires inputs.AGENT_ID' });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'dashboard-editor',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: op === 'create' ? 'Create dashboard' : 'Add tile',
+      });
+      continue;
+    }
     if (type !== 'run-agent' || !agentId) {
       rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
       continue;
