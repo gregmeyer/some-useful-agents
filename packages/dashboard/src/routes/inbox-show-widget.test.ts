@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore, InboxStore, RunStore, type InboxActionMeta, type InboxMessage, type InboxResponse } from '@some-useful-agents/core';
-import { resolveShowWidgetAction, atLeastOneActionExecuted } from './inbox-engine.js';
+import { resolveShowWidgetAction, atLeastOneActionExecuted, showWidgetWouldDuplicate } from './inbox-engine.js';
 import { renderInboxDetailFragment } from '../views/inbox-detail.js';
 import { render, html } from '../views/html.js';
 
@@ -90,6 +90,39 @@ describe('resolveShowWidgetAction', () => {
     expect(r.status).toBe('completed');
     expect(r.runId).toBe('run-new');         // newest first (listRuns DESC)
     expect(r.summary).toContain('Latest output');
+  });
+});
+
+describe('showWidgetWouldDuplicate', () => {
+  it('is true when a completed action on the thread already shows the latest run', () => {
+    const ctx = setup();
+    mkAgent('hn', true);
+    mkCompletedRun('run-1', 'hn');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    // a run-agent action that produced run-1 already renders its widget inline
+    const ranMeta: InboxActionMeta = { kind: 'action', status: 'completed', agentId: 'hn', inputs: {}, runId: 'run-1' };
+    inboxStore.addResponse(m.id, 'action', 'ran hn', JSON.stringify(ranMeta));
+    expect(showWidgetWouldDuplicate(ctx, m.id, 'hn')).toBe(true);
+  });
+
+  it('is false when the thread has no action showing the latest run', () => {
+    const ctx = setup();
+    mkAgent('hn', true);
+    mkCompletedRun('run-1', 'hn');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    expect(showWidgetWouldDuplicate(ctx, m.id, 'hn')).toBe(false);
+  });
+
+  it('is false when the shown run is older than the latest completed run', () => {
+    const ctx = setup();
+    mkAgent('hn', true);
+    mkCompletedRun('run-old', 'hn', '2026-06-01T00:00:00.000Z');
+    mkCompletedRun('run-new', 'hn', '2026-06-20T00:00:00.000Z');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    // an action shows the OLD run; show-widget would surface run-new → not a dup
+    const oldMeta: InboxActionMeta = { kind: 'action', status: 'completed', agentId: 'hn', inputs: {}, runId: 'run-old' };
+    inboxStore.addResponse(m.id, 'action', 'ran hn', JSON.stringify(oldMeta));
+    expect(showWidgetWouldDuplicate(ctx, m.id, 'hn')).toBe(false);
   });
 });
 

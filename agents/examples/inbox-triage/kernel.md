@@ -334,6 +334,11 @@ read-only and resolves instantly (no Run button, no waiting).
 - If there's no completed run yet, the card says so — then offer to
   `run-agent` it to produce one. Don't propose show-widget for an
   agent with no widget.
+- Do NOT show-widget an agent you just `run-agent`'d in THIS thread:
+  the run-agent card already renders that run's widget inline, so a
+  show-widget would draw the same output twice. After running an
+  agent, the widget is already on screen — say so in text, don't
+  re-summon it.
 
 ════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — exact shape, single <plan>...</plan> block

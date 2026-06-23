@@ -717,6 +717,41 @@ export function resolveShowWidgetAction(
 }
 
 /**
+ * True when a `show-widget` for `agentId` would re-render a run that is ALREADY
+ * displayed inline in this thread. Triage tends to propose a show-widget right
+ * after a run-agent action completes — but the run action's own completed
+ * widget is already on screen, so the show-widget would draw the same run's
+ * widget a second time. We resolve to the same "latest completed run" the
+ * action would point at and check whether an earlier completed action
+ * (run-agent OR a prior show-widget) on this thread already renders it inline.
+ * Used to decline the redundant proposal before a duplicate card is created.
+ */
+export function showWidgetWouldDuplicate(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  agentId: string,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  const agent = ctx.agentStore.getAgent(agentId);
+  if (!agent || !canRenderInlineInboxWidget(agent)) return false;
+  let latest;
+  try {
+    latest = ctx.runStore.listRuns({ agentName: agentId, status: 'completed', limit: 1 })[0];
+  } catch {
+    latest = undefined;
+  }
+  if (!latest) return false;
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    if (r.role !== 'action') continue;
+    const m = parseActionMeta(r);
+    // Mirror buildInlineActionWidgets' render predicate: a completed action
+    // pointing at this run renders its widget inline.
+    if (m && m.status === 'completed' && m.runId === latest.id) return true;
+  }
+  return false;
+}
+
+/**
  * Apply a YAML change to an existing agent. Validates:
  *   - `AGENT_ID` input is present
  *   - `NEW_YAML` parses cleanly via `parseAgent`
@@ -1275,6 +1310,13 @@ export async function runTriageAgent(
       for (const action of accepted) {
         if (action.mode === 'show-widget' && !ctx.agentStore.getAgent(action.agentId)) {
           rejected.push({ agentId: action.agentId, reason: 'agent is not installed' });
+          continue;
+        }
+        if (action.mode === 'show-widget' && showWidgetWouldDuplicate(ctx, messageId, action.agentId)) {
+          rejected.push({
+            agentId: action.agentId,
+            reason: 'its latest output is already shown in this thread',
+          });
           continue;
         }
         if (hasMatchingFailedAction(ctx, messageId, action)) {
