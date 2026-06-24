@@ -958,13 +958,15 @@ function extractYamlBlockFromRunNodes(
 }
 
 /**
- * Extract a `<yaml>...</yaml>` block from agent-analyzer's run
- * result, validate it, and (if it targets the inbox message's agent)
- * auto-insert a proposed `agent-editor` action card. Silently no-ops
- * if no yaml block is present, if it doesn't parse, if it targets a
- * different agent, or if the per-message action cap has been hit.
+ * Extract a `<yaml>...</yaml>` block from agent-analyzer's run result, validate
+ * it, and (if its id is an installed agent) auto-insert a proposed
+ * `agent-editor` action card — the "approve the fix" button. Targets the YAML's
+ * own agent id (the agent the analyzer corrected), so it works on manual
+ * threads and when analyzing any agent, not just the thread's. Silently no-ops
+ * if no yaml block is present, if it doesn't parse, if its agent isn't
+ * installed, or if the per-message action cap has been hit.
  */
-function maybeAutoProposeEditorAction(
+export function maybeAutoProposeEditorAction(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   analyzerRunId: string,
@@ -975,8 +977,12 @@ function maybeAutoProposeEditorAction(
   let parsed;
   try { parsed = parseAgent(proposedYaml); } catch { return; }
 
-  const message = ctx.inboxStore.get(messageId);
-  if (!message?.agentId || parsed.id !== message.agentId) return;
+  // The analyzer produces a corrected version of the agent it analyzed, so the
+  // fix target is the YAML's own id. Resolve from there — NOT from
+  // message.agentId, which is empty on a manual thread and wrong when analyzing
+  // an agent other than the thread's (the #524 class of bug: it dropped the
+  // approve card entirely). Only require that agent to be installed.
+  if (!parsed.id || !ctx.agentStore.getAgent(parsed.id)) return;
 
   // Respect the cap so a chatty analyzer can't fan out unbounded edits.
   if (countActionsOnMessage(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
@@ -995,7 +1001,7 @@ function maybeAutoProposeEditorAction(
     kind: 'action',
     status: 'proposed',
     agentId: 'agent-editor',
-    inputs: { AGENT_ID: message.agentId, NEW_YAML: proposedYaml },
+    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
     rationale: `Apply the YAML fix that agent-analyzer produced.`,
   };
   const editorResp = ctx.inboxStore.addResponse(
