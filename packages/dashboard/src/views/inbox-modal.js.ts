@@ -295,8 +295,12 @@ export const INBOX_MODAL_JS = `
     msg.appendChild(body);
     li.appendChild(msg);
     ul.appendChild(li);
+    // Only follow the new streaming bubble down if the operator was already at
+    // the bottom. If they've scrolled up to read a tall widget, a triage reply
+    // starting to stream must not yank them to the bottom.
+    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
     requestAnimationFrame(function () {
-      content.scrollTop = content.scrollHeight;
+      if (nearBottom) content.scrollTop = content.scrollHeight;
     });
     return text;
   }
@@ -498,9 +502,20 @@ export const INBOX_MODAL_JS = `
           maybeSchedulePoll();
           return;
         }
+        // Preserve the operator's reading position across the DOM swap.
+        // Only stick to the bottom if they were ALREADY near it (the chat
+        // "follow the latest" pattern). If they've scrolled up — e.g. to read
+        // a tall inline widget whose top is above the fold — keep their
+        // position instead of yanking them back down on every poll refresh.
+        var prevScrollTop = content.scrollTop;
+        var wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
         content.innerHTML = text;
         applyAnimations();
-        scrollToBottom();
+        if (wasNearBottom) {
+          scrollToBottom();
+        } else {
+          content.scrollTop = prevScrollTop;
+        }
         focusFirstInteractive();
         maybeSchedulePoll();
       })
@@ -557,10 +572,13 @@ export const INBOX_MODAL_JS = `
   }
 
   function focusFirstInteractive() {
+    // preventScroll: focusing the composer (at the bottom) must NOT scroll the
+    // thread — it would override the scroll-position preservation in refresh()
+    // and yank an operator reading a tall widget back down to the textarea.
     var ta = content.querySelector('textarea[name="body"]');
-    if (ta && !ta.disabled) { ta.focus(); return; }
+    if (ta && !ta.disabled) { ta.focus({ preventScroll: true }); return; }
     var btn = content.querySelector('button:not([disabled]), a');
-    if (btn) btn.focus();
+    if (btn) btn.focus({ preventScroll: true });
   }
 
   function openFor(id, opts) {
