@@ -985,7 +985,7 @@ export function maybeAutoProposeEditorAction(
   if (!parsed.id || !ctx.agentStore.getAgent(parsed.id)) return;
 
   // Respect the cap so a chatty analyzer can't fan out unbounded edits.
-  if (countActionsOnMessage(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
+  if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
 
   // Avoid duplicate proposals if the same YAML was already proposed
   // and is still pending — operator might be mid-decision.
@@ -1038,7 +1038,7 @@ function maybeAutoProposeBuilderInstallAction(
   };
   const proposedYaml = exportAgent(parsed);
 
-  if (countActionsOnMessage(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
+  if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
 
   for (const r of ctx.inboxStore.listResponses(messageId)) {
     if (r.role !== 'action') continue;
@@ -1108,19 +1108,26 @@ export function atLeastOneActionExecuted(
 }
 
 /**
- * Count `action`-role responses for a message regardless of status.
- * Used to enforce MAX_ACTIONS_PER_MESSAGE — once we've fanned out N
- * actions on a single thread, refuse new proposals as a runaway
- * guard.
+ * Count `action`-role responses SINCE the operator's last message. The cap
+ * (MAX_ACTIONS_PER_MESSAGE) is a runaway-fan-out guard: it bounds how many
+ * actions an AUTONOMOUS refire chain can produce without operator input. A fresh
+ * user reply is genuine engagement, not runaway, so it resets the budget — a
+ * long, actively-driven debugging thread isn't blocked, but triage still can't
+ * silently fan out unbounded actions between replies.
  */
-function countActionsOnMessage(
+export function countActionsSinceLastUser(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
 ): number {
   if (!ctx.inboxStore) return 0;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  let lastUserIdx = -1;
+  for (let i = responses.length - 1; i >= 0; i--) {
+    if (responses[i].role === 'user') { lastUserIdx = i; break; }
+  }
   let n = 0;
-  for (const r of ctx.inboxStore.listResponses(messageId)) {
-    if (r.role === 'action') n++;
+  for (let i = lastUserIdx + 1; i < responses.length; i++) {
+    if (responses[i].role === 'action') n++;
   }
   return n;
 }
@@ -1503,7 +1510,7 @@ export async function runTriageAgent(
         }
         dedupedAccepted.push(action);
       }
-      const existing = countActionsOnMessage(ctx, messageId);
+      const existing = countActionsSinceLastUser(ctx, messageId);
       const budget = Math.max(0, MAX_ACTIONS_PER_MESSAGE - existing);
       const toInsert = dedupedAccepted.slice(0, budget);
       const overflow = dedupedAccepted.length - toInsert.length;
@@ -1584,7 +1591,7 @@ export async function runTriageAgent(
         notes.push(`Refused action on \`${r.agentId}\`: ${r.reason}.`);
       }
       if (overflow > 0) {
-        notes.push(`Skipped ${overflow} additional proposed action${overflow === 1 ? '' : 's'} — message has reached the per-thread action cap (${MAX_ACTIONS_PER_MESSAGE}).`);
+        notes.push(`Skipped ${overflow} additional proposed action${overflow === 1 ? '' : 's'} — ${MAX_ACTIONS_PER_MESSAGE} actions already ran since your last message. Reply to continue and the next steps can be proposed.`);
       }
       if (deferred.length > 0) {
         notes.push(`Holding ${deferred.length} more side-effecting action${deferred.length === 1 ? '' : 's'} until the one above completes — I'll propose the next once it's done.`);
