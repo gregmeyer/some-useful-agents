@@ -95,25 +95,30 @@ export function humanizeTimestamps(text: string): string {
   });
 }
 
-// Bare references to run/agent detail pages. Lookbehind avoids matching when the
-// slash is already part of a longer path or token.
-const REF_RE = /(?<![A-Za-z0-9_/])\/(?:runs|agents)\/[A-Za-z0-9_-]+/g;
+// Bare references to run/agent/dashboard detail pages. Lookbehind avoids
+// matching when the slash is already part of a longer path or token. Dashboard
+// ids carry a namespace colon (`user:<slug>`, `<pack>:<id>`), so that segment
+// allows `:` where run/agent ids don't.
+const REF_RE = /(?<![A-Za-z0-9_/])(?:\/(?:runs|agents)\/[A-Za-z0-9_-]+|\/dashboards\/[A-Za-z0-9_:-]+)/g;
 // Existing Markdown links and inline code, kept intact so we don't double-link.
 const PROTECT_RE = /(\[[^\]]+\]\([^)]+\)|`[^`]+`)/g;
 
 /**
- * Turn bare `/runs/<id>` and `/agents/<id>` references in free text into
- * Markdown links so they become clickable after Markdown rendering. The visible
- * label is the trailing id (e.g. `apple-fm`), not the raw path, so prose stays
- * readable; the href keeps the full path. Existing Markdown links and
- * inline-code spans are left untouched. Runs on plain text BEFORE rendering.
+ * Turn bare `/runs/<id>`, `/agents/<id>`, and `/dashboards/<id>` references in
+ * free text into Markdown links so they become clickable after Markdown
+ * rendering. The visible label is the trailing id (e.g. `apple-fm`), with any
+ * `user:`/pack namespace prefix dropped (so `/dashboards/user:morning-brief`
+ * reads as `morning-brief`); the href keeps the full path. Existing Markdown
+ * links and inline-code spans are left untouched. Runs on plain text BEFORE
+ * rendering.
  */
 export function linkifyRefs(text: string): string {
   if (!text) return text;
   return text
     .split(PROTECT_RE)
     .map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF_RE, (m) => {
-      const label = m.slice(m.lastIndexOf('/') + 1);
+      // Label = last path segment, minus any namespace prefix (`user:slug` → `slug`).
+      const label = m.slice(Math.max(m.lastIndexOf('/'), m.lastIndexOf(':')) + 1);
       return `[${label}](${m})`;
     })))
     .join('');
