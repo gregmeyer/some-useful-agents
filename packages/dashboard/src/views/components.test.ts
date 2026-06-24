@@ -119,4 +119,16 @@ describe('linkifyRefs', () => {
   it('does not match a longer path that merely contains the segment', () => {
     expect(linkifyRefs('/api/agents/foo')).toBe('/api/agents/foo');
   });
+
+  it('linkifies a /dashboards ref, dropping the user: namespace from the label', () => {
+    expect(linkifyRefs('Open it at /dashboards/user:morning-brief.')).toBe(
+      'Open it at [morning-brief](/dashboards/user:morning-brief).',
+    );
+  });
+
+  it('linkifies a pack-namespaced /dashboards ref', () => {
+    expect(linkifyRefs('see /dashboards/starter:media here')).toBe(
+      'see [media](/dashboards/starter:media) here',
+    );
+  });
 });

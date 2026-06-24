@@ -18,6 +18,7 @@ import {
   isAppleIntegrationEnabled,
   isTriageLearningsEnabled,
   parseAgent,
+  slugifyDashboardName,
   allocateUserDashboardId,
   mutateSections,
   LEARNING_CATEGORIES,
@@ -691,6 +692,28 @@ async function executeRouteHandledAgent(
 }
 
 /**
+ * Resolve a dashboard from a `target` that may be an exact id (`user:<slug>`,
+ * `<pack>:<id>`) OR a human display name ("Morning Brief"). Tries: exact id,
+ * then the user-namespaced slug of the name, then a case-insensitive name
+ * match across all dashboards. Returns null when nothing matches (caller
+ * creates). This is what prevents add-tile/create-by-name from minting a
+ * duplicate of an existing dashboard.
+ */
+function resolveExistingDashboard(
+  store: NonNullable<ReturnType<typeof getContext>['dashboardsStore']>,
+  target: string,
+) {
+  const byId = store.getDashboard(target);
+  if (byId) return byId;
+  const wantSlugId = `user:${slugifyDashboardName(target)}`;
+  const targetLc = target.trim().toLowerCase();
+  for (const d of store.listDashboards()) {
+    if (d.id === wantSlugId || d.name.trim().toLowerCase() === targetLc) return d;
+  }
+  return null;
+}
+
+/**
  * Execute a `dashboard-editor` action — the WRITE counterpart to `show-widget`.
  * Route-handled and synchronous (mirrors `executeAgentEditor`): mutates a user
  * dashboard via `ctx.dashboardsStore`. Two ops carried in `meta.inputs.op`:
@@ -718,6 +741,12 @@ export function executeDashboardEditor(
   if (op === 'create') {
     const name = (meta.inputs.DASHBOARD ?? '').trim();
     if (!name) return { status: 'failed', refusalReason: 'create requires a DASHBOARD name.' };
+    // Idempotent: if a dashboard with this name/slug already exists, return it
+    // rather than minting a near-duplicate `user:<slug>-<ts>`.
+    const existing = resolveExistingDashboard(store, name);
+    if (existing) {
+      return { status: 'completed', summary: `Dashboard "${existing.name}" already exists — /dashboards/${existing.id}` };
+    }
     const id = allocateUserDashboardId(name, (c) => Boolean(store.getDashboard(c)));
     store.upsertDashboard({ id, packId: null, name, layout: { sections: [] } });
     return { status: 'completed', summary: `Created dashboard "${name}" — /dashboards/${id}` };
@@ -739,9 +768,12 @@ export function executeDashboardEditor(
       };
     }
 
-    // Resolve-or-create: target may be an existing `user:<slug>` id or a name.
-    let dash = store.getDashboard(target);
-    let id = target;
+    // Resolve-or-create: target may be an existing dashboard id (`user:<slug>`,
+    // `<pack>:<id>`) OR a display name like "Morning Brief". Resolving by name
+    // is what keeps "add X to Morning Brief" from minting a duplicate when the
+    // dashboard already exists under id `user:morning-brief`.
+    let dash = resolveExistingDashboard(store, target);
+    let id = dash?.id ?? target;
     let created = false;
     if (!dash) {
       id = allocateUserDashboardId(target, (c) => Boolean(store.getDashboard(c)));

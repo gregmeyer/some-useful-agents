@@ -142,6 +142,31 @@ describe('executeDashboardEditor — add-tile', () => {
     expect(after.layout.sections[0].agentIds).toEqual(['weather']); // unchanged
   });
 
+  it('resolves an existing dashboard by display NAME — no duplicate', () => {
+    const ctx = setup();
+    mkAgent('weather', true);
+    mkCompletedRun('run-1', 'weather');
+    // First add creates user:morning-brief from the name "Morning Brief".
+    executeDashboardEditor(ctx, addTile({ DASHBOARD: 'Morning Brief', AGENT_ID: 'weather' }));
+    mkAgent('cocktail', true);
+    mkCompletedRun('run-2', 'cocktail');
+    // Second add by the SAME name must land on the SAME dashboard, not a new one.
+    const r = executeDashboardEditor(ctx, addTile({ DASHBOARD: 'Morning Brief', AGENT_ID: 'cocktail' }));
+    expect(r.status).toBe('completed');
+    expect(dashboardsStore.listUserDashboards()).toHaveLength(1); // no duplicate
+    const dash = dashboardsStore.getDashboard('user:morning-brief')!;
+    expect(dash.layout.sections[0].agentIds).toEqual(['weather', 'cocktail']);
+  });
+
+  it('create is idempotent by name — returns the existing dashboard', () => {
+    const ctx = setup();
+    dashboardsStore.upsertDashboard({ id: 'user:morning-brief', packId: null, name: 'Morning Brief', layout: { sections: [] } });
+    const r = executeDashboardEditor(ctx, { kind: 'action', status: 'proposed', agentId: 'dashboard-editor', inputs: { op: 'create', DASHBOARD: 'Morning Brief' } });
+    expect(r.status).toBe('completed');
+    expect(r.summary).toContain('already exists');
+    expect(dashboardsStore.listUserDashboards()).toHaveLength(1);
+  });
+
   it('refuses an unknown op', () => {
     const ctx = setup();
     const r = executeDashboardEditor(ctx, { kind: 'action', status: 'proposed', agentId: 'dashboard-editor', inputs: { op: 'nuke', DASHBOARD: 'x' } });

@@ -42,8 +42,8 @@ FORMATTING — Markdown, links, and human dates
 
 `recommendation` renders as Markdown. Use it:
 - `**bold**` for emphasis, backtick `code` for literal ids/values.
-- Links: write `/runs/<id>` and `/agents/<id>` and they auto-link.
-  Use real Markdown links for everything else: `[label](url)`.
+- Links: write `/runs/<id>`, `/agents/<id>`, and `/dashboards/<id>`
+  and they auto-link. Use real Markdown links for everything else: `[label](url)`.
   Never wrap an id in backticks when you mean it as a clickable
   link — link it instead.
 - Dates: write human dates like "May 30, 2026", never raw ISO
