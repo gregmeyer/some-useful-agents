@@ -104,6 +104,69 @@ describe('parseProposedActions — show-widget', () => {
   });
 });
 
+describe('parseProposedActions — dashboard-editor', () => {
+  it('accepts add-tile with op/DASHBOARD/AGENT_ID, marks it a write', () => {
+    const { accepted, rejected } = parseProposedActions(
+      [{ type: 'dashboard-editor', rationale: 'pin weather', inputs: { op: 'add-tile', DASHBOARD: 'Markets', AGENT_ID: 'weather', SECTION: 'Widgets' } }],
+      [], // route-handled, not allowlist-gated
+      [],
+    );
+    expect(rejected).toHaveLength(0);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].agentId).toBe('dashboard-editor');
+    expect(accepted[0].effect).toBe('write');
+    expect(accepted[0].ctaLabel).toBe('Add tile');
+    expect(accepted[0].inputs).toEqual({ op: 'add-tile', DASHBOARD: 'Markets', AGENT_ID: 'weather', SECTION: 'Widgets' });
+  });
+
+  it('accepts create with just op/DASHBOARD', () => {
+    const { accepted } = parseProposedActions(
+      [{ type: 'dashboard-editor', inputs: { op: 'create', DASHBOARD: 'Markets' } }],
+      [],
+    );
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].ctaLabel).toBe('Create dashboard');
+    expect(accepted[0].effect).toBe('write');
+  });
+
+  it('rejects unknown / missing op', () => {
+    const { accepted, rejected } = parseProposedActions(
+      [{ type: 'dashboard-editor', inputs: { op: 'nuke', DASHBOARD: 'x' } }],
+      [],
+    );
+    expect(accepted).toHaveLength(0);
+    expect(rejected[0].reason).toContain('add-tile | create');
+  });
+
+  it('rejects missing DASHBOARD', () => {
+    const { rejected } = parseProposedActions(
+      [{ type: 'dashboard-editor', inputs: { op: 'create' } }],
+      [],
+    );
+    expect(rejected[0].reason).toContain('DASHBOARD');
+  });
+
+  it('rejects add-tile missing AGENT_ID', () => {
+    const { rejected } = parseProposedActions(
+      [{ type: 'dashboard-editor', inputs: { op: 'add-tile', DASHBOARD: 'x' } }],
+      [],
+    );
+    expect(rejected[0].reason).toContain('AGENT_ID');
+  });
+
+  it('defers a second write when a dashboard-editor write is already in the plan', () => {
+    const { accepted, deferred } = parseProposedActions(
+      [
+        { type: 'dashboard-editor', inputs: { op: 'create', DASHBOARD: 'a' } },
+        { type: 'run-agent', agentId: 'make-note', effect: 'write' },
+      ],
+      ['make-note'],
+    );
+    expect(accepted.map((a) => a.agentId)).toEqual(['dashboard-editor']);
+    expect(deferred).toEqual([{ agentId: 'make-note' }]);
+  });
+});
+
 describe('parseProposedActions — side-effect sequencing', () => {
   it('defaults a missing effect to read and batches reads', () => {
     const { accepted, deferred } = parseProposedActions(

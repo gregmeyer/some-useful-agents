@@ -18,6 +18,8 @@ import {
   isAppleIntegrationEnabled,
   isTriageLearningsEnabled,
   parseAgent,
+  allocateUserDashboardId,
+  mutateSections,
   LEARNING_CATEGORIES,
   LEARNING_SCOPES,
   type Agent,
@@ -30,6 +32,7 @@ import {
   type LearningScope,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { maybeKickoffFirstRun } from './dashboard-first-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { autoFixYaml } from './run-now-build.js';
 import { applyProviderPin } from './build-orchestrator.js';
@@ -108,6 +111,7 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-editor',
   'agent-catalog-search',
   'agent-builder',
+  'dashboard-editor',
 ]);
 
 /**
@@ -117,7 +121,7 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -663,10 +667,11 @@ function maybeRefireTriage(
 }
 
 /**
- * Synchronous executor for agents listed in `ROUTE_HANDLED_AGENTS`.
- * Today that's just `agent-editor`, which commits a YAML change via
- * `agentStore.upsertAgent` after validation. Returns the action's
- * terminal status + a summary line for the conversation thread.
+ * Synchronous executor for agents listed in `ROUTE_HANDLED_AGENTS`:
+ * `agent-editor` commits a YAML change via `agentStore.upsertAgent`, and
+ * `dashboard-editor` writes a user dashboard via `dashboardsStore`. Each runs
+ * after validation and returns the action's terminal status + a summary line
+ * for the conversation thread.
  */
 async function executeRouteHandledAgent(
   ctx: ReturnType<typeof getContext>,
@@ -676,10 +681,101 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'agent-editor') {
     return executeAgentEditor(ctx, messageId, meta);
   }
+  if (meta.agentId === 'dashboard-editor') {
+    return executeDashboardEditor(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
   };
+}
+
+/**
+ * Execute a `dashboard-editor` action — the WRITE counterpart to `show-widget`.
+ * Route-handled and synchronous (mirrors `executeAgentEditor`): mutates a user
+ * dashboard via `ctx.dashboardsStore`. Two ops carried in `meta.inputs.op`:
+ *
+ *   create   — make an empty `user:<slug>` dashboard from a DASHBOARD name.
+ *   add-tile — pin AGENT_ID's tile onto DASHBOARD (a name or an existing
+ *              `user:<slug>` id), creating the dashboard if it doesn't exist,
+ *              in section SECTION (default "Widgets").
+ *
+ * Dashboards only render tiles for agents that have a Pulse `signal`, so
+ * add-tile refuses an agent without one (the kernel pre-filters via the
+ * catalog's `hasSignal` flag; this is the backstop). On success the summary
+ * embeds `/dashboards/<id>` — the refire turn turns that into a one-click link.
+ */
+export function executeDashboardEditor(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  if (!ctx.dashboardsStore) {
+    return { status: 'failed', refusalReason: 'Dashboards store unavailable.' };
+  }
+  const store = ctx.dashboardsStore;
+  const op = meta.inputs.op;
+
+  if (op === 'create') {
+    const name = (meta.inputs.DASHBOARD ?? '').trim();
+    if (!name) return { status: 'failed', refusalReason: 'create requires a DASHBOARD name.' };
+    const id = allocateUserDashboardId(name, (c) => Boolean(store.getDashboard(c)));
+    store.upsertDashboard({ id, packId: null, name, layout: { sections: [] } });
+    return { status: 'completed', summary: `Created dashboard "${name}" — /dashboards/${id}` };
+  }
+
+  if (op === 'add-tile') {
+    const agentId = (meta.inputs.AGENT_ID ?? '').trim();
+    const target = (meta.inputs.DASHBOARD ?? '').trim();
+    const sectionTitle = (meta.inputs.SECTION ?? '').trim() || 'Widgets';
+    if (!agentId || !target) {
+      return { status: 'failed', refusalReason: 'add-tile requires AGENT_ID and DASHBOARD.' };
+    }
+    const agent = ctx.agentStore.getAgent(agentId);
+    if (!agent) return { status: 'failed', refusalReason: `Agent "${agentId}" is not installed.` };
+    if (!agent.signal) {
+      return {
+        status: 'failed',
+        refusalReason: `${agent.name || agentId} has no Pulse signal, so it can't show as a dashboard tile. Dashboards display signal tiles only.`,
+      };
+    }
+
+    // Resolve-or-create: target may be an existing `user:<slug>` id or a name.
+    let dash = store.getDashboard(target);
+    let id = target;
+    let created = false;
+    if (!dash) {
+      id = allocateUserDashboardId(target, (c) => Boolean(store.getDashboard(c)));
+      store.upsertDashboard({ id, packId: null, name: target, layout: { sections: [] } });
+      dash = store.getDashboard(id)!;
+      created = true;
+    }
+
+    // Dedupe: already on this dashboard (any section) → no-op success.
+    if (dash.layout.sections.some((s) => s.agentIds.includes(agentId))) {
+      return {
+        status: 'completed',
+        summary: `${agent.name || agentId} is already on "${dash.name}" — /dashboards/${id}`,
+      };
+    }
+
+    const sections = mutateSections(dash.layout, (arr) => {
+      let sec = arr.find((s) => s.title === sectionTitle);
+      if (!sec) {
+        sec = { title: sectionTitle, agentIds: [] };
+        arr.push(sec);
+      }
+      sec.agentIds = [...sec.agentIds, agentId];
+    });
+    store.updateLayout(id, { sections });
+    maybeKickoffFirstRun(ctx, agentId); // populate the freshly added blank tile
+
+    return {
+      status: 'completed',
+      summary: `Added ${agent.name || agentId} to ${created ? 'new dashboard' : 'dashboard'} "${dash.name}" — /dashboards/${id}`,
+    };
+  }
+
+  return { status: 'failed', refusalReason: `Unknown dashboard-editor op "${op}".` };
 }
 
 /**
@@ -1304,7 +1400,13 @@ export async function runTriageAgent(
     const planHasShowWidget = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
     );
-    if (allowlist.length > 0 || planHasShowWidget) {
+    // dashboard-editor is route-handled (not allowlist-gated), like show-widget,
+    // so a "create me a dashboard" plan on a thread with no runnable agents must
+    // still enter the action block.
+    const planHasDashboardEditor = rawActionList.some(
+      (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'dashboard-editor',
+    );
+    if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       for (const action of accepted) {

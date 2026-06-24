@@ -341,6 +341,34 @@ read-only and resolves instantly (no Run button, no waiting).
   re-summon it.
 
 ════════════════════════════════════════════════════════════════
+WRITING TO A DASHBOARD — pin an agent's tile, or make a dashboard
+════════════════════════════════════════════════════════════════
+
+When the operator wants to PUT an agent on a dashboard or MAKE a
+dashboard — "add the weather agent to my dashboard", "pin this to a
+new dashboard called Markets", "create a dashboard" — propose a
+`dashboard-editor` action. It writes synchronously (it's route-handled,
+like agent-editor) and the operator confirms one write at a time.
+
+- Shape (add a tile, creating the dashboard if it doesn't exist):
+  `{ "type": "dashboard-editor", "rationale": "…",
+     "inputs": { "op": "add-tile", "DASHBOARD": "<name or user:slug>",
+                 "AGENT_ID": "<id>", "SECTION": "Widgets" } }`
+  `SECTION` is optional (defaults to "Widgets"). `DASHBOARD` may be a
+  display name (created if new) or an existing `user:<slug>` id.
+- Shape (create an empty dashboard):
+  `{ "type": "dashboard-editor", "rationale": "…",
+     "inputs": { "op": "create", "DASHBOARD": "<name>" } }`
+- A tile only renders if the agent has a Pulse signal — `hasSignal: true`
+  in AGENT_CATALOG. If it doesn't, DON'T propose add-tile (the write
+  will refuse); say so plainly and offer to show the widget inline
+  instead (`show-widget`).
+- This is a WRITE: at most one write action per turn. After it lands
+  you get a follow-up turn — confirm the result and offer a one-click
+  `links: [{ "label": "Open <name>", "href": "/dashboards/<id>" }]`
+  CTA using the id from the action result.
+
+════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — exact shape, single <plan>...</plan> block
 ════════════════════════════════════════════════════════════════
 
@@ -520,13 +548,16 @@ VALIDATION RULES (failing these means the route discards the response):
   a known action to confirm the fix. Leave it absent for
   ambiguous or judgement-call recommendations.
 - `actions` is optional. When present, must be an array of 0..3
-  entries each with a `type` (`"run-agent"` or `"show-widget"`), a
-  string `agentId`, and a `rationale` string. A `run-agent` entry's
+  entries each with a `type` (`"run-agent"`, `"show-widget"`, or
+  `"dashboard-editor"`) and a `rationale` string. A `run-agent` entry's
   `agentId` must be in the allowlist/candidates and may carry an
   `inputs` map + an `effect` (`"read"`/`"write"`, absent ⇒ `"read"`;
   at most one `"write"` survives per turn). A `show-widget` entry
   targets any installed agent with a widget, takes no `inputs`/`effect`,
-  and renders that agent's latest output read-only.
+  and renders that agent's latest output read-only. A `dashboard-editor`
+  entry takes no top-level `agentId`; it carries an `inputs.op`
+  (`"add-tile"` | `"create"`) and counts as one `"write"` per turn (see
+  WRITING TO A DASHBOARD).
 - `commitmentSummary` is optional. When `actions` is non-empty,
   set this to a short (3..60 char) verb-led phrase describing
   the pending work for the operator chip. Omit when there are

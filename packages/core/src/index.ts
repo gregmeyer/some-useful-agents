@@ -76,6 +76,11 @@ export {
   type DashboardLayout,
 } from './dashboards-store.js';
 export {
+  slugifyDashboardName,
+  allocateUserDashboardId,
+  mutateSections,
+} from './dashboard-layout.js';
+export {
   LayoutHintsStore,
   type LayoutHint,
   type LayoutHintPatch,

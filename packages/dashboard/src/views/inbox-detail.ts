@@ -610,9 +610,11 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         </div>
         <div class="inbox-action__card">
           <div class="inbox-action__headline">
-            ${meta.mode === 'show-widget'
-              ? html`Latest <span class="mono">${meta.agentId}</span> output`
-              : html`Run agent <span class="mono">${meta.agentId}</span>`}
+            ${meta.agentId === 'dashboard-editor'
+              ? html`${meta.inputs.op === 'create' ? 'Create dashboard' : 'Add tile'} · <span class="mono">${meta.inputs.DASHBOARD ?? ''}</span>${meta.inputs.AGENT_ID ? html` · <span class="mono">${meta.inputs.AGENT_ID}</span>` : html``}`
+              : meta.mode === 'show-widget'
+                ? html`Latest <span class="mono">${meta.agentId}</span> output`
+                : html`Run agent <span class="mono">${meta.agentId}</span>`}
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
           ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
