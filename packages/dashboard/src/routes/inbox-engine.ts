@@ -50,6 +50,7 @@ import {
   TRIAGE_REJECTION_RECOVERY_NOTE,
   PENDING_USER_REPLY_WINDOW_MS,
   TRIAGE_AGENT_ID,
+  SYSTEM_AGENT_IDS,
 } from './inbox-shared.js';
 import {
   getSubAgentAllowlist,
@@ -62,6 +63,7 @@ import {
   enrichAgentBuilderInputs,
   extractAgentBuilderProviderPin,
   deriveRunFailureReason,
+  collectRunSummary,
 } from './inbox-catalog.js';
 import {
   parseProposedActions,
@@ -1185,6 +1187,30 @@ export async function maybeExtractLearning(
 }
 
 /**
+ * The agent a thread is ABOUT — for injecting run-awareness into triage.
+ * Prefers the message's own target. On a manual thread (no target), walks the
+ * actions newest-first and returns the real agent the latest one touched: for a
+ * system/route-handled action (agent-analyzer/agent-editor/dashboard-editor)
+ * that's `inputs.AGENT_ID`; for a `run-agent` action it's the action's agentId.
+ * System pseudo-agents are skipped, and the candidate must be installed.
+ */
+export function resolveFocusAgentId(
+  ctx: ReturnType<typeof getContext>,
+  messageAgentId: string | undefined,
+  responses: readonly InboxResponse[],
+): string | undefined {
+  if (messageAgentId) return messageAgentId;
+  for (let i = responses.length - 1; i >= 0; i--) {
+    if (responses[i].role !== 'action') continue;
+    const m = parseActionMeta(responses[i]);
+    if (!m) continue;
+    const cand = (SYSTEM_AGENT_IDS.has(m.agentId) ? m.inputs.AGENT_ID : m.agentId)?.trim();
+    if (cand && !SYSTEM_AGENT_IDS.has(cand) && ctx.agentStore.getAgent(cand)) return cand;
+  }
+  return undefined;
+}
+
+/**
  * Spawn the inbox-triage system agent for a message. Lazy-installs the
  * YAML on first call (mirrors layout-planner). After the run
  * completes, parses the `<plan>{...}</plan>` block and appends a
@@ -1249,6 +1275,13 @@ export async function runTriageAgent(
   // when the operator hasn't replied yet (triage is first responder).
   const currentRequest = latestUserRequest(responsesSnapshot) ?? message.body;
 
+  // Run-awareness: the agent this thread is ABOUT (the message's target, or the
+  // most-recent agent a thread action touched). Inject its latest run output —
+  // including a "MOST RECENT RUN FAILED" block — so triage can REPORT a failure
+  // (node + error) directly instead of telling the operator to "run it and see".
+  const focusAgentId = resolveFocusAgentId(ctx, message.agentId, responsesSnapshot);
+  const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
+
   const allowlist = getSubAgentAllowlist(ctx);
   const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
   // Installed agents triage may propose running even though they aren't
@@ -1297,6 +1330,8 @@ export async function runTriageAgent(
           CONTEXT_JSON: message.contextJson ?? '',
           RELEVANT_LEARNINGS: relevantLearnings,
           CONVERSATION: conversation,
+          FOCUS_AGENT: focusAgentId ?? '',
+          FOCUS_AGENT_RUN: focusAgentRun,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           RUNNABLE_CANDIDATES: candidates.join(', '),
