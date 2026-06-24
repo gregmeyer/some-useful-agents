@@ -87,6 +87,23 @@ inputs:
     description: >
       The conversation thread to date, one entry per line as
       `[ROLE] body`. Empty on the first triage of a fresh message.
+  FOCUS_AGENT:
+    type: string
+    required: false
+    default: ""
+    description: >
+      The id of the agent this thread is about (the message's target, or
+      the most recent agent a thread action touched). Empty when the
+      thread isn't about a specific agent.
+  FOCUS_AGENT_RUN:
+    type: string
+    required: false
+    default: ""
+    description: >
+      FOCUS_AGENT's latest run output, including a "MOST RECENT RUN
+      FAILED" block (error + failing node) when the last run failed. Lets
+      triage REPORT a run outcome directly instead of asking the operator
+      to run the agent and report back. Empty when there's no run yet.
   ALLOWED_SUB_AGENTS:
     type: string
     required: false
@@ -243,6 +260,13 @@ nodes:
 
       Conversation so far (may be empty — you are the first responder):
       {{inputs.CONVERSATION}}
+
+      Latest run of the agent this thread is about ({{inputs.FOCUS_AGENT}};
+      may be empty). When this shows "MOST RECENT RUN FAILED", REPORT that
+      failure (the failing node + error) in your recommendation directly —
+      do not tell the operator to run it and report back. See the kernel's
+      REPORTING A RUN OUTCOME section:
+      {{inputs.FOCUS_AGENT_RUN}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as
