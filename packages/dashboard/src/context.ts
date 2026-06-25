@@ -206,6 +206,16 @@ export interface DashboardContext {
    */
   inboxTriagePendingRefires: Set<string>;
   /**
+   * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
+   * While present, `maybeRefireTriage` will not auto-fire a follow-up triage
+   * turn and auto-approved actions will not auto-run — so the autonomous
+   * analyze→edit→refire chain halts after the in-flight step instead of running
+   * to the consecutive-turn cap. Cleared when the operator replies (a fresh
+   * user message is genuine re-engagement). Optional so existing test contexts
+   * that omit it simply behave as "nothing stopped".
+   */
+  inboxTriageStopped?: Set<string>;
+  /**
    * Per-message count of CONSECUTIVE triage runs that crashed with an infra
    * error (provider/worker/network), keyed by inbox message id. A transient
    * failure shouldn't permanently strand a thread, so the crash handler

@@ -653,6 +653,10 @@ function maybeRefireTriage(
   messageId: string,
 ): void {
   if (!ctx.inboxStore) return;
+  // Operator hit Stop — halt the autonomous analyze→edit→refire chain. The
+  // in-flight action still finishes (sub-agent runs aren't abortable mid-flight),
+  // but we do NOT spawn the next triage turn. Cleared when the operator replies.
+  if (ctx.inboxTriageStopped?.has(messageId)) return;
   if (!(allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId))) return;
   if (countConsecutiveTriageTurns(ctx, messageId) >= MAX_AUTO_TRIAGE_TURNS) {
     const note = `Auto-follow-up paused after ${MAX_AUTO_TRIAGE_TURNS} consecutive triage turns. Reply or dismiss to continue.`;
@@ -1564,7 +1568,7 @@ export async function runTriageAgent(
         // completion runProposedAction publishes the terminal
         // action:status event and (when all actions resolve) fires
         // the follow-up triage turn.
-        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId)) {
+        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId) && !ctx.inboxTriageStopped?.has(messageId)) {
           const startedAt = Date.now();
           const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt };
           const claimed = ctx.inboxStore.transitionActionStatus(

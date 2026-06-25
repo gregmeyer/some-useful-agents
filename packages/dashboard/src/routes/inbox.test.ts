@@ -685,6 +685,29 @@ describe('POST /inbox/:id/respond', () => {
   });
 });
 
+describe('POST /inbox/:id/triage/cancel — operator Stop halts the refire chain', () => {
+  it('marks the thread stopped even with no triage run in flight, and a reply lifts it', async () => {
+    const app = await makeApp();
+    const ctx = app.locals as DashboardContext;
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+
+    // No triage LLM run in flight (the loop is driven by auto-approved actions),
+    // yet Stop must still take: it sets the flag + posts an ack note.
+    const cancel = await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(cancel.status).toBe(204);
+    expect(ctx.inboxTriageStopped?.has(m.id)).toBe(true);
+    expect(inboxStore.listResponses(m.id).some((r) => r.role === 'system' && /stopped/i.test(r.body))).toBe(true);
+
+    // A fresh reply is re-engagement → the stop is lifted so triage can run again.
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'continue please' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(ctx.inboxTriageStopped?.has(m.id)).toBe(false);
+  });
+});
+
 describe('GET /inbox with filters', () => {
   it('filters by ?starred=1', async () => {
     const app = await makeApp();
@@ -1602,17 +1625,20 @@ describe('POST /inbox/:id/triage/cancel', () => {
     expect(sys?.body).toBe('Triage agent cancelled.');
   });
 
-  it('is idempotent: no in-flight controller returns 204 with "Nothing to cancel"', async () => {
+  it('with no in-flight triage run still STOPS the thread (204 + ack note)', async () => {
+    // Stop must take even when there's no triage LLM run to abort — the runaway
+    // loop is driven by auto-approved actions, so the stop flag is what halts it.
     const app = await makeApp();
+    const ctx = app.locals as DashboardContext;
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
     const res = await request(app)
       .post(`/inbox/${m.id}/triage/cancel`)
       .set('X-Requested-With', 'fetch')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(204);
-    // No system message inserted for a no-op cancel.
-    const responses = inboxStore.listResponses(m.id);
-    expect(responses.find((r) => r.role === 'system')).toBeUndefined();
+    expect(ctx.inboxTriageStopped?.has(m.id)).toBe(true);
+    const sys = inboxStore.listResponses(m.id).find((r) => r.role === 'system');
+    expect(sys?.body).toMatch(/stopped/i);
   });
 
   it('404 (AJAX) for unknown message id', async () => {
