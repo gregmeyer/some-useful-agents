@@ -390,6 +390,9 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Reply is too long (max 8 KB).')}`);
     return;
   }
+  // A fresh reply is genuine re-engagement, so lift any operator Stop and let
+  // triage run again for this turn.
+  ctx.inboxTriageStopped?.delete(id);
   let userResponse;
   try {
     userResponse = ctx.inboxStore.addResponse(id, 'user', bodyRaw);
@@ -514,10 +517,26 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
     res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
     return;
   }
+  // Mark the thread STOPPED regardless of whether a triage run is in flight.
+  // The runaway loop is driven by auto-approved ACTIONS completing and
+  // refiring triage, so the stop must hold even when the thing running right
+  // now is a sub-agent action (no triage abort entry) — maybeRefireTriage and
+  // the auto-approve dispatch both honor this flag. Cleared on the next reply.
+  if (!ctx.inboxTriageStopped) ctx.inboxTriageStopped = new Set();
+  ctx.inboxTriageStopped.add(id);
   const entry = ctx.inboxTriageAbortControllers.get(id);
   if (!entry) {
+    // No triage LLM turn in flight, but the stop flag now halts the chain
+    // after the current action. Acknowledge it so the operator sees it took.
+    try {
+      const note = 'Auto-follow-up stopped. Reply to continue.';
+      const sysReply = ctx.inboxStore.addResponse(id, 'system', note);
+      publishInboxEvent(ctx, id, 'message:created', {
+        responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
+      });
+    } catch { /* ignore */ }
     if (isAjax(req)) { res.status(204).end(); return; }
-    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Nothing to cancel.')}`);
+    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Stopped.')}`);
     return;
   }
   ctx.inboxTriageAbortControllers.delete(id);
