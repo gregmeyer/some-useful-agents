@@ -593,6 +593,25 @@ export class InboxStore {
     return rows.map((r) => this.rowToMessage(r));
   }
 
+  /**
+   * Count threads awaiting an operator reply (`awaiting_user`). Cheap COUNT —
+   * no row materialization — for the high-frequency global inbox badge.
+   */
+  countNeedsYou(): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS n FROM inbox_messages WHERE status = 'awaiting_user'`,
+    ).get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * The `awaiting_user` ("Your turn") threads, for the Mission Control
+   * "Needs you" preview. Reuses `list`'s ordering; capped small.
+   */
+  listNeedsYou(limit = 4): InboxMessage[] {
+    return this.list({ status: 'awaiting_user', limit });
+  }
+
   /** Set or clear the star flag. */
   setStarred(id: string, starred: boolean): void {
     const result = this.db.prepare(`UPDATE inbox_messages SET starred = ? WHERE id = ?`)

@@ -112,8 +112,20 @@ function buildSystemTiles(ctx: ReturnType<typeof getContext>): PulseTile[] {
 
 // ── Routes ───────────────────────────────────────────────────────────────
 
-pulseRouter.get('/pulse', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
+/**
+ * Assemble the live Pulse board data: the 4 virtual system tiles + a tile per
+ * visible signal agent (two visibility gates) + the hidden count + dashboards
+ * and available packs. Shared by GET /pulse and the Mission Control home (`/`)
+ * so both render the identical board with zero divergence. Idempotent —
+ * `autoImportSignalExamples` only upserts examples not already installed.
+ */
+export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
+  systemTiles: PulseTile[];
+  tiles: PulseTile[];
+  hiddenTiles: PulseTile[];
+  installedDashboards: ReturnType<NonNullable<ReturnType<typeof getContext>['dashboardsStore']>['listDashboards']>;
+  availablePacks: ReturnType<NonNullable<ReturnType<typeof getContext>['packsStore']>['listPacks']>;
+} {
   autoImportSignalExamples(ctx);
 
   const agents = ctx.agentStore.listAgents();
@@ -146,17 +158,15 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   // untouched (renderer falls back to signal.size / outputWidget.tileFit).
   attachLayoutHints(tiles, ctx.layoutHintsStore);
 
-  const flash = parsePulseFlash(req);
   const installedDashboards = ctx.dashboardsStore?.listDashboards() ?? [];
   const availablePacks = (ctx.packsStore?.listPacks() ?? []).filter((p) => p.installedAt === null);
-  res.type('html').send(renderPulsePage({
-    systemTiles,
-    tiles,
-    hiddenTiles,
-    flash,
-    installedDashboards,
-    availablePacks,
-  }));
+  return { systemTiles, tiles, hiddenTiles, installedDashboards, availablePacks };
+}
+
+pulseRouter.get('/pulse', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const data = buildPulseBoardData(ctx);
+  res.type('html').send(renderPulsePage({ ...data, flash: parsePulseFlash(req) }));
 });
 
 function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {

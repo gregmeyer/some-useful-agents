@@ -22,6 +22,7 @@ import { CSP_IMG_REPORT_JS } from './csp-img-report.js.js';
 import { WIDGET_IMG_FALLBACK_JS } from './widget-img-fallback.js.js';
 import { INSTALL_PACKS_MODAL_JS } from './install-packs-modal.js.js';
 import { INBOX_MODAL_JS } from './inbox-modal.js.js';
+import { INBOX_BADGE_JS } from './inbox-badge.js.js';
 import { ALLOWED_SUB_AGENTS_PICKLIST_JS } from './allowed-sub-agents-picklist.js.js';
 import { NODE_DISCOVERY_JS } from './node-discovery.js.js';
 import { footer } from './footer.js';
@@ -77,7 +78,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <header class="topbar">
   <a class="topbar__brand" href="/">sua</a>
   <nav class="topbar__nav">
-    <a href="/inbox" class="${opts.activeNav === 'inbox' ? 'is-active' : ''}">Inbox</a>
+    <a href="/inbox" class="${opts.activeNav === 'inbox' ? 'is-active' : ''}">Inbox<span class="nav-badge" data-inbox-badge hidden></span></a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
     <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
@@ -92,7 +93,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${body}
 </main>
 ${footer()}
-<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS + NODE_DISCOVERY_JS)}</script>
+<script>${unsafeHtml(DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + INBOX_BADGE_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS + NODE_DISCOVERY_JS)}</script>
 </body>
 </html>`;
 }

@@ -30,7 +30,6 @@ import {
   type SecretsStore,
   type Provider,
   type RunStatus,
-  getSchedulerStatus,
 } from '@some-useful-agents/core';
 import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
@@ -61,6 +60,7 @@ import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
 import { inboxRouter } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
+import { inboxCountRouter } from './routes/inbox-count.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
@@ -205,59 +205,48 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Home page with today's stats + recent activity (paginated).
   app.get('/', (req, res) => {
     // Dynamic import to avoid circular deps at module load.
-    import('./views/home.js').then(({ renderHomePage }) => {
-      const ctx = getContext(req.app.locals);
-      const agents = ctx.agentStore.listAgents();
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    Promise.all([import('./views/home.js'), import('./routes/pulse.js')])
+      .then(([{ renderHomePage }, { buildPulseBoardData }]) => {
+        const ctx = getContext(req.app.locals);
+        const agents = ctx.agentStore.listAgents();
 
-      // Activity feed pagination.
-      const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-      const pageSize = Math.max(1, Math.min(50, parseInt(req.query.pageSize as string, 10) || 10));
-      const offset = (page - 1) * pageSize;
+        // Activity feed pagination (the collapsed "Recent activity" zone).
+        const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+        const pageSize = Math.max(1, Math.min(50, parseInt(req.query.pageSize as string, 10) || 10));
+        const offset = (page - 1) * pageSize;
+        const recentResult = ctx.runStore.queryRuns({ limit: pageSize, offset, statuses: [] as RunStatus[] });
 
-      const recentResult = ctx.runStore.queryRuns({ limit: pageSize, offset, statuses: [] as RunStatus[] });
-      // Separate query for today's stats (always from the start, not paginated).
-      const todayResult = ctx.runStore.queryRuns({ limit: 200, offset: 0, statuses: [] as RunStatus[] });
-      const inFlightResult = ctx.runStore.queryRuns({ limit: 20, offset: 0, statuses: ['running', 'pending'] as RunStatus[] });
-      const todayRuns = todayResult.rows.filter((r: { startedAt: string }) => r.startedAt >= todayStart);
-      // Widget surfaces every agent with a schedule (active + paused). The
-      // previous active-only filter hid paused agents that the user might
-      // want to resume, which was misleading — see #365. /scheduled is the
-      // fuller management page; this widget is the at-a-glance summary.
-      const scheduledAgents = agents.filter((a: { schedule?: string; status: string }) => a.schedule && (a.status === 'active' || a.status === 'paused'));
+        // Live Pulse board — the same data /pulse renders.
+        const board = buildPulseBoardData(ctx);
 
-      // Scheduler status from heartbeat file.
-      const { status: schedulerStatus, heartbeat: schedulerHeartbeat } = getSchedulerStatus(ctx.dataDir);
+        // Inbox "Needs you" — count for the badge-adjacent header + a small preview.
+        const needsYou = ctx.inboxStore
+          ? { count: ctx.inboxStore.countNeedsYou(), top: ctx.inboxStore.listNeedsYou(4) }
+          : { count: 0, top: [] };
 
-      // Last scheduled fire per agent.
-      const lastScheduledFires: Record<string, string> = {};
-      for (const a of scheduledAgents) {
-        const result = ctx.runStore.queryRuns({ agentName: a.id, triggeredBy: 'schedule', limit: 1 });
-        if (result.rows[0]?.startedAt) lastScheduledFires[a.id] = result.rows[0].startedAt;
-      }
+        const availableDashboards = ctx.dashboardsStore
+          ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
+          : [];
 
-      const availableDashboards = ctx.dashboardsStore
-        ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
-        : [];
-
-      res.type('html').send(renderHomePage({
-        agents,
-        recentRuns: recentResult.rows,
-        todayRuns,
-        inFlightRuns: inFlightResult.rows,
-        scheduledAgents,
-        activityPage: page,
-        activityPageSize: pageSize,
-        totalRunCount: recentResult.total,
-        schedulerStatus,
-        schedulerHeartbeat,
-        lastScheduledFires,
-        availableDashboards,
-      }));
-    }).catch(() => {
-      res.redirect(302, '/agents');
-    });
+        res.type('html').send(renderHomePage({
+          board,
+          needsYou,
+          activity: {
+            agents,
+            recentRuns: recentResult.rows,
+            todayRuns: [],
+            inFlightRuns: [],
+            scheduledAgents: [],
+            activityPage: page,
+            activityPageSize: pageSize,
+            totalRunCount: recentResult.total,
+          },
+          agentCount: agents.length,
+          availableDashboards,
+        }));
+      }).catch(() => {
+        res.redirect(302, '/agents');
+      });
   });
 
   app.use(agentInstallRouter);
@@ -279,6 +268,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // SSE before the main inbox router so the more specific
   // `/inbox/:id/events` route resolves before any catch-all paths
   // in the inbox router try to claim it.
+  // Count endpoint first so `/inbox/needs-you-count` isn't shadowed by
+  // the inbox router's `/inbox/:id`.
+  app.use(inboxCountRouter);
   app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);

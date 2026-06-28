@@ -27,6 +27,36 @@ function addMinimal(overrides: Partial<Parameters<InboxStore['add']>[0]> = {}): 
   });
 }
 
+describe('InboxStore.countNeedsYou + listNeedsYou', () => {
+  it('counts and lists only awaiting_user threads', () => {
+    expect(store.countNeedsYou()).toBe(0);
+    expect(store.listNeedsYou()).toEqual([]);
+
+    const a = addMinimal({ title: 'needs reply a' });
+    const b = addMinimal({ title: 'needs reply b' });
+    addMinimal({ title: 'still open' });            // stays 'open'
+    const resolved = addMinimal({ title: 'done' });
+
+    store.updateStatus(a.id, 'awaiting_user');
+    store.updateStatus(b.id, 'awaiting_user');
+    store.updateStatus(resolved.id, 'resolved');
+
+    expect(store.countNeedsYou()).toBe(2);
+    const needs = store.listNeedsYou();
+    expect(needs.every((m) => m.status === 'awaiting_user')).toBe(true);
+    expect(needs.map((m) => m.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('listNeedsYou honors the limit', () => {
+    for (let i = 0; i < 6; i++) {
+      const m = addMinimal({ title: `t${i}` });
+      store.updateStatus(m.id, 'awaiting_user');
+    }
+    expect(store.countNeedsYou()).toBe(6);
+    expect(store.listNeedsYou(4)).toHaveLength(4);
+  });
+});
+
 describe('InboxStore.add + get', () => {
   it('writes a row, get round-trips it, default status is open', () => {
     const msg = addMinimal();
