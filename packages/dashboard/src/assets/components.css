@@ -38,6 +38,24 @@
   font-weight: var(--weight-semibold);
 }
 
+/* Global inbox "needs you" badge on the Inbox nav link. Populated client-side
+   (inbox-badge.js); hidden when the count is zero. */
+.nav-badge {
+  display: inline-block;
+  margin-left: var(--space-1);
+  min-width: 1.1em;
+  padding: 0 0.35em;
+  border-radius: var(--radius-sm);
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1.5;
+  text-align: center;
+  vertical-align: middle;
+}
+.nav-badge[hidden] { display: none; }
+
 .topbar__theme-toggle {
   margin-left: auto;
   background: none;

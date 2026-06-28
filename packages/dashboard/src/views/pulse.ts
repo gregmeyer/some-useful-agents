@@ -182,9 +182,25 @@ function tileFooter(tile: PulseTile): SafeHtml {
 
 // ── Page ─────────────────────────────────────────────────────────────────
 
-export function renderPulsePage(input: PulsePageInput): string {
+/**
+ * The Pulse BOARD content — system + agent signal tiles, hidden-count restore,
+ * dashboards dropdown, and the JSON `<script>` blocks the pulse JS reads. NO
+ * `layout()` wrapper, so callers can compose it (e.g. the Mission Control home
+ * stacks it between a "Needs you" strip and a recent-activity section).
+ *
+ * `opts.heading` replaces the default `<h1>Pulse</h1>`. `opts.editable`
+ * (default true) gates the board-level arrangement affordances — Hide all /
+ * Improve layout / Edit layout / + Add group, the layout modal, and the Pulse
+ * page-intro. On the home it's false so the board stays glanceable and
+ * arrangement routes to `/pulse`; per-tile configure/hide/run controls are
+ * unaffected.
+ */
+export function renderPulseBoard(
+  input: PulsePageInput,
+  opts: { heading?: SafeHtml; editable?: boolean } = {},
+): SafeHtml {
+  const editable = opts.editable !== false;
   const { systemTiles, tiles, hiddenTiles } = input;
-  const allTileCount = systemTiles.length + tiles.length;
   const agentTileCount = tiles.length;
   const systemTileCount = systemTiles.length;
   const hiddenCount = hiddenTiles.length;
@@ -201,14 +217,15 @@ export function renderPulsePage(input: PulsePageInput): string {
     ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
     : html``;
 
-  const body = html`
+  return html`
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
-      <h1 style="margin: 0;">Pulse</h1>
+      ${opts.heading ?? html`<h1 style="margin: 0;">Pulse</h1>`}
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
       </span>
       <div style="margin-left: auto; display: flex; align-items: center; gap: var(--space-2);">
         ${dropdownOptions.length > 1 ? dropdown : html``}
+        ${editable ? html`
         ${tiles.length > 0 ? html`
           <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" onsubmit="return confirm('Hide all ${String(tiles.length)} signal${tiles.length !== 1 ? 's' : ''} from Pulse? They\\'ll move to the hidden section and can be restored individually.');">
             <button type="submit" class="btn btn--ghost btn--sm" title="Move every visible tile to the hidden section. Useful before installing packs.">Hide all</button>
@@ -222,14 +239,15 @@ export function renderPulsePage(input: PulsePageInput): string {
         ${improveLayoutButton()}
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-edit-toggle">\u270E Edit layout</button>
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
+        ` : html``}
       </div>
     </div>
 
-    ${pageIntro({
+    ${editable ? pageIntro({
       key: 'pulse',
       text: 'Pulse is your live information radiator — each tile shows an agent\'s latest output. Drag to reorder, or use Improve layout to curate what shows.',
       learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
-    })}
+    }) : html``}
 
     <div id="pulse-containers">
       <section class="pulse-container" data-container-id="_default">
@@ -250,13 +268,15 @@ export function renderPulsePage(input: PulsePageInput): string {
       </div>
     ` : html``}
 
-    ${improveLayoutModal()}
+    ${editable ? improveLayoutModal() : html``}
 
     ${dropdownOptions.length > 1 ? renderInstallPacksModal(input.availablePacks ?? []) : html``}
 
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
+}
 
-  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: input.flash }, body));
+export function renderPulsePage(input: PulsePageInput): string {
+  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: input.flash }, renderPulseBoard(input)));
 }

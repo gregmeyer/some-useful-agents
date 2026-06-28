@@ -159,7 +159,7 @@ function buildAgents(data: HomeWidgetData): SystemWidget {
   };
 }
 
-function buildRecentActivity(data: HomeWidgetData): SystemWidget {
+export function buildRecentActivity(data: HomeWidgetData): SystemWidget {
   const { recentRuns } = data;
   const page = data.activityPage ?? 1;
   const pageSize = data.activityPageSize ?? 10;
