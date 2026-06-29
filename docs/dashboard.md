@@ -10,7 +10,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar leads with the daily-driver surfaces: `sua · Inbox · Home · Agents · Settings · Help`. The `sua` brand and the **Home** link both go to `/` — the single dashboard surface. **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
+The top bar leads with the daily-driver surfaces: `sua · Inbox · Agents · Settings · Help`. The `sua` brand IS the home link → `/`, the single dashboard surface (it tints when you're there); there's no separate "Home" item. **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
 
 ## `/` — Mission Control home
 

@@ -22,6 +22,11 @@
   letter-spacing: -0.01em;
 }
 
+/* The brand is the home link; tint it when the home surface (/) is active. */
+.topbar__brand.is-active {
+  color: var(--color-primary);
+}
+
 .topbar__nav {
   display: flex;
   gap: var(--space-4);

@@ -207,17 +207,19 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
   const sectionTabMatch = (res: { text: string }) =>
     res.text.match(/<nav class="tab-strip" aria-label="Agents section">[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  it('top row is Inbox · Home · Agents · Settings · Help; brand links to root', async () => {
+  it('top row is Inbox · Agents · Settings · Help; the sua brand is the home link', async () => {
     const app = await makeApp();
     const res = await authed(app, '/help');
     expect(res.status).toBe(200);
-    // Brand stays on the home at root.
-    expect(res.text).toContain('class="topbar__brand" href="/"');
+    // The brand is the (only) home link — no separate "Home" nav item.
+    expect(res.text).toMatch(/class="topbar__brand[^"]*" href="\/"/);
     const nav = res.text.match(/<nav class="topbar__nav">[\s\S]*?<\/nav>/)?.[0] ?? '';
     expect(nav).toBeTruthy();
-    // /pulse collapsed into /: the nav now shows Home, not Pulse.
-    expect(nav).toContain('>Home<');
+    // /pulse collapsed into /: no Pulse item, and no redundant Home item.
     expect(nav).not.toContain('>Pulse<');
+    expect(nav).not.toContain('>Home<');
+    expect(nav).toContain('>Inbox');
+    expect(nav).toContain('>Agents<');
     // Top-level nav still doesn't surface the building blocks directly.
     expect(nav).not.toContain('href="/tools"');
     expect(nav).not.toContain('href="/nodes"');
