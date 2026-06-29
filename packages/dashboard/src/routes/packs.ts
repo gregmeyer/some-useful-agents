@@ -49,8 +49,8 @@ packsRouter.post('/packs/:id/install', (req: Request, res: Response) => {
     return;
   }
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  // Optional returnTo lets callers (e.g. the Install-from-Packs modal on
-  // /pulse) come back to where they were instead of the pack detail page.
+  // Optional returnTo lets callers (e.g. the Install-from-Packs modal on the
+  // home /) come back to where they were instead of the pack detail page.
   const rawReturn = Array.isArray(req.body?.returnTo) ? req.body.returnTo[0] : req.body?.returnTo;
   const returnTo = typeof rawReturn === 'string' && rawReturn.startsWith('/') ? rawReturn : null;
   const back = (params: string) => returnTo

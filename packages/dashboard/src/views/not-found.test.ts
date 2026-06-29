@@ -89,7 +89,7 @@ describe('renderNotFoundPage', () => {
     expect(html).toContain('404');
     expect(html).toContain('/no/such/path');
     expect(html).toContain('href="/agents"');
-    expect(html).toContain('href="/pulse"');
+    expect(html).toContain('href="/"'); // Home (was /pulse before the collapse)
     expect(html).toContain('href="/packs"');
     expect(html).toContain('topbar'); // wrapped in standard layout
   });

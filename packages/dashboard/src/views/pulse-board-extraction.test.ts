@@ -1,28 +1,24 @@
 /**
- * Regression: `renderPulseBoard` (the reusable board content the Mission
- * Control home embeds) must be exactly what `/pulse` renders inside its layout,
- * so the two surfaces never diverge. Also checks the `editable: false` variant
- * (used on `/`) drops the board-level edit affordances but keeps the tiles.
+ * `renderPulseBoard` is the reusable board content the unified home (`/`)
+ * embeds — system + agent tiles, the dashboards dropdown, and the JSON the
+ * client JS reads. These guard its option gating so `/` and `/dashboards/:id`
+ * compose it consistently.
  */
 import { describe, it, expect } from 'vitest';
-import { renderPulseBoard, renderPulsePage } from './pulse.js';
+import { renderPulseBoard } from './pulse.js';
 import { html } from './html.js';
 import type { PulsePageInput } from './pulse-types.js';
 
 const EMPTY: PulsePageInput = { systemTiles: [], tiles: [], hiddenTiles: [] };
 
-describe('renderPulseBoard vs renderPulsePage', () => {
-  it('the page is just the board wrapped in the layout (board content is contained verbatim)', () => {
+describe('renderPulseBoard', () => {
+  it('is board content only — no layout wrapper — and carries the pulse JSON', () => {
     const board = renderPulseBoard(EMPTY).toString();
-    const page = renderPulsePage(EMPTY);
-    // The page must contain the entire board markup.
-    expect(page).toContain(board);
-    // Both carry the pulse JSON the client JS reads.
     expect(board).toContain('id="pulse-tile-data"');
-    expect(page).toContain('id="pulse-template-registry"');
-    // The page adds the layout chrome the board lacks.
+    expect(board).toContain('id="pulse-template-registry"');
+    expect(board).toContain('pulse-grid');
+    // No page chrome — the caller wraps it in layout().
     expect(board).not.toContain('<!DOCTYPE html>');
-    expect(page).toContain('<!DOCTYPE html>');
   });
 
   it('the default board is editable (Edit layout present); editable:false hides it', () => {

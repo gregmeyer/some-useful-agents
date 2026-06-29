@@ -1,14 +1,14 @@
 /**
- * Shared dashboards dropdown — appears on /pulse and on /dashboards/:id.
- * Server-rendered <details>/<summary> menu (no JS) with the active
- * dashboard at the top and the others below as links.
+ * Shared dashboards dropdown — appears on the home board (/) and on
+ * /dashboards/:id. Server-rendered <details>/<summary> menu (no JS) with the
+ * active dashboard at the top and the others below as links.
  */
 
 import type { Dashboard } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
 
 export interface DashboardOption {
-  /** Stable URL — '/pulse' for Default, '/dashboards/<id>' for installed packs. */
+  /** Stable URL — '/' for the Default (home) board, '/dashboards/<id>' for installed packs. */
   href: string;
   label: string;
   /** Optional secondary label (e.g. pack id) shown muted. */
@@ -21,7 +21,7 @@ export interface DashboardOption {
  */
 export function buildDashboardOptions(installed: Dashboard[]): DashboardOption[] {
   const opts: DashboardOption[] = [
-    { href: '/pulse', label: 'Default Dashboard', hint: 'pulseVisible' },
+    { href: '/', label: 'Default Dashboard', hint: 'pulseVisible' },
   ];
   const sorted = [...installed].sort((a, b) => {
     const ap = a.packId ?? 'user';

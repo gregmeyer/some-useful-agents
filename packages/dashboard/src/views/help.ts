@@ -183,7 +183,7 @@ export function renderHelp(): string {
         <li>
           <strong>Pin it to Pulse.</strong> Add a <code>signal:</code> block to the agent. Pick
           template <code>widget</code> and the agent's own output widget becomes a live tile on
-          <a href="/pulse">/pulse</a> \u2014 no slot mapping needed.
+          <a href="/">the Home board</a> \u2014 no slot mapping needed.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> on the agent and run

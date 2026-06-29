@@ -85,7 +85,7 @@ export function renderHomePage(input: HomePageInput): string {
         </p>
       </div>
     `
-    : renderPulseBoard(input.board, { heading: liveHeading, editable: false });
+    : renderPulseBoard(input.board, { heading: liveHeading });
 
   const activityWidget = buildRecentActivity(input.activity);
 
@@ -115,5 +115,5 @@ export function renderHomePage(input: HomePageInput): string {
     ${buildFromGoalModal({ availableDashboards: input.availableDashboards })}
   `;
 
-  return render(layout({ title: 'Home', activeNav: 'agents', flash: input.flash }, body));
+  return render(layout({ title: 'Home', activeNav: 'home', flash: input.flash }, body));
 }

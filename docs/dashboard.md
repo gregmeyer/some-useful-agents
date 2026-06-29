@@ -10,7 +10,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar leads with the daily-driver surfaces: `sua · Pulse · Agents · Settings · Help`. The `sua` brand links to the **Home feed** (`/`). **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
+The top bar leads with the daily-driver surfaces: `sua · Inbox · Home · Agents · Settings · Help`. The `sua` brand and the **Home** link both go to `/` — the single dashboard surface. **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
 
 ## `/` — Mission Control home
 
@@ -20,20 +20,20 @@ The unified front door, ordered by attention. Three zones, top to bottom:
   preview cards + an **Open inbox →** CTA). When nothing's waiting it collapses
   to a slim "Inbox clear" line. This surfaces the inbox — the conversational
   control plane — at the front door instead of leaving it a quiet nav link.
-- **Live Pulse** — the real Pulse board (system metric tiles + per-agent signal
-  tiles), embedded read-only: per-tile controls work, but board-level
-  arrangement (Edit layout / Improve layout / + Add group) lives on `/pulse`.
-  With no agents installed this becomes the Build-from-goal empty state.
+- **Live Pulse** — the live board (system metric tiles + per-agent signal
+  tiles), fully editable here: configure/hide tiles, drag to reorder, Edit
+  layout, Improve layout. The **dashboards dropdown** in the board header
+  switches to named/pack dashboards (`/dashboards/:id`); "Default Dashboard"
+  is this home board. With no agents installed this becomes the Build-from-goal
+  empty state.
 - **Recent activity** — the paginated run feed, collapsed by default.
 
-This replaced the old system-stat-only home, which was a strict subset of Pulse.
-A global **Inbox badge** in the nav (amber pill, count from
+This replaced the old system-stat-only home (a strict subset of Pulse) AND the
+separate `/pulse` page — there's now **one** dashboard surface. `/pulse` 302-
+redirects to `/`; its sub-routes (tile fragments, hide/show-all, layout planner)
+are unchanged. A global **Inbox badge** in the nav (amber pill, count from
 `/inbox/needs-you-count`, polled ~30s) shows on every page so you always know
 when the inbox needs you.
-
-`/pulse` remains the focused board-only view — identical board, full editing
-chrome, no Needs-you/activity wrapper — for when you want the radiator
-full-screen.
 
 ## `/agents` — Agents list
 

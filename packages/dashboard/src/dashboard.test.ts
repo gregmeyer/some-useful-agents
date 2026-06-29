@@ -207,31 +207,42 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
   const sectionTabMatch = (res: { text: string }) =>
     res.text.match(/<nav class="tab-strip" aria-label="Agents section">[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  it('top row is Pulse · Agents · Settings · Help; brand links to root', async () => {
+  it('top row is Inbox · Home · Agents · Settings · Help; brand links to root', async () => {
+    const app = await makeApp();
+    const res = await authed(app, '/help');
+    expect(res.status).toBe(200);
+    // Brand stays on the home at root.
+    expect(res.text).toContain('class="topbar__brand" href="/"');
+    const nav = res.text.match(/<nav class="topbar__nav">[\s\S]*?<\/nav>/)?.[0] ?? '';
+    expect(nav).toBeTruthy();
+    // /pulse collapsed into /: the nav now shows Home, not Pulse.
+    expect(nav).toContain('>Home<');
+    expect(nav).not.toContain('>Pulse<');
+    // Top-level nav still doesn't surface the building blocks directly.
+    expect(nav).not.toContain('href="/tools"');
+    expect(nav).not.toContain('href="/nodes"');
+    expect(nav).not.toContain('href="/packs"');
+  });
+
+  it('/pulse redirects to the root', async () => {
     const app = await makeApp();
     const res = await authed(app, '/pulse');
-    expect(res.status).toBe(200);
-    // Brand stays on the home feed at root.
-    expect(res.text).toContain('class="topbar__brand" href="/"');
-    // Top-level nav no longer surfaces the building blocks directly.
-    expect(res.text).toContain('<nav class="topbar__nav">');
-    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/tools"/);
-    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/nodes"/);
-    expect(res.text).not.toMatch(/topbar__nav[\s\S]*?href="\/packs"/);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
   });
 
   it('has no global subnav bar anywhere', async () => {
     const app = await makeApp();
-    for (const path of ['/pulse', '/settings/secrets', '/help', '/agents', '/tools']) {
+    for (const path of ['/', '/settings/secrets', '/help', '/agents', '/tools']) {
       const res = await authed(app, path);
       expect(res.status, path).toBe(200);
       expect(res.text, path).not.toContain('topbar__subnav');
     }
   });
 
-  it('renders no section tabs on Pulse, Settings, or Help', async () => {
+  it('renders no section tabs on Home, Settings, or Help', async () => {
     const app = await makeApp();
-    for (const path of ['/pulse', '/settings/secrets', '/help']) {
+    for (const path of ['/', '/settings/secrets', '/help']) {
       const res = await authed(app, path);
       expect(res.status, path).toBe(200);
       expect(res.text, path).not.toContain('aria-label="Agents section"');
