@@ -362,7 +362,7 @@ function step8InstallAPack(s: TutorialState): Step {
   const summary = s.hasInstalledPack
     ? html`
         You've installed at least one pack — its dashboards are now in the
-        switcher dropdown above the <a href="/pulse">Pulse</a> header. You can
+        switcher dropdown above the <a href="/">Home</a> header. You can
         also create your own dashboards (open the dropdown →
         "New dashboard name" → Create) or browse more at <a href="/packs">/packs</a>.
       `

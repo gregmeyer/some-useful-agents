@@ -197,7 +197,7 @@ describe('dashboards routes', () => {
       layout: { sections: [{ title: 'Greetings', agentIds: ['hello'] }] },
     });
     const res = await request(app)
-      .get('/pulse')
+      .get('/')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
@@ -218,14 +218,14 @@ describe('dashboards routes', () => {
     packsStore.upsertPack({ id: 'weather', name: 'Weather', version: '0.2.0', source: 'builtin', manifest: { id: 'weather', name: 'Weather', version: '0.2.0', dashboards: [], agents: [] } });
 
     const res = await request(app)
-      .get('/pulse')
+      .get('/')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('id="install-packs-modal"');
     expect(res.text).toContain('data-install-packs-open');
     expect(res.text).toContain('action="/packs/weather/install"');
-    expect(res.text).toMatch(/name="returnTo" value="\/pulse"/);
+    expect(res.text).toMatch(/name="returnTo" value="\/"/);
   });
 
   it('CSP img-src widens to include each active agent\'s permissions.imgSrc hosts', async () => {
@@ -244,7 +244,7 @@ describe('dashboards routes', () => {
     // Cache is per-app and lazy — first request computes from scratch
     // and picks up the new agent, no TTL wait needed.
     const res = await request(app)
-      .get('/pulse')
+      .get('/')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     const csp = res.headers['content-security-policy'];
@@ -257,7 +257,7 @@ describe('dashboards routes', () => {
   it('Pulse hides the dropdown when no dashboards exist (only Default would show — noise)', async () => {
     const app = await makeApp();
     const res = await request(app)
-      .get('/pulse')
+      .get('/')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);

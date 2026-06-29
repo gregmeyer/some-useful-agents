@@ -8,8 +8,7 @@
  */
 
 import type { Agent, AgentSignal, Run, SignalTemplate } from '@some-useful-agents/core';
-import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { layout } from './layout.js';
+import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
@@ -214,7 +213,7 @@ export function renderPulseBoard(
   // Only render the dropdown when there's more than just the Default
   // entry — otherwise it's noise.
   const dropdown = dropdownOptions.length > 1
-    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
+    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/' })
     : html``;
 
   return html`
@@ -275,8 +274,4 @@ export function renderPulseBoard(
     ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
-}
-
-export function renderPulsePage(input: PulsePageInput): string {
-  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: input.flash }, renderPulseBoard(input)));
 }

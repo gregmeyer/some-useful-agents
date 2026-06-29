@@ -3,7 +3,7 @@ import { parseAgent, type Agent, type AgentSignal, type SignalTemplate, type Sig
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { renderPulsePage, tileWrap, type PulseTile } from '../views/pulse.js';
+import { tileWrap, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
 import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
@@ -163,13 +163,18 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
   return { systemTiles, tiles, hiddenTiles, installedDashboards, availablePacks };
 }
 
+// The dashboard board now lives at the root `/` (Mission Control). `/pulse`
+// redirects there so bookmarks/muscle-memory still land on the board. The
+// `/pulse/*` SUB-routes below (tile fragment, hide-all, show-all) stay — client
+// JS calls them directly. Carry any flash query through so a redirect that
+// targeted `/pulse?ok=…` still shows its banner on `/`.
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const data = buildPulseBoardData(ctx);
-  res.type('html').send(renderPulsePage({ ...data, flash: parsePulseFlash(req) }));
+  const flash = parsePulseFlash(req);
+  const qs = flash ? `?${flash.kind}=${encodeURIComponent(flash.message)}` : '';
+  res.redirect(302, `/${qs}`);
 });
 
-function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
+export function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
   if (typeof req.query.ok === 'string') return { kind: 'ok', message: req.query.ok };
   if (typeof req.query.error === 'string') return { kind: 'error', message: req.query.error };
   if (typeof req.query.info === 'string') return { kind: 'info', message: req.query.info };
@@ -181,7 +186,7 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = ctx.agentStore.getAgent(id);
   if (!agent || !agent.signal) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
     return;
   }
 
@@ -194,9 +199,9 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const currentlyVisible = agent.pulseVisible !== false;
   try {
     ctx.agentStore.updateAgentMeta(id, { pulseVisible: !currentlyVisible });
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
   } catch {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
   }
 });
 
@@ -207,7 +212,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = ctx.agentStore.getAgent(id);
   if (!agent) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
     return;
   }
 
@@ -221,7 +226,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
 
   // Validate template exists in registry.
   if (template && !TEMPLATE_REGISTRY[template]) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
     return;
   }
 
@@ -231,7 +236,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
     try {
       mapping = JSON.parse(body.mapping);
     } catch {
-      res.redirect(303, '/pulse');
+      res.redirect(303, '/');
       return;
     }
   }
@@ -250,9 +255,9 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   try {
     const updated = { ...agent, signal };
     ctx.agentStore.upsertAgent(updated, 'dashboard', `Update signal config via Pulse`);
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
   } catch {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/');
   }
 });
 
@@ -275,7 +280,7 @@ pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
     hidden++;
   }
-  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
+  res.redirect(303, `/?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
 });
 
 /**
@@ -292,7 +297,7 @@ pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
     shown++;
   }
-  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
+  res.redirect(303, `/?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
 });
 
 pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {

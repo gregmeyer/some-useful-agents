@@ -145,10 +145,10 @@ describe('packs routes', () => {
     const res = await request(app)
       .post('/packs/test-pack/install')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
-      .type('form').send({ returnTo: '/pulse' });
+      .type('form').send({ returnTo: '/' });
     expect(res.status).toBe(303);
-    // Comes back to Pulse with a flash, not the pack detail page.
-    expect(res.headers.location).toMatch(/^\/pulse\?ok=/);
+    // Comes back to the home board with a flash, not the pack detail page.
+    expect(res.headers.location).toMatch(/^\/\?ok=/);
     expect(packsStore.getPack('test-pack')?.installedAt).not.toBeNull();
   });
 

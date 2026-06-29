@@ -4,6 +4,13 @@ Turn `/inbox` from a notification queue into the operator surface for creating, 
 
 This document is the implementation plan for that shift. It is intentionally concrete: each phase should be shippable on its own, with visible operator value at the end of the phase.
 
+> **Update:** the dashboard front door is now unified — the root `/` is one
+> "Mission Control" surface that leads with a **Needs you** strip of inbox
+> threads awaiting a reply, and a global **Inbox badge** (count from
+> `/inbox/needs-you-count`) shows on every page. So the inbox is no longer a
+> quiet nav link — it's surfaced at the front door. See
+> [dashboard.md § `/` — Mission Control home](dashboard.md).
+
 ## Current baseline
 
 Today the inbox already supports the core primitives:

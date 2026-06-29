@@ -206,7 +206,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.get('/', (req, res) => {
     // Dynamic import to avoid circular deps at module load.
     Promise.all([import('./views/home.js'), import('./routes/pulse.js')])
-      .then(([{ renderHomePage }, { buildPulseBoardData }]) => {
+      .then(([{ renderHomePage }, { buildPulseBoardData, parsePulseFlash }]) => {
         const ctx = getContext(req.app.locals);
         const agents = ctx.agentStore.listAgents();
 
@@ -243,6 +243,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
           },
           agentCount: agents.length,
           availableDashboards,
+          flash: parsePulseFlash(req),
         }));
       }).catch(() => {
         res.redirect(302, '/agents');

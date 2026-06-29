@@ -125,7 +125,7 @@ export function renderDashboardPage(input: RenderDashboardPageInput): string {
 
   return render(layout({
     title: `${input.dashboard.name} · Dashboards`,
-    activeNav: 'pulse', // Dashboards live under the Pulse tab in nav
+    activeNav: 'home', // Dashboards live under the Home tab in nav
     flash: input.flash,
   }, body));
 }

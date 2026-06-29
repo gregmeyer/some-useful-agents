@@ -5,7 +5,7 @@ widgets, and dashboard tiles for you. Two entry points share the same machinery:
 
 - **Build from goal** — the Build button on `/` and `/agents`. Starts from an
   empty goal and can produce one agent or a whole dashboard.
-- **Improve layout** — the wizard on `/pulse` and any `/dashboards/:id`. Starts
+- **Improve layout** — the wizard on the home board (`/`) and any `/dashboards/:id`. Starts
   from an *existing* layout and proposes what to surface, add, or create.
 
 ## The build flow

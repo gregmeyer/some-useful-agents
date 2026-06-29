@@ -21,7 +21,7 @@ export interface RenderNotFoundInput {
 
 const SUGGESTIONS: Array<{ href: string; label: string; hint: string }> = [
   { href: '/agents', label: 'Agents', hint: 'Browse and run agents' },
-  { href: '/pulse', label: 'Pulse', hint: 'Live signal tiles' },
+  { href: '/', label: 'Home', hint: 'Live signal tiles' },
   { href: '/packs', label: 'Packs', hint: 'Install curated dashboards' },
   { href: '/runs', label: 'Runs', hint: 'Recent executions' },
 ];

@@ -27,7 +27,7 @@ timeoutSec: 60                # optional — wall-clock ceiling for the entire D
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
-pulseVisible: true            # optional — show this agent's tile on the default /pulse grid
+pulseVisible: true            # optional — show this agent's tile on the home board (/)
 
 permissions:                  # optional — per-agent CSP allowances for widget rendering
   imgSrc: ["https://images.example.com"]
@@ -221,7 +221,7 @@ See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
 
 ## `signal`
 
-Optional Pulse tile config. When set, the agent's most recent run renders on `/pulse`.
+Optional Pulse tile config. When set, the agent's most recent run renders on the home board (`/`).
 
 ```yaml
 signal:
@@ -290,7 +290,7 @@ Recommended sizing: pick something like 2–3× the agent's expected runtime. Th
 
 ## `pulseVisible`
 
-Whether this agent's `signal` tile appears on the default `/pulse` grid (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
+Whether this agent's `signal` tile appears on the home board (`/`) (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
 
 ## `permissions`
 

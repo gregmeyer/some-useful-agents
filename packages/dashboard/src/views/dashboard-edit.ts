@@ -79,7 +79,7 @@ export function renderDashboardEditPage(input: RenderDashboardEditInput): string
 
   return render(layout({
     title: `Edit ${d.name}`,
-    activeNav: 'pulse',
+    activeNav: 'home',
     flash: input.flash,
   }, body));
 }

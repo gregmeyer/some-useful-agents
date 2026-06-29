@@ -109,8 +109,17 @@ describe('GET / — Mission Control home', () => {
     // Collapsed activity.
     expect(res.text).toContain('home-activity');
     expect(res.text).toContain('Recent activity');
-    // The home does NOT show the board-level edit affordances (editable:false).
-    expect(res.text).not.toContain('id="pulse-edit-toggle"');
+    // The home is now the single dashboard surface — the board is editable here
+    // (/pulse collapsed into /).
+    expect(res.text).toContain('id="pulse-edit-toggle"');
+  });
+
+  it('GET /pulse redirects to / (the board lives at the root now)', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/pulse')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).redirects(0);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
   });
 
   it('shows the "all clear" state when nothing is awaiting reply', async () => {
