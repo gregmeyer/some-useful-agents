@@ -1,21 +1,22 @@
 /**
- * Global inbox badge: polls the needs-you count and shows an amber pill on the
- * Inbox nav link when threads are awaiting a reply. Lives in the layout bundle
- * so it runs on every page. No global inbox SSE channel exists (the event bus
- * is per-message), so a 30s poll is the minimal correct choice; live-update
- * via SSE is a future enhancement.
+ * Global "needs you" toast in the top bar: polls the inbox needs-you count and
+ * reveals an amber pill ("N need your reply →") in the top-bar empty space when
+ * threads are awaiting a reply. Lives in the layout bundle so it runs on every
+ * page. No global inbox SSE channel exists (the event bus is per-message), so a
+ * 30s poll is the minimal correct choice; live-update via SSE is a future step.
  */
 export const INBOX_BADGE_JS = `
 (function () {
-  var el = document.querySelector('[data-inbox-badge]');
-  if (!el) return;
+  var toast = document.querySelector('[data-inbox-toast]');
+  var countEl = document.querySelector('[data-inbox-count]');
+  if (!toast || !countEl) return;
   function refresh() {
     fetch('/inbox/needs-you-count', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || typeof d.count !== 'number') return;
-        if (d.count > 0) { el.textContent = String(d.count); el.hidden = false; }
-        else { el.textContent = ''; el.hidden = true; }
+        if (d.count > 0) { countEl.textContent = String(d.count); toast.hidden = false; }
+        else { toast.hidden = true; }
       })
       .catch(function () {});
   }

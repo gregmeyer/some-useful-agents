@@ -1,8 +1,8 @@
 /**
  * Mission Control home (`/`) + the global inbox badge count endpoint.
- * Verifies the unified front door composes the three zones (Needs you / live
- * Pulse board / collapsed activity) and that /inbox/needs-you-count drives the
- * nav badge.
+ * Verifies the unified front door (editable board + collapsed activity + the
+ * inbox-first Ask-sua CTA) and that /inbox/needs-you-count drives the global
+ * top-bar needs-you toast.
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
@@ -84,7 +84,7 @@ const get = (app: ReturnType<typeof buildDashboardApp>, path: string) =>
   request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
 describe('GET / — Mission Control home', () => {
-  it('renders the live Pulse board, the Needs-you strip, and collapsed activity', async () => {
+  it('renders the editable board, the Ask-sua CTA, and collapsed activity', async () => {
     const app = await makeApp();
     // The board only renders when at least one agent is installed (zero agents
     // shows the Build-from-goal empty state by design).
@@ -92,32 +92,26 @@ describe('GET / — Mission Control home', () => {
       id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
     }, 'cli');
-    // Seed an awaiting_user thread so the Needs-you zone shows a card.
-    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'markets-today failed', body: 'fetch-quotes exit 1', agentId: 'markets-today' });
-    inboxStore.updateStatus(m.id, 'awaiting_user');
-
     const res = await get(app, '/');
     expect(res.status).toBe(200);
     // Live Pulse board (system tiles render even with zero signal agents).
     expect(res.text).toContain('pulse-grid');
     expect(res.text).toContain('id="pulse-tile-data"');
     expect(res.text).toContain('_system-runs-today');
-    // Needs you strip.
-    expect(res.text).toContain('Needs you');
-    expect(res.text).toContain('markets-today failed');
-    expect(res.text).toContain('href="/inbox"');
     // Collapsed activity.
     expect(res.text).toContain('home-activity');
     expect(res.text).toContain('Recent activity');
-    // The home is now the single dashboard surface — the board is editable here
-    // (/pulse collapsed into /).
+    // The home is the single dashboard surface — the board is editable here.
     expect(res.text).toContain('id="pulse-edit-toggle"');
     // Primary CTA is inbox-first ("Ask sua" → new thread), not the old
     // Build-from-goal / Browse-packs header buttons.
     expect(res.text).toContain('action="/inbox/new"');
     expect(res.text).toContain('Ask sua');
     expect(res.text).not.toContain('Browse packs');
-    expect(res.text).not.toContain('id="build-from-goal-btn"');
+    // The "needs you" signal moved to the global top-bar toast (driven by JS
+    // from /inbox/needs-you-count); the home body no longer has a needs-you strip.
+    expect(res.text).toContain('data-inbox-toast');
+    expect(res.text).not.toContain('home-needs__card');
   });
 
   it('GET /pulse redirects to / (the board lives at the root now)', async () => {
@@ -128,11 +122,14 @@ describe('GET / — Mission Control home', () => {
     expect(res.headers.location).toBe('/');
   });
 
-  it('shows the "all clear" state when nothing is awaiting reply', async () => {
+  it('renders the global top-bar needs-you toast (hidden until JS fills the count)', async () => {
     const app = await makeApp();
     const res = await get(app, '/');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Inbox clear');
+    // Toast element present on every page; server renders it hidden, the
+    // inbox-badge JS reveals it from /inbox/needs-you-count.
+    expect(res.text).toMatch(/class="topbar__needs"[^>]*data-inbox-toast[^>]*hidden/);
+    expect(res.text).toContain('data-inbox-count');
   });
 });
 

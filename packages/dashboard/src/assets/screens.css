@@ -3871,75 +3871,9 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 
 /* ── Mission Control home (/) ─────────────────────────────────────────────
-   The unified front door: a "Needs you" inbox strip, the live Pulse board,
-   and a collapsed recent-activity section. Reuses badge--warn + the inbox
-   priority dots so it inherits the design system. */
-.home-needs {
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-.home-needs--clear {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-.home-needs__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.home-needs__heading {
-  margin: 0;
-  font-size: var(--font-size-md);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.home-needs__open {
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
-}
-.home-needs__cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-2);
-}
-.home-needs__card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  text-decoration: none;
-  min-width: 0;
-}
-.home-needs__card:hover { border-color: var(--color-border-strong); }
-.home-needs__title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: var(--weight-medium);
-}
-.home-needs__meta {
-  flex-shrink: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
+   The unified dashboard: the editable board + a collapsed recent-activity
+   section. (The "needs you" signal is the global top-bar toast, .topbar__needs
+   in components.css.) */
 .home-activity__summary {
   cursor: pointer;
   font-weight: var(--weight-semibold);

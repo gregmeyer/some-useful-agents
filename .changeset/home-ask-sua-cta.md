@@ -6,11 +6,17 @@
 "@some-useful-agents/dashboard": patch
 ---
 
-Home: replace the leftover header buttons with an inbox-first "Ask sua" CTA.
+Home: inbox-first "Ask sua" CTA + a global top-bar "needs you" toast.
 
 The unified home had three competing action clusters in the upper-right — the old
 "Build from goal" / "Browse packs" header buttons, the Needs-you strip's "Open
-inbox", and the board's own controls. The header buttons (carried over from the
-stat-only home) are replaced by a single primary **Ask sua →** that opens a fresh
-inbox thread, aligning the home's primary action with its inbox-anchored layout.
-Build-from-goal still lives on /agents and the no-agents empty state.
+inbox", and the board's own controls. Now:
+
+- The header buttons are replaced by a single primary **Ask sua →** that opens a
+  fresh inbox thread (`POST /inbox/new`). Build-from-goal still lives on /agents
+  and the no-agents empty state.
+- The "needs you" signal moves off the home body into a global **top-bar toast**
+  ("N need your reply →") shown in the top-bar empty space on every page whenever
+  inbox threads await a reply (count from `/inbox/needs-you-count`). This removes
+  the redundant "Open inbox" callout and tightens the home's vertical — the page
+  now leads straight into the board.
