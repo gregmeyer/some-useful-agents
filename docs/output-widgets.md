@@ -258,7 +258,7 @@ signal:
   size: 2x1
 ```
 
-The tile on `/pulse` then renders the same HTML the agent detail page shows for the most recent completed run. No slot mapping required.
+The tile on the home board (`/`) then renders the same HTML the agent detail page shows for the most recent completed run. No slot mapping required.
 
 ## Related
 

@@ -156,9 +156,17 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
-## `/pulse` — Pulse
+## The board (lives on `/`)
 
-Information radiator with draggable signal tiles. Each agent with a `signal:` block gets a tile.
+> **Heads-up — the front door changed.** There used to be three overlapping
+> landing surfaces: a stat-only Home (`/`), the Pulse board (`/pulse`), and the
+> Inbox. They're now unified into **one** dashboard at `/` (see `/` above).
+> **`/pulse` 302-redirects to `/`** — bookmarks still work, the nav item is gone
+> (the `sua` brand is the home link), and the board is editable right on the
+> home. The `/pulse/*` sub-routes (tile fragments, hide/show-all, layout planner)
+> are unchanged. Below is the board reference — it all applies to the board on `/`.
+
+The board is an information radiator with draggable signal tiles. Each agent with a `signal:` block gets a tile.
 
 **10 templates:** `metric`, `time-series`, `text-headline`, `text-image`, `image`, `table`, `status`, `media`, `widget`, `comparison`, `key-value`, `story`, `funnel`.
 
@@ -168,13 +176,13 @@ Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon
 
 **Tiles run themselves.** Adding an agent to a dashboard runs it once automatically, so a freshly added tile is never blank. A tile's **Run again** button re-runs the agent and refreshes the tile in place — no navigation to the run detail page. If a widget references an external image host blocked by the dashboard's CSP, the tile shows a one-click **allow** modal that appends the host to the agent's `permissions.imgSrc` allowlist.
 
-**Improve layout** — wizard button on Pulse and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
+**Improve layout** — wizard button on the home board and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
 
-**Dashboards dropdown** — switches between the Default (Pulse) view and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on Pulse), plus a "Browse all packs →" link to the full [/packs](#packs--widget-packs) page.
+**Dashboards dropdown** — in the board header; switches between the Default (home) board and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on the home board), plus a "Browse all packs →" link to the full [/packs](#packs--widget-packs) page.
 
 ## `/dashboards/:id` — Named dashboards
 
-Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (the Pulse view) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
+Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (the home board) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as the home board apply (first-run auto-execution, in-place Run again, CSP image-allow).
 
 ## `/settings`
 
