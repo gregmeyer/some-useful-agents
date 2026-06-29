@@ -112,6 +112,12 @@ describe('GET / — Mission Control home', () => {
     // The home is now the single dashboard surface — the board is editable here
     // (/pulse collapsed into /).
     expect(res.text).toContain('id="pulse-edit-toggle"');
+    // Primary CTA is inbox-first ("Ask sua" → new thread), not the old
+    // Build-from-goal / Browse-packs header buttons.
+    expect(res.text).toContain('action="/inbox/new"');
+    expect(res.text).toContain('Ask sua');
+    expect(res.text).not.toContain('Browse packs');
+    expect(res.text).not.toContain('id="build-from-goal-btn"');
   });
 
   it('GET /pulse redirects to / (the board lives at the root now)', async () => {

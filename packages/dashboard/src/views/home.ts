@@ -95,10 +95,11 @@ export function renderHomePage(input: HomePageInput): string {
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(input.agentCount)} agent${input.agentCount !== 1 ? 's' : ''} registered
       </span>
-      <div style="margin-left: auto; display: flex; gap: var(--space-2);">
-        ${buildFromGoalButton({ variant: 'primary' })}
-        <a class="btn btn--ghost btn--sm" href="/packs">Browse packs</a>
-      </div>
+      ${input.agentCount === 0 ? html`` : html`
+        <form method="POST" action="/inbox/new" style="margin: 0 0 0 auto;">
+          <button type="submit" class="btn btn--primary btn--sm" title="Start a new inbox thread — ask sua to run, build, fix, or look something up">Ask sua →</button>
+        </form>
+      `}
     </div>
 
     ${needsYouStrip(input.needsYou)}
@@ -112,7 +113,7 @@ export function renderHomePage(input: HomePageInput): string {
       </div>
     </details>
 
-    ${buildFromGoalModal({ availableDashboards: input.availableDashboards })}
+    ${input.agentCount === 0 ? buildFromGoalModal({ availableDashboards: input.availableDashboards }) : html``}
   `;
 
   return render(layout({ title: 'Home', activeNav: 'home', flash: input.flash }, body));
