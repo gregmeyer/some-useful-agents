@@ -1164,7 +1164,7 @@ main.main--wide {
 
 .pulse-tile__value {
   font-family: var(--font-mono);
-  font-size: 2rem;
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   line-height: 1;
   flex: 1;

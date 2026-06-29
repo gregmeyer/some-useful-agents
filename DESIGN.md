@@ -98,3 +98,4 @@ The existing dashboard uses cool Tailwind grays (#fafafa, #e5e7eb). Switching to
 | 2026-04-18 | Warm stone neutrals over cool grays | Handcrafted feel over generated feel. Teal accent pops more against warm backgrounds. |
 | 2026-04-18 | Dark mode as default | Developer tools live in dark mode. Ship what users actually use. |
 | 2026-04-18 | Keep existing teal #0f766e | Distinctive vs. the blue/purple every competitor uses. Already established in the codebase. |
+| 2026-06-29 | "Needs you" top-bar badge restyle (bordered soft-amber pill, mono count, pulsing dot, right-anchored) + formalized the 2xl (28px) token | The toast read as a flat wash floating mid-bar; a crafted, right-hugged pill fits the utilitarian-with-editorial direction. Added `--font-size-2xl` (the scale already documented 28px; the token was missing) so hero stats stop drifting to 32px. Added `.section-label` / `.stat-value` utilities to unify section headings + big numbers. |

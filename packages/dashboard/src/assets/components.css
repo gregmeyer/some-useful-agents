@@ -43,34 +43,60 @@
   font-weight: var(--weight-semibold);
 }
 
-/* Global "needs you" toast in the top-bar empty space. Populated client-side
-   (inbox-badge.js); hidden when the count is zero. margin-left:auto centers it
-   in the free space between the nav and the theme toggle. */
-.topbar__needs {
+/* The right cluster owns the auto-margin so the "needs you" pill always hugs
+   the theme toggle on the right — and the toggle stays right-anchored when the
+   pill is hidden. (Previously both carried margin-left:auto, which stranded the
+   pill in dead-center space.) */
+.topbar__right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Global "needs you" toast. Populated client-side (inbox-badge.js); hidden when
+   the count is zero. A bordered soft-amber pill with a mono count + a gently
+   pulsing dot — a deliberate attention cue, not a flat wash. */
+.topbar__needs {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
+  border: 1px solid var(--color-warn-border);
   background: var(--color-warn-soft);
   color: var(--color-warn);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
+  line-height: 1;
   text-decoration: none;
   white-space: nowrap;
 }
 .topbar__needs:hover { filter: brightness(1.12); }
 .topbar__needs[hidden] { display: none; }
+/* The count is data — mono, per DESIGN.md. */
+.topbar__needs [data-inbox-count] {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+}
+.topbar__needs-arrow { opacity: 0.7; }
 .topbar__needs-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--color-warn);
+  animation: sua-pulse 2s ease-in-out infinite;
+}
+/* Steady-state attention cue; respect reduced-motion. */
+@keyframes sua-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .topbar__needs-dot { animation: none; }
 }
 
 .topbar__theme-toggle {
-  margin-left: auto;
   background: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -87,6 +113,27 @@
 }
 .topbar__theme-icon::after { content: "light"; }
 [data-theme="light"] .topbar__theme-icon::after { content: "dark"; }
+
+/* ---------- Typography utilities ---------- */
+/* The canonical section-label treatment (DESIGN.md "UI/Labels"): small mono
+   caps, the same language the Pulse tile titles already use — now reusable so
+   section headings across surfaces read consistently. */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+/* The canonical big-number treatment (DESIGN.md "Data"): mono, the 2xl display
+   size. Keeps hero stats from drifting above the type scale. */
+.stat-value {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-bold);
+  font-size: var(--font-size-2xl);
+  line-height: 1;
+}
 
 /* ---------- Page header (shared across detail screens) ---------- */
 .page-header {

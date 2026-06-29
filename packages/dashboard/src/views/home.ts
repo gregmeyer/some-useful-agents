@@ -27,7 +27,7 @@ export interface HomePageInput {
 }
 
 export function renderHomePage(input: HomePageInput): string {
-  const liveHeading = html`<h2 style="margin: 0;">Live Pulse</h2>`;
+  const liveHeading = html`<h2 class="section-label" style="margin: 0;">Live Pulse</h2>`;
 
   const board = input.agentCount === 0
     ? html`
@@ -47,7 +47,7 @@ export function renderHomePage(input: HomePageInput): string {
   const body = html`
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       <h1 style="margin: 0;">Home</h1>
-      <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
+      <span class="dim" style="font-size: var(--font-size-sm);">
         ${String(input.agentCount)} agent${input.agentCount !== 1 ? 's' : ''} registered
       </span>
       ${input.agentCount === 0 ? html`` : html`

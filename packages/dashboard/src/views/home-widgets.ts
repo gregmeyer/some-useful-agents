@@ -113,7 +113,7 @@ function buildInFlight(data: HomeWidgetData): SystemWidget {
     <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);">
       <div class="spinner" style="width: 10px; height: 10px; border-width: 2px; flex-shrink: 0;"></div>
       <a href="/agents/${r.agentName}" class="mono" style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">${r.agentName}</a>
-      <a href="/runs/${r.id}" style="font-size: 10px; color: var(--color-text-subtle); margin-left: auto;">${formatAge(r.startedAt)}</a>
+      <a href="/runs/${r.id}" style="font-size: var(--font-size-xs); color: var(--color-text-subtle); margin-left: auto;">${formatAge(r.startedAt)}</a>
     </div>
   `);
 
@@ -123,11 +123,11 @@ function buildInFlight(data: HomeWidgetData): SystemWidget {
     icon: '\u{1F680}',
     html: html`
       <div style="text-align: center; margin-bottom: var(--space-2);">
-        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono);">${String(inFlightRuns.length)}</div>
-        <div style="font-size: var(--font-size-xs); color: var(--color-text-muted);">In flight</div>
+        <div class="stat-value">${String(inFlightRuns.length)}</div>
+        <div class="section-label">In flight</div>
       </div>
       ${rows as unknown as SafeHtml[]}
-      ${inFlightRuns.length > 5 ? html`<div style="font-size: 10px; color: var(--color-text-subtle); padding-top: var(--space-1);">+${String(inFlightRuns.length - 5)} more</div>` : html``}
+      ${inFlightRuns.length > 5 ? html`<div style="font-size: var(--font-size-xs); color: var(--color-text-subtle); padding-top: var(--space-1);">+${String(inFlightRuns.length - 5)} more</div>` : html``}
     `,
   };
 }
@@ -283,19 +283,19 @@ function buildScheduled(data: HomeWidgetData): SystemWidget {
 
     const actionForm = isPaused
       ? html`<form method="POST" action="/scheduled/${a.id}/resume" style="display: inline; margin: 0;">
-          <button type="submit" class="btn btn--sm btn--primary" style="padding: 2px 8px; font-size: 10px;">Resume</button>
+          <button type="submit" class="btn btn--sm btn--primary" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Resume</button>
         </form>`
       : html`<form method="POST" action="/scheduled/${a.id}/pause" style="display: inline; margin: 0;">
-          <button type="submit" class="btn btn--sm" style="padding: 2px 8px; font-size: 10px;">Pause</button>
+          <button type="submit" class="btn btn--sm" style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-xs);">Pause</button>
         </form>`;
 
     return html`
       <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); ${isPaused ? 'opacity: 0.7;' : ''}">
         <a href="/agents/${a.id}" class="mono" style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold); flex: 1;">${a.id}</a>
-        ${isPaused ? html`<span class="badge badge--warn" style="font-size: 9px; padding: 1px 6px;">paused</span>` : html``}
-        <span style="font-size: 10px; color: var(--color-text-muted);" title="${a.schedule ?? ''}">${schedule}</span>
+        ${isPaused ? html`<span class="badge badge--warn">paused</span>` : html``}
+        <span style="font-size: var(--font-size-xs); color: var(--color-text-muted);" title="${a.schedule ?? ''}">${schedule}</span>
       </div>
-      <div style="display: flex; align-items: center; gap: var(--space-3); font-size: 10px; color: var(--color-text-subtle); padding: 2px 0 6px;">
+      <div style="display: flex; align-items: center; gap: var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-subtle); padding: var(--space-1) 0 var(--space-2);">
         <span>last: ${lastStr}</span>
         ${nextStr ? html`<span>next: ${nextStr}</span>` : html``}
         <span style="margin-left: auto;">${actionForm}</span>
