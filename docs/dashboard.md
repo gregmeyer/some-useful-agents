@@ -14,26 +14,30 @@ The top bar leads with the daily-driver surfaces: `sua · Inbox · Agents · Set
 
 ## `/` — Mission Control home
 
-The unified front door, ordered by attention. Three zones, top to bottom:
+The single dashboard surface. Top to bottom:
 
-- **Needs you** — the inbox's threads awaiting your reply (a count + up to four
-  preview cards + an **Open inbox →** CTA). When nothing's waiting it collapses
-  to a slim "Inbox clear" line. This surfaces the inbox — the conversational
-  control plane — at the front door instead of leaving it a quiet nav link.
+- **Ask sua →** — the primary CTA in the header opens a fresh inbox thread
+  (`POST /inbox/new`), so the home's main action is "ask sua to run, build, fix,
+  or look something up." (Distinct from the top-bar toast, which is for reviewing
+  what's already waiting.) With no agents installed the page is the
+  Build-from-goal empty state instead.
 - **Live Pulse** — the live board (system metric tiles + per-agent signal
   tiles), fully editable here: configure/hide tiles, drag to reorder, Edit
   layout, Improve layout. The **dashboards dropdown** in the board header
   switches to named/pack dashboards (`/dashboards/:id`); "Default Dashboard"
-  is this home board. With no agents installed this becomes the Build-from-goal
-  empty state.
+  is this home board.
 - **Recent activity** — the paginated run feed, collapsed by default.
 
 This replaced the old system-stat-only home (a strict subset of Pulse) AND the
 separate `/pulse` page — there's now **one** dashboard surface. `/pulse` 302-
 redirects to `/`; its sub-routes (tile fragments, hide/show-all, layout planner)
-are unchanged. A global **Inbox badge** in the nav (amber pill, count from
-`/inbox/needs-you-count`, polled ~30s) shows on every page so you always know
-when the inbox needs you.
+are unchanged.
+
+The **"needs you" signal lives in the top bar**, not on the home: an amber
+**"N need your reply →"** toast appears in the top-bar empty space (on every
+page) whenever inbox threads are awaiting your reply — count from
+`/inbox/needs-you-count`, polled ~30s, hidden when zero. Click it to go to the
+inbox.
 
 ## `/agents` — Agents list
 

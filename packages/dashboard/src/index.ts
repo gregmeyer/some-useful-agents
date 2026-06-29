@@ -219,10 +219,8 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
         // Live Pulse board — the same data /pulse renders.
         const board = buildPulseBoardData(ctx);
 
-        // Inbox "Needs you" — count for the badge-adjacent header + a small preview.
-        const needsYou = ctx.inboxStore
-          ? { count: ctx.inboxStore.countNeedsYou(), top: ctx.inboxStore.listNeedsYou(4) }
-          : { count: 0, top: [] };
+        // The inbox "needs you" signal lives in the global top-bar toast
+        // (driven by /inbox/needs-you-count), not in the home body.
 
         const availableDashboards = ctx.dashboardsStore
           ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
@@ -230,7 +228,6 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
         res.type('html').send(renderHomePage({
           board,
-          needsYou,
           activity: {
             agents,
             recentRuns: recentResult.rows,
