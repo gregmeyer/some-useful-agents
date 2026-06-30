@@ -1052,6 +1052,29 @@ function approximateExecSize(args: string[], env: Record<string, string>, stdinI
 }
 
 /**
+ * Build a node-timeout error message. When the actual wall-clock that elapsed
+ * (`elapsedMs`) vastly exceeds the configured limit, the timer was almost
+ * certainly suspended mid-run — the classic case is the laptop sleeping, which
+ * pauses Node's timers, so a 300s timeout can "fire" 4 hours later. The node
+ * did NOT run for that long, so we annotate instead of implying a true hang.
+ *
+ * `elapsedMs` is undefined for a cancellation (operator Stop), which reaches
+ * the same `killed` branch but isn't a real timeout — keep the bare message.
+ */
+export function timeoutError(timeoutSec: number, elapsedMs?: number): string {
+  const bare = `Timed out after ${timeoutSec}s`;
+  if (elapsedMs === undefined) return bare;
+  const elapsedSec = Math.round(elapsedMs / 1000);
+  // Trip only when elapsed is both a large multiple of the limit AND at least
+  // a couple minutes past it, so ordinary scheduling jitter never annotates.
+  if (elapsedSec <= timeoutSec * 2 || elapsedSec - timeoutSec < 120) return bare;
+  const elapsedHuman = elapsedSec >= 3600
+    ? `${(elapsedSec / 3600).toFixed(1)}h`
+    : `${Math.round(elapsedSec / 60)}m`;
+  return `Timed out — limit ${timeoutSec}s, but ${elapsedHuman} elapsed; the machine likely slept (timers suspend during sleep), so the node did not actually run that long.`;
+}
+
+/**
  * Low-level process spawn with timeout, exit-code categorization,
  * optional per-line progress callback, and result extraction.
  */
@@ -1063,6 +1086,10 @@ export async function spawnProcess(
   return new Promise<SpawnResult>((resolve) => {
     let child: ChildProcess;
     let killed = false;
+    // `timedOut` is set ONLY by the wall-clock timer (not by the cancellation
+    // signal, which also sets `killed`) so the close handler can tell a real
+    // timeout apart from an operator Stop and annotate the slept-machine case.
+    let timedOut = false;
     const stdinMode = opts.stdinInput !== undefined ? 'pipe' : 'ignore';
 
     const execSize = approximateExecSize(args, opts.env, opts.stdinInput);
@@ -1094,6 +1121,7 @@ export async function spawnProcess(
       resolve({ result: '', exitCode: 127, error: (err as Error).message, category: 'spawn_failure' });
       return;
     }
+    const spawnedAt = Date.now();
     // Report the freshly-spawned pid + start time so the executor can persist
     // them on the node_executions row. Fires before stdin write so a crash
     // between spawn() and the first stdout chunk still leaves a kill handle.
@@ -1130,6 +1158,7 @@ export async function spawnProcess(
 
     const timer = setTimeout(() => {
       killed = true;
+      timedOut = true;
       child.kill('SIGTERM');
       setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
     }, opts.timeoutSec * 1000);
@@ -1165,7 +1194,7 @@ export async function spawnProcess(
       const finalResult = opts.extractResult ? opts.extractResult(stdout) : stdout;
 
       if (killed) {
-        resolve({ result: finalResult, exitCode: 124, error: `Timed out after ${opts.timeoutSec}s`, category: 'timeout' });
+        resolve({ result: finalResult, exitCode: 124, error: timeoutError(opts.timeoutSec, timedOut ? Date.now() - spawnedAt : undefined), category: 'timeout' });
       } else if (code === 0) {
         resolve({ result: finalResult, exitCode: 0 });
       } else {
