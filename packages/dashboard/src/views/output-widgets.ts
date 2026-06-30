@@ -1180,22 +1180,22 @@ function renderDashboard(
     if (f.type === 'metric') {
       heroes.push(html`
         <div style="text-align: center; flex: 1; min-width: 80px;">
-          <div style="font-size: 1.5rem; font-weight: var(--weight-bold, 700); font-family: var(--font-mono); color: var(--color-text); line-height: 1.2;">${value}</div>
-          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px;">${label}</div>
+          <div style="font-size: var(--font-size-2xl); font-weight: var(--weight-bold, 700); font-family: var(--font-mono); color: var(--color-text); line-height: 1.2;">${value}</div>
+          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1);">${label}</div>
         </div>
       `);
     } else if (f.type === 'stat') {
       stats.push(html`
         <div style="background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); text-align: center; min-width: 80px;">
           <div style="font-size: var(--font-size-sm); font-weight: var(--weight-semibold); font-family: var(--font-mono);">${value}</div>
-          <div style="font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px;">${label}</div>
+          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: var(--space-1);">${label}</div>
         </div>
       `);
     } else if (f.type === 'badge') {
       badges.push(html`
         <div style="text-align: center; flex: 1; min-width: 80px;">
           <span class="badge" style="font-size: var(--font-size-sm);">${value}</span>
-          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px;">${label}</div>
+          <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1);">${label}</div>
         </div>
       `);
     } else if (f.type === 'preview') {
@@ -1204,7 +1204,7 @@ function renderDashboard(
       texts.push(html`
         <div style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
           <span style="font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); opacity: 0.7;">${label}</span>
-          <div style="margin-top: 2px;">${value}</div>
+          <div style="margin-top: var(--space-1);">${value}</div>
         </div>
       `);
     }

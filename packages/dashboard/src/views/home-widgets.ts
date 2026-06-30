@@ -185,12 +185,12 @@ export function buildRecentActivity(data: HomeWidgetData): SystemWidget {
         <div style="display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);">
           <span class="mono" style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">${r.agentName}</span>
           ${statusBadge(r.status)}
-          <span style="font-size: 10px; color: var(--color-text-subtle); margin-left: auto; white-space: nowrap;">
+          <span style="font-size: var(--font-size-xs); color: var(--color-text-subtle); margin-left: auto; white-space: nowrap;">
             ${formatAge(r.startedAt)} \u00b7 ${formatDuration(r.startedAt, r.completedAt)}
           </span>
         </div>
-        ${outputPreview ? html`<div style="font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); line-height: 1.3; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${outputPreview}</div>` : html``}
-        ${errorPreview ? html`<div style="font-size: 10px; color: var(--color-err); line-height: 1.3; padding: 2px 0;">${errorPreview}</div>` : html``}
+        ${outputPreview ? html`<div style="font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.3; padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${outputPreview}</div>` : html``}
+        ${errorPreview ? html`<div style="font-size: var(--font-size-xs); color: var(--color-err); line-height: 1.3; padding: 2px 0;">${errorPreview}</div>` : html``}
       </a>
     `;
   });
@@ -312,7 +312,7 @@ function buildScheduled(data: HomeWidgetData): SystemWidget {
         <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border);">
           <span>${statusDot}</span>
           <span style="font-size: var(--font-size-xs); font-weight: var(--weight-semibold);">${statusLabel}</span>
-          <a href="/scheduled" style="margin-left: auto; font-size: 10px; color: var(--color-text-muted);">View all →</a>
+          <a href="/scheduled" style="margin-left: auto; font-size: var(--font-size-xs); color: var(--color-text-muted);">View all →</a>
         </div>
         ${rows as unknown as SafeHtml[]}
       </div>

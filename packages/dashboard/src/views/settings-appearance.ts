@@ -10,7 +10,7 @@ export function renderSettingsAppearance(): SafeHtml {
     return html`
       <button type="button" class="theme-card" data-theme-id="${t.id}" title="${t.description}">
         <div class="theme-card__preview" style="background: ${t.preview.bg};">
-          <div style="background: ${t.preview.surface}; border-radius: 4px; padding: 6px 8px; margin-bottom: 4px;">
+          <div style="background: ${t.preview.surface}; border-radius: 4px; padding: var(--space-2); margin-bottom: var(--space-1);">
             <div style="width: 40px; height: 4px; background: ${t.preview.accent}; border-radius: 2px; margin-bottom: 4px;"></div>
             <div style="width: 60px; height: 3px; background: ${t.preview.text}; border-radius: 2px; opacity: 0.5;"></div>
           </div>

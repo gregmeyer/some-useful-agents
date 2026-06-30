@@ -15,7 +15,10 @@ cluster so it hugs the right edge instead of floating mid-bar. The label now
 pluralizes ("1 needs your reply" / "3 need your reply") and the toast announces
 via `aria-live`.
 
-Alongside it, a small consistency pass on the surfaces you land on first: a new
+Alongside it, a full readability/sizing pass across the dashboard: a new
 `--font-size-2xl` (28px) token plus reusable `.section-label` and `.stat-value`
-utilities, applied to the Pulse stat values (were an off-scale 32px) and the
-Home activity widgets (replacing hardcoded 9-10px labels and off-grid padding).
+utilities, then every hardcoded `font-size` (the 7-12px label soup, the off-scale
+32px stats) and off-grid padding/margin in the stylesheets and view templates
+remapped onto the design tokens — Home, Pulse, Inbox (list/detail/modal), agent
+detail, nodes, and the output widgets. Only intentional values are left raw (the
+16px rem anchor, optical 1px nudges, relative `em` units).

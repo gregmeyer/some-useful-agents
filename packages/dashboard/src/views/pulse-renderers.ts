@@ -200,12 +200,12 @@ function renderComparison(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
     <div style="display: flex; align-items: center; gap: var(--space-3); flex: 1;">
       <div style="flex: 1; text-align: center;">
         <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono);">${ll}</div>
-        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: 2px; ${leftColor}">${lv}</div>
+        <div style="font-size: var(--font-size-xl); font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: var(--space-1); ${leftColor}">${lv}</div>
       </div>
       <div style="font-size: var(--font-size-xs); color: var(--color-text-subtle); font-weight: var(--weight-semibold);">vs</div>
       <div style="flex: 1; text-align: center;">
         <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono);">${rl}</div>
-        <div style="font-size: 1.5rem; font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: 2px; ${rightColor}">${rv}</div>
+        <div style="font-size: var(--font-size-xl); font-weight: var(--weight-bold); font-family: var(--font-mono); line-height: 1.2; margin-top: var(--space-1); ${rightColor}">${rv}</div>
       </div>
     </div>
   `);
@@ -264,7 +264,7 @@ function renderStory(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   return wrap(tile, html`
     <div style="display: flex; flex-direction: column; gap: var(--space-2); flex: 1;">
       ${whatChanged ? html`<div style="font-size: var(--font-size-sm); font-weight: var(--weight-bold); line-height: 1.4;">${whatChanged}</div>` : html``}
-      ${timePeriod ? html`<div><span class="badge badge--muted" style="font-size: 10px;">${timePeriod}</span></div>` : html``}
+      ${timePeriod ? html`<div><span class="badge badge--muted" style="font-size: var(--font-size-xs);">${timePeriod}</span></div>` : html``}
       ${whatItMeans ? html`<div style="font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.5;">${whatItMeans}</div>` : html``}
     </div>
   `);
@@ -307,7 +307,7 @@ function renderFunnel(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
     const color = s.color ?? defaultColors[i % defaultColors.length];
     return html`
       <div style="display: flex; align-items: center; gap: var(--space-2);">
-        <div style="width: ${String(Math.round(pct))}%; background: ${color}; border-radius: var(--radius-sm); padding: 4px var(--space-2); font-size: 10px; font-family: var(--font-mono); color: #fff; font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        <div style="width: ${String(Math.round(pct))}%; background: ${color}; border-radius: var(--radius-sm); padding: 4px var(--space-2); font-size: var(--font-size-xs); font-family: var(--font-mono); color: #fff; font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
           ${s.label}
         </div>
         <span style="font-size: var(--font-size-xs); font-family: var(--font-mono); color: var(--color-text-muted); white-space: nowrap;">${String(s.value)}</span>

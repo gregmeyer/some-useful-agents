@@ -402,7 +402,7 @@ function renderRail(starred: InboxMessage[]): SafeHtml {
           <a class="inbox-rail__item" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
             <div class="inbox-rail__item-title">${m.title}</div>
             <div class="inbox-rail__item-meta">
-              <span class="badge ${PRIORITY_BADGE[m.priority]}" style="font-size: 10px; padding: 1px 4px;">${m.priority}</span>
+              <span class="badge ${PRIORITY_BADGE[m.priority]}" style="font-size: var(--font-size-xs); padding: var(--space-1);">${m.priority}</span>
               <span>${formatAge(new Date(m.createdAt).toISOString())}</span>
             </div>
           </a>

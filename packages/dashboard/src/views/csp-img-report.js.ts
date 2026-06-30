@@ -112,7 +112,7 @@ export const CSP_IMG_REPORT_JS = `
       'display: inline-flex',
       'flex-direction: column',
       'gap: 6px',
-      'padding: 10px 12px',
+      'padding: var(--space-3)',
       'border: 1px dashed var(--color-border)',
       'border-radius: var(--radius-sm, 6px)',
       'background: var(--color-surface-raised, rgba(255,255,255,0.04))',
@@ -134,7 +134,7 @@ export const CSP_IMG_REPORT_JS = `
       'border: 1px solid var(--color-border-strong, #5b6275)',
       'background: var(--color-surface, #1f2430)',
       'color: var(--color-text, #e2e6f0)',
-      'padding: 4px 8px',
+      'padding: var(--space-1) var(--space-2)',
       'border-radius: var(--radius-sm, 6px)',
       'cursor: pointer',
       'font: inherit',
@@ -142,7 +142,7 @@ export const CSP_IMG_REPORT_JS = `
     ].join(';');
 
     var status = document.createElement('div');
-    status.style.cssText = 'font-size: 11px; color: var(--color-text-muted);';
+    status.style.cssText = 'font-size: var(--font-size-xs); color: var(--color-text-muted);';
     status.setAttribute('aria-live', 'polite');
 
     btn.addEventListener('click', function () {

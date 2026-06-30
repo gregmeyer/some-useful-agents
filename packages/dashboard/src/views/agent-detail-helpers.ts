@@ -57,7 +57,7 @@ export function renderRunInputsForm(agent: Agent, from?: string, previousInputs?
       <label style="display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-3);">
         <div style="display: flex; align-items: baseline; gap: var(--space-2);">
           <strong style="font-size: var(--font-size-sm);">${name}</strong>
-          <span class="badge badge--muted" style="font-size: 9px;">${spec.type}</span>
+          <span class="badge badge--muted" style="font-size: var(--font-size-xs);">${spec.type}</span>
           ${reqLabel}
         </div>
         ${inputEl}
@@ -287,7 +287,7 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       ">
         <div style="font-weight: var(--weight-bold); font-size: var(--font-size-sm);">${info.displayName}</div>
         <div class="dim" style="font-size: var(--font-size-xs); line-height: 1.4;">${info.description}</div>
-        <pre style="margin: var(--space-2) 0 0; font-size: 10px; color: var(--color-text-muted); white-space: pre-wrap; line-height: 1.3;">${info.layoutHint}</pre>
+        <pre style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: pre-wrap; line-height: 1.3;">${info.layoutHint}</pre>
       </button>
     `);
   });
@@ -317,7 +317,7 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
       unsafeHtml(`
         <tr data-columns-row data-field-idx="${i}" style="display: ${colsBlockVisible ? 'table-row' : 'none'};">
           <td colspan="4" style="padding: 0 0 var(--space-3) var(--space-4); background: var(--color-surface);">
-            <div style="font-size: 10px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: var(--space-1) 0;">Columns</div>
+            <div style="font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: var(--space-1) 0;">Columns</div>
             <table class="table" style="font-size: var(--font-size-xs); width: 100%; margin: 0;">
               <thead><tr>
                 <th style="width: 7rem;">Column key</th>
@@ -670,7 +670,7 @@ export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
         colsTr.style.display = type === 'table' ? 'table-row' : 'none';
         colsTr.innerHTML =
           '<td colspan="4" style="padding:0 0 var(--space-3) var(--space-4);background:var(--color-surface);">' +
-            '<div style="font-size:10px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-1) 0;">Columns</div>' +
+            '<div style="font-size: var(--font-size-xs);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.05em;margin:var(--space-1) 0;">Columns</div>' +
             '<table class="table" style="font-size:var(--font-size-xs);width:100%;margin:0;">' +
               '<thead><tr><th style="width:7rem;">Column key</th><th style="width:7rem;">Label</th><th style="width:5rem;">Format</th><th style="width:7rem;">Href key</th><th>Text key / literal</th><th></th></tr></thead>' +
               '<tbody data-columns-tbody data-field-idx="' + idx + '"></tbody>' +

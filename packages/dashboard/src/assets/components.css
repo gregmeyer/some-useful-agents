@@ -657,7 +657,7 @@
   font-size: var(--font-size-sm);
 }
 .node-discovery__card-chip {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
@@ -672,7 +672,7 @@
   line-height: 1.4;
 }
 .node-discovery__card-id {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 .node-discovery__empty {
   padding: var(--space-4);

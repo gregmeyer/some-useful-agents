@@ -135,7 +135,7 @@ main.main--wide {
   font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   line-height: 1;
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
   min-width: 28px;
 }
@@ -865,7 +865,7 @@ main.main--wide {
 
 .template-palette__group {
   padding: var(--space-1) var(--space-3);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -1373,7 +1373,7 @@ main.main--wide {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 0;
   line-height: 1;
   transition: transform 150ms ease-out;
@@ -1527,7 +1527,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 0 var(--space-1);
   line-height: 1;
   opacity: 0;
@@ -1700,7 +1700,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   padding: var(--space-2);
   line-height: 1;
   border-radius: var(--radius-sm);
@@ -1761,11 +1761,11 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   background: var(--color-primary-soft);
 }
 .pulse-configure-modal__tpl-icon {
-  font-size: 1.125rem;
+  font-size: var(--font-size-lg);
   line-height: 1;
 }
 .pulse-configure-modal__tpl-name {
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   font-family: var(--font-mono);
   color: var(--color-text-muted);
   text-align: center;
@@ -1793,7 +1793,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .cfg-template-hint__layout {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-subtle);
   margin: 0;
   line-height: 1.5;
@@ -1833,10 +1833,10 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .cfg-slot-type {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-subtle);
   background: var(--color-surface-raised);
-  padding: 2px 6px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 3px;
   border: 1px solid var(--color-border);
 }
@@ -1851,7 +1851,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 
 /* -- Suggested template badge -- */
 .cfg-suggested-badge {
-  font-size: 7px;
+  font-size: var(--font-size-xs);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1895,7 +1895,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: var(--radius-sm);
-  padding: 8px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1911,7 +1911,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 /* ── Schedule preset chips on agent → Config → Schedule ─────────────── */
 .schedule-preset {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
 }
 .schedule-preset.is-active {
@@ -1964,7 +1964,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   padding: var(--space-2);
   line-height: 1;
   border-radius: var(--radius-sm);
@@ -2017,7 +2017,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   gap: var(--space-2);
 }
 .add-tile-card__icon {
-  font-size: 1.125rem;
+  font-size: var(--font-size-lg);
   line-height: 1;
 }
 .add-tile-card__name {
@@ -2047,9 +2047,9 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .add-tile-card__tpl {
   font-family: var(--font-mono);
   background: var(--color-bg);
-  padding: 1px 6px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
 }
 .add-tile-card__age {
@@ -2076,7 +2076,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   color: var(--color-primary);
 }
 .add-tile-card--create .add-tile-card__icon {
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
 }
 
 /* ---------- Inbox conversation (modal-driven) ---------- */
@@ -2102,7 +2102,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   color: var(--color-bg, #0d1117);
   flex-shrink: 0;
@@ -2119,7 +2119,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg__meta {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  margin-bottom: 2px;
+  margin-bottom: var(--space-1);
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
@@ -2248,7 +2248,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-msg__copy {
   background: transparent;
   border: 0;
-  padding: 2px 8px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   cursor: pointer;
@@ -2291,7 +2291,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: var(--weight-semibold);
   color: var(--color-bg, #0d1117);
   text-transform: uppercase;
@@ -2408,9 +2408,9 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: none;
   cursor: pointer;
   color: var(--color-text-muted);
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   line-height: 1;
-  padding: 2px 4px;
+  padding: var(--space-1);
   border-radius: var(--radius-sm);
   transition: color 120ms ease-out, transform 120ms ease-out;
 }
@@ -2434,8 +2434,8 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-tag-chip {
   font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 1px 6px;
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
   border-radius: 10px;
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
@@ -2477,10 +2477,10 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
  * controls disappear and the status body fills in. */
 .inbox-action__status {
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.08em;
   font-weight: var(--weight-semibold);
-  padding: 1px 6px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 2px;
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
@@ -2493,7 +2493,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-action--skipped .inbox-action__status { color: var(--color-text-muted); }
 
 .inbox-action__card {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -2511,7 +2511,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   font-weight: var(--weight-semibold);
 }
 .inbox-action__rationale {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
@@ -2572,7 +2572,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-action__preview {
   margin-top: 0;
-  padding: 6px 8px;
+  padding: var(--space-2);
   background: var(--color-surface-raised, #1f2430);
   border-radius: 3px;
   font-size: var(--font-size-xs);
@@ -2621,7 +2621,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   user-select: none;
 }
 .inbox-action__reason {
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
@@ -2765,7 +2765,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   letter-spacing: 0.06em;
   font-weight: var(--weight-semibold);
   color: var(--color-text-muted);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .settings-llm__probe {
   margin-top: var(--space-3);
@@ -2778,7 +2778,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 2px;
 }
 .settings-llm__probe-row--ok { background: rgba(52, 211, 153, 0.08); }
@@ -2891,7 +2891,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  margin-top: 2px;
+  margin-top: var(--space-1);
 }
 .inbox-rail__empty {
   padding: var(--space-3) var(--space-2);
@@ -3105,12 +3105,12 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: var(--weight-semibold);
-  padding: 2px 0;
+  padding: var(--space-1) 0;
 }
 .inbox-list__sort:hover { color: var(--color-text); }
 .inbox-list__sort--active { color: var(--color-text); }
 .inbox-list__sort-arrow {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   line-height: 1;
 }
 .inbox-list__header-title { justify-self: start; }
@@ -3248,7 +3248,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   align-items: baseline;
   gap: var(--space-2);
   font-size: var(--font-size-xs);
-  margin-bottom: 2px;
+  margin-bottom: var(--space-1);
 }
 .inbox-row2__activity-role {
   font-weight: var(--weight-semibold);
@@ -3560,7 +3560,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   background: transparent;
   border: 0;
   color: var(--color-text-muted);
-  font-size: 22px;
+  font-size: var(--font-size-xl);
   line-height: 1;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -3575,7 +3575,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   justify-content: space-between;
   gap: var(--space-3);
   margin: 0;
-  padding-right: 32px;
+  padding-right: var(--space-8);
 }
 .inbox-modal__title {
   margin: 0;
@@ -3656,7 +3656,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   align-items: center;
   gap: 4px;
   height: 22px;
-  padding: 0 8px 0 10px;
+  padding: 0 var(--space-2);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: 999px;
@@ -3683,7 +3683,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: inline-flex;
   align-items: center;
   height: 22px;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   background: var(--color-surface);
   border: 1px dashed var(--color-border);
   border-radius: 999px;
@@ -3727,7 +3727,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-modal__context > summary::-webkit-details-marker { display: none; }
 .inbox-modal__context > summary::before {
   content: '▸';
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   transition: transform 120ms ease-out;
   display: inline-block;
 }
@@ -3798,7 +3798,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   line-height: 1;
   user-select: none;
 }

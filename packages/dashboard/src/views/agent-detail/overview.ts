@@ -68,7 +68,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         <div class="card" style="padding: var(--space-4);">
           <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
             <h3 style="margin: 0;">Output widget</h3>
-            <span class="badge badge--muted" style="font-size: 9px;">${agent.outputWidget.type}</span>
+            <span class="badge badge--muted" style="font-size: var(--font-size-xs);">${agent.outputWidget.type}</span>
           </div>
           ${agent.outputWidget.interactive
             ? renderInteractiveWidget({
