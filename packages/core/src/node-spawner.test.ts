@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, spawnNodeReal, validateOutputContract, type SpawnResult } from './node-spawner.js';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, spawnNodeReal, timeoutError, validateOutputContract, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -441,5 +441,34 @@ describe('spawnNodeReal — unresolved tool node', () => {
   it('keeps "has no command" for a plain shell node with no tool', async () => {
     const res = await spawnNodeReal({ id: 'x', type: 'shell' }, {}, opts);
     expect(res.error).toBe('Shell node "x" has no command');
+  });
+});
+
+describe('timeoutError', () => {
+  it('returns the bare message for a cancellation (no elapsed)', () => {
+    expect(timeoutError(300)).toBe('Timed out after 300s');
+  });
+
+  it('returns the bare message when elapsed is near the limit', () => {
+    // 305s elapsed against a 300s limit — ordinary jitter, not a slept machine.
+    expect(timeoutError(300, 305_000)).toBe('Timed out after 300s');
+  });
+
+  it('returns the bare message when elapsed is over 2x but under +120s', () => {
+    // 60s limit, 150s elapsed: 2.5x the limit but only 90s past — not annotated.
+    expect(timeoutError(60, 150_000)).toBe('Timed out after 60s');
+  });
+
+  it('annotates the slept-machine case (224m against a 300s limit)', () => {
+    const msg = timeoutError(300, 224 * 60 * 1000);
+    expect(msg).toContain('limit 300s');
+    expect(msg).toContain('3.7h');
+    expect(msg).toContain('likely slept');
+  });
+
+  it('formats sub-hour elapsed in minutes', () => {
+    const msg = timeoutError(60, 40 * 60 * 1000);
+    expect(msg).toContain('40m');
+    expect(msg).not.toContain('h elapsed');
   });
 });
