@@ -219,6 +219,11 @@ export function renderPulseBoard(
   return html`
     <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       ${opts.heading ?? html`<h1 style="margin: 0;">Pulse</h1>`}
+      ${editable ? pageIntro({
+        key: 'pulse',
+        text: 'Pulse is your live information radiator — each tile shows an agent\'s latest output. Drag to reorder, or use Improve layout to curate what shows.',
+        learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
+      }) : html``}
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
       </span>
@@ -241,12 +246,6 @@ export function renderPulseBoard(
         ` : html``}
       </div>
     </div>
-
-    ${editable ? pageIntro({
-      key: 'pulse',
-      text: 'Pulse is your live information radiator — each tile shows an agent\'s latest output. Drag to reorder, or use Improve layout to curate what shows.',
-      learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
-    }) : html``}
 
     <div id="pulse-containers">
       <section class="pulse-container" data-container-id="_default">

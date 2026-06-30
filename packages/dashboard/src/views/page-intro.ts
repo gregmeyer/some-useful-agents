@@ -1,13 +1,15 @@
 /**
- * Compact, dismissible "what is this page" intro.
+ * "What is this page" help as an ⓘ trigger + lightbox modal.
  *
- * Renders one line of context under a page title with an optional docs link
- * and a "Got it" button. Dismissal persists per-key in localStorage (wired by
- * PAGE_INTRO_JS), so daily users dismiss once and never see it again. Without
- * JS the intro simply stays visible — progressive enhancement, not required.
+ * Renders a small ⓘ button (placed next to a page/board heading) plus a hidden
+ * centered lightbox holding one line of context and an optional docs link. On
+ * first visit the lightbox auto-opens; "Got it" / backdrop / Escape dismiss it
+ * and persist per-key in localStorage (wired by PAGE_INTRO_JS), so daily users
+ * see it once. After that the ⓘ reopens it on demand. Without JS nothing pops —
+ * progressive enhancement; the page is fully usable, the hint is just help.
  *
- * Keep the copy to a single sentence: DESIGN.md says typography and whitespace
- * do the work, so this is a quiet hint, not a banner.
+ * Keep the copy to a sentence or two: DESIGN.md says typography and whitespace
+ * do the work, so this is a quiet aside, not a banner.
  */
 
 import { html, type SafeHtml } from './html.js';
@@ -26,10 +28,16 @@ export function pageIntro(opts: PageIntroOptions): SafeHtml {
     ? html`<a class="page-intro__link" href="${opts.learnMore.href}" target="_blank" rel="noopener">${opts.learnMore.label ?? 'Learn more'} →</a>`
     : html``;
   return html`
-    <div class="page-intro" data-intro-key="${opts.key}">
-      <span class="page-intro__text">${opts.text}</span>
-      ${link}
-      <button type="button" class="page-intro__dismiss" data-intro-dismiss aria-label="Dismiss this hint">Got it</button>
+    <button type="button" class="page-intro__trigger" data-intro-open="${opts.key}" aria-label="About this page" title="About this page">ⓘ</button>
+    <div class="modal-backdrop page-intro-modal" data-intro-key="${opts.key}" role="dialog" aria-modal="true" aria-label="About this page">
+      <div class="modal page-intro-modal__panel">
+        <p class="page-intro-modal__eyebrow section-label">About this page</p>
+        <p class="page-intro-modal__text">${opts.text}</p>
+        <div class="modal__actions">
+          ${link}
+          <button type="button" class="btn btn--sm btn--primary" data-intro-dismiss>Got it</button>
+        </div>
+      </div>
     </div>
   `;
 }

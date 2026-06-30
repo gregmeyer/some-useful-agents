@@ -1243,32 +1243,35 @@
 .wc-page-info--empty { opacity: 0.6; }
 
 /* ── Page intro ─────────────────────────────────────────────────────
-   Compact, dismissible one-line "what is this page" hint. Rendered by
-   pageIntro() (views/page-intro.ts); dismissal wired by PAGE_INTRO_JS. */
-.page-intro {
-  display: flex;
+   "What is this page" help: an ⓘ trigger next to a heading + a lightbox modal.
+   Rendered by pageIntro() (views/page-intro.ts); auto-open-once + on-demand
+   reopen wired by PAGE_INTRO_JS. The modal reuses .modal-backdrop / .modal. */
+.page-intro__trigger {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-4);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-md);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
 }
-.page-intro__text { flex: 1; line-height: 1.5; }
+.page-intro__trigger:hover { color: var(--color-primary); }
+
+.page-intro-modal__panel { max-width: 30rem; }
+.page-intro-modal__eyebrow { margin: 0 0 var(--space-2); }
+.page-intro-modal__text {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+/* Tour link sits left of the "Got it" button in the actions row. */
+.page-intro-modal .page-intro__link { margin-right: auto; align-self: center; }
 .page-intro__link { color: var(--color-primary); white-space: nowrap; text-decoration: none; }
 .page-intro__link:hover { text-decoration: underline; }
-.page-intro__dismiss {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--color-border-strong);
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.page-intro__dismiss:hover { color: var(--color-text); border-color: var(--color-text-muted); }

@@ -3,9 +3,11 @@ import { pageIntro } from './page-intro.js';
 import { render } from './html.js';
 
 describe('pageIntro', () => {
-  it('renders the key, text, and a dismiss button', () => {
+  it('renders an ⓘ trigger, a keyed modal, the text, and a dismiss button', () => {
     const out = render(pageIntro({ key: 'pulse', text: 'Live radiator of agent output.' }));
-    expect(out).toContain('class="page-intro"');
+    expect(out).toContain('class="page-intro__trigger"');
+    expect(out).toContain('data-intro-open="pulse"');
+    expect(out).toContain('class="modal-backdrop page-intro-modal"');
     expect(out).toContain('data-intro-key="pulse"');
     expect(out).toContain('Live radiator of agent output.');
     expect(out).toContain('data-intro-dismiss');
