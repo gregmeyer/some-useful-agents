@@ -177,7 +177,7 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
       .node-nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--space-4); padding: var(--space-2) var(--space-3); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
       .node-nav__group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
       .node-nav__label { font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; min-width: 6.5rem; font-weight: var(--weight-semibold); }
-      .node-nav__chip { font-family: var(--font-mono); text-decoration: none; font-size: 11px; padding: 1px 6px; }
+      .node-nav__chip { font-family: var(--font-mono); text-decoration: none; font-size: var(--font-size-xs); padding: var(--space-1) var(--space-2); }
       .node-cat { margin-bottom: var(--space-4); }
       .node-cat__header { margin-bottom: var(--space-2); }
       .node-cat__title { margin: 0; font-size: var(--font-size-sm); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
@@ -186,7 +186,7 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
       .node-card > summary.node-card__header { padding: 6px var(--space-3); margin: 0; cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: var(--space-2); user-select: none; }
       .node-card > summary.node-card__header::-webkit-details-marker { display: none; }
       .node-card > summary.node-card__header:hover { background: var(--color-surface-raised); }
-      .node-card__chevron { display: inline-block; width: 0.9em; color: var(--color-text-muted); font-size: 11px; transition: transform 120ms ease; transform: rotate(0deg); flex-shrink: 0; }
+      .node-card__chevron { display: inline-block; width: 0.9em; color: var(--color-text-muted); font-size: var(--font-size-xs); transition: transform 120ms ease; transform: rotate(0deg); flex-shrink: 0; }
       .node-card[open] > summary .node-card__chevron { transform: rotate(90deg); }
       .node-card__type { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-md); flex-shrink: 0; }
       .node-card__desc { color: var(--color-text-muted); line-height: 1.4; font-size: var(--font-size-sm); }
@@ -200,10 +200,10 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
       .node-card__example summary { cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: var(--weight-semibold); }
       .node-card__example pre { margin: 4px 0 0; padding: var(--space-2) var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow-x: auto; font-size: var(--font-size-xs); line-height: 1.4; }
       .node-fields { font-size: var(--font-size-xs); width: 100%; border-collapse: collapse; }
-      .node-fields td { padding: 3px 8px 3px 0; vertical-align: top; line-height: 1.4; }
+      .node-fields td { padding: var(--space-1) var(--space-2) var(--space-1) 0; vertical-align: top; line-height: 1.4; }
       .node-fields tr + tr td { border-top: 1px solid var(--color-border); }
       .node-fields__name { white-space: nowrap; font-family: var(--font-mono); }
-      .node-fields__name .badge { font-size: 9px; padding: 0 4px; margin-left: 4px; }
+      .node-fields__name .badge { font-size: var(--font-size-xs); padding: 0 var(--space-1); margin-left: var(--space-1); }
       .node-fields__type { white-space: nowrap; font-family: var(--font-mono); color: var(--color-text-muted); }
       .node-fields__none { color: var(--color-text-muted); font-size: var(--font-size-xs); margin: 0; }
       /* Each card is a <details> — clicking the header collapses it.

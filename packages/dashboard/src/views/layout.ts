@@ -83,14 +83,16 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
     <a href="/help" class="${opts.activeNav === 'help' ? 'is-active' : ''}">Help</a>
   </nav>
-  <a class="topbar__needs" data-inbox-toast href="/inbox" hidden>
-    <span class="topbar__needs-dot" aria-hidden="true"></span>
-    <span data-inbox-count></span>&nbsp;need your reply
-    <span aria-hidden="true">→</span>
-  </a>
-  <button class="topbar__theme-toggle" onclick="(function(){var h=document.documentElement;var c=h.getAttribute('data-theme');var n=c==='light'?null:'light';if(n)h.setAttribute('data-theme',n);else h.removeAttribute('data-theme');localStorage.setItem('sua-theme',n||'dark');})();" aria-label="Toggle theme">
-    <span class="topbar__theme-icon"></span>
-  </button>
+  <div class="topbar__right">
+    <a class="topbar__needs" data-inbox-toast href="/inbox" aria-live="polite" hidden>
+      <span class="topbar__needs-dot" aria-hidden="true"></span>
+      <span data-inbox-count></span><span data-inbox-label>&nbsp;need your reply</span>
+      <span class="topbar__needs-arrow" aria-hidden="true">→</span>
+    </a>
+    <button class="topbar__theme-toggle" onclick="(function(){var h=document.documentElement;var c=h.getAttribute('data-theme');var n=c==='light'?null:'light';if(n)h.setAttribute('data-theme',n);else h.removeAttribute('data-theme');localStorage.setItem('sua-theme',n||'dark');})();" aria-label="Toggle theme">
+      <span class="topbar__theme-icon"></span>
+    </button>
+  </div>
 </header>
 <main class="${mainClass}">
   ${flash}

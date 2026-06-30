@@ -718,10 +718,10 @@ export const IMPROVE_LAYOUT_JS = `
           : (isSystem ? tileId.replace(/^_system-/, '').replace(/-/g, ' ') : tileId);
 
         var fitIcon = '';
-        if (tileFit === 'scroll') fitIcon = '<span title="scroll" style="font-family:var(--font-mono);font-size:0.7rem;">⇵</span>';
-        else if (tileFit === 'grow') fitIcon = '<span title="grow" style="font-family:var(--font-mono);font-size:0.7rem;">↕</span>';
+        if (tileFit === 'scroll') fitIcon = '<span title="scroll" style="font-family:var(--font-mono);font-size: var(--font-size-xs);">⇵</span>';
+        else if (tileFit === 'grow') fitIcon = '<span title="grow" style="font-family:var(--font-mono);font-size: var(--font-size-xs);">↕</span>';
 
-        var heightLabel = height ? '<span class="dim" style="font-size:0.65rem;">' + height + 'px</span>' : '';
+        var heightLabel = height ? '<span class="dim" style="font-size: var(--font-size-xs);">' + height + 'px</span>' : '';
 
         // Each cell. The minHeight gives 1-row cells a stable footprint;
         // a tall content row stretches it further when grid-row is 2.
@@ -739,7 +739,7 @@ export const IMPROVE_LAYOUT_JS = `
           'display:flex;flex-direction:column;gap:2px;overflow:hidden;' +
           '">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-1);">' +
-            '<div style="font-family:var(--font-mono);font-size:0.65rem;color:var(--color-text-muted);">' + esc(rawSize) + '</div>' +
+            '<div style="font-family:var(--font-mono);font-size: var(--font-size-xs);color:var(--color-text-muted);">' + esc(rawSize) + '</div>' +
             '<div style="display:flex;gap:4px;align-items:center;">' + fitIcon + heightLabel + '</div>' +
           '</div>' +
           '<div style="font-size:var(--font-size-xs);font-weight:var(--weight-semibold);line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">' +
@@ -755,7 +755,7 @@ export const IMPROVE_LAYOUT_JS = `
     }).join('');
 
     return '<details open style="margin:0 0 var(--space-4) 0;padding:var(--space-3);border:1px solid var(--color-border);border-radius:var(--radius-sm);background:var(--color-surface-raised);">' +
-      '<summary style="cursor:pointer;font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-2);">Layout preview <span class="dim" style="font-weight:var(--weight-regular);text-transform:none;letter-spacing:0;font-size:0.7rem;">(4-column grid, tiles sized by the plan; ↕ grow / ⇵ scroll)</span></summary>' +
+      '<summary style="cursor:pointer;font-size:var(--font-size-xs);color:var(--color-text-muted);font-weight:var(--weight-semibold);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:var(--space-2);">Layout preview <span class="dim" style="font-weight:var(--weight-regular);text-transform:none;letter-spacing:0;font-size: var(--font-size-xs);">(4-column grid, tiles sized by the plan; ↕ grow / ⇵ scroll)</span></summary>' +
       '<div style="margin-top:var(--space-2);">' + blocks + '</div>' +
       '</details>';
   }
