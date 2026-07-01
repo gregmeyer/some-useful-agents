@@ -92,9 +92,12 @@ export interface InboxActionMeta {
    * the agent. `show-widget` summons the agent's LATEST COMPLETED run's output
    * widget inline WITHOUT dispatching — a read-only snapshot that resolves
    * `proposed → completed` by pointing `runId` at that latest run, so the
-   * existing inline-widget render path displays it.
+   * existing inline-widget render path displays it. `resolve` closes the thread
+   * (sets its status to `resolved`) WITHOUT dispatching any agent — triage's way
+   * of ending a thread it has fully handled instead of telling the operator to
+   * click Resolve. `agentId` is the sentinel `_resolve-thread` (no real agent).
    */
-  mode?: 'run' | 'show-widget';
+  mode?: 'run' | 'show-widget' | 'resolve';
   /**
    * When true, approving this run first grants `permissions.inboxRunnable`
    * to `agentId` (a one-click "Enable & run"). Set by the dashboard when

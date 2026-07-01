@@ -1106,6 +1106,9 @@ export function atLeastOneActionExecuted(
     // count as "something ran" (else it would trigger a follow-up triage turn,
     // risking a show→refire→show loop).
     if (m?.mode === 'show-widget') continue;
+    // resolve-thread closes the thread; it's not an outcome to summarize, so it
+    // must not trigger a follow-up triage turn.
+    if (m?.mode === 'resolve') continue;
     if (m && (m.status === 'completed' || m.status === 'failed')) return true;
   }
   return false;
@@ -1480,6 +1483,9 @@ export async function runTriageAgent(
     // Enter when there are runnable sub-agents OR the plan summons a widget
     // (show-widget is read-only and isn't gated on the run allowlist, so it
     // works on threads with no runnable agents, e.g. a manual "show me X").
+    // When a resolve-thread action closes the thread, skip the awaiting_user
+    // status update below so the `resolved` status sticks.
+    let threadResolved = false;
     const rawActionList = Array.isArray(parsed.actions) ? parsed.actions : [];
     const planHasShowWidget = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
@@ -1490,7 +1496,12 @@ export async function runTriageAgent(
     const planHasDashboardEditor = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'dashboard-editor',
     );
-    if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor) {
+    // resolve-thread runs nothing (not allowlist-gated) but must still enter the
+    // action block on a thread with no runnable agents (e.g. "thanks, we're done").
+    const planHasResolve = rawActionList.some(
+      (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'resolve-thread',
+    );
+    if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       for (const action of accepted) {
@@ -1522,7 +1533,9 @@ export async function runTriageAgent(
         const body = action.rationale
           ?? (action.mode === 'show-widget'
             ? `Show the latest output from \`${action.agentId}\`.`
-            : `Run agent \`${action.agentId}\`.`);
+            : action.mode === 'resolve'
+              ? 'Resolve this thread — nothing left to run or diagnose.'
+              : `Run agent \`${action.agentId}\`.`);
         const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,
@@ -1531,6 +1544,32 @@ export async function runTriageAgent(
           inputs: action.inputs,
           createdAt: actionResp.createdAt,
         });
+        // resolve-thread closes the thread synchronously (no dispatch): mark the
+        // action completed and set the thread status to `resolved`. `break` —
+        // the thread is closed, so any remaining proposed actions this turn are
+        // moot. `threadResolved` suppresses the awaiting_user update below.
+        if (action.mode === 'resolve') {
+          const now = Date.now();
+          const resolvedMeta: InboxActionMeta = {
+            ...action,
+            status: 'completed',
+            resultSummary: action.rationale ? `Resolved: ${action.rationale}` : 'Resolved by triage.',
+            startedAt: now,
+            endedAt: now,
+          };
+          if (ctx.inboxStore.transitionActionStatus(actionResp.id, 'proposed', JSON.stringify(resolvedMeta))) {
+            publishInboxEvent(ctx, messageId, 'action:status', {
+              responseId: actionResp.id,
+              status: 'completed',
+              agentId: action.agentId,
+              resultSummary: resolvedMeta.resultSummary,
+              endedAt: now,
+            });
+          }
+          try { ctx.inboxStore.updateStatus(messageId, 'resolved'); } catch { /* ignore */ }
+          threadResolved = true;
+          break;
+        }
         // show-widget resolves synchronously to the agent's latest completed
         // run (read-only, no dispatch) → proposed → completed/failed in one
         // step. No `running` phase (a zero-latency lookup), and NO refire (it's
@@ -1615,9 +1654,13 @@ export async function runTriageAgent(
       }
     }
 
-    try {
-      ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
-    } catch { /* ignore */ }
+    // A resolve-thread action already set the thread to `resolved`; don't stomp
+    // it back to awaiting_user.
+    if (!threadResolved) {
+      try {
+        ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
+      } catch { /* ignore */ }
+    }
     // A turn completed cleanly — the thread isn't in a crash loop, so refund
     // the auto-retry budget for any future transient failure.
     resetTriageCrashRetries(ctx, messageId);

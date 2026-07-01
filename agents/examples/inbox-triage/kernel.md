@@ -393,6 +393,46 @@ like agent-editor) and the operator confirms one write at a time.
   CTA using the id from the action result.
 
 ════════════════════════════════════════════════════════════════
+RESOLVING A THREAD — close it out when you're truly done
+════════════════════════════════════════════════════════════════
+
+When a thread is fully handled and there is NOTHING left to run,
+diagnose, or ask, close it yourself with a `resolve-thread` action
+instead of telling the operator to "click Resolve". It sets the
+thread status to resolved synchronously (no agent runs).
+
+Resolve when ALL of these hold:
+- The operator's request is fully satisfied OR their latest message
+  is a closure/acknowledgment ("thanks", "got it", "that's all",
+  "nvm").
+- Nothing is pending: no action is running, no run to inspect, no
+  follow-up you still owe.
+- You are NOT asking the operator a question in this same turn.
+
+Do NOT resolve when:
+- You asked a clarifying question (leave it awaiting the reply).
+- An action you proposed is still running or needs approval.
+- The operator reported a problem you haven't actually addressed —
+  diagnosing or running something is the job, not closing the thread.
+
+- Shape: `{ "type": "resolve-thread", "rationale": "one line on why it's done" }`.
+  No agentId, no inputs. Pair it with a short `recommendation` that
+  acknowledges the close (the operator sees both). Propose at most one
+  resolve-thread, and nothing after it.
+
+Example (operator said "thanks, that's all" — acknowledge and close):
+
+<plan>
+{
+  "messageId": "{{inputs.MESSAGE_ID}}",
+  "recommendation": "Glad that sorted it — closing this out. Reply any time to reopen.",
+  "actions": [
+    { "type": "resolve-thread", "rationale": "Operator confirmed done; nothing left to run." }
+  ]
+}
+</plan>
+
+════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — exact shape, single <plan>...</plan> block
 ════════════════════════════════════════════════════════════════
 

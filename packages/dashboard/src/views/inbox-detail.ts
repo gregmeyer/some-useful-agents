@@ -604,8 +604,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
-          <span class="inbox-msg__meta-name">${meta.mode === 'show-widget' ? 'Widget' : 'Triage proposed'}</span>
-          ${meta.mode === 'show-widget' ? html`` : html`<span class="inbox-action__status">${statusLabel}</span>`}
+          <span class="inbox-msg__meta-name">${meta.mode === 'show-widget' ? 'Widget' : meta.mode === 'resolve' ? 'Triage resolved' : 'Triage proposed'}</span>
+          ${meta.mode === 'show-widget' || meta.mode === 'resolve' ? html`` : html`<span class="inbox-action__status">${statusLabel}</span>`}
           <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
         </div>
         <div class="inbox-action__card">
@@ -614,7 +614,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
               ? html`${meta.inputs.op === 'create' ? 'Create dashboard' : 'Add tile'} · <span class="mono">${meta.inputs.DASHBOARD ?? ''}</span>${meta.inputs.AGENT_ID ? html` · <span class="mono">${meta.inputs.AGENT_ID}</span>` : html``}`
               : meta.mode === 'show-widget'
                 ? html`Latest <span class="mono">${meta.agentId}</span> output`
-                : html`Run agent <span class="mono">${meta.agentId}</span>`}
+                : meta.mode === 'resolve'
+                  ? html`Resolved this thread`
+                  : html`Run agent <span class="mono">${meta.agentId}</span>`}
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
           ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
@@ -658,6 +660,10 @@ function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml):
       `;
     case 'completed': {
       const hasInlineWidget = !!inlineWidget;
+      // resolve-thread has no run chrome — just a quiet confirmation.
+      if (meta.mode === 'resolve') {
+        return html`<div class="inbox-action__result inbox-action__result--ok"><span class="badge badge--ok">Resolved</span></div>`;
+      }
       // show-widget is a read-only snapshot — drop the run chrome (duration,
       // "Completed" badge, raw-result preview) and show just the widget.
       if (meta.mode === 'show-widget') {
