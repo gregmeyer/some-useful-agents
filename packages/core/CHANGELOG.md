@@ -1,5 +1,547 @@
 # @some-useful-agents/core
 
+## 0.25.0
+
+### Minor Changes
+
+- 5b2d822: Apple integration: dashboard "macOS access" panel — check status + authorize from a Terminal.
+
+  The Apple tab now shows a macOS-access card with per-bucket status (Reminders /
+  Notes), a **Check access** button that probes both TCC buckets with zero-content
+  reads, and an **Open Terminal & authorize** button that launches a Terminal
+  running `sua apple authorize` (so the permission prompts appear in a foreground
+  GUI session). The panel and docs explain the TCC + daemon gotcha: macOS ties the
+  Reminders grant to the granting process tree, so a detached daemon (and the
+  temporal worker that runs agent nodes) can show denied even after you authorized
+  in a Terminal — run agents from a Terminal with `SUA_PROVIDER=local`, or start the
+  worker in a foreground Terminal.
+
+- 4f69867: Add `sua apple connect` to register the Apple integration from a granted Terminal.
+
+  The dashboard "Add Apple integration" flow introspects via the background daemon,
+  which usually lacks Reminders access (macOS ties the grant to the granting process
+  tree). `sua apple connect` runs the `lists` introspection in the user's own
+  Terminal — where `sua apple authorize` granted access — then upserts the `apple`
+  integration (default id `apple`) with the discovered lists/folders, so the
+  generated tools become available. Pairs with running agents via
+  `SUA_PROVIDER=local` from the same Terminal.
+
+- 64a42dd: Fix intermittent "tool did not resolve" for integration agents run from the inbox.
+
+  Two related fixes for running integration-backed agents (Apple Reminders/Notes,
+  and any csv/sqlite/postgres agent) from inbox action cards:
+
+  1. **Run-scoped experimental gate.** Apple-tool availability was gated on the
+     worker process's `SUA_EXPERIMENTAL_APPLE` env, which varied by launch path —
+     so a worker that didn't inherit it would fail with "tool did not resolve."
+     The flag is now read once in the (reliable) dashboard process and threaded
+     through the run (`SubmitDagRunOptions` → the Temporal activity → the executor
+     gate), so resolution is identical wherever the run lands. The env remains a
+     fallback for local/CLI runs.
+
+  2. **Inbox cards run integration agents on the worker.** Inbox action dispatch
+     orchestrated in-dashboard without an integrations store, so integration tools
+     never resolved there (and the Apple runner needs the worker's macOS grants).
+     Inbox-card runs of DAG agents now go through `submitDagRun` — the whole DAG
+     executes on the Temporal worker, exactly like the dashboard's "Run now" — and
+     the card status + triage follow-up are driven off the run's terminal state.
+     Local-backend runs execute in-process with the integration/tool/agent stores.
+
+- 71b5c69: Apple Notes: add a note-update tool to edit an existing note.
+
+  The Apple integration now exposes `apple.apple.note-update` (a sixth generated
+  verb): find a note by its current title and replace its body, optionally
+  retitling it. Backed by a new `cmdNoteUpdate` in the embedded Swift runner
+  (AppleScript; matches by name, signals not-found cleanly). Notes have no stable
+  id, so editing targets the title. Pairs with local edit-a-note / list-notes
+  agents (read the body, merge, update) for inbox-driven note editing.
+
+- d35a509: Add an owner-authorized Apple Reminders & Notes integration (experimental, macOS-only, default off).
+
+  A new `apple` integration kind lets agents create/read reminders and create/read
+  notes on the owner's Mac. It compiles a tiny Swift runner on demand (EventKit for
+  Reminders, AppleScript for Notes) — the same compile-on-demand pattern as the
+  Apple Foundation Models provider. Saving the integration in the dashboard
+  generates `apple.<slug>.reminder-create` / `reminder-read` / `reminder-update` /
+  `note-create` / `note-read` tools.
+
+  The engine ships dormant: the `apple` kind, its tools, and the dashboard tab stay
+  hidden until the owner enables `experimental.apple` in `sua.config.json` (or sets
+  `SUA_EXPERIMENTAL_APPLE=1`). A new `sua apple authorize` command triggers the macOS
+  permission prompts from a foreground Terminal so the first grant isn't swallowed by
+  a headless daemon. Notes is best-effort (no first-party API). Off macOS the tools
+  fail with a clear macOS-only error.
+
+- cbbb346: Inbox triage can now WRITE to dashboards.
+
+  A new `dashboard-editor` action lets the triage agent pin an agent's signal tile
+  onto a user dashboard (creating the dashboard if it doesn't exist) or create an
+  empty dashboard — e.g. "add the weather agent to my dashboard", "make a dashboard
+  called Markets". It's route-handled and auto-approved like `agent-editor`, writes
+  synchronously, and is sequenced as one write per turn. Agents without a Pulse
+  signal are refused with a clear message (dashboards render signal tiles only).
+  Shared slug + section-layout helpers moved into core.
+
+- b2abd8d: Dashboard start: clearer "already running" message + reclaim a stale instance.
+
+  When a dashboard is already bound to the port, `sua dashboard start` now probes
+  its `/health` build stamp and tells you the pid, commit, and build time — and
+  flags when the running instance is an OLDER build than the one you're starting
+  (the "I deployed but still see old code" trap). On a TTY it offers to stop that
+  process and take over; a new `--replace` flag does the same non-interactively.
+  A foreign (non-dashboard) process on the port is never killed.
+
+  The daemon now starts the dashboard with `--replace`, so a leftover hand-started
+  dashboard is reclaimed on restart instead of silently leaving stale code serving.
+
+- 0fc9193: Tighten the inbox detail modal header.
+
+  The thread-action row (Summarize / Move to / Fork / Retarget) is gone. Rare verbs now
+  live behind a single overflow (⋯) menu in the title row: Summarize and Reopen (terminal
+  threads only). The two confusing cross-agent controls are removed from the human UI —
+  "Fork" handed the thread off to another agent as a new thread, and "Retarget" re-pointed
+  this thread's agent; both routes remain for the build/diagnose loop, but neither is
+  surfaced. Tags now share the meta band instead of taking their own row, and "Open page"
+  is clarified to "Open full page". The header collapses from four stacked bands to two.
+
+- 4975d63: Inbox: summon an agent's latest output widget into a thread (mechanism).
+
+  First slice of "widgets in threads". Adds a `show-widget` action mode: instead of running an
+  agent, it renders that agent's LATEST COMPLETED run's output widget inline in the conversation
+  (read-only, no dispatch). New `InboxActionMeta.mode` field; `parseProposedActions` accepts
+  `type: 'show-widget'`; a `resolveShowWidgetAction` resolver points the action at the latest
+  completed run and auto-resolves `proposed → completed` (the existing inline-widget render path
+  then displays it), or fails clearly ("no completed run yet — run it first"). The card drops the
+  run chrome (duration, badge, raw preview) and reads "Latest <agent> output". Guarded against the
+  dedup-block and refire-loop edge cases. Dormant until the triage kernel teaches it (next slice).
+
+- 4c5c55e: Unify the dashboard front door: one Mission Control home.
+
+  The root `/` was a stripped-down Pulse (system stat tiles only) duplicating
+  `/pulse`, while the inbox — the most powerful surface — was a quiet nav link with
+  no presence. There's now ONE dashboard surface at `/`: a "Needs you" strip of
+  inbox threads awaiting your reply on top, the live, fully-editable Pulse board
+  (system + agent signal tiles, with the dashboards dropdown to switch to named
+  dashboards) in the middle, and a collapsed recent-activity feed at the bottom.
+  `/pulse` 302-redirects to `/` (its sub-routes — tile fragments, hide/show-all,
+  layout planner — are unchanged); the nav renames **Pulse → Home**. A global
+  Inbox badge (count from the new `/inbox/needs-you-count`) shows on every page.
+  New core inbox queries `countNeedsYou` / `listNeedsYou` back the badge and
+  preview.
+
+- b3700cd: Inbox: editing a failed agent unblocks retrying it from the thread.
+
+  The thread-level "same action already failed here" guard (hasMatchingFailedAction)
+  keyed only on agent id + inputs, so once an action failed it was blocked forever —
+  and for an agent that takes no inputs, every re-proposal looked identical, leaving
+  "revise the inputs or choose a different next step" impossible to follow even after
+  the operator fixed the agent.
+
+  The guard now clears once the target agent was edited after the failure: it
+  compares the agent's `updatedAt` against the failed action's end time, so fixing
+  the agent (a new version or a metadata edit, both bump `updatedAt`) makes the retry
+  a legitimately new action. Exposes `Agent.updatedAt` from the store, and the triage
+  kernel now tells triage to re-propose a run when the operator says they fixed the
+  agent.
+
+- c37dfd4: Inbox triage: reach the agent you mean, even with many installed.
+
+  The triage AGENT_CATALOG used to be just the 40 newest agents by creation date, so an agent the
+  operator named — but which was old and beyond the cap — was invisible to triage (it couldn't be
+  targeted or summoned). The catalog is now selected by blending relevance to the operator's current
+  request (keyword match on id/name/tags/description) + recency-of-use (a new
+  `RunStore.latestRunAtByAgent()` aggregate) + a reserve of newest-created agents, capped at 40.
+  Named/used agents reliably surface; the kernel now compares createdAt across entries for "newest"
+  (not list position) and falls back to agent-catalog-search (full catalog) when an agent is elided.
+
+- ebedefd: Triage can now resolve relative times into concrete due dates.
+
+  The inbox triage agent gets the operator's current wall-clock time as a new
+  `NOW` input (ISO 8601 with the local UTC offset). The prompt instructs it to
+  turn relative phrasing — "before 4:30pm today", "tomorrow 9am", "in 2 hours" —
+  into an absolute ISO 8601 timestamp it can hand to an agent that takes a due
+  date (e.g. a reminder's `DUE_DATE`), instead of passing a vague phrase or
+  guessing the date. Pairs with reminder agents that expose a due-date input.
+
+- 385a892: Inbox triage failure-path hardening.
+
+  Two fixes so a failure no longer leaves the operator stuck or chasing dead links:
+
+  - **Transient triage crashes auto-retry instead of stranding the thread.** A
+    crashed triage run (provider hiccup, worker dispatch race, network) now
+    retries once with a short backoff before posting a terminal note, and the
+    thread is always left `awaiting_user` so it stays actionable. A fresh reply
+    or "ask triage" refreshes the retry budget.
+  - **Run-failure inbox alerts only mention Temporal when there's a real workflow.**
+    The note always links the `/runs/<id>` page; it now offers a Temporal UI deep
+    link (and the "ran on Temporal" wording) only when the run reached a durable
+    workflow (`temporalRunId` set). Setup failures that never dispatched a
+    workflow no longer send the operator hunting for a `sua-node-…` execution
+    that was never created.
+
+- 830744d: De-monolith the inbox triage prompt: shared kernel + per-source playbooks.
+
+  The triage agent's prompt had grown to one ~550-line block mixing shared
+  mechanics (voice, action-proposal rules, the `<plan>` output schema) with
+  source-specific "what to recommend" guidance, so unrelated concerns shared one
+  prompt and interfered. The prompt is now composed at run time from fragments on
+  disk: a single `kernel.md` (the shared mechanics, one source of truth coupled to
+  the route's `<plan>` parser) plus the one `playbooks/<source>.md` that matches
+  the thread's source (run-failure / permission-request / cadence / manual),
+  selected deterministically from the known `source` field — no classifier LLM and
+  still one model call per turn. A thread now only sees its own source's guidance.
+  Behavior is preserved; this makes triage far easier to maintain and extend (add
+  or refine a source = edit one small file).
+
+- 23ec105: Triage learnings: extractor + resolve trigger + approval UX (flag-gated).
+
+  Second slice of cross-thread triage learnings (experimental). Adds the
+  `inbox-learning-extractor` system agent and wires the loop end-to-end:
+
+  - A new **Mark resolved** affordance + `POST /inbox/:id/resolve` route (finally
+    wiring up the long-dormant `resolved` status). On resolve, `maybeExtractLearning`
+    runs the extractor (gated cheapest-first: flag off → no-op; only run-failure /
+    permission-request threads with real triage activity reach the one LLM call) to
+    distill at most one durable lesson, stored as a `pending` learning.
+  - The thread modal renders a **"Triage learned something"** card with Approve /
+    Discard; `POST /inbox/:id/learnings/:lid/(approve|reject)` routes decide it.
+    Approved lessons become retrievable; rejected ones are dead.
+
+  Still dormant unless `SUA_EXPERIMENTAL_TRIAGE_LEARNINGS` is set, and learnings are
+  not yet injected into the triage prompt (that lands in the final slice).
+
+- 5164ba4: Triage learnings: consult approved lessons in the triage prompt (final slice).
+
+  Flips cross-thread triage learnings from "stored" to "consulted". When a thread
+  is triaged, approved lessons relevant to it (matched by agentId + source) are
+  retrieved and injected as a numbered `RELEVANT_LEARNINGS` block in the triage
+  prompt, with a new kernel section that frames them as advisory priors — they
+  inform the recommendation but never authorize an action, and the live
+  conversation is ground truth on conflict. Top-K capped with a byte budget.
+
+  Still gated by `SUA_EXPERIMENTAL_TRIAGE_LEARNINGS`; with the flag off the input
+  is empty and the kernel section no-ops. Completes the learnings loop
+  (extract on resolve → approve → consult).
+
+- 012eec4: Triage learnings: store + retrieval + flag (dormant plumbing).
+
+  First slice of cross-thread triage learnings (experimental, off by default). Adds a
+  `triage_learnings` table to InboxStore with `addLearning`/`getLearning`/`listLearnings`/
+  `updateLearningStatus`/`deleteLearning` and a structured-retrieval query
+  `listApprovedLearningsForTriage` (keys on agentId + source + scope, newest-approved first,
+  capped). Lessons are deduped on a normalized form. Adds a generic `extractTaggedJson(raw, tag)`
+  core helper (generalizes `extractPlanJson`) and the `isTriageLearningsEnabled()`
+  (`SUA_EXPERIMENTAL_TRIAGE_LEARNINGS`) flag with the CLI config bridge. Nothing is wired into
+  the inbox UI or triage prompt yet — that lands in follow-ups.
+
+- d9e482e: Triage can now resolve a thread it has fully handled.
+
+  When a thread is done — the operator says "thanks, that's all", or the request is
+  fully answered with nothing left to run or diagnose — triage can close it itself
+  with a new `resolve-thread` action instead of telling the operator to click
+  Resolve. It sets the thread status to `resolved` synchronously (no agent runs),
+  posts a short acknowledgment, and is excluded from the auto-follow-up trigger so
+  closing a thread never spawns another triage turn. The kernel teaches strict
+  guardrails: never resolve while a question is pending, an action is still
+  running, or a reported problem hasn't actually been addressed.
+
+- 0f62759: Inbox triage can now SEE an agent's latest run, and reports failures directly.
+
+  Triage was blind to agent run outcomes, so when an agent in a thread failed it
+  could only say "run it and see what happened" — the operator had to run the agent
+  and paste the error back. Triage now receives `FOCUS_AGENT_RUN`: the latest run
+  output of the agent the thread is about (the message target, or the most recent
+  agent a thread action touched), including a "MOST RECENT RUN FAILED" block with
+  the failing node and error. The kernel teaches triage to report the failure
+  directly (node + error) and propose the fix, instead of asking the operator to
+  re-run and report.
+
+- e1d1a50: Inbox triage: confirm one side-effecting action before firing the next.
+
+  When triage would propose several mutations in a single turn (e.g. "make a note
+  AND set a reminder"), it now proposes only the first. Each proposed action
+  declares an `effect` (`read` or `write`); the route keeps at most one `write`
+  card per turn and holds the rest, surfacing a neutral "holding N more…" note.
+  Once the operator runs the first write and it completes, the follow-up triage
+  turn re-plans and proposes the next from the updated state. Read-only actions
+  (catalog search, run analysis, list probes) still batch freely.
+
+- 89294b9: Add `sua worker install-launchagent` for a durable, GUI-session worker (macOS).
+
+  A detached daemon worker can't get the macOS Reminders TCC grant, so background
+  agents using the Apple integration's reminder tools were denied. The new
+  `sua worker install-launchagent` writes a user LaunchAgent that runs the worker
+  in your GUI login session (via `launchctl bootstrap gui/$UID`), where macOS can
+  surface the permission prompt and persist the grant across reboots — so
+  scheduled/temporal reminder agents work. Paired with `uninstall-launchagent` and
+  `launchagent-status`. The fully distributable fix (code-signing the runner) is
+  captured in ADR-0026.
+
+### Patch Changes
+
+- fc97965: Inbox: the per-thread action cap now resets on each operator reply.
+
+  The runaway-fan-out guard counted actions over the thread's whole lifetime, so a
+  long, actively-driven debugging thread (build → run → analyze → fix → run → …)
+  would eventually hit the 10-action cap and refuse to propose further steps even
+  though the operator was actively engaging. It now counts actions since the
+  operator's last message, so a fresh reply resets the budget — while an autonomous
+  refire chain still can't fan out unbounded between replies. The skip note now
+  explains that replying continues the thread.
+
+- 47288d0: Inbox: the "approve YAML fix" card now appears when analyzing any agent.
+
+  After agent-analyzer produced a corrected YAML, the auto-proposed `agent-editor`
+  approve card was gated on `parsed.id === message.agentId`, so on a manual thread
+  (no message agent) or when analyzing an agent other than the thread's, no card was
+  created — triage kept saying "approve the queued fix" with nothing to approve.
+  It now targets the corrected YAML's own agent id (resolving the fix target from
+  the analysis, the same way #524 fixed analyzer dispatch), and only requires that
+  agent to be installed.
+
+- e5b3adb: Apple Notes: fail fast instead of hanging 30s when the worker lacks a GUI session.
+
+  `note-create`/`note-read`/`lists` drive Notes.app via AppleScript. From a process
+  without a GUI session or Automation grant (e.g. the background temporal worker),
+  the Apple event blocks until the 30s spawn timeout ("produced no output"). The
+  runner now wraps every AppleScript in `with timeout of 10 seconds` and maps the
+  timeout (-1712) and not-permitted (-1743) errors to clear, actionable messages
+  ("run it via sua worker install-launchagent", or "grant Automation access").
+
+- df7b0c4: Clearer error when a tool node fails to resolve + multi-worker warning.
+
+  When a node references a `tool:` that doesn't resolve (integration disabled via the
+  experimental flag, not installed, or the worker running stale code), the executor
+  reported the misleading "Shell node X has no command" / "not found in registry or
+  store". It now says: tool "<id>" did not resolve — integration may be disabled, not
+  installed, or this worker may be stale (restart it). `sua daemon status` also warns
+  when more than one worker is polling the Temporal queue, since competing workers are
+  a common cause of these flaky failures (a run lands on an ungranted/stale worker).
+
+- dac2da8: Inbox dashboard-editor: resolve dashboards by name, and auto-link `/dashboards/` refs.
+
+  Two fixes found dogfooding the new `dashboard-editor` action:
+
+  - **No more duplicate dashboards.** add-tile/create now resolve a `DASHBOARD`
+    given as a display name ("Morning Brief") to an existing dashboard
+    (`user:morning-brief`) by id, slug, or case-insensitive name — instead of
+    minting a near-duplicate `user:morning-brief-<ts>`. create is idempotent by
+    name.
+  - **Dashboard links are clickable.** `linkifyRefs` now auto-links bare
+    `/dashboards/<id>` references in triage recommendations (it only handled
+    `/runs` and `/agents`), and drops the `user:`/pack namespace from the link
+    label so `/dashboards/user:morning-brief` reads as `morning-brief`.
+
+- 5828e49: Fix: inbox triage can analyze any agent, not just the thread's target.
+
+  agent-analyzer's preflight node hard-requires AGENT_YAML, which the inbox route injected only from
+  the thread MESSAGE's agentId. So on a manual thread (no agentId) — or when triage wanted to analyze
+  a different agent than the thread's target, e.g. one it just built — the YAML was never injected
+  and every analyzer run failed at preflight ("Process exited with code 1"). The route now resolves
+  the target from an explicit `AGENT_ID` in the action inputs (falling back to the thread's agentId),
+  injects that agent's YAML, and refuses up front with a clear message when no agent can be resolved
+  instead of dispatching a doomed run. The triage kernel teaches setting `AGENT_ID` to the agent to
+  analyze.
+
+- 4ee5f72: Home: inbox-first "Ask sua" CTA + a global top-bar "needs you" toast.
+
+  The unified home had three competing action clusters in the upper-right — the old
+  "Build from goal" / "Browse packs" header buttons, the Needs-you strip's "Open
+  inbox", and the board's own controls. Now:
+
+  - The header buttons are replaced by a single primary **Ask sua →** that opens a
+    fresh inbox thread (`POST /inbox/new`). Build-from-goal still lives on /agents
+    and the no-agents empty state.
+  - The "needs you" signal moves off the home body into a global **top-bar toast**
+    ("N need your reply →") shown in the top-bar empty space on every page whenever
+    inbox threads await a reply (count from `/inbox/needs-you-count`). This removes
+    the redundant "Open inbox" callout and tightens the home's vertical — the page
+    now leads straight into the board.
+
+- d28e40f: Inbox modal: don't yank the operator to the bottom when reading a tall widget.
+
+  When an inline output widget (e.g. a cocktail card) is taller than the thread
+  viewport, scrolling up to read its top was repeatedly fought by the poll-driven
+  refresh, which swapped the DOM and forced a scroll-to-bottom every tick. The
+  refresh now preserves scroll position and only follows the latest content when
+  the operator is already near the bottom; the streaming-reply bubble does the
+  same; and the post-refresh focus no longer scrolls the composer into view
+  (`focus({ preventScroll: true })`).
+
+- c253b1e: Inbox: triage can now summon an agent's widget into a thread.
+
+  Activates the show-widget mechanism. The triage AGENT_CATALOG now carries a `hasWidget` flag
+  (true when an agent has an inline output widget), and the triage kernel teaches when to propose
+  `show-widget` ("show me X's output" → display the latest run read-only) vs `run-agent` ("run/refresh
+  X" → execute). Dogfooded live: asking "show me the <agent> output" surfaces that agent's latest
+  output widget inline as a card, with no re-run and no extra triage turn.
+
+- 72f9cff: Inbox: stop triage from rendering an output widget twice in a thread.
+
+  After triage ran an agent in a thread, the follow-up triage turn would
+  often propose a `show-widget` action pointing at that same just-completed
+  run — but the run-agent card already renders that run's widget inline, so
+  the widget appeared twice. The engine now declines a `show-widget` whose
+  latest completed run is already shown inline on the thread
+  (`showWidgetWouldDuplicate`), and the triage kernel teaches not to
+  show-widget an agent it just ran in the same thread.
+
+- 12dd613: Inbox: Stop now halts the autonomous triage chain, not just one turn.
+
+  The triage Stop/Cancel button only aborted the in-flight triage LLM run, but the
+  runaway loop is driven by auto-approved actions (agent-analyzer → agent-editor)
+  completing and refiring triage — so a fresh turn respawned right after Stop and
+  the thread ran until the consecutive-turn cap. Cancel now sets a per-message stop
+  flag that `maybeRefireTriage` and the auto-approve dispatch both honor, so the
+  chain halts after the in-flight action; the flag is cleared when the operator
+  replies. Stop also takes effect when the thing running is a sub-agent action
+  (no triage run to abort), posting an acknowledgement note.
+
+- 8f39b45: Clean up the inbox thread-actions UI (fork / retarget).
+
+  Replaced the two free-text "agent id" boxes with a single labeled "Move to"
+  dropdown listing installed agents by name, shared by the Fork and Retarget
+  buttons (Retarget uses the submit button's formaction so one select drives both
+  routes). The inbox AJAX form handler now honors a submitter's formaction. Clearer,
+  no more typing exact agent ids.
+
+- 34854da: Fix node-cron type import so the build survives the 4.5.0 bump.
+
+  node-cron 4.5.0 ships a bundled type declaration whose default export no
+  longer doubles as a type namespace, so `cron.ScheduledTask` stopped
+  resolving (`TS2503: Cannot find namespace 'cron'`). Import `ScheduledTask`
+  as a named type instead. Backward compatible with 4.2.1; unblocks the
+  Dependabot prod-minor-patch bump.
+
+- 86a2a0b: Refactor: extract the inbox triage/actions engine into its own module.
+
+  Second of three behavior-preserving slices of the oversized inbox route file. The
+  triage + action-execution + learning-extraction engine (runTriageAgent,
+  runProposedAction, maybeExtractLearning, and the run/refire/auto-propose helpers) moves
+  into `inbox-engine.ts`, with the runTriageAgent↔runProposedAction cycle kept internal to
+  that one module. `inbox.ts` is now just the 20 route handlers + router wiring (925 lines,
+  down from 2249; the engine file is 1355). `TRIAGE_AGENT_ID` moved to the shared leaf so no
+  sibling module imports the router file (clean acyclic module graph). No logic changes;
+  full suite unchanged at 2018 pass / 3 skip, and the live routes (list, respond→triage,
+  fragment, action proposal) were smoke-tested.
+
+- 69da6f8: Refactor: finish the inbox route-file split (drop shims, repoint tests, shape seams).
+
+  Final slice of the inbox.ts refactor. Drops the temporary re-export shims and repoints the
+  9 sibling test files to import directly from the new modules (inbox-shared / inbox-catalog /
+  inbox-plan / inbox-widgets / inbox-engine), so inbox.ts now exports only `inboxRouter`.
+
+  Also shapes the seams for the planned "inbox span of control" work: a module-map header on
+  inbox.ts (route layer only — compose the siblings, don't regrow the god file), labelled route
+  bands (read · lifecycle · conversation+triage · metadata · actions · learnings), and a
+  doc-comment marking inbox-widgets.ts as the single in-thread output-widget boundary.
+
+  No behavior change. inbox.ts: 3217 (pre-refactor) -> 938. Full suite unchanged at 2018 pass /
+  3 skip.
+
+- 6cf1ae2: Refactor: split the leaf helpers out of the oversized inbox route file.
+
+  `packages/dashboard/src/routes/inbox.ts` had grown to 3217 lines. This is the first
+  of three behavior-preserving slices: the pure/leaf helpers move into four cohesive
+  sibling modules — `inbox-shared.ts` (http/util + shared constants + pure formatters),
+  `inbox-catalog.ts` (sub-agent allowlist/catalog/input-enrichment), `inbox-plan.ts`
+  (plan/action/link parsing + crash-recovery), and `inbox-widgets.ts` (thread view-data +
+  in-thread widget assembly). `inbox.ts` re-exports the moved symbols so nothing else
+  changes. No logic changes; full suite unchanged at 2018 pass / 3 skip. inbox.ts is now
+  2249 lines; the engine extraction + shim cleanup follow.
+
+- 5b9ddf1: Apple reminder-update: empty optional fields mean "leave unchanged".
+
+  The `apple.apple.reminder-update` tool now omits `title`/`notes`/`dueDate` from
+  the payload when they arrive empty, instead of forwarding `""` and blanking the
+  field. Tool inputs come through as templated strings with no type coercion, so
+  an "edit a reminder" agent that maps every field would otherwise erase the ones
+  the operator didn't set. Now only the fields you actually provide are changed —
+  which is what makes a single edit-reminder agent (reschedule / retitle / re-note)
+  safe.
+
+- edfc556: Clearer node-timeout errors when the machine slept.
+
+  A node's wall-clock timer is suspended while the machine sleeps, so a 300s
+  timeout could "fire" hours later and report a misleading "Timed out after 300s"
+  on a run that never actually ran that long. The timeout message now detects when
+  the elapsed wall-clock vastly exceeds the configured limit and annotates it
+  ("limit 300s, but 3.7h elapsed; the machine likely slept...") so run detail
+  explains the gap instead of implying a true hang. Operator Stop (cancellation)
+  keeps the bare message.
+
+- b8d2ecd: Fix: apply agent input defaults to `{{inputs.X}}` in builtin/generated tool nodes.
+
+  The builtin-tool execution path resolved `{{inputs.X}}` templates against the
+  caller's `--input` pairs only, ignoring declared input defaults — so a tool node
+  templating a defaulted input received an empty string (e.g. a required field
+  failing with "title is required"). Shell/LLM nodes already applied defaults via
+  node-env; the tool path now uses the same `mergedInputs` merge, so defaults and
+  required-input validation are consistent across node types.
+
+- 98c9ce6: Fix triage reverting to an earlier goal when the operator pivots mid-thread.
+
+  Inbox triage was anchored to the original message body (`MESSAGE_BODY`), which
+  is frozen at thread creation. When the operator changed their mind partway
+  through a thread, triage kept pursuing the first request and, on auto-follow-up
+  turns, re-proposed stale actions (including ones that had already failed),
+  ignoring the newer ask. Triage now receives the operator's latest message as a
+  first-class `CURRENT_REQUEST` input that takes precedence over the frozen
+  original, and the inbox-triage prompt no longer re-proposes failed actions the
+  current request has moved past.
+
+- 830744d: Slim and reorder the triage prompt to cut per-turn tokens.
+
+  A measured triage turn was ~15.5K tokens, of which the runnable-agent specs
+  (full input schemas, sent every turn) were ~47%. The specs are now compacted to
+  the structural minimum triage actually needs — input names, types, required, a
+  short truncated description — dropping the redundant agent-level prose (the
+  catalog already carries it). That roughly halves the specs block (a measured
+  turn dropped to ~12K tokens, -23%), with no loss of the input names triage uses
+  to propose actions correctly. The prompt is also reordered so the static prefix
+  (rules + catalog) leads and the live message + conversation trail, with a terse
+  output reminder last — a cache-friendly layout that preserves instruction
+  following.
+
+- a1a3875: Triage can now see a whole run's output, not just the first ~2KB.
+
+  `FOCUS_AGENT_RUN` (the latest run output triage answers from) was capped at 2000
+  chars. A verbose data agent — an MLB scoreboard is ~8KB, a full slate of 15
+  games — got sliced off after ~4 entries, so triage genuinely couldn't see the
+  row the operator asked about ("did the Mariners win?" with the Mariners game
+  deep in the payload). The cap is now generous enough (12KB, 14KB total) that a
+  full data payload reaches triage intact, still bounded so a pathological dump
+  can't blow the prompt (it truncates with an "open the run" pointer). The triage
+  kernel also tells it to read the whole payload before answering a data question,
+  and to link the run rather than guess when the output is genuinely truncated.
+
+- 98c9ce6: Inbox: a reply over a pending proposed action now retires the card and re-plans.
+
+  Previously, replying while a triage-proposed Run/Skip card was still pending did
+  nothing — triage was suppressed until you manually skipped the card. Now a reply
+  auto-retires any pending _proposed_ card (shown as "Superseded by your reply",
+  attributed to triage rather than the operator) and immediately fires a fresh
+  triage turn that plans against your latest message. Running actions are left
+  untouched — they can't be safely cancelled mid-flight. Manual skips are now
+  explicitly attributed to the operator.
+
+- 370b6af: Refine the top-bar "needs you" badge + a readability/sizing pass on Home & Pulse.
+
+  The global "needs you" toast is now a crafted, right-anchored pill: a soft-amber
+  fill with a 1px amber border, a mono count, and a gently pulsing dot
+  (reduced-motion-safe), grouped with the theme toggle in a `.topbar__right`
+  cluster so it hugs the right edge instead of floating mid-bar. The label now
+  pluralizes ("1 needs your reply" / "3 need your reply") and the toast announces
+  via `aria-live`.
+
+  Alongside it, a full readability/sizing pass across the dashboard: a new
+  `--font-size-2xl` (28px) token plus reusable `.section-label` and `.stat-value`
+  utilities, then every hardcoded `font-size` (the 7-12px label soup, the off-scale
+  32px stats) and off-grid padding/margin in the stylesheets and view templates
+  remapped onto the design tokens — Home, Pulse, Inbox (list/detail/modal), agent
+  detail, nodes, and the output widgets. Only intentional values are left raw (the
+  16px rem anchor, optical 1px nudges, relative `em` units).
+
 ## 0.24.0
 
 ### Minor Changes
