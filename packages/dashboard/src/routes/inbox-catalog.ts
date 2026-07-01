@@ -445,8 +445,19 @@ export function extractAgentBuilderProviderPin(inputs: Record<string, string>): 
 /**
  * Distilled version of run-now-build.ts's run-output collector:
  * grab the latest completed run's result + the latest failed run's
- * error/output, cap at 3000 chars. Empty string when neither exists.
+ * error/output. This is triage's window into what an agent actually
+ * returned, so the caps must be generous enough that the operator's
+ * answer isn't past the cutoff: a data agent (an MLB scoreboard, a
+ * markets digest) emits verbose JSON — a full MLB slate is ~8KB — and
+ * a 2KB cap sliced off after ~4 games, so triage literally couldn't
+ * see the team the operator asked about. Empty string when neither
+ * run exists. Still bounded so a pathological multi-hundred-KB dump
+ * can't blow the triage prompt (it truncates + says so; triage can
+ * point the operator at the full run).
  */
+const RUN_RESULT_CAP = 12000;
+const RUN_SUMMARY_TOTAL_CAP = 14000;
+
 export function collectRunSummary(
   ctx: ReturnType<typeof getContext>,
   agentName: string,
@@ -456,7 +467,7 @@ export function collectRunSummary(
     const completed = ctx.runStore.listRuns({ agentName, status: 'completed', limit: 1 });
     if (completed.length > 0 && completed[0].result) {
       const raw = completed[0].result;
-      out = raw.length > 2000 ? raw.slice(0, 2000) + '\n...(truncated)' : raw;
+      out = raw.length > RUN_RESULT_CAP ? raw.slice(0, RUN_RESULT_CAP) + '\n...(truncated — open the run for the full output)' : raw;
     }
     const failed = ctx.runStore.listRuns({ agentName, status: 'failed', limit: 1 });
     if (failed.length > 0) {
@@ -467,13 +478,13 @@ export function collectRunSummary(
         const parts = [
           `\n\nMOST RECENT RUN FAILED (${f.id.slice(0, 8)}):`,
           f.error ? `Error: ${f.error}` : '',
-          f.result ? `Output: ${f.result.slice(0, 1000)}` : '',
+          f.result ? `Output: ${f.result.slice(0, 2000)}` : '',
         ].filter(Boolean);
         out += parts.join('\n');
       }
     }
   } catch { /* swallow */ }
-  return out.length > 3000 ? out.slice(0, 3000) + '\n...(truncated)' : out;
+  return out.length > RUN_SUMMARY_TOTAL_CAP ? out.slice(0, RUN_SUMMARY_TOTAL_CAP) + '\n...(truncated — open the run for the full output)' : out;
 }
 
 export function deriveRunFailureReason(
