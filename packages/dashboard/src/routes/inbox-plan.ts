@@ -18,6 +18,13 @@ import {
  */
 const MAX_TRIAGE_CRASH_RETRIES = 1;
 
+/**
+ * Sentinel agentId for a `resolve-thread` action. It isn't a real agent — the
+ * engine handles it by setting the thread status to `resolved` — so it must not
+ * collide with any installed agent id. Exported so the engine can recognize it.
+ */
+export const RESOLVE_THREAD_AGENT_ID = '_resolve-thread';
+
 export function hasMatchingFailedAction(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
@@ -30,6 +37,9 @@ export function hasMatchingFailedAction(
   // is exactly the change that unblocks a "no completed run yet" failure). Never
   // treat a show-widget as a stale-failed match.
   if (candidate.mode === 'show-widget') return false;
+  // A resolve-thread action has no inputs and never "fails" in a way a retry
+  // would fix — never let the stale-failed guard block it.
+  if (candidate.mode === 'resolve') return false;
   const candidateInputs = stableStringifyInputs(candidate.inputs);
   // When the target agent was edited AFTER a failure, that failure is stale —
   // the operator fixing the agent is exactly the "something changed that would
@@ -185,6 +195,23 @@ export function parseProposedActions(
     // no dispatch). Not gated on the run allowlist — any INSTALLED agent is
     // fair game (the engine's dedup loop rejects uninstalled ones, where it has
     // agentStore access). No inputs (the agent isn't run).
+    // `resolve-thread` closes the thread — no agent, no dispatch. The engine
+    // sets the thread status to `resolved` synchronously. Not allowlist-gated
+    // (it runs nothing). Sentinel agentId so downstream code never treats it as
+    // a real agent.
+    if (type === 'resolve-thread') {
+      accepted.push({
+        kind: 'action',
+        mode: 'resolve',
+        status: 'proposed',
+        agentId: RESOLVE_THREAD_AGENT_ID,
+        inputs: {},
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: 'Resolve',
+      });
+      continue;
+    }
     if (type === 'show-widget') {
       if (!agentId) {
         rejected.push({ agentId: '<unknown>', reason: 'show-widget missing agentId' });
