@@ -24,3 +24,7 @@ stored `CustomLlmProvider` (waterfall entries widened to plain names, v2→v3
 settings migration) is resolved on every run path, and node `provider` pins now
 accept a custom provider name. The API key is masked in the UI and never echoed
 back into the form.
+
+Each provider in the waterfall also gets a **Disable** switch: it keeps its slot
+and config but is skipped at runtime — flip claude/codex off to run local-only,
+then flip them back on any time (the store keeps at least one enabled).

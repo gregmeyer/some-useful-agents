@@ -55,7 +55,13 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     return PROVIDER_LABEL[id] ?? id;
   };
 
-  // Each row is its own tiny form. Up/Down/Remove submit to specific
+  // A per-provider off switch: disabled entries keep their slot but are skipped
+  // at runtime. "Primary" is the first ENABLED provider, not just chain[0].
+  const disabledSet = new Set(args.settings.disabledProviders ?? []);
+  const enabledCount = chain.filter((p) => !disabledSet.has(p)).length;
+  const firstEnabled = chain.find((p) => !disabledSet.has(p));
+
+  // Each row is its own tiny form. Up/Down/Remove/toggle submit to specific
   // mutation routes so the operator sees exactly what changed; the
   // alternative — one big "edit list" form with hidden serialization
   // — was harder to reason about and made the URL state non-shareable.
@@ -63,15 +69,30 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     const isFirst = idx === 0;
     const isLast = idx === chain.length - 1;
     const isOnly = chain.length === 1;
+    const enabled = !disabledSet.has(p);
+    const isPrimary = enabled && p === firstEnabled;
+    // Disabling the last remaining enabled provider is refused by the store;
+    // reflect that in the UI so the button isn't a dead click.
+    const lastEnabled = enabled && enabledCount === 1;
+    const badge = isPrimary
+      ? html`<span class="badge badge--ok">Primary</span>`
+      : enabled
+        ? html`<span class="dim" style="font-size: var(--font-size-xs);">Fallback</span>`
+        : html`<span class="badge badge--muted">Off</span>`;
     return html`
-      <li class="settings-llm__chain-row" data-provider="${p}">
+      <li class="settings-llm__chain-row" data-provider="${p}" style="${enabled ? '' : 'opacity: 0.55;'}">
         <span class="settings-llm__chain-rank">${idx + 1}</span>
         <span class="settings-llm__chain-label">
           <span class="mono">${p}</span>
           <span class="dim">${labelFor(p)}</span>
         </span>
-        ${isFirst ? html`<span class="badge badge--ok">Primary</span>` : html`<span class="dim" style="font-size: var(--font-size-xs);">Fallback</span>`}
+        ${badge}
         <div class="settings-llm__chain-actions">
+          <form method="POST" action="/settings/llm/toggle" style="display:inline;">
+            <input type="hidden" name="provider" value="${p}">
+            <input type="hidden" name="enabled" value="${enabled ? '0' : '1'}">
+            <button type="submit" class="btn btn--xs ${enabled ? 'btn--ghost' : 'btn--primary'}" ${lastEnabled ? 'disabled' : ''} title="${lastEnabled ? 'Keep at least one provider enabled.' : (enabled ? 'Skip this provider at runtime' : 'Use this provider again')}">${enabled ? 'Disable' : 'Enable'}</button>
+          </form>
           <form method="POST" action="/settings/llm/move" style="display:inline;">
             <input type="hidden" name="provider" value="${p}">
             <input type="hidden" name="direction" value="up">
@@ -199,6 +220,12 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
         When an agent or node pins its own provider, that provider runs
         first regardless of the chain order — and the remaining providers
         still apply as fallbacks. (Previously a pin disabled all fallback.)
+      </p>
+      <p class="dim">
+        <strong>Disable</strong> flips a provider off without removing it — it
+        keeps its slot and config but is skipped at runtime. Turn claude and
+        codex off to run local-only, then flip them back on any time. At least
+        one provider must stay enabled.
       </p>
 
       ${errorBanner}

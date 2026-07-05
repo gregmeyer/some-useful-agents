@@ -860,6 +860,28 @@ settingsRouter.post('/settings/llm/move', (req: Request, res: Response) => {
 });
 
 /**
+ * Toggle a waterfall provider on/off without removing it. Disabled providers
+ * keep their slot + config but are skipped at runtime — the "turn claude/codex
+ * off and run local-only" switch.
+ */
+settingsRouter.post('/settings/llm/toggle', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  const enabled = req.body?.enabled === '1' || req.body?.enabled === 'true';
+  try {
+    ctx.llmSettingsStore.setProviderEnabled(provider, enabled);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${provider}.`);
+});
+
+/**
  * Define a custom OpenAI-compatible provider (a local / self-hosted model behind
  * a `/v1/chat/completions` endpoint). Does NOT add it to the waterfall — the
  * operator adds it via the normal "Add provider" control afterward.

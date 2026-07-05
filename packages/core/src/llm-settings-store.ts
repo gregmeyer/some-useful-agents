@@ -91,6 +91,14 @@ export interface LlmSettings {
   providers: ProviderRef[];
   /** Operator-defined OpenAI-compatible HTTP providers. */
   customProviders?: CustomLlmProvider[];
+  /**
+   * Providers that stay in the waterfall (position + config preserved) but are
+   * SKIPPED at runtime — a per-provider off switch. Lets an operator flip
+   * claude/codex off to run local-only, then flip them back on without
+   * re-adding. The runtime chain (built in buildLlmSettingsSnapshot) excludes
+   * these; the store guarantees at least one provider stays enabled.
+   */
+  disabledProviders?: ProviderRef[];
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
 }
@@ -158,6 +166,31 @@ export class LlmSettingsStore {
       throw new Error('Provider waterfall must have at least one entry.');
     }
     data.settings.providers = deduped;
+    this.write(data);
+  }
+
+  /**
+   * Toggle a waterfall provider on/off. Disabling keeps it in the chain but
+   * excludes it at runtime; the store refuses to disable the last enabled
+   * provider (every run needs somewhere to dispatch). `name` must be a current
+   * waterfall entry.
+   */
+  setProviderEnabled(name: string, enabled: boolean): void {
+    const data = this.read();
+    if (!data.settings.providers.includes(name)) {
+      throw new Error(`"${name}" is not in the waterfall.`);
+    }
+    const disabled = new Set(data.settings.disabledProviders ?? []);
+    if (enabled) {
+      disabled.delete(name);
+    } else {
+      const stillEnabled = data.settings.providers.filter((p) => p !== name && !disabled.has(p));
+      if (stillEnabled.length === 0) {
+        throw new Error('At least one provider must stay enabled.');
+      }
+      disabled.add(name);
+    }
+    data.settings.disabledProviders = data.settings.providers.filter((p) => disabled.has(p));
     this.write(data);
   }
 
@@ -283,7 +316,12 @@ export class LlmSettingsStore {
       const deduped: ProviderRef[] = [];
       for (const p of filtered) if (!deduped.includes(p)) deduped.push(p);
       if (deduped.length === 0) deduped.push(DEFAULT_PRIMARY);
-      return { version: 3, settings: { providers: deduped, customProviders, lastFallback: settings.lastFallback } };
+      // A disabled entry only means something if it's still in the waterfall;
+      // and never let every provider be disabled (fall open to the primary).
+      const disabledIn = (settings as LlmSettings).disabledProviders ?? [];
+      let disabledProviders = deduped.filter((p) => disabledIn.includes(p));
+      if (disabledProviders.length === deduped.length) disabledProviders = disabledProviders.slice(1);
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };

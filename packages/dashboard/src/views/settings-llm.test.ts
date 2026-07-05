@@ -59,3 +59,34 @@ describe('renderSettingsLlm — custom providers', () => {
     expect(out).toContain('No custom endpoints yet.');
   });
 });
+
+describe('renderSettingsLlm — enable/disable switch', () => {
+  it('shows a Disable button for an enabled provider and Enable for a disabled one', () => {
+    const settings: LlmSettings = { providers: ['claude', 'codex'], disabledProviders: ['codex'] };
+    const out = render(renderSettingsLlm({ ...base, settings }));
+    expect(out).toContain('/settings/llm/toggle');
+    // Enabled claude → Disable (enabled=0 posted); disabled codex → Enable + Off badge.
+    expect(out).toMatch(/name="provider" value="claude">\s*<input type="hidden" name="enabled" value="0">/);
+    expect(out).toMatch(/name="provider" value="codex">\s*<input type="hidden" name="enabled" value="1">/);
+    expect(out).toContain('>Off<');
+  });
+
+  it('marks the first ENABLED provider as Primary, not just chain[0]', () => {
+    const settings: LlmSettings = { providers: ['claude', 'codex'], disabledProviders: ['claude'] };
+    const out = render(renderSettingsLlm({ ...base, settings }));
+    // claude is off, so codex is the effective primary.
+    const primaryIdx = out.indexOf('Primary');
+    const codexIdx = out.indexOf('codex');
+    const claudeIdx = out.indexOf('claude');
+    expect(primaryIdx).toBeGreaterThan(-1);
+    // The Primary badge sits in codex's row (after claude's row in the list).
+    expect(codexIdx).toBeGreaterThan(claudeIdx);
+  });
+
+  it('disables the toggle button when only one provider is enabled', () => {
+    const settings: LlmSettings = { providers: ['claude'] };
+    const out = render(renderSettingsLlm({ ...base, settings }));
+    // The lone enabled provider cannot be disabled → button carries `disabled`.
+    expect(out).toMatch(/Keep at least one provider enabled/);
+  });
+});

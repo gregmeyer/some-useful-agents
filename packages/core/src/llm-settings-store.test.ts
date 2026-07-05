@@ -212,3 +212,43 @@ describe('LlmSettingsStore (custom OpenAI-compatible providers)', () => {
     expect(s.customProviders?.map((c) => c.name)).toEqual(['ok']);
   });
 });
+
+describe('LlmSettingsStore (enable/disable a provider)', () => {
+  it('disables and re-enables a provider without removing it', () => {
+    store.setProviders(['claude', 'codex']);
+    store.setProviderEnabled('claude', false);
+    let s = store.get();
+    expect(s.providers).toEqual(['claude', 'codex']); // still in the chain
+    expect(s.disabledProviders).toEqual(['claude']);
+    store.setProviderEnabled('claude', true);
+    s = store.get();
+    expect(s.disabledProviders).toEqual([]);
+  });
+
+  it('refuses to disable the last enabled provider', () => {
+    store.setProviders(['claude', 'codex']);
+    store.setProviderEnabled('codex', false);
+    expect(() => store.setProviderEnabled('claude', false)).toThrow(/at least one/i);
+  });
+
+  it('rejects toggling a provider that is not in the waterfall', () => {
+    store.setProviders(['claude']);
+    expect(() => store.setProviderEnabled('codex', false)).toThrow(/not in the waterfall/i);
+  });
+
+  it('drops a disabled entry when the provider leaves the chain', () => {
+    store.setProviders(['claude', 'codex']);
+    store.setProviderEnabled('codex', false);
+    store.setProviders(['claude']); // codex removed from the chain
+    expect(store.get().disabledProviders).toEqual([]);
+  });
+
+  it('never reports all providers disabled (falls open to the first)', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 3, settings: { providers: ['claude', 'codex'], disabledProviders: ['claude', 'codex'] },
+    }));
+    const s = new LlmSettingsStore(path).get();
+    expect(s.disabledProviders).toEqual(['codex']); // claude stays enabled
+  });
+});
