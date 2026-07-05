@@ -687,6 +687,25 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
+/** GET the endpoint's /models to confirm a custom provider is reachable. */
+async function probeCustomProvider(def: { apiBase: string; apiKey?: string }): Promise<{ ok: boolean; message: string }> {
+  const url = def.apiBase.replace(/\/+$/, '') + '/models';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const headers: Record<string, string> = {};
+    if (def.apiKey) headers.authorization = `Bearer ${def.apiKey}`;
+    const res = await fetch(url, { signal: controller.signal, headers });
+    if (!res.ok) return { ok: false, message: `HTTP ${res.status} from ${url}` };
+    return { ok: true, message: `reachable (${url})` };
+  } catch (err) {
+    if (controller.signal.aborted) return { ok: false, message: 'probe timed out after 5s' };
+    return { ok: false, message: `unreachable: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Briefly spawn each CLI with --version (or similar) to confirm liveness. */
 async function probeProvider(provider: LlmProvider): Promise<{ ok: boolean; message: string }> {
   const binary = provider === 'codex' ? 'codex' : 'claude';
@@ -749,7 +768,8 @@ settingsRouter.post('/settings/llm/add', (req: Request, res: Response) => {
     return;
   }
   const providerRaw = typeof req.body?.provider === 'string' ? req.body.provider : '';
-  if (!isProvider(providerRaw)) {
+  // A waterfall entry is a builtin id OR the name of a defined custom provider.
+  if (!isProvider(providerRaw) && !ctx.llmSettingsStore.getCustomProvider(providerRaw)) {
     redirectWith(res, '/settings/llm', 'error', `Invalid provider "${providerRaw}".`);
     return;
   }
@@ -839,6 +859,51 @@ settingsRouter.post('/settings/llm/move', (req: Request, res: Response) => {
   redirectWith(res, '/settings/llm', 'flash', `Moved ${providerRaw} ${direction}.`);
 });
 
+/**
+ * Define a custom OpenAI-compatible provider (a local / self-hosted model behind
+ * a `/v1/chat/completions` endpoint). Does NOT add it to the waterfall — the
+ * operator adds it via the normal "Add provider" control afterward.
+ */
+settingsRouter.post('/settings/llm/custom/add', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  try {
+    ctx.llmSettingsStore.addCustomProvider({
+      name: str(req.body?.name),
+      kind: 'openai',
+      displayName: str(req.body?.displayName) || undefined,
+      apiBase: str(req.body?.apiBase),
+      apiKey: str(req.body?.apiKey) || undefined,
+      model: str(req.body?.model),
+    });
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `Saved custom provider "${str(req.body?.name)}". Add it to the chain below to use it.`);
+});
+
+/** Delete a custom provider (also strips it from the waterfall). */
+settingsRouter.post('/settings/llm/custom/remove', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const name = typeof req.body?.name === 'string' ? req.body.name : '';
+  try {
+    ctx.llmSettingsStore.removeCustomProvider(name);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `Removed custom provider "${name}".`);
+});
+
 settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const settings = ctx.llmSettingsStore?.get();
@@ -846,9 +911,12 @@ settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) =
     redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
     return;
   }
-  const probe: Record<LlmProvider, { ok: boolean; message: string }> = {} as never;
+  const probe: Record<string, { ok: boolean; message: string }> = {};
   for (const p of LLM_PROVIDERS) {
     probe[p] = await probeProvider(p);
+  }
+  for (const c of settings.customProviders ?? []) {
+    probe[c.name] = await probeCustomProvider(c);
   }
   // Stash the result on a per-request basis by piggybacking the shell
   // render (the simplest way without adding session state).

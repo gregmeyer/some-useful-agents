@@ -17,7 +17,10 @@ it in the provider waterfall or pin a node to it. Requests POST to
 machinery as a CLI provider (a down endpoint classifies as unreachable and falls
 through to the next provider; 401 → auth, 429 → rate-limited, timeout → timeout).
 
-This core release makes such a provider runnable once defined in the LLM settings
-store (`CustomLlmProvider`, waterfall entries widened to plain names, v2→v3
-settings migration). The `/settings/llm` UI to add one from the dashboard lands
-next. Node `provider` pins now accept a custom provider name.
+Add one from **Settings → LLM**: a "Custom OpenAI-compatible endpoints" form
+(name, API base, model, optional key) saves the provider, a Probe button checks
+it's reachable, and it then appears in the provider-waterfall dropdown. The
+stored `CustomLlmProvider` (waterfall entries widened to plain names, v2→v3
+settings migration) is resolved on every run path, and node `provider` pins now
+accept a custom provider name. The API key is masked in the UI and never echoed
+back into the form.

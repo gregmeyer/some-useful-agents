@@ -8,8 +8,8 @@ export interface SettingsLlmArgs {
   providers: readonly LlmProvider[];
   /** Pass-through error string from a recent action (probe / save). */
   error?: string;
-  /** Probe result: `name → { ok, message }`. Absent when probe hasn't run. */
-  probe?: Record<LlmProvider, { ok: boolean; message: string }>;
+  /** Probe result: `name → { ok, message }` (builtins + custom). Absent until probed. */
+  probe?: Record<string, { ok: boolean; message: string }>;
   /** Pretty timestamp helper (last fallback "3 minutes ago"). */
   formatAge: (isoOrMs: number | string) => string;
 }
@@ -41,7 +41,19 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
   const chain = args.settings.providers;
   const chainSet = new Set(chain);
-  const available = args.providers.filter((p) => !chainSet.has(p));
+  const customProviders = args.settings.customProviders ?? [];
+  const customNames = customProviders.map((c) => c.name);
+  // The add-dropdown offers builtins AND defined custom providers not yet in
+  // the chain.
+  const available: string[] = [
+    ...args.providers.filter((p) => !chainSet.has(p)),
+    ...customNames.filter((n) => !chainSet.has(n)),
+  ];
+  const labelFor = (id: string): string => {
+    const custom = customProviders.find((c) => c.name === id);
+    if (custom) return `${custom.displayName ?? custom.name} (custom · ${custom.model})`;
+    return PROVIDER_LABEL[id] ?? id;
+  };
 
   // Each row is its own tiny form. Up/Down/Remove submit to specific
   // mutation routes so the operator sees exactly what changed; the
@@ -56,7 +68,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
         <span class="settings-llm__chain-rank">${idx + 1}</span>
         <span class="settings-llm__chain-label">
           <span class="mono">${p}</span>
-          <span class="dim">${PROVIDER_LABEL[p] ?? ''}</span>
+          <span class="dim">${labelFor(p)}</span>
         </span>
         ${isFirst ? html`<span class="badge badge--ok">Primary</span>` : html`<span class="dim" style="font-size: var(--font-size-xs);">Fallback</span>`}
         <div class="settings-llm__chain-actions">
@@ -85,7 +97,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
       <form method="POST" action="/settings/llm/add" class="settings-llm__add">
         <label for="llm-add" class="dim">Add provider</label>
         <select id="llm-add" name="provider" class="form-field" style="max-width: 220px;">
-          ${available.map((p) => html`<option value="${p}">${PROVIDER_LABEL[p] ?? p}</option>`) as unknown as SafeHtml[]}
+          ${available.map((p) => html`<option value="${p}">${labelFor(p)}</option>`) as unknown as SafeHtml[]}
         </select>
         <button type="submit" class="btn btn--sm">Add</button>
       </form>
@@ -114,6 +126,48 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
         <div class="dim">No provider in the chain has fallen over in a fallback-worthy way since records started.</div>
       </div>
     `;
+
+  // Custom OpenAI-compatible endpoints (local / self-hosted models). Defining
+  // one here makes it selectable in the waterfall above; the apiKey is never
+  // rendered back into an input value — only a masked indicator of presence.
+  const customRows = customProviders.map((c) => html`
+    <li class="settings-llm__chain-row" data-custom="${c.name}">
+      <span class="settings-llm__chain-label">
+        <span class="mono">${c.name}</span>
+        <span class="dim">${c.apiBase} · ${c.model}${c.apiKey ? ' · key ••••' : ' · no key'}</span>
+      </span>
+      <div class="settings-llm__chain-actions">
+        <form method="POST" action="/settings/llm/custom/remove" style="display:inline;" onsubmit="return confirm('Remove custom provider ${c.name}? It will also be removed from the waterfall.');">
+          <input type="hidden" name="name" value="${c.name}">
+          <button type="submit" class="btn btn--xs btn--ghost">Remove</button>
+        </form>
+      </div>
+    </li>
+  `);
+
+  const customBlock = html`
+    <section class="settings-section" style="margin-top: var(--space-6);">
+      <h2 class="mt-0">Custom OpenAI-compatible endpoints</h2>
+      <p class="dim">
+        Point sua at a local or self-hosted model that speaks the OpenAI
+        <code>/v1/chat/completions</code> API (llama.cpp, LM Studio, Ollama, vLLM,
+        a gateway…). Saved endpoints appear in the <strong>Add provider</strong>
+        dropdown above and can be pinned per-node via <code>provider:</code>.
+      </p>
+      ${customProviders.length > 0 ? html`<ol class="settings-llm__chain">${customRows as unknown as SafeHtml[]}</ol>` : html`<p class="dim" style="font-size: var(--font-size-sm);">No custom endpoints yet.</p>`}
+      <form method="POST" action="/settings/llm/custom/add" class="settings-llm__custom-add" style="display: grid; gap: var(--space-2); max-width: 520px; margin-top: var(--space-3);">
+        <label class="dim" for="cp-name">Name <span class="dim" style="font-size: var(--font-size-xs);">(slug — used in the waterfall + node pins)</span></label>
+        <input id="cp-name" name="name" class="form-field" placeholder="local-qwen-8b" required>
+        <label class="dim" for="cp-base">API base URL</label>
+        <input id="cp-base" name="apiBase" class="form-field" placeholder="http://127.0.0.1:8181/v1" required>
+        <label class="dim" for="cp-model">Model</label>
+        <input id="cp-model" name="model" class="form-field" placeholder="unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL" required>
+        <label class="dim" for="cp-key">API key <span class="dim" style="font-size: var(--font-size-xs);">(optional — leave blank for a local server)</span></label>
+        <input id="cp-key" name="apiKey" class="form-field" type="password" autocomplete="off" placeholder="local">
+        <div><button type="submit" class="btn btn--sm btn--primary">Save endpoint</button></div>
+      </form>
+    </section>
+  `;
 
   const probeBlock = args.probe
     ? html`
@@ -157,12 +211,14 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
       <div class="settings-llm__actions" style="margin-top: var(--space-3);">
         <form method="POST" action="/settings/llm/probe" style="display:inline;">
-          <button type="submit" class="btn btn--ghost">Probe CLIs</button>
+          <button type="submit" class="btn btn--ghost">Probe providers</button>
         </form>
       </div>
 
       ${probeBlock}
       ${statusBlock}
     </section>
+
+    ${customBlock}
   `;
 }
