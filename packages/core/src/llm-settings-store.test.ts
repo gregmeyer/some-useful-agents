@@ -133,3 +133,82 @@ describe('LlmSettingsStore (waterfall)', () => {
     expect(s.providers).toEqual(['claude']);
   });
 });
+
+describe('LlmSettingsStore (custom OpenAI-compatible providers)', () => {
+  const qwen = {
+    name: 'local-qwen-8b', kind: 'openai' as const,
+    apiBase: 'http://127.0.0.1:8181/v1', apiKey: 'local', model: 'unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL',
+  };
+
+  it('adds, lists, and gets a custom provider', () => {
+    store.addCustomProvider(qwen);
+    expect(store.listCustomProviders()).toEqual([qwen]);
+    expect(store.getCustomProvider('local-qwen-8b')).toEqual(qwen);
+    expect(store.getCustomProvider('nope')).toBeUndefined();
+  });
+
+  it('lets the waterfall reference a custom name once it is defined', () => {
+    store.addCustomProvider(qwen);
+    store.setProviders(['local-qwen-8b', 'claude']);
+    expect(store.get().providers).toEqual(['local-qwen-8b', 'claude']);
+  });
+
+  it('rejects a waterfall entry that names an undefined provider', () => {
+    expect(() => store.setProviders(['ghost-model'])).toThrow(/Invalid provider/);
+  });
+
+  it('edits a custom provider in place when re-added by the same name', () => {
+    store.addCustomProvider(qwen);
+    store.addCustomProvider({ ...qwen, model: 'other-model', apiKey: undefined });
+    const got = store.getCustomProvider('local-qwen-8b');
+    expect(got?.model).toBe('other-model');
+    expect(got?.apiKey).toBeUndefined();
+    expect(store.listCustomProviders()).toHaveLength(1);
+  });
+
+  it('validates name, apiBase, and model', () => {
+    expect(() => store.addCustomProvider({ ...qwen, name: 'has spaces' })).toThrow(/slug/);
+    expect(() => store.addCustomProvider({ ...qwen, name: 'claude' })).toThrow(/builtin/);
+    expect(() => store.addCustomProvider({ ...qwen, apiBase: 'not-a-url' })).toThrow(/http/);
+    expect(() => store.addCustomProvider({ ...qwen, model: '' })).toThrow(/model/);
+  });
+
+  it('removing a custom provider strips it from the waterfall', () => {
+    store.addCustomProvider(qwen);
+    store.setProviders(['local-qwen-8b', 'claude']);
+    store.removeCustomProvider('local-qwen-8b');
+    expect(store.getCustomProvider('local-qwen-8b')).toBeUndefined();
+    expect(store.get().providers).toEqual(['claude']);
+  });
+
+  it('refuses to remove a custom provider that is the only waterfall entry', () => {
+    store.addCustomProvider(qwen);
+    store.setProviders(['local-qwen-8b']);
+    expect(() => store.removeCustomProvider('local-qwen-8b')).toThrow(/last provider/);
+  });
+
+  it('migrates a v2 file to v3 (adds an empty customProviders list)', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({ version: 2, settings: { providers: ['claude'] } }));
+    const s = new LlmSettingsStore(path).get();
+    expect(s.providers).toEqual(['claude']);
+    expect(s.customProviders).toEqual([]);
+  });
+
+  it('drops malformed custom-provider entries from a hand-edited file', () => {
+    const path = join(dir, 'llm-settings.json');
+    writeFileSync(path, JSON.stringify({
+      version: 3,
+      settings: {
+        providers: ['claude'],
+        customProviders: [
+          { name: 'ok', kind: 'openai', apiBase: 'http://x/v1', model: 'm' },
+          { name: 'bad-kind', kind: 'anthropic', apiBase: 'http://x/v1', model: 'm' },
+          { name: 'missing-model', kind: 'openai', apiBase: 'http://x/v1' },
+        ],
+      },
+    }));
+    const s = new LlmSettingsStore(path).get();
+    expect(s.customProviders?.map((c) => c.name)).toEqual(['ok']);
+  });
+});

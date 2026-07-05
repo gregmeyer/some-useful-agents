@@ -22,16 +22,18 @@ import { inputSpecSchema, outputSpecSchema } from './schema.js';
 import { outputWidgetSchema } from './output-widget-schema.js';
 
 /**
- * Zod enum over every registered LLM provider id. Sourced from
- * `PROVIDER_IDS` so new providers automatically validate through the
- * agent + node `provider` fields without a schema edit. The double
- * cast (`as [string, ...string[]]`) is required because
- * `PROVIDER_IDS` is typed as `readonly LlmProvider[]` and z.enum needs
- * a non-empty mutable-tuple type.
+ * Provider id for the agent + node `provider` fields. A builtin CLI provider
+ * (claude / codex / apple-foundation-models) OR the `name` of an operator-
+ * defined custom OpenAI-compatible provider (dynamic, so it can't be a static
+ * enum). Validated as a slug; the runtime resolves it against the configured
+ * providers and falls back to the claude default if the name is unknown, so an
+ * invalid pin degrades gracefully rather than crashing a run. `PROVIDER_IDS` is
+ * imported to keep the builtin list documented at this seam.
  */
-const providerEnumSchema = z.enum(
-  PROVIDER_IDS as unknown as [typeof PROVIDER_IDS[number], ...typeof PROVIDER_IDS[number][]],
-);
+void PROVIDER_IDS;
+const providerEnumSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/i, {
+  message: 'provider must be a slug (letters, digits, . _ -), starting alphanumeric',
+});
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const NODE_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;

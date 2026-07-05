@@ -397,6 +397,8 @@ export {
   type LlmSettings,
   type LlmProvider,
   type LlmFallbackEvent,
+  type CustomLlmProvider,
+  type ProviderRef,
 } from './llm-settings-store.js';
 export {
   planMigration,

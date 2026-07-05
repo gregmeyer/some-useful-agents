@@ -14,7 +14,9 @@ export interface SettingsLlmArgs {
   formatAge: (isoOrMs: number | string) => string;
 }
 
-const PROVIDER_LABEL: Record<LlmProvider, string> = {
+// Keyed by string (not LlmProvider) because the waterfall can now hold custom
+// provider names too; unknown ids fall through to '' via the ?? at the call site.
+const PROVIDER_LABEL: Record<string, string> = {
   claude: 'Claude (claude CLI)',
   codex: 'Codex (codex CLI)',
   'apple-foundation-models': 'Apple Foundation Models (on-device)',

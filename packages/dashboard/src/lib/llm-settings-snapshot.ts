@@ -23,6 +23,7 @@ export function buildLlmSettingsSnapshot(
   const current = store.get();
   return {
     providers: [...current.providers],
+    customProviders: current.customProviders ? [...current.customProviders] : undefined,
     onFallback: (event) => {
       try {
         store.recordFallback({
