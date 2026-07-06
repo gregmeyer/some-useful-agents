@@ -27,6 +27,10 @@ export function buildLlmSettingsSnapshot(
   const disabled = new Set(current.disabledProviders ?? []);
   return {
     providers: current.providers.filter((p) => !disabled.has(p)),
+    // Passed through (not just filtered from `providers`) so a node that PINS a
+    // disabled provider is neutralized too — the pin falls through to the first
+    // enabled provider instead of forcing the disabled one to run.
+    disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
     customProviders: current.customProviders ? [...current.customProviders] : undefined,
     onFallback: (event) => {
       try {

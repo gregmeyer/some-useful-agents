@@ -173,6 +173,26 @@ describe('buildProviderChain (waterfall)', () => {
     expect(buildProviderChain('apple-foundation-models', ['claude', 'codex']))
       .toEqual(['apple-foundation-models', 'claude', 'codex']);
   });
+
+  it('neutralizes a pin to a globally-disabled provider (falls through to the first enabled)', () => {
+    // claude is turned off in settings → the runtime order is enabled-only
+    // (['local-qwen-8b']) and disabledProviders names claude. A claude-pinned
+    // node must NOT run claude — it falls through to the first enabled provider.
+    expect(buildProviderChain('claude', ['local-qwen-8b'], ['claude']))
+      .toEqual(['local-qwen-8b']);
+  });
+
+  it('still honors a pin to a provider that is simply absent from the waterfall (not disabled)', () => {
+    // codex isn't in the operator's chain but isn't disabled either — a codex
+    // pin is a deliberate "use codex" choice and still seeds the chain.
+    expect(buildProviderChain('codex', ['claude'], ['apple-foundation-models']))
+      .toEqual(['codex', 'claude']);
+  });
+
+  it('is a no-op when the disabled list is empty/absent (back-compat)', () => {
+    expect(buildProviderChain('claude', ['claude', 'codex'], [])).toEqual(['claude', 'codex']);
+    expect(buildProviderChain('claude', ['claude', 'codex'])).toEqual(['claude', 'codex']);
+  });
 });
 
 describe('appleFoundationModelsSpawner', () => {

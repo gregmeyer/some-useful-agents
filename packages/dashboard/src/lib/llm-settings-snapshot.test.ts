@@ -28,6 +28,14 @@ describe('buildLlmSettingsSnapshot', () => {
     expect(snap?.providers).toEqual(['codex']); // claude skipped at runtime
   });
 
+  it('carries the disabled list through so pins to disabled providers can be neutralized', () => {
+    const store = makeStore();
+    store.setProviders(['claude', 'codex']);
+    store.setProviderEnabled('claude', false);
+    const snap = buildLlmSettingsSnapshot({ llmSettingsStore: store });
+    expect(snap?.disabledProviders).toEqual(['claude']);
+  });
+
   it('keeps all providers when none are disabled, and carries custom defs', () => {
     const store = makeStore();
     store.addCustomProvider({ name: 'local-qwen', kind: 'openai', apiBase: 'http://x/v1', model: 'q' });

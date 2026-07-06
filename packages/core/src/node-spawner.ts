@@ -87,6 +87,13 @@ export interface LlmSettingsSnapshot {
    */
   customProviders?: CustomLlmProvider[];
   /**
+   * Providers the operator toggled OFF globally. Already excluded from
+   * `providers` (the runtime chain), but passed through so a node that PINS a
+   * disabled provider is neutralized too — the pin falls through to the first
+   * enabled provider instead of forcing the disabled one to run.
+   */
+  disabledProviders?: string[];
+  /**
    * Fired once per hop in the waterfall (i.e. once per fallback
    * transition, not once per run). `from` is the provider that just
    * failed; `to` is the next provider in the chain that's about to
@@ -654,7 +661,7 @@ export async function spawnNodeReal(
     if (!/^UPSTREAM_[A-Z0-9_]+_RESULT$/.test(k)) childEnv[k] = v;
   }
 
-  const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers);
+  const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);
 
   const attemptedProviders: string[] = [];
   // Per-attempt failure trail: why each non-winning provider was skipped.
@@ -906,9 +913,18 @@ async function simulateStreamingChunks(
 export function buildProviderChain(
   pinnedProvider: string | undefined,
   configuredOrder: readonly string[] | undefined,
+  disabledProviders?: readonly string[],
 ): string[] {
   const order = configuredOrder ?? [];
-  const seed = pinnedProvider ?? order[0] ?? 'claude';
+  // A globally-disabled provider is OFF everywhere. Ignore an explicit node pin
+  // that names a disabled provider so the node falls through to the first
+  // enabled provider, instead of the pin forcing the disabled one to run. Note:
+  // a pin to a provider that's simply not in the operator's waterfall STILL
+  // seeds the chain (that's a deliberate "use this provider" choice) — only an
+  // explicitly disabled provider is neutralized.
+  const pinDisabled = pinnedProvider !== undefined && (disabledProviders ?? []).includes(pinnedProvider);
+  const effectivePin = pinDisabled ? undefined : pinnedProvider;
+  const seed = effectivePin ?? order[0] ?? 'claude';
   const chain = [seed];
   for (const p of order) {
     if (!chain.includes(p)) chain.push(p);
