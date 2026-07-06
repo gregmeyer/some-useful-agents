@@ -246,7 +246,7 @@ export interface AgentNode {
    * Determines which CLI binary and argument format the spawner uses.
    * Shell nodes ignore this field.
    */
-  provider?: LlmProvider;
+  provider?: LlmProvider | (string & {});
 
   // Common per-node
   timeout?: number;
@@ -395,7 +395,7 @@ export interface Agent {
   updatedAt?: string;
 
   /** Default LLM provider for all claude-code nodes. Nodes can override. */
-  provider?: LlmProvider;
+  provider?: LlmProvider | (string & {});
   /** Default model for all claude-code nodes. Nodes can override. */
   model?: string;
 
@@ -587,7 +587,7 @@ export interface AgentVersion {
  */
 export interface AgentVersionDag {
   id: string;
-  provider?: LlmProvider;
+  provider?: LlmProvider | (string & {});
   model?: string;
   /**
    * Per-agent opt-out of the scheduler's frequency cap. When true, sub-minute

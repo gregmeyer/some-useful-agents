@@ -21,8 +21,13 @@ export function buildLlmSettingsSnapshot(
   const store = ctx.llmSettingsStore;
   if (!store) return undefined;
   const current = store.get();
+  // Disabled providers stay in the operator's list but are skipped at runtime
+  // — this is the per-provider off switch (e.g. "run local-only"). The store
+  // guarantees at least one stays enabled, so the chain is never empty.
+  const disabled = new Set(current.disabledProviders ?? []);
   return {
-    providers: [...current.providers],
+    providers: current.providers.filter((p) => !disabled.has(p)),
+    customProviders: current.customProviders ? [...current.customProviders] : undefined,
     onFallback: (event) => {
       try {
         store.recordFallback({

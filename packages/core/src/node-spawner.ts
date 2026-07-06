@@ -14,6 +14,8 @@ import type { ExecutionResult } from './agent-executor.js';
 import { substituteInputs } from './input-resolver.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
 import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
+import { invokeOpenAiChat } from './openai-http-invoker.js';
+import type { CustomLlmProvider } from './llm-settings-store.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -77,6 +79,13 @@ export interface LlmSettingsSnapshot {
    * the chain still applies as fallbacks (deduplicated).
    */
   providers?: string[];
+  /**
+   * Operator-defined OpenAI-compatible HTTP providers, keyed into the waterfall
+   * by `name`. When a chain entry matches a custom provider's name,
+   * `runLlmAttempt` dispatches over HTTP (`invokeOpenAiChat`) instead of
+   * spawning a CLI. Absent ⇒ only builtin CLI providers are available.
+   */
+  customProviders?: CustomLlmProvider[];
   /**
    * Fired once per hop in the waterfall (i.e. once per fallback
    * transition, not once per run). `from` is the provider that just
@@ -658,7 +667,7 @@ export async function spawnNodeReal(
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     attemptedProviders.push(provider);
-    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn);
+    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, _opts.llmSettings?.customProviders);
 
     // A 0-exit result still has to satisfy the node's output contract. A weak
     // fallback model that ignores the required format (e.g. no <plan> block)
@@ -743,7 +752,24 @@ async function runLlmAttempt(
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
+  customProviders?: readonly CustomLlmProvider[],
 ): Promise<SpawnResult> {
+  // Custom OpenAI-compatible provider ⇒ HTTP transport, not a CLI spawn. This
+  // is the ONLY divergence from the CLI path; the returned SpawnResult flows
+  // through the same waterfall (contract check, classifyLlmFailure, fallback).
+  const custom = customProviders?.find((c) => c.name === provider);
+  if (custom && custom.kind === 'openai') {
+    return invokeOpenAiChat({
+      apiBase: custom.apiBase,
+      apiKey: custom.apiKey,
+      // A node may pin a different model on the same endpoint; else use the
+      // provider's configured model.
+      model: node.model ?? custom.model,
+      prompt: resolvedPrompt,
+      timeoutSec: node.timeout ?? 300,
+      signal,
+    });
+  }
   const spawner = getSpawner(provider);
   const spawnOpts: LlmSpawnOptions = {
     prompt: resolvedPrompt,

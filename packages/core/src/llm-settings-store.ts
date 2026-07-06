@@ -48,14 +48,57 @@ export interface LlmFallbackEvent {
   nodeId?: string;
 }
 
+/**
+ * An operator-defined OpenAI-compatible HTTP provider (a local or self-hosted
+ * model behind a `/v1/chat/completions` endpoint — llama.cpp, LM Studio, vLLM,
+ * a gateway, etc.). Referenced in the waterfall by `name`, alongside the builtin
+ * CLI providers. `kind` is a discriminant so future non-OpenAI HTTP shapes can
+ * be added without breaking stored configs.
+ *
+ * `apiKey` is stored here in the settings file for v1 (masked in the UI, never
+ * echoed into an HTML value). For a real cloud key, prefer moving it into the
+ * secrets store — tracked as a follow-up.
+ */
+export interface CustomLlmProvider {
+  /** Unique id used in the waterfall + node `provider` pins (e.g. "local-qwen-8b"). */
+  name: string;
+  kind: 'openai';
+  /** Optional friendly label for the UI; falls back to `name`. */
+  displayName?: string;
+  /** Base URL including the version segment, e.g. http://127.0.0.1:8181/v1 */
+  apiBase: string;
+  /** Bearer token. Optional — omitted ⇒ no Authorization header (local servers). */
+  apiKey?: string;
+  /** Model id passed in the request body. */
+  model: string;
+}
+
+/**
+ * A waterfall entry: either a builtin CLI provider id or the `name` of a
+ * defined custom provider. Kept as a plain string so the ordered list can mix
+ * both; validation resolves it against the builtins + `customProviders`.
+ */
+export type ProviderRef = string;
+
 export interface LlmSettings {
   /**
    * Ordered waterfall. `providers[0]` is the primary (used by default
    * for any llm-prompt node without a pinned provider). Subsequent
    * entries are tried in order on classified failures. Never empty —
-   * the store enforces at least one entry.
+   * the store enforces at least one entry. Each entry is a builtin
+   * provider id OR a defined custom-provider `name`.
    */
-  providers: LlmProvider[];
+  providers: ProviderRef[];
+  /** Operator-defined OpenAI-compatible HTTP providers. */
+  customProviders?: CustomLlmProvider[];
+  /**
+   * Providers that stay in the waterfall (position + config preserved) but are
+   * SKIPPED at runtime — a per-provider off switch. Lets an operator flip
+   * claude/codex off to run local-only, then flip them back on without
+   * re-adding. The runtime chain (built in buildLlmSettingsSnapshot) excludes
+   * these; the store guarantees at least one provider stays enabled.
+   */
+  disabledProviders?: ProviderRef[];
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
 }
@@ -67,6 +110,11 @@ interface LlmSettingsFileV1 {
 
 interface LlmSettingsFileV2 {
   version: 2;
+  settings: { providers: ProviderRef[]; lastFallback?: LlmFallbackEvent };
+}
+
+interface LlmSettingsFileV3 {
+  version: 3;
   settings: LlmSettings;
 }
 
@@ -101,10 +149,15 @@ export class LlmSettingsStore {
    * Preserves `lastFallback` telemetry — only `recordFallback` and
    * `clearLastFallback` mutate that.
    */
-  setProviders(providers: LlmProvider[]): void {
-    const deduped: LlmProvider[] = [];
+  setProviders(providers: ProviderRef[]): void {
+    const data = this.read();
+    const known = new Set<string>([
+      ...LLM_PROVIDERS,
+      ...(data.settings.customProviders ?? []).map((c) => c.name),
+    ]);
+    const deduped: ProviderRef[] = [];
     for (const p of providers) {
-      if (!isProvider(p)) {
+      if (!known.has(p)) {
         throw new Error(`Invalid provider: ${p}`);
       }
       if (!deduped.includes(p)) deduped.push(p);
@@ -112,8 +165,104 @@ export class LlmSettingsStore {
     if (deduped.length === 0) {
       throw new Error('Provider waterfall must have at least one entry.');
     }
-    const data = this.read();
     data.settings.providers = deduped;
+    this.write(data);
+  }
+
+  /**
+   * Toggle a waterfall provider on/off. Disabling keeps it in the chain but
+   * excludes it at runtime; the store refuses to disable the last enabled
+   * provider (every run needs somewhere to dispatch). `name` must be a current
+   * waterfall entry.
+   */
+  setProviderEnabled(name: string, enabled: boolean): void {
+    const data = this.read();
+    if (!data.settings.providers.includes(name)) {
+      throw new Error(`"${name}" is not in the waterfall.`);
+    }
+    const disabled = new Set(data.settings.disabledProviders ?? []);
+    if (enabled) {
+      disabled.delete(name);
+    } else {
+      const stillEnabled = data.settings.providers.filter((p) => p !== name && !disabled.has(p));
+      if (stillEnabled.length === 0) {
+        throw new Error('At least one provider must stay enabled.');
+      }
+      disabled.add(name);
+    }
+    data.settings.disabledProviders = data.settings.providers.filter((p) => disabled.has(p));
+    this.write(data);
+  }
+
+  /** All defined custom (OpenAI-compatible) providers. */
+  listCustomProviders(): CustomLlmProvider[] {
+    return [...(this.read().settings.customProviders ?? [])];
+  }
+
+  /** Look up one custom provider by name (undefined if absent). */
+  getCustomProvider(name: string): CustomLlmProvider | undefined {
+    return this.read().settings.customProviders?.find((c) => c.name === name);
+  }
+
+  /**
+   * Define (or replace) a custom OpenAI-compatible provider. Validates the
+   * shape; the name must be a non-empty slug that doesn't collide with a
+   * builtin provider id. Replacing an existing custom provider by name is
+   * allowed (edit-in-place).
+   */
+  addCustomProvider(def: CustomLlmProvider): void {
+    const name = (def.name ?? '').trim();
+    if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
+      throw new Error('Provider name must be a slug (letters, digits, . _ -), starting alphanumeric.');
+    }
+    if (isProvider(name)) {
+      throw new Error(`"${name}" is a builtin provider id — pick a different name.`);
+    }
+    if (def.kind !== 'openai') {
+      throw new Error(`Unsupported custom provider kind "${def.kind}".`);
+    }
+    const apiBase = (def.apiBase ?? '').trim();
+    try {
+      const u = new URL(apiBase);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('bad protocol');
+    } catch {
+      throw new Error('apiBase must be an http(s) URL, e.g. http://127.0.0.1:8181/v1');
+    }
+    const model = (def.model ?? '').trim();
+    if (!model) throw new Error('model is required.');
+    const clean: CustomLlmProvider = {
+      name,
+      kind: 'openai',
+      displayName: def.displayName?.trim() || undefined,
+      apiBase,
+      apiKey: def.apiKey?.trim() || undefined,
+      model,
+    };
+    const data = this.read();
+    const list = data.settings.customProviders ?? [];
+    const next = list.filter((c) => c.name !== name);
+    next.push(clean);
+    data.settings.customProviders = next;
+    this.write(data);
+  }
+
+  /**
+   * Delete a custom provider by name, and strip it from the waterfall so the
+   * chain never references a provider the runtime can no longer resolve.
+   * Refuses if removing it would empty the waterfall (pick a replacement first).
+   */
+  removeCustomProvider(name: string): void {
+    const data = this.read();
+    const list = data.settings.customProviders ?? [];
+    if (!list.some((c) => c.name === name)) {
+      throw new Error(`No custom provider named "${name}".`);
+    }
+    const nextProviders = data.settings.providers.filter((p) => p !== name);
+    if (nextProviders.length === 0) {
+      throw new Error('Cannot remove the last provider in the waterfall — add a replacement first.');
+    }
+    data.settings.customProviders = list.filter((c) => c.name !== name);
+    data.settings.providers = nextProviders;
     this.write(data);
   }
 
@@ -131,49 +280,79 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
-  private read(): LlmSettingsFileV2 {
+  private read(): LlmSettingsFileV3 {
     if (!existsSync(this.path)) {
-      return { version: 2, settings: { providers: [DEFAULT_PRIMARY] } };
+      return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
     }
     try {
       const raw = readFileSync(this.path, 'utf-8');
-      const parsed = JSON.parse(raw) as LlmSettingsFileV1 | LlmSettingsFileV2;
+      const parsed = JSON.parse(raw) as LlmSettingsFileV1 | LlmSettingsFileV2 | LlmSettingsFileV3;
 
       // Auto-migrate the legacy { primary, fallback? } shape. We tolerate
       // a missing version key from very early dev builds by sniffing the
       // shape directly.
       if (parsed.version === 1 || (parsed.version === undefined && (parsed as LlmSettingsFileV1).settings?.primary !== undefined)) {
         const old = (parsed as LlmSettingsFileV1).settings ?? { primary: DEFAULT_PRIMARY };
-        const providers: LlmProvider[] = [];
+        const providers: ProviderRef[] = [];
         if (isProvider(old.primary)) providers.push(old.primary);
         if (old.fallback && isProvider(old.fallback) && !providers.includes(old.fallback)) {
           providers.push(old.fallback);
         }
         if (providers.length === 0) providers.push(DEFAULT_PRIMARY);
-        return { version: 2, settings: { providers, lastFallback: old.lastFallback } };
+        return { version: 3, settings: { providers, customProviders: [], lastFallback: old.lastFallback } };
       }
 
-      if ((parsed as { version?: number }).version !== 2) {
-        throw new Error(`Unsupported llm-settings file version: ${(parsed as { version?: number }).version}`);
+      const version = (parsed as { version?: number }).version;
+      if (version !== 2 && version !== 3) {
+        throw new Error(`Unsupported llm-settings file version: ${version}`);
       }
 
-      // Defensive: drop unknown providers from a hand-edited file rather
-      // than blow up at module-load time.
-      const filtered = (parsed.settings.providers ?? []).filter(isProvider);
-      const deduped: LlmProvider[] = [];
+      const settings = (parsed as LlmSettingsFileV2 | LlmSettingsFileV3).settings;
+      const customProviders = sanitizeCustomProviders((settings as LlmSettings).customProviders);
+      const customNames = new Set(customProviders.map((c) => c.name));
+      // Defensive: keep only entries that resolve to a builtin OR a still-
+      // defined custom provider, rather than blow up on a hand-edited file.
+      const filtered = (settings.providers ?? []).filter((p) => isProvider(p) || customNames.has(p));
+      const deduped: ProviderRef[] = [];
       for (const p of filtered) if (!deduped.includes(p)) deduped.push(p);
       if (deduped.length === 0) deduped.push(DEFAULT_PRIMARY);
-      parsed.settings.providers = deduped;
-      return parsed;
+      // A disabled entry only means something if it's still in the waterfall;
+      // and never let every provider be disabled (fall open to the primary).
+      const disabledIn = (settings as LlmSettings).disabledProviders ?? [];
+      let disabledProviders = deduped.filter((p) => disabledIn.includes(p));
+      if (disabledProviders.length === deduped.length) disabledProviders = disabledProviders.slice(1);
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
-      return { version: 2, settings: { providers: [DEFAULT_PRIMARY] } };
+      return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
     }
   }
 
-  private write(data: LlmSettingsFileV2): void {
+  private write(data: LlmSettingsFileV3): void {
     writeFileSync(this.path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   }
+}
+
+/** Drop malformed custom-provider entries from a hand-edited file. */
+function sanitizeCustomProviders(raw: unknown): CustomLlmProvider[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CustomLlmProvider[] = [];
+  for (const c of raw) {
+    if (!c || typeof c !== 'object') continue;
+    const r = c as Record<string, unknown>;
+    if (typeof r.name !== 'string' || r.kind !== 'openai') continue;
+    if (typeof r.apiBase !== 'string' || typeof r.model !== 'string') continue;
+    if (isProvider(r.name)) continue;
+    out.push({
+      name: r.name,
+      kind: 'openai',
+      displayName: typeof r.displayName === 'string' ? r.displayName : undefined,
+      apiBase: r.apiBase,
+      apiKey: typeof r.apiKey === 'string' ? r.apiKey : undefined,
+      model: r.model,
+    });
+  }
+  return out;
 }
 
 export function isProvider(value: unknown): value is LlmProvider {
