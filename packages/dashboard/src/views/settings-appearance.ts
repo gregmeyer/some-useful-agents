@@ -65,6 +65,12 @@ export function renderSettingsAppearance(): SafeHtml {
               document.documentElement.setAttribute('data-theme', 'light');
               localStorage.setItem('sua-theme', 'light');
               document.body.removeAttribute('data-widget-theme');
+            } else if (id === 'editorial') {
+              // Editorial is light-based: use the light base AND the widget overrides.
+              localStorage.setItem(THEME_KEY, 'editorial');
+              document.documentElement.setAttribute('data-theme', 'light');
+              localStorage.setItem('sua-theme', 'light');
+              document.body.setAttribute('data-widget-theme', 'editorial');
             } else {
               localStorage.setItem(THEME_KEY, id);
               document.body.setAttribute('data-widget-theme', id);
