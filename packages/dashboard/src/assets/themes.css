@@ -68,3 +68,35 @@
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
   --shadow-focus: 0 0 0 3px rgba(168, 85, 247, 0.3);
 }
+
+/* ── Editorial Paper ── */
+/* Warm cream paper, editorial serif type, muted earthy accents. Light-based:
+   the appearance picker also sets data-theme="light" so the page base is light,
+   and these overrides give it the paper/serif character. */
+[data-widget-theme="editorial"] {
+  --font-sans: "Charter", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --color-bg: #f4eede;
+  --color-surface: #fffdf8;
+  --color-surface-raised: #fbf5e8;
+  --color-border: #e0d5c0;
+  --color-border-strong: #cdbfa4;
+  --color-text: #241f18;
+  --color-text-muted: #6f6655;
+  --color-text-subtle: #948a76;
+  --color-primary: #2f6f6a;
+  --color-primary-hover: #255a55;
+  --color-primary-soft: rgba(47, 111, 106, 0.12);
+  --color-ok: #4a7c59;
+  --color-ok-soft: rgba(74, 124, 89, 0.12);
+  --color-warn: #b07d26;
+  --color-warn-soft: rgba(193, 137, 45, 0.14);
+  --color-warn-border: rgba(176, 125, 38, 0.30);
+  --color-err: #a23b28;
+  --color-err-soft: rgba(162, 59, 40, 0.12);
+  --color-info: #40607a;
+  --color-info-soft: rgba(64, 96, 122, 0.12);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-focus: 0 0 0 3px rgba(47, 111, 106, 0.22);
+}

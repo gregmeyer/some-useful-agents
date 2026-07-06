@@ -41,4 +41,10 @@ export const THEMES: WidgetTheme[] = [
     description: 'Purple accent, true black',
     preview: { bg: '#0a0a0a', surface: '#171717', accent: '#a855f7', text: '#fafafa' },
   },
+  {
+    id: 'editorial',
+    name: 'Editorial Paper',
+    description: 'Warm cream paper, serif type, muted earthy accents',
+    preview: { bg: '#f4eede', surface: '#fffdf8', accent: '#b5533a', text: '#241f18' },
+  },
 ];
