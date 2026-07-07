@@ -176,7 +176,7 @@ describe('EncryptedFileStore (empty-passphrase / obfuscated fallback)', () => {
     const parsed = JSON.parse(readFileSync(TEST_PATH, 'utf-8'));
     expect(parsed.version).toBe(2);
     expect(parsed.obfuscatedFallback).toBe(true);
-    expect(warnings.some((m) => m.includes('legacy hostname-derived key'))).toBe(true);
+    expect(warnings.some((m) => m.includes('local machine key'))).toBe(true);
   });
 
   it('reads obfuscatedFallback v2 without a passphrase (and warns)', async () => {
@@ -363,5 +363,58 @@ describe('MemorySecretsStore', () => {
     expect(await store.getAll()).toEqual({ K: 'v' });
     await store.delete('K');
     expect(await store.has('K')).toBe(false);
+  });
+});
+
+/** Write an obfuscated v2 vault directly, keyed off an arbitrary seed, so we can
+ * exercise the machine-key fallback + the legacy-hostname self-heal path. */
+function writeObfuscatedV2(path: string, seed: string, data: Record<string, string>): void {
+  mkdirSync(TEST_DIR, { recursive: true });
+  const salt = randomBytes(16);
+  const kdfParams = { algorithm: 'scrypt', N: 131072, r: 8, p: 1, keyLength: 32 };
+  const key = scryptSync(seed, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(Buffer.from(JSON.stringify(data))), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  writeFileSync(path, JSON.stringify({
+    version: 2, salt: salt.toString('base64'), iv: iv.toString('base64'),
+    tag: tag.toString('base64'), data: enc.toString('base64'), kdfParams, obfuscatedFallback: true,
+  }));
+}
+
+describe('EncryptedFileStore (stable machine key fallback)', () => {
+  it('writes the obfuscated vault under a stable machine key file (0600), readable by a fresh store', async () => {
+    const store = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    await store.set('K', 'v');
+    // The machine key is persisted next to the vault, not derived from hostname.
+    const keyPath = join(TEST_DIR, '.secrets-machine-key');
+    expect(existsSync(keyPath)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+    }
+    // A brand-new instance (same dir) reads it back via the machine key.
+    expect(await new EncryptedFileStore(TEST_PATH).getAll()).toEqual({ K: 'v' });
+  });
+
+  it('reads a legacy hostname-keyed vault and self-heals it to the machine key', async () => {
+    // Simulate a vault written by the OLD code (keyed to hostname:username).
+    writeObfuscatedV2(TEST_PATH, `${hostname()}:${userInfo().username}`, { LEGACY: 'x' });
+    expect(existsSync(join(TEST_DIR, '.secrets-machine-key'))).toBe(false);
+
+    const store = new EncryptedFileStore(TEST_PATH);
+    expect(await store.getAll()).toEqual({ LEGACY: 'x' }); // decrypts via legacy fallback
+
+    // Self-heal: a machine key now exists, and the vault re-keyed to it — so it
+    // no longer depends on hostname. A fresh instance reads it via the machine key.
+    expect(existsSync(join(TEST_DIR, '.secrets-machine-key'))).toBe(true);
+    expect(await new EncryptedFileStore(TEST_PATH).getAll()).toEqual({ LEGACY: 'x' });
+  });
+
+  it('throws an actionable error (not a raw crypto failure) when no key can decrypt it', async () => {
+    writeObfuscatedV2(TEST_PATH, 'some-other-machines-identity', { X: 'y' });
+    const store = new EncryptedFileStore(TEST_PATH);
+    await expect(store.getAll()).rejects.toThrow(/Could not decrypt the secrets vault/);
+    await expect(store.getAll()).rejects.toThrow(/sua secrets migrate/);
   });
 });

@@ -1,8 +1,11 @@
 import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { hostname, userInfo } from 'node:os';
 import { chmod600Safe } from './fs-utils.js';
+
+/** Filename of the stable machine key that seeds the obfuscated fallback. */
+const MACHINE_KEY_FILE = '.secrets-machine-key';
 
 export interface SecretsStore {
   get(name: string): Promise<string | undefined>;
@@ -221,36 +224,73 @@ export class EncryptedFileStore implements SecretsStore {
     const tag = Buffer.from(payload.tag, 'base64');
     const encrypted = Buffer.from(payload.data, 'base64');
 
-    let passphraseInput: string;
     if (payload.obfuscatedFallback === true) {
       if (!this.warnedObfuscated) {
         this.onWarn(
-          `⚠  Secrets store at ${this.path} uses the legacy hostname-derived key ` +
+          `⚠  Secrets store at ${this.path} uses the local machine key ` +
             `(obfuscation, not encryption). Run 'sua secrets migrate' to set a passphrase.`,
         );
         this.warnedObfuscated = true;
       }
-      passphraseInput = legacySeed();
-    } else {
-      if (this.passphrase === undefined || this.passphrase.length === 0) {
-        throw new Error(
-          `Secrets store at ${this.path} is passphrase-protected. ` +
-            `Set SUA_SECRETS_PASSPHRASE in the environment (or run 'sua secrets get' interactively to enter it).`,
-        );
+      // Primary: the stable per-vault machine key. This replaced the old
+      // hostname:username seed, which broke whenever os.hostname() flipped
+      // (macOS does this on network changes), silently failing agent runs.
+      try {
+        const machineKey = this.deriveAndCache(this.machineSeed(), salt, payload.kdfParams);
+        return decrypt(this.path, machineKey, iv, tag, encrypted, 'v2');
+      } catch {
+        // Back-compat: a vault written before the machine key existed is still
+        // keyed to hostname:username. Decrypt with it, then transparently
+        // re-key to the machine seed so future reads are stable (self-heal).
+        let data: SecretsData;
+        try {
+          const legacyKey = this.deriveAndCache(legacySeed(), salt, payload.kdfParams);
+          data = decrypt(this.path, legacyKey, iv, tag, encrypted, 'v2 (legacy hostname key)');
+        } catch {
+          throw new Error(undecryptableVaultMessage(this.path));
+        }
+        try { this.write(data); } catch { /* best-effort re-key; the read still succeeds */ }
+        return data;
       }
-      passphraseInput = this.passphrase;
     }
 
-    const key = this.deriveAndCache(passphraseInput, salt, payload.kdfParams);
+    if (this.passphrase === undefined || this.passphrase.length === 0) {
+      throw new Error(
+        `Secrets store at ${this.path} is passphrase-protected. ` +
+          `Set SUA_SECRETS_PASSPHRASE in the environment (or run 'sua secrets get' interactively to enter it).`,
+      );
+    }
+    const key = this.deriveAndCache(this.passphrase, salt, payload.kdfParams);
     try {
       return decrypt(this.path, key, iv, tag, encrypted, 'v2');
-    } catch (err) {
-      if (payload.obfuscatedFallback === true) throw err;
-      // Re-raise with a clearer "wrong passphrase" hint.
+    } catch {
       throw new Error(
         `Failed to decrypt v2 secrets store at ${this.path}: wrong passphrase.`,
       );
     }
+  }
+
+  /**
+   * Stable per-vault machine key seeding the obfuscated fallback. Stored next
+   * to the vault (0600), generated once. Replaces the old hostname:username
+   * seed so a hostname change can't lock an operator out of their own secrets.
+   * Still "obfuscation, not encryption" — use a passphrase for real security.
+   */
+  private machineSeed(): string {
+    const keyPath = join(dirname(this.path), MACHINE_KEY_FILE);
+    try {
+      if (existsSync(keyPath)) {
+        const v = readFileSync(keyPath, 'utf-8').trim();
+        if (v) return v;
+      }
+    } catch { /* unreadable — fall through and regenerate */ }
+    const key = randomBytes(KEY_LENGTH).toString('base64');
+    try {
+      mkdirSync(dirname(keyPath), { recursive: true });
+      writeFileSync(keyPath, key + '\n', 'utf-8');
+      chmod600Safe(keyPath);
+    } catch { /* best-effort persist; an ephemeral key still works for this process */ }
+    return key;
   }
 
   private write(data: SecretsData): void {
@@ -283,10 +323,10 @@ export class EncryptedFileStore implements SecretsStore {
       obfuscatedFallback = !this.hasUsablePassphrase();
     }
 
-    const passphraseInput = obfuscatedFallback ? legacySeed() : this.passphrase!;
+    const passphraseInput = obfuscatedFallback ? this.machineSeed() : this.passphrase!;
     if (obfuscatedFallback && !this.warnedObfuscated) {
       this.onWarn(
-        `⚠  Writing secrets with the legacy hostname-derived key (obfuscation, not encryption). ` +
+        `⚠  Writing secrets with the local machine key (obfuscation, not encryption). ` +
           `Run 'sua secrets migrate' to set a passphrase.`,
       );
       this.warnedObfuscated = true;
@@ -361,8 +401,22 @@ function resolvePassphrase(explicit: string | undefined): string | undefined {
   return undefined;
 }
 
+/** Legacy seed — hostname:username. Kept ONLY to read (and then re-key) vaults
+ * written before the stable machine key existed. Never used for new writes. */
 function legacySeed(): string {
   return `${hostname()}:${userInfo().username}`;
+}
+
+/** Actionable message when neither the machine key nor the legacy hostname key
+ * can decrypt an obfuscated vault (the vault is intact — the key is gone). */
+function undecryptableVaultMessage(path: string): string {
+  return (
+    `Could not decrypt the secrets vault at ${path}. The file is not corrupted — ` +
+    `the machine identity that wrote it is no longer available (most often the ` +
+    `hostname changed). Recover by restoring a backup of this file, or re-enter ` +
+    `secrets with 'sua secrets set <NAME>'. To make this permanent, migrate to a ` +
+    `passphrase: 'sua secrets migrate'.`
+  );
 }
 
 function deriveKey(passphrase: string, salt: Buffer, params: KdfParams): Buffer {
