@@ -114,18 +114,23 @@ The passphrase lives only in process memory — never on disk. The CLI prompts
 for it on `sua secrets set` against a cold store and reads
 `SUA_SECRETS_PASSPHRASE` for CI and other non-TTY contexts. A v2-protected
 store that nobody can supply a passphrase for is unreadable by design, which
-is the whole point — a stolen `secrets.enc` is no longer decryptable just by
-knowing the victim's hostname and username.
+is the whole point — a stolen `secrets.enc` is not decryptable without the
+passphrase.
 
-**Empty-passphrase fallback.** If you want the pre-v0.10 zero-friction
-behavior (e.g. for a demo `npx init`), `sua secrets set` accepts an empty
-passphrase. The store is still written in v2 format but flagged with
-`obfuscatedFallback: true`, the key is re-derived from the legacy
-hostname+username seed, and **every** read/write emits a warning telling you
-to run `sua secrets migrate`. `sua doctor --security` flags the store as
-`hostname-obfuscated` in red. This is obfuscation, not encryption — exactly
-what v1 was, except now it's explicitly labeled as such on disk and in every
-CLI surface.
+**Empty-passphrase fallback (stable machine key).** If you want the
+zero-friction behavior (e.g. for a demo `npx init`), `sua secrets set` accepts
+an empty passphrase. The store is still written in v2 format but flagged with
+`obfuscatedFallback: true`, and the key derives from a **stable per-vault
+machine key** — a random value stored `0600` as `.secrets-machine-key` next to
+the vault, generated once. This replaced the old `hostname:username` seed, which
+broke whenever `os.hostname()` changed (macOS flips it on network changes),
+silently failing agent runs with a raw decrypt error. Vaults written under the
+old seed decrypt via it once and are transparently **re-keyed to the machine
+key** on first read (self-heal); when nothing can decrypt a vault the error is
+actionable ("the machine identity that wrote it is no longer available… restore
+a backup, or `sua secrets migrate`"). Every read/write still warns to run
+`sua secrets migrate`. This is obfuscation, not encryption — for real
+protection, use a passphrase.
 
 **Legacy v1 stores.** Payloads written by v0.9.x and earlier still decrypt
 (warning on every load). The next `sua secrets set` / `delete` auto-migrates
