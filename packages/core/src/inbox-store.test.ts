@@ -524,6 +524,21 @@ describe('InboxStore.list filters (q, starred, tag)', () => {
     expect(store.list({ q: msg.id.slice(0, 8) }).map((r) => r.title)).toEqual(['tagged thread']);
   });
 
+  it('search spans resolved/dismissed threads — the default view hides them, but a query finds them', () => {
+    addMinimal({ title: 'apple open' });
+    const done = addMinimal({ title: 'apple resolved' });
+    const gone = addMinimal({ title: 'apple dismissed' });
+    store.updateStatus(done.id, 'resolved');
+    store.updateStatus(gone.id, 'dismissed');
+    // No query → default view still hides terminal statuses.
+    expect(store.list().map((r) => r.title)).toEqual(['apple open']);
+    // With a query → resolved + dismissed become findable.
+    expect(store.list({ q: 'apple' }).map((r) => r.title).sort())
+      .toEqual(['apple dismissed', 'apple open', 'apple resolved']);
+    // An explicit status filter still scopes to that status.
+    expect(store.list({ q: 'apple', status: 'resolved' }).map((r) => r.title)).toEqual(['apple resolved']);
+  });
+
   it('combines filters (starred + tag + q)', () => {
     const a = addMinimal({ title: 'auth issue' });
     const b = addMinimal({ title: 'auth issue starred' });

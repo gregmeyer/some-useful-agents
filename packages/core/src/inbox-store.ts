@@ -535,11 +535,15 @@ export class InboxStore {
   list(opts: ListMessagesOpts = {}): InboxMessage[] {
     const where: string[] = [];
     const params: (string | number | null)[] = [];
+    const hasSearch = typeof opts.q === 'string' && opts.q.trim().length > 0;
     if (opts.status !== undefined) {
       this.validateStatus(opts.status);
       where.push('status = ?');
       params.push(opts.status);
-    } else {
+    } else if (!hasSearch) {
+      // The default inbox view hides terminal (dismissed/resolved) threads —
+      // but a SEARCH must span everything so the operator can find a thread
+      // they already resolved. When a query is present, don't restrict status.
       where.push("status NOT IN ('dismissed', 'resolved')");
     }
     if (opts.priority !== undefined) {
