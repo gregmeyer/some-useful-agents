@@ -498,7 +498,7 @@ function renderMain(
   const mainBlock = rest.length > 0
     ? html`
       <div class="inbox-list" role="table">
-        ${renderListHeader(sort, dir, filter, bulkEnabled)}
+        ${renderListHeader(sort, dir, filter, bulkEnabled, archiveView)}
         ${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}
       </div>
     `
@@ -521,6 +521,7 @@ function renderListHeader(
   dir: InboxSortDir,
   filter: { q: string; starred: boolean; tag: string },
   bulkEnabled: boolean,
+  archiveView?: 'dismissed' | 'resolved',
 ): SafeHtml {
   const link = (key: InboxSortKey, label: string, defaultDir: InboxSortDir = 'desc'): SafeHtml => {
     const isActive = sort === key;
@@ -534,6 +535,9 @@ function renderListHeader(
     if (filter.q) params.set('q', filter.q);
     if (filter.starred) params.set('starred', '1');
     if (filter.tag) params.set('tag', filter.tag);
+    // Preserve the archive view — without this, sorting a dismissed/resolved
+    // list drops `status` and bounces the operator back to the active inbox.
+    if (archiveView) params.set('status', archiveView);
     const href = `/inbox?${params.toString()}`;
     const arrow = isActive
       ? (dir === 'desc' ? html`<span class="inbox-list__sort-arrow" aria-hidden="true">↓</span>` : html`<span class="inbox-list__sort-arrow" aria-hidden="true">↑</span>`)
