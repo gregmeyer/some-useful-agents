@@ -8,6 +8,8 @@
  * at load time for backwards compatibility.
  */
 
+import type { SecretsStore } from './secrets-store.js';
+
 export type ToolSource = 'local' | 'examples' | 'community' | 'builtin';
 
 export type ToolFieldType =
@@ -162,4 +164,13 @@ export interface BuiltinToolContext {
   workingDirectory?: string;
   env?: Record<string, string>;
   timeout?: number;
+  /**
+   * The active secrets store, threaded from the executor's deps. Most
+   * built-ins ignore it (they read secrets via `env`, populated from the
+   * node's declared `secrets:`). A tool that must *persist* a secret at run
+   * time — e.g. `oauth-loopback` saving a freshly-minted refresh token —
+   * writes through this handle. Optional so callers that don't have a store
+   * (tests, some CLI paths) still satisfy the type.
+   */
+  secretsStore?: SecretsStore;
 }

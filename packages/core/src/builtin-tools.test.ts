@@ -2,16 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { get as httpGet } from 'node:http';
 import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from './builtin-tools.js';
+import { MemorySecretsStore } from './secrets-store.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 9 built-in tools', () => {
+  it('lists all 10 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(10);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
       'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
-      'http-post', 'json-parse', 'json-path', 'shell-exec', 'template',
+      'http-post', 'json-parse', 'json-path', 'oauth-loopback',
+      'shell-exec', 'template',
     ]);
   });
 
@@ -303,5 +306,158 @@ describe('csv-to-chart-json', () => {
 
   it('throws on unknown shape', async () => {
     await expect(run({ csv: 'a,b\n1,2', shape: 'bogus' })).rejects.toThrow(/unknown shape/);
+  });
+});
+
+describe('oauth-loopback', () => {
+  let originalFetch: typeof fetch;
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  // Poll a producer until it yields a defined value (server startup / stderr race).
+  async function pollFor<T>(fn: () => T | undefined, tries = 150, delayMs = 20): Promise<T> {
+    for (let i = 0; i < tries; i++) {
+      const v = fn();
+      if (v !== undefined) return v;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    throw new Error('pollFor: condition never became defined');
+  }
+
+  // Hit the tool's loopback redirect via raw node http (NOT the stubbed fetch),
+  // retrying until the throwaway server is listening.
+  function fireRedirect(port: number, path: string, params: Record<string, string>): Promise<void> {
+    const qs = new URLSearchParams(params).toString();
+    return new Promise<void>((res, rej) => {
+      const attempt = (n: number): void => {
+        const req = httpGet({ host: '127.0.0.1', port, path: `${path}?${qs}` }, (r) => {
+          r.resume();
+          r.on('end', () => res());
+        });
+        req.on('error', (e) => {
+          if (n > 0) setTimeout(() => attempt(n - 1), 40);
+          else rej(e);
+        });
+      };
+      attempt(60); // ~2.4s of retries
+    });
+  }
+
+  // Capture the authorize URL the tool prints to stderr so the test can learn
+  // the internally-generated `state` and echo it back on the redirect.
+  function spyStderrForAuthUrl(): { getUrl: () => string | undefined; restore: () => void } {
+    const orig = process.stderr.write.bind(process.stderr);
+    let seen: string | undefined;
+    (process.stderr as unknown as { write: unknown }).write = (chunk: unknown, ...rest: unknown[]): boolean => {
+      const s = String(chunk);
+      const m = s.match(/https?:\/\/\S+/);
+      if (m && s.includes('authorize')) seen = m[0];
+      return (orig as (...a: unknown[]) => boolean)(chunk, ...rest);
+    };
+    return { getUrl: () => seen, restore: () => { (process.stderr as unknown as { write: unknown }).write = orig; } };
+  }
+
+  it('runs the auth-code flow, exchanges the code, and persists the refresh token to the vault', async () => {
+    let tokenReqBody: string | undefined;
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      tokenReqBody = String(init?.body ?? '');
+      return new Response(
+        JSON.stringify({ access_token: 'AT-xyz', refresh_token: 'RT-123', expires_in: 3600, scope: 'playlist-modify-public', token_type: 'Bearer' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+
+    const store = new MemorySecretsStore();
+    const entry = getBuiltinTool('oauth-loopback')!;
+    const port = 8899;
+    const spy = spyStderrForAuthUrl();
+    try {
+      const runP = entry.execute(
+        {
+          authorize_url: 'https://example.com/authorize',
+          token_url: 'https://example.com/token',
+          client_id_env: 'SPOTIFY_CLIENT_ID',
+          client_secret_env: 'SPOTIFY_CLIENT_SECRET',
+          scopes: 'playlist-modify-public',
+          port,
+          save_refresh_token_to: 'SPOTIFY_REFRESH_TOKEN',
+          open_browser: false,
+          timeout: 15,
+        },
+        { env: { SPOTIFY_CLIENT_ID: 'cid', SPOTIFY_CLIENT_SECRET: 'csec' }, secretsStore: store },
+      );
+
+      const state = await pollFor(() => {
+        const u = spy.getUrl();
+        return u ? new URL(u).searchParams.get('state') ?? undefined : undefined;
+      });
+      await fireRedirect(port, '/callback', { code: 'AUTHCODE', state });
+      const out = await runP;
+
+      expect(out.has_refresh_token).toBe(true);
+      expect(out.saved_to).toEqual(['SPOTIFY_REFRESH_TOKEN']);
+      expect(out.token_type).toBe('Bearer');
+      expect(await store.get('SPOTIFY_REFRESH_TOKEN')).toBe('RT-123');
+      // Tokens must never leak into the tool's structured output (goes to runs.db).
+      expect(JSON.stringify(out)).not.toContain('RT-123');
+      expect(JSON.stringify(out)).not.toContain('AT-xyz');
+      // The exchange used the auth-code grant with the captured code + client creds.
+      expect(tokenReqBody).toContain('grant_type=authorization_code');
+      expect(tokenReqBody).toContain('code=AUTHCODE');
+      expect(tokenReqBody).toContain('client_id=cid');
+      expect(tokenReqBody).toContain('client_secret=csec');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('rejects a redirect whose state does not match (CSRF guard)', async () => {
+    const store = new MemorySecretsStore();
+    const entry = getBuiltinTool('oauth-loopback')!;
+    const port = 8898;
+    const spy = spyStderrForAuthUrl();
+    try {
+      const runP = entry.execute(
+        {
+          authorize_url: 'https://example.com/authorize',
+          token_url: 'https://example.com/token',
+          client_id_env: 'SPOTIFY_CLIENT_ID',
+          port,
+          save_refresh_token_to: 'SPOTIFY_REFRESH_TOKEN',
+          open_browser: false,
+          timeout: 15,
+        },
+        { env: { SPOTIFY_CLIENT_ID: 'cid' }, secretsStore: store },
+      );
+      await pollFor(() => (spy.getUrl() ? true : undefined));
+      // Attach the rejection handler BEFORE triggering it, so there's no
+      // unhandled-rejection window between fireRedirect and the assertion.
+      const rejection = expect(runP).rejects.toThrow(/state mismatch/i);
+      await fireRedirect(port, '/callback', { code: 'AUTHCODE', state: 'WRONG' });
+      await rejection;
+      expect(await store.get('SPOTIFY_REFRESH_TOKEN')).toBeUndefined();
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('refuses to run without a save target (never returns raw tokens)', async () => {
+    const entry = getBuiltinTool('oauth-loopback')!;
+    await expect(
+      entry.execute(
+        { authorize_url: 'https://example.com/authorize', token_url: 'https://example.com/token', client_id_env: 'CID', open_browser: false },
+        { env: { CID: 'cid' }, secretsStore: new MemorySecretsStore() },
+      ),
+    ).rejects.toThrow(/save_refresh_token_to/);
+  });
+
+  it('errors when the client id secret is missing from env', async () => {
+    const entry = getBuiltinTool('oauth-loopback')!;
+    await expect(
+      entry.execute(
+        { authorize_url: 'https://example.com/authorize', token_url: 'https://example.com/token', client_id_env: 'SPOTIFY_CLIENT_ID', save_refresh_token_to: 'X', open_browser: false },
+        { env: {}, secretsStore: new MemorySecretsStore() },
+      ),
+    ).rejects.toThrow(/client id not found/i);
   });
 });
