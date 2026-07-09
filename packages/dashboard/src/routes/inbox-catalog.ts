@@ -287,6 +287,36 @@ export function buildTriageCatalogJson(
 }
 
 /**
+ * Compact catalog of the operator's existing dashboards for the triage turn.
+ * Triage already has a `dashboard-editor` action (add-tile / create) but was
+ * never handed the LIST of dashboards, so it couldn't answer "which dashboards
+ * do I have / where can I add agents" and had to guess a name when pinning a
+ * tile — risking a near-duplicate. This gives it the real ids + names + the
+ * agents already pinned (any section), so it can target an EXISTING dashboard
+ * by exact id and dedupe.
+ *
+ * Shape: `[{ id, name, tiles, agents: [agentId, …] }]`, newest-updated first.
+ * `tiles` is the distinct agent count. Empty array when the store is
+ * unavailable or no named dashboards exist — the default /pulse layout is
+ * derived from `pulseVisible`, not stored here, so it never appears.
+ */
+export function buildDashboardsCatalogJson(ctx: ReturnType<typeof getContext>): string {
+  try {
+    if (!ctx.dashboardsStore) return '[]';
+    const list = ctx.dashboardsStore.listDashboards()
+      .slice()
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .map((d) => {
+        const agents = Array.from(new Set(d.layout.sections.flatMap((s) => s.agentIds)));
+        return { id: d.id, name: d.name, tiles: agents.length, agents };
+      });
+    return JSON.stringify(list);
+  } catch {
+    return '[]';
+  }
+}
+
+/**
  * Compact runnable-agent specs for the triage prompt. The load-bearing fact
  * is the input NAMES (so triage proposes actions with real keys, not guesses);
  * the full prose descriptions are the bulk of the prompt's token weight. We
