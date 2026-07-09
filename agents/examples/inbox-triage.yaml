@@ -123,6 +123,16 @@ inputs:
       {"agents":[{id,name,description,tags,createdAt}], "truncated"?:N}.
       Lets triage answer recency / "what does agent X do" questions
       directly (with a link) instead of dispatching agent-catalog-search.
+  DASHBOARDS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      JSON array of the operator's existing dashboards:
+      [{id,name,tiles,agents:[agentId,…]}]. Lets triage answer "which
+      dashboards do I have / where can I add agents" and target an
+      existing dashboard by exact id when proposing a dashboard-editor
+      add-tile (instead of guessing a name and risking a duplicate).
   RUNNABLE_AGENT_SPECS:
     type: string
     required: false
@@ -196,6 +206,9 @@ nodes:
 
       Installed agent catalog — newest first (may be empty):
       {{inputs.AGENT_CATALOG}}
+
+      Your existing dashboards — where agents can be pinned (may be empty):
+      {{inputs.DASHBOARDS}}
 
       Runnable sub-agent specs with exact input names (may be empty):
       {{inputs.RUNNABLE_AGENT_SPECS}}
