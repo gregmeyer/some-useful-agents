@@ -381,6 +381,16 @@ new dashboard called Markets", "create a dashboard" — propose a
 `dashboard-editor` action. It writes synchronously (it's route-handled,
 like agent-editor) and the operator confirms one write at a time.
 
+`DASHBOARDS` lists the operator's existing dashboards as
+`[{id,name,tiles,agents:[…]}]`. Use it to:
+- Answer "which dashboards do I have / where can I add agents" directly
+  — list them by name with a `/dashboards/<id>` link. If it's empty, say
+  there are none yet and offer to create one.
+- Target add-tile at an EXISTING dashboard: pass its exact `id` (or `name`)
+  as `DASHBOARD` so you extend it instead of minting a near-duplicate.
+- Dedupe: if the target dashboard's `agents` already includes the agent,
+  say it's already pinned (with the link) instead of proposing add-tile.
+
 - Shape (add a tile, creating the dashboard if it doesn't exist):
   `{ "type": "dashboard-editor", "rationale": "…",
      "inputs": { "op": "add-tile", "DASHBOARD": "<name or user:slug>",

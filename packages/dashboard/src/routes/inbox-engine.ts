@@ -57,6 +57,7 @@ import {
   getRunnableCandidates,
   ensureSystemAgentCurrent,
   buildTriageCatalogJson,
+  buildDashboardsCatalogJson,
   buildRunnableAgentSpecsJson,
   enrichAgentAnalyzerInputs,
   enrichAgentCatalogSearchInputs,
@@ -1354,6 +1355,9 @@ export async function runTriageAgent(
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
           AGENT_CATALOG: buildTriageCatalogJson(ctx, currentRequest),
+          // The operator's existing dashboards so triage can answer "where can
+          // I add agents" and target an existing one by id (no duplicates).
+          DASHBOARDS: buildDashboardsCatalogJson(ctx),
           // Compose the prompt from fragments on disk: the shared kernel
           // (voice, action mechanics, <plan> schema) + the one playbook that
           // matches this thread's source. Deterministic — no classifier LLM.
