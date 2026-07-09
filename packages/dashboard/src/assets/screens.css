@@ -3619,6 +3619,35 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-modal__link { color: var(--color-text); text-decoration: none; }
 .inbox-modal__link:hover { color: var(--color-primary); text-decoration: underline; }
 .inbox-modal__sep { color: var(--color-text-muted); opacity: 0.5; }
+
+/* Agent chips — one navigable pill per agent referenced anywhere in the thread
+ * (the target agent + every action's target). Distinct from user tag pills:
+ * link-styled, no ×, with a leading accent dot to read as "agent". */
+.inbox-modal__agents { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.inbox-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s;
+}
+.inbox-agent-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex: 0 0 auto;
+}
+.inbox-agent-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }
 .inbox-modal__age { margin-left: auto; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 /* Pending-work chip — triage emitted a commitmentSummary and an
  * action it proposed is still proposed/running. Surfaces in the

@@ -123,6 +123,35 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * container. The full-page `renderInboxDetail` wraps this in the
  * standard dashboard layout for direct-link access + accessibility.
  */
+/**
+ * Triage plumbing that shows up as an action `agentId` but isn't a subject the
+ * operator would navigate to — the resolve sentinel plus the route-handled /
+ * scaffolding system agents. Excluded from the thread's agent chips so they
+ * surface the real agents the conversation is about.
+ */
+const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
+  '_resolve-thread', 'agent-editor', 'dashboard-editor',
+  'agent-analyzer', 'agent-catalog-search', 'agent-builder',
+]);
+
+/**
+ * Distinct, navigable agents referenced anywhere in a thread: the message's
+ * target agent plus every action's target across all responses. Order is
+ * first-seen; scaffolding/sentinel ids are dropped.
+ */
+function collectReferencedAgents(message: InboxMessage, responses: InboxResponse[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (id: string | undefined): void => {
+    if (!id || seen.has(id) || NON_SUBJECT_AGENT_IDS.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  add(message.agentId);
+  for (const r of responses) add(parseActionMeta(r)?.agentId);
+  return out;
+}
+
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
@@ -168,7 +197,17 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </form>
   `;
 
-  // Tight meta band: priority dot + status + agent link + run link + tags,
+  // One navigable chip per agent the thread touches — the target agent plus
+  // every action's target across the conversation. Replaces the single
+  // agent link so a multi-agent thread surfaces all of them at a glance.
+  const referencedAgents = collectReferencedAgents(message, responses);
+  const agentChips = referencedAgents.length > 0 ? html`
+    <span class="inbox-modal__agents" aria-label="Agents in this thread">
+      ${referencedAgents.map((id) => html`<a href="/agents/${id}" class="inbox-agent-chip" title="Agent ${id}">${id}</a>`) as unknown as SafeHtml[]}
+    </span>
+  ` : html``;
+
+  // Tight meta band: priority dot + status + agent chips + run link + tags,
   // with age pushed to the right. Tags share this band (one fewer vertical
   // band); the row wraps on narrow widths.
   const headerMeta = html`
@@ -176,7 +215,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
       <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
       ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="Triage is working on a proposed action">${pendingCommitment}…</span>` : html``}
-      ${message.agentId ? html`<a href="/agents/${message.agentId}" class="inbox-modal__link">${message.agentId}</a>` : html``}
+      ${agentChips}
       ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
       ${tagsBlock}
       <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
