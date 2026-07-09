@@ -1,7 +1,9 @@
-import { execSync, type ExecSyncOptions } from 'node:child_process';
+import { execSync, spawn, type ExecSyncOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { lookup } from 'node:dns/promises';
+import { createServer } from 'node:http';
+import { randomBytes, createHash } from 'node:crypto';
 import type {
   ToolDefinition,
   ToolOutput,
@@ -93,6 +95,104 @@ function normalizeHeaders(raw: unknown): Record<string, string> {
     if (typeof k === 'string' && typeof v === 'string') out[k] = v;
   }
   return out;
+}
+
+/** URL-safe base64 with no padding (for PKCE verifier/challenge). */
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Best-effort launch of the OS default browser. Non-fatal: OAuth still works
+ * if the user opens the URL manually (it's also emitted to stderr).
+ */
+function openBrowser(url: string): void {
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // no browser / no opener — ignore
+    child.unref();
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/**
+ * Bind a one-shot loopback HTTP server on 127.0.0.1:<port>, wait for the OAuth
+ * redirect at <redirectPath>, validate `state` (CSRF guard), and resolve with
+ * the authorization code. Rejects on a provider `?error=`, a state mismatch, a
+ * missing code, a bind failure, or timeout. The server is always closed before
+ * the promise settles.
+ */
+function waitForOauthRedirect(opts: {
+  port: number;
+  redirectPath: string;
+  expectedState: string;
+  timeoutMs: number;
+}): Promise<string> {
+  return new Promise<string>((resolvePromise, rejectPromise) => {
+    let settled = false;
+    function done(fn: () => void): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      server.close();
+      fn();
+    }
+    const respond = (res: import('node:http').ServerResponse, ok: boolean, msg: string): void => {
+      res.statusCode = ok ? 200 : 400;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end(
+        `<!doctype html><html><body style="font-family:system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem">` +
+          `<h2>${ok ? 'Authorization complete' : 'Authorization failed'}</h2>` +
+          `<p>${msg}</p><p style="color:#666">You can close this tab and return to the terminal.</p>` +
+          `</body></html>`,
+      );
+    };
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', `http://127.0.0.1:${opts.port}`);
+      if (url.pathname !== opts.redirectPath) {
+        res.statusCode = 404;
+        res.end('Not found');
+        return;
+      }
+      const err = url.searchParams.get('error');
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (err) {
+        respond(res, false, `Provider returned error: ${err}`);
+        done(() => rejectPromise(new Error(`OAuth provider returned error: ${err}`)));
+        return;
+      }
+      if (state !== opts.expectedState) {
+        respond(res, false, 'State mismatch — request ignored (possible CSRF).');
+        done(() => rejectPromise(new Error('OAuth state mismatch — aborting (possible CSRF).')));
+        return;
+      }
+      if (!code) {
+        respond(res, false, 'No authorization code in the redirect.');
+        done(() => rejectPromise(new Error('OAuth redirect missing the authorization code.')));
+        return;
+      }
+      respond(res, true, 'Token exchange in progress.');
+      done(() => resolvePromise(code));
+    });
+    const timer = setTimeout(() => {
+      done(() =>
+        rejectPromise(
+          new Error(
+            `Timed out after ${Math.round(opts.timeoutMs / 1000)}s waiting for the OAuth redirect on ` +
+              `127.0.0.1:${opts.port}${opts.redirectPath}.`,
+          ),
+        ),
+      );
+    }, opts.timeoutMs);
+    server.on('error', (e) =>
+      done(() => rejectPromise(new Error(`Failed to bind loopback server on 127.0.0.1:${opts.port}: ${(e as Error).message}`))),
+    );
+    server.listen(opts.port, '127.0.0.1');
+  });
 }
 
 function def(
@@ -451,6 +551,177 @@ const BUILTINS: BuiltinToolEntry[] = [
       }
 
       throw new Error(`csv-to-chart-json: unknown shape "${shape}". Use simple | series | cohort.`);
+    },
+  ),
+
+  def(
+    'oauth-loopback',
+    'OAuth loopback',
+    'One-time OAuth2 authorization-code flow over a local 127.0.0.1 redirect. Opens the ' +
+      'provider consent screen, captures the redirect on a throwaway loopback server, exchanges ' +
+      'the code for tokens, and writes the refresh (and/or access) token straight into the ' +
+      'secrets vault. Client id/secret are read from the node\'s declared secrets (via env). ' +
+      'Tokens are NEVER returned in the output — set save_refresh_token_to to persist one.',
+    {
+      authorize_url: { type: 'string', description: 'Provider authorization endpoint (e.g. https://accounts.spotify.com/authorize).', required: true },
+      token_url: { type: 'string', description: 'Provider token endpoint (e.g. https://accounts.spotify.com/api/token).', required: true },
+      client_id_env: { type: 'string', description: 'Name of the declared secret / env var holding the OAuth client id.', default: 'CLIENT_ID' },
+      client_secret_env: { type: 'string', description: 'Name of the declared secret / env var holding the client secret. Optional for PKCE-only providers.', default: 'CLIENT_SECRET' },
+      scopes: { type: 'string', description: 'Space-separated OAuth scopes.', default: '' },
+      port: { type: 'number', description: 'Loopback port to bind. redirect_uri = http://127.0.0.1:<port><redirect_path>.', default: 8888 },
+      redirect_path: { type: 'string', description: 'Path the provider redirects back to.', default: '/callback' },
+      save_refresh_token_to: { type: 'string', description: 'Secret name to persist the refresh token into. Required to capture a refresh token (never returned in output).' },
+      save_access_token_to: { type: 'string', description: 'Optional secret name to persist the access token into.' },
+      use_pkce: { type: 'boolean', description: 'Add a PKCE (S256) challenge/verifier. Enable for public clients / PKCE-only providers.', default: false },
+      open_browser: { type: 'boolean', description: 'Attempt to open the authorize URL in the default browser.', default: true },
+      timeout: { type: 'number', description: 'Seconds to wait for the redirect before giving up.', default: 300 },
+      extra_authorize_params: { type: 'object', description: 'Extra query params appended to the authorize URL (e.g. {"show_dialog":"true"}).' },
+    },
+    {
+      saved_to: { type: 'array', description: 'Secret names written to the vault.', items: { type: 'string' } },
+      has_refresh_token: { type: 'boolean', description: 'Whether the provider returned a refresh token.' },
+      expires_in: { type: 'number', description: 'Access-token lifetime in seconds, if returned.' },
+      scope: { type: 'string', description: 'Granted scopes, if returned.' },
+      token_type: { type: 'string', description: 'Token type, if returned (e.g. Bearer).' },
+      authorize_url_used: { type: 'string', description: 'The full authorize URL that was opened.' },
+      result: { type: 'string', description: 'Human-readable summary. Contains no token values.' },
+    },
+    async (inputs, ctx) => {
+      const authorizeUrl = String(inputs.authorize_url ?? '');
+      const tokenUrl = String(inputs.token_url ?? '');
+      if (!authorizeUrl || !tokenUrl) {
+        throw new Error('oauth-loopback: authorize_url and token_url are required.');
+      }
+
+      const clientIdEnv = String(inputs.client_id_env ?? 'CLIENT_ID');
+      const clientSecretEnv = String(inputs.client_secret_env ?? 'CLIENT_SECRET');
+      const env = ctx.env ?? {};
+      const clientId = env[clientIdEnv];
+      if (!clientId) {
+        throw new Error(
+          `oauth-loopback: client id not found in env var "${clientIdEnv}". Add it to the node's ` +
+            `secrets: [${clientIdEnv}] and set the value under Settings → Secrets.`,
+        );
+      }
+      const clientSecret = env[clientSecretEnv] || undefined;
+
+      const saveRefreshTo = String(inputs.save_refresh_token_to ?? '').trim();
+      const saveAccessTo = String(inputs.save_access_token_to ?? '').trim();
+      if (!saveRefreshTo && !saveAccessTo) {
+        throw new Error(
+          'oauth-loopback: set save_refresh_token_to (and/or save_access_token_to). The tool never ' +
+            'returns raw tokens in its output — it only writes them to the encrypted secrets vault.',
+        );
+      }
+      if (!ctx.secretsStore) {
+        throw new Error('oauth-loopback: no secrets store is available in this context — cannot persist the token.');
+      }
+
+      const port = Number(inputs.port ?? 8888);
+      const redirectPath = String(inputs.redirect_path ?? '/callback');
+      const redirectUri = `http://127.0.0.1:${port}${redirectPath}`;
+      const scopes = String(inputs.scopes ?? '');
+      const usePkce = inputs.use_pkce === true || inputs.use_pkce === 'true';
+      const openBrowserFlag = inputs.open_browser !== false && inputs.open_browser !== 'false';
+      const timeoutMs = Number(inputs.timeout ?? 300) * 1000;
+
+      // authorize/token URLs must be public (SSRF hygiene). The loopback we bind
+      // is a server we own, not a fetched URL, so it isn't subject to this check.
+      await assertSafeUrl(authorizeUrl);
+      await assertSafeUrl(tokenUrl);
+
+      const state = randomBytes(16).toString('hex');
+      let codeVerifier: string | undefined;
+      let codeChallenge: string | undefined;
+      if (usePkce) {
+        codeVerifier = base64url(randomBytes(32));
+        codeChallenge = base64url(createHash('sha256').update(codeVerifier).digest());
+      }
+
+      const authUrl = new URL(authorizeUrl);
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('client_id', clientId);
+      authUrl.searchParams.set('redirect_uri', redirectUri);
+      if (scopes) authUrl.searchParams.set('scope', scopes);
+      authUrl.searchParams.set('state', state);
+      if (usePkce && codeChallenge) {
+        authUrl.searchParams.set('code_challenge', codeChallenge);
+        authUrl.searchParams.set('code_challenge_method', 'S256');
+      }
+      for (const [k, v] of Object.entries(normalizeHeaders(inputs.extra_authorize_params))) {
+        authUrl.searchParams.set(k, v);
+      }
+      const authorizeUrlUsed = authUrl.toString();
+
+      // Surface the URL (contains client_id + state, no secrets) and optionally open it.
+      process.stderr.write(`\n[oauth-loopback] Open this URL to authorize:\n${authorizeUrlUsed}\n\n`);
+      if (openBrowserFlag) openBrowser(authorizeUrlUsed);
+
+      const code = await waitForOauthRedirect({ port, redirectPath, expectedState: state, timeoutMs });
+
+      // Exchange the code for tokens.
+      const form = new URLSearchParams();
+      form.set('grant_type', 'authorization_code');
+      form.set('code', code);
+      form.set('redirect_uri', redirectUri);
+      form.set('client_id', clientId);
+      if (clientSecret) form.set('client_secret', clientSecret);
+      if (usePkce && codeVerifier) form.set('code_verifier', codeVerifier);
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+      let tokenJson: Record<string, unknown>;
+      try {
+        const res = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+          body: form.toString(),
+          signal: controller.signal,
+        });
+        const text = await res.text();
+        try { tokenJson = JSON.parse(text) as Record<string, unknown>; } catch { tokenJson = { raw: text }; }
+        if (!res.ok) {
+          const errCode = String(tokenJson.error ?? '');
+          const errDesc = String(tokenJson.error_description ?? text);
+          throw new Error(`oauth-loopback: token exchange failed (${res.status}): ${errCode} ${errDesc}`.trim());
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+
+      const refreshToken = typeof tokenJson.refresh_token === 'string' ? tokenJson.refresh_token : '';
+      const accessToken = typeof tokenJson.access_token === 'string' ? tokenJson.access_token : '';
+
+      const savedTo: string[] = [];
+      if (saveRefreshTo && refreshToken) {
+        await ctx.secretsStore.set(saveRefreshTo, refreshToken);
+        savedTo.push(saveRefreshTo);
+      }
+      if (saveAccessTo && accessToken) {
+        await ctx.secretsStore.set(saveAccessTo, accessToken);
+        savedTo.push(saveAccessTo);
+      }
+
+      let summary: string;
+      if (saveRefreshTo && !refreshToken) {
+        summary =
+          `Authorized, but the provider returned no refresh token, so ${saveRefreshTo} was not written. ` +
+          `Some providers only issue one on first consent — try adding show_dialog/prompt to extra_authorize_params.`;
+      } else if (savedTo.length) {
+        summary = `Authorized. Saved ${savedTo.join(', ')} to the secrets vault.`;
+      } else {
+        summary = 'Authorized, but no tokens matched the configured save targets.';
+      }
+
+      return {
+        saved_to: savedTo,
+        has_refresh_token: Boolean(refreshToken),
+        expires_in: Number(tokenJson.expires_in ?? 0),
+        scope: String(tokenJson.scope ?? scopes),
+        token_type: String(tokenJson.token_type ?? ''),
+        authorize_url_used: authorizeUrlUsed,
+        result: summary,
+      };
     },
   ),
 ];

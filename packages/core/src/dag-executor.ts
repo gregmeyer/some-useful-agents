@@ -942,6 +942,9 @@ export async function executeAgentDag(
           workingDirectory: node.workingDirectory,
           env,
           timeout: node.timeout,
+          // Threaded so secret-writing built-ins (oauth-loopback) can persist
+          // a minted token. Already in scope — used for generated tools at ~L878.
+          secretsStore: deps.secretsStore,
         };
         structuredOutput = await builtinEntry.execute(toolInputs, ctx);
         const stdout = structuredOutput.result ?? '';
