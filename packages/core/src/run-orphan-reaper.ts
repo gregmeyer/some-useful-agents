@@ -150,6 +150,70 @@ export function parseEtime(raw: string): number | null {
 }
 
 /**
+ * Non-destructive twin of `killIfStillOurs`: is the child at `pid` still
+ * alive AND still the process we spawned (not a PID-reuse impostor)? Same
+ * `ps -p <pid> -o etime=` + drift cross-check, but never kills. Returns
+ * false when the process is gone, when `ps` fails/hangs, or when the elapsed
+ * time drifts too far from expected (PID reused — treat as "not our live
+ * child", i.e. reapable).
+ */
+export function isSpawnedChildAlive(pid: number, startedAtMs: number, nowMs: number = Date.now()): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  let etimeRaw: string;
+  try {
+    etimeRaw = execSync(`ps -p ${pid} -o etime=`, {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2000,
+    }).trim();
+  } catch {
+    return false; // pid not found (or ps hung) → not alive
+  }
+  const actualEtimeSec = parseEtime(etimeRaw);
+  if (actualEtimeSec === null) return false;
+  const expectedSec = Math.max(0, (nowMs - startedAtMs) / 1000);
+  const tolerance = Math.max(5, expectedSec * 0.1);
+  // Drift beyond tolerance ⇒ a different process wears this pid now ⇒ our
+  // child is effectively gone.
+  return Math.abs(actualEtimeSec - expectedSec) <= tolerance;
+}
+
+/**
+ * Finalize a single non-terminal run: mark it `failed`, SIGKILL any orphaned
+ * child of its still-running nodes (PID-reuse-guarded), and transition those
+ * node rows to `failed`/`abandoned`. Shared by the boot reaper and the
+ * periodic watchdog. Returns the node/pid counts.
+ */
+function finalizeReapedRun(
+  runStore: RunStore,
+  runId: string,
+  completedAt: string,
+  reason: string,
+  nowMs: number,
+  killFn: (pid: number, startedAtMs: number, nowMs: number) => boolean,
+): { nodesReaped: number; pidsKilled: number } {
+  runStore.updateRun(runId, { status: 'failed' as RunStatus, completedAt, error: reason });
+  let nodesReaped = 0;
+  let pidsKilled = 0;
+  const nodeExecs: NodeExecutionRecord[] = runStore.listNodeExecutions(runId);
+  for (const exec of nodeExecs) {
+    if (exec.status === 'running' || exec.status === 'pending') {
+      if (typeof exec.childPid === 'number' && typeof exec.childStartedAtMs === 'number') {
+        if (killFn(exec.childPid, exec.childStartedAtMs, nowMs)) pidsKilled++;
+      }
+      runStore.updateNodeExecution(runId, exec.nodeId, {
+        status: 'failed',
+        errorCategory: 'abandoned',
+        completedAt,
+        error: reason,
+      });
+      nodesReaped++;
+    }
+  }
+  return { nodesReaped, pidsKilled };
+}
+
+/**
  * Find every run in a non-terminal status (`running` or `pending`) and
  * transition it to `failed` with `errorCategory='abandoned'`. For each
  * such run, also transition any `running` node_execution rows so the
@@ -179,42 +243,100 @@ export function reapOrphanedRuns(runStore: RunStore, options: ReapOptions = {}):
   const reapedRunIds: string[] = [];
 
   for (const run of rows) {
-    // Finalize the run row.
-    runStore.updateRun(run.id, {
-      status: 'failed' as RunStatus,
-      completedAt,
-      error: reason,
-    });
+    const counts = finalizeReapedRun(runStore, run.id, completedAt, reason, nowMs, killFn);
     runsReaped++;
     reapedRunIds.push(run.id);
+    nodesReaped += counts.nodesReaped;
+    pidsKilled += counts.pidsKilled;
+  }
 
-    // Finalize any still-running node executions. Skip terminal-status
-    // node rows so a partially-completed run keeps its earlier history.
-    // For each row that carries a persisted childPid + childStartedAtMs,
-    // try to SIGKILL the orphan before transitioning the row — this is
-    // what actually stops the token bleed (vs just closing the state-
-    // machine bleed). PR-C addition.
+  return { runsReaped, nodesReaped, pidsKilled, reapedRunIds };
+}
+
+/** Watchdog defaults. */
+const DEFAULT_GRACE_MS = 90_000;        // don't touch a run younger than this
+const DEFAULT_MAX_AGE_MS = 30 * 60_000; // 30m hard ceiling backstop
+const DEFAULT_STUCK_REASON =
+  'Run reaped by the stuck-run watchdog: its worker child process is gone ' +
+  '(or it exceeded the maximum runtime) but the run never finalized — likely ' +
+  'the executor died mid-run, or the node hung past its timeout. The row is ' +
+  'being closed so dashboards stop polling.';
+
+export interface ReapStuckOptions extends ReapOptions {
+  /** A run younger than this (from `startedAt`) is never reaped. Default 90s. */
+  graceMs?: number;
+  /** A run older than this is reaped regardless of child liveness. Default 30m. */
+  maxAgeMs?: number;
+  /** Injectable liveness probe (tests). Defaults to the real `isSpawnedChildAlive`. */
+  isAlive?: (pid: number, startedAtMs: number, nowMs: number) => boolean;
+}
+
+/**
+ * Periodic stuck-run watchdog — the up-time counterpart to the boot-only
+ * `reapOrphanedRuns`. Unlike boot (where "any running run is an orphan" holds
+ * because the executor just restarted), a live process legitimately has runs
+ * in `running`, so this uses a per-run liveness predicate and reaps a run
+ * ONLY when it's provably not making progress:
+ *
+ *   - skip Temporal-backed runs — Temporal re-dispatches its own activities;
+ *   - skip runs younger than `graceMs` (a just-spawned child may not be
+ *     recorded yet);
+ *   - reap when the run spawned child process(es) for its running node(s) and
+ *     every such child is dead (executor died, or child was killed but the row
+ *     never finalized);
+ *   - OR reap when the run has exceeded `maxAgeMs` (hard backstop — also covers
+ *     the rare in-process-node hang that has no child pid to probe).
+ *
+ * A run with a LIVE child, or an in-process node within the age ceiling, is
+ * left strictly alone. Safe to call on a timer.
+ */
+export function reapStuckRuns(runStore: RunStore, options: ReapStuckOptions = {}): ReapResult {
+  const completedAt = options.now ?? new Date().toISOString();
+  const nowMs = options.nowMs ?? Date.now();
+  const reason = options.reason ?? DEFAULT_STUCK_REASON;
+  const killFn = options.killProcess ?? killIfStillOurs;
+  const aliveFn = options.isAlive ?? isSpawnedChildAlive;
+  const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+
+  const { rows } = runStore.queryRuns({
+    statuses: ['running', 'pending'] as RunStatus[],
+    limit: 10_000,
+    offset: 0,
+  });
+
+  let runsReaped = 0;
+  let nodesReaped = 0;
+  let pidsKilled = 0;
+  const reapedRunIds: string[] = [];
+
+  for (const run of rows) {
+    // Temporal runs recover via Temporal, not us.
+    if (run.usedWorkflowProvider === 'temporal') continue;
+
+    const ageMs = nowMs - new Date(run.startedAt).getTime();
+    if (!(ageMs >= graceMs)) continue; // too young (or unparseable start → skip)
+
+    const overCeiling = ageMs > maxAgeMs;
+
+    // Inspect running nodes that actually spawned a child. If none did, we
+    // can't prove death via pid — leave it to the age ceiling.
     const nodeExecs: NodeExecutionRecord[] = runStore.listNodeExecutions(run.id);
-    for (const exec of nodeExecs) {
-      if (exec.status === 'running' || exec.status === 'pending') {
-        if (typeof exec.childPid === 'number' && typeof exec.childStartedAtMs === 'number') {
-          // killFn returns true when the process was killed OR was already
-          // gone (both desired end states). False means PID reuse drift
-          // declined the kill — orphan continues until it finishes
-          // naturally, but the state machine is still closed.
-          if (killFn(exec.childPid, exec.childStartedAtMs, nowMs)) {
-            pidsKilled++;
-          }
-        }
-        runStore.updateNodeExecution(run.id, exec.nodeId, {
-          status: 'failed',
-          errorCategory: 'abandoned',
-          completedAt,
-          error: reason,
-        });
-        nodesReaped++;
-      }
-    }
+    const childNodes = nodeExecs.filter(
+      (e) => (e.status === 'running' || e.status === 'pending')
+        && typeof e.childPid === 'number' && typeof e.childStartedAtMs === 'number',
+    );
+    const anyChildAlive = childNodes.some((e) => aliveFn(e.childPid as number, e.childStartedAtMs as number, nowMs));
+    const allChildrenDead = childNodes.length > 0 && !anyChildAlive;
+
+    if (anyChildAlive) continue;                 // genuinely alive — never reap
+    if (!allChildrenDead && !overCeiling) continue; // no dead-child signal, within ceiling
+
+    const counts = finalizeReapedRun(runStore, run.id, completedAt, reason, nowMs, killFn);
+    runsReaped++;
+    reapedRunIds.push(run.id);
+    nodesReaped += counts.nodesReaped;
+    pidsKilled += counts.pidsKilled;
   }
 
   return { runsReaped, nodesReaped, pidsKilled, reapedRunIds };

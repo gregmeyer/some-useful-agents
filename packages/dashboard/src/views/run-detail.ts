@@ -3,7 +3,7 @@ import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
-import { statusBadge, outputFrame, formatDuration, formatExitCode, formatErrorCategory } from './components.js';
+import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 
@@ -177,7 +177,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
           <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
           <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
-          <dt>Duration</dt><dd>${formatDuration(run.startedAt, run.completedAt)}</dd>
+          <dt>Duration</dt><dd>${renderDuration(run.startedAt, run.completedAt)}</dd>
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
@@ -394,26 +394,48 @@ function renderNodeVarsPanel(e: NodeExecutionRecord): SafeHtml | null {
   `;
 }
 
+/** Small dim inline label used for a running node's progress/heartbeat. */
+function runningLabel(msg: string): SafeHtml {
+  return html`<span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">${msg}</span>`;
+}
+
 /**
  * Render a turn/progress indicator from the node's progressJson.
  * Shows the latest progress event as a small inline label.
+ *
+ * A running node whose progressJson is empty (LLM nodes are silent until the
+ * model streams its first token — often 45–200s) still gets a "working…"
+ * label so a slow-but-healthy run doesn't read as frozen. Combined with the
+ * live elapsed timer, the node visibly counts up instead of showing nothing.
  */
 function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
-  if (!e.progressJson) return html``;
+  const runningFallback = e.status === 'running' ? runningLabel('working…') : html``;
+  if (!e.progressJson) return runningFallback;
   try {
     const events = JSON.parse(e.progressJson) as Array<{ type: string; turn?: number; message?: string }>;
-    if (events.length === 0) return html``;
+    if (events.length === 0) return runningFallback;
     const latest = events[events.length - 1];
     const label = latest.message ?? latest.type;
     if (e.status === 'running') {
-      return html`<span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">${label}</span>`;
+      return runningLabel(label);
     }
     // For completed nodes, show the turn count if available.
     if (latest.turn && latest.turn > 1) {
       return html`<span class="dim" style="font-size: var(--font-size-xs); margin-left: var(--space-2);">${String(latest.turn)} turns</span>`;
     }
   } catch { /* malformed */ }
-  return html``;
+  return runningFallback;
+}
+
+/**
+ * Duration cell for a run or node. Completed → the final formatted duration.
+ * Still running → a live `[data-elapsed-since]` span the poll JS ticks every
+ * second (seeded server-side so there's no flash of "—").
+ */
+function renderDuration(startedAt: string, completedAt?: string): SafeHtml {
+  if (completedAt) return html`${formatDuration(startedAt, completedAt)}`;
+  const seed = formatElapsed(Date.now() - new Date(startedAt).getTime());
+  return html`<span class="run-elapsed" data-elapsed-since="${startedAt}">${seed}</span>`;
 }
 
 /**
@@ -425,7 +447,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'completed' || e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
-    const duration = formatDuration(e.startedAt, e.completedAt);
+    const duration = renderDuration(e.startedAt, e.completedAt);
     const exitLabel = formatExitCode(e.exitCode);
     const category = e.errorCategory
       ? html` <span class="badge badge--err">${formatErrorCategory(e.errorCategory)}</span>`

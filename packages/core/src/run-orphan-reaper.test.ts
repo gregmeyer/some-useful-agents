@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
-import { reapOrphanedRuns, parseEtime } from './run-orphan-reaper.js';
+import { reapOrphanedRuns, reapStuckRuns, parseEtime } from './run-orphan-reaper.js';
 import type { NodeExecutionRecord } from './agent-v2-types.js';
 
 // Per-test tmpdir (see run-store.test.ts for context).
@@ -163,6 +163,92 @@ describe('reapOrphanedRuns — PID kill (PR C)', () => {
     expect(result.pidsKilled).toBe(0);
     expect(result.nodesReaped).toBe(1); // row still finalized
     expect(store.getNodeExecution('r-skip', 'a')?.errorCategory).toBe('abandoned');
+  });
+});
+
+describe('reapStuckRuns — periodic watchdog', () => {
+  // Fixed clock. `startedAt` values are chosen relative to this.
+  const NOW = Date.parse('2026-07-20T18:20:00Z');
+  const past = (secondsAgo: number) => new Date(NOW - secondsAgo * 1000).toISOString();
+  const alwaysAlive = () => true;
+  const alwaysDead = () => false;
+  const noopKill = () => true;
+
+  it('leaves a run with a LIVE child process alone (past grace)', () => {
+    store.createRun({ id: 'live', agentName: 'x', status: 'running', startedAt: past(300), triggeredBy: 'dashboard' });
+    store.createNodeExecution(mkExec('live', 'n', { childPid: 4242, childStartedAtMs: NOW - 300_000 }));
+
+    const res = reapStuckRuns(store, { nowMs: NOW, isAlive: alwaysAlive, killProcess: noopKill });
+
+    expect(res.runsReaped).toBe(0);
+    expect(store.getRun('live')?.status).toBe('running');
+  });
+
+  it('reaps a run whose child is DEAD and older than the grace window', () => {
+    store.createRun({ id: 'dead', agentName: 'x', status: 'running', startedAt: past(300), triggeredBy: 'dashboard' });
+    store.createNodeExecution(mkExec('dead', 'n', { childPid: 5555, childStartedAtMs: NOW - 300_000 }));
+    const killed: number[] = [];
+
+    const res = reapStuckRuns(store, {
+      now: '2026-07-20T18:20:00Z', nowMs: NOW,
+      isAlive: alwaysDead,
+      killProcess: (pid) => { killed.push(pid); return true; },
+    });
+
+    expect(res.runsReaped).toBe(1);
+    expect(res.nodesReaped).toBe(1);
+    expect(killed).toEqual([5555]);
+    expect(store.getRun('dead')?.status).toBe('failed');
+    expect(store.getRun('dead')?.error).toMatch(/watchdog/i);
+    expect(store.getNodeExecution('dead', 'n')?.errorCategory).toBe('abandoned');
+  });
+
+  it('does NOT reap a run inside the grace window even if the child looks dead', () => {
+    store.createRun({ id: 'young', agentName: 'x', status: 'running', startedAt: past(30), triggeredBy: 'dashboard' });
+    store.createNodeExecution(mkExec('young', 'n', { childPid: 6666, childStartedAtMs: NOW - 30_000 }));
+
+    const res = reapStuckRuns(store, { nowMs: NOW, isAlive: alwaysDead, killProcess: noopKill });
+
+    expect(res.runsReaped).toBe(0);
+    expect(store.getRun('young')?.status).toBe('running');
+  });
+
+  it('reaps by the age ceiling when there is no child pid to probe (in-process node hang)', () => {
+    // A node with no childPid (built-in/control-flow) can't be probed for
+    // liveness — only the generous max-age backstop reaps it.
+    store.createRun({ id: 'old', agentName: 'x', status: 'running', startedAt: past(40 * 60), triggeredBy: 'schedule' });
+    store.createNodeExecution(mkExec('old', 'n')); // no childPid
+    let aliveCalls = 0;
+
+    const res = reapStuckRuns(store, {
+      nowMs: NOW,
+      isAlive: () => { aliveCalls++; return false; },
+      killProcess: noopKill,
+    });
+
+    expect(res.runsReaped).toBe(1);
+    expect(aliveCalls).toBe(0); // no pid → liveness never probed
+    expect(store.getRun('old')?.status).toBe('failed');
+  });
+
+  it('does NOT reap a childless run within the age ceiling (in-process, still working)', () => {
+    store.createRun({ id: 'inproc', agentName: 'x', status: 'running', startedAt: past(300), triggeredBy: 'dashboard' });
+    store.createNodeExecution(mkExec('inproc', 'n')); // no childPid, 5m old, under 30m ceiling
+
+    const res = reapStuckRuns(store, { nowMs: NOW, isAlive: alwaysDead, killProcess: noopKill });
+
+    expect(res.runsReaped).toBe(0);
+    expect(store.getRun('inproc')?.status).toBe('running');
+  });
+
+  it('skips Temporal-backed runs (Temporal recovers its own activities)', () => {
+    store.createRun({ id: 'temporal', agentName: 'x', status: 'running', startedAt: past(40 * 60), triggeredBy: 'schedule', usedWorkflowProvider: 'temporal' });
+    store.createNodeExecution(mkExec('temporal', 'n', { childPid: 7777, childStartedAtMs: NOW - 2_400_000 }));
+
+    const res = reapStuckRuns(store, { nowMs: NOW, isAlive: alwaysDead, killProcess: noopKill });
+
+    expect(res.runsReaped).toBe(0);
+    expect(store.getRun('temporal')?.status).toBe('running');
   });
 });
 
