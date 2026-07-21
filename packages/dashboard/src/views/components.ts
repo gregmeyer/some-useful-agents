@@ -67,6 +67,19 @@ export function formatDuration(startedAt: string, completedAt?: string): string 
   return `${mins}m${secs}s`;
 }
 
+/**
+ * Compact `m:ss` for a live, still-running timer — distinct from
+ * `formatDuration`'s final form. Used to seed a `[data-elapsed-since]` span
+ * server-side (the poll JS then ticks it every second); the client formatter
+ * in js.ts mirrors this.
+ */
+export function formatElapsed(ms: number): string {
+  const total = Math.floor(Math.max(0, ms) / 1000);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
 export function formatAge(timestamp: string): string {
   const ms = Date.now() - new Date(timestamp).getTime();
   if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;

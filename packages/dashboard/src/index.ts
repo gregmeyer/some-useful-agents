@@ -27,6 +27,7 @@ import {
   rotateMcpToken,
   buildLoopbackAllowlist,
   reapOrphanedRuns,
+  reapStuckRuns,
   type SecretsStore,
   type Provider,
   type RunStatus,
@@ -461,6 +462,33 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     }
   }
 
+  // Periodic stuck-run watchdog — the up-time counterpart to the boot reaper
+  // above. Boot-only reaping misses runs that wedge while the dashboard stays
+  // up for days (executor child died but the row never finalized, or a node
+  // hung past its timeout on a machine that slept). Every 30s, reap only LOCAL
+  // runs that are provably not progressing (dead child, or past the max
+  // runtime), never a live one — Temporal runs recover via Temporal. A reaped
+  // run flips to `failed` with an explanatory reason, so it stops polling and
+  // surfaces on its run page. (No inbox alert: `raiseRunFailureInbox` is
+  // deliberately Temporal-only, and this watchdog only touches local runs.)
+  // Unref'd so it never keeps the process alive; cleared on close().
+  const STUCK_WATCHDOG_INTERVAL_MS = 30_000;
+  const stuckWatchdog = setInterval(() => {
+    try {
+      const res = reapStuckRuns(runStore);
+      if (res.runsReaped > 0) {
+        console.warn(
+          `[stuck-run-watchdog] Reaped ${res.runsReaped} stuck run(s) and ${res.nodesReaped} node execution(s) ` +
+          `(killed ${res.pidsKilled} process(es)). Run ids: ${res.reapedRunIds.slice(0, 10).join(', ')}` +
+          `${res.reapedRunIds.length > 10 ? ` (+${res.reapedRunIds.length - 10} more)` : ''}`,
+        );
+      }
+    } catch (err) {
+      console.warn('[stuck-run-watchdog] sweep failed:', err instanceof Error ? err.message : String(err));
+    }
+  }, STUCK_WATCHDOG_INTERVAL_MS);
+  stuckWatchdog.unref?.();
+
   // Integrations store. Same DB file. Independently optional from packs/
   // dashboards so a schema issue in either doesn't keep the other offline.
   let integrationsStore: IntegrationsStore | undefined;
@@ -577,6 +605,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     server,
     authUrl,
     async close() {
+      clearInterval(stuckWatchdog);
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —

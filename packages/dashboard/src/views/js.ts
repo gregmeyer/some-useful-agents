@@ -287,6 +287,29 @@ export const DASHBOARD_JS = `
       }
     };
 
+    // Live elapsed timers for running run/node durations. The server seeds each
+    // [data-elapsed-since] span; we tick them every second so a slow node
+    // visibly counts up instead of sitting at a static value between 2s polls.
+    // Re-scans the DOM each tick, so spans that survive (or arrive via) a
+    // partial re-render keep ticking; once a node completes the server swaps in
+    // a static duration (no data-elapsed-since) and it's left alone.
+    var fmtElapsed = function (ms) {
+      if (ms < 0) ms = 0;
+      var t = Math.floor(ms / 1000);
+      var m = Math.floor(t / 60);
+      var s = t % 60;
+      return m + ':' + (s < 10 ? '0' + s : s);
+    };
+    var tickElapsed = function () {
+      var els = document.querySelectorAll('[data-elapsed-since]');
+      for (var i = 0; i < els.length; i++) {
+        var since = Date.parse(els[i].getAttribute('data-elapsed-since'));
+        if (!isNaN(since)) els[i].textContent = fmtElapsed(Date.now() - since);
+      }
+    };
+    setInterval(tickElapsed, 1000);
+    tickElapsed();
+
     var poll = function () {
       fetch('/runs/' + encodeURIComponent(runId) + '?partial=1', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
