@@ -1,5 +1,83 @@
 # @some-useful-agents/temporal-provider
 
+## 0.26.0
+
+### Minor Changes
+
+- 0396733: A healthy run no longer reads as a failure, and the analyzer can see what each node produced.
+
+  **End-node default.** An `end` node reached in the normal course wrote "Flow
+  ended early." as the run's terminal result — which reads as a premature failure
+  and repeatedly convinced operators, inbox triage, and agent-analyzer that a
+  `completed` run had failed. The default is now the neutral "Flow complete."
+  (authors who want custom wording still set `endMessage`).
+
+  **Analyzer sees node-level output.** agent-analyzer was fed only a run's terminal
+  result, so for any agent ending on an `end` node the substantive work (e.g. a
+  query node returning `match_count: 0`) was invisible — and it looped on "run it
+  again". The analyzer's LAST_RUN_OUTPUT now appends a per-node output digest of
+  the latest completed run, and its prompt is updated to treat a completed run as
+  success, read the per-node output to distinguish an empty-data/misconfig issue
+  from a code bug, and never recommend re-running a run whose outcome it already
+  has.
+
+- f02628e: Inbox triage now knows your dashboards.
+
+  The triage turn is handed a `DASHBOARDS` catalog — your existing dashboards as
+  `[{id,name,tiles,agents}]` — so it can answer "which dashboards do I have / where
+  can I add agents", target an existing dashboard by its exact id when pinning an
+  agent's tile (`dashboard-editor` add-tile) instead of guessing a name and minting
+  a near-duplicate, and skip re-adding an agent that's already pinned.
+
+- 1d5428a: Add the `oauth-loopback` built-in tool for one-time OAuth2 authorization.
+
+  A new built-in tool runs the OAuth2 authorization-code flow over a local
+  `127.0.0.1` redirect: it opens the provider consent screen, captures the
+  redirect on a throwaway loopback server, exchanges the code for tokens, and
+  writes the refresh (and/or access) token straight into the encrypted secrets
+  vault. It reads the client id/secret from the node's declared `secrets:` via the
+  `client_id_env` / `client_secret_env` inputs, supports PKCE, and never returns
+  raw tokens in its output (so nothing lands in the runs database).
+
+  This unblocks agents that need a user-consented refresh token — e.g. the Spotify
+  playlist builder can now be provisioned by a one-time `oauth-loopback` node.
+  Built-in tools can now optionally receive the secrets store via
+  `BuiltinToolContext.secretsStore`. See `docs/tools/oauth-loopback.md` and
+  ADR-0027.
+
+- 43793c7: Runs that are slow no longer look stuck, and genuinely-hung runs get reaped.
+
+  **Live progress.** A running run/node now shows a ticking `m:ss` elapsed timer
+  (was a static `—` for the whole node) plus a "working…" label, so a slow LLM
+  node — `agent-analyzer` and friends run 45–200s on a single call and stream
+  nothing until the first token — visibly counts up instead of reading as frozen.
+
+  **Stuck-run watchdog.** Orphan reaping was boot-only, so a run that wedged
+  while the dashboard stayed up (executor child died but the row never finalized,
+  or a node hung past its timeout on a machine that slept) sat in `running`
+  until the next restart. A periodic watchdog now reaps such runs within ~30s —
+  but only LOCAL runs that are provably not progressing (dead child process,
+  PID-liveness checked; or past a 30-minute max runtime), never a live one, and
+  never a Temporal run (Temporal recovers its own).
+
+### Patch Changes
+
+- fe3af9e: Inbox threads show a chip for every agent they reference.
+
+  The thread header now renders one navigable chip per agent the conversation
+  touches — the target agent plus every proposed/executed action's target —
+  instead of just the single target-agent link. Duplicates collapse and triage
+  scaffolding (agent-editor, dashboard-editor, the resolve sentinel, …) is
+  excluded, so a multi-agent thread surfaces the real agents at a glance, each
+  linking to `/agents/<id>`.
+
+- Updated dependencies [0396733]
+- Updated dependencies [fe3af9e]
+- Updated dependencies [f02628e]
+- Updated dependencies [1d5428a]
+- Updated dependencies [43793c7]
+  - @some-useful-agents/core@0.26.0
+
 ## 0.25.0
 
 ### Minor Changes
