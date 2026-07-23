@@ -397,7 +397,12 @@ export function enrichAgentAnalyzerInputs(
   }
   if (!out.LAST_RUN_OUTPUT && targetAgentId) {
     const summary = collectRunSummary(ctx, targetAgentId);
-    if (summary) out.LAST_RUN_OUTPUT = summary;
+    // Append the per-node output digest so the analyzer sees intermediate node
+    // outputs (e.g. a query returning 0 rows), not just the terminal `end`
+    // message — the difference between "diagnose the real issue" and "loop".
+    const nodeDigest = collectLatestRunNodeDigest(ctx, targetAgentId);
+    const combined = `${summary}${nodeDigest}`.trim();
+    if (combined) out.LAST_RUN_OUTPUT = combined;
   }
   return out;
 }
@@ -515,6 +520,56 @@ export function collectRunSummary(
     }
   } catch { /* swallow */ }
   return out.length > RUN_SUMMARY_TOTAL_CAP ? out.slice(0, RUN_SUMMARY_TOTAL_CAP) + '\n...(truncated — open the run for the full output)' : out;
+}
+
+// Per-node output digest caps. Bounded so a verbose data agent can't blow the
+// analyzer prompt, but generous enough that the substantive node's output
+// (e.g. a query result) survives.
+const NODE_DIGEST_PER_NODE_CAP = 600;
+const NODE_DIGEST_TOTAL_CAP = 4500;
+
+/**
+ * Compact per-node output digest of an agent's latest COMPLETED run.
+ *
+ * Why this exists: a run's terminal `result` (what `collectRunSummary` /
+ * run-now-build feed the analyzer as LAST_RUN_OUTPUT) is only the FINAL node's
+ * output. For any agent that ends on an `end` node, that final output is the
+ * end message — which masks the real work (e.g. a `query-adrs` node returning
+ * `match_count: 0`). The analyzer then can't tell "agent works, data is
+ * empty / misconfigured" from "agent failed", and loops on "run it again".
+ * This surfaces every node's output so the analyzer can diagnose from what the
+ * steps actually produced. Empty string when there's no completed run.
+ */
+export function collectLatestRunNodeDigest(
+  ctx: ReturnType<typeof getContext>,
+  agentName: string,
+): string {
+  try {
+    const completed = ctx.runStore.listRuns({ agentName, status: 'completed', limit: 1 });
+    if (completed.length === 0) return '';
+    const execs = ctx.runStore.listNodeExecutions(completed[0].id);
+    if (execs.length === 0) return '';
+    const lines: string[] = [
+      '',
+      'PER-NODE OUTPUT of the latest completed run (the run output above is only the ' +
+        'FINAL node — inspect these to see what each step actually produced; e.g. a ' +
+        'query node returning zero rows is a data/config issue, not a code failure):',
+    ];
+    for (const e of execs) {
+      const raw = (e.error && e.error.trim()) ? `error: ${e.error}` : (e.result ?? '');
+      const oneLine = raw.replace(/\s+/g, ' ').trim();
+      const clipped = oneLine.length > NODE_DIGEST_PER_NODE_CAP
+        ? `${oneLine.slice(0, NODE_DIGEST_PER_NODE_CAP)}…`
+        : oneLine;
+      lines.push(`- ${e.nodeId} [${e.status}]: ${clipped}`);
+    }
+    const out = lines.join('\n');
+    return out.length > NODE_DIGEST_TOTAL_CAP
+      ? `${out.slice(0, NODE_DIGEST_TOTAL_CAP)}\n…(truncated — open the run for full node output)`
+      : out;
+  } catch {
+    return '';
+  }
 }
 
 export function deriveRunFailureReason(
