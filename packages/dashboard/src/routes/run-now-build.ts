@@ -31,6 +31,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
+import { collectLatestRunNodeDigest } from './inbox-catalog.js';
 import {
   startBuildSession,
   startDraftOneSession,
@@ -455,6 +456,10 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
     if (completed.length > 0 && completed[0].result) {
       const raw = completed[0].result;
       lastRunOutput = raw.length > 2000 ? raw.slice(0, 2000) + '\n...(truncated)' : raw;
+      // The terminal result is only the FINAL node (an `end` node's message
+      // masks the real work). Append every node's output so the analyzer can
+      // diagnose from what the steps produced instead of re-running blindly.
+      lastRunOutput += collectLatestRunNodeDigest(ctx, name);
     }
 
     // Also check for recent failed runs — include the error so the
@@ -488,9 +493,10 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
       }
     }
 
-    // Cap total size.
-    if (lastRunOutput.length > 3000) {
-      lastRunOutput = lastRunOutput.slice(0, 3000) + '\n...(truncated)';
+    // Cap total size. Higher than the old 3000 so the appended per-node digest
+    // (which carries the real diagnostic signal) isn't sliced off.
+    if (lastRunOutput.length > 8000) {
+      lastRunOutput = lastRunOutput.slice(0, 8000) + '\n...(truncated)';
     }
   } catch { /* run store may not have runs yet */ }
 

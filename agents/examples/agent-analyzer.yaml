@@ -96,6 +96,23 @@ nodes:
       errors, timeouts, unexpected results, or missing data):
       {{inputs.LAST_RUN_OUTPUT}}
 
+      HOW TO READ THE LAST RUN OUTPUT — do not mistake a healthy run for a failure:
+      - A run that COMPLETED is a success. Its top line is only the FINAL node's
+        output; for an agent that ends on an `end` node, that is just the end
+        message (e.g. "Flow complete.") — a normal terminus, NOT an error. Never
+        treat an end-node message as a failure to explain.
+      - The "PER-NODE OUTPUT" block (when present) shows what each step actually
+        produced. Diagnose from it. A query/fetch node that returns zero rows,
+        an empty list, or match_count: 0 means the agent WORKS but the DATA or
+        CONFIG is off (wrong DB_PATH or table, empty store, a filter that
+        matched nothing, a writer that writes a different path than this reader) —
+        surface that as the finding, not a code bug.
+      - You already have the run's outcome here. NEVER recommend "run it again to
+        see what happens" — the answer is in this output. Re-running a completed
+        agent to gather information it already produced is a loop, not a
+        diagnosis. If a real fix needs verification, propose the CONFIG/YAML
+        change that addresses the per-node finding.
+
       Classify your assessment as exactly one of:
       - NO_IMPROVEMENTS: The agent is well-designed, no changes needed.
       - SUGGESTIONS: Specific improvements that would make the agent better.

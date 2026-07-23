@@ -1711,6 +1711,24 @@ describe('executeAgentDag — end + break (Flow PR E)', () => {
     expect(execs.find((e) => e.nodeId === 'after-abort')!.errorCategory).toBe('flow_ended');
   });
 
+  it('end node without endMessage uses a neutral default (not "early")', async () => {
+    // The default becomes the run's terminal result — it must read as a normal
+    // completion, since operators + agent-analyzer treat it as the run output.
+    const agent = makeAgent({
+      nodes: [
+        { id: 'check', type: 'shell', command: 'echo ok' },
+        { id: 'done', type: 'end' as any, dependsOn: ['check'] },
+      ],
+    });
+    const spawner = cannedSpawner({ check: { exitCode: 0, result: 'ok' } });
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, { runStore, spawnNode: spawner });
+
+    expect(run.status).toBe('completed');
+    const endExec = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'done')!;
+    expect(endExec.result).toBe('Flow complete.');
+    expect(endExec.result).not.toMatch(/early/i);
+  });
+
   it('end node does not fire when its onlyIf is false', async () => {
     const agent = makeAgent({
       nodes: [

@@ -581,8 +581,15 @@ export async function executeAgentDag(
     if (node.type === 'end') {
       // End node: terminate the entire flow cleanly. All remaining nodes
       // are skipped with flow_ended. The run completes as 'completed'
-      // (not 'failed') — this is a deliberate early exit, not an error.
-      const msg = node.endMessage ?? 'Flow ended early.';
+      // (not 'failed') — this is a deliberate exit, not an error.
+      //
+      // The default message must read as a NORMAL completion. It becomes the
+      // run's terminal `result`, which is what operators, inbox triage, and
+      // agent-analyzer all see. The old default ("Flow ended early.") read as
+      // a premature failure and repeatedly convinced everyone a healthy run
+      // had failed — kicking off run-it-again loops. Authors who want custom
+      // wording set `endMessage`.
+      const msg = node.endMessage ?? 'Flow complete.';
       deps.runStore.createNodeExecution({
         runId,
         nodeId: node.id,
