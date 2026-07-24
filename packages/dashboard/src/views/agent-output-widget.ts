@@ -1,4 +1,4 @@
-import type { Agent } from '@some-useful-agents/core';
+import type { Agent, OutputWidgetType } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -29,6 +29,8 @@ export interface RenderOutputWidgetPageArgs {
   /** Active sub-tab; falls back to 'type'. Driven by `?tab=...` query param. */
   activeTab?: OutputWidgetTab;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** Sticky widget-type selection carried through a validation bounce (`?widgetType=`). */
+  typeOverride?: OutputWidgetType;
 }
 
 const TABS: Array<{ id: OutputWidgetTab; label: string }> = [
@@ -61,7 +63,7 @@ export function renderOutputWidgetPage(args: RenderOutputWidgetPageArgs): string
     <div class="ow-page" data-active-tab="${active}">
       ${tabStrip}
       <div class="ow-page__body">
-        ${renderOutputWidgetEditor(agent)}
+        ${renderOutputWidgetEditor(agent, args.typeOverride)}
       </div>
     </div>
 

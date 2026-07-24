@@ -183,7 +183,13 @@ agentInputsRouter.get('/agents/:name/output-widget', (req: Request, res: Respons
     : 'type';
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
   const flash = flashParam ? { kind: 'ok' as const, message: flashParam } : undefined;
-  res.type('html').send(renderOutputWidgetPage({ agent, activeTab, flash }));
+  // Sticky type selection across a validation bounce (e.g. ai-template rejected
+  // for an empty template): honour `?widgetType=` so the editor keeps the
+  // operator's pick instead of reverting to the saved type.
+  const typeParam = typeof req.query.widgetType === 'string' && VALID_WIDGET_TYPES.has(req.query.widgetType)
+    ? (req.query.widgetType as OutputWidgetSchema['type'])
+    : undefined;
+  res.type('html').send(renderOutputWidgetPage({ agent, activeTab, flash, typeOverride: typeParam }));
 });
 
 // ── Output widget update ────────────────────────────────────────────────
@@ -479,7 +485,9 @@ agentInputsRouter.post('/agents/:name/output-widget/update', (req: Request, res:
     const promptText = typeof body.prompt === 'string' ? body.prompt : '';
     const sanitized = sanitizeHtml(rawTemplate).trim();
     if (!sanitized) {
-      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?tab=fields&flash=${encodeURIComponent('Generate or paste a template before saving.')}`);
+      // Keep the AI-template selection sticky (widgetType=ai-template) so the
+      // editor doesn't appear to revert to the saved type on this bounce.
+      res.redirect(303, `/agents/${encodeURIComponent(agent.id)}/output-widget?tab=fields&widgetType=ai-template&flash=${encodeURIComponent('Generate or paste a template before saving.')}`);
       return;
     }
     outputWidget = {
