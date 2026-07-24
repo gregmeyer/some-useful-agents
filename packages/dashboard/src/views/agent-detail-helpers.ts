@@ -264,9 +264,13 @@ function renderControlRow(idx: number, control?: { type?: string; label?: string
   `;
 }
 
-export function renderOutputWidgetEditor(agent: Agent): SafeHtml {
+export function renderOutputWidgetEditor(agent: Agent, typeOverride?: OutputWidgetType): SafeHtml {
   const widget = agent.outputWidget;
-  const currentType: OutputWidgetType = widget?.type ?? 'raw';
+  // `typeOverride` keeps the operator's picked type sticky across a validation
+  // bounce (e.g. selecting ai-template but saving before a template exists —
+  // the save is rejected, and without this the page would revert to the saved
+  // type, reading as "it defaulted back to key-value").
+  const currentType: OutputWidgetType = typeOverride ?? widget?.type ?? 'raw';
   const FIELD = 'padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs);';
 
   // Widget cards
