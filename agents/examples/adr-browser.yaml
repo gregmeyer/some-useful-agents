@@ -1,0 +1,107 @@
+# ADR Browser — the READER half of the "SQLite-backed log + table widget" pattern.
+# Queries the shared ADR SQLite log (written by adr-logger.yaml) and renders the
+# matching records as a table. See docs/patterns/sqlite-log-widget.md.
+#
+# Single node: its output IS the run result, so the dashboard `table` widget
+# renders directly — no `end` node (which would overwrite the result with its
+# own message). Pattern contract (must match the writer): DB_PATH + table `adr`.
+id: adr-browser
+name: ADR Browser
+description: >
+  Query the shared ADR SQLite log, filter by status, search decision text, and
+  render matching records as a table. The reader half of the SQLite-log pattern.
+status: active
+source: examples
+mcp: false
+permissions:
+  inboxRunnable: true
+inputs:
+  SEARCH:
+    type: string
+    default: ""
+    description: Free-text search across title, context, and decision.
+  STATUS_FILTER:
+    type: enum
+    values: [ALL, proposed, accepted, superseded, deprecated, rejected]
+    default: ALL
+    description: Filter by status, or ALL for no filter.
+  LIMIT:
+    type: number
+    default: 25
+    description: Maximum number of ADRs to return.
+  DB_PATH:
+    type: string
+    default: data/adr-log.db
+    description: SQLite database path shared with the ADR Logger.
+outputs:
+  match_count:
+    type: number
+  adrs:
+    type: array
+  headline:
+    type: string
+  summary:
+    type: string
+nodes:
+  - id: query-adrs
+    type: shell
+    timeout: 15000
+    # Read-only query. Builds a WHERE from status + search (single-quote
+    # escaped), returns rows via -json, and emits a SINGLE-LINE framed JSON
+    # object (jq -c) with the `adrs` array the table widget iterates. Degrades
+    # gracefully (success with an empty array + a headline) when the log is
+    # missing — an empty log is a data state, not a failure.
+    command: |
+      set -euo pipefail
+      command -v sqlite3 >/dev/null 2>&1 || { echo '{"headline":"ADR browser unavailable","summary":"sqlite3 is not installed.","match_count":0,"adrs":[]}'; exit 0; }
+      command -v jq      >/dev/null 2>&1 || { echo '{"headline":"ADR browser unavailable","summary":"jq is not installed.","match_count":0,"adrs":[]}'; exit 0; }
+
+      DB="${DB_PATH:-data/adr-log.db}"
+      if [ ! -f "$DB" ] || ! sqlite3 -readonly "$DB" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='adr';" 2>/dev/null | grep -q '^1$'; then
+        echo '{"headline":"No ADR log yet","summary":"Record one with the ADR Logger agent.","match_count":0,"adrs":[]}'
+        exit 0
+      fi
+
+      esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+      WHERE="1=1"
+      if [ "${STATUS_FILTER:-ALL}" != "ALL" ]; then
+        WHERE="$WHERE AND status='$(esc "$STATUS_FILTER")'"
+      fi
+      if [ -n "${SEARCH:-}" ]; then
+        S=$(esc "$SEARCH")
+        WHERE="$WHERE AND (title LIKE '%$S%' OR context LIKE '%$S%' OR decision LIKE '%$S%')"
+      fi
+      LIM=$(printf '%s' "${LIMIT:-25}" | tr -cd '0-9'); [ -n "$LIM" ] || LIM=25
+
+      ADRS=$(sqlite3 -readonly -json "$DB" "SELECT id,title,context,decision,status,consequences,created_at FROM adr WHERE $WHERE ORDER BY id DESC LIMIT $LIM;")
+      [ -n "$ADRS" ] || ADRS='[]'
+      COUNT=$(echo "$ADRS" | jq 'length')
+
+      echo "$ADRS" | jq -c --argjson count "$COUNT" '{
+        match_count: $count,
+        adrs: .,
+        headline: (if $count == 0 then "No ADRs matched" else (($count|tostring) + " ADR" + (if $count == 1 then "" else "s" end)) end),
+        summary: "Architectural decision records, newest first."
+      }'
+outputWidget:
+  type: dashboard
+  fields:
+    - { name: headline, label: Headline, type: text }
+    - { name: match_count, label: ADRs, type: metric }
+    - name: adrs
+      label: Decisions
+      type: table
+      columns:
+        - { name: id, label: "#" }
+        - { name: title, label: Title }
+        - { name: decision, label: Decision }
+        - { name: status, label: Status }
+        - { name: created_at, label: Recorded }
+  controls:
+    - type: replay
+      label: Search
+      inputs: [SEARCH, STATUS_FILTER, LIMIT]
+    - type: filter
+      field: adrs
+      columns: [title, decision, status]
+      placeholder: Filter decisions…

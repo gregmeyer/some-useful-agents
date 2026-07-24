@@ -262,6 +262,7 @@ The tile on the home board (`/`) then renders the same HTML the agent detail pag
 
 ## Related
 
+- [Pattern: SQLite log + table widget](patterns/sqlite-log-widget.md) — a worked `table`-over-array example (ADR logger + browser)
 - [Dashboard tour](dashboard.md#output-widget-editor) — how the editor UI works step-by-step
 - [Templating](templating.md) — placeholder substitution in shell + llm-prompt
 - [Security model](SECURITY.md#html-sanitizer-v018) — sanitizer allowlist
