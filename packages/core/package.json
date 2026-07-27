@@ -9,7 +9,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "cron-parser": "5.6.2",
     "node-cron": "4.6.0",
     "pg": "8.22.0",
