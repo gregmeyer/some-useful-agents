@@ -410,7 +410,7 @@ nodes:
 });
 
 describe('getSubAgentAllowlist', () => {
-  it('includes only opted-in local/community user agents beyond the system defaults', async () => {
+  it('includes opted-in local/community/examples user agents beyond the system defaults', async () => {
     const app = await makeApp();
     agentStore.createAgent(parseAgent(`
 id: joke-judge
@@ -455,7 +455,10 @@ nodes:
     const allowlist = getSubAgentAllowlist(app.locals as DashboardContext);
     expect(allowlist).toContain('joke-judge');
     expect(allowlist).not.toContain('hidden-helper');
-    expect(allowlist).not.toContain('example-helper');
+    // examples-source agents that opt into inboxRunnable ARE runnable now —
+    // the SYSTEM_AGENT_IDS check (not the source) is what gates triage
+    // scaffolding, so a bundled first-party example (e.g. adr-logger) runs.
+    expect(allowlist).toContain('example-helper');
     expect(allowlist).toContain('agent-builder');
   });
 });
