@@ -709,6 +709,44 @@ describe('POST /inbox/:id/triage/cancel — operator Stop halts the refire chain
       .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(ctx.inboxTriageStopped?.has(m.id)).toBe(false);
   });
+
+  it('persists the pause so it survives a restart, and a reply clears it', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // The durable flag is what the sweeper/reconciler consult after a reboot
+    // (the in-memory set dies with the process).
+    expect(inboxStore.get(m.id)!.paused).toBe(true);
+    await request(app)
+      .post(`/inbox/${m.id}/respond`).type('form').send({ body: 'continue please' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inboxStore.get(m.id)!.paused).toBe(false);
+  });
+
+  it('cancels an in-flight sub-agent action run, not just the next turn', async () => {
+    const app = await makeApp();
+    const ctx = app.locals as DashboardContext;
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'Running agent-analyzer', JSON.stringify({
+      kind: 'action', agentId: 'agent-analyzer', inputs: {}, effect: 'read',
+      status: 'running', runId: 'run-live-1', startedAt: Date.now(),
+    }));
+    const controller = new AbortController();
+    ctx.activeRuns.set('run-live-1', controller);
+
+    const cancel = await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(cancel.status).toBe(204);
+    expect(controller.signal.aborted).toBe(true);
+    expect(ctx.activeRuns.has('run-live-1')).toBe(false);
+    // Ack note names the cancelled action.
+    expect(inboxStore.listResponses(m.id).some(
+      (r) => r.role === 'system' && /cancelled 1 running action/i.test(r.body) && r.body.includes('agent-analyzer'),
+    )).toBe(true);
+  });
 });
 
 describe('GET /inbox with filters', () => {

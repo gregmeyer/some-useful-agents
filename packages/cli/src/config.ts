@@ -56,10 +56,9 @@ export interface SuaConfig {
      */
     triageLearnings?: boolean;
     /**
-     * Enable autonomous first-touch triage: new inbox items (never `manual`
-     * threads) get a triage turn without an operator poke. Staged-rollout
-     * flag — planned to become default-on. Default off. Equivalent to
-     * `SUA_INBOX_AUTO_TRIAGE=1`.
+     * Autonomous first-touch triage: new inbox items (never `manual`
+     * threads) get a triage turn without an operator poke. Default ON;
+     * set `false` to opt out (equivalent to `SUA_INBOX_AUTO_TRIAGE=0`).
      */
     inboxAutoTriage?: boolean;
   };
@@ -109,8 +108,11 @@ function applyExperimentalFlags(config: SuaConfig): SuaConfig {
   if (config.experimental?.triageLearnings && process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS === undefined) {
     process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS = '1';
   }
-  if (config.experimental?.inboxAutoTriage && process.env.SUA_INBOX_AUTO_TRIAGE === undefined) {
-    process.env.SUA_INBOX_AUTO_TRIAGE = '1';
+  // inboxAutoTriage is default-ON, so the bridge carries BOTH directions:
+  // an explicit `false` opts out, an explicit `true` pins it on (protects
+  // against a future default change). Env always wins over config.
+  if (config.experimental?.inboxAutoTriage !== undefined && process.env.SUA_INBOX_AUTO_TRIAGE === undefined) {
+    process.env.SUA_INBOX_AUTO_TRIAGE = config.experimental.inboxAutoTriage ? '1' : '0';
   }
   return config;
 }

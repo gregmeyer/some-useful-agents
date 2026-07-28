@@ -64,11 +64,17 @@ describe('maybeAutoFirstTouch', () => {
     expect(runTriage).toHaveBeenCalledExactlyOnceWith(ctx, m.id);
   });
 
-  it('no-ops when the flag is off', () => {
-    delete process.env.SUA_INBOX_AUTO_TRIAGE;
+  it('no-ops when the flag is off (opt-out)', () => {
+    process.env.SUA_INBOX_AUTO_TRIAGE = '0';
     const m = addFailure();
     expect(maybeAutoFirstTouch(ctx, m.id, runTriage)).toBe(false);
     expect(runTriage).not.toHaveBeenCalled();
+  });
+
+  it('is on by default (no env var set)', () => {
+    delete process.env.SUA_INBOX_AUTO_TRIAGE;
+    const m = addFailure();
+    expect(maybeAutoFirstTouch(ctx, m.id, runTriage)).toBe(true);
   });
 
   it('never touches manual threads — the operator owns kickoff', () => {
@@ -139,9 +145,9 @@ describe('sweepInboxOnce', () => {
   });
 
   it('flag off → sweep is a no-op', () => {
-    delete process.env.SUA_INBOX_AUTO_TRIAGE;
+    process.env.SUA_INBOX_AUTO_TRIAGE = '0';
     addFailure();
-    expect(sweepInboxOnce(ctx, runTriage)).toBe(0);
+    expect(sweepInboxOnce(ctx, runTriage, 0)).toBe(0);
   });
 
   it('stands down entirely at the concurrency ceiling', () => {

@@ -496,6 +496,37 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
 });
 
 /**
+ * Force-finalize a run row + any node executions still flagged running, in
+ * case the executor's normal teardown didn't fire before the response
+ * returns. Mirrors POST /runs/:id/cancel. Shared by the triage-run cancel
+ * and the in-flight action cancel in the Stop route.
+ */
+function forceFinalizeCancelledRun(ctx: ReturnType<typeof getContext>, runId: string): void {
+  try {
+    const run = ctx.runStore.getRun(runId);
+    if (run && (run.status === 'running' || run.status === 'pending')) {
+      const completedAt = new Date().toISOString();
+      ctx.runStore.updateRun(runId, {
+        status: 'cancelled' as RunStatus,
+        completedAt,
+        error: 'Cancelled by user.',
+      });
+      const nodeExecs = ctx.runStore.listNodeExecutions(runId);
+      for (const exec of nodeExecs) {
+        if (exec.status === 'running' || exec.status === 'pending') {
+          ctx.runStore.updateNodeExecution(runId, exec.nodeId, {
+            status: 'cancelled',
+            errorCategory: 'cancelled',
+            completedAt,
+            error: 'Cancelled by user.',
+          });
+        }
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+/**
  * POST /inbox/:id/triage/cancel — short-circuit an in-flight triage
  * run. Looks up the registered AbortController via
  * `ctx.inboxTriageAbortControllers` (keyed by message id), aborts the
@@ -530,12 +561,34 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   // boot reconciler / auto-triage sweeper would happily re-engage a thread
   // the operator explicitly silenced. Cleared on the next reply.
   try { ctx.inboxStore.setPaused(id, true); } catch { /* best-effort */ }
+  // Cancel in-flight sub-agent ACTION runs too — Stop halts moving parts,
+  // not just the next turn. Local dispatches registered an AbortController
+  // in activeRuns; aborting cascades into the executor and the dispatch's
+  // own await finalizes the action card as failed through the normal path
+  // (with the pause suppressing the follow-up refire). Temporal runs get a
+  // best-effort provider cancel + a local force-finalize so the dashboard
+  // stops waiting — the worker may still finish server-side.
+  const cancelledActionAgents: string[] = [];
+  try {
+    for (const r of ctx.inboxStore.listResponses(id)) {
+      const m = parseActionMeta(r);
+      if (!m || m.status !== 'running' || !m.runId) continue;
+      cancelledActionAgents.push(m.agentId);
+      ctx.activeRuns.get(m.runId)?.abort();
+      ctx.activeRuns.delete(m.runId);
+      try { await ctx.provider.cancelRun(m.runId); } catch { /* best-effort */ }
+      forceFinalizeCancelledRun(ctx, m.runId);
+    }
+  } catch { /* never let action-cancel break the Stop ack */ }
   const entry = ctx.inboxTriageAbortControllers.get(id);
   if (!entry) {
-    // No triage LLM turn in flight, but the stop flag now halts the chain
-    // after the current action. Acknowledge it so the operator sees it took.
+    // No triage LLM turn in flight, but the stop flag halts the chain and
+    // any running actions were just cancelled above. Acknowledge it so the
+    // operator sees it took.
     try {
-      const note = 'Auto-follow-up stopped. Reply to continue.';
+      const note = cancelledActionAgents.length > 0
+        ? `Stopped — cancelled ${cancelledActionAgents.length} running action${cancelledActionAgents.length === 1 ? '' : 's'} (${cancelledActionAgents.join(', ')}). Reply to continue.`
+        : 'Auto-follow-up stopped. Reply to continue.';
       const sysReply = ctx.inboxStore.addResponse(id, 'system', note);
       publishInboxEvent(ctx, id, 'message:created', {
         responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
@@ -551,31 +604,7 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   // Provider cancel — belt-and-suspenders for v1 paths and any
   // pid-tracked child processes the executor spawned.
   try { await ctx.provider.cancelRun(entry.runId); } catch { /* ignore */ }
-  // Force-finalize the run + any node executions still flagged
-  // running, in case the executor's normal teardown didn't fire
-  // before the request returns. Mirrors POST /runs/:id/cancel.
-  try {
-    const run = ctx.runStore.getRun(entry.runId);
-    if (run && (run.status === 'running' || run.status === 'pending')) {
-      const completedAt = new Date().toISOString();
-      ctx.runStore.updateRun(entry.runId, {
-        status: 'cancelled' as RunStatus,
-        completedAt,
-        error: 'Cancelled by user.',
-      });
-      const nodeExecs = ctx.runStore.listNodeExecutions(entry.runId);
-      for (const exec of nodeExecs) {
-        if (exec.status === 'running' || exec.status === 'pending') {
-          ctx.runStore.updateNodeExecution(entry.runId, exec.nodeId, {
-            status: 'cancelled',
-            errorCategory: 'cancelled',
-            completedAt,
-            error: 'Cancelled by user.',
-          });
-        }
-      }
-    }
-  } catch { /* ignore */ }
+  forceFinalizeCancelledRun(ctx, entry.runId);
   // Surface the cancellation in the conversation so the operator
   // sees what happened without polling. The next user reply will
   // re-fire triage normally.
