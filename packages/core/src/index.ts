@@ -185,7 +185,7 @@ export {
   type AppleRunnerHandle,
   type AppleRunResult,
 } from './integrations/apple-runner.js';
-export { isAppleIntegrationEnabled, isTriageLearningsEnabled } from './experimental.js';
+export { isAppleIntegrationEnabled, isTriageLearningsEnabled, isInboxAutoTriageEnabled } from './experimental.js';
 export {
   PlannerTelemetryStore,
   type PlannerTelemetryRow,

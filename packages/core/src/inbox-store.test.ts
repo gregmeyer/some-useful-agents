@@ -57,6 +57,46 @@ describe('InboxStore.countNeedsYou + listNeedsYou', () => {
   });
 });
 
+describe('InboxStore.listAutoTriageCandidates', () => {
+  it('returns only open, response-less, non-manual messages past the age gate', () => {
+    const eligible = addMinimal({ source: 'run-failure', title: 'eligible' });
+    addMinimal({ source: 'manual', title: 'manual — operator kicks off' });
+    const touched = addMinimal({ source: 'run-failure', title: 'already touched' });
+    store.addResponse(touched.id, 'triage', 'first touch happened');
+    const moved = addMinimal({ source: 'run-failure', title: 'status moved' });
+    store.updateStatus(moved.id, 'awaiting_user');
+
+    const got = store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 });
+    expect(got.map((m) => m.id)).toEqual([eligible.id]);
+  });
+
+  it('excludes messages younger than olderThanMs', () => {
+    addMinimal({ source: 'run-failure', title: 'fresh' });
+    // Everything was created "now", so a 60s age gate excludes it all.
+    expect(store.listAutoTriageCandidates({ olderThanMs: 60_000, limit: 10 })).toEqual([]);
+    // ...and a zero gate includes it.
+    expect(store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 })).toHaveLength(1);
+  });
+
+  it('orders by priority (high first) then oldest-first, and honors the limit', () => {
+    const low = addMinimal({ source: 'run-failure', priority: 'low', title: 'low' });
+    const high = addMinimal({ source: 'run-failure', priority: 'high', title: 'high' });
+    const med = addMinimal({ source: 'run-failure', priority: 'medium', title: 'med' });
+
+    const got = store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 });
+    expect(got.map((m) => m.id)).toEqual([high.id, med.id, low.id]);
+
+    const capped = store.listAutoTriageCandidates({ olderThanMs: 0, limit: 2 });
+    expect(capped.map((m) => m.id)).toEqual([high.id, med.id]);
+  });
+
+  it('a system response makes a thread ineligible (any first touch counts)', () => {
+    const m = addMinimal({ source: 'run-failure' });
+    store.addResponse(m.id, 'system', 'note');
+    expect(store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 })).toEqual([]);
+  });
+});
+
 describe('InboxStore.add + get', () => {
   it('writes a row, get round-trips it, default status is open', () => {
     const msg = addMinimal();

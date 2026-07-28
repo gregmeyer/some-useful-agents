@@ -55,6 +55,13 @@ export interface SuaConfig {
      * `SUA_EXPERIMENTAL_TRIAGE_LEARNINGS=1`.
      */
     triageLearnings?: boolean;
+    /**
+     * Enable autonomous first-touch triage: new inbox items (never `manual`
+     * threads) get a triage turn without an operator poke. Staged-rollout
+     * flag — planned to become default-on. Default off. Equivalent to
+     * `SUA_INBOX_AUTO_TRIAGE=1`.
+     */
+    inboxAutoTriage?: boolean;
   };
 }
 
@@ -101,6 +108,9 @@ function applyExperimentalFlags(config: SuaConfig): SuaConfig {
   }
   if (config.experimental?.triageLearnings && process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS === undefined) {
     process.env.SUA_EXPERIMENTAL_TRIAGE_LEARNINGS = '1';
+  }
+  if (config.experimental?.inboxAutoTriage && process.env.SUA_INBOX_AUTO_TRIAGE === undefined) {
+    process.env.SUA_INBOX_AUTO_TRIAGE = '1';
   }
   return config;
 }

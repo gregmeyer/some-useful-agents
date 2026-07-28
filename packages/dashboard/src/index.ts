@@ -65,6 +65,8 @@ import { inboxCountRouter } from './routes/inbox-count.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
+import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { runTriageAgent } from './routes/inbox-engine.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -451,11 +453,22 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // prior dashboard process died mid-run, just finalized as failed by the
   // reaper above. Both no-op for local runs and dedupe by runId.
   const dashboardBaseUrl = (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, '');
+  // Late-bound context reference for the failure hook: `onRunFailure` must be
+  // built before the ctx literal below (ctx includes it), but the autonomous
+  // first-touch kick needs the full ctx. Assigned right after ctx creation —
+  // failures only fire at runtime, well after boot.
+  let ctxForInboxKick: DashboardContext | undefined;
   const onRunFailure = inboxStore
-    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) =>
-        raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl)
+    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
+        const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
+        // Low-latency autonomous first-touch (flag-gated; no-op when off).
+        // The sweeper below is the durable fallback for anything missed here.
+        if (raised && ctxForInboxKick) maybeAutoFirstTouch(ctxForInboxKick, raised.id, runTriageAgent);
+      }
     : undefined;
   if (inboxStore) {
+    // Boot-reap raises happen before ctx exists, so no kick here — the
+    // sweeper picks these up on its first pass (they're already >20s old).
     for (const rid of reapResult.reapedRunIds) {
       const orphan = runStore.getRun(rid);
       if (orphan) raiseRunFailureInbox(inboxStore, { run: orphan, errorCategory: 'abandoned' }, dashboardBaseUrl);
@@ -588,6 +601,14 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     dashboardBaseUrl,
   };
 
+  ctxForInboxKick = ctx;
+
+  // Autonomous first-touch sweeper — the durable half of auto-triage (the
+  // insert-hook kick above is the low-latency half). Every sweep is a no-op
+  // while SUA_INBOX_AUTO_TRIAGE is off. Same lifecycle shape as the
+  // stuck-run watchdog: unref'd, stopped on close().
+  const stopInboxSweeper = startInboxSweeper(ctx, runTriageAgent);
+
   const app = buildDashboardApp(ctx);
 
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
@@ -606,6 +627,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     authUrl,
     async close() {
       clearInterval(stuckWatchdog);
+      stopInboxSweeper();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —

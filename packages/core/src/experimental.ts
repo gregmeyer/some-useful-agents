@@ -37,3 +37,17 @@ export function isAppleIntegrationEnabled(): boolean {
 export function isTriageLearningsEnabled(): boolean {
   return envTrue('SUA_EXPERIMENTAL_TRIAGE_LEARNINGS');
 }
+
+/**
+ * True when the owner has enabled autonomous first-touch triage: new inbox
+ * items (run failures, etc. — never `manual` threads) get a triage turn
+ * without an operator poke, via the insert-hook kick + the periodic inbox
+ * sweeper. Staged rollout flag, not a permanent experimental gate: opt-in
+ * via `experimental.inboxAutoTriage: true` in `sua.config.json` (bridged to
+ * the env var on load) or `SUA_INBOX_AUTO_TRIAGE=1` directly, with the
+ * default planned to flip to on once the durable-recovery + local-failure
+ * producer PRs bake (it then becomes an opt-out). Default off.
+ */
+export function isInboxAutoTriageEnabled(): boolean {
+  return envTrue('SUA_INBOX_AUTO_TRIAGE');
+}
