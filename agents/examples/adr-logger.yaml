@@ -1,0 +1,104 @@
+# ADR Logger — the WRITER half of the "SQLite-backed log + table widget" pattern.
+# Appends an Architectural Decision Record to a shared SQLite database that the
+# ADR Browser (adr-browser.yaml) reads. See docs/patterns/sqlite-log-widget.md.
+#
+# Pattern contract (must match the reader): DB_PATH + table name `adr`.
+id: adr-logger
+name: ADR Logger
+description: >
+  Append an Architectural Decision Record (title, context, decision, status,
+  consequences) to a shared SQLite log. The writer half of the SQLite-log
+  pattern; pairs with the ADR Browser.
+status: active
+source: examples
+mcp: false
+permissions:
+  inboxRunnable: true
+inputs:
+  TITLE:
+    type: string
+    required: true
+    description: Short decision title, e.g. "Adopt SQLite for the ADR log".
+  CONTEXT:
+    type: string
+    required: true
+    description: The problem and forces prompting the decision.
+  DECISION:
+    type: string
+    required: true
+    description: What was decided.
+  STATUS:
+    type: enum
+    values: [proposed, accepted, superseded, deprecated, rejected]
+    default: accepted
+    description: Lifecycle status of the decision.
+  CONSEQUENCES:
+    type: string
+    default: ""
+    description: Resulting tradeoffs and follow-ups.
+  DB_PATH:
+    type: string
+    default: data/adr-log.db
+    description: SQLite database path shared with the ADR Browser.
+outputs:
+  recorded:
+    type: object
+  total_adrs:
+    type: number
+  headline:
+    type: string
+  summary:
+    type: string
+nodes:
+  - id: record-adr
+    type: shell
+    timeout: 20000
+    # Create the table if needed, insert one ADR (single-quote-escaped), then
+    # emit a SINGLE-LINE framed JSON object (jq -c) so the executor lifts the
+    # fields as structured output for the widget.
+    command: |
+      set -euo pipefail
+      command -v sqlite3 >/dev/null 2>&1 || { echo '{"error":"sqlite3 is not installed"}' >&2; exit 1; }
+      command -v jq      >/dev/null 2>&1 || { echo '{"error":"jq is not installed"}' >&2; exit 1; }
+
+      DB="${DB_PATH:-data/adr-log.db}"
+      mkdir -p "$(dirname "$DB")"
+
+      sqlite3 "$DB" "CREATE TABLE IF NOT EXISTS adr (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        title        TEXT NOT NULL,
+        context      TEXT NOT NULL,
+        decision     TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'accepted',
+        consequences TEXT NOT NULL DEFAULT '',
+        created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      );"
+
+      esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+      sqlite3 "$DB" "INSERT INTO adr (title, context, decision, status, consequences) VALUES (
+        '$(esc "$TITLE")',
+        '$(esc "$CONTEXT")',
+        '$(esc "$DECISION")',
+        '$(esc "${STATUS:-accepted}")',
+        '$(esc "${CONSEQUENCES:-}")'
+      );"
+
+      ROW=$(sqlite3 -json "$DB" "SELECT id,title,context,decision,status,consequences,created_at FROM adr ORDER BY id DESC LIMIT 1;")
+      TOTAL=$(sqlite3 "$DB" "SELECT COUNT(*) FROM adr;")
+
+      echo "$ROW" | jq -c --argjson total "$TOTAL" '.[0] as $r | {
+        recorded: $r,
+        total_adrs: $total,
+        headline: ("Recorded ADR #" + ($r.id|tostring) + " (" + $r.status + ")"),
+        summary: $r.title
+      }'
+outputWidget:
+  type: key-value
+  fields:
+    - { name: headline, label: Result, type: text }
+    - { name: summary, label: Title, type: text }
+    - { name: total_adrs, label: Total ADRs, type: metric }
+  controls:
+    - type: replay
+      label: Record ADR
+      inputs: [TITLE, CONTEXT, DECISION, STATUS, CONSEQUENCES]
