@@ -664,6 +664,26 @@ export class InboxStore {
   }
 
   /**
+   * The most recent non-terminal thread for an agent + source, or null.
+   * Producers use this to COALESCE: a crash-looping agent appends "another
+   * run failed" notes to its existing open thread instead of opening N
+   * threads (and triggering N auto-triage turns). Terminal threads
+   * (resolved/dismissed) don't absorb new failures — a fresh failure after
+   * a resolution is new information and deserves a fresh thread.
+   */
+  findActiveByAgentAndSource(agentId: string, source: InboxSource): InboxMessage | null {
+    this.validateSource(source);
+    const row = this.db.prepare(`
+      SELECT * FROM inbox_messages
+      WHERE agent_id = ? AND source = ?
+        AND status NOT IN ('dismissed', 'resolved')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(agentId, source) as Record<string, unknown> | undefined;
+    return row ? this.rowToMessage(row) : null;
+  }
+
+  /**
    * Set or clear the operator-pause flag (the Stop button's durable state).
    * While paused, every autonomous triage path stands down; the operator's
    * next reply clears it.

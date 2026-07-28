@@ -51,3 +51,14 @@ export function isTriageLearningsEnabled(): boolean {
 export function isInboxAutoTriageEnabled(): boolean {
   return envTrue('SUA_INBOX_AUTO_TRIAGE');
 }
+
+/**
+ * Local (in-process) run failures raise inbox items by default — this is the
+ * escape hatch. `SUA_INBOX_LOCAL_RUN_FAILURES=0` restores the old
+ * Temporal-only behavior for operators whose dev loop generates too much
+ * failure noise even with per-agent coalescing.
+ */
+export function isLocalRunFailureInboxEnabled(): boolean {
+  const v = process.env.SUA_INBOX_LOCAL_RUN_FAILURES;
+  return !(v === '0' || v === 'false' || v === 'no');
+}

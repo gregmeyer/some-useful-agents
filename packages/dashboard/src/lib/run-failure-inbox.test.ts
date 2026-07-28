@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import type { InboxStore, Run, AddMessageInput } from '@some-useful-agents/core';
-import { buildRunFailureMessage, raiseRunFailureInbox } from './run-failure-inbox.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { InboxStore, type Run } from '@some-useful-agents/core';
+import { buildRunFailureMessage, buildCoalescedFailureNote, raiseRunFailureInbox } from './run-failure-inbox.js';
 
 const run = (overrides: Partial<Run> = {}): Run => ({
   id: 'run-abc12345-xyz',
@@ -11,12 +14,23 @@ const run = (overrides: Partial<Run> = {}): Run => ({
   ...overrides,
 });
 
-/** Minimal InboxStore stand-in that records add() calls. */
-function fakeStore(): { store: InboxStore; added: AddMessageInput[] } {
-  const added: AddMessageInput[] = [];
-  const store = { add: (input: AddMessageInput) => { added.push(input); return {} as unknown; } } as unknown as InboxStore;
-  return { store, added };
-}
+let dir: string;
+let store: InboxStore;
+let prevFlag: string | undefined;
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'sua-run-failure-inbox-'));
+  store = new InboxStore(join(dir, 'runs.db'));
+  prevFlag = process.env.SUA_INBOX_LOCAL_RUN_FAILURES;
+  delete process.env.SUA_INBOX_LOCAL_RUN_FAILURES;
+});
+
+afterEach(() => {
+  if (prevFlag === undefined) delete process.env.SUA_INBOX_LOCAL_RUN_FAILURES;
+  else process.env.SUA_INBOX_LOCAL_RUN_FAILURES = prevFlag;
+  try { store.close(); } catch { /* ignore */ }
+  if (dir) rmSync(dir, { recursive: true, force: true });
+});
 
 describe('buildRunFailureMessage', () => {
   it('produces a high-priority run-failure message with the documented dedupeKey', () => {
@@ -62,20 +76,83 @@ describe('buildRunFailureMessage', () => {
 
 describe('raiseRunFailureInbox', () => {
   it('creates a message for a Temporal run', () => {
-    const { store, added } = fakeStore();
-    raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'temporal' }) });
-    expect(added).toHaveLength(1);
-    expect(added[0].dedupeKey).toBe('run-failure:run-abc12345-xyz');
+    const raised = raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'temporal' }) });
+    expect(raised?.coalesced).toBe(false);
+    expect(raised?.message.dedupeKey).toBe('run-failure:run-abc12345-xyz');
   });
 
-  it('no-ops for a local run (local failures are already visible)', () => {
-    const { store, added } = fakeStore();
-    raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'local' }) });
-    raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: undefined }) });
-    expect(added).toHaveLength(0);
+  it('now raises for a local run too (the loop must see local failures)', () => {
+    const raised = raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'local' }) });
+    expect(raised?.coalesced).toBe(false);
+    expect(raised?.message.source).toBe('run-failure');
+    expect(raised?.message.agentId).toBe('news-digest');
+  });
+
+  it('SUA_INBOX_LOCAL_RUN_FAILURES=0 restores the Temporal-only behavior', () => {
+    process.env.SUA_INBOX_LOCAL_RUN_FAILURES = '0';
+    expect(raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'local' }) })).toBeUndefined();
+    expect(raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: undefined }) })).toBeUndefined();
+    // Temporal runs still raise.
+    expect(raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'temporal' }) })?.coalesced).toBe(false);
+  });
+
+  it('coalesces a repeat failure of the same agent into the active thread', () => {
+    const first = raiseRunFailureInbox(store, { run: run({ id: 'run-1' }) });
+    expect(first?.coalesced).toBe(false);
+    const second = raiseRunFailureInbox(store, { run: run({ id: 'run-2', error: 'boom again' }), failedNodeId: 'fetch' });
+    expect(second?.coalesced).toBe(true);
+    expect(second?.message.id).toBe(first!.message.id);
+    expect(second?.response?.role).toBe('system');
+    expect(second?.response?.body).toContain('run-2'.slice(0, 8));
+    expect(second?.response?.body).toContain('boom again');
+    // Still exactly one thread.
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it('a resolved thread does not absorb new failures — fresh thread instead', () => {
+    const first = raiseRunFailureInbox(store, { run: run({ id: 'run-1' }) });
+    store.updateStatus(first!.message.id, 'resolved');
+    const second = raiseRunFailureInbox(store, { run: run({ id: 'run-2' }) });
+    expect(second?.coalesced).toBe(false);
+    expect(second?.message.id).not.toBe(first!.message.id);
+  });
+
+  it('double-firing the hook for the same run never duplicates (thread or note)', () => {
+    // Same run as the thread itself.
+    const first = raiseRunFailureInbox(store, { run: run({ id: 'run-1' }) });
+    const again = raiseRunFailureInbox(store, { run: run({ id: 'run-1' }) });
+    expect(again?.coalesced).toBe(true);
+    expect(again?.response).toBeUndefined();
+    expect(store.listResponses(first!.message.id)).toHaveLength(0);
+    // Same run as an already-absorbed note.
+    raiseRunFailureInbox(store, { run: run({ id: 'run-2' }) });
+    raiseRunFailureInbox(store, { run: run({ id: 'run-2' }) });
+    expect(store.listResponses(first!.message.id)).toHaveLength(1);
+  });
+
+  it('different agents never coalesce with each other', () => {
+    raiseRunFailureInbox(store, { run: run({ id: 'run-1', agentName: 'agent-a' }) });
+    const other = raiseRunFailureInbox(store, { run: run({ id: 'run-2', agentName: 'agent-b' }) });
+    expect(other?.coalesced).toBe(false);
+    expect(store.list()).toHaveLength(2);
   });
 
   it('no-ops when there is no inbox store', () => {
-    expect(() => raiseRunFailureInbox(undefined, { run: run({ usedWorkflowProvider: 'temporal' }) })).not.toThrow();
+    expect(() => raiseRunFailureInbox(undefined, { run: run() })).not.toThrow();
+    expect(raiseRunFailureInbox(undefined, { run: run() })).toBeUndefined();
+  });
+});
+
+describe('buildCoalescedFailureNote', () => {
+  it('links the run and mentions the failed node + error', () => {
+    const note = buildCoalescedFailureNote(
+      { run: run({ id: 'run-xyz789', error: 'timeout' }), failedNodeId: 'fetch' },
+      'http://127.0.0.1:3000/',
+    );
+    expect(note).toContain('news-digest');
+    expect(note).toContain('run-xyz7');
+    expect(note).toContain('/runs/run-xyz789');
+    expect(note).toContain('fetch');
+    expect(note).toContain('timeout');
   });
 });
