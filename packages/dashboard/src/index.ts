@@ -67,6 +67,7 @@ import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
+import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -602,6 +603,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   };
 
   ctxForInboxKick = ctx;
+
+  // Boot-time inbox reconciliation: settle action cards stranded `running`
+  // by a restart against run-store truth, re-attach waiters to genuinely
+  // in-flight Temporal runs, and (auto-triage only) re-fire triage on
+  // threads whose turn died with the old process. Depends on the boot
+  // run-reaper above having already finalized dead local runs. Never throws.
+  try {
+    reconcileInboxOnBoot(ctx);
+  } catch (err) {
+    console.warn('[inbox-reconcile] boot pass failed:', err instanceof Error ? err.message : String(err));
+  }
 
   // Autonomous first-touch sweeper — the durable half of auto-triage (the
   // insert-hook kick above is the low-latency half). Every sweep is a no-op

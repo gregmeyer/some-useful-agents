@@ -95,6 +95,43 @@ describe('InboxStore.listAutoTriageCandidates', () => {
     store.addResponse(m.id, 'system', 'note');
     expect(store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 })).toEqual([]);
   });
+
+  it('excludes paused threads (operator Stop survives restarts)', () => {
+    const m = addMinimal({ source: 'run-failure' });
+    store.setPaused(m.id, true);
+    expect(store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 })).toEqual([]);
+    store.setPaused(m.id, false);
+    expect(store.listAutoTriageCandidates({ olderThanMs: 0, limit: 10 })).toHaveLength(1);
+  });
+});
+
+describe('InboxStore.setPaused', () => {
+  it('round-trips through get() and defaults to false', () => {
+    const m = addMinimal();
+    expect(store.get(m.id)!.paused).toBe(false);
+    store.setPaused(m.id, true);
+    expect(store.get(m.id)!.paused).toBe(true);
+    store.setPaused(m.id, false);
+    expect(store.get(m.id)!.paused).toBe(false);
+  });
+
+  it('throws for an unknown id', () => {
+    expect(() => store.setPaused('nope', true)).toThrow(/no message/);
+  });
+
+  it('paused column migration is idempotent across reopen', () => {
+    const m = addMinimal();
+    store.setPaused(m.id, true);
+    const dbPath = join(dir, 'runs.db');
+    store.close();
+    const reopened = new InboxStore(dbPath); // re-runs ensureSchema + ALTERs
+    try {
+      expect(reopened.get(m.id)!.paused).toBe(true);
+    } finally {
+      reopened.close();
+    }
+    store = new InboxStore(dbPath); // keep afterEach happy
+  });
 });
 
 describe('InboxStore.add + get', () => {

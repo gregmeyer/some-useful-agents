@@ -47,6 +47,7 @@ import {
   parseActionMeta,
   formatLearnings,
   formatConversationSnapshot,
+  isTriagePaused,
   TRIAGE_REJECTION_RECOVERY_NOTE,
   PENDING_USER_REPLY_WINDOW_MS,
   TRIAGE_AGENT_ID,
@@ -173,8 +174,9 @@ export function isTriagePending(
 
 /** Poll the shared run row until it reaches a terminal status (the worker
  * activity owns the lifecycle for durable runs). Returns the last-seen run on
- * timeout so a long build isn't mis-reported as failed prematurely. */
-async function awaitRunTerminal(
+ * timeout so a long build isn't mis-reported as failed prematurely.
+ * Exported for the boot reconciler's resume waiters. */
+export async function awaitRunTerminal(
   ctx: ReturnType<typeof getContext>,
   runId: string,
   capMs = 600_000,
@@ -433,30 +435,67 @@ export async function runProposedAction(
     if (providerPin) dispatchAgent = applyProviderPin(subAgent, providerPin);
   }
 
-  let runId: string | undefined;
+  let outcome: ActionRunOutcome;
+  try {
+    outcome = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs);
+  } catch (err) {
+    outcome = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+  }
+  finalizeActionFromOutcome(ctx, messageId, response.id, meta, outcome, { startedAt });
+}
+
+/**
+ * The terminal state of a dispatched action's run, as seen by the
+ * finalizer. `id` is absent when the dispatch itself threw before a run
+ * row existed (the finalizer then reports the raw error instead of a
+ * run-derived failure reason).
+ */
+export interface ActionRunOutcome {
+  id?: string;
+  status: RunStatus;
+  result?: string;
+  error?: string;
+}
+
+/**
+ * Settle an action's meta from its run outcome: patch the response to
+ * `completed | failed` with run lineage + a short result preview, publish
+ * the terminal `action:status` event, fire the per-agent post-processing
+ * hooks (analyzer → propose editor card; builder → commit draft + propose
+ * install), and re-fire triage so it can summarize.
+ *
+ * Extracted from the tail of `runProposedAction` so the boot reconciler can
+ * settle actions stranded `running` by a restart through the exact same
+ * path as a live dispatch. `refire: false` lets the reconciler finalize
+ * without spawning a triage turn (it gates refires on the auto-triage flag).
+ */
+export function finalizeActionFromOutcome(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  responseId: string,
+  meta: InboxActionMeta,
+  outcome: ActionRunOutcome,
+  opts: { startedAt?: number; refire?: boolean } = {},
+): void {
+  if (!ctx.inboxStore) return;
+  const startedAt = opts.startedAt ?? meta.startedAt;
+  const runId = outcome.id;
   let nextStatus: InboxActionStatus = 'failed';
   let resultSummary: string | undefined;
   let refusalReason: string | undefined;
-  let fullResult = '';
-  try {
-    const run = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs);
-    runId = run.id;
-    if (run.status === 'completed') {
-      nextStatus = 'completed';
-      fullResult = run.result ?? '';
-      resultSummary = fullResult.length > ACTION_RESULT_PREVIEW_LIMIT
-        ? fullResult.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
-        : fullResult;
-    } else {
-      nextStatus = 'failed';
-      refusalReason = deriveRunFailureReason(ctx, run.id, run.error ?? `Run ended in status ${run.status}.`);
-    }
-  } catch (err) {
-    nextStatus = 'failed';
-    refusalReason = err instanceof Error ? err.message : String(err);
+  if (outcome.status === 'completed') {
+    nextStatus = 'completed';
+    const fullResult = outcome.result ?? '';
+    resultSummary = fullResult.length > ACTION_RESULT_PREVIEW_LIMIT
+      ? fullResult.slice(0, ACTION_RESULT_PREVIEW_LIMIT) + '…'
+      : fullResult;
+  } else if (runId) {
+    refusalReason = deriveRunFailureReason(ctx, runId, outcome.error ?? `Run ended in status ${outcome.status}.`);
+  } else {
+    refusalReason = outcome.error;
   }
   const endedAt = Date.now();
-  ctx.inboxStore.updateResponse(response.id, {
+  ctx.inboxStore.updateResponse(responseId, {
     metaJson: JSON.stringify({
       ...meta,
       status: nextStatus,
@@ -468,7 +507,7 @@ export async function runProposedAction(
     }),
   });
   publishInboxEvent(ctx, messageId, 'action:status', {
-    responseId: response.id,
+    responseId,
     status: nextStatus,
     agentId: meta.agentId,
     startedAt,
@@ -500,7 +539,7 @@ export async function runProposedAction(
     maybeCommitBuiltAgent(ctx, messageId, runId);
   }
 
-  maybeRefireTriage(ctx, messageId);
+  if (opts.refire !== false) maybeRefireTriage(ctx, messageId);
 }
 
 /**
@@ -657,7 +696,8 @@ function maybeRefireTriage(
   // Operator hit Stop — halt the autonomous analyze→edit→refire chain. The
   // in-flight action still finishes (sub-agent runs aren't abortable mid-flight),
   // but we do NOT spawn the next triage turn. Cleared when the operator replies.
-  if (ctx.inboxTriageStopped?.has(messageId)) return;
+  // Checks the persisted `paused` column too, so a stop survives restarts.
+  if (isTriagePaused(ctx, messageId)) return;
   if (!(allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId))) return;
   if (countConsecutiveTriageTurns(ctx, messageId) >= MAX_AUTO_TRIAGE_TURNS) {
     const note = `Auto-follow-up paused after ${MAX_AUTO_TRIAGE_TURNS} consecutive triage turns. Reply or dismiss to continue.`;
@@ -1611,7 +1651,7 @@ export async function runTriageAgent(
         // completion runProposedAction publishes the terminal
         // action:status event and (when all actions resolve) fires
         // the follow-up triage turn.
-        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId) && !ctx.inboxTriageStopped?.has(messageId)) {
+        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId) && !isTriagePaused(ctx, messageId)) {
           const startedAt = Date.now();
           const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt };
           const claimed = ctx.inboxStore.transitionActionStatus(

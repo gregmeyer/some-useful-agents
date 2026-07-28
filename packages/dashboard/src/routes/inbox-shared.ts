@@ -75,6 +75,27 @@ export function publishInboxEvent(
 }
 
 /**
+ * Is autonomous triage paused for this thread (operator hit Stop)?
+ * The persisted `paused` column is authoritative — it survives dashboard
+ * restarts, so the sweeper can't re-engage a silenced thread after a
+ * reboot. The in-memory stop set remains as a same-process fast path
+ * (and covers the instant between the Stop click and the row update).
+ * Fails open to "not paused" on a store hiccup — the engine's other
+ * guards (turn cap, action cap) still bound the loop.
+ */
+export function isTriagePaused(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): boolean {
+  if (ctx.inboxTriageStopped?.has(messageId)) return true;
+  try {
+    return ctx.inboxStore?.get(messageId)?.paused ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Add a `system`-role message AND publish the `message:created` SSE event so an
  * open modal refreshes live. Every triage system note must go through this — a
  * bare `addResponse` leaves the message invisible until a manual page refresh

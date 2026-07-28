@@ -141,6 +141,14 @@ export interface InboxMessage {
   /** User-flagged for quick filter on the inbox list. */
   starred: boolean;
   /**
+   * Operator hit Stop on this thread: autonomous triage (refires,
+   * auto-approved actions, first-touch/sweeper) must stand down until the
+   * operator replies. Persisted — unlike the in-memory stop set, a paused
+   * thread stays paused across dashboard restarts, so the sweeper can't
+   * re-engage a thread the operator explicitly silenced.
+   */
+  paused: boolean;
+  /**
    * Free-form lowercase tags, deduped + sorted. Stored as a JSON array.
    * Producers may seed tags (e.g. `network`, `auth`); operators add/remove
    * them from the modal header.
@@ -433,6 +441,7 @@ export class InboxStore {
     for (const ddl of [
       `ALTER TABLE inbox_messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE inbox_messages ADD COLUMN tags_json TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
     ]) {
       try { this.db.exec(ddl); } catch { /* column exists — ignore */ }
     }
@@ -642,6 +651,7 @@ export class InboxStore {
       FROM inbox_messages
       WHERE status = 'open'
         AND source != 'manual'
+        AND paused = 0
         AND created_at <= ?
         AND NOT EXISTS (
           SELECT 1 FROM inbox_responses
@@ -651,6 +661,17 @@ export class InboxStore {
       LIMIT ?
     `).all(cutoff, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToMessage(r));
+  }
+
+  /**
+   * Set or clear the operator-pause flag (the Stop button's durable state).
+   * While paused, every autonomous triage path stands down; the operator's
+   * next reply clears it.
+   */
+  setPaused(id: string, paused: boolean): void {
+    const result = this.db.prepare(`UPDATE inbox_messages SET paused = ? WHERE id = ?`)
+      .run(paused ? 1 : 0, id);
+    if (result.changes === 0) throw new Error(`InboxStore.setPaused: no message with id "${id}"`);
   }
 
   /** Set or clear the star flag. */
@@ -1069,6 +1090,7 @@ export class InboxStore {
       resolvedAt: (row.resolved_at as number | null) ?? undefined,
       dedupeKey: (row.dedupe_key as string | null) ?? undefined,
       starred: (row.starred as number) === 1,
+      paused: (row.paused as number) === 1,
       tags,
       // last_activity_at is only present when `list()` joins it in;
       // `get()` and other single-row reads leave it undefined.
