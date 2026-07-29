@@ -98,7 +98,11 @@ export function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string
 
   for (const agent of ctx.agentStore.listAgents()) {
     if (!agent.permissions?.inboxRunnable) continue;
-    if (agent.source !== 'local' && agent.source !== 'community') continue;
+    // Trust rings that may be inbox-run: local + community (user-installed) and
+    // examples (bundled, first-party). The SYSTEM_AGENT_IDS check below is what
+    // keeps the triage scaffolding out — NOT the source, so a legit examples
+    // agent (e.g. adr-logger) that opted into inboxRunnable can actually run.
+    if (agent.source !== 'local' && agent.source !== 'community' && agent.source !== 'examples') continue;
     if (SYSTEM_AGENT_IDS.has(agent.id)) continue;
     available.add(agent.id);
   }
@@ -120,7 +124,10 @@ export function getRunnableCandidates(ctx: ReturnType<typeof getContext>): strin
   const candidates: string[] = [];
   for (const agent of ctx.agentStore.listAgents()) {
     if (agent.permissions?.inboxRunnable) continue;        // already runnable
-    if (agent.source !== 'local' && agent.source !== 'community') continue;
+    // Same trust rings as the allowlist: local + community + examples. An
+    // examples agent that hasn't opted into inboxRunnable is a valid
+    // "Enable & run" candidate — triage proposes it, the operator approves.
+    if (agent.source !== 'local' && agent.source !== 'community' && agent.source !== 'examples') continue;
     if (SYSTEM_AGENT_IDS.has(agent.id)) continue;
     if (runnable.has(agent.id)) continue;                  // operator-allowlisted
     candidates.push(agent.id);

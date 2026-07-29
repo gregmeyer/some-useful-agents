@@ -141,6 +141,14 @@ export interface InboxMessage {
   /** User-flagged for quick filter on the inbox list. */
   starred: boolean;
   /**
+   * Operator hit Stop on this thread: autonomous triage (refires,
+   * auto-approved actions, first-touch/sweeper) must stand down until the
+   * operator replies. Persisted — unlike the in-memory stop set, a paused
+   * thread stays paused across dashboard restarts, so the sweeper can't
+   * re-engage a thread the operator explicitly silenced.
+   */
+  paused: boolean;
+  /**
    * Free-form lowercase tags, deduped + sorted. Stored as a JSON array.
    * Producers may seed tags (e.g. `network`, `auth`); operators add/remove
    * them from the modal header.
@@ -433,6 +441,7 @@ export class InboxStore {
     for (const ddl of [
       `ALTER TABLE inbox_messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE inbox_messages ADD COLUMN tags_json TEXT`,
+      `ALTER TABLE inbox_messages ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
     ]) {
       try { this.db.exec(ddl); } catch { /* column exists — ignore */ }
     }
@@ -617,6 +626,72 @@ export class InboxStore {
    */
   listNeedsYou(limit = 4): InboxMessage[] {
     return this.list({ status: 'awaiting_user', limit });
+  }
+
+  /**
+   * Threads eligible for autonomous first-touch triage: still `open` with an
+   * empty conversation (no triage/system/user rows), not operator-created
+   * (`manual` threads wait for the operator's first message — the composer
+   * owns that kickoff), and older than `olderThanMs` so the producers'
+   * insert-hook kick gets first crack before the sweeper picks the row up.
+   *
+   * This query IS the durable auto-triage work queue: the in-process kick at
+   * insert time is best-effort, and anything it misses (crash between insert
+   * and kick, item created while the dashboard was down) matches here on the
+   * next sweep. Highest priority first, then oldest first, so a backlog
+   * drains fairly.
+   */
+  listAutoTriageCandidates(opts: { olderThanMs: number; limit: number }): InboxMessage[] {
+    const cutoff = Date.now() - Math.max(0, opts.olderThanMs);
+    const limit = opts.limit > 0 ? opts.limit : 1;
+    const rows = this.db.prepare(`
+      SELECT
+        inbox_messages.*,
+        ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
+      FROM inbox_messages
+      WHERE status = 'open'
+        AND source != 'manual'
+        AND paused = 0
+        AND created_at <= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM inbox_responses
+            WHERE inbox_responses.message_id = inbox_messages.id
+        )
+      ORDER BY ${PRIORITY_RANK_CASE} ASC, created_at ASC
+      LIMIT ?
+    `).all(cutoff, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToMessage(r));
+  }
+
+  /**
+   * The most recent non-terminal thread for an agent + source, or null.
+   * Producers use this to COALESCE: a crash-looping agent appends "another
+   * run failed" notes to its existing open thread instead of opening N
+   * threads (and triggering N auto-triage turns). Terminal threads
+   * (resolved/dismissed) don't absorb new failures — a fresh failure after
+   * a resolution is new information and deserves a fresh thread.
+   */
+  findActiveByAgentAndSource(agentId: string, source: InboxSource): InboxMessage | null {
+    this.validateSource(source);
+    const row = this.db.prepare(`
+      SELECT * FROM inbox_messages
+      WHERE agent_id = ? AND source = ?
+        AND status NOT IN ('dismissed', 'resolved')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(agentId, source) as Record<string, unknown> | undefined;
+    return row ? this.rowToMessage(row) : null;
+  }
+
+  /**
+   * Set or clear the operator-pause flag (the Stop button's durable state).
+   * While paused, every autonomous triage path stands down; the operator's
+   * next reply clears it.
+   */
+  setPaused(id: string, paused: boolean): void {
+    const result = this.db.prepare(`UPDATE inbox_messages SET paused = ? WHERE id = ?`)
+      .run(paused ? 1 : 0, id);
+    if (result.changes === 0) throw new Error(`InboxStore.setPaused: no message with id "${id}"`);
   }
 
   /** Set or clear the star flag. */
@@ -1035,6 +1110,7 @@ export class InboxStore {
       resolvedAt: (row.resolved_at as number | null) ?? undefined,
       dedupeKey: (row.dedupe_key as string | null) ?? undefined,
       starred: (row.starred as number) === 1,
+      paused: (row.paused as number) === 1,
       tags,
       // last_activity_at is only present when `list()` joins it in;
       // `get()` and other single-row reads leave it undefined.

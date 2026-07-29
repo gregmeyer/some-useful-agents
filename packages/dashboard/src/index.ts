@@ -65,6 +65,10 @@ import { inboxCountRouter } from './routes/inbox-count.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
+import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { publishInboxEvent } from './routes/inbox-shared.js';
+import { runTriageAgent } from './routes/inbox-engine.js';
+import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -451,11 +455,35 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // prior dashboard process died mid-run, just finalized as failed by the
   // reaper above. Both no-op for local runs and dedupe by runId.
   const dashboardBaseUrl = (opts.dashboardBaseUrl ?? `http://${host}:${opts.port}`).replace(/\/$/, '');
+  // Late-bound context reference for the failure hook: `onRunFailure` must be
+  // built before the ctx literal below (ctx includes it), but the autonomous
+  // first-touch kick needs the full ctx. Assigned right after ctx creation —
+  // failures only fire at runtime, well after boot.
+  let ctxForInboxKick: DashboardContext | undefined;
   const onRunFailure = inboxStore
-    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) =>
-        raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl)
+    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
+        const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
+        if (!raised || !ctxForInboxKick) return;
+        if (raised.coalesced) {
+          // An existing active thread absorbed this failure as a system
+          // note — surface it live to any open modal. No triage kick: the
+          // thread already has a conversation; the note is input for its
+          // NEXT turn, not grounds to start a parallel one.
+          if (raised.response) {
+            publishInboxEvent(ctxForInboxKick, raised.message.id, 'message:created', {
+              responseId: raised.response.id, role: 'system', body: raised.response.body, createdAt: raised.response.createdAt,
+            });
+          }
+          return;
+        }
+        // Low-latency autonomous first-touch (flag-gated; no-op when off).
+        // The sweeper below is the durable fallback for anything missed here.
+        maybeAutoFirstTouch(ctxForInboxKick, raised.message.id, runTriageAgent);
+      }
     : undefined;
   if (inboxStore) {
+    // Boot-reap raises happen before ctx exists, so no kick here — the
+    // sweeper picks these up on its first pass (they're already >20s old).
     for (const rid of reapResult.reapedRunIds) {
       const orphan = runStore.getRun(rid);
       if (orphan) raiseRunFailureInbox(inboxStore, { run: orphan, errorCategory: 'abandoned' }, dashboardBaseUrl);
@@ -469,8 +497,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // runs that are provably not progressing (dead child, or past the max
   // runtime), never a live one — Temporal runs recover via Temporal. A reaped
   // run flips to `failed` with an explanatory reason, so it stops polling and
-  // surfaces on its run page. (No inbox alert: `raiseRunFailureInbox` is
-  // deliberately Temporal-only, and this watchdog only touches local runs.)
+  // surfaces on its run page — AND in the inbox, now that the run-failure
+  // producer covers local runs (a wedged run is a failure the operator never
+  // saw happen; exactly the silent case the inbox exists for).
   // Unref'd so it never keeps the process alive; cleared on close().
   const STUCK_WATCHDOG_INTERVAL_MS = 30_000;
   const stuckWatchdog = setInterval(() => {
@@ -482,6 +511,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
           `(killed ${res.pidsKilled} process(es)). Run ids: ${res.reapedRunIds.slice(0, 10).join(', ')}` +
           `${res.reapedRunIds.length > 10 ? ` (+${res.reapedRunIds.length - 10} more)` : ''}`,
         );
+        if (inboxStore && onRunFailure) {
+          for (const rid of res.reapedRunIds) {
+            const reaped = runStore.getRun(rid);
+            if (reaped) onRunFailure({ run: reaped, errorCategory: 'stuck' });
+          }
+        }
       }
     } catch (err) {
       console.warn('[stuck-run-watchdog] sweep failed:', err instanceof Error ? err.message : String(err));
@@ -588,6 +623,25 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     dashboardBaseUrl,
   };
 
+  ctxForInboxKick = ctx;
+
+  // Boot-time inbox reconciliation: settle action cards stranded `running`
+  // by a restart against run-store truth, re-attach waiters to genuinely
+  // in-flight Temporal runs, and (auto-triage only) re-fire triage on
+  // threads whose turn died with the old process. Depends on the boot
+  // run-reaper above having already finalized dead local runs. Never throws.
+  try {
+    reconcileInboxOnBoot(ctx);
+  } catch (err) {
+    console.warn('[inbox-reconcile] boot pass failed:', err instanceof Error ? err.message : String(err));
+  }
+
+  // Autonomous first-touch sweeper — the durable half of auto-triage (the
+  // insert-hook kick above is the low-latency half). Every sweep is a no-op
+  // while SUA_INBOX_AUTO_TRIAGE is off. Same lifecycle shape as the
+  // stuck-run watchdog: unref'd, stopped on close().
+  const stopInboxSweeper = startInboxSweeper(ctx, runTriageAgent);
+
   const app = buildDashboardApp(ctx);
 
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
@@ -606,6 +660,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     authUrl,
     async close() {
       clearInterval(stuckWatchdog);
+      stopInboxSweeper();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —

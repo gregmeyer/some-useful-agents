@@ -37,3 +37,28 @@ export function isAppleIntegrationEnabled(): boolean {
 export function isTriageLearningsEnabled(): boolean {
   return envTrue('SUA_EXPERIMENTAL_TRIAGE_LEARNINGS');
 }
+
+/**
+ * True when the owner has enabled autonomous first-touch triage: new inbox
+ * items (run failures, etc. — never `manual` threads) get a triage turn
+ * without an operator poke, via the insert-hook kick + the periodic inbox
+ * sweeper. Staged rollout flag, not a permanent experimental gate: opt-in
+ * via `experimental.inboxAutoTriage: true` in `sua.config.json` (bridged to
+ * the env var on load) or `SUA_INBOX_AUTO_TRIAGE=1` directly, with the
+ * default planned to flip to on once the durable-recovery + local-failure
+ * producer PRs bake (it then becomes an opt-out). Default off.
+ */
+export function isInboxAutoTriageEnabled(): boolean {
+  return envTrue('SUA_INBOX_AUTO_TRIAGE');
+}
+
+/**
+ * Local (in-process) run failures raise inbox items by default — this is the
+ * escape hatch. `SUA_INBOX_LOCAL_RUN_FAILURES=0` restores the old
+ * Temporal-only behavior for operators whose dev loop generates too much
+ * failure noise even with per-agent coalescing.
+ */
+export function isLocalRunFailureInboxEnabled(): boolean {
+  const v = process.env.SUA_INBOX_LOCAL_RUN_FAILURES;
+  return !(v === '0' || v === 'false' || v === 'no');
+}
