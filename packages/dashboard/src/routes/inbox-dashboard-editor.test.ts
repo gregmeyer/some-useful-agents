@@ -178,7 +178,7 @@ describe('executeDashboardEditor — add-tile', () => {
 describe('dashboard-editor card chrome', () => {
   const message: InboxMessage = {
     id: 'm1', createdAt: Date.now(), priority: 'medium', source: 'manual',
-    title: 't', body: 'b', status: 'awaiting_user', starred: false, tags: [],
+    title: 't', body: 'b', status: 'awaiting_user', starred: false, paused: false, tags: [],
   };
   const completedAddTile = (): InboxResponse => ({
     id: 'resp-1', messageId: 'm1', createdAt: Date.now(), role: 'action',

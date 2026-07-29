@@ -391,8 +391,10 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     return;
   }
   // A fresh reply is genuine re-engagement, so lift any operator Stop and let
-  // triage run again for this turn.
+  // triage run again for this turn. Clears both the in-memory set and the
+  // persisted `paused` column (the restart-surviving form of Stop).
   ctx.inboxTriageStopped?.delete(id);
+  try { ctx.inboxStore.setPaused(id, false); } catch { /* best-effort */ }
   let userResponse;
   try {
     userResponse = ctx.inboxStore.addResponse(id, 'user', bodyRaw);
@@ -524,6 +526,10 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   // the auto-approve dispatch both honor this flag. Cleared on the next reply.
   if (!ctx.inboxTriageStopped) ctx.inboxTriageStopped = new Set();
   ctx.inboxTriageStopped.add(id);
+  // Persist the stop so it survives a dashboard restart — without this the
+  // boot reconciler / auto-triage sweeper would happily re-engage a thread
+  // the operator explicitly silenced. Cleared on the next reply.
+  try { ctx.inboxStore.setPaused(id, true); } catch { /* best-effort */ }
   const entry = ctx.inboxTriageAbortControllers.get(id);
   if (!entry) {
     // No triage LLM turn in flight, but the stop flag now halts the chain
