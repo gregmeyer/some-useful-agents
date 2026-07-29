@@ -239,7 +239,9 @@ async function runDispatchedAgentToTerminal(
       agentStore: ctx.agentStore,
       dataRoot: ctx.agentStore.dataRoot,
       llmSettings: buildLlmSettingsSnapshot(ctx),
-      onRunFailure: ctx.onRunFailure,
+      // Deliberately NO onRunFailure: this run IS an inbox action — its
+      // failure lands on the action card (refusalReason + follow-up triage
+      // turn). Raising a second run-failure thread for it would be noise.
       experimentalApple: isAppleIntegrationEnabled(),
     },
   );
@@ -1414,7 +1416,10 @@ export async function runTriageAgent(
         dataRoot: ctx.agentStore.dataRoot,
         llmSettings: buildLlmSettingsSnapshot(ctx),
         spawnNode: ctx.workflowSpawnNode,
-        onRunFailure: ctx.onRunFailure,
+        // Deliberately NO onRunFailure: this is the triage run itself. Its
+        // failures are handled by the crash-retry path below; raising a
+        // run-failure thread for a failed triage turn would feed the inbox
+        // back into itself (auto-first-touch → triage → failure → new item).
         // Forward token-level progress from the triage LLM node to
         // the SSE bus. Filtered to output_chunk so we don't spam
         // clients with turn_start / tool_use markers (those still

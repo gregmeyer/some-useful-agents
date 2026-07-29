@@ -66,6 +66,7 @@ import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { publishInboxEvent } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
@@ -462,9 +463,22 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   const onRunFailure = inboxStore
     ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
         const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
+        if (!raised || !ctxForInboxKick) return;
+        if (raised.coalesced) {
+          // An existing active thread absorbed this failure as a system
+          // note — surface it live to any open modal. No triage kick: the
+          // thread already has a conversation; the note is input for its
+          // NEXT turn, not grounds to start a parallel one.
+          if (raised.response) {
+            publishInboxEvent(ctxForInboxKick, raised.message.id, 'message:created', {
+              responseId: raised.response.id, role: 'system', body: raised.response.body, createdAt: raised.response.createdAt,
+            });
+          }
+          return;
+        }
         // Low-latency autonomous first-touch (flag-gated; no-op when off).
         // The sweeper below is the durable fallback for anything missed here.
-        if (raised && ctxForInboxKick) maybeAutoFirstTouch(ctxForInboxKick, raised.id, runTriageAgent);
+        maybeAutoFirstTouch(ctxForInboxKick, raised.message.id, runTriageAgent);
       }
     : undefined;
   if (inboxStore) {
@@ -483,8 +497,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // runs that are provably not progressing (dead child, or past the max
   // runtime), never a live one — Temporal runs recover via Temporal. A reaped
   // run flips to `failed` with an explanatory reason, so it stops polling and
-  // surfaces on its run page. (No inbox alert: `raiseRunFailureInbox` is
-  // deliberately Temporal-only, and this watchdog only touches local runs.)
+  // surfaces on its run page — AND in the inbox, now that the run-failure
+  // producer covers local runs (a wedged run is a failure the operator never
+  // saw happen; exactly the silent case the inbox exists for).
   // Unref'd so it never keeps the process alive; cleared on close().
   const STUCK_WATCHDOG_INTERVAL_MS = 30_000;
   const stuckWatchdog = setInterval(() => {
@@ -496,6 +511,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
           `(killed ${res.pidsKilled} process(es)). Run ids: ${res.reapedRunIds.slice(0, 10).join(', ')}` +
           `${res.reapedRunIds.length > 10 ? ` (+${res.reapedRunIds.length - 10} more)` : ''}`,
         );
+        if (inboxStore && onRunFailure) {
+          for (const rid of res.reapedRunIds) {
+            const reaped = runStore.getRun(rid);
+            if (reaped) onRunFailure({ run: reaped, errorCategory: 'stuck' });
+          }
+        }
       }
     } catch (err) {
       console.warn('[stuck-run-watchdog] sweep failed:', err instanceof Error ? err.message : String(err));
