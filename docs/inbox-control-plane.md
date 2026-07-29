@@ -23,6 +23,29 @@ Today the inbox already supports the core primitives:
 - draft install/apply actions after successful `agent-builder` runs
 - bulk dismiss and stronger search on the list view
 
+The autonomy loop (the "control plane" half) now runs by default:
+
+- **Autonomous first-touch triage**: new non-`manual` items get a triage
+  turn without an operator poke — an insert-time kick for latency plus a
+  30s sweeper as the durable queue. Opt out with `SUA_INBOX_AUTO_TRIAGE=0`
+  (or `experimental.inboxAutoTriage: false` in `sua.config.json`).
+- **Local run failures raise items** (not just Temporal), coalesced per
+  agent so a crash-looping agent is one thread with "another run failed"
+  notes, not N threads. Opt out with `SUA_INBOX_LOCAL_RUN_FAILURES=0`.
+  The stuck-run watchdog raises items for runs it reaps.
+- **Durable follow-through**: a boot reconciler settles action cards
+  stranded `running` by a restart against run-store truth, re-attaches
+  waiters to in-flight Temporal runs, and re-fires triage once per thread
+  whose turn died with the old process.
+- **A real Stop**: the operator Stop persists across restarts (`paused`
+  column) and cancels in-flight sub-agent action runs, not just the next
+  turn (Temporal cancels are best-effort — the worker may finish
+  server-side).
+
+Producers beyond run failures (`cadence`, `permission-request`) remain
+unbuilt — the enums and playbooks exist, but no upstream event source
+emits them yet (see Open questions).
+
 That is enough to prove the surface, but not enough to make inbox the default place to build and operate agents end to end.
 
 ## Product goal

@@ -40,7 +40,9 @@ beforeEach(() => {
     inboxTriageStopped: new Set(),
   } as unknown as Ctx;
   prevFlag = process.env.SUA_INBOX_AUTO_TRIAGE;
-  delete process.env.SUA_INBOX_AUTO_TRIAGE;
+  // Auto-triage is default-ON; reconcile tests start from the opted-out
+  // state so refire behavior is asserted explicitly per test.
+  process.env.SUA_INBOX_AUTO_TRIAGE = '0';
   vi.mocked(runTriageAgent).mockClear();
 });
 

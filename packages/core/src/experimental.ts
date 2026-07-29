@@ -39,17 +39,17 @@ export function isTriageLearningsEnabled(): boolean {
 }
 
 /**
- * True when the owner has enabled autonomous first-touch triage: new inbox
- * items (run failures, etc. — never `manual` threads) get a triage turn
- * without an operator poke, via the insert-hook kick + the periodic inbox
- * sweeper. Staged rollout flag, not a permanent experimental gate: opt-in
- * via `experimental.inboxAutoTriage: true` in `sua.config.json` (bridged to
- * the env var on load) or `SUA_INBOX_AUTO_TRIAGE=1` directly, with the
- * default planned to flip to on once the durable-recovery + local-failure
- * producer PRs bake (it then becomes an opt-out). Default off.
+ * Autonomous first-touch triage: new inbox items (run failures, etc. —
+ * never `manual` threads) get a triage turn without an operator poke, via
+ * the insert-hook kick + the periodic inbox sweeper. Default ON — this is
+ * the inbox's autonomy loop; the staged rollout (opt-in behind
+ * `SUA_INBOX_AUTO_TRIAGE=1` while durable recovery and the local-failure
+ * producer landed) is complete. Opt out with `SUA_INBOX_AUTO_TRIAGE=0`
+ * or `experimental.inboxAutoTriage: false` in `sua.config.json`.
  */
 export function isInboxAutoTriageEnabled(): boolean {
-  return envTrue('SUA_INBOX_AUTO_TRIAGE');
+  const v = process.env.SUA_INBOX_AUTO_TRIAGE;
+  return !(v === '0' || v === 'false' || v === 'no');
 }
 
 /**

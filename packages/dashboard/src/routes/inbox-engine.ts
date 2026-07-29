@@ -227,30 +227,40 @@ async function runDispatchedAgentToTerminal(
       error: final?.error ?? (final ? undefined : 'Run did not finish within the dispatch window.'),
     };
   }
-  const run = await executeAgentDag(
-    agent,
-    { triggeredBy: 'dashboard', inputs },
-    {
-      runStore: ctx.runStore,
-      secretsStore: ctx.secretsStore,
-      variablesStore: ctx.variablesStore,
-      integrationsStore: ctx.integrationsStore,
-      toolStore: ctx.toolStore,
-      agentStore: ctx.agentStore,
-      dataRoot: ctx.agentStore.dataRoot,
-      llmSettings: buildLlmSettingsSnapshot(ctx),
-      // Deliberately NO onRunFailure: this run IS an inbox action — its
-      // failure lands on the action card (refusalReason + follow-up triage
-      // turn). Raising a second run-failure thread for it would be noise.
-      experimentalApple: isAppleIntegrationEnabled(),
-    },
-  );
-  return {
-    id: run.id,
-    status: run.status,
-    result: typeof run.result === 'string' ? run.result : undefined,
-    error: run.error,
-  };
+  // Pre-generate the runId + AbortController and register in activeRuns
+  // (same shape as the triage run itself) so the Stop route can cancel an
+  // in-flight sub-agent action instead of only suppressing the next turn.
+  const runId: string = randomUUID();
+  const abortController = new AbortController();
+  ctx.activeRuns.set(runId, abortController);
+  try {
+    const run = await executeAgentDag(
+      agent,
+      { triggeredBy: 'dashboard', inputs, runId, signal: abortController.signal },
+      {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        variablesStore: ctx.variablesStore,
+        integrationsStore: ctx.integrationsStore,
+        toolStore: ctx.toolStore,
+        agentStore: ctx.agentStore,
+        dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
+        // Deliberately NO onRunFailure: this run IS an inbox action — its
+        // failure lands on the action card (refusalReason + follow-up triage
+        // turn). Raising a second run-failure thread for it would be noise.
+        experimentalApple: isAppleIntegrationEnabled(),
+      },
+    );
+    return {
+      id: run.id,
+      status: run.status,
+      result: typeof run.result === 'string' ? run.result : undefined,
+      error: run.error,
+    };
+  } finally {
+    ctx.activeRuns.delete(runId);
+  }
 }
 
 /**
