@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
-    "@modelcontextprotocol/sdk": "1.29.0"
+    "@modelcontextprotocol/sdk": "1.30.0"
   },
   "devDependencies": {
     "typescript": "7.0.2"
