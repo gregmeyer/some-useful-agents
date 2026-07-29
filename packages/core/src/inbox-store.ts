@@ -619,6 +619,40 @@ export class InboxStore {
     return this.list({ status: 'awaiting_user', limit });
   }
 
+  /**
+   * Threads eligible for autonomous first-touch triage: still `open` with an
+   * empty conversation (no triage/system/user rows), not operator-created
+   * (`manual` threads wait for the operator's first message — the composer
+   * owns that kickoff), and older than `olderThanMs` so the producers'
+   * insert-hook kick gets first crack before the sweeper picks the row up.
+   *
+   * This query IS the durable auto-triage work queue: the in-process kick at
+   * insert time is best-effort, and anything it misses (crash between insert
+   * and kick, item created while the dashboard was down) matches here on the
+   * next sweep. Highest priority first, then oldest first, so a backlog
+   * drains fairly.
+   */
+  listAutoTriageCandidates(opts: { olderThanMs: number; limit: number }): InboxMessage[] {
+    const cutoff = Date.now() - Math.max(0, opts.olderThanMs);
+    const limit = opts.limit > 0 ? opts.limit : 1;
+    const rows = this.db.prepare(`
+      SELECT
+        inbox_messages.*,
+        ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
+      FROM inbox_messages
+      WHERE status = 'open'
+        AND source != 'manual'
+        AND created_at <= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM inbox_responses
+            WHERE inbox_responses.message_id = inbox_messages.id
+        )
+      ORDER BY ${PRIORITY_RANK_CASE} ASC, created_at ASC
+      LIMIT ?
+    `).all(cutoff, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToMessage(r));
+  }
+
   /** Set or clear the star flag. */
   setStarred(id: string, starred: boolean): void {
     const result = this.db.prepare(`UPDATE inbox_messages SET starred = ? WHERE id = ?`)

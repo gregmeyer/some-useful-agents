@@ -1,4 +1,4 @@
-import type { AddMessageInput, InboxStore, Run } from '@some-useful-agents/core';
+import type { AddMessageInput, InboxMessage, InboxStore, Run } from '@some-useful-agents/core';
 import { temporalWorkflowLink } from './temporal-link.js';
 
 export interface RunFailureInfo {
@@ -60,18 +60,23 @@ export function buildRunFailureMessage(
  * triggered them, whereas a remote-worker failure would otherwise be silent.
  * Operator-cancelled runs never reach here (the executor only fires its failure
  * hook on `failed`, not `cancelled`).
+ *
+ * Returns the created (or dedupe-key-matched existing) message so callers can
+ * kick autonomous first-touch triage on it; `undefined` when nothing was
+ * raised (no store, non-Temporal run, or insert failure).
  */
 export function raiseRunFailureInbox(
   inboxStore: InboxStore | undefined,
   info: RunFailureInfo,
   dashboardBaseUrl?: string,
   namespace = 'default',
-): void {
-  if (!inboxStore) return;
-  if (info.run.usedWorkflowProvider !== 'temporal') return;
+): InboxMessage | undefined {
+  if (!inboxStore) return undefined;
+  if (info.run.usedWorkflowProvider !== 'temporal') return undefined;
   try {
-    inboxStore.add(buildRunFailureMessage(info, dashboardBaseUrl, namespace));
+    return inboxStore.add(buildRunFailureMessage(info, dashboardBaseUrl, namespace));
   } catch {
     // Inbox creation is best-effort; never let it bubble into the run path.
+    return undefined;
   }
 }
