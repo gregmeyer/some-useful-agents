@@ -74,6 +74,9 @@ import {
   postTriageFailureFallback,
   planTriageCrashRecovery,
   hasMatchingFailedAction,
+  fixLoopExhausted,
+  fixTargetOf,
+  countAppliedFixes,
 } from './inbox-plan.js';
 import { canRenderInlineInboxWidget } from './inbox-widgets.js';
 
@@ -1168,6 +1171,54 @@ export function atLeastOneActionExecuted(
 }
 
 /**
+ * Did a `write`-effect action complete on this thread? A write is a mutation
+ * (edit/create/send) whose success is worth confirming before we call the
+ * thread done — the trigger for the verify-on-resolve gate. Read-only actions
+ * (analyze, catalog-search, show-widget) don't warrant verification.
+ */
+export function writeActionExecuted(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): boolean {
+  if (!ctx.inboxStore) return false;
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    const m = parseActionMeta(r);
+    if (m && m.status === 'completed' && m.effect === 'write') return true;
+  }
+  return false;
+}
+
+/**
+ * Programmatic verdict for the verify-on-resolve gate. Rather than take triage
+ * at its word that a fix worked, confirm against evidence already on hand: the
+ * focus agent's most recent run. `ok` when its latest run completed cleanly;
+ * `not_ok` when the latest run failed (the fix didn't hold); `pending` when
+ * there's no run yet to judge (e.g. a scheduled agent whose next run will tell).
+ * Deterministic and side-effect-free — it never re-runs an agent (that would be
+ * unbounded spend on arbitrary agents); it only reads the run store.
+ */
+export function verifyResolveEvidence(
+  ctx: ReturnType<typeof getContext>,
+  focusAgentId: string | undefined,
+): { verdict: 'ok' | 'not_ok' | 'pending'; evidence: string } {
+  if (!focusAgentId) return { verdict: 'pending', evidence: 'no target agent to verify against' };
+  let latest;
+  try {
+    latest = ctx.runStore.listRuns({ agentName: focusAgentId, limit: 1 })[0];
+  } catch {
+    latest = undefined;
+  }
+  if (!latest) return { verdict: 'pending', evidence: `no run of \`${focusAgentId}\` to check yet` };
+  if (latest.status === 'completed') {
+    return { verdict: 'ok', evidence: `latest run of \`${focusAgentId}\` (${latest.id.slice(0, 8)}) completed cleanly` };
+  }
+  if (latest.status === 'failed') {
+    return { verdict: 'not_ok', evidence: `latest run of \`${focusAgentId}\` (${latest.id.slice(0, 8)}) still failed` };
+  }
+  return { verdict: 'pending', evidence: `latest run of \`${focusAgentId}\` is ${latest.status}` };
+}
+
+/**
  * Count `action`-role responses SINCE the operator's last message. The cap
  * (MAX_ACTIONS_PER_MESSAGE) is a runaway-fan-out guard: it bounds how many
  * actions an AUTONOMOUS refire chain can produce without operator input. A fresh
@@ -1545,6 +1596,12 @@ export async function runTriageAgent(
     // When a resolve-thread action closes the thread, skip the awaiting_user
     // status update below so the `resolved` status sticks.
     let threadResolved = false;
+    // Tracks whether this turn actually landed runnable work (a dispatched or
+    // route-handled action left proposed/running). Drives the commitment-chip
+    // honesty guard below: a commitment with no job behind it is the prose-only
+    // promise the chip exists to prevent. The triage reply is written before
+    // actions are parsed, so we decide the chip after the fact.
+    let pendingWorkInserted = false;
     const rawActionList = Array.isArray(parsed.actions) ? parsed.actions : [];
     const planHasShowWidget = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
@@ -1563,6 +1620,10 @@ export async function runTriageAgent(
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
+      // Targets whose analyze→fix loop has exhausted its budget this turn. Each
+      // triggers an escalation note instead of another fix, and suppresses the
+      // recovery-refire so the thread halts on the operator rather than looping.
+      const convergenceBlocked = new Set<string>();
       for (const action of accepted) {
         if (action.mode === 'show-widget' && !ctx.agentStore.getAgent(action.agentId)) {
           rejected.push({ agentId: action.agentId, reason: 'agent is not installed' });
@@ -1580,6 +1641,16 @@ export async function runTriageAgent(
             agentId: action.agentId,
             reason: 'same action already failed on this thread; revise the inputs or choose a different next step',
           });
+          continue;
+        }
+        // Convergence guard: don't propose an (N+1)th fix for a target that has
+        // already had MAX_FIX_ATTEMPTS_PER_TARGET fixes applied without success
+        // — that's the non-converging analyze→fix loop. Escalate to the operator.
+        const exhaustedTarget = fixLoopExhausted(ctx, messageId, action, message.agentId)
+          ? fixTargetOf(action, message.agentId)
+          : undefined;
+        if (exhaustedTarget) {
+          convergenceBlocked.add(exhaustedTarget);
           continue;
         }
         dedupedAccepted.push(action);
@@ -1608,6 +1679,35 @@ export async function runTriageAgent(
         // the thread is closed, so any remaining proposed actions this turn are
         // moot. `threadResolved` suppresses the awaiting_user update below.
         if (action.mode === 'resolve') {
+          // Verify-on-resolve: don't take triage's word that a fix worked when
+          // the thread actually mutated something (a `write` action completed)
+          // AND triage flagged what to check (verifyHint). Move the thread to
+          // `verifying` (the previously-dead status), check the focus agent's
+          // latest run as evidence, and only resolve on a clean verdict. A
+          // `not_ok` bounces back to awaiting_user so the loop isn't declared
+          // done while still broken; `pending` (nothing to judge yet) resolves
+          // optimistically with a note rather than stranding the thread.
+          if (verifyHint && writeActionExecuted(ctx, messageId)) {
+            const now = Date.now();
+            const resolvedMeta: InboxActionMeta = {
+              ...action, status: 'completed', startedAt: now, endedAt: now,
+              resultSummary: action.rationale ? `Resolved: ${action.rationale}` : 'Resolved by triage.',
+            };
+            ctx.inboxStore.transitionActionStatus(actionResp.id, 'proposed', JSON.stringify(resolvedMeta));
+            try { ctx.inboxStore.updateStatus(messageId, 'verifying'); } catch { /* ignore */ }
+            publishInboxEvent(ctx, messageId, 'state', { phase: 'verifying', since: now });
+            const focusAgentId = resolveFocusAgentId(ctx, message.agentId, ctx.inboxStore.listResponses(messageId));
+            const { verdict, evidence } = verifyResolveEvidence(ctx, focusAgentId);
+            if (verdict === 'not_ok') {
+              addSystemMessage(ctx, messageId, `Didn't resolve — couldn't verify the fix: ${evidence}. Leaving this with you.`);
+              try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }
+            } else {
+              addSystemMessage(ctx, messageId, verdict === 'ok' ? `Verified: ${evidence}.` : `Resolving — ${evidence}, so nothing to verify against yet.`);
+              try { ctx.inboxStore.updateStatus(messageId, 'resolved'); } catch { /* ignore */ }
+              threadResolved = true;
+            }
+            break;
+          }
           const now = Date.now();
           const resolvedMeta: InboxActionMeta = {
             ...action,
@@ -1659,6 +1759,10 @@ export async function runTriageAgent(
           }
           continue;
         }
+        // Past the resolve/show-widget branches: this is a dispatched or
+        // route-handled action that will sit proposed or run — real pending
+        // work, so a commitment chip on this turn is honest.
+        pendingWorkInserted = true;
         // Auto-approve trusted system agents. The proposed -> running
         // transition is atomic via transitionActionStatus, so a
         // concurrent operator click on /run no-ops idempotently. The
@@ -1704,13 +1808,38 @@ export async function runTriageAgent(
           responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
         });
       }
-      if (rejected.length > 0
+      // Convergence escalation: a target's fix loop is exhausted. Post a clear
+      // hand-off note per target and DO NOT recovery-refire — the whole point
+      // is to stop the loop and put the ball in the operator's court.
+      for (const target of convergenceBlocked) {
+        const applied = countAppliedFixes(ctx, messageId, target);
+        addSystemMessage(
+          ctx,
+          messageId,
+          `I've applied ${applied} fixes to \`${target}\` and it still isn't working, so I'm stopping automatic fixes to avoid looping. ` +
+          `Please review \`${target}\` directly (its /agents page shows the latest runs), or tell me a different approach to try.`,
+        );
+      }
+      if (convergenceBlocked.size === 0
+        && rejected.length > 0
         && toInsert.length === 0
         && !hasRecoveryRefireSinceLastUser(ctx, messageId)
         && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
         addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
         void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
       }
+    }
+
+    // Commitment-chip honesty guard (the enforcement the reply-write comment
+    // promised): if triage claimed a commitment but no runnable work landed
+    // this turn, strip it from the stored reply so a prose-only promise can't
+    // masquerade as pending work. A resolve turn also carries no pending work,
+    // but the thread is closing so the chip is moot either way.
+    if (commitmentSummary && !pendingWorkInserted) {
+      const { commitmentSummary: _dropped, ...keptMeta } = triageMeta;
+      ctx.inboxStore.updateResponse(triageReply.id, {
+        metaJson: Object.keys(keptMeta).length > 0 ? JSON.stringify(keptMeta) : null,
+      });
     }
 
     // A resolve-thread action already set the thread to `resolved`; don't stomp

@@ -25,6 +25,80 @@ const MAX_TRIAGE_CRASH_RETRIES = 1;
  */
 export const RESOLVE_THREAD_AGENT_ID = '_resolve-thread';
 
+/**
+ * How many times triage may apply a fix to the SAME target agent on one thread
+ * before the convergence guard stops it and escalates to the operator. The
+ * pathology this bounds: analyzer → editor("apply fix") → re-test → still
+ * broken → analyzer → editor → … forever, because triage never recognizes it
+ * has tried the same move repeatedly without the target actually working. The
+ * 5-turn cap doesn't catch it — every operator "please fix it" resets that
+ * counter straight back into the loop — so this guard counts COMPLETED fixes
+ * across the whole thread, independent of user replies. 3 gives an
+ * analyze→fix→verify→fix→verify→fix run of headroom before we conclude the
+ * agent-editor loop isn't converging and a human (or a different approach) is
+ * needed.
+ */
+export const MAX_FIX_ATTEMPTS_PER_TARGET = 3;
+
+/**
+ * The agent a fix-oriented action targets, or undefined if the action isn't a
+ * fix. `agent-editor` applies a YAML fix to `inputs.AGENT_ID`; `agent-analyzer`
+ * diagnoses `inputs.AGENT_ID` (falling back to the thread's own agent). Both
+ * are the moving parts of the analyze→fix loop, so both count toward — and are
+ * gated by — the convergence budget for their target.
+ */
+export function fixTargetOf(
+  candidate: InboxActionMeta,
+  threadAgentId?: string,
+): string | undefined {
+  if (candidate.agentId === 'agent-editor') return candidate.inputs.AGENT_ID?.trim() || undefined;
+  if (candidate.agentId === 'agent-analyzer') return candidate.inputs.AGENT_ID?.trim() || threadAgentId || undefined;
+  return undefined;
+}
+
+/**
+ * Count COMPLETED `agent-editor` fixes already applied to `targetAgentId` on
+ * this thread. Each completed editor action is a fix that was applied and — if
+ * triage is now proposing another for the same target — evidently did not
+ * resolve the problem. Counts across the whole conversation (not just since the
+ * last user reply) so repeated operator nudges can't reset the budget into the
+ * same non-converging loop.
+ */
+export function countAppliedFixes(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  targetAgentId: string,
+): number {
+  if (!ctx.inboxStore) return 0;
+  let n = 0;
+  for (const response of ctx.inboxStore.listResponses(messageId)) {
+    const meta = parseActionMeta(response);
+    if (!meta) continue;
+    if (meta.agentId !== 'agent-editor') continue;
+    if (meta.status !== 'completed') continue;
+    if ((meta.inputs.AGENT_ID?.trim() || undefined) !== targetAgentId) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * Convergence guard: has triage already applied `MAX_FIX_ATTEMPTS_PER_TARGET`
+ * fixes to this action's target without success, so proposing another is just
+ * more of the same non-converging loop? Only fix-oriented actions
+ * (analyzer/editor) are gated; everything else passes through.
+ */
+export function fixLoopExhausted(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  candidate: InboxActionMeta,
+  threadAgentId?: string,
+): boolean {
+  const target = fixTargetOf(candidate, threadAgentId);
+  if (!target) return false;
+  return countAppliedFixes(ctx, messageId, target) >= MAX_FIX_ATTEMPTS_PER_TARGET;
+}
+
 export function hasMatchingFailedAction(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
