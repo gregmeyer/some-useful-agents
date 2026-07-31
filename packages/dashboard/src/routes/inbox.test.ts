@@ -747,6 +747,33 @@ describe('POST /inbox/:id/triage/cancel — operator Stop halts the refire chain
       (r) => r.role === 'system' && /cancelled 1 running action/i.test(r.body) && r.body.includes('agent-analyzer'),
     )).toBe(true);
   });
+
+  it('finalizes a running action that has no runId yet, so the modal never hangs', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 't', body: 'b' });
+    // Claimed `running` in the window before the dispatch registered a runId —
+    // previously the Stop route's `!m.runId` guard skipped it and the card
+    // stayed `running` forever ("Stop didn't respond").
+    const action = inboxStore.addResponse(m.id, 'action', 'Running agent-analyzer', JSON.stringify({
+      kind: 'action', agentId: 'agent-analyzer', inputs: {}, effect: 'read',
+      status: 'running', startedAt: Date.now(),
+    }));
+
+    const cancel = await request(app)
+      .post(`/inbox/${m.id}/triage/cancel`)
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(cancel.status).toBe(204);
+
+    // The action card is now terminal (failed w/ a cancel reason), not stuck running.
+    const settled = inboxStore.listResponses(m.id).find((r) => r.id === action.id);
+    const meta = JSON.parse(settled!.metaJson!);
+    expect(meta.status).toBe('failed');
+    expect(meta.refusalReason).toMatch(/cancelled by stop/i);
+    // And it still counts toward the ack note.
+    expect(inboxStore.listResponses(m.id).some(
+      (r) => r.role === 'system' && /cancelled 1 running action/i.test(r.body),
+    )).toBe(true);
+  });
 });
 
 describe('GET /inbox with filters', () => {

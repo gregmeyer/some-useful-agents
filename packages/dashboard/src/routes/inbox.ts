@@ -606,12 +606,35 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   try {
     for (const r of ctx.inboxStore.listResponses(id)) {
       const m = parseActionMeta(r);
-      if (!m || m.status !== 'running' || !m.runId) continue;
+      if (!m || m.status !== 'running') continue;
       cancelledActionAgents.push(m.agentId);
-      ctx.activeRuns.get(m.runId)?.abort();
-      ctx.activeRuns.delete(m.runId);
-      try { await ctx.provider.cancelRun(m.runId); } catch { /* best-effort */ }
-      forceFinalizeCancelledRun(ctx, m.runId);
+      if (m.runId) {
+        // Normal case: the dispatch persisted its runId onto the card, so we
+        // can reach the registered AbortController / cancel the provider run
+        // and force-finalize the run row. The dispatch's own await then
+        // settles the action card through the normal finalize path.
+        ctx.activeRuns.get(m.runId)?.abort();
+        ctx.activeRuns.delete(m.runId);
+        try { await ctx.provider.cancelRun(m.runId); } catch { /* best-effort */ }
+        forceFinalizeCancelledRun(ctx, m.runId);
+      } else {
+        // Claimed `running` but no runId yet — the tiny window before the
+        // dispatch registers one, or any non-dispatched path. There's no run
+        // to abort, so settle the CARD directly to a terminal state; otherwise
+        // it stays `running` forever and the modal's pending spinner never
+        // clears (the "Stop didn't respond" report). No enum `cancelled` for
+        // actions, so use `failed` with an explicit cancel reason.
+        const endedAt = Date.now();
+        const refusalReason = 'Cancelled by Stop before the run started.';
+        try {
+          ctx.inboxStore.updateResponse(r.id, {
+            metaJson: JSON.stringify({ ...m, status: 'failed', endedAt, refusalReason }),
+          });
+          publishInboxEvent(ctx, id, 'action:status', {
+            responseId: r.id, status: 'failed', agentId: m.agentId, endedAt, refusalReason,
+          });
+        } catch { /* best-effort */ }
+      }
     }
   } catch { /* never let action-cancel break the Stop ack */ }
   const entry = ctx.inboxTriageAbortControllers.get(id);
