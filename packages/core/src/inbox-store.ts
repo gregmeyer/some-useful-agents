@@ -139,6 +139,14 @@ export interface InboxActionMeta {
    * `operator` for back-compat with cards skipped before this field.
    */
   skippedBy?: 'operator' | 'triage';
+  /**
+   * How this action was approved to run (set when it leaves `proposed`).
+   * `policy` = auto-approved by the trust policy (no operator click);
+   * `operator` = the operator clicked Run (or Enable & run). Absent on cards
+   * that never ran, or from before this field existed. Drives the provenance
+   * label ("auto-ran" vs "you approved") in the thread view.
+   */
+  approvedBy?: 'policy' | 'operator';
 }
 
 export interface InboxMessage {

@@ -1732,10 +1732,10 @@ export async function runTriageAgent(
             const focusAgentId = resolveFocusAgentId(ctx, message.agentId, ctx.inboxStore.listResponses(messageId));
             const { verdict, evidence } = verifyResolveEvidence(ctx, focusAgentId);
             if (verdict === 'not_ok') {
-              addSystemMessage(ctx, messageId, `Didn't resolve — couldn't verify the fix: ${evidence}. Leaving this with you.`);
+              addSystemMessage(ctx, messageId, `Didn't resolve — couldn't verify the fix: ${evidence}. Leaving this with you.`, JSON.stringify({ kind: 'verify-failed' }));
               try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }
             } else {
-              addSystemMessage(ctx, messageId, verdict === 'ok' ? `Verified: ${evidence}.` : `Resolving — ${evidence}, so nothing to verify against yet.`);
+              addSystemMessage(ctx, messageId, verdict === 'ok' ? `Verified: ${evidence}.` : `Resolving — ${evidence}, so nothing to verify against yet.`, JSON.stringify({ kind: verdict === 'ok' ? 'verified' : 'verify-pending' }));
               try { ctx.inboxStore.updateStatus(messageId, 'resolved'); } catch { /* ignore */ }
               threadResolved = true;
             }
@@ -1805,7 +1805,7 @@ export async function runTriageAgent(
         // follow-up triage turn.
         if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
           const startedAt = Date.now();
-          const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt };
+          const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
           const claimed = ctx.inboxStore.transitionActionStatus(
             actionResp.id,
             'proposed',

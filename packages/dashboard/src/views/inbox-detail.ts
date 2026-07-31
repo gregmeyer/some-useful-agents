@@ -11,6 +11,15 @@ import {
 
 /** Per-agent trust info for the action-card toggle (B2). */
 export type AgentTrustInfo = { approvable: boolean; level?: AgentTrustLevel };
+
+/** Pull a verify-verdict `kind` off a system note's meta (B3), if present. */
+function readVerifyKind(metaJson?: string): 'verified' | 'verify-failed' | 'verify-pending' | undefined {
+  if (!metaJson) return undefined;
+  try {
+    const k = (JSON.parse(metaJson) as { kind?: unknown }).kind;
+    return k === 'verified' || k === 'verify-failed' || k === 'verify-pending' ? k : undefined;
+  } catch { return undefined; }
+}
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -489,12 +498,22 @@ function renderConversationEntry(
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
+  // Verification verdict notes (B1 + B3): B1 tags its verify-on-resolve system
+  // notes with a `kind`; surface them distinctly so a "Verified" vs "couldn't
+  // verify" outcome reads as a verdict, not just another system line.
+  const verifyKind = r.role === 'system' ? readVerifyKind(r.metaJson) : undefined;
+  const verifyBadge = verifyKind === 'verified'
+    ? html`<span class="inbox-verify inbox-verify--ok">✓ Verified</span>`
+    : verifyKind === 'verify-failed'
+      ? html`<span class="inbox-verify inbox-verify--fail">⚠ Not verified</span>`
+      : html``;
   return html`
-    <div class="inbox-msg" data-msg-id="${r.id}">
+    <div class="inbox-msg ${verifyKind ? `inbox-msg--verify inbox-msg--${verifyKind}` : ''}" data-msg-id="${r.id}">
       <div class="inbox-msg__avatar inbox-msg__avatar--${r.role}">${avatar}</div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
           <span class="inbox-msg__meta-name">${role}</span>
+          ${verifyBadge}
           <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
           <button type="button" class="inbox-msg__copy" data-inbox-copy
             aria-label="Copy ${role} message"
@@ -657,6 +676,15 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   const trust = isDispatched ? agentTrust?.get(meta.agentId) : undefined;
   const trustBlock = trust ? renderAgentTrustToggle(r.messageId, meta.agentId, trust) : html``;
 
+  // Provenance (B3): once a dispatched action has left `proposed`, show HOW it
+  // was approved — auto-run by policy vs. an explicit operator click — so the
+  // autonomy trail is legible at a glance.
+  const provenance = isDispatched && meta.status !== 'proposed' && meta.approvedBy
+    ? (meta.approvedBy === 'policy'
+        ? html`<span class="inbox-action__prov inbox-action__prov--auto" title="Auto-run by your trust policy — no click needed">⚡ auto-ran</span>`
+        : html`<span class="inbox-action__prov inbox-action__prov--operator" title="You approved this action">✓ you approved</span>`)
+    : html``;
+
   return html`
     <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
       <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
@@ -664,6 +692,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         <div class="inbox-msg__meta">
           <span class="inbox-msg__meta-name">${meta.mode === 'show-widget' ? 'Widget' : meta.mode === 'resolve' ? 'Triage resolved' : 'Triage proposed'}</span>
           ${meta.mode === 'show-widget' || meta.mode === 'resolve' ? html`` : html`<span class="inbox-action__status">${statusLabel}</span>`}
+          ${provenance}
           <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
         </div>
         <div class="inbox-action__card">
