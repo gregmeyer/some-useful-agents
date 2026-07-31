@@ -40,6 +40,24 @@ export type InboxStatus = typeof INBOX_STATUSES[number];
 export const INBOX_SOURCES = ['run-failure', 'permission-request', 'cadence', 'manual'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
+/**
+ * Global autonomy mode (the `*` row of `inbox_trust`):
+ *   `full`         — per-agent trust governs auto-run (default when unset)
+ *   `propose-only` — triage still auto-analyzes, but NOTHING auto-runs;
+ *                    every action waits for an operator click
+ *   `off`          — the autonomous loop is paused: no auto-first-touch,
+ *                    no auto-run (the operator-facing kill switch)
+ */
+export const AUTONOMY_MODES = ['full', 'propose-only', 'off'] as const;
+export type AutonomyMode = typeof AUTONOMY_MODES[number];
+
+/** Per-agent trust level: `auto` runs on proposal; `propose` needs a click. */
+export const AGENT_TRUST_LEVELS = ['auto', 'propose'] as const;
+export type AgentTrustLevel = typeof AGENT_TRUST_LEVELS[number];
+
+/** Sentinel `agent_id` for the global-autonomy-mode row of `inbox_trust`. */
+export const GLOBAL_TRUST_KEY = '*';
+
 export const INBOX_RESPONSE_ROLES = ['user', 'triage', 'system', 'action'] as const;
 export type InboxResponseRole = typeof INBOX_RESPONSE_ROLES[number];
 
@@ -492,6 +510,19 @@ export class InboxStore {
       CREATE INDEX IF NOT EXISTS idx_learnings_retrieval
         ON triage_learnings(status, source, agent_id, approved_at DESC)
     `);
+    // Operator-tunable trust policy for autonomous triage. One row per agent
+    // (`agent_id` = agent id, `level` = 'auto' | 'propose') overrides the
+    // built-in auto-approve default for that agent; a single sentinel row
+    // (`agent_id` = '*', `level` = 'full' | 'propose-only' | 'off') sets the
+    // GLOBAL autonomy mode. Empty table ⇒ behavior falls back entirely to the
+    // engine's compiled default set, so this is inert until an operator edits it.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS inbox_trust (
+        agent_id TEXT PRIMARY KEY,
+        level TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
   }
 
   /**
@@ -681,6 +712,62 @@ export class InboxStore {
       LIMIT 1
     `).get(agentId, source) as Record<string, unknown> | undefined;
     return row ? this.rowToMessage(row) : null;
+  }
+
+  // ── Trust policy (operator-tunable autonomy) ─────────────────────────────
+
+  /**
+   * The global autonomy mode. `full` when unset (behavior-neutral default) so
+   * an untouched install keeps auto-running the engine's compiled trust set.
+   */
+  getAutonomyMode(): AutonomyMode {
+    const row = this.db.prepare(`SELECT level FROM inbox_trust WHERE agent_id = ?`).get(GLOBAL_TRUST_KEY) as { level?: string } | undefined;
+    const level = row?.level;
+    return level === 'propose-only' || level === 'off' ? level : 'full';
+  }
+
+  /** Set the global autonomy mode (the `*` row). */
+  setAutonomyMode(mode: AutonomyMode): void {
+    if (!AUTONOMY_MODES.includes(mode)) throw new Error(`InboxStore.setAutonomyMode: invalid mode "${mode}"`);
+    this.db.prepare(
+      `INSERT INTO inbox_trust (agent_id, level, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(agent_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at`,
+    ).run(GLOBAL_TRUST_KEY, mode, Date.now());
+  }
+
+  /**
+   * The operator's explicit trust level for an agent, or `undefined` when they
+   * haven't set one (the engine then falls back to its compiled default).
+   */
+  getAgentTrust(agentId: string): AgentTrustLevel | undefined {
+    if (agentId === GLOBAL_TRUST_KEY) return undefined;
+    const row = this.db.prepare(`SELECT level FROM inbox_trust WHERE agent_id = ?`).get(agentId) as { level?: string } | undefined;
+    return row?.level === 'auto' || row?.level === 'propose' ? row.level : undefined;
+  }
+
+  /** Set an agent's trust level. */
+  setAgentTrust(agentId: string, level: AgentTrustLevel): void {
+    if (agentId === GLOBAL_TRUST_KEY) throw new Error('InboxStore.setAgentTrust: use setAutonomyMode for the global row');
+    if (!AGENT_TRUST_LEVELS.includes(level)) throw new Error(`InboxStore.setAgentTrust: invalid level "${level}"`);
+    this.db.prepare(
+      `INSERT INTO inbox_trust (agent_id, level, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(agent_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at`,
+    ).run(agentId, level, Date.now());
+  }
+
+  /** Clear an agent's explicit trust, reverting it to the engine default. */
+  clearAgentTrust(agentId: string): void {
+    this.db.prepare(`DELETE FROM inbox_trust WHERE agent_id = ? AND agent_id != ?`).run(agentId, GLOBAL_TRUST_KEY);
+  }
+
+  /** All explicit per-agent trust rows (excludes the global `*` row), for the UI. */
+  listAgentTrust(): Array<{ agentId: string; level: AgentTrustLevel }> {
+    const rows = this.db.prepare(
+      `SELECT agent_id, level FROM inbox_trust WHERE agent_id != ? ORDER BY agent_id`,
+    ).all(GLOBAL_TRUST_KEY) as Array<{ agent_id: string; level: string }>;
+    return rows
+      .filter((r) => r.level === 'auto' || r.level === 'propose')
+      .map((r) => ({ agentId: r.agent_id, level: r.level as AgentTrustLevel }));
   }
 
   /**

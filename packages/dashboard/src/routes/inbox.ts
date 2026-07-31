@@ -33,12 +33,17 @@
 
 import { Router, type Request, type Response } from 'express';
 import {
+  AUTONOMY_MODES,
+  GLOBAL_TRUST_KEY,
   type RunStatus,
   type InboxActionMeta,
+  type InboxResponse,
+  type AutonomyMode,
+  type AgentTrustLevel,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxList } from '../views/inbox-list.js';
-import { renderInboxDetail, renderInboxDetailFragment } from '../views/inbox-detail.js';
+import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
@@ -65,6 +70,7 @@ import {
   maybeExtractLearning,
   resetTriageCrashRetries,
   isTriagePending,
+  isAutoApprovable,
 } from './inbox-engine.js';
 
 export const inboxRouter: Router = Router();
@@ -157,6 +163,8 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
       terminalCount = dismissed.length + resolved.length;
     } catch { /* swallow — empty count is harmless */ }
   }
+  let autonomyMode;
+  try { autonomyMode = ctx.inboxStore?.getAutonomyMode(); } catch { /* default in view */ }
   res.type('html').send(renderInboxList({
     rows, sort, dir, flash: parseFlash(req),
     filter: { q, starred, tag },
@@ -164,6 +172,7 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
     terminalCount,
     archiveView,
     previewPayloads,
+    autonomyMode,
   }));
 });
 
@@ -199,8 +208,32 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
     pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
+    agentTrust: buildAgentTrustMap(ctx, responses),
   }));
 });
+
+/**
+ * Build the per-agent trust map (B2) for the action cards in a thread: for each
+ * dispatched sub-agent that appears as an action AND is auto-approvable (in the
+ * default set or explicitly trusted), record its approvability + explicit
+ * override so the card can render the auto-run/require-approval toggle.
+ */
+function buildAgentTrustMap(
+  ctx: ReturnType<typeof getContext>,
+  responses: InboxResponse[],
+): Map<string, AgentTrustInfo> {
+  const map = new Map<string, AgentTrustInfo>();
+  if (!ctx.inboxStore) return map;
+  for (const r of responses) {
+    const meta = parseActionMeta(r);
+    if (!meta || meta.mode === 'resolve' || meta.mode === 'show-widget') continue;
+    if (map.has(meta.agentId)) continue;
+    const level = ctx.inboxStore.getAgentTrust(meta.agentId);
+    const approvable = isAutoApprovable(ctx, meta.agentId);
+    if (approvable || level) map.set(meta.agentId, { approvable, level });
+  }
+  return map;
+}
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -227,6 +260,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
     pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
+    agentTrust: buildAgentTrustMap(ctx, responses),
   })));
 });
 
@@ -634,6 +668,71 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
 // ════════════════════════════════════════════════════════════════
 // Thread metadata + transforms — star, tags, reopen, summarize, fork, retarget
 // ════════════════════════════════════════════════════════════════
+
+/**
+ * POST /inbox/trust/mode — set the global autonomy mode. Body: `mode` ∈
+ * {full, propose-only, off}. Governs whether trusted actions auto-run and
+ * whether new items auto-triage at all (`off` = kill switch).
+ */
+inboxRouter.post('/inbox/trust/mode', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const mode = typeof req.body?.mode === 'string' ? req.body.mode : '';
+  if (!AUTONOMY_MODES.includes(mode as AutonomyMode)) {
+    if (isAjax(req)) { res.status(400).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Invalid autonomy mode.')}`);
+    return;
+  }
+  try {
+    ctx.inboxStore.setAutonomyMode(mode as AutonomyMode);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent(`Set mode failed: ${msg}`)}`);
+    return;
+  }
+  const label = mode === 'off' ? 'Autonomy paused' : mode === 'propose-only' ? 'Approval required for all actions' : 'Full autonomy';
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `/inbox?ok=${encodeURIComponent(label)}`);
+});
+
+/**
+ * POST /inbox/trust/agent — set or clear an agent's trust level. Body:
+ * `agentId` + `level` ∈ {auto, propose, default}. `default` clears the
+ * explicit policy, reverting to the engine's compiled default.
+ */
+inboxRouter.post('/inbox/trust/agent', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
+    return;
+  }
+  const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
+  const level = typeof req.body?.level === 'string' ? req.body.level : '';
+  if (!agentId || agentId === GLOBAL_TRUST_KEY || !['auto', 'propose', 'default'].includes(level)) {
+    if (isAjax(req)) { res.status(400).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Invalid trust request.')}`);
+    return;
+  }
+  try {
+    if (level === 'default') ctx.inboxStore.clearAgentTrust(agentId);
+    else ctx.inboxStore.setAgentTrust(agentId, level as AgentTrustLevel);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isAjax(req)) { res.status(500).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent(`Set trust failed: ${msg}`)}`);
+    return;
+  }
+  if (isAjax(req)) { res.status(204).end(); return; }
+  const back = typeof req.body?.returnTo === 'string' && req.body.returnTo.startsWith('/inbox')
+    ? req.body.returnTo : '/inbox';
+  res.redirect(303, `${back}?ok=${encodeURIComponent('Trust updated.')}`);
+});
 
 inboxRouter.post('/inbox/:id/star', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);

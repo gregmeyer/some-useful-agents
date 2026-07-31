@@ -6,7 +6,11 @@ import {
   type InboxActionMeta,
   type InboxActionStatus,
   type TriageLearning,
+  type AgentTrustLevel,
 } from '@some-useful-agents/core';
+
+/** Per-agent trust info for the action-card toggle (B2). */
+export type AgentTrustInfo = { approvable: boolean; level?: AgentTrustLevel };
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -46,6 +50,12 @@ export interface InboxDetailOptions {
   };
   /** Installed non-system agents offered as fork/retarget targets. */
   forkableAgents?: { id: string; name: string }[];
+  /**
+   * Per-agent trust state (B2), keyed by agentId, for the agents that appear
+   * as dispatched actions in this thread. Drives the action-card "auto-run /
+   * require approval" toggle. Absent → no toggle rendered.
+   */
+  agentTrust?: Map<string, AgentTrustInfo>;
   /**
    * Pending triage learnings extracted from this thread, awaiting the
    * operator's approve/discard. Experimental (flag-gated); empty/absent when
@@ -153,7 +163,7 @@ function collectReferencedAgents(message: InboxMessage, responses: InboxResponse
 }
 
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
   const learningsBlock = (pendingLearnings ?? []).length > 0
@@ -293,7 +303,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   `;
 
   const timeline = responses.map((r) => html`
-    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets)}</li>
+    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust)}</li>
   `);
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
@@ -474,8 +484,9 @@ function renderConversationEntry(
   r: InboxResponse,
   currentTargetYaml?: string,
   inlineActionWidgets?: Record<string, SafeHtml | undefined>,
+  agentTrust?: Map<string, AgentTrustInfo>,
 ): SafeHtml {
-  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id]);
+  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
   return html`
@@ -597,7 +608,7 @@ function renderLearningCard(messageId: string, l: TriageLearning): SafeHtml {
 }
 
 /** Render an action-role row as a card whose body depends on status. */
-function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineWidget?: SafeHtml): SafeHtml {
+function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineWidget?: SafeHtml, agentTrust?: Map<string, AgentTrustInfo>): SafeHtml {
   const meta = parseActionMeta(r);
   if (!meta) {
     // Malformed action row — fall back to plain rendering so the
@@ -637,6 +648,14 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   void messageId;
 
   const detailBlock = renderActionStatusBody(meta, inlineWidget);
+  // Per-agent trust toggle (B2): only for dispatched sub-agent actions whose
+  // agent is auto-approvable (in the default set or explicitly trusted). Lets
+  // the operator flip an agent between auto-run and require-approval right
+  // where they see it act — the fine-grained answer to "agent-builder is
+  // running things I'd rather approve."
+  const isDispatched = meta.mode !== 'resolve' && meta.mode !== 'show-widget';
+  const trust = isDispatched ? agentTrust?.get(meta.agentId) : undefined;
+  const trustBlock = trust ? renderAgentTrustToggle(r.messageId, meta.agentId, trust) : html``;
 
   return html`
     <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
@@ -663,9 +682,38 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
             ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
             : inputsRendered}
           ${detailBlock}
+          ${trustBlock}
           ${controlsBlock}
         </div>
       </div>
+    </div>
+  `;
+}
+
+/**
+ * Compact per-agent trust control on an action card (B2). Shows the agent's
+ * current effective auto-run state and a one-click flip; when the operator has
+ * set an explicit override, offers a reset to the built-in default.
+ */
+function renderAgentTrustToggle(messageId: string, agentId: string, trust: AgentTrustInfo): SafeHtml {
+  const effectiveAuto = trust.level ? trust.level === 'auto' : trust.approvable;
+  const flipLevel = effectiveAuto ? 'propose' : 'auto';
+  const flipLabel = effectiveAuto ? 'Require approval' : 'Allow auto-run';
+  const stateLabel = effectiveAuto ? 'Auto-runs' : 'Needs approval';
+  const stateClass = effectiveAuto ? 'inbox-trust__state--auto' : 'inbox-trust__state--manual';
+  const setForm = (level: string, label: string, cls: string): SafeHtml => html`
+    <form method="POST" action="/inbox/trust/agent" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin:0;">
+      <input type="hidden" name="agentId" value="${agentId}">
+      <input type="hidden" name="level" value="${level}">
+      <input type="hidden" name="returnTo" value="/inbox/${messageId}">
+      <button type="submit" class="${cls}">${label}</button>
+    </form>
+  `;
+  return html`
+    <div class="inbox-trust" title="Autonomy policy for ${agentId}">
+      <span class="inbox-trust__state ${stateClass}"><span class="mono">${agentId}</span> · ${stateLabel}</span>
+      ${setForm(flipLevel, flipLabel, 'inbox-trust__btn')}
+      ${trust.level ? setForm('default', 'Reset', 'inbox-trust__btn inbox-trust__btn--ghost') : html``}
     </div>
   `;
 }

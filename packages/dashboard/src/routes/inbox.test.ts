@@ -1887,3 +1887,41 @@ describe('Stale inbox-triage refresh', () => {
     expect(after.name).toBe('Agent Analyzer');
   });
 });
+
+describe('POST /inbox/trust/* — operator-tunable trust policy (B2)', () => {
+  it('sets the global autonomy mode and rejects an invalid one', async () => {
+    const app = await makeApp();
+    const ok = await request(app).post('/inbox/trust/mode').type('form').send({ mode: 'off' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(ok.status).toBe(204);
+    expect(inboxStore.getAutonomyMode()).toBe('off');
+
+    const bad = await request(app).post('/inbox/trust/mode').type('form').send({ mode: 'sideways' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(bad.status).toBe(400);
+    expect(inboxStore.getAutonomyMode()).toBe('off'); // unchanged
+  });
+
+  it('sets and clears a per-agent trust level', async () => {
+    const app = await makeApp();
+    await request(app).post('/inbox/trust/agent').type('form').send({ agentId: 'agent-builder', level: 'propose' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .expect(204);
+    expect(inboxStore.getAgentTrust('agent-builder')).toBe('propose');
+
+    await request(app).post('/inbox/trust/agent').type('form').send({ agentId: 'agent-builder', level: 'default' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .expect(204);
+    expect(inboxStore.getAgentTrust('agent-builder')).toBeUndefined();
+  });
+
+  it('rejects the global sentinel and an invalid level', async () => {
+    const app = await makeApp();
+    await request(app).post('/inbox/trust/agent').type('form').send({ agentId: '*', level: 'auto' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .expect(400);
+    await request(app).post('/inbox/trust/agent').type('form').send({ agentId: 'x', level: 'nope' })
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .expect(400);
+  });
+});

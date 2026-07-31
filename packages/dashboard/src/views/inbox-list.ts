@@ -1,4 +1,4 @@
-import { markdownToText, type InboxMessage, type InboxPriority, type InboxResponseRole, type InboxSource, type InboxStatus } from '@some-useful-agents/core';
+import { markdownToText, type AutonomyMode, type InboxMessage, type InboxPriority, type InboxResponseRole, type InboxSource, type InboxStatus } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge, humanizeTimestamps } from './components.js';
@@ -56,6 +56,11 @@ export interface InboxListOptions {
    * legacy "no replies yet" empty preview.
    */
   previewPayloads?: Map<string, InboxRowPreviewPayload>;
+  /**
+   * Current global autonomy mode (B2 trust policy). Drives the header's
+   * autonomy control. Defaults to `full` when the route doesn't pass it.
+   */
+  autonomyMode?: AutonomyMode;
 }
 
 /** Compact preview-strip payload for one row. See renderRow. */
@@ -242,6 +247,8 @@ export function renderInboxList(opts: InboxListOptions): string {
       </div>
     </div>
 
+    ${archiveView ? html`` : renderAutonomyControl(opts.autonomyMode ?? 'full')}
+
     ${suggestBanner}
 
     <div class="inbox-shell" id="inbox-shell">
@@ -311,6 +318,42 @@ function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, a
       </label>
       ${hasFilter ? html`<a class="inbox-toolbar__reset" href="/inbox" aria-label="Clear all filters">Reset</a>` : html``}
     </form>
+  `;
+}
+
+/**
+ * Global autonomy control (B2 trust policy). A compact segmented control:
+ * Full (per-agent trust governs auto-run), Approve first (nothing auto-runs),
+ * Off (the whole autonomous loop pauses). Each segment is a tiny POST form so
+ * it works without JS; the active mode is highlighted and a one-line caption
+ * states what the current mode does.
+ */
+function renderAutonomyControl(mode: AutonomyMode): SafeHtml {
+  const seg = (value: AutonomyMode, label: string): SafeHtml => html`
+    <form method="POST" action="/inbox/trust/mode" style="margin: 0;">
+      <input type="hidden" name="mode" value="${value}">
+      <button type="submit" class="inbox-autonomy__seg ${mode === value ? 'inbox-autonomy__seg--active' : ''}"
+        ${mode === value ? 'aria-current="true"' : ''}>${label}</button>
+    </form>
+  `;
+  const caption = mode === 'off'
+    ? 'Paused — new items are not auto-triaged and no actions auto-run.'
+    : mode === 'propose-only'
+      ? 'Triage still analyzes new items, but every action waits for your approval.'
+      : 'Trusted agents run automatically; others wait for your approval.';
+  const dotClass = mode === 'off' ? 'inbox-autonomy__dot--off' : mode === 'propose-only' ? 'inbox-autonomy__dot--warn' : 'inbox-autonomy__dot--on';
+  return html`
+    <div class="inbox-autonomy" role="group" aria-label="Autonomy mode">
+      <span class="inbox-autonomy__label">
+        <span class="inbox-autonomy__dot ${dotClass}" aria-hidden="true"></span>Autonomy
+      </span>
+      <div class="inbox-autonomy__segs">
+        ${seg('full', 'Full')}
+        ${seg('propose-only', 'Approve first')}
+        ${seg('off', 'Off')}
+      </div>
+      <span class="inbox-autonomy__caption dim">${caption}</span>
+    </div>
   `;
 }
 
