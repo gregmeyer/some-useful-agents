@@ -42,13 +42,14 @@ import {
   type AgentTrustLevel,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { renderInboxList } from '../views/inbox-list.js';
+import { renderInboxList, renderInboxRowsFragment } from '../views/inbox-list.js';
 import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
   deriveTitleFromBody,
   publishInboxEvent,
+  publishInboxChanged,
   addSystemMessage,
   summarizeInline,
   updateThreadAgentLink,
@@ -87,8 +88,14 @@ const DEFAULT_NEW_CONVERSATION_TITLE = 'New conversation';
 // Read — list + thread views
 // ════════════════════════════════════════════════════════════════
 
-inboxRouter.get('/inbox', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
+/**
+ * Assemble everything the inbox list needs from the request's filter/sort
+ * query params: the filtered rows, per-row preview payloads, tag list,
+ * terminal count, and autonomy mode. Shared by `GET /inbox` (full page) and
+ * `GET /inbox/rows` (the live-refresh / load-more fragment) so the two can
+ * never drift on how they read filters or build previews.
+ */
+function buildInboxListView(ctx: ReturnType<typeof getContext>, req: Request) {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
   const starred = req.query.starred === '1' || req.query.starred === 'true';
   const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
@@ -165,15 +172,34 @@ inboxRouter.get('/inbox', (req: Request, res: Response) => {
   }
   let autonomyMode;
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode(); } catch { /* default in view */ }
-  res.type('html').send(renderInboxList({
-    rows, sort, dir, flash: parseFlash(req),
-    filter: { q, starred, tag },
-    allTags,
-    terminalCount,
-    archiveView,
-    previewPayloads,
-    autonomyMode,
-  }));
+  return {
+    rows, sort, dir, filter: { q, starred, tag },
+    allTags, terminalCount, archiveView, previewPayloads, autonomyMode,
+  };
+}
+
+inboxRouter.get('/inbox', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const view = buildInboxListView(ctx, req);
+  res.type('html').send(renderInboxList({ ...view, flash: parseFlash(req) }));
+});
+
+/**
+ * Server-rendered rows fragment. Powers C1's live list refresh (the SSE
+ * `inbox:changed` wake signal → refetch this with the current filters →
+ * swap `.inbox-main`) and, later, C3's "load more" pagination (`offset>0`
+ * → append bare rows). Honors the same filter/sort query params as
+ * `GET /inbox`. Registered before `/inbox/:id` so the literal `rows`
+ * segment can't be captured as an `:id`.
+ */
+inboxRouter.get('/inbox/rows', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const view = buildInboxListView(ctx, req);
+  // offset>0 asks for the append-only window of bare rows (C3 pagination);
+  // absent/0 returns the whole `.inbox-main` inner block for a live swap.
+  const offset = Number(req.query.offset);
+  const mode: 'full' | 'rows' = Number.isFinite(offset) && offset > 0 ? 'rows' : 'full';
+  res.type('html').send(renderInboxRowsFragment({ ...view, mode }));
 });
 
 inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
@@ -294,6 +320,7 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
       title,
       body: '(empty)',
     });
+    publishInboxChanged(ctx, created.id, created.status);
     if (isAjax(req)) {
       res.setHeader('X-Inbox-Id', created.id);
       res.status(204).end();
@@ -317,6 +344,7 @@ inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
   }
   try {
     ctx.inboxStore.dismiss(id);
+    publishInboxChanged(ctx, id, 'dismissed');
     if (isAjax(req)) { res.status(204).end(); return; }
     res.redirect(303, `/inbox?ok=${encodeURIComponent('Dismissed.')}`);
   } catch (err) {
@@ -343,6 +371,7 @@ inboxRouter.post('/inbox/:id/resolve', (req: Request, res: Response) => {
   }
   try {
     ctx.inboxStore.updateStatus(id, 'resolved');
+    publishInboxChanged(ctx, id, 'resolved');
     void maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ });
     if (isAjax(req)) { res.status(204).end(); return; }
     res.redirect(303, `/inbox?ok=${encodeURIComponent('Resolved.')}`);
@@ -377,16 +406,22 @@ inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
   }
 
   let dismissed = 0;
+  const dismissedIds: string[] = [];
   for (const id of ids) {
     const row = ctx.inboxStore.get(id);
     if (!row) continue;
     try {
       ctx.inboxStore.dismiss(id);
       dismissed += 1;
+      dismissedIds.push(id);
     } catch {
       // Skip per-row failures so one bad id doesn't block the whole bulk action.
     }
   }
+  // One coarse global event per dismissed thread so the live list/badge
+  // catch up. Published after the loop (not per store call) to keep the
+  // hot path tight; the events themselves are idempotent refetch triggers.
+  for (const id of dismissedIds) publishInboxChanged(ctx, id, 'dismissed');
 
   if (isAjax(req)) {
     res.status(dismissed > 0 ? 200 : 404).json({ dismissed, requested: ids.length });
@@ -676,6 +711,7 @@ inboxRouter.post('/inbox/:id/triage/cancel', async (req: Request, res: Response)
   // clears and the composer re-enables.
   try {
     ctx.inboxStore.updateStatus(id, 'awaiting_user');
+    publishInboxChanged(ctx, id, 'awaiting_user');
   } catch { /* ignore */ }
 
   if (isAjax(req)) { res.status(204).end(); return; }
@@ -831,6 +867,7 @@ inboxRouter.post('/inbox/:id/reopen', (req: Request, res: Response) => {
   }
   try {
     ctx.inboxStore.updateStatus(id, 'open');
+    publishInboxChanged(ctx, id, 'open');
     addSystemMessage(ctx, id, 'Thread reopened.');
     if (isAjax(req)) { res.status(204).end(); return; }
     res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Reopened.')}`);
@@ -911,6 +948,7 @@ inboxRouter.post('/inbox/:id/fork', (req: Request, res: Response) => {
         summary,
       }),
     });
+    publishInboxChanged(ctx, forked.id, forked.status);
     addSystemMessage(ctx, id, `Forked this thread to \`${agentId}\` as ${forked.id.slice(0, 8)}.`,
       JSON.stringify({ links: [{ label: 'Open forked thread', href: `/inbox/${forked.id}` }] }));
     addSystemMessage(ctx, forked.id, `Forked from thread ${id.slice(0, 8)} into agent \`${agentId}\`.`,

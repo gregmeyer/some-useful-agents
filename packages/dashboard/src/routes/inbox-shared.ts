@@ -5,6 +5,7 @@ import {
   type TriageLearning,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
 import {
   type InboxSortKey,
   type InboxSortDir,
@@ -72,6 +73,32 @@ export function publishInboxEvent(
   if (!ctx.inboxEventBus) return;
   try { ctx.inboxEventBus.publish(messageId, { type, data }); }
   catch { /* telemetry path — never break a route */ }
+}
+
+/**
+ * Publish a coarse `inbox:changed` event to the global channel so the
+ * cross-app badge + live list can react without a full-page poll. Called
+ * explicitly at the state-change sites (thread created, status changed) —
+ * deliberately NOT fanned out automatically inside `publishInboxEvent`,
+ * because (a) the per-token `triage:token` stream would flood the global
+ * channel's ring buffer, and (b) several mutations (dismiss, resolve,
+ * bulk-dismiss, new-thread `add`) touch the store WITHOUT a matching
+ * `publishInboxEvent`, so a filter there would miss exactly the events the
+ * list most needs. The event is only a "something changed, id=X → status"
+ * wake signal; clients refetch the count / rows fragment from source.
+ */
+export function publishInboxChanged(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  status?: string,
+): void {
+  if (!ctx.inboxEventBus) return;
+  try {
+    ctx.inboxEventBus.publish(GLOBAL_INBOX_CHANNEL, {
+      type: 'inbox:changed',
+      data: status === undefined ? { id: messageId } : { id: messageId, status },
+    });
+  } catch { /* telemetry path — never break a route */ }
 }
 
 /**

@@ -21,6 +21,16 @@
  * format. The route layer reads + serialises.
  */
 
+/**
+ * Reserved channel key for coarse, inbox-wide events (thread created,
+ * status changed) — the stream that powers the global badge + live list.
+ * It's an ordinary channel key: the bus applies no special logic, but a
+ * real messageId can never collide with `'*'`, so publishing/subscribing
+ * here is safe. Only low-frequency `inbox:changed` events go here; never
+ * token streams (which would blow the ring buffer many times per turn).
+ */
+export const GLOBAL_INBOX_CHANNEL = '*';
+
 /** Event shape published by the runtime. `data` is JSON-serialised by the route. */
 export interface InboxEvent {
   /** Event type — matches the SSE `event:` field on the wire. */

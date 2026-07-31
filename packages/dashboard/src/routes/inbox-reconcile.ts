@@ -37,7 +37,7 @@
  */
 import { isInboxAutoTriageEnabled, type InboxMessage, type Run } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
-import { parseActionMeta, addSystemMessage, publishInboxEvent } from './inbox-shared.js';
+import { parseActionMeta, addSystemMessage, publishInboxEvent, publishInboxChanged } from './inbox-shared.js';
 import {
   awaitRunTerminal,
   finalizeActionFromOutcome,
@@ -173,7 +173,10 @@ function reconcileMessage(ctx: Ctx, message: InboxMessage, result: ReconcileResu
       // Without auto-triage, don't spend LLM turns at boot — but don't let
       // the thread sit silently either: surface it as "Your turn".
       addSystemMessage(ctx, message.id, 'The dashboard restarted while triage was thinking. Reply or Ask triage to continue.');
-      try { ctx.inboxStore!.updateStatus(message.id, 'awaiting_user'); } catch { /* ignore */ }
+      try {
+        ctx.inboxStore!.updateStatus(message.id, 'awaiting_user');
+        publishInboxChanged(ctx, message.id, 'awaiting_user');
+      } catch { /* ignore */ }
       publishInboxEvent(ctx, message.id, 'state', { phase: 'done', since: Date.now() });
     }
   }

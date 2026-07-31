@@ -987,19 +987,22 @@ export const INBOX_MODAL_JS = `
   })();
 
   (function setupInboxBulkActions() {
-    var bar = document.querySelector('[data-inbox-bulkbar]');
-    if (!bar) return;
-    var idsInput = bar.querySelector('[data-inbox-bulk-ids]');
-    var countEl = bar.querySelector('[data-inbox-bulk-count]');
-    var selectAllBtn = bar.querySelector('[data-inbox-bulk-select-all]');
-    var clearBtn = bar.querySelector('[data-inbox-bulk-clear]');
-    var master = document.querySelector('[data-inbox-bulk-toggle-all]');
-
+    // All state is queried fresh on each use and every control is delegated
+    // on document, so a live list refresh (C1) that swaps .inbox-main
+    // innerHTML never strands a cached element reference. The earlier version
+    // cached bar/idsInput/master + bound handlers directly to the buttons,
+    // which silently broke bulk selection after any live swap.
+    function getBar() { return document.querySelector('[data-inbox-bulkbar]'); }
     function getBoxes() {
       return Array.prototype.slice.call(document.querySelectorAll('[data-inbox-bulk-checkbox]'));
     }
 
     function sync() {
+      var bar = getBar();
+      if (!bar) return;
+      var idsInput = bar.querySelector('[data-inbox-bulk-ids]');
+      var countEl = bar.querySelector('[data-inbox-bulk-count]');
+      var master = document.querySelector('[data-inbox-bulk-toggle-all]');
       var boxes = getBoxes();
       var selected = [];
       for (var i = 0; i < boxes.length; i++) {
@@ -1010,7 +1013,7 @@ export const INBOX_MODAL_JS = `
       }
       if (idsInput) idsInput.value = selected.join(',');
       if (countEl) countEl.textContent = selected.length === 1 ? '1 selected' : String(selected.length) + ' selected';
-      if (bar) bar.hidden = selected.length === 0;
+      bar.hidden = selected.length === 0;
       if (master) {
         master.checked = boxes.length > 0 && selected.length === boxes.length;
         master.indeterminate = selected.length > 0 && selected.length < boxes.length;
@@ -1018,35 +1021,36 @@ export const INBOX_MODAL_JS = `
     }
 
     document.addEventListener('change', function (e) {
-      var box = e.target.closest && e.target.closest('[data-inbox-bulk-checkbox]');
-      if (!box) return;
-      sync();
-    });
-
-    if (master) {
-      master.addEventListener('change', function () {
+      if (e.target.closest && e.target.closest('[data-inbox-bulk-checkbox]')) { sync(); return; }
+      var master = e.target.closest && e.target.closest('[data-inbox-bulk-toggle-all]');
+      if (master) {
         var boxes = getBoxes();
         for (var i = 0; i < boxes.length; i++) boxes[i].checked = !!master.checked;
         sync();
-      });
-    }
+      }
+    });
 
-    if (selectAllBtn) {
-      selectAllBtn.addEventListener('click', function () {
+    document.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('[data-inbox-bulk-select-all]')) {
         var boxes = getBoxes();
         for (var i = 0; i < boxes.length; i++) boxes[i].checked = true;
         sync();
-      });
-    }
-
-    if (clearBtn) {
-      clearBtn.addEventListener('click', function () {
-        var boxes = getBoxes();
-        for (var i = 0; i < boxes.length; i++) boxes[i].checked = false;
+        return;
+      }
+      if (e.target.closest && e.target.closest('[data-inbox-bulk-clear]')) {
+        var boxes2 = getBoxes();
+        for (var j = 0; j < boxes2.length; j++) boxes2[j].checked = false;
         sync();
-      });
-    }
+      }
+    });
 
+    // Any active selection? The live-refresh module checks this to avoid
+    // yanking the list out from under an in-progress bulk selection.
+    window.__inboxHasBulkSelection = function () {
+      var boxes = getBoxes();
+      for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) return true; }
+      return false;
+    };
     sync();
   })();
   if (isPageDetail) {

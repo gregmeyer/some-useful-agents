@@ -776,6 +776,39 @@ describe('POST /inbox/:id/triage/cancel — operator Stop halts the refire chain
   });
 });
 
+describe('GET /inbox/rows (live-refresh fragment)', () => {
+  it('returns the rows block without the full page chrome', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'high', source: 'run-failure', title: 'rows-frag-msg', body: 'b' });
+    const res = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('rows-frag-msg');
+    // Fragment only — no <html>/layout chrome, no page header.
+    expect(res.text).not.toContain('<html');
+    expect(res.text).not.toContain('New conversation');
+  });
+
+  it('honors the same filter params as GET /inbox', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-starred', body: 'x' });
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-plain', body: 'y' });
+    inboxStore.setStarred(a.id, true);
+    const res = await request(app).get('/inbox/rows?starred=1').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('frag-starred');
+    expect(res.text).not.toContain('frag-plain');
+  });
+
+  it('is not shadowed by /inbox/:id (literal "rows" resolves to the fragment)', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    // A /inbox/:id detail page would render the not-found page for id="rows".
+    expect(res.text).not.toContain('No inbox message with id');
+  });
+});
+
 describe('GET /inbox with filters', () => {
   it('filters by ?starred=1', async () => {
     const app = await makeApp();

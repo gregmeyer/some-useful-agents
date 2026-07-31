@@ -41,6 +41,7 @@ import { loadTriageKernel, loadTriagePlaybook } from './triage-prompt.js';
 import { resolveRunBackend } from '../lib/run-backend.js';
 import {
   publishInboxEvent,
+  publishInboxChanged,
   addSystemMessage,
   latestUserRequest,
   localIsoNow,
@@ -774,6 +775,7 @@ function maybeRefireTriage(
     });
     try {
       ctx.inboxStore.updateStatus(messageId, 'awaiting_user');
+      publishInboxChanged(ctx, messageId, 'awaiting_user');
     } catch { /* ignore */ }
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
     return;
@@ -1486,11 +1488,13 @@ export async function runTriageAgent(
   // run-detail page and the inbox modal can both point at the
   // in-flight run. We refresh the status post-run anyway.
   try {
+    const triagedStatus = message.status === 'open' ? 'triaged' : message.status;
     ctx.inboxStore.updateStatus(
       messageId,
-      message.status === 'open' ? 'triaged' : message.status,
+      triagedStatus,
       { triageRunId: runId },
     );
+    publishInboxChanged(ctx, messageId, triagedStatus);
   } catch { /* ignore — message may have been dismissed mid-flight */ }
 
   try {
@@ -1756,6 +1760,7 @@ export async function runTriageAgent(
             };
             ctx.inboxStore.transitionActionStatus(actionResp.id, 'proposed', JSON.stringify(resolvedMeta));
             try { ctx.inboxStore.updateStatus(messageId, 'verifying'); } catch { /* ignore */ }
+            publishInboxChanged(ctx, messageId, 'verifying');
             publishInboxEvent(ctx, messageId, 'state', { phase: 'verifying', since: now });
             const focusAgentId = resolveFocusAgentId(ctx, message.agentId, ctx.inboxStore.listResponses(messageId));
             const { verdict, evidence } = verifyResolveEvidence(ctx, focusAgentId);
@@ -1910,6 +1915,10 @@ export async function runTriageAgent(
         ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
       } catch { /* ignore */ }
     }
+    // One coarse global push at the turn's terminal settle so the live
+    // badge/list reflect the final state (the inner verify/resolve branches
+    // already left the status set; this just broadcasts it once).
+    publishInboxChanged(ctx, messageId, threadResolved ? 'resolved' : 'awaiting_user');
     // A turn completed cleanly — the thread isn't in a crash loop, so refund
     // the auto-retry budget for any future transient failure.
     resetTriageCrashRetries(ctx, messageId);
@@ -1938,7 +1947,10 @@ export async function runTriageAgent(
           responseId: sysReply.id, role: 'system', body: sysReply.body, createdAt: sysReply.createdAt,
         });
       } catch { /* ignore */ }
-      try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }
+      try {
+        ctx.inboxStore.updateStatus(messageId, 'awaiting_user');
+        publishInboxChanged(ctx, messageId, 'awaiting_user');
+      } catch { /* ignore */ }
       if (willRetry) {
         retries.set(messageId, used + 1);
         // Fire AFTER this run's `finally` clears the abort-controller guard
