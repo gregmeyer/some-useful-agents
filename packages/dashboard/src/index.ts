@@ -66,7 +66,7 @@ import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
-import { publishInboxEvent } from './routes/inbox-shared.js';
+import { publishInboxEvent, publishInboxChanged } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
@@ -464,6 +464,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
         const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
         if (!raised || !ctxForInboxKick) return;
+        // A run failure changed the inbox (new thread, or fresh activity on a
+        // coalesced one) — nudge the global badge/list so an operator on any
+        // page sees it without waiting for the 30s poll.
+        publishInboxChanged(ctxForInboxKick, raised.message.id, raised.message.status);
         if (raised.coalesced) {
           // An existing active thread absorbed this failure as a system
           // note — surface it live to any open modal. No triage kick: the

@@ -25,7 +25,8 @@ import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
-import { InboxEventBus } from '../lib/inbox-event-bus.js';
+import { InboxEventBus, GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
+import { publishInboxChanged } from './inbox-shared.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3994;
@@ -185,5 +186,92 @@ describe('GET /inbox/:id/events (SSE)', () => {
     expect(body).toContain('event: c');
     expect(body).toContain(`id: ${m.id}:2`);
     expect(body).toContain(`id: ${m.id}:3`);
+  });
+});
+
+describe('GET /inbox/events (global SSE)', () => {
+  it('requires auth (no cookie → 401)', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .get('/inbox/events')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('is not shadowed by /inbox/:id/events (no 404 for the literal "events")', async () => {
+    // Regression guard: the global route must be registered before the
+    // per-message one so `events` isn't captured as an `:id` (which would
+    // 404 since no such message exists).
+    const app = await makeApp();
+    // A coarse event so the stream has a frame to flush and close on.
+    inboxEventBus.publish(GLOBAL_INBOX_CHANNEL, { type: 'inbox:changed', data: { id: 'x', status: 'open' } });
+    const req = request(app)
+      .get('/inbox/events')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE)
+      .set('Last-Event-ID', `${GLOBAL_INBOX_CHANNEL}:0`)
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString('utf-8');
+          if (data.includes('event: inbox:changed')) (res as unknown as { destroy: () => void }).destroy();
+        });
+        res.on('close', () => cb(null, data));
+        res.on('error', () => cb(null, data));
+      });
+    const res = await req;
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    const body = res.body as string;
+    expect(body).toContain(': open');
+    expect(body).toContain('event: inbox:changed');
+    expect(body).toContain(`id: ${GLOBAL_INBOX_CHANNEL}:1`);
+  });
+
+  it('a resolve mutation fans a coarse event onto the global channel', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 't', body: 'b' });
+    const before = inboxEventBus.bufferSnapshot(GLOBAL_INBOX_CHANNEL).length;
+    const res = await request(app)
+      .post(`/inbox/${m.id}/resolve`)
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+    const buf = inboxEventBus.bufferSnapshot(GLOBAL_INBOX_CHANNEL);
+    expect(buf.length).toBe(before + 1);
+    const last = buf[buf.length - 1];
+    expect(last.type).toBe('inbox:changed');
+    expect(last.data).toMatchObject({ id: m.id, status: 'resolved' });
+  });
+
+  it('receives events published via publishInboxChanged on the global channel', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 't', body: 'b' });
+    // publishInboxChanged fans a coarse event to the '*' channel only.
+    publishInboxChanged({ inboxEventBus } as never, m.id, 'awaiting_user');
+    expect(inboxEventBus.bufferSnapshot(GLOBAL_INBOX_CHANNEL).length).toBe(1);
+
+    const req = request(app)
+      .get('/inbox/events')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE)
+      .set('Last-Event-ID', `${GLOBAL_INBOX_CHANNEL}:0`)
+      .buffer(true)
+      .parse((res, cb) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString('utf-8');
+          if (data.includes('event: inbox:changed')) (res as unknown as { destroy: () => void }).destroy();
+        });
+        res.on('close', () => cb(null, data));
+        res.on('error', () => cb(null, data));
+      });
+    const res = await req;
+    const body = res.body as string;
+    expect(body).toContain('event: inbox:changed');
+    expect(body).toContain(`"id":"${m.id}"`);
+    expect(body).toContain('"status":"awaiting_user"');
   });
 });

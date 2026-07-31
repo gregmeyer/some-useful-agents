@@ -550,6 +550,56 @@ function renderMain(
   return html`${bulkBar}${needsYouBlock}${mainBlock}`;
 }
 
+/** Input for the server-rendered rows fragment (GET /inbox/rows). */
+export interface InboxRowsFragmentInput {
+  rows: InboxMessage[];
+  sort: InboxSortKey;
+  dir: InboxSortDir;
+  filter: { q: string; starred: boolean; tag: string };
+  previewPayloads?: Map<string, InboxRowPreviewPayload>;
+  archiveView?: 'dismissed' | 'resolved';
+  terminalCount?: number;
+  /**
+   * `full` (default, offset 0): the whole `.inbox-main` inner block —
+   * bulk bar + pinned "needs you" + the flat list + archive footer. The
+   * client swaps it into `.inbox-main` on a live update (C1).
+   * `rows`: only the flat non-pinned rows for this window, no header /
+   * bulk bar / needs-you — the client appends them for "load more" (C3).
+   */
+  mode?: 'full' | 'rows';
+}
+
+/**
+ * Server-rendered inbox rows, returned as an HTML string by the
+ * `GET /inbox/rows` fragment endpoint. Shared contract between C1's live
+ * refresh (`mode:'full'` swaps `.inbox-main`) and C3's pagination
+ * (`mode:'rows'` appends the next window). Reuses `renderMain` / `renderRow`
+ * verbatim so the fragment and the full page can never drift.
+ */
+export function renderInboxRowsFragment(input: InboxRowsFragmentInput): string {
+  const previewPayloads = input.previewPayloads ?? new Map<string, InboxRowPreviewPayload>();
+  if (input.mode === 'rows') {
+    // Bare non-pinned rows for append-based "load more". Mirrors the `rest`
+    // computation in renderMain (awaiting_user rows are pinned, not paged).
+    const bulkEnabled = !input.archiveView;
+    const rest = input.rows.filter((m) => m.status !== 'awaiting_user');
+    const frag = html`${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}`;
+    return render(frag);
+  }
+  const main = renderMain(input.rows, input.sort, input.dir, input.filter, previewPayloads, input.archiveView);
+  const terminalCount = input.terminalCount ?? 0;
+  const archiveLink = !input.archiveView && terminalCount > 0
+    ? html`
+      <div class="inbox-archive-footer">
+        <a href="/inbox?status=dismissed" class="inbox-archive-footer__link">
+          View ${terminalCount} dismissed / resolved →
+        </a>
+      </div>
+    `
+    : html``;
+  return render(html`${main}${archiveLink}`);
+}
+
 /**
  * Sticky column header for the flat list. Each column is a sort link
  * that flips direction on click; the active column shows an arrow
