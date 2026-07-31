@@ -161,6 +161,15 @@ export const agentNodeSchema = z.object({
     return false;
   },
   { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), or path+content (file-write)' },
+).refine(
+  // An `agent-invoke` node invokes another agent, so it MUST name one via
+  // agentInvokeConfig.agentId — else it fails only at runtime with
+  // "agent-invoke node missing agentInvokeConfig" (flow-control.ts). Enforcing
+  // it at parse time means a bad autonomous edit that flips a working
+  // shell/tool node to `agent-invoke` is rejected before it can overwrite the
+  // agent, instead of persisting a run-time-broken one.
+  (data) => data.type !== 'agent-invoke' || !!data.agentInvokeConfig?.agentId,
+  { message: 'agent-invoke nodes require agentInvokeConfig.agentId' },
 );
 
 export const agentV2Schema = z.object({

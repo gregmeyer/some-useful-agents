@@ -985,7 +985,7 @@ export function showWidgetWouldDuplicate(
  * version — undo via the agent detail page). On failure leaves the
  * agent untouched and surfaces the reason in the action card.
  */
-function executeAgentEditor(
+export function executeAgentEditor(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   meta: InboxActionMeta,
@@ -998,9 +998,18 @@ function executeAgentEditor(
       refusalReason: 'agent-editor requires both AGENT_ID and NEW_YAML inputs.',
     };
   }
+  // Repair template-escaping before committing. The template-substitution
+  // pipeline escapes `{{` → `{ {` (a space between the braces) so a NEW_YAML
+  // that round-tripped through it can't be re-expanded; committing that raw
+  // leaves a literal `{ {inputs.X}}` that never resolves at run time. The
+  // escape only ever produces `{ {` from a real `{{`, so reversing it globally
+  // is safe and covers every field (toolInputs, prompts, widgets) — autoFixYaml
+  // only handled shell `command`s, which is why toolInputs got corrupted.
+  const unescaped = newYaml.replace(/\{ \{/g, '{{');
+  const repairedYaml = autoFixYaml(unescaped);
   let parsed;
   try {
-    parsed = parseAgent(newYaml);
+    parsed = parseAgent(repairedYaml);
   } catch (err) {
     return {
       status: 'failed',
