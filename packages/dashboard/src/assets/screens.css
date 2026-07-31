@@ -2540,6 +2540,32 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   gap: var(--space-2);
 }
+/* Per-agent trust toggle on an action card (B2). */
+.inbox-trust {
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--font-size-xs);
+}
+.inbox-trust__state { color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.inbox-trust__state::before { content: ""; width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
+.inbox-trust__state--auto::before { background: var(--color-primary); }
+.inbox-trust__state--manual::before { background: var(--color-warn); }
+.inbox-trust__btn {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-radius: 6px;
+  padding: 2px var(--space-2);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: color 80ms ease-out, border-color 80ms ease-out;
+}
+.inbox-trust__btn:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.inbox-trust__btn--ghost { border-style: dashed; }
 .inbox-action__running {
   margin-top: var(--space-2);
   display: flex;
@@ -3512,6 +3538,55 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .inbox-chip__icon { font-weight: var(--weight-semibold); }
 .inbox-chip--select { padding: 0 var(--space-2) 0 var(--space-3); }
+
+/* Autonomy control (B2 trust policy) — a compact segmented control + caption
+   sitting under the page head. Segments are tiny POST forms; the active mode
+   is filled with the teal accent. */
+.inbox-autonomy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.inbox-autonomy__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.inbox-autonomy__dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.inbox-autonomy__dot--on { background: var(--color-primary); }
+.inbox-autonomy__dot--warn { background: var(--color-warn); }
+.inbox-autonomy__dot--off { background: var(--color-text-muted); }
+.inbox-autonomy__segs { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+.inbox-autonomy__segs form + form .inbox-autonomy__seg { border-left: 1px solid var(--color-border); }
+.inbox-autonomy__seg {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 80ms ease-out, color 80ms ease-out;
+}
+.inbox-autonomy__seg:hover { color: var(--color-text); background: var(--color-surface-raised); }
+.inbox-autonomy__seg--active {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+}
+.inbox-autonomy__caption { font-size: var(--font-size-sm); }
 .inbox-chip__select {
   background: transparent;
   border: 0;

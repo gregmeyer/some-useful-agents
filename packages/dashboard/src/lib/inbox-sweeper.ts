@@ -60,6 +60,8 @@ export const AUTO_TRIAGE_MAX_CONCURRENT = 3;
 export function maybeAutoFirstTouch(ctx: Ctx, messageId: string, runTriage: TriageFn): boolean {
   if (!isInboxAutoTriageEnabled()) return false;
   if (!ctx.inboxStore) return false;
+  // Operator kill switch: global autonomy mode `off` pauses the whole loop.
+  if (ctx.inboxStore.getAutonomyMode() === 'off') return false;
   if (ctx.inboxTriageAbortControllers.size >= AUTO_TRIAGE_MAX_CONCURRENT) return false;
   const message = ctx.inboxStore.get(messageId);
   if (!message) return false;
@@ -81,6 +83,7 @@ export function maybeAutoFirstTouch(ctx: Ctx, messageId: string, runTriage: Tria
  */
 export function sweepInboxOnce(ctx: Ctx, runTriage: TriageFn, minAgeMs = AUTO_TRIAGE_MIN_AGE_MS): number {
   if (!isInboxAutoTriageEnabled() || !ctx.inboxStore) return 0;
+  if (ctx.inboxStore.getAutonomyMode() === 'off') return 0;
   if (ctx.inboxTriageAbortControllers.size >= AUTO_TRIAGE_MAX_CONCURRENT) return 0;
   let candidates;
   try {

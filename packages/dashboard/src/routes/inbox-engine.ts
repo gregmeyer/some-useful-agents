@@ -123,6 +123,39 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Should a proposed action for `agentId` auto-run, per operator trust policy?
+ *
+ * Resolution order (operator-tunable trust, B2):
+ *   1. Global autonomy mode — `off`/`propose-only` mean NOTHING auto-runs
+ *      (the operator wants to approve everything, or paused the loop).
+ *   2. An explicit per-agent policy the operator set (`auto` | `propose`).
+ *   3. The engine's compiled default set (`TRIAGE_AUTO_APPROVE_AGENTS`).
+ *
+ * With no store or an empty trust table this is exactly the old behavior, so
+ * the policy layer is inert until the operator edits it. Exported so the UI
+ * can render the same verdict it enforces ("auto-runs" vs "needs approval").
+ */
+export function isAutoApproved(ctx: ReturnType<typeof getContext>, agentId: string): boolean {
+  const store = ctx.inboxStore;
+  if (!store) return TRIAGE_AUTO_APPROVE_AGENTS.has(agentId);
+  if (store.getAutonomyMode() !== 'full') return false;
+  const explicit = store.getAgentTrust(agentId);
+  if (explicit) return explicit === 'auto';
+  return TRIAGE_AUTO_APPROVE_AGENTS.has(agentId);
+}
+
+/**
+ * Is an agent eligible for auto-approval AT ALL (ignoring the current global
+ * mode)? True when it's in the compiled default set or the operator explicitly
+ * set it to `auto`. Drives which action cards show the per-agent trust toggle.
+ */
+export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: string): boolean {
+  const explicit = ctx.inboxStore?.getAgentTrust(agentId);
+  if (explicit) return explicit === 'auto';
+  return TRIAGE_AUTO_APPROVE_AGENTS.has(agentId);
+}
+
+/**
  * Agent IDs handled by the route directly rather than dispatched as a
  * sub-agent run. The "agent" entry here exists so the allowlist + UI
  * affordances behave consistently, but the actual side effect (e.g.
@@ -1763,14 +1796,14 @@ export async function runTriageAgent(
         // route-handled action that will sit proposed or run — real pending
         // work, so a commitment chip on this turn is honest.
         pendingWorkInserted = true;
-        // Auto-approve trusted system agents. The proposed -> running
-        // transition is atomic via transitionActionStatus, so a
-        // concurrent operator click on /run no-ops idempotently. The
-        // chip Layer 1 added stays pulsing through the run; on
-        // completion runProposedAction publishes the terminal
-        // action:status event and (when all actions resolve) fires
-        // the follow-up triage turn.
-        if (TRIAGE_AUTO_APPROVE_AGENTS.has(action.agentId) && !isTriagePaused(ctx, messageId)) {
+        // Auto-approve per the operator's trust policy (B2): global autonomy
+        // mode + per-agent overrides, falling back to the compiled default set.
+        // The proposed -> running transition is atomic via
+        // transitionActionStatus, so a concurrent operator click on /run no-ops
+        // idempotently. On completion runProposedAction publishes the terminal
+        // action:status event and (when all actions resolve) fires the
+        // follow-up triage turn.
+        if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
           const startedAt = Date.now();
           const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt };
           const claimed = ctx.inboxStore.transitionActionStatus(
