@@ -77,6 +77,26 @@ describe('parseAgent', () => {
     expect(() => parseAgent('id: [[[')).toThrow(AgentYamlParseError);
   });
 
+  it('rejects an agent-invoke node with no agentInvokeConfig (would fail only at runtime)', () => {
+    // The exact corruption a bad autonomous agent-editor edit produced: a
+    // working shell+tool node flipped to `agent-invoke` but without naming a
+    // target agent. Must be caught at parse so the editor refuses the edit
+    // instead of overwriting a working agent with a run-time-broken one.
+    const bad = [
+      'id: reminder', 'name: Reminder', 'version: 1', 'nodes:',
+      '  - id: n1', '    type: agent-invoke', '    tool: apple.apple.reminder-create',
+    ].join('\n');
+    expect(() => parseAgent(bad)).toThrow(/agent-invoke nodes require agentInvokeConfig/);
+  });
+
+  it('accepts a well-formed agent-invoke node', () => {
+    const good = [
+      'id: caller', 'name: Caller', 'version: 1', 'nodes:',
+      '  - id: n1', '    type: agent-invoke', '    agentInvokeConfig:', '      agentId: worker',
+    ].join('\n');
+    expect(parseAgent(good).nodes[0].agentInvokeConfig?.agentId).toBe('worker');
+  });
+
   it('throws AgentYamlParseError with all issues on schema failure', () => {
     try {
       parseAgent(`
