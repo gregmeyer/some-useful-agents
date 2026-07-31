@@ -976,7 +976,7 @@ inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Respon
   // match — same idempotent treatment as the check above (the action
   // is now running on someone else's behalf; we're done).
   const startedAt = Date.now();
-  const runningMeta: InboxActionMeta = { ...meta, status: 'running', startedAt };
+  const runningMeta: InboxActionMeta = { ...meta, status: 'running', startedAt, approvedBy: 'operator' };
   const claimed = ctx.inboxStore.transitionActionStatus(rid, 'proposed', JSON.stringify(runningMeta));
   if (!claimed) {
     if (isAjax(req)) { res.status(204).end(); return; }

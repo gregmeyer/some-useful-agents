@@ -659,6 +659,9 @@ function renderRow(m: InboxMessage, preview: InboxRowPreviewPayload | undefined,
       <span class="inbox-modal__priority inbox-modal__priority--${m.priority}" title="${m.priority} priority"></span>
       <span class="inbox-row2__title" role="cell">
         <a href="/inbox/${m.id}" data-inbox-row-link class="inbox-row2__title-text">${m.title}</a>
+        ${m.source !== 'manual'
+          ? html`<span class="inbox-row2__source inbox-row2__source--${m.source}" title="Source: ${SOURCE_LABEL[m.source]}">${SOURCE_LABEL[m.source]}</span>`
+          : html``}
         ${tagChips}
       </span>
       ${agentRunCell}

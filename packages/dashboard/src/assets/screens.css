@@ -2443,6 +2443,20 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: 1px solid var(--color-border);
   transition: color 120ms ease-out, border-color 120ms ease-out;
 }
+/* Source chip on a collapsed row (B3): "why is this here" at a glance.
+   Only rendered for non-manual sources. Run-failure gets the warn tint. */
+.inbox-row2__source {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px var(--space-2);
+  border-radius: 6px;
+  white-space: nowrap;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+.inbox-row2__source--run-failure { background: var(--color-warn-soft); color: var(--color-warn); }
 .inbox-tag-chip:hover {
   color: var(--color-text);
   border-color: var(--color-border-strong);
@@ -2540,6 +2554,34 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   display: flex;
   gap: var(--space-2);
 }
+/* Verification verdict note (B3): a verify-on-resolve outcome, styled as a
+   verdict rather than a plain system line. */
+.inbox-msg--verify .inbox-msg__body { border-left: 2px solid var(--color-border); padding-left: var(--space-3); }
+.inbox-msg--verified .inbox-msg__body { border-left-color: var(--color-primary); }
+.inbox-msg--verify-failed .inbox-msg__body { border-left-color: var(--color-warn); }
+.inbox-verify {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+}
+.inbox-verify--ok { color: var(--color-primary); background: var(--color-primary-soft); }
+.inbox-verify--fail { color: var(--color-warn); background: var(--color-warn-soft); }
+
+/* Action provenance chip (B3): how an action was approved to run. */
+.inbox-action__prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.inbox-action__prov--auto { color: var(--color-primary); background: var(--color-primary-soft); }
+.inbox-action__prov--operator { color: var(--color-text-muted); background: var(--color-surface-raised); }
+
 /* Per-agent trust toggle on an action card (B2). */
 .inbox-trust {
   margin-top: var(--space-2);
