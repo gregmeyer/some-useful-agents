@@ -244,6 +244,7 @@ async function runDispatchedAgentToTerminal(
   ctx: ReturnType<typeof getContext>,
   agent: Agent,
   inputs: Record<string, string>,
+  onRunId?: (runId: string) => void,
 ): Promise<{ id: string; status: RunStatus; result?: string; error?: string }> {
   if (resolveRunBackend(ctx.provider, agent) === 'temporal' && ctx.provider.submitDagRun) {
     const submitted = await ctx.provider.submitDagRun(agent, {
@@ -255,6 +256,9 @@ async function runDispatchedAgentToTerminal(
       allowUntrustedShell: ctx.allowUntrustedShell ? [...ctx.allowUntrustedShell] : undefined,
       experimentalApple: isAppleIntegrationEnabled(),
     });
+    // Surface the runId the instant it exists so the Stop route can reach
+    // this in-flight run (via provider.cancelRun) before it reaches terminal.
+    try { onRunId?.(submitted.id); } catch { /* best-effort */ }
     const final = await awaitRunTerminal(ctx, submitted.id);
     return {
       id: submitted.id,
@@ -269,6 +273,9 @@ async function runDispatchedAgentToTerminal(
   const runId: string = randomUUID();
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
+  // Publish the runId before dispatch so the Stop route can find the
+  // registered AbortController (keyed by runId) and abort this run mid-flight.
+  try { onRunId?.(runId); } catch { /* best-effort */ }
   try {
     const run = await executeAgentDag(
       agent,
@@ -485,7 +492,19 @@ export async function runProposedAction(
 
   let outcome: ActionRunOutcome;
   try {
-    outcome = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs);
+    outcome = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs, (runId) => {
+      // Persist the runId onto the action card meta the moment the run
+      // starts — NOT just at finalize. Without this the card stays `running`
+      // with no runId for its whole lifetime, so the Stop route's
+      // `!m.runId` guard skips it and Stop silently no-ops on an in-flight
+      // action (the "Stop didn't respond" bug). Status stays `running`; the
+      // normal finalize path overwrites this meta with the terminal state.
+      try {
+        ctx.inboxStore?.updateResponse(response.id, {
+          metaJson: JSON.stringify({ ...meta, status: 'running', startedAt, runId }),
+        });
+      } catch { /* best-effort — a missed persist just means Stop can't reach it */ }
+    });
   } catch (err) {
     outcome = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
   }
