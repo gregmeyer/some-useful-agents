@@ -57,6 +57,42 @@ describe('InboxStore.countNeedsYou + listNeedsYou', () => {
   });
 });
 
+describe('InboxStore.listRecentlyResolved (auto_resolved provenance)', () => {
+  it('returns only autonomously-resolved threads, newest first', () => {
+    const auto1 = addMinimal({ title: 'sua fixed 1' });
+    const auto2 = addMinimal({ title: 'sua fixed 2' });
+    const operator = addMinimal({ title: 'i fixed it' });
+    const dismissed = addMinimal({ title: 'not interested' });
+
+    store.updateStatus(auto1.id, 'resolved', { autoResolved: true });
+    store.updateStatus(auto2.id, 'resolved', { autoResolved: true });
+    store.updateStatus(operator.id, 'resolved');           // operator resolve → excluded
+    store.updateStatus(dismissed.id, 'dismissed');          // dismiss → excluded
+
+    const got = store.listRecentlyResolved();
+    expect(got.map((m) => m.id).sort()).toEqual([auto1.id, auto2.id].sort());
+    expect(got.every((m) => m.autoResolved === true)).toBe(true);
+    expect(got.every((m) => m.status === 'resolved')).toBe(true);
+  });
+
+  it('honors the limit', () => {
+    for (let i = 0; i < 6; i++) {
+      const m = addMinimal({ title: `auto${i}` });
+      store.updateStatus(m.id, 'resolved', { autoResolved: true });
+    }
+    expect(store.listRecentlyResolved(4)).toHaveLength(4);
+  });
+
+  it('a reopen then operator-resolve clears the auto flag (no longer ticker-eligible)', () => {
+    const m = addMinimal({ title: 'reopened' });
+    store.updateStatus(m.id, 'resolved', { autoResolved: true });
+    expect(store.listRecentlyResolved().map((x) => x.id)).toContain(m.id);
+    store.updateStatus(m.id, 'open');
+    store.updateStatus(m.id, 'resolved');                   // operator resolve now
+    expect(store.listRecentlyResolved().map((x) => x.id)).not.toContain(m.id);
+  });
+});
+
 describe('InboxStore.listAutoTriageCandidates', () => {
   it('returns only open, response-less, non-manual messages past the age gate', () => {
     const eligible = addMinimal({ source: 'run-failure', title: 'eligible' });

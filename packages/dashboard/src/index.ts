@@ -224,8 +224,16 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
         // Live Pulse board — the same data /pulse renders.
         const board = buildPulseBoardData(ctx);
 
-        // The inbox "needs you" signal lives in the global top-bar toast
-        // (driven by /inbox/needs-you-count), not in the home body.
+        // Inbox lead-in (C2): what needs a reply now + what sua closed on its
+        // own recently. Both strips stay live via the global inbox SSE stream.
+        let needsYou: import('@some-useful-agents/core').InboxMessage[] = [];
+        let recentlyResolved: import('@some-useful-agents/core').InboxMessage[] = [];
+        if (ctx.inboxStore) {
+          try { needsYou = ctx.inboxStore.listNeedsYou(4); } catch { /* strip hides when empty */ }
+          // Bound the ticker to the last 24h so it shows fresh wins, not a
+          // stale highlight reel.
+          try { recentlyResolved = ctx.inboxStore.listRecentlyResolved(4, 24 * 60 * 60 * 1000); } catch { /* hides when empty */ }
+        }
 
         const availableDashboards = ctx.dashboardsStore
           ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
@@ -245,6 +253,8 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
           },
           agentCount: agents.length,
           availableDashboards,
+          needsYou,
+          recentlyResolved,
           flash: parsePulseFlash(req),
         }));
       }).catch(() => {

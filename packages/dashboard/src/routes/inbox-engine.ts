@@ -1769,7 +1769,7 @@ export async function runTriageAgent(
               try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }
             } else {
               addSystemMessage(ctx, messageId, verdict === 'ok' ? `Verified: ${evidence}.` : `Resolving — ${evidence}, so nothing to verify against yet.`, JSON.stringify({ kind: verdict === 'ok' ? 'verified' : 'verify-pending' }));
-              try { ctx.inboxStore.updateStatus(messageId, 'resolved'); } catch { /* ignore */ }
+              try { ctx.inboxStore.updateStatus(messageId, 'resolved', { autoResolved: true }); } catch { /* ignore */ }
               threadResolved = true;
             }
             break;
@@ -1791,7 +1791,7 @@ export async function runTriageAgent(
               endedAt: now,
             });
           }
-          try { ctx.inboxStore.updateStatus(messageId, 'resolved'); } catch { /* ignore */ }
+          try { ctx.inboxStore.updateStatus(messageId, 'resolved', { autoResolved: true }); } catch { /* ignore */ }
           threadResolved = true;
           break;
         }

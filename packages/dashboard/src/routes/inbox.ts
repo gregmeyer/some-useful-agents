@@ -38,11 +38,13 @@ import {
   type RunStatus,
   type InboxActionMeta,
   type InboxResponse,
+  type InboxMessage,
   type AutonomyMode,
   type AgentTrustLevel,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxList, renderInboxRowsFragment } from '../views/inbox-list.js';
+import { renderHomeInboxStrips } from '../views/home.js';
 import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
 import { renderNotFoundPage } from '../views/not-found.js';
@@ -200,6 +202,23 @@ inboxRouter.get('/inbox/rows', (req: Request, res: Response) => {
   const offset = Number(req.query.offset);
   const mode: 'full' | 'rows' = Number.isFinite(offset) && offset > 0 ? 'rows' : 'full';
   res.type('html').send(renderInboxRowsFragment({ ...view, mode }));
+});
+
+/**
+ * Home inbox lead-in strips (C2), as a fragment the Home page live-refreshes
+ * on an `inbox:changed` event — the "needs you" strip + the auto-resolved
+ * "loop ticker". Same queries the `GET /` handler seeds the page with, so a
+ * live swap matches a fresh page load. Registered before `/inbox/:id`.
+ */
+inboxRouter.get('/inbox/home-strips', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  let needsYou: InboxMessage[] = [];
+  let recentlyResolved: InboxMessage[] = [];
+  if (ctx.inboxStore) {
+    try { needsYou = ctx.inboxStore.listNeedsYou(4); } catch { /* hides when empty */ }
+    try { recentlyResolved = ctx.inboxStore.listRecentlyResolved(4, 24 * 60 * 60 * 1000); } catch { /* hides when empty */ }
+  }
+  res.type('html').send(render(renderHomeInboxStrips(needsYou, recentlyResolved)));
 });
 
 inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {

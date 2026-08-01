@@ -108,10 +108,56 @@ describe('GET / — Mission Control home', () => {
     expect(res.text).toContain('action="/inbox/new"');
     expect(res.text).toContain('Ask sua');
     expect(res.text).not.toContain('Browse packs');
-    // The "needs you" signal moved to the global top-bar toast (driven by JS
-    // from /inbox/needs-you-count); the home body no longer has a needs-you strip.
+    // The global top-bar toast remains the always-visible cross-page cue...
     expect(res.text).toContain('data-inbox-toast');
-    expect(res.text).not.toContain('home-needs__card');
+    // ...and the inbox now ALSO leads the home body (C2): the lead-in
+    // container mounts (empty here — no threads seeded — but present so the
+    // live-refresh client has a swap target).
+    expect(res.text).toContain('data-home-inbox');
+  });
+
+  it('renders the "needs you" strip and the auto-resolved loop ticker with data', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    // A thread awaiting the operator → needs-you strip.
+    const a = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'needs-me-thread', body: 'x' });
+    inboxStore.updateStatus(a.id, 'awaiting_user');
+    // A thread sua resolved autonomously → loop ticker.
+    const b = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'sua-fixed-thread', body: 'y' });
+    inboxStore.updateStatus(b.id, 'resolved', { autoResolved: true });
+    // A thread the OPERATOR resolved → must NOT appear in the ticker.
+    const c = inboxStore.add({ priority: 'low', source: 'manual', title: 'i-fixed-thread', body: 'z' });
+    inboxStore.updateStatus(c.id, 'resolved');
+
+    const res = await get(app, '/');
+    expect(res.status).toBe(200);
+    // Needs-you strip renders the awaiting thread.
+    expect(res.text).toContain('home-needs');
+    expect(res.text).toContain('needs-me-thread');
+    // Loop ticker renders the auto-resolved thread but not the operator one.
+    expect(res.text).toContain('home-loop');
+    expect(res.text).toContain('sua-fixed-thread');
+    expect(res.text).not.toContain('i-fixed-thread');
+    // Cards open the modal (rail-id) and fall back to the thread page (href).
+    expect(res.text).toContain(`data-inbox-rail-id="${a.id}"`);
+    expect(res.text).toContain(`href="/inbox/${b.id}"`);
+  });
+
+  it('GET /inbox/home-strips returns the strips fragment without page chrome', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'frag-needs', body: 'x' });
+    inboxStore.updateStatus(a.id, 'awaiting_user');
+    const res = await get(app, '/inbox/home-strips');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('data-home-inbox');
+    expect(res.text).toContain('frag-needs');
+    // Fragment only — no layout chrome.
+    expect(res.text).not.toContain('<html');
+    expect(res.text).not.toContain('id="pulse-tile-data"');
   });
 
   it('GET /pulse redirects to / (the board lives at the root now)', async () => {
