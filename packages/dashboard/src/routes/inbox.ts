@@ -39,13 +39,13 @@ import {
   type RunStatus,
   type InboxActionMeta,
   type InboxResponse,
-  type InboxMessage,
   type AutonomyMode,
   type AgentTrustLevel,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxList, renderInboxRowsFragment } from '../views/inbox-list.js';
-import { renderHomeInboxStrips } from '../views/home.js';
+import { renderHomeInboxFeed } from '../views/home.js';
+import { buildHomeFeedData } from '../lib/home-feed.js';
 import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
 import { renderNotFoundPage } from '../views/not-found.js';
@@ -231,13 +231,8 @@ inboxRouter.get('/inbox/rows', (req: Request, res: Response) => {
  */
 inboxRouter.get('/inbox/home-strips', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  let needsYou: InboxMessage[] = [];
-  let recentlyResolved: InboxMessage[] = [];
-  if (ctx.inboxStore) {
-    try { needsYou = ctx.inboxStore.listNeedsYou(4); } catch { /* hides when empty */ }
-    try { recentlyResolved = ctx.inboxStore.listRecentlyResolved(4, 24 * 60 * 60 * 1000); } catch { /* hides when empty */ }
-  }
-  res.type('html').send(render(renderHomeInboxStrips(needsYou, recentlyResolved)));
+  const feed = buildHomeFeedData(ctx, Date.now());
+  res.type('html').send(render(renderHomeInboxFeed(feed)));
 });
 
 inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {

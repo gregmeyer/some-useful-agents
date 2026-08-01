@@ -66,6 +66,7 @@ import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { buildHomeFeedData } from './lib/home-feed.js';
 import { publishInboxEvent, publishInboxChanged } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -224,16 +225,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
         // Live Pulse board — the same data /pulse renders.
         const board = buildPulseBoardData(ctx);
 
-        // Inbox lead-in (C2): what needs a reply now + what sua closed on its
-        // own recently. Both strips stay live via the global inbox SSE stream.
-        let needsYou: import('@some-useful-agents/core').InboxMessage[] = [];
-        let recentlyResolved: import('@some-useful-agents/core').InboxMessage[] = [];
-        if (ctx.inboxStore) {
-          try { needsYou = ctx.inboxStore.listNeedsYou(4); } catch { /* strip hides when empty */ }
-          // Bound the ticker to the last 24h so it shows fresh wins, not a
-          // stale highlight reel.
-          try { recentlyResolved = ctx.inboxStore.listRecentlyResolved(4, 24 * 60 * 60 * 1000); } catch { /* hides when empty */ }
-        }
+        // Inbox-as-front-door: the cadence-organized feed leads the home body.
+        // Reads only existing store queries (no new producers) — see home-feed.ts.
+        const feed = buildHomeFeedData(ctx, Date.now());
 
         const availableDashboards = ctx.dashboardsStore
           ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
@@ -253,8 +247,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
           },
           agentCount: agents.length,
           availableDashboards,
-          needsYou,
-          recentlyResolved,
+          feed,
           flash: parsePulseFlash(req),
         }));
       }).catch(() => {

@@ -94,26 +94,24 @@ describe('GET / — Mission Control home', () => {
     }, 'cli');
     const res = await get(app, '/');
     expect(res.status).toBe(200);
-    // Live Pulse board (system tiles render even with zero signal agents).
+    // The inbox cadence feed leads the home body; its live-swap container mounts
+    // (empty here — no threads seeded — but present so the client has a target).
+    expect(res.text).toContain('data-home-inbox');
+    // Pulse is DEMOTED into a collapsed "Signals" secondary zone, but its markup
+    // still renders inside the <details>.
+    expect(res.text).toContain('home-secondary');
     expect(res.text).toContain('pulse-grid');
     expect(res.text).toContain('id="pulse-tile-data"');
-    expect(res.text).toContain('_system-runs-today');
-    // Collapsed activity.
+    expect(res.text).toContain('id="pulse-edit-toggle"');
+    // Recent activity stays collapsed below.
     expect(res.text).toContain('home-activity');
     expect(res.text).toContain('Recent activity');
-    // The home is the single dashboard surface — the board is editable here.
-    expect(res.text).toContain('id="pulse-edit-toggle"');
-    // Primary CTA is inbox-first ("Ask sua" → new thread), not the old
-    // Build-from-goal / Browse-packs header buttons.
+    // Primary CTA is inbox-first ("Ask sua" → new thread).
     expect(res.text).toContain('action="/inbox/new"');
     expect(res.text).toContain('Ask sua');
     expect(res.text).not.toContain('Browse packs');
-    // The global top-bar toast remains the always-visible cross-page cue...
+    // The global top-bar toast remains the always-visible cross-page cue.
     expect(res.text).toContain('data-inbox-toast');
-    // ...and the inbox now ALSO leads the home body (C2): the lead-in
-    // container mounts (empty here — no threads seeded — but present so the
-    // live-refresh client has a swap target).
-    expect(res.text).toContain('data-home-inbox');
   });
 
   it('renders the "needs you" strip and the auto-resolved loop ticker with data', async () => {
@@ -144,6 +142,23 @@ describe('GET / — Mission Control home', () => {
     // Cards open the modal (rail-id) and fall back to the thread page (href).
     expect(res.text).toContain(`data-inbox-rail-id="${a.id}"`);
     expect(res.text).toContain(`href="/inbox/${b.id}"`);
+    // Each cadence row carries a task-2×2 nature chip set.
+    expect(res.text).toContain('home-nature-set');
+  });
+
+  it('buckets an active thread with recent activity into the Today section', async () => {
+    const app = await makeApp();
+    // An agent must exist or the home shows the onboarding empty state (no feed).
+    agentStore.createAgent({
+      id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'todays-thread', body: 'b' });
+    const res = await get(app, '/');
+    expect(res.status).toBe(200);
+    // A just-created thread lands under the "Today" cadence section.
+    expect(res.text).toMatch(/home-feed__section-head">Today/);
+    expect(res.text).toContain('todays-thread');
   });
 
   it('GET /inbox/home-strips returns the strips fragment without page chrome', async () => {
