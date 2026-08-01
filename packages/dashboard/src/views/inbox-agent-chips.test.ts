@@ -11,7 +11,7 @@ import type { InboxActionMeta, InboxMessage, InboxResponse } from '@some-useful-
 
 const baseMessage = (over: Partial<InboxMessage> = {}): InboxMessage => ({
   id: 'm1', createdAt: Date.now(), priority: 'medium', source: 'manual',
-  title: 't', body: 'b', status: 'awaiting_user', starred: false, paused: false, tags: [],
+  title: 't', body: 'b', status: 'awaiting_user', starred: false, paused: false, autoResolved: false, tags: [],
   ...over,
 });
 

@@ -4017,9 +4017,8 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 
 /* ── Mission Control home (/) ─────────────────────────────────────────────
-   The unified dashboard: the editable board + a collapsed recent-activity
-   section. (The "needs you" signal is the global top-bar toast, .topbar__needs
-   in components.css.) */
+   The unified dashboard: the inbox lead-in strips + the editable board + a
+   collapsed recent-activity section. */
 .home-activity__summary {
   cursor: pointer;
   font-weight: var(--weight-semibold);
@@ -4027,3 +4026,113 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   padding: var(--space-2) 0;
 }
 .home-activity[open] .home-activity__summary { color: var(--color-text); }
+
+/* Inbox lead-in: "needs you" (amber, urgent pull) + "loop ticker" (teal,
+   trust — what sua closed on its own). Both go live via the global inbox SSE
+   stream; the [data-home-inbox] wrapper is the client's swap target. */
+.home-inbox { display: flex; flex-direction: column; gap: var(--space-3); }
+.home-inbox:empty { display: none; }
+.home-inbox > * { margin-bottom: var(--space-4); }
+
+.home-needs {
+  border: 1px solid var(--color-warn-border);
+  background: var(--color-warn-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.home-needs__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.home-needs__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-warn);
+  animation: sua-pulse 2s ease-in-out infinite;
+}
+.home-needs__title {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warn);
+  font-size: var(--font-size-sm);
+}
+.home-needs__count {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  color: var(--color-warn);
+  font-size: var(--font-size-sm);
+}
+.home-needs__all {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--color-warn);
+  text-decoration: none;
+}
+.home-needs__all:hover { filter: brightness(1.12); }
+.home-needs__items { display: flex; flex-direction: column; gap: var(--space-1); }
+.home-needs__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--color-text);
+}
+.home-needs__item:hover { background: var(--color-warn-soft); filter: brightness(0.98); }
+.home-needs__item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+.home-needs__item-age {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.home-loop {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.home-loop__head { margin-bottom: var(--space-2); }
+.home-loop__title {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.home-loop__items { display: flex; flex-direction: column; gap: var(--space-1); }
+.home-loop__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--color-text-muted);
+}
+.home-loop__item:hover { background: var(--color-surface-raised); color: var(--color-text); }
+.home-loop__check {
+  color: var(--color-primary);
+  font-weight: var(--weight-semibold);
+  font-size: var(--font-size-sm);
+}
+.home-loop__item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+.home-loop__item-age {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

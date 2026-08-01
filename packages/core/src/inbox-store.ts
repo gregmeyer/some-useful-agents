@@ -163,6 +163,12 @@ export interface InboxMessage {
   triageRunId?: string;
   recommendation?: string;
   resolvedAt?: number;
+  /**
+   * True when the system resolved this thread autonomously (verify-on-resolve
+   * or a triage resolve action), false for an operator resolve. Powers the
+   * Home "loop ticker", which surfaces only threads sua closed on its own.
+   */
+  autoResolved: boolean;
   dedupeKey?: string;
   /** User-flagged for quick filter on the inbox list. */
   starred: boolean;
@@ -468,6 +474,10 @@ export class InboxStore {
       `ALTER TABLE inbox_messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`,
       `ALTER TABLE inbox_messages ADD COLUMN tags_json TEXT`,
       `ALTER TABLE inbox_messages ADD COLUMN paused INTEGER NOT NULL DEFAULT 0`,
+      // 1 when the system resolved this thread autonomously (verify-on-resolve
+      // / triage resolve), 0 for an operator resolve. Powers the Home "loop
+      // ticker" (C2), which shows only threads sua closed on its own.
+      `ALTER TABLE inbox_messages ADD COLUMN auto_resolved INTEGER NOT NULL DEFAULT 0`,
     ]) {
       try { this.db.exec(ddl); } catch { /* column exists — ignore */ }
     }
@@ -668,6 +678,38 @@ export class InboxStore {
   }
 
   /**
+   * Threads the system resolved on its OWN (auto_resolved = 1), most recently
+   * first — the Home "loop ticker" that shows sua closing loops rather than
+   * only asking. Operator-resolved threads are excluded. `sinceMs`, when set,
+   * bounds it to resolves within the last N ms so the ticker doesn't surface
+   * stale wins. Ordered by resolved_at (hand-written — buildOrderBy has no
+   * resolved_at key), so this mirrors listAutoTriageCandidates' shape.
+   */
+  listRecentlyResolved(limit = 4, sinceMs?: number): InboxMessage[] {
+    const cap = limit > 0 ? limit : 1;
+    const params: (string | number)[] = [];
+    let cutoffClause = '';
+    if (typeof sinceMs === 'number' && sinceMs > 0) {
+      cutoffClause = 'AND resolved_at >= ?';
+      params.push(Date.now() - sinceMs);
+    }
+    params.push(cap);
+    const rows = this.db.prepare(`
+      SELECT
+        inbox_messages.*,
+        ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
+      FROM inbox_messages
+      WHERE status = 'resolved'
+        AND auto_resolved = 1
+        AND resolved_at IS NOT NULL
+        ${cutoffClause}
+      ORDER BY resolved_at DESC
+      LIMIT ?
+    `).all(...params) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToMessage(r));
+  }
+
+  /**
    * Threads eligible for autonomous first-touch triage: still `open` with an
    * empty conversation (no triage/system/user rows), not operator-created
    * (`manual` threads wait for the operator's first message — the composer
@@ -850,7 +892,7 @@ export class InboxStore {
   updateStatus(
     id: string,
     status: InboxStatus,
-    opts: { triageRunId?: string; recommendation?: string } = {},
+    opts: { triageRunId?: string; recommendation?: string; autoResolved?: boolean } = {},
   ): void {
     this.validateStatus(status);
     const fields: string[] = ['status = ?'];
@@ -866,6 +908,13 @@ export class InboxStore {
     if (status === 'resolved' || status === 'dismissed') {
       fields.push('resolved_at = ?');
       params.push(Date.now());
+    }
+    // Stamp the autonomous-vs-operator provenance on every resolve so a
+    // reopen→operator-resolve correctly clears a prior auto flag. Only the
+    // `resolved` state carries the loop-ticker signal; a dismiss stays 0.
+    if (status === 'resolved') {
+      fields.push('auto_resolved = ?');
+      params.push(opts.autoResolved ? 1 : 0);
     }
     params.push(id);
     const result = this.db.prepare(
@@ -1203,6 +1252,7 @@ export class InboxStore {
       triageRunId: (row.triage_run_id as string | null) ?? undefined,
       recommendation: (row.recommendation as string | null) ?? undefined,
       resolvedAt: (row.resolved_at as number | null) ?? undefined,
+      autoResolved: (row.auto_resolved as number) === 1,
       dedupeKey: (row.dedupe_key as string | null) ?? undefined,
       starred: (row.starred as number) === 1,
       paused: (row.paused as number) === 1,

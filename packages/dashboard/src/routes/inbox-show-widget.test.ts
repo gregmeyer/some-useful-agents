@@ -147,7 +147,7 @@ describe('atLeastOneActionExecuted excludes show-widget', () => {
 describe('show-widget card chrome', () => {
   const message: InboxMessage = {
     id: 'm1', createdAt: Date.now(), priority: 'medium', source: 'manual',
-    title: 't', body: 'b', status: 'awaiting_user', starred: false, paused: false, tags: [],
+    title: 't', body: 'b', status: 'awaiting_user', starred: false, paused: false, autoResolved: false, tags: [],
   };
   const completedShowWidget = (): InboxResponse => ({
     id: 'resp-1', messageId: 'm1', createdAt: Date.now(), role: 'action',
