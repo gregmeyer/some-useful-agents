@@ -26,12 +26,30 @@ import { renderInboxModalShell } from './inbox-modal.js';
 export type InboxSortKey = 'priority' | 'source' | 'agent' | 'title' | 'age' | 'status';
 export type InboxSortDir = 'asc' | 'desc';
 
+/** Active list filters, mirrored into the URL and preserved across sorts,
+ *  pagination, and live refresh. */
+export interface InboxListFilter {
+  q: string;
+  starred: boolean;
+  tag: string;
+  /** Producer source filter ('' = all). */
+  source: string;
+  /** Owning-agent filter ('' = all). */
+  agentId: string;
+}
+
 export interface InboxListOptions {
   rows: InboxMessage[];
   sort: InboxSortKey;
   dir: InboxSortDir;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
-  filter?: { q: string; starred: boolean; tag: string };
+  filter?: InboxListFilter;
+  /** Distinct agent ids owning inbox threads — populates the Agent filter. */
+  allAgents?: string[];
+  /** Whether more rows exist past this page (drives the "load more" button). */
+  hasMore?: boolean;
+  /** Number of rows rendered so far — the offset the next page starts at. */
+  loadedCount?: number;
   allTags?: string[];
   /**
    * Count of messages in terminal states (dismissed + resolved). Used
@@ -205,7 +223,7 @@ function buildSuggestions(rows: InboxMessage[]): Array<{ label: string; count: n
 
 export function renderInboxList(opts: InboxListOptions): string {
   const rows = opts.rows;
-  const filter = opts.filter ?? { q: '', starred: false, tag: '' };
+  const filter = opts.filter ?? { q: '', starred: false, tag: '', source: '', agentId: '' };
   const allTags = opts.allTags ?? [];
   const terminalCount = opts.terminalCount ?? 0;
   const archiveView = opts.archiveView;
@@ -215,12 +233,15 @@ export function renderInboxList(opts: InboxListOptions): string {
   const awaitingCount = rows.filter((r) => r.status === 'awaiting_user').length;
   const previewPayloads = opts.previewPayloads ?? new Map<string, InboxRowPreviewPayload>();
 
-  const filterBar = renderFilterBar(filter, allTags);
+  const filterBar = renderFilterBar(filter, allTags, opts.allAgents ?? []);
   const suggestBanner = archiveView
     ? renderArchiveHeader(archiveView, rows.length)
     : renderSuggestBanner(suggestions, rows.length, terminalCount, awaitingCount);
   const rail = renderRail(starredAll);
-  const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads, archiveView);
+  const main = renderMain(rows, opts.sort, opts.dir, filter, previewPayloads, archiveView, {
+    hasMore: opts.hasMore ?? false,
+    loadedCount: opts.loadedCount ?? rows.length,
+  });
   const archiveLink = !archiveView && terminalCount > 0
     ? html`
       <div class="inbox-archive-footer">
@@ -289,11 +310,17 @@ function renderArchiveHeader(status: 'dismissed' | 'resolved', count: number): S
   `;
 }
 
-function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, allTags: string[]): SafeHtml {
+function renderFilterBar(filter: InboxListFilter, allTags: string[], allAgents: string[] = []): SafeHtml {
   const tagOptions = allTags.map((t) => html`
     <option value="${t}" ${filter.tag === t ? 'selected' : ''}>#${t}</option>
   `);
-  const hasFilter = !!filter.q || filter.starred || !!filter.tag;
+  const sourceOptions = (Object.keys(SOURCE_LABEL) as InboxSource[]).map((s) => html`
+    <option value="${s}" ${filter.source === s ? 'selected' : ''}>${SOURCE_LABEL[s]}</option>
+  `);
+  const agentOptions = allAgents.map((a) => html`
+    <option value="${a}" ${filter.agentId === a ? 'selected' : ''}>${a}</option>
+  `);
+  const hasFilter = !!filter.q || filter.starred || !!filter.tag || !!filter.source || !!filter.agentId;
   // Inline toolbar: chips for Starred + Tag, search with inline clear,
   // autosubmit on change/Enter. No card border, no Apply button — the
   // form posts itself via JS (see inbox-modal.js.ts toolbar handler).
@@ -316,6 +343,22 @@ function renderFilterBar(filter: { q: string; starred: boolean; tag: string }, a
           ${tagOptions as unknown as SafeHtml[]}
         </select>
       </label>
+      <label class="inbox-chip inbox-chip--select ${filter.source ? 'inbox-chip--active' : ''}">
+        <span class="inbox-chip__icon" aria-hidden="true">⚑</span>
+        <select name="source" class="inbox-chip__select" data-inbox-toolbar-submit>
+          <option value="">source</option>
+          ${sourceOptions as unknown as SafeHtml[]}
+        </select>
+      </label>
+      ${allAgents.length > 0 ? html`
+        <label class="inbox-chip inbox-chip--select ${filter.agentId ? 'inbox-chip--active' : ''}">
+          <span class="inbox-chip__icon mono" aria-hidden="true">@</span>
+          <select name="agentId" class="inbox-chip__select" data-inbox-toolbar-submit>
+            <option value="">agent</option>
+            ${agentOptions as unknown as SafeHtml[]}
+          </select>
+        </label>
+      ` : html``}
       ${hasFilter ? html`<a class="inbox-toolbar__reset" href="/inbox" aria-label="Clear all filters">Reset</a>` : html``}
     </form>
   `;
@@ -467,13 +510,15 @@ function renderRail(starred: InboxMessage[]): SafeHtml {
 function currentInboxHref(
   sort: InboxSortKey,
   dir: InboxSortDir,
-  filter: { q: string; starred: boolean; tag: string },
+  filter: InboxListFilter,
   archiveView?: 'dismissed' | 'resolved',
 ): string {
   const params = new URLSearchParams();
   if (filter.q) params.set('q', filter.q);
   if (filter.starred) params.set('starred', '1');
   if (filter.tag) params.set('tag', filter.tag);
+  if (filter.source) params.set('source', filter.source);
+  if (filter.agentId) params.set('agentId', filter.agentId);
   if (archiveView) params.set('status', archiveView);
   if (sort !== INBOX_DEFAULT_SORT.sort) params.set('sort', sort);
   if (dir !== INBOX_DEFAULT_SORT.dir) params.set('dir', dir);
@@ -485,9 +530,10 @@ function renderMain(
   rows: InboxMessage[],
   sort: InboxSortKey,
   dir: InboxSortDir,
-  filter: { q: string; starred: boolean; tag: string },
+  filter: InboxListFilter,
   previewPayloads: Map<string, InboxRowPreviewPayload>,
   archiveView?: 'dismissed' | 'resolved',
+  pagination: { hasMore: boolean; loadedCount: number } = { hasMore: false, loadedCount: rows.length },
 ): SafeHtml {
   if (rows.length === 0) {
     return html`
@@ -520,6 +566,7 @@ function renderMain(
           <button type="button" class="btn btn--ghost btn--xs" data-inbox-bulk-select-all>Select all visible</button>
           <button type="button" class="btn btn--ghost btn--xs" data-inbox-bulk-clear>Clear</button>
         </div>
+        <button type="submit" class="btn btn--sm btn--ghost" formaction="/inbox/bulk-resolve">Resolve selected</button>
         <button type="submit" class="btn btn--sm btn--ghost">Dismiss selected</button>
       </form>
     `
@@ -542,12 +589,31 @@ function renderMain(
     ? html`
       <div class="inbox-list" role="table">
         ${renderListHeader(sort, dir, filter, bulkEnabled, archiveView)}
-        ${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}
+        <div data-inbox-rows>
+          ${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}
+        </div>
       </div>
     `
     : html``;
 
-  return html`${bulkBar}${needsYouBlock}${mainBlock}`;
+  // "Load more" — pagination past the first window. The button carries the
+  // current filters + the next offset; the client fetches /inbox/rows and
+  // appends the returned bare rows into [data-inbox-rows] (see INBOX_LIST_JS).
+  // Server-rendered so it works as a hard-nav fallback link too.
+  const rowsHref = currentInboxHref(sort, dir, filter, archiveView).replace('/inbox', '/inbox/rows');
+  const nextHref = `${rowsHref}${rowsHref.includes('?') ? '&' : '?'}offset=${pagination.loadedCount}`;
+  const loadMore = pagination.hasMore
+    ? html`
+      <div class="inbox-loadmore" data-inbox-loadmore>
+        <a class="btn btn--sm btn--ghost" href="${nextHref}"
+          data-inbox-load-more data-offset="${pagination.loadedCount}" data-base="${rowsHref}">
+          Load more
+        </a>
+      </div>
+    `
+    : html``;
+
+  return html`${bulkBar}${needsYouBlock}${mainBlock}${loadMore}`;
 }
 
 /** Input for the server-rendered rows fragment (GET /inbox/rows). */
@@ -555,16 +621,22 @@ export interface InboxRowsFragmentInput {
   rows: InboxMessage[];
   sort: InboxSortKey;
   dir: InboxSortDir;
-  filter: { q: string; starred: boolean; tag: string };
+  filter: InboxListFilter;
   previewPayloads?: Map<string, InboxRowPreviewPayload>;
   archiveView?: 'dismissed' | 'resolved';
   terminalCount?: number;
+  /** Whether rows exist past this window (full mode → drives load-more button). */
+  hasMore?: boolean;
+  /** Rows rendered before this window — the offset appended rows start at. */
+  loadedCount?: number;
   /**
    * `full` (default, offset 0): the whole `.inbox-main` inner block —
    * bulk bar + pinned "needs you" + the flat list + archive footer. The
    * client swaps it into `.inbox-main` on a live update (C1).
-   * `rows`: only the flat non-pinned rows for this window, no header /
-   * bulk bar / needs-you — the client appends them for "load more" (C3).
+   * `rows`: only the flat rows for this window, no header / bulk bar /
+   * needs-you — the client appends them for "load more" (C3). Awaiting_user
+   * rows are NOT dropped here (they're only pinned in full mode); a paginated
+   * window must render every row it holds or rows past page 1 would vanish.
    */
   mode?: 'full' | 'rows';
 }
@@ -579,14 +651,15 @@ export interface InboxRowsFragmentInput {
 export function renderInboxRowsFragment(input: InboxRowsFragmentInput): string {
   const previewPayloads = input.previewPayloads ?? new Map<string, InboxRowPreviewPayload>();
   if (input.mode === 'rows') {
-    // Bare non-pinned rows for append-based "load more". Mirrors the `rest`
-    // computation in renderMain (awaiting_user rows are pinned, not paged).
+    // Every row in this window, appended as-is (no pinning past page 1).
     const bulkEnabled = !input.archiveView;
-    const rest = input.rows.filter((m) => m.status !== 'awaiting_user');
-    const frag = html`${rest.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}`;
+    const frag = html`${input.rows.map((m) => renderRow(m, previewPayloads.get(m.id), bulkEnabled)) as unknown as SafeHtml[]}`;
     return render(frag);
   }
-  const main = renderMain(input.rows, input.sort, input.dir, input.filter, previewPayloads, input.archiveView);
+  const main = renderMain(input.rows, input.sort, input.dir, input.filter, previewPayloads, input.archiveView, {
+    hasMore: input.hasMore ?? false,
+    loadedCount: input.loadedCount ?? input.rows.length,
+  });
   const terminalCount = input.terminalCount ?? 0;
   const archiveLink = !input.archiveView && terminalCount > 0
     ? html`
@@ -612,7 +685,7 @@ export function renderInboxRowsFragment(input: InboxRowsFragmentInput): string {
 function renderListHeader(
   sort: InboxSortKey,
   dir: InboxSortDir,
-  filter: { q: string; starred: boolean; tag: string },
+  filter: InboxListFilter,
   bulkEnabled: boolean,
   archiveView?: 'dismissed' | 'resolved',
 ): SafeHtml {
@@ -628,6 +701,8 @@ function renderListHeader(
     if (filter.q) params.set('q', filter.q);
     if (filter.starred) params.set('starred', '1');
     if (filter.tag) params.set('tag', filter.tag);
+    if (filter.source) params.set('source', filter.source);
+    if (filter.agentId) params.set('agentId', filter.agentId);
     // Preserve the archive view — without this, sorting a dismissed/resolved
     // list drops `status` and bounces the operator back to the active inbox.
     if (archiveView) params.set('status', archiveView);

@@ -35,6 +35,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
   GLOBAL_TRUST_KEY,
+  INBOX_SOURCES,
   type RunStatus,
   type InboxActionMeta,
   type InboxResponse,
@@ -101,27 +102,39 @@ function buildInboxListView(ctx: ReturnType<typeof getContext>, req: Request) {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
   const starred = req.query.starred === '1' || req.query.starred === 'true';
   const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
+  const source = typeof req.query.source === 'string' ? req.query.source : '';
+  const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : '';
+  const offsetRaw = Number(req.query.offset);
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
   // Archive view: ?status=dismissed or ?status=resolved. Anything else
   // falls through to the active inbox (the store's default filter).
   const statusQ = typeof req.query.status === 'string' ? req.query.status : '';
   const archiveView: 'dismissed' | 'resolved' | undefined =
     statusQ === 'dismissed' ? 'dismissed' : statusQ === 'resolved' ? 'resolved' : undefined;
   const { sort, dir } = parseSort(req);
-  // Coerce the dashboard's broader InboxSortKey union (which still
-  // carries the legacy 'source' option for back-compat) to the
-  // store's sort vocabulary. Anything the store doesn't know falls
-  // back to its default (priority semantics).
-  const STORE_SORT_KEYS: ReadonlySet<string> = new Set(['priority', 'status', 'age', 'title', 'agent']);
-  const storeSort = STORE_SORT_KEYS.has(sort) ? (sort as 'priority' | 'status' | 'age' | 'title' | 'agent') : 'priority';
-  const rows = ctx.inboxStore ? ctx.inboxStore.list({
+  // Coerce the dashboard's InboxSortKey union to the store's sort vocabulary.
+  // `source` is now a real store sort (C3); anything else the store doesn't
+  // know falls back to its default (priority semantics).
+  const STORE_SORT_KEYS: ReadonlySet<string> = new Set(['priority', 'status', 'age', 'title', 'agent', 'source']);
+  const storeSort = STORE_SORT_KEYS.has(sort) ? (sort as 'priority' | 'status' | 'age' | 'title' | 'agent' | 'source') : 'priority';
+  // Only accept a source value the store recognizes, else ignore the filter.
+  const sourceFilter = (INBOX_SOURCES as readonly string[]).includes(source) ? (source as (typeof INBOX_SOURCES)[number]) : undefined;
+  const PAGE_SIZE = 200;
+  const page = ctx.inboxStore ? ctx.inboxStore.listPage({
     q: q || undefined,
     starred: starred || undefined,
     tag: tag || undefined,
+    source: sourceFilter,
+    agentId: agentId || undefined,
     status: archiveView,
     sort: storeSort,
     dir,
-  }) : [];
+    limit: PAGE_SIZE,
+    offset,
+  }) : { rows: [], hasMore: false };
+  const rows = page.rows;
   const allTags = ctx.inboxStore ? ctx.inboxStore.listAllTags() : [];
+  const allAgents = ctx.inboxStore ? ctx.inboxStore.listAllAgentIds() : [];
   // Compute per-row preview payloads in a single pass. Each call to
   // listResponses is a single SQLite roundtrip; for the default
   // page-size (≤200 rows) the cost is negligible. If pagination
@@ -175,8 +188,12 @@ function buildInboxListView(ctx: ReturnType<typeof getContext>, req: Request) {
   let autonomyMode;
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode(); } catch { /* default in view */ }
   return {
-    rows, sort, dir, filter: { q, starred, tag },
-    allTags, terminalCount, archiveView, previewPayloads, autonomyMode,
+    rows, sort, dir,
+    filter: { q, starred, tag, source: sourceFilter ?? '', agentId },
+    allTags, allAgents, terminalCount, archiveView, previewPayloads, autonomyMode,
+    hasMore: page.hasMore,
+    // The offset a subsequent "load more" starts at: everything loaded so far.
+    loadedCount: offset + rows.length,
   };
 }
 
@@ -201,6 +218,8 @@ inboxRouter.get('/inbox/rows', (req: Request, res: Response) => {
   // absent/0 returns the whole `.inbox-main` inner block for a live swap.
   const offset = Number(req.query.offset);
   const mode: 'full' | 'rows' = Number.isFinite(offset) && offset > 0 ? 'rows' : 'full';
+  // The load-more client reads this to decide whether to keep the button.
+  res.setHeader('X-Inbox-Has-More', view.hasMore ? '1' : '0');
   res.type('html').send(renderInboxRowsFragment({ ...view, mode }));
 });
 
@@ -451,6 +470,60 @@ inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
     return;
   }
   const label = dismissed === 1 ? 'Dismissed 1 message.' : `Dismissed ${dismissed} messages.`;
+  res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}ok=${encodeURIComponent(label)}`);
+});
+
+inboxRouter.post('/inbox/bulk-resolve', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.inboxStore) {
+    if (isAjax(req)) { res.status(503).end(); return; }
+    res.redirect(303, '/inbox?error=' + encodeURIComponent('Inbox is unavailable.'));
+    return;
+  }
+  const rawIds = typeof req.body?.ids === 'string' ? req.body.ids : '';
+  const ids: string[] = Array.from(new Set(
+    rawIds
+      .split(',')
+      .map((id: string) => id.trim())
+      .filter(Boolean),
+  ));
+  const returnTo = typeof req.body?.returnTo === 'string' && req.body.returnTo.startsWith('/inbox')
+    ? req.body.returnTo
+    : '/inbox';
+  if (ids.length === 0) {
+    if (isAjax(req)) { res.status(400).json({ error: 'No messages selected.' }); return; }
+    res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}error=${encodeURIComponent('No messages selected.')}`);
+    return;
+  }
+
+  let resolved = 0;
+  const resolvedIds: string[] = [];
+  for (const id of ids) {
+    const row = ctx.inboxStore.get(id);
+    if (!row) continue;
+    try {
+      // Operator-driven bulk resolve — leave auto_resolved 0 (this isn't a
+      // sua-closed loop). Learning extraction fires per thread like the
+      // single-thread resolve.
+      ctx.inboxStore.updateStatus(id, 'resolved');
+      void maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ });
+      resolved += 1;
+      resolvedIds.push(id);
+    } catch {
+      // Skip per-row failures so one bad id doesn't block the whole bulk action.
+    }
+  }
+  for (const id of resolvedIds) publishInboxChanged(ctx, id, 'resolved');
+
+  if (isAjax(req)) {
+    res.status(resolved > 0 ? 200 : 404).json({ resolved, requested: ids.length });
+    return;
+  }
+  if (resolved === 0) {
+    res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}error=${encodeURIComponent('No selected messages could be resolved.')}`);
+    return;
+  }
+  const label = resolved === 1 ? 'Resolved 1 message.' : `Resolved ${resolved} messages.`;
   res.redirect(303, `${returnTo}${returnTo.includes('?') ? '&' : '?'}ok=${encodeURIComponent(label)}`);
 });
 

@@ -57,6 +57,58 @@ describe('InboxStore.countNeedsYou + listNeedsYou', () => {
   });
 });
 
+describe('InboxStore pagination + source/agent filters (C3)', () => {
+  it('listPage returns a window + hasMore via the limit+1 probe', () => {
+    for (let i = 0; i < 5; i++) addMinimal({ title: `t${i}` });
+    const p1 = store.listPage({ limit: 2, offset: 0 });
+    expect(p1.rows).toHaveLength(2);
+    expect(p1.hasMore).toBe(true);
+    const p3 = store.listPage({ limit: 2, offset: 4 });
+    expect(p3.rows).toHaveLength(1);
+    expect(p3.hasMore).toBe(false);
+  });
+
+  it('offset walks a stable ordered set without dupes', () => {
+    for (let i = 0; i < 6; i++) addMinimal({ title: `t${i}` });
+    const first = store.listPage({ limit: 3, offset: 0 }).rows.map((m) => m.id);
+    const second = store.listPage({ limit: 3, offset: 3 }).rows.map((m) => m.id);
+    expect(new Set([...first, ...second]).size).toBe(6);
+  });
+
+  it('filters by source', () => {
+    addMinimal({ title: 'manual one', source: 'manual' });
+    addMinimal({ title: 'failure one', source: 'run-failure' });
+    const got = store.list({ source: 'run-failure' });
+    expect(got.map((m) => m.title)).toEqual(['failure one']);
+  });
+
+  it('filters by agentId', () => {
+    addMinimal({ title: 'agent-a thread', agentId: 'agent-a' });
+    addMinimal({ title: 'agent-b thread', agentId: 'agent-b' });
+    addMinimal({ title: 'no agent' });
+    const got = store.list({ agentId: 'agent-a' });
+    expect(got.map((m) => m.title)).toEqual(['agent-a thread']);
+  });
+
+  it('sort=source orders by source (dead key now real)', () => {
+    addMinimal({ title: 'z-cadence', source: 'cadence' });
+    addMinimal({ title: 'a-manual', source: 'manual' });
+    const asc = store.list({ sort: 'source', dir: 'asc' }).map((m) => m.source);
+    // cadence < manual alphabetically → cadence first on asc.
+    expect(asc[0]).toBe('cadence');
+    const desc = store.list({ sort: 'source', dir: 'desc' }).map((m) => m.source);
+    expect(desc[0]).toBe('manual');
+  });
+
+  it('listAllAgentIds returns the distinct owning agents, sorted', () => {
+    addMinimal({ agentId: 'zeta' });
+    addMinimal({ agentId: 'alpha' });
+    addMinimal({ agentId: 'alpha' });
+    addMinimal({}); // no agent
+    expect(store.listAllAgentIds()).toEqual(['alpha', 'zeta']);
+  });
+});
+
 describe('InboxStore.listRecentlyResolved (auto_resolved provenance)', () => {
   it('returns only autonomously-resolved threads, newest first', () => {
     const auto1 = addMinimal({ title: 'sua fixed 1' });

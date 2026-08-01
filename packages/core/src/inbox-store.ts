@@ -275,6 +275,12 @@ export interface ListMessagesOpts {
   status?: InboxStatus;
   priority?: InboxPriority;
   limit?: number;
+  /** Zero-based row offset for pagination. Default 0. */
+  offset?: number;
+  /** When set, only return messages from this producer source. */
+  source?: InboxSource;
+  /** When set, only return messages owned by this agent. */
+  agentId?: string;
   /**
    * Free-text query matched (case-insensitively) against title, body,
    * agent_id, and the bodies of any conversation responses. Lets the
@@ -296,7 +302,7 @@ export interface ListMessagesOpts {
   dir?: InboxSortDir;
 }
 
-export type InboxSortKey = 'priority' | 'status' | 'age' | 'title' | 'agent';
+export type InboxSortKey = 'priority' | 'status' | 'age' | 'title' | 'agent' | 'source';
 export type InboxSortDir = 'asc' | 'desc';
 
 function escapeLike(value: string): string {
@@ -405,6 +411,8 @@ function buildOrderBy(sort: InboxSortKey | undefined, dir: InboxSortDir | undefi
     case 'agent':
       // NULLs LAST for agent_id so unagented rows don't crowd the top.
       return `starred DESC, agent_id IS NULL, LOWER(IFNULL(agent_id,'')) ${d}, ${LAST_ACTIVITY_AT_SQL} DESC`;
+    case 'source':
+      return `starred DESC, LOWER(source) ${d}, ${LAST_ACTIVITY_AT_SQL} DESC`;
     case 'priority':
     default:
       // Priority asc = high first; desc = low first. Default behavior
@@ -590,7 +598,12 @@ export class InboxStore {
    * Supports text search (`q` — matches title/body/agent and the
    * conversation thread), starred-only, and tag filtering.
    */
-  list(opts: ListMessagesOpts = {}): InboxMessage[] {
+  /**
+   * Build the WHERE clause + params shared by `list()` and `listPage()`.
+   * Everything except ORDER BY / LIMIT / OFFSET, so the two entry points can't
+   * drift on how they filter.
+   */
+  private buildListWhere(opts: ListMessagesOpts): { whereSql: string; params: (string | number | null)[] } {
     const where: string[] = [];
     const params: (string | number | null)[] = [];
     const hasSearch = typeof opts.q === 'string' && opts.q.trim().length > 0;
@@ -608,6 +621,14 @@ export class InboxStore {
       this.validatePriority(opts.priority);
       where.push('priority = ?');
       params.push(opts.priority);
+    }
+    if (typeof opts.source === 'string' && opts.source) {
+      where.push('source = ?');
+      params.push(opts.source);
+    }
+    if (typeof opts.agentId === 'string' && opts.agentId) {
+      where.push('agent_id = ?');
+      params.push(opts.agentId);
     }
     if (opts.starred === true) {
       where.push('starred = 1');
@@ -644,18 +665,44 @@ export class InboxStore {
         }
       }
     }
-    const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
+    return { whereSql: where.join(' AND '), params };
+  }
+
+  /** Rows matching `opts`, honoring offset + limit (default cap 200). */
+  private queryList(opts: ListMessagesOpts, limit: number, offset: number): InboxMessage[] {
+    const { whereSql, params } = this.buildListWhere(opts);
     const orderBy = buildOrderBy(opts.sort, opts.dir);
     const rows = this.db.prepare(`
       SELECT
         inbox_messages.*,
         ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
       FROM inbox_messages
-      WHERE ${where.join(' AND ')}
+      WHERE ${whereSql}
       ORDER BY ${orderBy}
-      LIMIT ?
-    `).all(...params, limit) as Array<Record<string, unknown>>;
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToMessage(r));
+  }
+
+  list(opts: ListMessagesOpts = {}): InboxMessage[] {
+    const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
+    const offset = typeof opts.offset === 'number' && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    return this.queryList(opts, limit, offset);
+  }
+
+  /**
+   * A single page of `list()`, plus whether more rows follow. `hasMore` is a
+   * limit+1 probe (fetch one extra, trim it, report its presence) — no second
+   * COUNT query. Powers the inbox list's "load more" pagination. `total` is
+   * intentionally omitted: an exact count over a live, filtered set is a second
+   * scan for a number the UI doesn't need.
+   */
+  listPage(opts: ListMessagesOpts = {}): { rows: InboxMessage[]; hasMore: boolean } {
+    const limit = typeof opts.limit === 'number' && opts.limit > 0 ? opts.limit : 200;
+    const offset = typeof opts.offset === 'number' && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+    const rows = this.queryList(opts, limit + 1, offset);
+    const hasMore = rows.length > limit;
+    return { rows: hasMore ? rows.slice(0, limit) : rows, hasMore };
   }
 
   /**
@@ -852,6 +899,15 @@ export class InboxStore {
     const result = this.db.prepare(`UPDATE inbox_messages SET tags_json = ? WHERE id = ?`)
       .run(json, id);
     if (result.changes === 0) throw new Error(`InboxStore.setTags: no message with id "${id}"`);
+  }
+
+  /** Distinct agent ids that own at least one inbox thread, sorted. Powers
+   *  the list's Agent filter dropdown. */
+  listAllAgentIds(): string[] {
+    const rows = this.db.prepare(
+      `SELECT DISTINCT agent_id FROM inbox_messages WHERE agent_id IS NOT NULL AND agent_id != '' ORDER BY LOWER(agent_id)`,
+    ).all() as Array<{ agent_id: string }>;
+    return rows.map((r) => r.agent_id);
   }
 
   /** All tags currently in use across the inbox, sorted, deduped. */
