@@ -807,6 +807,63 @@ describe('GET /inbox/rows (live-refresh fragment)', () => {
     // A /inbox/:id detail page would render the not-found page for id="rows".
     expect(res.text).not.toContain('No inbox message with id');
   });
+
+  it('sets X-Inbox-Has-More and paginates via ?offset (append window)', async () => {
+    const app = await makeApp();
+    // 201 active threads → past the 200 page size.
+    for (let i = 0; i < 201; i++) inboxStore.add({ priority: 'medium', source: 'manual', title: `pg-${i}`, body: 'b' });
+    const page1 = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page1.status).toBe(200);
+    expect(page1.headers['x-inbox-has-more']).toBe('1');
+    const page2 = await request(app).get('/inbox/rows?offset=200').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page2.status).toBe(200);
+    expect(page2.headers['x-inbox-has-more']).toBe('0');
+    // Bare rows only (no bulk bar / header chrome) in append mode.
+    expect(page2.text).not.toContain('data-inbox-bulkbar');
+  });
+
+  it('filters by ?source and ?agentId', async () => {
+    const app = await makeApp();
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-manual', body: 'x' });
+    inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'frag-failure', body: 'y', agentId: 'agent-x' });
+    const bySource = await request(app).get('/inbox/rows?source=run-failure').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(bySource.text).toContain('frag-failure');
+    expect(bySource.text).not.toContain('frag-manual');
+    const byAgent = await request(app).get('/inbox/rows?agentId=agent-x').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(byAgent.text).toContain('frag-failure');
+    expect(byAgent.text).not.toContain('frag-manual');
+  });
+});
+
+describe('POST /inbox/bulk-resolve', () => {
+  it('resolves the selected threads and honors returnTo', async () => {
+    const app = await makeApp();
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'x' });
+    const b = inboxStore.add({ priority: 'medium', source: 'manual', title: 'b', body: 'y' });
+    const c = inboxStore.add({ priority: 'medium', source: 'manual', title: 'c', body: 'z' });
+    const res = await request(app)
+      .post('/inbox/bulk-resolve')
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send({ ids: `${a.id},${b.id}` });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ resolved: 2, requested: 2 });
+    expect(inboxStore.get(a.id)?.status).toBe('resolved');
+    expect(inboxStore.get(b.id)?.status).toBe('resolved');
+    expect(inboxStore.get(c.id)?.status).not.toBe('resolved');
+    // Operator bulk resolve is NOT an autonomous close — stays out of the ticker.
+    expect(inboxStore.get(a.id)?.autoResolved).toBe(false);
+  });
+
+  it('returns 400 when no ids are selected', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/bulk-resolve')
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send({ ids: '' });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET /inbox with filters', () => {

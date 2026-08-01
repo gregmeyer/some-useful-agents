@@ -3031,6 +3031,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   text-decoration: none;
 }
 .inbox-archive-footer__link:hover { color: var(--color-text); }
+/* "Load more" pagination control (C3). Centered under the flat list. */
+.inbox-loadmore {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3) 0;
+}
+.inbox-loadmore .btn[data-loading="1"] { opacity: 0.6; pointer-events: none; }
 .inbox-suggest__head {
   display: flex;
   align-items: center;
@@ -3096,6 +3103,14 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
+}
+/* The paginated rows wrapper (C3 append target) is layout-transparent: it
+ * carries the same column gap as .inbox-list so wrapping the rows doesn't
+ * collapse the inter-row spacing. */
+[data-inbox-rows] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 /* "Needs you" pinned section — awaiting_user threads floated to the top. The
