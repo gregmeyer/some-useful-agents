@@ -21,7 +21,8 @@ import { buildRecentActivity, renderHomeWidget, type HomeWidgetData } from './ho
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 import { renderInboxModalShell } from './inbox-modal.js';
 import { formatAge } from './components.js';
-import type { HomeFeedData, CadenceItem } from '../lib/home-feed.js';
+import { cleanSnippet, PREVIEW_ROLE_LABEL, type InboxRowPreviewPayload } from './inbox-list.js';
+import { formatNatureMeta, type HomeFeedData, type CadenceItem } from '../lib/home-feed.js';
 
 export interface HomePageInput {
   /** Live Pulse board data (from buildPulseBoardData). */
@@ -37,116 +38,105 @@ export interface HomePageInput {
 
 const EMPTY_FEED: HomeFeedData = { needsYou: [], today: [], week: [], earlier: [], closed: [] };
 
-/**
- * The two task-2×2 nature chips for a cadence row: scheduled/ad-hoc and
- * deterministic/non-deterministic. Tiny, tooltipped, so the operator reads the
- * quadrant at a glance without a legend.
- */
-function renderNatureChips(item: CadenceItem): SafeHtml {
-  const { scheduled, deterministic } = item.nature;
-  const sched = scheduled
-    ? html`<span class="home-nature home-nature--sched" title="Scheduled — runs on a clock">⏰</span>`
-    : html`<span class="home-nature home-nature--adhoc" title="Ad-hoc — event-driven or on-demand">⚡</span>`;
-  const det = deterministic
-    ? html`<span class="home-nature home-nature--det" title="Deterministic — predictable pipeline output">⚙</span>`
-    : html`<span class="home-nature home-nature--nondet" title="Non-deterministic — an LLM/agent decides; worth a look">🧠</span>`;
-  return html`<span class="home-nature-set" aria-hidden="true">${sched}${det}</span>`;
+/** Zero-pad a small count for the ledger feel (02, 11). */
+function padCount(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
 }
 
-/** One cadence row: title + nature chips + age, opens the thread in the modal. */
-function renderCadenceItem(item: CadenceItem): SafeHtml {
+/** One-line preview cell: latest reply snippet, or a pending-actions hint, or
+ *  an empty cell (a bare title reads cleaner than a "No replies yet" apology). */
+function renderRowPreview(preview: InboxRowPreviewPayload): SafeHtml {
+  if (preview.latestResponse) {
+    const role = PREVIEW_ROLE_LABEL[preview.latestResponse.role] ?? preview.latestResponse.role;
+    return html`<span class="feed-row__preview"><span class="feed-row__preview-role">${role}</span> ${cleanSnippet(preview.latestResponse.body, 90)}</span>`;
+  }
+  if (preview.proposedActions) {
+    const n = preview.proposedActions.count;
+    return html`<span class="feed-row__preview feed-row__preview--pending">▸ ${String(n)} proposed action${n === 1 ? '' : 's'}</span>`;
+  }
+  return html`<span class="feed-row__preview"></span>`;
+}
+
+/**
+ * One cadence row on the aligned grid: state-dot · title · preview · meta · age.
+ * `variant` drives the accent + which columns show — needs-you gets the amber
+ * edge + pulsing dot and no meta (the edge already says "act"); active rows
+ * show the quiet `sched·llm` meta.
+ */
+function renderCadenceItem(item: CadenceItem, variant: 'needs' | 'active'): SafeHtml {
   const m = item.message;
+  const meta = variant === 'active' ? formatNatureMeta(item.nature) : '';
   return html`
-    <a class="home-feed__item" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
-      <span class="home-feed__item-title">${m.title}</span>
-      ${renderNatureChips(item)}
-      <span class="home-feed__item-age">${formatAge(new Date(m.lastActivityAt ?? m.createdAt).toISOString())}</span>
+    <a class="feed-row feed-row--${variant}" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
+      <span class="feed-row__dot feed-row__dot--${variant}" aria-hidden="true"></span>
+      <span class="feed-row__title">${m.title}</span>
+      ${renderRowPreview(item.preview)}
+      <span class="feed-row__meta">${meta}</span>
+      <span class="feed-row__age">${formatAge(new Date(m.lastActivityAt ?? m.createdAt).toISOString())}</span>
     </a>
   `;
 }
 
-/** A cadence section (Today / This week), hidden entirely when empty. */
-function renderCadenceSection(label: string, items: CadenceItem[]): SafeHtml {
+/** A cadence group: a mono-caps hairline label over a set of rows. No card. */
+function renderCadenceGroup(label: string, items: CadenceItem[], variant: 'needs' | 'active', modifier = ''): SafeHtml {
   if (items.length === 0) return html``;
   return html`
-    <section class="home-feed__section" aria-label="${label}">
-      <div class="home-feed__section-head">${label} <span class="home-feed__section-count">${String(items.length)}</span></div>
-      <div class="home-feed__items">
-        ${items.map(renderCadenceItem) as unknown as SafeHtml[]}
-      </div>
+    <section class="feed-group ${modifier}" aria-label="${label}">
+      <div class="feed-group__label section-label">${label} <span class="feed-group__count">${padCount(items.length)}</span></div>
+      ${items.map((it) => renderCadenceItem(it, variant)) as unknown as SafeHtml[]}
     </section>
   `;
 }
 
 /**
- * The cadence-organized inbox feed, wrapped in a single container the
- * live-refresh client swaps on an `inbox:changed` event. Shared by the home
- * page and the `GET /inbox/home-strips` fragment so the two never drift.
- * Renders an empty-but-present container when there's nothing, so the client
- * always has a swap target (and the operator sees a calm "all clear").
+ * The cadence-organized inbox feed: one dense, borderless list where mono-caps
+ * labels are the only dividers and every row's meta/age align into a right-hand
+ * ledger. Wrapped in a single `[data-home-inbox]` container the live-refresh
+ * client swaps on `inbox:changed`. Shared by the home page and the
+ * `GET /inbox/home-strips` fragment. Renders an empty-but-present container so
+ * the client always has a swap target.
  */
 export function renderHomeInboxFeed(feed: HomeFeedData = EMPTY_FEED): SafeHtml {
   const { needsYou, today, week, earlier, closed } = feed;
   const total = needsYou.length + today.length + week.length + earlier.length;
 
-  const needsYouBlock = needsYou.length > 0
-    ? html`
-      <section class="home-needs" aria-label="Needs you">
-        <div class="home-needs__head">
-          <span class="home-needs__dot" aria-hidden="true"></span>
-          <span class="home-needs__title">Needs you</span>
-          <span class="home-needs__count">${String(needsYou.length)}</span>
-          <a class="home-needs__all" href="/inbox">All threads →</a>
-        </div>
-        <div class="home-feed__items">
-          ${needsYou.map(renderCadenceItem) as unknown as SafeHtml[]}
-        </div>
-      </section>
-    `
-    : html``;
-
   const earlierBlock = earlier.length > 0
     ? html`
-      <details class="home-feed__earlier">
-        <summary class="home-feed__earlier-summary">Earlier <span class="home-feed__section-count">${String(earlier.length)}</span></summary>
-        <div class="home-feed__items" style="margin-top: var(--space-2);">
-          ${earlier.map(renderCadenceItem) as unknown as SafeHtml[]}
-        </div>
+      <details class="feed-group feed-group--earlier">
+        <summary class="feed-group__label section-label">Earlier <span class="feed-group__count">${padCount(earlier.length)}</span></summary>
+        ${earlier.map((it) => renderCadenceItem(it, 'active')) as unknown as SafeHtml[]}
       </details>
     `
     : html``;
 
-  const loopBlock = closed.length > 0
+  const closedBlock = closed.length > 0
     ? html`
-      <section class="home-loop" aria-label="Recently closed by sua">
-        <div class="home-loop__head">
-          <span class="home-loop__title">sua closed these</span>
-        </div>
-        <div class="home-loop__items">
-          ${closed.map((m) => html`
-            <a class="home-loop__item" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
-              <span class="home-loop__check" aria-hidden="true">✓</span>
-              <span class="home-loop__item-title">${m.title}</span>
-              <span class="home-loop__item-age">${formatAge(new Date(m.resolvedAt ?? m.createdAt).toISOString())}</span>
-            </a>
-          `) as unknown as SafeHtml[]}
-        </div>
+      <section class="feed-group feed-group--closed" aria-label="Closed by sua">
+        <div class="feed-group__label section-label">sua closed these</div>
+        ${closed.map((m) => html`
+          <a class="feed-row feed-row--closed" href="/inbox/${m.id}" data-inbox-rail-id="${m.id}">
+            <span class="feed-row__dot feed-row__dot--closed" aria-hidden="true">✓</span>
+            <span class="feed-row__title">${m.title}</span>
+            <span class="feed-row__preview"></span>
+            <span class="feed-row__meta"></span>
+            <span class="feed-row__age">${formatAge(new Date(m.resolvedAt ?? m.createdAt).toISOString())}</span>
+          </a>
+        `) as unknown as SafeHtml[]}
       </section>
     `
     : html``;
 
-  // Calm "all clear" when the active queue is empty but sua has been working.
   const emptyState = total === 0 && closed.length === 0
-    ? html`<div class="home-feed__empty dim">Nothing needs you. Ask sua anything above to start.</div>`
+    ? html`<div class="feed-empty dim">All clear — nothing needs you. Ask sua anything above to start.</div>`
     : html``;
 
   return html`
     <div class="home-inbox" data-home-inbox>
-      ${needsYouBlock}
-      ${renderCadenceSection('Today', today)}
-      ${renderCadenceSection('This week', week)}
+      ${renderCadenceGroup('Needs you', needsYou, 'needs', 'feed-group--needs')}
+      ${renderCadenceGroup('Today', today, 'active')}
+      ${renderCadenceGroup('This week', week, 'active')}
       ${earlierBlock}
-      ${loopBlock}
+      ${closedBlock}
       ${emptyState}
     </div>
   `;

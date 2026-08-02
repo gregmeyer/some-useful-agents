@@ -60,6 +60,7 @@ import {
   parseFlash,
   isAjax,
   parseActionMeta,
+  buildRowPreview,
   SYSTEM_AGENT_IDS,
 } from './inbox-shared.js';
 import {
@@ -142,37 +143,7 @@ function buildInboxListView(ctx: ReturnType<typeof getContext>, req: Request) {
   // helper that joins inbox_responses once.
   const previewPayloads = new Map<string, import('../views/inbox-list.js').InboxRowPreviewPayload>();
   if (ctx.inboxStore && rows.length > 0) {
-    for (const r of rows) {
-      const responses = ctx.inboxStore.listResponses(r.id);
-      let latestResponse: { role: 'user' | 'triage' | 'system' | 'action'; body: string; createdAt: number } | undefined;
-      let proposedCount = 0;
-      let firstProposedAgentId: string | undefined;
-      // Walk from newest to oldest. listResponses returns ascending
-      // by created_at, so iterate in reverse.
-      for (let i = responses.length - 1; i >= 0; i--) {
-        const resp = responses[i];
-        if (resp.role !== 'action' && !latestResponse) {
-          latestResponse = { role: resp.role, body: resp.body, createdAt: resp.createdAt };
-        }
-        if (resp.role === 'action') {
-          const meta = parseActionMeta(resp);
-          if (meta?.status === 'proposed') {
-            proposedCount += 1;
-            if (!firstProposedAgentId) firstProposedAgentId = meta.agentId;
-          }
-        }
-        // Early exit once we have both signals.
-        if (latestResponse && proposedCount > 0) break;
-      }
-      previewPayloads.set(r.id, {
-        latestResponse: latestResponse && latestResponse.role !== 'action'
-          ? { role: latestResponse.role, body: latestResponse.body, createdAt: latestResponse.createdAt }
-          : undefined,
-        proposedActions: proposedCount > 0
-          ? { count: proposedCount, firstAgentId: firstProposedAgentId }
-          : undefined,
-      });
-    }
+    for (const r of rows) previewPayloads.set(r.id, buildRowPreview(ctx.inboxStore, r.id));
   }
   // terminalCount drives the "Inbox cleared" empty-state + the "View
   // N dismissed / resolved" archive-footer link. Only computed for

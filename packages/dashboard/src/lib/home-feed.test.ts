@@ -7,6 +7,7 @@ import type { DashboardContext } from '../context.js';
 import {
   buildHomeFeedData,
   classifyThreadNature,
+  formatNatureMeta,
   startOfDay,
   startOfWeek,
 } from './home-feed.js';
@@ -63,6 +64,16 @@ describe('classifyThreadNature (task 2×2)', () => {
   });
 });
 
+describe('formatNatureMeta (mono micro-label, no emoji)', () => {
+  it('renders sched·shell / adhoc·shell / sched·llm and blanks the default quadrant', () => {
+    expect(formatNatureMeta({ scheduled: true, deterministic: true })).toBe('sched·shell');
+    expect(formatNatureMeta({ scheduled: false, deterministic: true })).toBe('adhoc·shell');
+    expect(formatNatureMeta({ scheduled: true, deterministic: false })).toBe('sched·llm');
+    // adhoc·llm (a plain manual chat) carries no signal worth the ink.
+    expect(formatNatureMeta({ scheduled: false, deterministic: false })).toBe('');
+  });
+});
+
 describe('startOfDay / startOfWeek', () => {
   it('startOfDay is midnight-aligned and ≤ now', () => {
     const now = Date.now();
@@ -111,5 +122,23 @@ describe('buildHomeFeedData bucketing', () => {
     const feed = buildHomeFeedData(ctx(), future);
     expect(feed.today).toHaveLength(0);
     expect(feed.earlier.map((i) => i.message.title)).toContain('old-thread');
+  });
+
+  it('attaches a preview from the latest reply', () => {
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'has-reply', body: 'b' });
+    inboxStore.addResponse(m.id, 'triage', 'Latest triage line');
+    const feed = buildHomeFeedData(ctx(), Date.now());
+    const item = feed.today.find((i) => i.message.title === 'has-reply');
+    expect(item?.preview.latestResponse?.role).toBe('triage');
+    expect(item?.preview.latestResponse?.body).toBe('Latest triage line');
+  });
+
+  it('suppresses empty "New conversation" stubs but keeps real threads', () => {
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'New conversation', body: '(empty)' });
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'real', body: 'content' });
+    const feed = buildHomeFeedData(ctx(), Date.now());
+    const titles = [...feed.needsYou, ...feed.today, ...feed.week, ...feed.earlier].map((i) => i.message.title);
+    expect(titles).toContain('real');
+    expect(titles).not.toContain('New conversation');
   });
 });
