@@ -2,6 +2,7 @@ import { type Request } from 'express';
 import {
   type InboxActionMeta,
   type InboxResponse,
+  type InboxStore,
   type TriageLearning,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -9,6 +10,7 @@ import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
 import {
   type InboxSortKey,
   type InboxSortDir,
+  type InboxRowPreviewPayload,
   INBOX_DEFAULT_SORT,
 } from '../views/inbox-list.js';
 
@@ -262,6 +264,39 @@ export function parseActionMeta(r: InboxResponse): InboxActionMeta | null {
     }
   } catch { /* swallow */ }
   return null;
+}
+
+/**
+ * Compute a thread's list-row preview in one pass: the latest non-action
+ * response (role + body + time) and a count of still-proposed action cards.
+ * Shared by the inbox list (`buildInboxListView`) and the home cadence feed
+ * (`buildHomeFeedData`) so the two previews never drift. One `listResponses`
+ * roundtrip per row — the same cost the inbox list already pays.
+ */
+export function buildRowPreview(store: InboxStore, messageId: string): InboxRowPreviewPayload {
+  const responses = store.listResponses(messageId);
+  let latest: { role: 'user' | 'triage' | 'system'; body: string; createdAt: number } | undefined;
+  let proposedCount = 0;
+  let firstProposedAgentId: string | undefined;
+  // Newest-first: listResponses returns ascending by created_at.
+  for (let i = responses.length - 1; i >= 0; i--) {
+    const resp = responses[i];
+    if (resp.role !== 'action' && !latest && (resp.role === 'user' || resp.role === 'triage' || resp.role === 'system')) {
+      latest = { role: resp.role, body: resp.body, createdAt: resp.createdAt };
+    }
+    if (resp.role === 'action') {
+      const meta = parseActionMeta(resp);
+      if (meta?.status === 'proposed') {
+        proposedCount += 1;
+        if (!firstProposedAgentId) firstProposedAgentId = meta.agentId;
+      }
+    }
+    if (latest && proposedCount > 0) break;
+  }
+  return {
+    latestResponse: latest,
+    proposedActions: proposedCount > 0 ? { count: proposedCount, firstAgentId: firstProposedAgentId } : undefined,
+  };
 }
 
 export function stableStringifyInputs(inputs: Record<string, string>): string {

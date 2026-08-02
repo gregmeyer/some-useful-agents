@@ -76,7 +76,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 (function(){window.__suaCspBuffer = [];window.addEventListener('securitypolicyviolation', function(e){if(e&&e.violatedDirective==='img-src')window.__suaCspBuffer.push({blockedURI:e.blockedURI,target:e.target,t:Date.now()});});})();
 </script>
 </head>
-<body class="app">
+<body class="app" data-active-nav="${opts.activeNav ?? ''}">
 <script>(function(){var w=localStorage.getItem('sua-widget-theme');if(w&&w!=='default'&&w!=='light')document.body.setAttribute('data-widget-theme',w);})();</script>
 <header class="topbar">
   <a class="topbar__brand ${opts.activeNav === 'home' ? 'is-active' : ''}" href="/">sua</a>

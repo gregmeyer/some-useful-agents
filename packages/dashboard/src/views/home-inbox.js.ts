@@ -14,7 +14,14 @@ export const HOME_INBOX_JS = `
   var container = document.querySelector('[data-home-inbox]');
   if (!container) return;
   var timer = null;
+  function rowIds() {
+    var ids = {};
+    var rows = container.querySelectorAll('[data-inbox-rail-id]');
+    for (var i = 0; i < rows.length; i++) ids[rows[i].getAttribute('data-inbox-rail-id')] = true;
+    return ids;
+  }
   function refresh() {
+    var before = rowIds();
     fetch('/inbox/home-strips', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { return r.ok ? r.text() : null; })
       .then(function (htmlText) {
@@ -23,6 +30,12 @@ export const HOME_INBOX_JS = `
         tmp.innerHTML = htmlText;
         var fresh = tmp.querySelector('[data-home-inbox]');
         container.innerHTML = fresh ? fresh.innerHTML : htmlText;
+        // Fade in only the rows that weren't there before — "sua just did
+        // something" without a toast. Rows already present don't re-animate.
+        var rows = container.querySelectorAll('[data-inbox-rail-id]');
+        for (var i = 0; i < rows.length; i++) {
+          if (!before[rows[i].getAttribute('data-inbox-rail-id')]) rows[i].classList.add('feed-row--fresh');
+        }
       })
       .catch(function () {});
   }

@@ -16,6 +16,13 @@ export const INBOX_BADGE_JS = `
   var countEl = document.querySelector('[data-inbox-count]');
   var labelEl = document.querySelector('[data-inbox-label]');
   if (!toast || !countEl) return;
+  // On the home page the inbox feed shows the actual "Needs you" list, so the
+  // top-bar pill is pure duplication (and competes chromatically). Suppress it
+  // there; it stays the ambient cue on every other page.
+  if (document.body && document.body.getAttribute('data-active-nav') === 'home') {
+    toast.hidden = true;
+    return;
+  }
   function refresh() {
     fetch('/inbox/needs-you-count', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })

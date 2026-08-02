@@ -131,7 +131,7 @@ const PRIORITY_BADGE: Record<InboxPriority, string> = {
  * excludes action-card responses; pending actions get their own
  * summary chip.
  */
-const PREVIEW_ROLE_LABEL: Partial<Record<InboxResponseRole, string>> = {
+export const PREVIEW_ROLE_LABEL: Partial<Record<InboxResponseRole, string>> = {
   user: 'You',
   triage: 'Triage',
   system: 'System',
@@ -152,7 +152,7 @@ const PREVIEW_LINE_CAP = 120;
  * truncate at a word boundary. Keeps the inbox skimmable without raw `**`/`](`
  * syntax leaking through.
  */
-function cleanSnippet(body: string, cap: number): string {
+export function cleanSnippet(body: string, cap: number): string {
   return excerpt(humanizeTimestamps(markdownToText(body)), cap);
 }
 

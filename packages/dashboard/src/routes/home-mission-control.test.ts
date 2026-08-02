@@ -114,16 +114,16 @@ describe('GET / — Mission Control home', () => {
     expect(res.text).toContain('data-inbox-toast');
   });
 
-  it('renders the "needs you" strip and the auto-resolved loop ticker with data', async () => {
+  it('renders the needs-you group (amber accent) and the closed ticker, no emoji', async () => {
     const app = await makeApp();
     agentStore.createAgent({
       id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
     }, 'cli');
-    // A thread awaiting the operator → needs-you strip.
+    // A thread awaiting the operator → needs-you group (accent row, not a box).
     const a = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'needs-me-thread', body: 'x' });
     inboxStore.updateStatus(a.id, 'awaiting_user');
-    // A thread sua resolved autonomously → loop ticker.
+    // A thread sua resolved autonomously → closed ticker.
     const b = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'sua-fixed-thread', body: 'y' });
     inboxStore.updateStatus(b.id, 'resolved', { autoResolved: true });
     // A thread the OPERATOR resolved → must NOT appear in the ticker.
@@ -132,18 +132,64 @@ describe('GET / — Mission Control home', () => {
 
     const res = await get(app, '/');
     expect(res.status).toBe(200);
-    // Needs-you strip renders the awaiting thread.
-    expect(res.text).toContain('home-needs');
+    // Dense grid feed — no filled boxes; needs-you is an accent row.
+    expect(res.text).toContain('feed-group--needs');
+    expect(res.text).toContain('feed-row--needs');
     expect(res.text).toContain('needs-me-thread');
-    // Loop ticker renders the auto-resolved thread but not the operator one.
-    expect(res.text).toContain('home-loop');
+    expect(res.text).not.toContain('home-needs__item'); // old boxy markup gone
+    // Closed ticker renders the auto-resolved thread but not the operator one.
+    expect(res.text).toContain('feed-group--closed');
     expect(res.text).toContain('sua-fixed-thread');
     expect(res.text).not.toContain('i-fixed-thread');
-    // Cards open the modal (rail-id) and fall back to the thread page (href).
+    // Rows open the modal (rail-id) with a thread-page href fallback.
     expect(res.text).toContain(`data-inbox-rail-id="${a.id}"`);
     expect(res.text).toContain(`href="/inbox/${b.id}"`);
-    // Each cadence row carries a task-2×2 nature chip set.
-    expect(res.text).toContain('home-nature-set');
+    // The toy emoji nature chips are gone.
+    expect(res.text).not.toContain('🧠');
+    expect(res.text).not.toContain('home-nature');
+  });
+
+  it('renders the quiet mono nature meta for a scheduled deterministic agent', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'etl', name: 'etl', status: 'active', source: 'local', mcp: false, schedule: '0 3 * * *',
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'etl-thread', body: 'b', agentId: 'etl' });
+    const res = await get(app, '/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('etl-thread');
+    expect(res.text).toContain('sched·shell'); // scheduled + all-shell agent
+  });
+
+  it('shows a one-line preview snippet from the latest reply', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    const m = inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'preview-thread', body: 'b' });
+    inboxStore.addResponse(m.id, 'triage', 'Found three mismatches to review');
+    const res = await get(app, '/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('feed-row__preview');
+    expect(res.text).toContain('Found three mismatches to review');
+  });
+
+  it('suppresses an empty "New conversation" stub from the feed', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'hello', name: 'hello', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+    }, 'cli');
+    // The exact shape POST /inbox/new creates before any first message.
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'New conversation', body: '(empty)' });
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'real-thread', body: 'has content' });
+    const res = await get(app, '/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('real-thread');
+    // Row-specific (the string "New conversation" also appears in bundled JS).
+    expect(res.text).not.toContain('>New conversation<');
   });
 
   it('buckets an active thread with recent activity into the Today section', async () => {
@@ -156,12 +202,12 @@ describe('GET / — Mission Control home', () => {
     inboxStore.add({ priority: 'medium', source: 'manual', title: 'todays-thread', body: 'b' });
     const res = await get(app, '/');
     expect(res.status).toBe(200);
-    // A just-created thread lands under the "Today" cadence section.
-    expect(res.text).toMatch(/home-feed__section-head">Today/);
+    // A just-created thread lands under the "Today" cadence group label.
+    expect(res.text).toMatch(/section-label">Today/);
     expect(res.text).toContain('todays-thread');
   });
 
-  it('GET /inbox/home-strips returns the strips fragment without page chrome', async () => {
+  it('GET /inbox/home-strips returns the cadence feed fragment without page chrome', async () => {
     const app = await makeApp();
     const a = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'frag-needs', body: 'x' });
     inboxStore.updateStatus(a.id, 'awaiting_user');

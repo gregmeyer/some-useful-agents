@@ -4042,183 +4042,98 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .home-activity[open] .home-activity__summary { color: var(--color-text); }
 
-/* Inbox lead-in: "needs you" (amber, urgent pull) + "loop ticker" (teal,
-   trust — what sua closed on its own). Both go live via the global inbox SSE
-   stream; the [data-home-inbox] wrapper is the client's swap target. */
-.home-inbox { display: flex; flex-direction: column; gap: var(--space-3); }
+/* ── Inbox cadence feed (front door) ─────────────────────────────────────────
+   One dense, borderless list — no cards. Mono-caps hairline labels are the only
+   dividers; every row is the same 5-column grid so title / preview / meta / age
+   align into a right-hand ledger down the page (fixed + fr tracks resolve
+   identically per row, so independent row grids still line up). Color is rare:
+   one amber left-edge for "needs you", one teal check for "closed". Lives in
+   [data-home-inbox], the SSE live-swap target. */
+.home-inbox { display: flex; flex-direction: column; gap: var(--space-6); }
 .home-inbox:empty { display: none; }
-.home-inbox > * { margin-bottom: var(--space-4); }
 
-.home-needs {
-  border: 1px solid var(--color-warn-border);
-  background: var(--color-warn-soft);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-}
-.home-needs__head {
+.feed-group__label {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
 }
-.home-needs__dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--color-warn);
-  animation: sua-pulse 2s ease-in-out infinite;
-}
-.home-needs__title {
-  font-weight: var(--weight-semibold);
-  color: var(--color-warn);
-  font-size: var(--font-size-sm);
-}
-.home-needs__count {
-  font-family: var(--font-mono);
-  font-weight: var(--weight-semibold);
-  color: var(--color-warn);
-  font-size: var(--font-size-sm);
-}
-.home-needs__all {
-  margin-left: auto;
-  font-size: var(--font-size-sm);
-  color: var(--color-warn);
-  text-decoration: none;
-}
-.home-needs__all:hover { filter: brightness(1.12); }
-.home-needs__items { display: flex; flex-direction: column; gap: var(--space-1); }
-.home-needs__item {
-  display: flex;
+.feed-group__count { color: var(--color-text-subtle); font-weight: var(--weight-medium); }
+.feed-group--needs .feed-group__label { color: var(--color-warn); border-bottom-color: var(--color-warn-border); }
+.feed-group--needs .feed-group__count { color: var(--color-warn); }
+.feed-group--closed { opacity: 0.9; }
+
+/* Earlier: quiet collapsible group; the label doubles as the summary. */
+.feed-group--earlier > summary.feed-group__label { cursor: pointer; list-style: none; }
+.feed-group--earlier > summary.feed-group__label::-webkit-details-marker { display: none; }
+
+/* ROW: state-dot · title · preview · meta · age. Fixed/fr tracks → aligned. */
+.feed-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 0.55fr) minmax(0, 1fr) 11ch 8ch;
   align-items: baseline;
   gap: var(--space-3);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-2);
   border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
   text-decoration: none;
   color: var(--color-text);
+  transition: background 90ms ease-out;
 }
-.home-needs__item:hover { background: var(--color-warn-soft); filter: brightness(0.98); }
-.home-needs__item-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-}
-.home-needs__item-age {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
+.feed-row:hover { background: var(--color-surface-raised); }
+.feed-row--needs { border-left-color: var(--color-warn); }
 
-.home-loop {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
+.feed-row__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-text-subtle);
+  align-self: center;
 }
-.home-loop__head { margin-bottom: var(--space-2); }
-.home-loop__title {
-  font-weight: var(--weight-medium);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.home-loop__items { display: flex; flex-direction: column; gap: var(--space-1); }
-.home-loop__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-  color: var(--color-text-muted);
-}
-.home-loop__item:hover { background: var(--color-surface-raised); color: var(--color-text); }
-.home-loop__check {
+.feed-row__dot--needs { background: var(--color-warn); animation: sua-pulse 2s ease-in-out infinite; }
+.feed-row__dot--closed {
+  width: auto; height: auto; background: none; border-radius: 0;
+  align-self: baseline;
   color: var(--color-primary);
   font-weight: var(--weight-semibold);
   font-size: var(--font-size-sm);
-}
-.home-loop__item-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-}
-.home-loop__item-age {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
+  line-height: 1;
 }
 
-/* Cadence feed sections (Today / This week / Earlier) + shared row. Neutral
-   surface (the amber "needs you" block and teal ticker keep their own color);
-   these are calm "consume/skim" sections. */
-.home-feed__section {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
+.feed-row__title {
+  font-size: var(--font-size-md);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
 }
-.home-feed__section-head {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
-}
-.home-feed__section-count {
-  font-family: var(--font-mono);
-  color: var(--color-text-muted);
-}
-.home-feed__items { display: flex; flex-direction: column; gap: var(--space-1); }
-.home-feed__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-  color: var(--color-text);
-}
-.home-feed__item:hover { background: var(--color-surface-raised); }
-.home-feed__item-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.feed-row__preview {
   font-size: var(--font-size-sm);
-}
-.home-feed__item-age {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  white-space: nowrap;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
 }
-.home-feed__earlier-summary {
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  padding: var(--space-1) 0;
+.feed-row__preview-role { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.feed-row__preview--pending { color: var(--color-primary); }
+.feed-row__meta {
+  font-family: var(--font-mono); font-size: var(--font-size-xs);
+  color: var(--color-text-subtle); white-space: nowrap;
 }
-.home-feed__empty {
-  padding: var(--space-4);
+.feed-row__age {
+  font-family: var(--font-mono); font-size: var(--font-size-xs);
+  color: var(--color-text-muted); text-align: right; white-space: nowrap;
+}
+.feed-row--closed .feed-row__title { color: var(--color-text-muted); }
+
+.feed-empty {
+  padding: var(--space-8) var(--space-4);
   text-align: center;
   font-size: var(--font-size-sm);
 }
 
-/* Task-2×2 nature chips: scheduled/ad-hoc + deterministic/non-deterministic.
-   Small, muted, non-shouting — a glanceable calibration cue, not a badge. */
-.home-nature-set { display: inline-flex; gap: 2px; flex: none; opacity: 0.75; }
-.home-nature {
-  font-size: var(--font-size-xs);
-  line-height: 1;
-}
+/* New rows fade in when the SSE live-swap replaces the feed — "sua just did
+   something" without a toast. Fade only, <200ms, respects reduced-motion. */
+@keyframes feed-row-in { from { opacity: 0; } to { opacity: 1; } }
+.feed-row--fresh { animation: feed-row-in 150ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .feed-row--fresh { animation: none; } }
 
-/* Demoted radiators collapsed under the feed. Same affordance as the activity
-   details; kept quiet so the inbox stays the focus. */
+/* Demoted radiators collapsed under the feed. Kept quiet so the inbox leads. */
 .home-secondary > summary { list-style: none; }

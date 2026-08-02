@@ -14,6 +14,13 @@
 import type { Agent, InboxMessage } from '@some-useful-agents/core';
 import { isLlmPromptType } from '@some-useful-agents/core';
 import type { DashboardContext } from '../context.js';
+import { buildRowPreview } from '../routes/inbox-shared.js';
+import type { InboxRowPreviewPayload } from '../views/inbox-list.js';
+
+/** Mirrors DEFAULT_NEW_CONVERSATION_TITLE in routes/inbox.ts (kept local to
+ *  avoid a lib↔route import cycle). Empty stubs with this title are junk on
+ *  the front door and are suppressed. */
+const NEW_CONVERSATION_TITLE = 'New conversation';
 
 /** The task-2×2 classification of a thread, derived from its owning agent. */
 export interface ThreadNature {
@@ -26,10 +33,26 @@ export interface ThreadNature {
   deterministic: boolean;
 }
 
-/** One row in the cadence feed: a thread plus its 2×2 nature tag. */
+/** One row in the cadence feed: a thread, its 2×2 nature tag, and a one-line
+ *  preview of its latest activity. */
 export interface CadenceItem {
   message: InboxMessage;
   nature: ThreadNature;
+  preview: InboxRowPreviewPayload;
+}
+
+/**
+ * The quiet mono meta string for a row — the terminal-native replacement for
+ * the old emoji chips. Two axes: scheduled/ad-hoc · llm/shell. Returns '' for
+ * an agentless ad-hoc LLM chat (all defaults) so a bare row stays clean.
+ */
+export function formatNatureMeta(nature: ThreadNature): string {
+  const sched = nature.scheduled ? 'sched' : 'adhoc';
+  const kind = nature.deterministic ? 'shell' : 'llm';
+  // The default quadrant (adhoc·llm — a manual chat) carries no signal worth
+  // the ink; only show meta when at least one axis is the non-default.
+  if (!nature.scheduled && !nature.deterministic) return '';
+  return `${sched}·${kind}`;
 }
 
 export interface HomeFeedData {
@@ -105,6 +128,7 @@ export function buildHomeFeedData(ctx: DashboardContext, nowMs: number): HomeFee
   const midnight = startOfDay(nowMs);
   const weekStart = startOfWeek(nowMs);
 
+  const store = ctx.inboxStore;
   const agentCache = new Map<string, Agent | null>();
   const natureOf = (m: InboxMessage): ThreadNature => {
     let agent: Agent | null = null;
@@ -114,15 +138,26 @@ export function buildHomeFeedData(ctx: DashboardContext, nowMs: number): HomeFee
     }
     return classifyThreadNature(m, agent);
   };
-  const toItem = (m: InboxMessage): CadenceItem => ({ message: m, nature: natureOf(m) });
+  const toItem = (m: InboxMessage): CadenceItem => ({
+    message: m, nature: natureOf(m), preview: buildRowPreview(store, m.id),
+  });
+
+  // An empty "New conversation" stub (manual, default title, placeholder body,
+  // no real content) is pure noise on the front door — a thread with nothing to
+  // show and nothing to act on. Suppress it here (it still lives in /inbox).
+  const isEmptyStub = (m: InboxMessage, item: CadenceItem): boolean =>
+    m.source === 'manual' && m.title === NEW_CONVERSATION_TITLE && m.body === '(empty)'
+    && !item.preview.latestResponse && !item.preview.proposedActions;
 
   const out: HomeFeedData = { needsYou: [], today: [], week: [], earlier: [], closed: [] };
   for (const m of active) {
-    if (m.status === 'awaiting_user') { out.needsYou.push(toItem(m)); continue; }
+    const item = toItem(m);
+    if (isEmptyStub(m, item)) continue;
+    if (m.status === 'awaiting_user') { out.needsYou.push(item); continue; }
     const at = m.lastActivityAt ?? m.createdAt;
-    if (at >= midnight) out.today.push(toItem(m));
-    else if (at >= weekStart) out.week.push(toItem(m));
-    else out.earlier.push(toItem(m));
+    if (at >= midnight) out.today.push(item);
+    else if (at >= weekStart) out.week.push(item);
+    else out.earlier.push(item);
   }
   try { out.closed = ctx.inboxStore.listRecentlyResolved(CLOSED_LIMIT, CLOSED_WINDOW_MS); } catch { /* ticker hides when empty */ }
   return out;
