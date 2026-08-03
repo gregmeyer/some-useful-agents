@@ -61,6 +61,8 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
       ${args.missing.length > 0 ? renderMissingList(args.missing) : unsafeHtml('')}
     </div>
 
+    ${renderHowToReference(args.names)}
+
     <div class="card">
       <p class="card__title">Set a secret</p>
       <p class="dim">
@@ -115,6 +117,49 @@ export function renderSettingsSecrets(args: SettingsSecretsArgs): SafeHtml {
             <button type="submit" class="btn btn--ghost">Lock now</button>
           </form>`
         : unsafeHtml('')}
+    </div>
+  `;
+}
+
+/**
+ * In-product "how do I use this?" card. Secret wiring is the #1 place agents
+ * silently break — authors reach for `default: $NAME` on an input, which is a
+ * literal string that never resolves. Spell out the supported path (declare
+ * `secrets:`, then `$NAME` / `{{secrets.NAME}}`) right next to the store, and
+ * anchor the example on a real secret name when one exists.
+ */
+function renderHowToReference(names: string[]): SafeHtml {
+  const example = names[0] ?? 'MY_API_KEY';
+  return html`
+    <div class="card">
+      <p class="card__title">Referencing a secret in an agent</p>
+      <p class="dim">
+        Two steps: declare the secret on the node(s) that need it, then reference
+        it by name. Values are injected only into nodes that ask for them.
+      </p>
+      <ol class="secret-howto">
+        <li>
+          <span class="secret-howto__step">Declare it</span> on the node (or at the
+          agent level) that uses it:
+          <pre class="secret-howto__code mono">nodes:
+  - id: fetch
+    type: shell
+    secrets: [${example}]        # this node may reference ${example}</pre>
+        </li>
+        <li>
+          <span class="secret-howto__step">Reference it</span> by name — shell nodes
+          expand <code>$${example}</code>; prompts use <code>{{secrets.${example}}}</code>:
+          <pre class="secret-howto__code mono">command: |
+  curl "https://api.example.com/v1?key=$${example}"</pre>
+        </li>
+      </ol>
+      <p class="dim secret-howto__warn">
+        Don't pass a secret as an agent <em>input</em>. An input default like
+        <code>$${example}</code> is a literal string — it is sent verbatim (a bogus
+        credential) and out-ranks the real secret. The schema now rejects that pattern.
+        Non-secret values go in <a href="/settings/variables">Variables</a> and resolve the
+        same way (<code>$${example}</code> / <code>{{vars.${example}}}</code>).
+      </p>
     </div>
   `;
 }
