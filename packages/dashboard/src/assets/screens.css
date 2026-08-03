@@ -2490,13 +2490,11 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
  * lifecycle ticks through running → completed/failed/skipped, the
  * controls disappear and the status body fills in. */
 .inbox-action__status {
+  font-family: var(--font-mono);
   text-transform: uppercase;
   font-size: var(--font-size-xs);
   letter-spacing: 0.08em;
   font-weight: var(--weight-semibold);
-  padding: var(--space-1) var(--space-2);
-  border-radius: 2px;
-  background: var(--color-surface-raised);
   color: var(--color-text-muted);
 }
 .inbox-action--proposed .inbox-action__status { color: var(--color-warn, #f59e0b); }
@@ -2506,13 +2504,15 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .inbox-action--refused .inbox-action__status { color: var(--color-danger, #f87171); }
 .inbox-action--skipped .inbox-action__status { color: var(--color-text-muted); }
 
+/* De-boxed (2026-08): the action card reads as part of the conversation flow,
+   not a bordered box inside the message inside the modal. A single 2px
+   status-colored left rule carries state (same language as the feed rows); the
+   full border + radius + surface fill are gone, and the nested widget/diff/
+   preview frames below are flattened too. */
 .inbox-action__card {
   margin-top: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-warn, #f59e0b);
-  border-radius: var(--radius-sm, 4px);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 2px solid var(--color-warn, #f59e0b);
 }
 .inbox-action--running .inbox-action__card { border-left-color: var(--color-info, #60a5fa); }
 .inbox-action--completed .inbox-action__card { border-left-color: var(--color-ok, #34d399); }
@@ -2650,10 +2650,17 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   word-wrap: break-word;
 }
 .inbox-action__inline-widget {
-  padding: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised, #1f2430);
+  margin-top: var(--space-2);
+}
+/* Flatten the widget's own frame inside a thread — the action's left-rule is
+   the only container it needs; without this the output-widget's border +
+   radius + shadow stacks a box inside the card inside the message. */
+.inbox-action__inline-widget .output-widget {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
 }
 .inbox-action__inline-widget .widget-controls,
 .inbox-action__inline-widget form[action^="/agents/"] {
@@ -2699,17 +2706,11 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
  * sees exactly what's about to change before clicking Run. */
 .inbox-action__diff {
   margin-top: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: var(--color-surface-raised, #1f2430);
-  overflow: hidden;
 }
 .inbox-action__diff-header {
-  padding: 4px var(--space-2);
+  padding: 0 0 var(--space-1);
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
 }
 .inbox-action__diff-add { color: var(--color-ok, #34d399); font-weight: var(--weight-semibold); }
 .inbox-action__diff-del { color: var(--color-danger, #f87171); font-weight: var(--weight-semibold); }
@@ -3904,12 +3905,12 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 
 /* Thread usability: derived summary block + thread-action controls. */
+/* De-boxed: a quiet collapsible in the header, not a filled card. The mono-caps
+   summary label is its only chrome; open state indents the rows under a hairline. */
 .inbox-thread-summary {
   margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
 }
 .inbox-thread-summary__summary {
   cursor: pointer;
