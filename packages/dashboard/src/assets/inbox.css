@@ -3,53 +3,77 @@
  * entries. The modal JS adds .inbox-msg--new to messages that appeared
  * since the last fragment fetch; the animation runs once and the class
  * stays on the element (CSS handles the one-shot semantics). */
+/* Chat stream: a mono `role ›` speaker sigil (colored per role, right-aligned
+   into a fixed column so the › aligns down the thread) instead of round
+   avatars + border rails. Consecutive same-role turns group under one sigil. */
 .inbox-msg {
   display: flex;
-  gap: var(--space-2);
-  padding: var(--space-3) 0;
-  border-top: 1px solid var(--color-border);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
   align-items: flex-start;
 }
-.inbox-msg:first-child {
-  border-top: none;
-  padding-top: var(--space-2);
-}
+.inbox-msg--grouped { padding-top: 0; }
 .inbox-msg__avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--color-bg, #0d1117);
+  width: 4.5rem;
   flex-shrink: 0;
-  text-transform: uppercase;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+  /* reset the former round badge */
+  height: auto;
+  border-radius: 0;
+  background: none;
+  text-transform: none;
 }
-.inbox-msg__avatar--user { background: var(--color-primary, #2dd4bf); }
-.inbox-msg__avatar--triage { background: var(--color-info, #60a5fa); }
-.inbox-msg__avatar--system { background: var(--color-text-muted, #8b93a7); }
-.inbox-msg__avatar--action { background: var(--color-warn, #f59e0b); }
-.inbox-msg__avatar--learning { background: var(--color-primary, #2dd4bf); }
+.inbox-msg__avatar::after { content: '\00a0›'; color: var(--color-text-subtle); }
+.inbox-msg__avatar--user { color: var(--color-primary, #2dd4bf); }
+.inbox-msg__avatar--triage { color: var(--color-info, #60a5fa); }
+.inbox-msg__avatar--system { color: var(--color-text-muted); }
+.inbox-msg__avatar--action { color: var(--color-warn, #f59e0b); }
+.inbox-msg__avatar--learning { color: var(--color-primary, #2dd4bf); }
+/* Grouped continuation: keep the column width, hide the repeated sigil. */
+.inbox-msg--grouped .inbox-msg__avatar { visibility: hidden; }
+/* Actions aren't speakers — no `role ›` sigil; the card's own headline names
+   the tool. Empty sigil column keeps the card aligned under conversation text. */
+.inbox-msg--action .inbox-msg__avatar::after { content: none; }
 .inbox-learnings { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
 .inbox-learning__lesson { font-size: var(--font-size-sm); }
 .inbox-msg__body { flex: 1; min-width: 0; }
 .inbox-msg__meta {
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  color: var(--color-text-subtle);
   margin-bottom: var(--space-1);
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  min-height: 1em;
 }
-.inbox-msg__meta-name {
-  color: var(--color-text);
-  font-weight: var(--weight-semibold);
+.inbox-msg--grouped .inbox-msg__meta { margin-bottom: 0; }
+/* Timestamp de-emphasized: revealed on row hover/focus (Copy has its own
+   hover rule below). Keeps the stream clean until you reach for the metadata. */
+.inbox-msg__time {
+  font-family: var(--font-mono);
+  opacity: 0;
+  transition: opacity 90ms ease-out;
 }
+.inbox-msg:hover .inbox-msg__time,
+.inbox-msg:focus-within .inbox-msg__time { opacity: 1; }
+/* Streaming/pending indicator ("Writing…" / "Sending…") — always visible so
+   the operator sees sua is working, even before hovering. */
+.inbox-msg__writing {
+  font-family: var(--font-mono);
+  color: var(--color-info, #60a5fa);
+}
+.inbox-msg[data-pending] .inbox-msg__writing { color: var(--color-text-subtle); }
 .inbox-msg__text {
   white-space: pre-wrap;
   word-wrap: break-word;
+  line-height: 1.55;
+  max-width: 66ch;
 }
 
 /* Markdown-rendered message bodies (mdBody → .inbox-md). Scoped reset so
@@ -438,6 +462,46 @@
 .inbox-action--failed .inbox-action__card,
 .inbox-action--refused .inbox-action__card { border-left-color: var(--color-danger, #f87171); }
 .inbox-action--skipped .inbox-action__card { border-left-color: var(--color-text-muted); opacity: 0.7; }
+
+/* ---------- Collapsed action (tool-call one-liner) ----------
+ * A finished dispatched run collapses to a single mono row: glyph · what it
+ * did · outcome · duration, expandable for inputs/output. The <summary> IS
+ * the row; the card only appears when expanded. Terminal-native: no box, a
+ * caret marks the disclosure, whitespace carries it. */
+.inbox-action__disclosure { margin-top: 2px; }
+.inbox-action__summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 2px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.inbox-action__summary::-webkit-details-marker { display: none; }
+.inbox-action__summary::before {
+  content: '▸';
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  transition: transform 120ms ease-out;
+  align-self: center;
+}
+.inbox-action__disclosure[open] > .inbox-action__summary::before { transform: rotate(90deg); }
+.inbox-action__summary:hover { color: var(--color-text); }
+.inbox-action__summary:hover::before { color: var(--color-text-muted); }
+.inbox-action__glyph { font-size: var(--font-size-sm); flex: none; }
+.inbox-action__glyph--completed { color: var(--color-ok, #34d399); }
+.inbox-action__glyph--failed,
+.inbox-action__glyph--refused { color: var(--color-danger, #f87171); }
+.inbox-action__summary-head { color: var(--color-text); font-weight: var(--weight-semibold); }
+.inbox-action__summary-status { text-transform: lowercase; }
+.inbox-action__summary-dur { color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+.inbox-action__summary-run { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.inbox-action__summary-run:hover { color: var(--color-primary); }
+.inbox-action__summary-time { margin-left: auto; color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+.inbox-action--collapsed .inbox-action__card { margin-top: var(--space-2); }
 
 .inbox-action__headline {
   font-size: var(--font-size-sm);
@@ -1341,39 +1405,18 @@
   padding: 0;
   position: relative;
 }
-.inbox-timeline::before {
-  /* The vertical rail line. Drawn at the center of the avatar column. */
-  content: '';
-  position: absolute;
-  left: 13px;
-  top: var(--space-2);
-  bottom: var(--space-2);
-  width: 2px;
-  background: var(--color-border);
-  border-radius: 1px;
-}
+/* Rail line removed — the mono `role ›` sigils carry the structure now. */
+.inbox-timeline::before { content: none; }
 .inbox-timeline__entry {
   position: relative;
   padding-left: 0;
-  padding-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
 }
 .inbox-timeline__entry:last-child { padding-bottom: 0; }
 .inbox-timeline__entry .inbox-msg {
-  border-top: 0;
   padding: 0;
-  align-items: flex-start;
-}
-.inbox-timeline__entry .inbox-msg {
-  /* Larger gap between avatar column and body so the rail-line break
-   * around each avatar reads cleanly without a box-shadow halo. */
   gap: var(--space-3);
-}
-.inbox-timeline__entry .inbox-msg__avatar {
-  /* Lift the avatar above the absolute rail line so the dot covers
-   * the line at each entry. No box-shadow ring — the solid background
-   * of the avatar circle handles the visual break on its own. */
-  position: relative;
-  z-index: 1;
+  align-items: flex-start;
 }
 .inbox-composer {
   position: sticky;
@@ -1629,7 +1672,7 @@
   margin: 0;
   padding-right: var(--space-8);
 }
-.inbox-modal__title {
+h3.inbox-modal__title {
   margin: 0;
   font-family: var(--font-mono);
   font-size: var(--font-size-lg);
@@ -1925,25 +1968,60 @@
   margin-top: var(--space-3);
 }
 
-/* ---------- Consolidated composer footer ---------- */
-.inbox-composer__form { margin: 0; }
-.inbox-composer__textarea {
-  width: 100%;
-  /* Drag the bottom of the MODAL to grow the conversation area —
-   * the textarea stays at its declared row height. (Prior
-   * `resize: vertical` on the textarea expanded just that one
-   * element, which wasn't what operators reached for.) */
-  resize: none;
-  font-size: var(--font-size-sm);
-  padding: var(--space-2);
-  line-height: 1.5;
-}
-.inbox-composer__footer {
+/* ---------- Chat bar composer (mirrors the home hero .home-ask) ----------
+ * A single mono-prompted row that reads as conversation, not a form:
+ * `you ›` prompt + a borderless auto-growing input + inline Send. Enter
+ * sends (Shift+Enter = newline). Teal focus ring says "this talks back."
+ * State transitions live in the ⋯ overflow; only "Ask triage" trails below. */
+.inbox-chatbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border-color 120ms ease-out;
+}
+.inbox-chatbar:focus-within { border-color: var(--color-primary); }
+.inbox-chatbar__prompt {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  padding-top: 3px;
+  flex: none;
+}
+.inbox-chatbar__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  resize: none;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  line-height: 1.5;
+  outline: none;
+  max-height: 40vh;
+}
+.inbox-chatbar__input::placeholder { color: var(--color-text-subtle); }
+.inbox-chatbar__input:disabled { background: transparent; opacity: 0.6; }
+.inbox-chatbar__send { align-self: flex-end; flex: none; }
+.inbox-composer__aux {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   margin-top: var(--space-2);
   gap: var(--space-2);
+}
+.inbox-composer__hint {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+  white-space: nowrap;
 }
 .inbox-composer--terminal {
   border-top: 1px solid var(--color-border);
