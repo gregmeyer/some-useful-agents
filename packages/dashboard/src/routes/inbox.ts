@@ -313,17 +313,38 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
     return;
   }
   const titleRaw = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
-  const title = titleRaw.length > 0 ? titleRaw.slice(0, 200) : DEFAULT_NEW_CONVERSATION_TITLE;
-  // body is required by the store; manual-source threads start blank,
-  // so we seed with a small placeholder that's overwritten the moment
-  // the operator's first /respond lands.
+  // Optional first message (the front-door composer). When present, the thread
+  // is born with the operator's words as its first `user` message and triage
+  // fires immediately — the "type → sua answers" hero flow. When absent, the
+  // old behavior stands: an empty stub that /respond seeds later.
+  const bodyRaw = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+  if (bodyRaw.length > 8192) {
+    if (isAjax(req)) { res.status(400).end(); return; }
+    res.redirect(303, `/inbox?error=${encodeURIComponent('Message is too long (max 8 KB).')}`);
+    return;
+  }
+  const title = titleRaw.length > 0
+    ? titleRaw.slice(0, 200)
+    : bodyRaw
+      ? deriveTitleFromBody(bodyRaw)
+      : DEFAULT_NEW_CONVERSATION_TITLE;
   try {
     const created = ctx.inboxStore.add({
       priority: 'medium',
       source: 'manual',
       title,
+      // The thread body stays a placeholder; the conversation lives in
+      // responses (the detail view renders responses, not the body).
       body: '(empty)',
     });
+    if (bodyRaw) {
+      const userResponse = ctx.inboxStore.addResponse(created.id, 'user', bodyRaw);
+      publishInboxEvent(ctx, created.id, 'message:created', {
+        responseId: userResponse.id, role: 'user', body: bodyRaw, createdAt: userResponse.createdAt,
+      });
+      // Fire triage now — same path a first /respond takes on a manual thread.
+      void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+    }
     publishInboxChanged(ctx, created.id, created.status);
     if (isAjax(req)) {
       res.setHeader('X-Inbox-Id', created.id);

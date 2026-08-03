@@ -4042,6 +4042,46 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .home-activity[open] .home-activity__summary { color: var(--color-text); }
 
+/* ── Hero composer (front door "Ask sua") ────────────────────────────────────
+   The chat-first entry: a mono `sua ›` prompt + an auto-growing input. The one
+   place display mono earns its keep as a live prompt. Teal focus ring says
+   "this talks back." Submits to /inbox/new with the first message. */
+.home-ask {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-8);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border-color 120ms ease-out;
+}
+.home-ask:focus-within { border-color: var(--color-primary); }
+.home-ask__prompt {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  color: var(--color-primary);
+  font-size: var(--font-size-md);
+  padding-top: 2px;
+}
+.home-ask__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  resize: none;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  line-height: 1.5;
+  outline: none;
+  max-height: 40vh;
+}
+.home-ask__input::placeholder { color: var(--color-text-subtle); }
+.home-ask__send { align-self: center; flex: none; }
+
 /* ── Inbox cadence feed (front door) ─────────────────────────────────────────
    One dense, borderless list — no cards. Mono-caps hairline labels are the only
    dividers; every row is the same 5-column grid so title / preview / meta / age
