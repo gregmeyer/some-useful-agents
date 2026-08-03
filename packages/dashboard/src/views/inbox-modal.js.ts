@@ -270,22 +270,19 @@ export const INBOX_MODAL_JS = `
     var li = document.createElement('li');
     li.className = 'inbox-timeline__entry';
     var msg = document.createElement('div');
-    msg.className = 'inbox-msg inbox-msg--new';
+    msg.className = 'inbox-msg inbox-msg--triage inbox-msg--new';
     msg.setAttribute('data-streaming', '1');
     msg.setAttribute('data-streaming-bubble', '1');
     var avatar = document.createElement('div');
     avatar.className = 'inbox-msg__avatar inbox-msg__avatar--triage';
-    avatar.textContent = 'Tri';
+    avatar.textContent = 'triage';
     var body = document.createElement('div');
     body.className = 'inbox-msg__body';
     var meta = document.createElement('div');
     meta.className = 'inbox-msg__meta';
-    var name = document.createElement('span');
-    name.className = 'inbox-msg__meta-name';
-    name.textContent = 'Triage agent';
     var age = document.createElement('span');
+    age.className = 'inbox-msg__writing';
     age.textContent = 'Writing…';
-    meta.appendChild(name);
     meta.appendChild(age);
     var text = document.createElement('div');
     text.className = 'inbox-msg__text';
@@ -846,7 +843,7 @@ export const INBOX_MODAL_JS = `
       if (body) {
         savedTextareaValue = textarea ? textarea.value : '';
         pendingEntry = appendPendingReply(body);
-        if (textarea) textarea.value = '';
+        if (textarea) { textarea.value = ''; textarea.style.height = 'auto'; }
       }
     }
 
@@ -887,6 +884,8 @@ export const INBOX_MODAL_JS = `
         }
         if (textarea && savedTextareaValue) {
           textarea.value = savedTextareaValue;
+          textarea.style.height = 'auto';
+          textarea.style.height = Math.min(textarea.scrollHeight, Math.floor(window.innerHeight * 0.4)) + 'px';
         }
       });
   });
@@ -936,7 +935,7 @@ export const INBOX_MODAL_JS = `
     }
   });
   document.addEventListener('input', function (e) {
-    var ta = e.target.closest && e.target.closest('[data-home-ask-input]');
+    var ta = e.target.closest && e.target.closest('[data-home-ask-input], [data-inbox-autogrow]');
     if (!ta) return;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, Math.floor(window.innerHeight * 0.4)) + 'px';
@@ -966,21 +965,18 @@ export const INBOX_MODAL_JS = `
     var li = document.createElement('li');
     li.className = 'inbox-timeline__entry';
     var msg = document.createElement('div');
-    msg.className = 'inbox-msg';
+    msg.className = 'inbox-msg inbox-msg--user';
     msg.setAttribute('data-pending', '1');
     var avatar = document.createElement('div');
     avatar.className = 'inbox-msg__avatar inbox-msg__avatar--user';
-    avatar.textContent = 'You';
+    avatar.textContent = 'you';
     var bodyEl = document.createElement('div');
     bodyEl.className = 'inbox-msg__body';
     var meta = document.createElement('div');
     meta.className = 'inbox-msg__meta';
-    var name = document.createElement('span');
-    name.className = 'inbox-msg__meta-name';
-    name.textContent = 'You';
     var age = document.createElement('span');
+    age.className = 'inbox-msg__writing';
     age.textContent = 'Sending…';
-    meta.appendChild(name);
     meta.appendChild(age);
     var text = document.createElement('div');
     text.className = 'inbox-msg__text';
@@ -1133,6 +1129,21 @@ export const INBOX_MODAL_JS = `
     else if (form) form.submit();
   });
   document.addEventListener('keydown', function (e) {
+    // Chat-bar reply: plain Enter sends, Shift+Enter is a newline. Scoped
+    // to [data-inbox-chat-enter] so the older multiline composers keep
+    // their Cmd/Ctrl+Enter contract below.
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      var chatTa = e.target.closest && e.target.closest('[data-inbox-chat-enter]');
+      if (chatTa) {
+        var chatForm = chatTa.closest('[data-inbox-modal-form]');
+        if (chatForm) {
+          e.preventDefault();
+          if (chatForm.requestSubmit) chatForm.requestSubmit();
+          else chatForm.submit();
+          return;
+        }
+      }
+    }
     // Cmd+Enter (Mac) or Ctrl+Enter submits the reply composer / inline
     // reply / triage form the textarea lives in. Plain Enter still
     // inserts a newline.
