@@ -18,7 +18,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/pg": "8.20.0",
+    "@types/pg": "8.20.2",
     "@types/uuid": "11.0.0",
     "typescript": "7.0.2"
   },
