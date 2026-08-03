@@ -891,6 +891,57 @@ export const INBOX_MODAL_JS = `
       });
   });
 
+  // ── Home hero composer ────────────────────────────────────────────────
+  // The front-door "Ask sua" input. Submitting POSTs /inbox/new WITH the first
+  // message (so the thread is born seeded + triage fires server-side), then
+  // opens the returned thread in-modal — the SSE stream shows triage answering
+  // immediately. Degrades to a full-page POST→redirect without JS.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-home-ask')) return;
+    e.preventDefault();
+    var input = form.querySelector('[data-home-ask-input]');
+    var sendBtn = form.querySelector('[data-home-ask-send]');
+    var bodyText = input ? String(input.value).trim() : '';
+    if (!bodyText) { if (input) input.focus(); return; }
+    if (form.getAttribute('data-inflight') === '1') return;
+    form.setAttribute('data-inflight', '1');
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+    fetch('/inbox/new', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: new URLSearchParams({ body: bodyText }).toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+    })
+      .then(function (r) { if (!r.ok) throw new Error('create failed: ' + r.status); return r.headers.get('X-Inbox-Id'); })
+      .then(function (newId) {
+        if (input) { input.value = ''; input.style.height = 'auto'; }
+        if (newId) openFor(newId);
+      })
+      .catch(function (err) { console.error('inbox /new failed', err); })
+      .then(function () {
+        form.removeAttribute('data-inflight');
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send ↵'; }
+      });
+  });
+  // Enter submits (Shift+Enter = newline); textarea auto-grows with content.
+  document.addEventListener('keydown', function (e) {
+    var ta = e.target.closest && e.target.closest('[data-home-ask-input]');
+    if (!ta) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      var form = ta.closest('[data-home-ask]');
+      if (form && form.requestSubmit) form.requestSubmit();
+      else if (form) form.submit();
+    }
+  });
+  document.addEventListener('input', function (e) {
+    var ta = e.target.closest && e.target.closest('[data-home-ask-input]');
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, Math.floor(window.innerHeight * 0.4)) + 'px';
+  });
+
   /**
    * Append a "Sending…" placeholder bubble to the conversation
    * timeline. Matches the structure of renderConversationEntry so the

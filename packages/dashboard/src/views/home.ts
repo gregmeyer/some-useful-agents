@@ -167,15 +167,13 @@ export function renderHomePage(input: HomePageInput): string {
   const pulseHeading = html`<h2 class="section-label" style="margin: 0;">Signals</h2>`;
 
   const body = html`
-    <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);">
-      <h1 style="margin: 0;">Home</h1>
-      <span class="dim" style="font-size: var(--font-size-sm);">
-        ${String(input.agentCount)} agent${input.agentCount !== 1 ? 's' : ''} registered
-      </span>
-      <form method="POST" action="/inbox/new" style="margin: 0 0 0 auto;">
-        <button type="submit" class="btn btn--primary btn--sm" title="Start a new inbox thread — ask sua to run, build, fix, or look something up">Ask sua →</button>
-      </form>
-    </div>
+    <form class="home-ask" method="POST" action="/inbox/new" data-home-ask>
+      <span class="home-ask__prompt" aria-hidden="true">sua&nbsp;›</span>
+      <textarea class="home-ask__input" name="body" rows="1"
+        placeholder="Ask sua to run, build, fix, or look something up…"
+        data-home-ask-input aria-label="Ask sua"></textarea>
+      <button type="submit" class="btn btn--primary btn--sm home-ask__send" data-home-ask-send>Send ↵</button>
+    </form>
 
     ${renderHomeInboxFeed(input.feed)}
 

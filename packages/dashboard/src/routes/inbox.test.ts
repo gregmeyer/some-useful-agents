@@ -1720,6 +1720,37 @@ describe('POST /inbox/new', () => {
     const row = inboxStore.get(res.headers['x-inbox-id']);
     expect(row!.title).toBe('New conversation');
   });
+
+  it('with a body: seeds the first user message + derives the title (hero composer)', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/new')
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send({ body: 'get me the latest 3 hacker news headlines' });
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    const row = inboxStore.get(id);
+    // Title derived from the message, not the empty-stub default.
+    expect(row!.title).not.toBe('New conversation');
+    expect(row!.title).toContain('hacker news');
+    // The message is recorded as the first user response (triage-eligible),
+    // not left as an empty stub.
+    const responses = inboxStore.listResponses(id);
+    const user = responses.find((r) => r.role === 'user');
+    expect(user?.body).toBe('get me the latest 3 hacker news headlines');
+  });
+
+  it('without a body: stays an empty stub (unchanged), no user response', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/inbox/new')
+      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send('title=');
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    expect(inboxStore.get(id)!.body).toBe('(empty)');
+    expect(inboxStore.listResponses(id).some((r) => r.role === 'user')).toBe(false);
+  });
 });
 
 describe('POST /inbox/:id/triage', () => {
