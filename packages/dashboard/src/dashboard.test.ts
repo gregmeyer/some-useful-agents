@@ -641,10 +641,14 @@ describe('Dashboard static assets', () => {
     expect(res.headers['content-type']).toMatch(/text\/css/);
     expect(res.text).not.toMatch(/\/\* missing /);
     // Sanity-check that real content from each source file is present.
+    // screens.css was split into per-surface contiguous slices (shell,
+    // agent-detail, runs, settings, pulse, inbox) — the served concatenation
+    // is byte-identical modulo these injected headers.
     expect(res.text).toContain('---- tokens.css ----');
     expect(res.text).toContain('---- base.css ----');
     expect(res.text).toContain('---- components.css ----');
-    expect(res.text).toContain('---- screens.css ----');
+    expect(res.text).toContain('---- inbox.css ----');
+    expect(res.text).toContain('---- pulse.css ----');
     expect(res.text).toContain('---- themes.css ----');
     // tokens.css declares :root design-token variables — assert at least
     // one made it through so this isn't trivially passing on empty files.

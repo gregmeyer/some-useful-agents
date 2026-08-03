@@ -17,9 +17,11 @@ import { fileURLToPath } from 'node:url';
  *      cytoscape against a `<div id="dag-canvas">`.
  *
  *   3. /assets/dashboard.css
- *      Concatenation of tokens.css, base.css, components.css, screens.css.
- *      The design-system foundation. Files live in src/assets/ and are
- *      copied to dist/assets/ by the build script.
+ *      Concatenation of tokens.css, base.css, components.css, the per-surface
+ *      sheets (shell, agent-detail, runs, settings, pulse, inbox — the former
+ *      screens.css split into contiguous slices), and themes.css. The
+ *      design-system foundation. Files live in src/assets/ and are copied to
+ *      dist/assets/ by the build script. Order is load-bearing (cascade).
  *
  * All are read once at startup and cached in memory with a
  * long-lived immutable Cache-Control.
@@ -98,7 +100,16 @@ function loadDashboardCss(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const primaryDir = join(here, '..', 'assets');                  // dist/assets OR src/assets
   const fallbackDir = join(here, '..', '..', 'src', 'assets');    // src/assets when serving from dist
-  const order = ['tokens.css', 'base.css', 'components.css', 'screens.css', 'themes.css'];
+  // Foundation first (tokens → base → components), then per-surface sheets in
+  // the SAME source order the old monolithic screens.css defined them (cascade
+  // depends on order), then themes last. screens.css was split into these
+  // contiguous slices with zero rule reordering — the concatenation is
+  // byte-identical to the former single file.
+  const order = [
+    'tokens.css', 'base.css', 'components.css',
+    'shell.css', 'agent-detail.css', 'runs.css', 'settings.css', 'pulse.css', 'inbox.css',
+    'themes.css',
+  ];
   const parts: string[] = [];
   let foundAny = false;
   for (const name of order) {
