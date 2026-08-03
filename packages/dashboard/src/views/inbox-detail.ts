@@ -117,12 +117,13 @@ const ROLE_LABEL: Record<InboxResponseRole, string> = {
   action: 'Proposed action',
 };
 
-/** Two-character avatar text per role (mirrors Slack-style avatars). */
+/** Terminal-native speaker sigil per role — rendered mono as `triage ›`, the
+ *  `›` added in CSS so the JS-built optimistic bubbles match. */
 const ROLE_AVATAR: Record<InboxResponseRole, string> = {
-  user: 'You',
-  triage: 'Tri',
-  system: 'Sys',
-  action: 'Act',
+  user: 'you',
+  triage: 'triage',
+  system: 'system',
+  action: 'action',
 };
 
 /** Human label for each action-card status. */
@@ -302,6 +303,14 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form class="inbox-modal__menu-form">
           <button type="submit" class="inbox-modal__menu-item" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
         </form>
+        ${!isTerminal ? html`
+          <form method="POST" action="/inbox/${message.id}/resolve" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" class="inbox-modal__menu-form">
+            <button type="submit" class="inbox-modal__menu-item" title="Mark this thread fixed">Mark resolved</button>
+          </form>
+          <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" class="inbox-modal__menu-form">
+            <button type="submit" class="inbox-modal__menu-item">Dismiss</button>
+          </form>
+        ` : html``}
         ${isTerminal ? html`
           <form method="POST" action="/inbox/${message.id}/reopen" data-inbox-modal-form class="inbox-modal__menu-form">
             <button type="submit" class="inbox-modal__menu-item">Reopen</button>
@@ -311,9 +320,16 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   `;
 
-  const timeline = responses.map((r) => html`
-    <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust)}</li>
-  `);
+  const timeline = responses.map((r, i) => {
+    // Group consecutive same-role conversation turns (Claude/Slack-style): the
+    // speaker sigil shows once per run. Actions always break a group (they're
+    // tool calls, not speech).
+    const prev = responses[i - 1];
+    const grouped = !!prev && prev.role === r.role && r.role !== 'action';
+    return html`
+      <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust, grouped)}</li>
+    `;
+  });
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by
@@ -328,9 +344,11 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </section>
   `;
 
-  // Single consolidated footer: composer textarea on top, then a single
-  // right-aligned row with Ask triage and Dismiss as ghost secondaries
-  // sitting beside the Post reply primary on the right.
+  // Chat bar composer: a single mono-prompted row (`you ›` + auto-growing
+  // input + inline Send) that reads as a conversation, not a form. Enter
+  // sends, Shift+Enter is a newline. State transitions (resolve/dismiss)
+  // live in the ⋯ overflow; "Ask triage" — poke triage with no reply —
+  // is the one secondary that stays in reach, below the bar.
   const composer = isTerminal
     ? html`
       <div class="inbox-composer inbox-composer--terminal">
@@ -341,24 +359,26 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     `
     : html`
       <div class="inbox-composer">
-        ${replyComposerOnly(message, triagePending ?? false)}
-        <div class="inbox-composer__footer">
+        <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
+          data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar">
+          <span class="inbox-chatbar__prompt" aria-hidden="true">you&nbsp;›</span>
+          <textarea name="body" rows="1" required maxlength="8192"
+            ${triagePending ? 'disabled' : ''}
+            placeholder="Reply, ask a follow-up, or note a decision…"
+            class="inbox-chatbar__input" data-inbox-autogrow data-inbox-chat-enter
+            aria-label="Reply to this thread"></textarea>
+          <button type="submit" class="btn btn--sm btn--primary inbox-chatbar__send"
+            title="Enter to send" ${triagePending ? 'disabled' : ''}>
+            ${triagePending ? 'Waiting…' : 'Send ↵'}
+          </button>
+        </form>
+        <div class="inbox-composer__aux">
           <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin: 0;">
-            <button type="submit" class="btn btn--sm btn--ghost" ${triagePending ? 'disabled' : ''}>
+            <button type="submit" class="btn btn--xs btn--ghost" ${triagePending ? 'disabled' : ''}>
               ${triagePending ? 'Triaging…' : 'Ask triage'}
             </button>
           </form>
-          <form method="POST" action="/inbox/${message.id}/resolve" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
-            <button type="submit" class="btn btn--sm btn--ghost" title="Mark this thread fixed">Mark resolved</button>
-          </form>
-          <form method="POST" action="/inbox/${message.id}/dismiss" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
-            <button type="submit" class="btn btn--sm btn--ghost">Dismiss</button>
-          </form>
-          <button type="submit" form="inbox-reply-form" class="btn btn--sm btn--primary"
-            title="Cmd/Ctrl + Enter"
-            ${triagePending ? 'disabled' : ''}>
-            ${triagePending ? 'Waiting…' : 'Post reply'}
-          </button>
+          <span class="inbox-composer__hint" aria-hidden="true">↵ send · ⇧↵ newline</span>
         </div>
       </div>
     `;
@@ -397,19 +417,6 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
  * footer row alongside Ask triage / Dismiss. The `<form id>` lets
  * the footer's primary button reach it via `form="inbox-reply-form"`.
  */
-function replyComposerOnly(message: InboxMessage, triagePending: boolean): SafeHtml {
-  if (message.status === 'dismissed' || message.status === 'resolved') return html``;
-  return html`
-    <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
-      data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-composer__form">
-      <textarea name="body" rows="3" required maxlength="8192"
-        ${triagePending ? 'disabled' : ''}
-        placeholder="Describe what you tried, ask a follow-up, or note a decision. The triage agent will respond."
-        class="form-field inbox-composer__textarea"></textarea>
-    </form>
-  `;
-}
-
 /** Full-page render — used for direct `/inbox/:id` GETs (fallback). */
 export function renderInboxDetail(opts: InboxDetailOptions): string {
   const { message, flash } = opts;
@@ -494,10 +501,11 @@ function renderConversationEntry(
   currentTargetYaml?: string,
   inlineActionWidgets?: Record<string, SafeHtml | undefined>,
   agentTrust?: Map<string, AgentTrustInfo>,
+  grouped = false,
 ): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust);
   const role = (ROLE_LABEL[r.role] ?? r.role);
-  const avatar = ROLE_AVATAR[r.role] ?? r.role.slice(0, 1).toUpperCase();
+  const sigil = ROLE_AVATAR[r.role] ?? r.role.slice(0, 3).toLowerCase();
   // Verification verdict notes (B1 + B3): B1 tags its verify-on-resolve system
   // notes with a `kind`; surface them distinctly so a "Verified" vs "couldn't
   // verify" outcome reads as a verdict, not just another system line.
@@ -507,14 +515,23 @@ function renderConversationEntry(
     : verifyKind === 'verify-failed'
       ? html`<span class="inbox-verify inbox-verify--fail">⚠ Not verified</span>`
       : html``;
+  // Terminal-native speaker: a mono `triage ›` sigil (colored per role) instead
+  // of a round avatar; hidden on grouped continuations so a run of same-role
+  // turns reads as one block. The avatar element stays (grouping/streaming JS
+  // and the CSS `::after` sigil rely on the class), just restyled.
+  const classes = [
+    'inbox-msg',
+    `inbox-msg--${r.role}`,
+    grouped ? 'inbox-msg--grouped' : '',
+    verifyKind ? `inbox-msg--verify inbox-msg--${verifyKind}` : '',
+  ].filter(Boolean).join(' ');
   return html`
-    <div class="inbox-msg ${verifyKind ? `inbox-msg--verify inbox-msg--${verifyKind}` : ''}" data-msg-id="${r.id}">
-      <div class="inbox-msg__avatar inbox-msg__avatar--${r.role}">${avatar}</div>
+    <div class="${classes}" data-msg-id="${r.id}">
+      <div class="inbox-msg__avatar inbox-msg__avatar--${r.role}" aria-label="${role}">${sigil}</div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
-          <span class="inbox-msg__meta-name">${role}</span>
           ${verifyBadge}
-          <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
+          <span class="inbox-msg__time">${formatAge(new Date(r.createdAt).toISOString())}</span>
           <button type="button" class="inbox-msg__copy" data-inbox-copy
             aria-label="Copy ${role} message"
             title="Copy this message">
@@ -643,7 +660,6 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     `;
   }
 
-  const statusLabel = ACTION_STATUS_LABEL[meta.status] ?? meta.status;
   const inputsRendered = renderActionInputs(meta.inputs);
   const messageId = '__inbox_message_id__'; // hijacked from form action below
 
@@ -685,39 +701,90 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         : html`<span class="inbox-action__prov inbox-action__prov--operator" title="You approved this action">✓ you approved</span>`)
     : html``;
 
+  // The action's one-line identity — reused as both the expanded headline and
+  // the collapsed <summary>. Kept in one place so the two never drift.
+  const headline = html`
+    ${meta.agentId === 'dashboard-editor'
+      ? html`${meta.inputs.op === 'create' ? 'Create dashboard' : 'Add tile'} · <span class="mono">${meta.inputs.DASHBOARD ?? ''}</span>${meta.inputs.AGENT_ID ? html` · <span class="mono">${meta.inputs.AGENT_ID}</span>` : html``}`
+      : meta.mode === 'show-widget'
+        ? html`Latest <span class="mono">${meta.agentId}</span> output`
+        : meta.mode === 'resolve'
+          ? html`Resolved this thread`
+          : html`Run agent <span class="mono">${meta.agentId}</span>`}
+  `;
+
+  const cardInner = html`
+    ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
+    ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+      ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
+      : inputsRendered}
+    ${detailBlock}
+    ${trustBlock}
+    ${controlsBlock}
+  `;
+
+  // Progressive disclosure: a *finished* dispatched run is signal-complete at a
+  // glance (agent · outcome · duration), so collapse it to a mono one-liner the
+  // operator can expand for inputs/output. Kept expanded: proposed/running
+  // (need controls or show live progress), and resolve/show-widget completions
+  // (the confirmation or the live widget IS the payload). Skipped is already a
+  // single sentence — no disclosure worth a click.
+  const glyph = ACTION_SUMMARY_GLYPH[meta.status];
+  const collapsible = !!glyph && isDispatched && meta.mode !== 'show-widget';
+  if (collapsible) {
+    const dur = formatDuration(meta);
+    return html`
+      <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status} inbox-action--collapsed" data-msg-id="${r.id}">
+        <div class="inbox-msg__avatar inbox-msg__avatar--action" aria-hidden="true"></div>
+        <div class="inbox-msg__body">
+          <details class="inbox-action__disclosure">
+            <summary class="inbox-action__summary">
+              <span class="inbox-action__glyph inbox-action__glyph--${meta.status}" aria-hidden="true">${glyph.mark}</span>
+              <span class="inbox-action__summary-head">${headline}</span>
+              <span class="inbox-action__summary-status">${glyph.word}</span>
+              ${dur ? html`<span class="inbox-action__summary-dur mono">${dur}</span>` : html``}
+              ${meta.runId ? html`<a href="/runs/${meta.runId}" class="inbox-action__summary-run mono" onclick="event.stopPropagation()">run ${meta.runId.slice(0, 8)}</a>` : html``}
+              ${provenance}
+              <span class="inbox-action__summary-time">${formatAge(new Date(r.createdAt).toISOString())}</span>
+            </summary>
+            <div class="inbox-action__card">${cardInner}</div>
+          </details>
+        </div>
+      </div>
+    `;
+  }
+
   return html`
     <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
-      <div class="inbox-msg__avatar inbox-msg__avatar--action">Act</div>
+      <div class="inbox-msg__avatar inbox-msg__avatar--action" aria-hidden="true"></div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
-          <span class="inbox-msg__meta-name">${meta.mode === 'show-widget' ? 'Widget' : meta.mode === 'resolve' ? 'Triage resolved' : 'Triage proposed'}</span>
-          ${meta.mode === 'show-widget' || meta.mode === 'resolve' ? html`` : html`<span class="inbox-action__status">${statusLabel}</span>`}
           ${provenance}
-          <span>${formatAge(new Date(r.createdAt).toISOString())}</span>
+          <span class="inbox-msg__time">${formatAge(new Date(r.createdAt).toISOString())}</span>
         </div>
         <div class="inbox-action__card">
           <div class="inbox-action__headline">
-            ${meta.agentId === 'dashboard-editor'
-              ? html`${meta.inputs.op === 'create' ? 'Create dashboard' : 'Add tile'} · <span class="mono">${meta.inputs.DASHBOARD ?? ''}</span>${meta.inputs.AGENT_ID ? html` · <span class="mono">${meta.inputs.AGENT_ID}</span>` : html``}`
-              : meta.mode === 'show-widget'
-                ? html`Latest <span class="mono">${meta.agentId}</span> output`
-                : meta.mode === 'resolve'
-                  ? html`Resolved this thread`
-                  : html`Run agent <span class="mono">${meta.agentId}</span>`}
+            ${headline}
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
           </div>
-          ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
-          ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
-            ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
-            : inputsRendered}
-          ${detailBlock}
-          ${trustBlock}
-          ${controlsBlock}
+          ${cardInner}
         </div>
       </div>
     </div>
   `;
 }
+
+/**
+ * Collapse glyph + outcome word for each terminal action status. Statuses
+ * absent from this map (proposed, running) are never collapsed — see
+ * `renderActionEntry`. `skipped` is intentionally omitted: it renders as a
+ * single sentence, so there is nothing worth hiding behind a disclosure.
+ */
+const ACTION_SUMMARY_GLYPH: Partial<Record<string, { mark: string; word: string }>> = {
+  completed: { mark: '✓', word: 'completed' },
+  failed: { mark: '✕', word: 'failed' },
+  refused: { mark: '⊘', word: 'refused' },
+};
 
 /**
  * Compact per-agent trust control on an action card (B2). Shows the agent's
