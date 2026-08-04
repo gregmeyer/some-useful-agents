@@ -88,6 +88,18 @@ describe('raiseRunFailureInbox', () => {
     expect(raised?.message.agentId).toBe('news-digest');
   });
 
+  it('suppresses internal `_`-prefixed synthetic helpers (e.g. _yaml-fixer)', () => {
+    // A Temporal run that would otherwise raise — the guard is the id, not the
+    // provider — so this proves the suppression, not the local-flag path.
+    const raised = raiseRunFailureInbox(store, {
+      run: run({ agentName: '_yaml-fixer', usedWorkflowProvider: 'temporal' }),
+      failedNodeId: 'fix',
+      errorCategory: 'setup',
+    });
+    expect(raised).toBeUndefined();
+    expect(store.findActiveByAgentAndSource('_yaml-fixer', 'run-failure')).toBeFalsy();
+  });
+
   it('SUA_INBOX_LOCAL_RUN_FAILURES=0 restores the Temporal-only behavior', () => {
     process.env.SUA_INBOX_LOCAL_RUN_FAILURES = '0';
     expect(raiseRunFailureInbox(store, { run: run({ usedWorkflowProvider: 'local' }) })).toBeUndefined();
