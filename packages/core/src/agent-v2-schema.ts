@@ -497,7 +497,7 @@ export const agentV2Schema = z.object({
 
   // Sensitive-env input-name shadowing
   if (data.inputs) {
-    for (const name of Object.keys(data.inputs)) {
+    for (const [name, spec] of Object.entries(data.inputs)) {
       if (SENSITIVE_ENV_NAMES.has(name)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -506,6 +506,35 @@ export const agentV2Schema = z.object({
             `Input name "${name}" is reserved. It would override a sensitive ` +
             `process environment variable. Pick a different name.`,
         });
+      }
+
+      // Shell-style reference used as an input default (e.g. `default: $API_KEY`).
+      // Input defaults are LITERAL strings — `$API_KEY` is never re-resolved, so
+      // it gets injected verbatim (a bogus credential sent to the API) and, because
+      // input defaults out-rank secrets and variables in env precedence, it silently
+      // shadows a real value of the same name. Almost always an authoring/generator
+      // mistake; reject it with the correct wiring spelled out. To reference a
+      // secret, declare `secrets: [NAME]` on the node(s) and use `$NAME` in the
+      // command; for a non-secret, set a global variable and use `$NAME` /
+      // `{{vars.NAME}}` — in both cases with no input default.
+      const def = spec?.default;
+      if (typeof def === 'string') {
+        const ref = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(def.trim());
+        if (ref) {
+          const target = ref[1];
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['inputs', name, 'default'],
+            message:
+              `Input "${name}" has default "${def}", which is a shell-style reference, not a value. ` +
+              `Input defaults are literal strings: "${def}" would be injected verbatim (e.g. sent as a bogus ` +
+              `credential) and, since input defaults out-rank secrets and variables, it silently shadows a real "${target}". ` +
+              `To use a secret: remove this default and add \`secrets: [${target}]\` to the node(s) that need it, ` +
+              `then reference \`$${target}\` in the shell command (or \`{{secrets.${target}}}\` in a prompt). ` +
+              `For a non-secret value: set a global variable "${target}" and reference \`$${target}\` (shell) or ` +
+              `\`{{vars.${target}}}\` (prompt) — again with no input default.`,
+          });
+        }
       }
     }
   }

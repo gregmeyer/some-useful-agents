@@ -252,6 +252,34 @@ describe('agentV2Schema — rejections', () => {
     expect(r.success).toBe(false);
   });
 
+  it('rejects a shell-style reference used as an input default ($NAME)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      inputs: { AIRNOW_KEY: { type: 'string', default: '$AIRNOW_KEY' } },
+    }));
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const iss = r.error.issues.find((i) => i.path.join('.') === 'inputs.AIRNOW_KEY.default');
+      expect(iss).toBeDefined();
+      // Message must point the author at the supported wiring.
+      expect(iss!.message).toMatch(/secrets: \[AIRNOW_KEY\]/);
+      expect(iss!.message).toMatch(/\{\{vars\.AIRNOW_KEY\}\}/);
+    }
+  });
+
+  it('rejects the ${NAME} brace form too', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      inputs: { TOKEN: { type: 'string', default: '${TOKEN}' } },
+    }));
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts a literal default that merely contains a $ (e.g. a price)', () => {
+    const r = agentV2Schema.safeParse(validSingleNode({
+      inputs: { PRICE: { type: 'string', default: '$5.00' } },
+    }));
+    expect(r.success).toBe(true);
+  });
+
   it('rejects empty nodes array', () => {
     const r = agentV2Schema.safeParse({ id: 'x', name: 'X', nodes: [] });
     expect(r.success).toBe(false);

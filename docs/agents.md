@@ -70,6 +70,8 @@ inputs:
 
 Names must match `[A-Z_][A-Z0-9_]*` (uppercase letters, digits, underscores). The dashboard renders inputs in its Run modal: text fields for string/number, toggles for boolean, dropdowns for enum.
 
+> **Defaults are literal, not references.** An input `default:` is a plain string — it is **not** re-resolved against secrets or variables. Writing `default: $API_KEY` injects the literal seven characters `$API_KEY` (a bogus credential) and, because input values out-rank secrets/variables in [env precedence](#secrets-and-envallowlist), it silently shadows a real `API_KEY`. The schema **rejects** any default matching `^$NAME$`. To use a secret, declare it with [`secrets:`](#secrets-and-envallowlist) and reference `$NAME` in the command (or `{{secrets.NAME}}` in a prompt); for a non-secret, set a [global variable](templating.md#global-variables) and reference `$NAME` / `{{vars.NAME}}` — in both cases with **no input default**.
+
 ## Persistent state — `$STATE_DIR` and `{{state}}`
 
 Agents that need to persist data across runs (diff-over-time, caches, last-fired markers) get a per-agent directory at `data/agent-state/<agent-id>/`. Created lazily on first use, chmod 0o700, removed automatically when the agent is deleted.

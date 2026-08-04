@@ -14,6 +14,36 @@
   border-radius: var(--radius-md);
 }
 
+/* "Referencing a secret" helper on /settings/secrets. */
+.secret-howto {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.secret-howto__step {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+.secret-howto__code {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  white-space: pre;
+  overflow-x: auto;
+}
+.secret-howto__warn {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
 /* Settings forms — used by /settings/secrets unlock + set flows. */
 .settings-form {
   display: flex;
