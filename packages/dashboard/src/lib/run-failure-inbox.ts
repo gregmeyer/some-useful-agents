@@ -102,6 +102,14 @@ export function raiseRunFailureInbox(
   namespace = 'default',
 ): RaisedRunFailure | undefined {
   if (!inboxStore) return undefined;
+  // Internal one-shot helpers (the dashboard's inline `_yaml-fixer`, and the
+  // build planner/surveyor/drafter agents) run under synthetic `_`-prefixed
+  // ids. They are not user agents: a failure means "the helper couldn't run"
+  // (e.g. its claude-code node hit `binary_missing` at setup), not "an agent
+  // you own is broken." Raising a run-failure thread for them produces
+  // un-actionable inbox noise and misleads triage into "install _yaml-fixer".
+  // The originating build/fix UI surfaces helper failures inline instead.
+  if (info.run.agentName.startsWith('_')) return undefined;
   if (info.run.usedWorkflowProvider !== 'temporal' && !isLocalRunFailureInboxEnabled()) return undefined;
   try {
     const active = inboxStore.findActiveByAgentAndSource(info.run.agentName, 'run-failure');
