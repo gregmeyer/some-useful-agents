@@ -469,28 +469,38 @@
  * the row; the card only appears when expanded. Terminal-native: no box, a
  * caret marks the disclosure, whitespace carries it. */
 .inbox-action__disclosure { margin-top: 2px; }
+/* The collapsed row is a clickable tool-call chip: a faint raised fill + a
+ * caret give it a resting "expandable" affordance (it was near-invisible as
+ * bare text), and hover firms up the border + turns the caret teal. */
 .inbox-action__summary {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: var(--space-2);
-  padding: 2px 0;
+  padding: var(--space-1) var(--space-2);
   cursor: pointer;
   list-style: none;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: border-color 120ms ease-out, color 120ms ease-out;
 }
 .inbox-action__summary::-webkit-details-marker { display: none; }
 .inbox-action__summary::before {
   content: '▸';
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-xs);
-  transition: transform 120ms ease-out;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  transition: transform 120ms ease-out, color 120ms ease-out;
   align-self: center;
 }
 .inbox-action__disclosure[open] > .inbox-action__summary::before { transform: rotate(90deg); }
-.inbox-action__summary:hover { color: var(--color-text); }
-.inbox-action__summary:hover::before { color: var(--color-text-muted); }
+.inbox-action__summary:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.inbox-action__summary:hover::before { color: var(--color-primary); }
 .inbox-action__glyph { font-size: var(--font-size-sm); flex: none; }
 .inbox-action__glyph--completed { color: var(--color-ok, #34d399); }
 .inbox-action__glyph--failed,
@@ -1684,14 +1694,51 @@ h3.inbox-modal__title {
 .inbox-modal__title-actions {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 .inbox-modal__star-form { margin: 0; flex-shrink: 0; }
-.inbox-modal__permalink {
-  white-space: nowrap;
+
+/* Shared icon-button treatment for the header corner cluster (open / star /
+ * more). One consistent 28x28 muted glyph with a hover fill, so the three
+ * in-header controls + the modal-shell × read as a single tidy row instead
+ * of a pill, a bare star, and a triangle-leaking menu. */
+.inbox-modal__hicon {
+  appearance: none;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
   text-decoration: none;
+  user-select: none;
+  list-style: none;
+  transition: background 120ms ease-out, color 120ms ease-out;
 }
+.inbox-modal__hicon:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+/* The overflow trigger is a <details><summary>, so the global
+ * `details > summary::before { content: "▸ " }` (base.css) was injecting a
+ * stray caret before the ⋯. This is an icon button, not a disclosure row —
+ * suppress it (0,1,1 beats the global 0,0,3). */
+.inbox-modal__hicon::before { content: none; }
+/* Star toggle in the header inherits the hicon shape; only the amber "on"
+ * state and the no-bounce hover are distinctive (0,2,0 beats the base). */
+.inbox-modal__hicon.inbox-star--on,
+.inbox-modal__hicon.inbox-star--on:hover { color: var(--color-warn, #fbbf24); }
+.inbox-modal__hicon.inbox-star:hover { transform: none; }
 
 .inbox-modal__meta {
   display: flex;
@@ -1911,23 +1958,7 @@ h3.inbox-modal__title {
   margin: 0;
   flex-shrink: 0;
 }
-.inbox-modal__menu-trigger {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  list-style: none;
-  cursor: pointer;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  user-select: none;
-}
-.inbox-modal__menu-trigger::-webkit-details-marker { display: none; }
-.inbox-modal__menu-trigger:hover { background: var(--color-surface-raised); color: var(--color-text); }
+/* Base shape comes from .inbox-modal__hicon; only the open state is distinct. */
 .inbox-modal__menu[open] .inbox-modal__menu-trigger {
   background: var(--color-surface-raised);
   border-color: var(--color-border);
