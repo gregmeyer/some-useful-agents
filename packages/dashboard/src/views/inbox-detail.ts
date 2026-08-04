@@ -247,11 +247,12 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const starControl = html`
     <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form class="inbox-modal__star-form">
       <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
-      <button type="submit" class="inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}">★</button>
+      <button type="submit" class="inbox-modal__hicon inbox-star ${message.starred ? 'inbox-star--on' : ''}" aria-label="${message.starred ? 'Unstar' : 'Star'}" title="${message.starred ? 'Unstar' : 'Star'}">★</button>
     </form>
   `;
   const permalinkControl = html`
-    <a href="/inbox/${message.id}" class="btn btn--ghost btn--xs inbox-modal__permalink">Open full page</a>
+    <a href="/inbox/${message.id}" class="inbox-modal__hicon inbox-modal__permalink"
+      aria-label="Open full page" title="Open full page">⤢</a>
   `;
 
   // Body lands without a heading — it IS the content, no label needed.
@@ -298,7 +299,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // Summarize is always available, so the menu always renders.
   const actionsMenu = html`
     <details class="inbox-modal__menu" data-inbox-menu>
-      <summary class="inbox-modal__menu-trigger" role="button" aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</summary>
+      <summary class="inbox-modal__hicon inbox-modal__menu-trigger" role="button" aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</summary>
       <div class="inbox-modal__menu-panel" role="menu">
         <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form class="inbox-modal__menu-form">
           <button type="submit" class="inbox-modal__menu-item" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
