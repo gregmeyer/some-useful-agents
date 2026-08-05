@@ -21,6 +21,16 @@ export const INBOX_STREAM_JS = `
   if (typeof EventSource === 'undefined') return;
   var es;
   try { es = new EventSource('/inbox/events'); } catch (e) { return; }
+  // Release the connection deterministically on navigation. Without this,
+  // Chrome reaps the socket lazily, so rapid page-to-page clicks stack
+  // not-yet-closed SSE connections against the ~6-per-origin HTTP/1.1 cap
+  // and subsequent requests (page HTML, assets) queue behind them — a
+  // progressive stall. 'pagehide' fires on navigation and stays
+  // bfcache-friendly (unlike 'beforeunload'). Mirrors the inbox modal's
+  // own eventSource.close().
+  window.addEventListener('pagehide', function () {
+    try { es.close(); } catch (e) { /* noop */ }
+  });
   es.addEventListener('inbox:changed', function (ev) {
     var detail = null;
     try { detail = ev && ev.data ? JSON.parse(ev.data) : null; } catch (e) {}
