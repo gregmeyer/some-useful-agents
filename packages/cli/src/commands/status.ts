@@ -28,7 +28,9 @@ export const statusCommand = new Command('status')
         ui.kv('Status', ui.colorStatus(run.status), 10);
         ui.kv('Started', run.startedAt, 10);
         if (run.completedAt) ui.kv('Completed', run.completedAt, 10);
-        if (run.exitCode !== undefined) ui.kv('Exit code', String(run.exitCode), 10);
+        // DAG/multi-node runs have no run-level exit code (null) — the per-node
+        // codes live on the run page. Only show a real code here.
+        if (run.exitCode !== undefined && run.exitCode !== null) ui.kv('Exit code', String(run.exitCode), 10);
         if (run.error) ui.kv('Error', chalk.red(run.error), 10);
       } else {
         const limit = parseInt(options?.limit ?? '10', 10);

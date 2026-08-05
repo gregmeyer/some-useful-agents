@@ -445,7 +445,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // failures only fire at runtime, well after boot.
   let ctxForInboxKick: DashboardContext | undefined;
   const onRunFailure = inboxStore
-    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
+    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string; exitCode?: number | null; error?: string }) => {
         const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
         if (!raised || !ctxForInboxKick) return;
         // A run failure changed the inbox (new thread, or fresh activity on a

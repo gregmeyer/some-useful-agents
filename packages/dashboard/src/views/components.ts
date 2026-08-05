@@ -137,52 +137,14 @@ export function linkifyRefs(text: string): string {
     .join('');
 }
 
-const EXIT_CODE_LABELS: Record<number, string> = {
-  0: 'success',
-  1: 'general error',
-  2: 'misuse of shell command',
-  3: 'cannot execute (curl: URL malformed)',
-  6: 'curl: could not resolve host',
-  7: 'curl: failed to connect',
-  22: 'curl: HTTP error (4xx/5xx)',
-  28: 'curl: timeout',
-  126: 'permission denied',
-  127: 'command not found',
-  128: 'invalid exit argument',
-  130: 'terminated by Ctrl+C (SIGINT)',
-  137: 'killed (SIGKILL / out of memory)',
-  139: 'segmentation fault (SIGSEGV)',
-  143: 'terminated (SIGTERM)',
-};
-
-export function formatExitCode(code: number | null | undefined): string {
-  // DAG/multi-node runs (and some legacy v1 runs) have no run-level exit code —
-  // the store returns null, which must render as "no exit code", not "exit null".
-  if (code == null) return '';
-  const label = EXIT_CODE_LABELS[code];
-  if (code >= 129 && code <= 165 && !label) {
-    const signal = code - 128;
-    return `exit ${code} (signal ${signal})`;
-  }
-  return label ? `exit ${code} (${label})` : `exit ${code}`;
-}
-
-const ERROR_CATEGORY_LABELS: Record<string, string> = {
-  setup: 'Setup failed (before execution)',
-  input_resolution: 'Template substitution failed',
-  spawn_failure: 'Process could not start',
-  exit_nonzero: 'Non-zero exit code',
-  timeout: 'Timed out',
-  cancelled: 'Cancelled',
-  upstream_failed: 'Skipped (upstream failed)',
-  condition_not_met: 'Skipped (condition not met)',
-  flow_ended: 'Flow ended',
-  invalid_output: 'Output failed the task contract',
-};
-
-export function formatErrorCategory(category: string): string {
-  return ERROR_CATEGORY_LABELS[category] ?? category;
-}
-
-// Re-export from core so dashboard views can import from components.
-export { cronToHuman } from '@some-useful-agents/core';
+// Failure-explanation helpers live in core (single source of truth so the CLI,
+// dashboard, and inbox render the same wording). Re-exported here so existing
+// dashboard view imports (formatExitCode / formatErrorCategory) stay valid.
+export {
+  cronToHuman,
+  EXIT_CODE_LABELS,
+  ERROR_CATEGORY_LABELS,
+  formatExitCode,
+  formatErrorCategory,
+  explainNodeFailure,
+} from '@some-useful-agents/core';
