@@ -1,5 +1,313 @@
 # @some-useful-agents/temporal-provider
 
+## 0.26.0
+
+### Minor Changes
+
+- 0396733: A healthy run no longer reads as a failure, and the analyzer can see what each node produced.
+
+  **End-node default.** An `end` node reached in the normal course wrote "Flow
+  ended early." as the run's terminal result — which reads as a premature failure
+  and repeatedly convinced operators, inbox triage, and agent-analyzer that a
+  `completed` run had failed. The default is now the neutral "Flow complete."
+  (authors who want custom wording still set `endMessage`).
+
+  **Analyzer sees node-level output.** agent-analyzer was fed only a run's terminal
+  result, so for any agent ending on an `end` node the substantive work (e.g. a
+  query node returning `match_count: 0`) was invisible — and it looped on "run it
+  again". The analyzer's LAST_RUN_OUTPUT now appends a per-node output digest of
+  the latest completed run, and its prompt is updated to treat a completed run as
+  success, read the per-node output to distinguish an empty-data/misconfig issue
+  from a code bug, and never recommend re-running a run whose outcome it already
+  has.
+
+- 4a2984a: Autonomous first-touch triage (opt-in): new inbox items get analyzed without a human poke.
+
+  Until now a run-failure inbox item sat `open` and inert until the operator opened the thread and clicked "Ask triage." With `SUA_INBOX_AUTO_TRIAGE=1` (or `experimental.inboxAutoTriage: true` in `sua.config.json`), the inbox closes that gap on its own: producers kick a triage turn the moment they raise an item, and a 30s background sweeper (the durable path) picks up anything the kick missed — items created while the dashboard was down, or stranded by a crash between insert and kick. Manual threads are never auto-touched; the operator still owns that kickoff.
+
+  Autonomy stays bounded: at most 3 first-touches per sweep, a global ceiling of 3 concurrent triage runs for the autonomous paths, and all existing engine guards (per-thread turn cap, action cap, one-write-per-turn, operator Stop) apply unchanged. Default off in this release; the default is planned to flip once durable recovery and the local-failure producer land.
+
+- d3cc39e: Autonomous inbox triage is now the default, and Stop actually stops things.
+
+  `SUA_INBOX_AUTO_TRIAGE` flips from opt-in to opt-out: new inbox items get analyzed — and trusted actions run — without a human poke, out of the box. Opt out with `SUA_INBOX_AUTO_TRIAGE=0` or `experimental.inboxAutoTriage: false`. The staged rollout is complete: durable restart recovery and the coalesced local-failure producer landed first, and all per-thread guards (5-turn cap, action cap, one-write-per-turn) are unchanged.
+
+  The operator Stop button now cancels in-flight sub-agent action runs — local dispatches register an AbortController so the executor is actually interrupted; Temporal runs get a best-effort provider cancel plus a local force-finalize (the worker may still finish server-side). Previously Stop only suppressed the _next_ turn while the current action ran to completion.
+
+- a8eeb36: feat(home): inbox-as-front-door — a cadence-organized feed leads Mission Control
+
+  The home page (`/`) now opens with the inbox instead of a status board. A
+  cadence feed organizes your threads by time — Needs you / Today / This week /
+  Earlier — plus a "sua closed these" ticker, so the front door answers "what's
+  happening now" at a glance. Each row carries a task-2×2 nature tag
+  (scheduled ⏰ / ad-hoc ⚡ · deterministic ⚙ / non-deterministic 🧠) derived from
+  the thread's agent, so you can tell "must I act" from "can I just read" without
+  opening anything. The Pulse board and recent-activity feed are demoted to
+  collapsed "Signals" / "Recent activity" zones below the feed — nothing removed,
+  just reordered so the conversation leads. The feed stays live via the existing
+  global inbox SSE stream, and rows open the thread in place.
+
+- f02628e: Inbox triage now knows your dashboards.
+
+  The triage turn is handed a `DASHBOARDS` catalog — your existing dashboards as
+  `[{id,name,tiles,agents}]` — so it can answer "which dashboards do I have / where
+  can I add agents", target an existing dashboard by its exact id when pinning an
+  agent's tile (`dashboard-editor` add-tile) instead of guessing a name and minting
+  a near-duplicate, and skip re-adding an agent that's already pinned.
+
+- 81e9df6: Durable inbox follow-through: restarts no longer strand triage chains, and Stop survives reboots.
+
+  All triage follow-through state used to live in-memory, so a dashboard restart mid-chain left action cards stuck `running` forever and killed in-flight conversations silently. A new boot reconciler settles every stranded action against run-store truth (completed while down → finalized with its result; run gone → failed with a restart-explaining reason), re-attaches waiters to genuinely in-flight Temporal runs, and — when auto-triage is enabled — re-fires triage once per thread whose turn died with the old process. With auto-triage off, interrupted threads surface as "Your turn" instead of sitting silently.
+
+  The operator Stop button is now persisted (`paused` column on inbox messages): a silenced thread stays silenced across restarts, and the auto-triage sweeper will never re-engage it. Replying still lifts the pause.
+
+- 01778e8: feat(inbox): global SSE stream — live badge + live list without reload
+
+  The inbox now pushes changes to every open page instead of waiting on a 30s
+  poll. A new global `'*'` channel on the inbox event bus carries coarse
+  `inbox:changed` events, published at every state-change site (thread created,
+  triaged, verifying, resolved, dismissed, reopened, run-failure raised). A new
+  `GET /inbox/events` SSE endpoint streams them; a single `EventSource` per tab
+  re-broadcasts them so the top-bar "needs you" badge updates within ~half a
+  second and the `/inbox` list live-refreshes its rows (via a new
+  `GET /inbox/rows` fragment) with the operator's current filters preserved. The
+  30s poll remains as a fallback. Live refresh yields to an open thread modal or
+  an in-progress bulk selection so it never yanks work out from under you.
+
+- 164bbdc: feat(inbox): Home leads with the inbox — needs-you strip + auto-resolved loop ticker
+
+  The Mission Control home now opens with the inbox instead of keeping it in the
+  top-bar toast only. An amber "Needs you" strip surfaces the threads awaiting a
+  reply, and a teal "loop ticker" shows the threads sua resolved on its own
+  ("sua closed these") — the trust-building counterpart that shows the system
+  closing loops, not just asking. Both strips stay live via the global inbox SSE
+  stream and open the thread modal in place (falling back to the thread page
+  without JS).
+
+  A new `auto_resolved` column records whether a thread was resolved
+  autonomously (verify-on-resolve / triage) vs by the operator, so the ticker
+  only ever shows sua's own wins; a reopen + operator-resolve correctly clears
+  the flag. New store query `listRecentlyResolved`.
+
+- d94a8a8: feat(inbox): list pagination, source/agent filters, source sort, bulk resolve
+
+  The inbox list no longer silently caps at 200 rows. A "Load more" control
+  pages through the rest (append-only, preserving the current filters), backed
+  by a new `listPage()` store method that reports `hasMore` via a limit+1 probe.
+  The filter bar gains Source and Agent dropdowns, and the previously-dead
+  `?sort=source` key now really sorts by source. A "Resolve selected" bulk action
+  sits alongside the existing bulk dismiss. Operator bulk resolve stays out of
+  the Home loop ticker (it isn't an autonomous close).
+
+- 1bec98e: Local run failures now reach the inbox — with per-agent coalescing so a crash loop is one thread, not fifty.
+
+  The run-failure producer was Temporal-only: a scheduled agent failing locally at 3am never raised an inbox item. Local failures now raise too (opt out with `SUA_INBOX_LOCAL_RUN_FAILURES=0`), and the stuck-run watchdog raises items for runs it reaps mid-uptime.
+
+  Noise control: a repeat failure of an agent that already has an active run-failure thread is appended to that thread as a system note (with run link, failed node, and error) instead of opening a new one — bounding thread count and giving triage failure-frequency context for free. Per-run dedupe stays as the second layer. Inbox-dispatched sub-agent runs and the triage run itself deliberately never raise items (their failures already land on the action card / crash-retry path), preventing the loop from feeding itself.
+
+- 5635edc: Inbox thread: modern chat surface — chat-bar composer + collapsible tool-call actions.
+
+  The thread modal now reads as a terminal-native conversation. The reply box is a single mono-prompted chat bar (`you ›` + auto-growing input + inline Send) where Enter sends and Shift+Enter is a newline; Mark resolved / Dismiss moved into the `⋯` overflow, and Ask triage sits beside a `↵ send · ⇧↵ newline` hint. Finished agent actions collapse to a one-line summary (`✓ Run agent X · completed · 1.5s`) that expands on demand, keeping long threads scannable. Also fixes the thread title rendering error-red (a `.modal h3` cascade collision).
+
+- b40b7be: See what the inbox did on its own: provenance and verification, made legible.
+
+  Now that triage runs actions autonomously, the UI shows the autonomy trail instead of leaving you to infer it:
+
+  - **Action provenance** — each action card that ran shows how it was approved: **⚡ auto-ran** (by your trust policy, no click) vs **✓ you approved** (you clicked Run). Recorded as `approvedBy` on the action at claim time.
+  - **Source chips on the queue** — a run-failure (or cadence/permission) row is tagged right on the collapsed list row, so "why is this here" reads at a glance instead of only in the expanded preview.
+  - **Verification verdicts stand out** — the verify-on-resolve outcome from B1 renders as a verdict, not just another system line: a **✓ Verified** or **⚠ Not verified** badge with a matching accent, so you can tell "resolved because the fix was confirmed" from "resolved, nothing to check."
+
+- 58cb2c4: Operator-tunable trust: decide what the inbox may run on its own.
+
+  Autonomous triage was governed by a hardcoded set of auto-approved agents. B2 makes it operator-controllable, two levels deep:
+
+  - **Global autonomy mode** (a control in the inbox header): **Full** (trusted agents auto-run), **Approve first** (triage still analyzes, but every action waits for your click), or **Off** (the whole loop pauses — a real kill switch that also stops auto-first-touch).
+  - **Per-agent trust** (a toggle on each action card): flip a specific agent between auto-run and require-approval — the fine-grained answer to "agent-builder is committing things I'd rather approve" — with a reset to the built-in default.
+
+  Backed by an additive `inbox_trust` table; an untouched install behaves exactly as before (the engine falls back to its compiled default set), so the policy layer is inert until you edit it. Resolution order: global mode → explicit per-agent override → default set.
+
+- 12c6d43: Triage stops chasing fixes that don't work, and verifies before it resolves.
+
+  Two ways the autonomous loop could fool itself are now closed:
+
+  - **Convergence guard.** When triage keeps applying `agent-editor` fixes to the same agent that never actually starts working, it used to loop forever — analyze → fix → still broken → analyze → fix — and every operator "please fix it" reset the turn cap straight back into it. Triage now counts the fixes applied to each target across the whole thread; after 3 that didn't stick, it stops proposing more and escalates to the operator with what it tried, instead of looping.
+
+  - **Verify-on-resolve.** When triage tries to resolve a thread that actually mutated something (a `write` action completed) and flagged what to check, the thread now moves through the previously-dead `verifying` status and confirms the fix against real evidence — the focus agent's latest run — before resolving. A run that still failed bounces the thread back to "your turn" rather than being declared done while broken.
+
+  Also fixes the commitment chip: a triage turn that promised pending work but landed no runnable action no longer records a false commitment (the enforcement the code always claimed but never had).
+
+- 1d5428a: Add the `oauth-loopback` built-in tool for one-time OAuth2 authorization.
+
+  A new built-in tool runs the OAuth2 authorization-code flow over a local
+  `127.0.0.1` redirect: it opens the provider consent screen, captures the
+  redirect on a throwaway loopback server, exchanges the code for tokens, and
+  writes the refresh (and/or access) token straight into the encrypted secrets
+  vault. It reads the client id/secret from the node's declared `secrets:` via the
+  `client_id_env` / `client_secret_env` inputs, supports PKCE, and never returns
+  raw tokens in its output (so nothing lands in the runs database).
+
+  This unblocks agents that need a user-consented refresh token — e.g. the Spotify
+  playlist builder can now be provisioned by a one-time `oauth-loopback` node.
+  Built-in tools can now optionally receive the secrets store via
+  `BuiltinToolContext.secretsStore`. See `docs/tools/oauth-loopback.md` and
+  ADR-0027.
+
+- 667a416: Reject `$NAME` input defaults; make secret referencing discoverable.
+
+  An input `default: $API_KEY` is a literal string that never resolves — it gets injected verbatim (a bogus credential) and out-ranks a real secret/variable of the same name, silently breaking agents. Schema validation now rejects any input default matching `^$NAME$` (and `${NAME}`) with a message spelling out the fix: declare `secrets: [NAME]` and reference `$NAME` / `{{secrets.NAME}}`, or use a global variable. The `/settings/secrets` page gains a "Referencing a secret in an agent" helper card that shows the two-step pattern anchored on a real stored secret.
+
+- 43793c7: Runs that are slow no longer look stuck, and genuinely-hung runs get reaped.
+
+  **Live progress.** A running run/node now shows a ticking `m:ss` elapsed timer
+  (was a static `—` for the whole node) plus a "working…" label, so a slow LLM
+  node — `agent-analyzer` and friends run 45–200s on a single call and stream
+  nothing until the first token — visibly counts up instead of reading as frozen.
+
+  **Stuck-run watchdog.** Orphan reaping was boot-only, so a run that wedged
+  while the dashboard stayed up (executor child died but the row never finalized,
+  or a node hung past its timeout on a machine that slept) sat in `running`
+  until the next restart. A periodic watchdog now reaps such runs within ~30s —
+  but only LOCAL runs that are provably not progressing (dead child process,
+  PID-liveness checked; or past a 30-minute max runtime), never a live one, and
+  never a Temporal run (Temporal recovers its own).
+
+### Patch Changes
+
+- bffa331: Autonomous agent-editor can no longer corrupt a working agent.
+
+  Two gaps let a triage "apply YAML fix" persist a broken agent (observed live: a working `make-a-reminder` was overwritten with a run-time-broken one):
+
+  - **Schema was too loose** — an `agent-invoke` node with no `agentInvokeConfig` passed `parseAgent` and only failed at run time ("agent-invoke node missing agentInvokeConfig"). It's now rejected at parse, so `executeAgentEditor` refuses the edit and posts the reason to the thread instead of overwriting the good agent.
+  - **Template escapes leaked** — `executeAgentEditor` committed `NEW_YAML` raw, so the templating pipeline's `{{` → `{ {` safe-escape was persisted as a literal `{ {inputs.X}}` that never resolves. The editor now un-escapes before committing (previously only shell `command`s were repaired, so `toolInputs`/prompts corrupted silently).
+
+  Net: a structurally-invalid autonomous edit bounces off validation, template edits stay intact, and agents remain versioned on upsert so any edit is rollback-able.
+
+- ec6947f: refactor(dashboard): split the 4.2k-line screens.css into per-surface sheets
+
+  screens.css was a 4,180-line monolith. It's now six contiguous per-surface
+  sheets — shell, agent-detail, runs, settings, pulse, inbox — concatenated by
+  the assets router in the same source order. Pure mechanical move: no rule was
+  reordered, so the served /assets/dashboard.css is byte-identical to before
+  (zero visual change). Makes the CSS navigable and gives inbox.css a clean home
+  for the ongoing thread-modal work.
+
+- fe3af9e: Inbox threads show a chip for every agent they reference.
+
+  The thread header now renders one navigable chip per agent the conversation
+  touches — the target agent plus every proposed/executed action's target —
+  instead of just the single target-agent link. Duplicates collapse and triage
+  scaffolding (agent-editor, dashboard-editor, the resolve sentinel, …) is
+  excluded, so a multi-agent thread surfaces the real agents at a glance, each
+  linking to `/agents/<id>`.
+
+- 3c8de25: feat(home): hero chat composer — type on the front door, sua answers live
+
+  The "Ask sua" button on the home front door is now a real inline chat input: a
+  mono `sua ›` prompt with an auto-growing textarea (Enter sends, Shift+Enter
+  newlines, teal focus ring). Typing a message opens the thread in place with the
+  triage agent already streaming its answer — the front door is the conversation.
+
+  `POST /inbox/new` now accepts an optional first message: when present it seeds
+  the thread's first user message, derives the title from it, and fires triage
+  immediately (instead of creating an empty "New conversation" stub). Without a
+  body the old behavior is unchanged. Degrades to a normal POST→redirect without
+  JS. This also stops the front door from ever manufacturing empty stubs.
+
+- 1c8c67a: feat(home): craft pass on the cadence feed — dense, typographic, alive
+
+  The home feed traded three outlined boxes for one dense, borderless list per
+  DESIGN.md ("typography and whitespace do the work"). Mono-caps hairline labels
+  are the only dividers; every row is the same grid so title / preview / meta /
+  age align into a right-hand ledger. Each row now shows a one-line preview of
+  its latest reply (or a "▸ N proposed actions" hint), so the feed reads as a
+  living conversation instead of dead titles. The toy emoji nature chips are
+  replaced by a quiet mono micro-label (`sched·llm`), needs-you is an amber
+  left-accent row instead of a filled box, empty "New conversation" stubs are
+  suppressed, the redundant top-bar pill is hidden on home, and new rows fade in
+  when the live feed updates.
+
+- 04be473: Inbox thread modal: tidy the header corner + make the collapsed-action toggle findable.
+
+  The top-right cluster was three mismatched controls (a heavy "Open full page" pill, a bare star, and an overflow menu with a stray `▸` leaking from the global `details>summary::before` caret). They're now one consistent 28×28 icon row — `⤢` (open full page) · `★` · `⋯` — matching the modal's `×`. The collapsed tool-call action row, previously near-invisible bare text with a faint caret, now reads as a subtle clickable chip (raised fill + hairline border + a clear caret that turns teal on hover), so it's obvious it expands.
+
+- 6480c5f: feat(inbox): de-box the thread modal — flatten the nested action-card frames
+
+  The thread interior stopped reading as boxes-in-boxes. The action card is no
+  longer a bordered/rounded box inside the message inside the modal — it's a
+  single 2px status-colored left rule in the conversation flow (same language as
+  the home feed rows). The inline widget's own border/radius/shadow are stripped
+  inside a thread (the "Assessment" key-value block was quadruple-framed), the
+  YAML diff loses its box while keeping the green/red line tints, the thread
+  summary becomes a quiet hairline collapsible instead of a filled card, and the
+  action status is a mono-caps label instead of a pill. Pure CSS — every SSE,
+  form, and action hook is unchanged.
+
+- 0c19ba5: Inbox triage can run (and broker "Enable & run" for) first-party example agents.
+
+  The inbox runnable allowlist and enable-and-run candidate list gated on
+  `source ∈ {local, community}`, which silently excluded every `examples`-source
+  agent — so a bundled agent that opted into `inboxRunnable` (e.g. adr-logger) was
+  neither runnable nor an approve/deny candidate, and triage dead-ended with
+  "enable inbox-run yourself" (advice that wouldn't even help). Examples agents
+  are now included; the triage scaffolding stays excluded via SYSTEM_AGENT_IDS,
+  not source.
+
+- 599d4ab: fix(inbox): Stop now cancels an in-flight action that hasn't registered a runId
+
+  Stop could silently no-op on a running sub-agent action ("Stop didn't
+  respond"). The dispatch only wrote its runId onto the action card at
+  finalize, so for the whole time an action was `running` its meta carried no
+  runId — and the Stop route's `!m.runId` guard skipped it, never aborting the
+  run and leaving the modal's pending spinner stuck.
+
+  The dispatch now persists the runId onto the action card the instant the run
+  starts (both local and Temporal backends), so Stop can reach the live run and
+  abort it. As a belt-and-suspenders, Stop also finalizes any running action
+  that still has no runId directly to a terminal state, so the card can never
+  hang in `running`.
+
+- c7dd8f0: Output-widget editor: selecting "AI template" no longer snaps back to key-value.
+
+  An `ai-template` widget can't be saved without a template (schema requirement),
+  so saving right after picking it was rejected — and the reload reverted the
+  editor to the agent's saved type, so it looked like the picker "defaulted to
+  key-value". The validation bounce now carries the picked type (`?widgetType=`)
+  and the editor honours it, keeping "AI template" selected with the template
+  block open and a "Generate or paste a template before saving" prompt.
+
+- 2180888: Stop internal `_`-prefixed helper agents from raising run-failure inbox threads.
+
+  The dashboard spins up ephemeral synthetic agents to do its own work — `_yaml-fixer` (auto-repair a broken agent's YAML) and the build planner/surveyor/drafter. When one failed (e.g. its `claude-code` node hit `binary_missing` at setup), it raised a "Run failed: _yaml-fixer" inbox thread, which triage then reasoned about as a broken user agent ("import/install \_yaml-fixer and inspect the run") — advice impossible to follow, since these aren't installable agents. `raiseRunFailureInbox` now skips any run whose agent id starts with `_`, so internal-helper failures surface inline in the build/fix UI instead of as un-actionable inbox noise.
+
+- Updated dependencies [bffa331]
+- Updated dependencies [0396733]
+- Updated dependencies [ec6947f]
+- Updated dependencies [fe3af9e]
+- Updated dependencies [4a2984a]
+- Updated dependencies [d3cc39e]
+- Updated dependencies [a8eeb36]
+- Updated dependencies [f02628e]
+- Updated dependencies [81e9df6]
+- Updated dependencies [01778e8]
+- Updated dependencies [3c8de25]
+- Updated dependencies [1c8c67a]
+- Updated dependencies [164bbdc]
+- Updated dependencies [d94a8a8]
+- Updated dependencies [1bec98e]
+- Updated dependencies [04be473]
+- Updated dependencies [6480c5f]
+- Updated dependencies [5635edc]
+- Updated dependencies [b40b7be]
+- Updated dependencies [0c19ba5]
+- Updated dependencies [599d4ab]
+- Updated dependencies [58cb2c4]
+- Updated dependencies [12c6d43]
+- Updated dependencies [1d5428a]
+- Updated dependencies [c7dd8f0]
+- Updated dependencies [667a416]
+- Updated dependencies [43793c7]
+- Updated dependencies [2180888]
+  - @some-useful-agents/core@0.26.0
+
 ## 0.25.0
 
 ### Minor Changes
