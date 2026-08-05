@@ -25,6 +25,35 @@ main.main--wide {
   max-width: var(--content-max-wide);
 }
 
+/* ---------- Persistent "sua ›" ask band (global chrome) ----------
+   Sits under the 48px topbar on every page: a mono `sua ›` prompt + the shared
+   auto-growing composer (`data-home-ask`, handled globally). Quiet by default
+   so it doesn't compete with a page's <h1>; prominent (teal, roomier) on the
+   home front door via .app-ask--home. Inner form aligns to the main column. */
+.app-ask {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  transition: border-color 120ms ease-out;
+}
+.app-ask:focus-within { border-bottom-color: var(--color-primary); }
+.app-ask .home-ask--bar {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-6);
+}
+/* Quiet (inner pages): muted prompt + smaller text. */
+.app-ask .home-ask__prompt { color: var(--color-text-muted); }
+.app-ask .home-ask__input { font-size: var(--font-size-sm); }
+/* Prominent (home front door): teal `sua ›` + roomier + full-size text. */
+.app-ask--home .home-ask--bar { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.app-ask--home .home-ask__prompt { color: var(--color-primary); }
+.app-ask--home .home-ask__input { font-size: var(--font-size-md); }
+/* Narrow widths: collapse the send label to a bare ↵ glyph. */
+@media (max-width: 640px) {
+  .app-ask .home-ask__send { font-size: 0; }
+  .app-ask .home-ask__send::after { content: '↵'; font-size: var(--font-size-md); }
+}
+
 /* ---------- Footer ---------- */
 .app-footer {
   margin-top: var(--space-8);

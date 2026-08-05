@@ -31,7 +31,7 @@ export function renderInstallPacksModal(availablePacks: Pack[]): SafeHtml {
           </div>
         </div>
         <form method="POST" action="/packs/${encodeURIComponent(p.id)}/install" style="margin: 0; flex-shrink: 0;">
-          <input type="hidden" name="returnTo" value="/">
+          <input type="hidden" name="returnTo" value="/pulse">
           <button type="submit" class="btn btn--primary btn--sm">Install</button>
         </form>
       </div>

@@ -94,21 +94,19 @@ describe('GET / — Mission Control home', () => {
     }, 'cli');
     const res = await get(app, '/');
     expect(res.status).toBe(200);
-    // The inbox cadence feed leads the home body; its live-swap container mounts
+    // The inbox cadence feed IS the home body now; its live-swap container mounts
     // (empty here — no threads seeded — but present so the client has a target).
     expect(res.text).toContain('data-home-inbox');
-    // Pulse is DEMOTED into a collapsed "Signals" secondary zone, but its markup
-    // still renders inside the <details>.
-    expect(res.text).toContain('home-secondary');
-    expect(res.text).toContain('pulse-grid');
-    expect(res.text).toContain('id="pulse-tile-data"');
-    expect(res.text).toContain('id="pulse-edit-toggle"');
-    // Recent activity stays collapsed below.
-    expect(res.text).toContain('home-activity');
-    expect(res.text).toContain('Recent activity');
-    // Primary CTA is inbox-first ("Ask sua" → new thread).
+    // The `sua ›` ask prompt is global chrome (the band), so it's present on
+    // every page including home — inbox-first CTA → new thread.
+    expect(res.text).toContain('data-home-ask');
     expect(res.text).toContain('action="/inbox/new"');
     expect(res.text).toContain('Ask sua');
+    // Signals moved to the dedicated /pulse page; recent activity lives at /runs.
+    // Neither renders on home anymore.
+    expect(res.text).not.toContain('home-secondary');
+    expect(res.text).not.toContain('pulse-grid');
+    expect(res.text).not.toContain('Recent activity');
     expect(res.text).not.toContain('Browse packs');
     // The global top-bar toast remains the always-visible cross-page cue.
     expect(res.text).toContain('data-inbox-toast');
@@ -221,12 +219,13 @@ describe('GET / — Mission Control home', () => {
     expect(res.text).not.toContain('id="pulse-tile-data"');
   });
 
-  it('GET /pulse redirects to / (the board lives at the root now)', async () => {
+  it('GET /pulse renders the board as a first-class page (moved off home)', async () => {
     const app = await makeApp();
     const res = await request(app).get('/pulse')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).redirects(0);
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('pulse-grid');
+    expect(res.text).toContain('id="pulse-tile-data"');
   });
 
   it('renders the global top-bar needs-you toast (hidden until JS fills the count)', async () => {

@@ -3,7 +3,9 @@ import { parseAgent, type Agent, type AgentSignal, type SignalTemplate, type Sig
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { tileWrap, type PulseTile } from '../views/pulse.js';
+import { render } from '../views/html.js';
+import { layout } from '../views/layout.js';
+import { tileWrap, renderPulseBoard, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
 import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
@@ -163,15 +165,16 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
   return { systemTiles, tiles, hiddenTiles, installedDashboards, availablePacks };
 }
 
-// The dashboard board now lives at the root `/` (Mission Control). `/pulse`
-// redirects there so bookmarks/muscle-memory still land on the board. The
-// `/pulse/*` SUB-routes below (tile fragment, hide-all, show-all) stay — client
-// JS calls them directly. Carry any flash query through so a redirect that
-// targeted `/pulse?ok=…` still shows its banner on `/`.
+// Pulse is a first-class page: the signals board (system tiles + agent signal
+// tiles + arrangement affordances). It moved off the Mission Control home `/`
+// (which now leads with the cadence inbox feed). `renderPulseBoard` is
+// layout-less, so we wrap it here; its default heading is `<h1>Pulse</h1>` and
+// `editable` defaults on, giving the full arrange/hide/improve toolbar.
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const board = buildPulseBoardData(ctx);
   const flash = parsePulseFlash(req);
-  const qs = flash ? `?${flash.kind}=${encodeURIComponent(flash.message)}` : '';
-  res.redirect(302, `/${qs}`);
+  res.send(render(layout({ title: 'Pulse', activeNav: 'pulse', flash }, renderPulseBoard(board))));
 });
 
 export function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
@@ -186,7 +189,7 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = ctx.agentStore.getAgent(id);
   if (!agent || !agent.signal) {
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
     return;
   }
 
@@ -199,9 +202,9 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const currentlyVisible = agent.pulseVisible !== false;
   try {
     ctx.agentStore.updateAgentMeta(id, { pulseVisible: !currentlyVisible });
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
   } catch {
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
   }
 });
 
@@ -212,7 +215,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = ctx.agentStore.getAgent(id);
   if (!agent) {
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
     return;
   }
 
@@ -226,7 +229,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
 
   // Validate template exists in registry.
   if (template && !TEMPLATE_REGISTRY[template]) {
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
     return;
   }
 
@@ -236,7 +239,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
     try {
       mapping = JSON.parse(body.mapping);
     } catch {
-      res.redirect(303, '/');
+      res.redirect(303, '/pulse');
       return;
     }
   }
@@ -255,9 +258,9 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   try {
     const updated = { ...agent, signal };
     ctx.agentStore.upsertAgent(updated, 'dashboard', `Update signal config via Pulse`);
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
   } catch {
-    res.redirect(303, '/');
+    res.redirect(303, '/pulse');
   }
 });
 
@@ -280,7 +283,7 @@ pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
     hidden++;
   }
-  res.redirect(303, `/?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
+  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
 });
 
 /**
@@ -297,7 +300,7 @@ pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
     shown++;
   }
-  res.redirect(303, `/?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
+  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
 });
 
 pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {

@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CLIENT_BUNDLE_JS } from '../views/client-bundle.js';
 
 /**
  * Static-asset router. Serves:
@@ -685,4 +686,13 @@ assetsRouter.get('/assets/dashboard.css', (_req: Request, res: Response) => {
   // (e.g. new tile-fit classes without their rules) can break the grid.
   res.setHeader('Cache-Control', 'no-cache');
   res.type('text/css').send(DASHBOARD_CSS);
+});
+
+assetsRouter.get('/assets/dashboard.js', (_req: Request, res: Response) => {
+  // The client bundle, external + cached instead of inlined into every page.
+  // Same policy as the CSS: `no-cache` revalidates each load, Express sends an
+  // ETag so an unchanged bundle 304s (cheap) and the browser reuses its parsed +
+  // code-cached copy — killing the ~370KB re-parse that made navigation laggy.
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(CLIENT_BUNDLE_JS);
 });

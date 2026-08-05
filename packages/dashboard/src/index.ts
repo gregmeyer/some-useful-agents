@@ -30,7 +30,6 @@ import {
   reapStuckRuns,
   type SecretsStore,
   type Provider,
-  type RunStatus,
 } from '@some-useful-agents/core';
 import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
@@ -212,21 +211,14 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.get('/', (req, res) => {
     // Dynamic import to avoid circular deps at module load.
     Promise.all([import('./views/home.js'), import('./routes/pulse.js')])
-      .then(([{ renderHomePage }, { buildPulseBoardData, parsePulseFlash }]) => {
+      .then(([{ renderHomePage }, { parsePulseFlash }]) => {
         const ctx = getContext(req.app.locals);
         const agents = ctx.agentStore.listAgents();
 
-        // Activity feed pagination (the collapsed "Recent activity" zone).
-        const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-        const pageSize = Math.max(1, Math.min(50, parseInt(req.query.pageSize as string, 10) || 10));
-        const offset = (page - 1) * pageSize;
-        const recentResult = ctx.runStore.queryRuns({ limit: pageSize, offset, statuses: [] as RunStatus[] });
-
-        // Live Pulse board — the same data /pulse renders.
-        const board = buildPulseBoardData(ctx);
-
-        // Inbox-as-front-door: the cadence-organized feed leads the home body.
-        // Reads only existing store queries (no new producers) — see home-feed.ts.
+        // Inbox-as-front-door: the cadence-organized feed IS the home body now.
+        // Signals moved to /pulse and recent activity lives at /runs; the `sua ›`
+        // ask prompt is global chrome (layout.ts). Reads only existing store
+        // queries (no new producers) — see home-feed.ts.
         const feed = buildHomeFeedData(ctx, Date.now());
 
         const availableDashboards = ctx.dashboardsStore
@@ -234,17 +226,6 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
           : [];
 
         res.type('html').send(renderHomePage({
-          board,
-          activity: {
-            agents,
-            recentRuns: recentResult.rows,
-            todayRuns: [],
-            inFlightRuns: [],
-            scheduledAgents: [],
-            activityPage: page,
-            activityPageSize: pageSize,
-            totalRunCount: recentResult.total,
-          },
           agentCount: agents.length,
           availableDashboards,
           feed,
