@@ -117,6 +117,8 @@ Iterates a sub-agent over a list. The list comes from an upstream node's output 
 
 The sub-agent runs once per item; the loop's `result` is a JSON array of the sub-agent outputs. Downstream nodes get `{{upstream.research.result}}` with the array.
 
+**How `over` resolves.** The loop looks for the array first in the upstream's structured outputs (populated when a shell node emits [framed output](tools.md) — a single-line JSON object as the last stdout line — or from a builtin/tool/agent-invoke node), and otherwise falls back to parsing the upstream's raw stdout as JSON. Both single-line and pretty-printed (multi-line) JSON therefore work — so a `source` node that does `jq -n '{topics: [...]}'` iterates the same whether or not `jq` compact-prints. If `over` resolves to something that isn't an array, the loop fails setup with `Loop field "<over>" … is not an array`.
+
 ## `agent-invoke`
 
 Calls another agent as a single sub-workflow (one run, not a loop). Useful for composing reusable pipelines.

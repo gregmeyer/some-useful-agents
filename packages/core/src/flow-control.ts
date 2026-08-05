@@ -307,24 +307,30 @@ export async function executeLoopNode(
     return { ok: false, error: `Upstream "${upstreamId}" has no output` };
   }
 
-  let items: unknown[];
+  // Resolve the array to iterate. Two sources, tried in order:
+  //   1. The upstream's structured `outputs` — populated for framed shell
+  //      output (single-line JSON), builtin/tool results, and agent-invoke.
+  //   2. The raw stdout parsed as JSON — the fallback for a shell node whose
+  //      stdout is UNFRAMED JSON (e.g. pretty-printed `jq` output). There,
+  //      `outputs` is just `{ result: "<stdout>" }`, so the array isn't a
+  //      named key — it lives inside the raw string. Without this fallback a
+  //      loop over `jq -n` output fails setup with "is not an array" even
+  //      though the stdout plainly contains the array.
+  let items: unknown[] | undefined;
   if (upOutput.outputs) {
     const arr = walkPath(upOutput.outputs, config.over);
-    if (!Array.isArray(arr)) {
-      return { ok: false, error: `Loop field "${config.over}" on upstream "${upstreamId}" is not an array` };
-    }
-    items = arr;
-  } else {
+    if (Array.isArray(arr)) items = arr;
+  }
+  if (items === undefined) {
     try {
-      const parsed = JSON.parse(upOutput.result);
-      const arr = walkPath(parsed, config.over);
-      if (!Array.isArray(arr)) {
-        return { ok: false, error: `Loop field "${config.over}" on upstream "${upstreamId}" is not an array` };
-      }
-      items = arr;
+      const arr = walkPath(JSON.parse(upOutput.result), config.over);
+      if (Array.isArray(arr)) items = arr;
     } catch {
-      return { ok: false, error: `Cannot parse upstream "${upstreamId}" result as JSON for loop` };
+      // Raw result isn't JSON — fall through to the error below.
     }
+  }
+  if (items === undefined) {
+    return { ok: false, error: `Loop field "${config.over}" on upstream "${upstreamId}" is not an array` };
   }
 
   const maxIter = config.maxIterations ?? 1000;

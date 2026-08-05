@@ -1223,6 +1223,62 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     expect(subRuns).toHaveLength(3);
   });
 
+  it('iterates when the upstream shell node emits UNFRAMED (pretty-printed) JSON', async () => {
+    // Regression: a loop over a shell node whose stdout is multi-line JSON
+    // (e.g. default `jq -n` output). The framing protocol only parses the
+    // last stdout line, which is just "}" here, so the upstream's structured
+    // `outputs` is `{ result: "<multi-line stdout>" }` with no `queries` key.
+    // The loop must fall back to parsing the raw stdout instead of failing
+    // setup with "is not an array".
+    agentStore.createAgent(
+      {
+        id: 'q-handler',
+        name: 'Q Handler',
+        status: 'active',
+        source: 'local',
+        mcp: false,
+        nodes: [{ id: 'handle', type: 'shell', command: 'echo "q=$SEARCH"' }],
+      },
+      'cli',
+      'seed',
+    );
+
+    const parentAgent = makeAgent({
+      nodes: [
+        { id: 'plan', type: 'shell', command: 'jq -n ...' },
+        {
+          id: 'each',
+          type: 'loop' as any,
+          dependsOn: ['plan'],
+          loopConfig: { over: 'queries', agentId: 'q-handler', inputMapping: { SEARCH: '$item.query' } },
+        },
+      ],
+    });
+
+    // Pretty-printed (multi-line) JSON — the exact shape `jq -n` produces and
+    // the shape that regressed loop setup before the raw-result fallback.
+    const prettyJson = [
+      '{',
+      '  "queries": [',
+      '    { "query": "a" },',
+      '    { "query": "b" }',
+      '  ]',
+      '}',
+    ].join('\n');
+    const spawner = cannedSpawner({
+      plan: { exitCode: 0, result: prettyJson },
+    });
+    const deps: DagExecutorDeps = { runStore, agentStore, spawnNode: spawner };
+    const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+
+    expect(run.status).toBe('completed');
+    const loopExec = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'each')!;
+    expect(loopExec.status).toBe('completed');
+    const loopOutput = JSON.parse(loopExec.result!);
+    expect(loopOutput.count).toBe(2);
+    expect(loopOutput.items).toHaveLength(2);
+  });
+
   it('fails cleanly when loop field is not an array', async () => {
     agentStore.createAgent(
       {
