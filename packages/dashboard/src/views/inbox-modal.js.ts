@@ -915,6 +915,8 @@ export const INBOX_MODAL_JS = `
       .then(function (r) { if (!r.ok) throw new Error('create failed: ' + r.status); return r.headers.get('X-Inbox-Id'); })
       .then(function (newId) {
         if (input) { input.value = ''; input.style.height = 'auto'; }
+        // The ask landed as a thread — drop the persisted draft (see APP_ASK_JS).
+        try { localStorage.removeItem('sua-ask-draft'); } catch (e) {}
         if (newId) openFor(newId);
       })
       .catch(function (err) { console.error('inbox /new failed', err); })

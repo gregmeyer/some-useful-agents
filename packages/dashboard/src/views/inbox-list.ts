@@ -2,7 +2,6 @@ import { markdownToText, type AutonomyMode, type InboxMessage, type InboxPriorit
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge, humanizeTimestamps } from './components.js';
-import { renderInboxModalShell } from './inbox-modal.js';
 
 /**
  * /inbox — Linear-meets-Slack productivity surface.
@@ -279,9 +278,8 @@ export function renderInboxList(opts: InboxListOptions): string {
         ${archiveLink}
       </div>
     </div>
-
-    ${renderInboxModalShell()}
   `;
+  // The inbox modal shell (#inbox-modal) is global chrome now (layout.ts).
 
   return render(layout({ title: 'Inbox', activeNav: 'inbox', flash: opts.flash }, body));
 }

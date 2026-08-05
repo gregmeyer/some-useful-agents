@@ -215,8 +215,8 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     expect(res.text).toMatch(/class="topbar__brand[^"]*" href="\/"/);
     const nav = res.text.match(/<nav class="topbar__nav">[\s\S]*?<\/nav>/)?.[0] ?? '';
     expect(nav).toBeTruthy();
-    // /pulse collapsed into /: no Pulse item, and no redundant Home item.
-    expect(nav).not.toContain('>Pulse<');
+    // Pulse is a first-class page again (its own nav item); no redundant Home item.
+    expect(nav).toContain('>Pulse<');
     expect(nav).not.toContain('>Home<');
     expect(nav).toContain('>Inbox');
     expect(nav).toContain('>Agents<');
@@ -226,11 +226,11 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     expect(nav).not.toContain('href="/packs"');
   });
 
-  it('/pulse redirects to the root', async () => {
+  it('/pulse is a first-class page (the signals board)', async () => {
     const app = await makeApp();
     const res = await authed(app, '/pulse');
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('pulse-grid');
   });
 
   it('has no global subnav bar anywhere', async () => {
@@ -487,15 +487,19 @@ describe('Dashboard /runs/:id per-node table', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('id="dag-canvas"');
-    // Poll is armed for the in-progress run.
+    // Poll is armed for the in-progress run (page markup).
     expect(res.text).toContain('data-run-in-progress="run-live"');
-    // The poll re-invokes the persisted bootstrap after replacing the container.
-    expect(res.text).toContain('window.renderDagViz()');
     // The CSP-allow banner must mount OUTSIDE [data-run-container] (a sibling in
     // the stable parent), so the poll's replaceWith doesn't destroy the "Allow"
     // button mid-run. Guards against re-introducing the inside-container mount.
     expect(res.text).toContain('data-csp-agent="live"');
-    expect(res.text).toContain('container.parentNode.insertBefore(banner, container)');
+    // The client behaviors (re-invoke the persisted DAG bootstrap after the poll
+    // swaps the container; mount the banner as a sibling) live in the external
+    // client bundle now — assert them there, not inline in the page.
+    const bundle = await request(app).get('/assets/dashboard.js')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(bundle.text).toContain('window.renderDagViz()');
+    expect(bundle.text).toContain('container.parentNode.insertBefore(banner, container)');
   });
 
   it('hides the widget and renders a server-side Allow form when output references a blocked image host', async () => {

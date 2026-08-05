@@ -2111,6 +2111,16 @@ h3.inbox-modal__title {
 .home-ask__input::placeholder { color: var(--color-text-subtle); }
 .home-ask__send { align-self: center; flex: none; }
 
+/* Bar variant — strips the block chrome (border/radius/bg/margin) so the
+   composer can live inside the global `.app-ask` band (framing in shell.css). */
+.home-ask--bar {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 /* ── Inbox cadence feed (front door) ─────────────────────────────────────────
    One dense, borderless list — no cards. Mono-caps hairline labels are the only
    dividers; every row is the same 5-column grid so title / preview / meta / age
