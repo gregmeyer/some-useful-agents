@@ -42,9 +42,22 @@ The autonomy loop (the "control plane" half) now runs by default:
   turn (Temporal cancels are best-effort — the worker may finish
   server-side).
 
-Producers beyond run failures (`cadence`, `permission-request`) remain
-unbuilt — the enums and playbooks exist, but no upstream event source
-emits them yet (see Open questions).
+The first `cadence` producer now ships: the **daily run digest**. Each
+morning (local hour ≥ 8, previous calendar day) it posts one low-priority
+`cadence` thread summarizing the day's runs — a counts header plus one line
+per agent (a clean one-line summary for successes; a link to the existing
+`run-failure` thread for failures, never restating the error). Internal
+system agents (inbox-triage, agent-analyzer, …) and `_`-prefixed helpers are
+excluded so the digest is about the operator's own agents. The per-agent
+summary parses structured output (a final JSON object's `headline` / `summary`
+/ `label:value`) rather than dumping raw JSON, falling back to the first
+meaningful text line. Empty days
+are skipped; one thread per day (`dedupeKey: cadence:daily-digest:<yyyy-mm-dd>`),
+so it's restart-safe and catches up the previous day after downtime. It runs
+in-process on the same `setInterval` + `unref` lifecycle as the auto-triage
+sweeper (`packages/dashboard/src/lib/daily-digest.ts`), default-on with
+`SUA_DAILY_DIGEST=0` to opt out. The `permission-request` producer remains
+unbuilt (enum + playbook exist, no emitter yet — see Open questions).
 
 That is enough to prove the surface, but not enough to make inbox the default place to build and operate agents end to end.
 
