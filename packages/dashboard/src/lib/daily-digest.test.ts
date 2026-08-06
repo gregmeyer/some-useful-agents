@@ -6,9 +6,36 @@ import { InboxStore, RunStore, type Run } from '@some-useful-agents/core';
 import {
   buildDailyDigestMessage,
   firstLineSnippet,
+  summarizeRunOutput,
   runDailyDigestOnce,
   type DailyDigestInput,
 } from './daily-digest.js';
+
+describe('summarizeRunOutput', () => {
+  it('extracts the meaningful field from JSON output, not raw JSON', () => {
+    expect(summarizeRunOutput('{"headline":"Usage: $603.55 over 6 days","total":510}'))
+      .toBe('Usage: $603.55 over 6 days');
+    expect(summarizeRunOutput('{"classification":"SUGGESTIONS","summary":"Too brittle on empty paths"}'))
+      .toBe('Too brittle on empty paths');
+    // Pretty-printed multi-line JSON.
+    expect(summarizeRunOutput('{\n  "headline": "Markets",\n  "value": 1\n}')).toBe('Markets');
+    // metric label:value shape.
+    expect(summarizeRunOutput('{"label":"Churned","value":42}')).toBe('Churned: 42');
+    // arrays fall through to a count.
+    expect(summarizeRunOutput('{"articles":[1,2,3]}')).toBe('articles: 3 items');
+  });
+
+  it('handles a ```json fence and a trailing JSON line after prose', () => {
+    expect(summarizeRunOutput('```json\n{"headline":"HN Top 5"}\n```')).toBe('HN Top 5');
+    expect(summarizeRunOutput('- bullet one\n- bullet two\n{"summary":"Two things happened"}'))
+      .toBe('Two things happened');
+  });
+
+  it('falls back to the first meaningful text line for plain output', () => {
+    expect(summarizeRunOutput('Good morning! Today is Wednesday.')).toBe('Good morning! Today is Wednesday.');
+    expect(summarizeRunOutput(undefined)).toBeUndefined();
+  });
+});
 
 describe('firstLineSnippet', () => {
   it('takes the first non-empty line and truncates', () => {
@@ -144,6 +171,25 @@ describe('runDailyDigestOnce', () => {
     expect(outcome).toBe('posted');
     const digest = inboxStore.list().find((m) => m.source === 'cadence')!;
     expect(digest.body).toContain(`→ [open thread](/inbox/${failThread.id})`);
+  });
+
+  it('excludes system agents (excludeAgent) and _-prefixed agents', () => {
+    seedRun({ agentName: 'news', status: 'completed', result: '{"headline":"Big news"}' });
+    seedRun({ agentName: 'inbox-triage', status: 'completed', result: '<plan>' });
+    seedRun({ agentName: '_yaml-fixer', status: 'completed', result: 'fixed' });
+    const outcome = runDailyDigestOnce(ctx, { now, excludeAgent: (n) => n === 'inbox-triage' });
+    expect(outcome).toBe('posted');
+    const digest = inboxStore.list().find((m) => m.source === 'cadence')!;
+    expect(digest.body).toContain('✓ **news** (1) — "Big news"');
+    expect(digest.body).not.toContain('inbox-triage');
+    expect(digest.body).not.toContain('_yaml-fixer');
+    expect(digest.body).toContain('1 run · 1 ok'); // counts reflect the filtered set
+  });
+
+  it('skips the day when only system agents ran', () => {
+    seedRun({ agentName: 'inbox-triage', status: 'completed' });
+    expect(runDailyDigestOnce(ctx, { now, excludeAgent: (n) => n === 'inbox-triage' })).toBe('skipped-empty');
+    expect(inboxStore.list()).toHaveLength(0);
   });
 
   it('respects the SUA_DAILY_DIGEST=0 opt-out', () => {

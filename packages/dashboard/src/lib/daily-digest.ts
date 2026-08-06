@@ -58,12 +58,44 @@ export interface DailyDigestInput {
   agents: DigestAgentSummary[];
 }
 
-/**
- * A short teaser from a run's output: the first line with real content,
- * trimmed and capped. Skips code fences and structural-only lines (a bare
- * `{`, `[`, `"`, etc.) so JSON/fenced outputs teaser their first meaningful
- * line instead of a useless `{`. Falls back to the first non-empty line.
- */
+function truncate(s: string, cap: number): string {
+  return s.length > cap ? `${s.slice(0, cap - 1).trimEnd()}…` : s;
+}
+
+/** Fields, in priority order, that make a good human summary of a JSON output. */
+const SUMMARY_KEYS = ['headline', 'summary', 'title', 'message', 'text', 'label', 'status', 'name'];
+
+function tryParseObject(s: string): Record<string, unknown> | undefined {
+  const t = s.trim();
+  if (!t.startsWith('{') || !t.endsWith('}')) return undefined;
+  try {
+    const o = JSON.parse(t);
+    return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : undefined;
+  } catch { return undefined; }
+}
+
+/** Pull a display string out of a parsed JSON output object. */
+function summarizeObject(obj: Record<string, unknown>): string | undefined {
+  // Metric shape: `label` + `value`.
+  if (typeof obj.label === 'string' && (typeof obj.value === 'string' || typeof obj.value === 'number')) {
+    return `${obj.label}: ${obj.value}`;
+  }
+  // A well-known summary field, value only (no key noise).
+  for (const k of SUMMARY_KEYS) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number') return String(v);
+  }
+  // Otherwise the first scalar/array field as `key: value`.
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && v.trim()) return `${k}: ${v.trim()}`;
+    if (typeof v === 'number' || typeof v === 'boolean') return `${k}: ${v}`;
+    if (Array.isArray(v)) return `${k}: ${v.length} item${v.length === 1 ? '' : 's'}`;
+  }
+  return undefined;
+}
+
+/** First line with real content — skips code fences and structural-only lines. */
 export function firstLineSnippet(result: string | undefined | null, cap = SNIPPET_CAP): string | undefined {
   if (!result) return undefined;
   const lines = result.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -73,8 +105,33 @@ export function firstLineSnippet(result: string | undefined | null, cap = SNIPPE
     /[A-Za-z0-9]/.test(l) &&      // has actual content
     !/^[{}[\](),:"'`]+$/.test(l), // not purely structural punctuation
   );
-  const line = meaningful ?? lines[0];
-  return line.length > cap ? `${line.slice(0, cap - 1).trimEnd()}…` : line;
+  return truncate(meaningful ?? lines[0], cap);
+}
+
+/**
+ * A useful one-line summary of a run's output. Agents commonly emit a final
+ * JSON object (per the signal/widget convention), so this extracts the
+ * meaningful field (`headline` / `summary` / a `label: value` metric) instead
+ * of dumping raw JSON. Handles a whole-output object, a ```json fence, or a
+ * trailing JSON line after prose. Falls back to the first meaningful text line.
+ */
+export function summarizeRunOutput(result: string | undefined | null, cap = SNIPPET_CAP): string | undefined {
+  if (!result) return undefined;
+  let text = result.trim();
+  const fence = text.match(/^```[a-z]*\s*\n([\s\S]*?)\n```$/i);
+  if (fence) text = fence[1].trim();
+
+  // Whole output is a JSON object, or a trailing JSON line follows prose.
+  let obj = tryParseObject(text);
+  if (!obj) {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0 && !obj; i--) obj = tryParseObject(lines[i]);
+  }
+  if (obj) {
+    const s = summarizeObject(obj);
+    if (s) return truncate(s, cap);
+  }
+  return firstLineSnippet(text, cap);
 }
 
 function prettyDate(ymd: string): string {
@@ -157,6 +214,12 @@ export interface RunDailyDigestOpts {
   postHour?: number;
   /** Called with (messageId, status) after a NEW digest is posted (UI refresh). */
   onPosted?: (messageId: string, status: string) => void;
+  /**
+   * Return true to exclude an agent from the digest — used to drop internal
+   * system agents (inbox-triage, agent-analyzer, …) the operator never
+   * reviews. `_`-prefixed agents are always excluded regardless.
+   */
+  excludeAgent?: (agentName: string) => boolean;
 }
 
 /**
@@ -187,17 +250,20 @@ export function runDailyDigestOnce(ctx: Ctx, opts: RunDailyDigestOpts = {}): Dig
     until: todayStart.toISOString(),
     limit: 500,
   }).rows;
-  if (runs.length === 0) return 'skipped-empty';
 
-  // Group by agent × status. `runs` is startedAt DESC, so the first completed
-  // run per agent is the latest — use it for the snippet.
+  // Group by agent × status, dropping internal/system agents so the digest is
+  // about the operator's own agents. `runs` is startedAt DESC, so the first
+  // completed run per agent is the latest — use it for the summary.
   const byAgent = new Map<string, { runs: Run[]; latestCompleted?: Run }>();
   for (const r of runs) {
+    if (r.agentName.startsWith('_')) continue;
+    if (opts.excludeAgent?.(r.agentName)) continue;
     let g = byAgent.get(r.agentName);
     if (!g) { g = { runs: [] }; byAgent.set(r.agentName, g); }
     g.runs.push(r);
     if (!g.latestCompleted && r.status === 'completed') g.latestCompleted = r;
   }
+  if (byAgent.size === 0) return 'skipped-empty';
 
   const countBy = (rs: Run[], s: RunStatus) => rs.filter((r) => r.status === s).length;
   const agents: DigestAgentSummary[] = [];
@@ -210,7 +276,7 @@ export function runDailyDigestOnce(ctx: Ctx, opts: RunDailyDigestOpts = {}): Dig
       completed,
       failed,
       other: g.runs.length - completed - failed,
-      snippet: firstLineSnippet(g.latestCompleted?.result),
+      snippet: summarizeRunOutput(g.latestCompleted?.result),
       failureThreadId: failed > 0
         ? ctx.inboxStore.findActiveByAgentAndSource(agentName, 'run-failure')?.id
         : undefined,
@@ -231,11 +297,11 @@ export function runDailyDigestOnce(ctx: Ctx, opts: RunDailyDigestOpts = {}): Dig
  */
 export function startDailyDigest(
   ctx: Ctx,
-  onPosted?: (messageId: string, status: string) => void,
+  opts: Pick<RunDailyDigestOpts, 'onPosted' | 'excludeAgent'> = {},
 ): () => void {
   const tick = () => {
     try {
-      runDailyDigestOnce(ctx, { onPosted });
+      runDailyDigestOnce(ctx, opts);
     } catch (err) {
       console.warn('[daily-digest] tick failed:', err instanceof Error ? err.message : String(err));
     }

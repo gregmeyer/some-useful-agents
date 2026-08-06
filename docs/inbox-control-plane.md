@@ -45,8 +45,13 @@ The autonomy loop (the "control plane" half) now runs by default:
 The first `cadence` producer now ships: the **daily run digest**. Each
 morning (local hour ≥ 8, previous calendar day) it posts one low-priority
 `cadence` thread summarizing the day's runs — a counts header plus one line
-per agent (a short output snippet for successes; a link to the existing
-`run-failure` thread for failures, never restating the error). Empty days
+per agent (a clean one-line summary for successes; a link to the existing
+`run-failure` thread for failures, never restating the error). Internal
+system agents (inbox-triage, agent-analyzer, …) and `_`-prefixed helpers are
+excluded so the digest is about the operator's own agents. The per-agent
+summary parses structured output (a final JSON object's `headline` / `summary`
+/ `label:value`) rather than dumping raw JSON, falling back to the first
+meaningful text line. Empty days
 are skipped; one thread per day (`dedupeKey: cadence:daily-digest:<yyyy-mm-dd>`),
 so it's restart-safe and catches up the previous day after downtime. It runs
 in-process on the same `setInterval` + `unref` lifecycle as the auto-triage

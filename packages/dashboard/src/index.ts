@@ -68,7 +68,7 @@ import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { buildHomeFeedData } from './lib/home-feed.js';
-import { publishInboxEvent, publishInboxChanged } from './routes/inbox-shared.js';
+import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
@@ -647,7 +647,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // inbox thread each morning summarizing the previous day's runs (skipped
   // while SUA_DAILY_DIGEST=0). Same lifecycle as the sweeper; publishes via an
   // injected callback so this stays out of routes/.
-  const stopDailyDigest = startDailyDigest(ctx, (id, status) => publishInboxChanged(ctx, id, status));
+  const stopDailyDigest = startDailyDigest(ctx, {
+    onPosted: (id, status) => publishInboxChanged(ctx, id, status),
+    excludeAgent: (name) => SYSTEM_AGENT_IDS.has(name),
+  });
 
   const app = buildDashboardApp(ctx);
 
