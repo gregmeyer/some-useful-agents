@@ -66,6 +66,7 @@ import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { startDailyDigest } from './lib/daily-digest.js';
 import { buildHomeFeedData } from './lib/home-feed.js';
 import { publishInboxEvent, publishInboxChanged } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
@@ -642,6 +643,12 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // stuck-run watchdog: unref'd, stopped on close().
   const stopInboxSweeper = startInboxSweeper(ctx, runTriageAgent);
 
+  // Daily run digest — the first `cadence` producer. Posts one low-priority
+  // inbox thread each morning summarizing the previous day's runs (skipped
+  // while SUA_DAILY_DIGEST=0). Same lifecycle as the sweeper; publishes via an
+  // injected callback so this stays out of routes/.
+  const stopDailyDigest = startDailyDigest(ctx, (id, status) => publishInboxChanged(ctx, id, status));
+
   const app = buildDashboardApp(ctx);
 
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
@@ -661,6 +668,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     async close() {
       clearInterval(stuckWatchdog);
       stopInboxSweeper();
+      stopDailyDigest();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —

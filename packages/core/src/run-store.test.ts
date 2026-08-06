@@ -198,6 +198,23 @@ describe('RunStore.queryRuns', () => {
     expect(rows.every((r) => r.status === 'completed' || r.status === 'failed')).toBe(true);
   });
 
+  it('filters by startedAt window (since inclusive, until exclusive)', () => {
+    const t = Date.now();
+    const at = (n: number) => new Date(t - n * 1000).toISOString();
+    // Window [35s ago, 15s ago): captures the 20s and 30s runs, excludes the
+    // 10s (too recent, >= until) and 40s (too old, < since) runs.
+    const { rows, total } = store.queryRuns({ since: at(35), until: at(15) });
+    expect(total).toBe(2);
+    expect(rows.map((r) => r.id).sort()).toEqual(['abc-222', 'def-333']);
+  });
+
+  it('composes since/until with other filters', () => {
+    const t = Date.now();
+    const at = (n: number) => new Date(t - n * 1000).toISOString();
+    const { rows } = store.queryRuns({ since: at(35), until: at(15), statuses: ['completed'] });
+    expect(rows.map((r) => r.id)).toEqual(['def-333']);
+  });
+
   it('filters by triggeredBy', () => {
     const { rows, total } = store.queryRuns({ triggeredBy: 'schedule' });
     expect(total).toBe(2);

@@ -393,6 +393,10 @@ export class RunStore {
     statuses?: RunStatus[];
     triggeredBy?: string;
     q?: string;
+    /** Inclusive lower bound on `startedAt` (ISO). Uses idx_runs_startedAt. */
+    since?: string;
+    /** Exclusive upper bound on `startedAt` (ISO). */
+    until?: string;
     limit?: number;
     offset?: number;
   } = {}): { rows: Run[]; total: number } {
@@ -402,6 +406,14 @@ export class RunStore {
     if (filter.agentName) {
       clauses.push('agentName = ?');
       values.push(filter.agentName);
+    }
+    if (filter.since) {
+      clauses.push('startedAt >= ?');
+      values.push(filter.since);
+    }
+    if (filter.until) {
+      clauses.push('startedAt < ?');
+      values.push(filter.until);
     }
     if (filter.triggeredBy) {
       clauses.push('triggeredBy = ?');
