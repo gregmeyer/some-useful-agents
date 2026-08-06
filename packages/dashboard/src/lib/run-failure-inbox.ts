@@ -1,4 +1,4 @@
-import { explainNodeFailure, isLocalRunFailureInboxEnabled, type AddMessageInput, type InboxMessage, type InboxResponse, type InboxStore, type Run } from '@some-useful-agents/core';
+import { explainNodeFailure, lookupErrorHelp, renderTroubleshootingMarkdown, isLocalRunFailureInboxEnabled, type AddMessageInput, type InboxMessage, type InboxResponse, type InboxStore, type Run } from '@some-useful-agents/core';
 import { temporalWorkflowLink } from './temporal-link.js';
 
 export interface RunFailureInfo {
@@ -40,6 +40,11 @@ export function buildRunFailureMessage(
   const explanation = info.failedNodeId
     ? explainNodeFailure({ nodeId: info.failedNodeId, category: info.errorCategory, exitCode: info.exitCode, error: info.error })
     : undefined;
+  // Auto-attach troubleshooting from the error-reference catalog (deterministic,
+  // no LLM/integration setup). Keyed on the failed node's category + exit code;
+  // the exit code wins when catalogued (more specific). Silently omitted when the
+  // failure has no catalogued help.
+  const help = lookupErrorHelp({ category: info.errorCategory, exitCode: info.exitCode });
   const lines = [
     temporalLink
       ? `Agent **${run.agentName}** failed a run on the Temporal worker.`
@@ -48,6 +53,7 @@ export function buildRunFailureMessage(
     `- Run: [${run.id.slice(0, 8)}](${runLink})`,
     ...(explanation ? [`- ${explanation}`] : []),
     ...(run.error && run.error !== explanation ? [`- Error: ${run.error}`] : []),
+    ...(help ? ['', renderTroubleshootingMarkdown(help)] : []),
     '',
     temporalLink
       ? `Open the [run page](${runLink}) for details, or [view the workflow in the Temporal UI](${temporalLink}).`

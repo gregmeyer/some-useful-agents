@@ -53,6 +53,10 @@ describe('buildRunFailureMessage', () => {
     // Humanized explanation, not the raw enum token.
     expect(msg.body).toContain('exited with code 127 (command not found)');
     expect(msg.body).not.toContain('(exit_nonzero)');
+    // Auto-attached troubleshooting from the error-reference catalog (exit 127).
+    expect(msg.body).toContain('**What this means:**');
+    expect(msg.body).toContain('Try:');
+    expect(msg.body).toContain('$PATH');
     expect(msg.body).toContain('/runs/run-abc12345-xyz'); // trailing slash on base url normalized
   });
 

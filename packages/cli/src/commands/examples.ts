@@ -3,6 +3,8 @@ import { writeFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 
 import { join, resolve } from 'node:path';
 import {
   AgentStore,
+  IntegrationsStore,
+  ensureErrorReferenceIntegration,
   parseAgent,
   type Agent,
 } from '@some-useful-agents/core';
@@ -51,6 +53,7 @@ examplesCommand
     // Write data files that examples reference.
     const dataDir = join(config.agentsDir, 'examples', 'data');
     ensureDataFiles(dataDir);
+    ensureErrorReference(dbPath);
 
     const yamls = discoverExamples(config.agentsDir);
     let installed = 0;
@@ -132,6 +135,7 @@ export function examplesInstall(dbPath: string, agentsDir: string): void {
   const store = new AgentStore(dbPath);
   const dataDir = join(agentsDir, 'examples', 'data');
   ensureDataFiles(dataDir);
+  ensureErrorReference(dbPath);
   const yamls = discoverExamples(agentsDir);
   let installed = 0;
   for (const [id, yaml] of Object.entries(yamls)) {
@@ -147,6 +151,23 @@ export function examplesInstall(dbPath: string, agentsDir: string): void {
   store.close();
   if (installed > 0) {
     ui.ok(`${installed} example agent(s) installed. Run \`sua examples list\` to see them.`);
+  }
+}
+
+/**
+ * Provision the read-only `error-reference` SQLite integration that backs the
+ * `error-troubleshooter` example agent. Idempotent + non-fatal.
+ */
+function ensureErrorReference(dbPath: string): void {
+  try {
+    const store = new IntegrationsStore(dbPath);
+    try {
+      ensureErrorReferenceIntegration(store, dbPath);
+    } finally {
+      store.close();
+    }
+  } catch {
+    // Non-fatal: the troubleshooter agent's sqlite tool just won't exist.
   }
 }
 

@@ -167,6 +167,19 @@ nodes:
 The bundled `churn-watcher` example chains a SQLite integration →
 `llm-prompt` → metric widget end to end.
 
+### Auto-provisioned: the `error-reference` catalog
+
+One SQLite integration ships pre-wired. `error-reference` is generated from the
+in-code error catalog (`ERROR_CATALOG`) and auto-provisioned on dashboard boot
+and `sua examples install` / `sua init` — no manual Settings step. It backs the
+bundled `error-troubleshooter` agent (`sqlite.error-reference.errors.find`),
+which answers "what does exit 127 mean?" / "why did my run fail with
+`exit_nonzero`?" from the catalog. The same catalog also auto-attaches a
+"What this means / Likely causes / Try:" section to every failed run's inbox
+thread. To edit the content, change `ERROR_CATALOG` in
+`packages/core/src/error-catalog.ts`; the DB regenerates from it (or run
+`node agents/examples/data/make-error-reference-db.mjs` by hand).
+
 > **Save-time validation.** When you save an agent that references generated-tool
 > output (e.g. `{{upstream.fetch-churned.rows.0.email}}`), sua checks the path
 > against the upstream tool's declared output schema and rejects references to

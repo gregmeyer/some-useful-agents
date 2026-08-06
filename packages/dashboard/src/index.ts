@@ -12,6 +12,7 @@ import {
   BlockedImgHostsStore,
   InboxStore,
   IntegrationsStore,
+  ensureErrorReferenceIntegration,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
   PlannerMemoryStore,
@@ -519,6 +520,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     integrationsStore = new IntegrationsStore(opts.dbPath);
   } catch {
     // Non-fatal: settings/integrations surface stays absent.
+  }
+
+  // Provision the read-only `error-reference` SQLite integration that backs the
+  // `error-troubleshooter` agent, generating its catalog DB from ERROR_CATALOG.
+  // Idempotent + non-fatal: a failure here must never keep the dashboard offline.
+  if (integrationsStore) {
+    try {
+      ensureErrorReferenceIntegration(integrationsStore, opts.dbPath);
+    } catch {
+      // Non-fatal: the troubleshooter agent's sqlite tool just won't exist.
+    }
   }
 
 
