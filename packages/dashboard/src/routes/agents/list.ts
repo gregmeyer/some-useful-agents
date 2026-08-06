@@ -88,9 +88,18 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     statuses: [] as RunStatus[],
   });
 
+  // The overview strip counts the whole tab, independent of the status/search
+  // filters applied to the list below — Total Runs / In Flight are already global,
+  // so the agent tiles must be too. Otherwise filtering the list to e.g. "paused"
+  // makes the strip read a contradictory "N active". v1 agents have no status, so
+  // they count as active by convention (mergedV1 is already unfiltered).
+  const tabAgentsAll = ctx.agentStore
+    .listAgents(undefined)
+    .filter((a) => a.dashboardVisible !== false && a.source === qSource);
+
   const stats: HomeStats = {
-    agents: v2Agents.length + mergedV1.length,
-    activeAgents: v2Agents.filter((a) => a.status === 'active').length + mergedV1.length,
+    agents: tabAgentsAll.length + mergedV1.length,
+    activeAgents: tabAgentsAll.filter((a) => a.status === 'active').length + mergedV1.length,
     totalRuns: total.total,
     runningRuns: inFlight.total,
     latestRunAt: recent.rows[0]?.startedAt,
