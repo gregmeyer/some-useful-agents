@@ -1,0 +1,82 @@
+# System agent: look up what an agent-run error means and how to fix it.
+#
+# Backed by the error-reference catalog (shipped as a read-only SQLite file
+# via PR 4.E's auto-generated find tool). The SAME catalog auto-attaches
+# troubleshooting to every failed run's inbox thread; this agent is the
+# on-demand, queryable interface — "what does exit 127 mean?", "why did my
+# run fail with exit_nonzero?".
+#
+# Setup: the `error-reference` SQLite integration is auto-provisioned on
+# `sua init` / `sua examples install` (it points at the shipped .db below).
+# If you ever remove it, re-add it under Settings → Integrations → SQLite:
+#   ID slug: `error-reference`  (must match the tool ref below)
+#   Path:    `agents/examples/data/error-reference.db`
+#
+# Regenerate the seed file (after editing ERROR_CATALOG in core) with:
+#   npm run build && node agents/examples/data/make-error-reference-db.mjs
+#
+# Run: sua workflow run error-troubleshooter --input CODE=127
+id: error-troubleshooter
+name: Error troubleshooter
+description: >
+  Explain an agent-run failure and how to fix it. Give it an exit code
+  (e.g. 127, 137) or an error category (e.g. exit_nonzero, timeout,
+  spawn_failure) and it returns what the error means, the common causes,
+  and concrete troubleshooting steps — read from the local error-reference
+  catalog. Use this whenever someone asks what a run error means or how to
+  fix a failed run.
+status: active
+source: examples
+
+permissions:
+  # Discoverable from the inbox "ask" band + triage: "what does exit 127 mean?"
+  inboxRunnable: true
+
+inputs:
+  CODE:
+    type: string
+    required: true
+    description: >
+      The error to look up: a shell exit code as a number ("127", "137") or
+      a failure category ("exit_nonzero", "timeout", "spawn_failure",
+      "setup", "policy_denied", ...).
+
+nodes:
+  # 1. Look the error up in the read-only catalog. The tool id encodes the
+  #    integration slug (error-reference) + table (errors) + verb (find).
+  #    `where.code` matches either a numeric exit code or a category name —
+  #    both live in the `code` column.
+  - id: lookup
+    type: shell
+    tool: sqlite.error-reference.errors.find
+    toolInputs:
+      where:
+        code: "{{inputs.CODE}}"
+      limit: 5
+
+  # 2. Present the row(s) as a clear, actionable answer. Reads the structured
+  #    upstream output directly — no JSON parsing in the prompt.
+  - id: explain
+    type: llm-prompt
+    dependsOn: [lookup]
+    prompt: |
+      An operator asked what this agent-run error means and how to fix it:
+      "{{inputs.CODE}}".
+
+      Matching catalog entries (may be empty):
+      {{upstream.lookup.result}}
+
+      Rows found: {{upstream.lookup.row_count}}
+
+      If at least one row was found, write a concise answer:
+        - **What it means** — one or two sentences (from `meaning`).
+        - **Likely causes** — the `common_causes` as a short bullet list.
+        - **How to fix it** — the `troubleshooting` steps as a numbered list.
+      Keep it tight and practical; do not invent causes beyond the row.
+
+      If NO rows were found, say you don't have a catalog entry for
+      "{{inputs.CODE}}", and give the closest general guidance: for an
+      unknown non-zero exit code, tell them to read the node's stderr on the
+      run page and reproduce the command locally.
+    maxTurns: 1
+    timeout: 60

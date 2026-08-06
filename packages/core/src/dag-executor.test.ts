@@ -156,7 +156,8 @@ describe('executeAgentDag — single node', () => {
 
     expect(run.status).toBe('failed');
     expect(run.error).toContain('main');
-    expect(run.error).toContain('exit_nonzero');
+    // run.error is now the humanized explanation, not the raw category token.
+    expect(run.error).toContain('exited with code 2');
 
     const [ne] = runStore.listNodeExecutions(run.id);
     expect(ne.status).toBe('failed');
@@ -231,7 +232,7 @@ describe('executeAgentDag — widget image-host guard', () => {
       { runStore, spawnNode: cannedSpawner({ main: { exitCode: 2, error: 'boom' } }) },
     );
     expect(run.status).toBe('failed');
-    expect(run.error).toContain('exit_nonzero'); // node failure wins, not the image guard
+    expect(run.error).toContain('exited with code 2'); // node failure wins, not the image guard
   });
 });
 
@@ -2028,7 +2029,7 @@ describe('executeAgentDag — notify dispatch', () => {
       },
     );
     expect(run.status).toBe('failed');
-    expect(run.error).toMatch(/Failed at node/);
+    expect(run.error).toMatch(/exited with code 1/);
     expect(warn).toHaveBeenCalled();
   });
 

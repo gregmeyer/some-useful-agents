@@ -3,7 +3,7 @@ import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
-import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory } from './components.js';
+import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory, explainNodeFailure } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 
@@ -36,6 +36,21 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   const pollAttr = inProgress ? unsafeHtml(` data-run-in-progress="${run.id}"`) : unsafeHtml('');
 
   const isDagRun = run.workflowId && nodeExecutions && agent;
+
+  // Humanize the run-level error banner. When we have the failed node's row,
+  // rebuild the explanation from its structured fields (category + exit code +
+  // stderr) so the banner reads e.g. `Node "fetch" exited with code 127
+  // (command not found): …` instead of a bare token. Falls back to the stored
+  // run.error for legacy/non-DAG runs with no node executions.
+  const failedExec = nodeExecutions?.find((e) => e.status === 'failed');
+  const bannerError = failedExec
+    ? explainNodeFailure({
+        nodeId: failedExec.nodeId,
+        category: failedExec.errorCategory,
+        exitCode: failedExec.exitCode,
+        error: failedExec.error,
+      })
+    : run.error;
 
   // Image hosts the widget would render that aren't in permissions.imgSrc.
   // When non-empty, the executor failed the run for exactly this reason. We
@@ -186,17 +201,17 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         </dl>
       </div>
 
-      <div data-poll-region="error">${run.error ? html`
+      <div data-poll-region="error">${bannerError ? html`
         <h2>Error</h2>
         <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
-          <span>${run.error}</span>
+          <span>${bannerError}</span>
           <span style="display: inline-flex; gap: var(--space-2); flex-shrink: 0; white-space: nowrap;">
             ${run.status === 'failed' ? html`
               <form method="POST" action="/runs/${run.id}/retry" style="display: inline; margin: 0;">
                 <button type="submit" class="btn btn--sm btn--primary" data-retry-run>Retry run</button>
               </form>
             ` : html``}
-            <a href="/agents/${run.agentName}?suggest=1&focus=${encodeURIComponent(run.error)}"
+            <a href="/agents/${run.agentName}?suggest=1&focus=${encodeURIComponent(bannerError ?? '')}"
               class="btn btn--sm btn--ghost">Suggest improvements</a>
           </span>
         </div>

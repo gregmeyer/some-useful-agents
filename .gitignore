@@ -43,3 +43,6 @@ Thumbs.db
 /output/
 hn-digests/
 {{STATE_DIR}}/
+
+# Generated from ERROR_CATALOG at build/boot — not a committed source of truth
+agents/examples/data/error-reference.db

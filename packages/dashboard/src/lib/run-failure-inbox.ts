@@ -1,10 +1,14 @@
-import { isLocalRunFailureInboxEnabled, type AddMessageInput, type InboxMessage, type InboxResponse, type InboxStore, type Run } from '@some-useful-agents/core';
+import { explainNodeFailure, lookupErrorHelp, renderTroubleshootingMarkdown, isLocalRunFailureInboxEnabled, type AddMessageInput, type InboxMessage, type InboxResponse, type InboxStore, type Run } from '@some-useful-agents/core';
 import { temporalWorkflowLink } from './temporal-link.js';
 
 export interface RunFailureInfo {
   run: Run;
   failedNodeId?: string;
   errorCategory?: string;
+  /** Exit code of the failed node (shell nodes) — feeds the humanized explanation. */
+  exitCode?: number | null;
+  /** stderr / error text of the failed node — its last line names the cause. */
+  error?: string;
 }
 
 /**
@@ -30,14 +34,26 @@ export function buildRunFailureMessage(
   const runLink = dashboardBaseUrl ? `${dashboardBaseUrl.replace(/\/$/, '')}/runs/${run.id}` : `/runs/${run.id}`;
   // A real durable workflow exists only when we persisted its execution runId.
   const temporalLink = run.temporalRunId ? temporalWorkflowLink(run, namespace) : undefined;
+  // Humanized one-line explanation when we know which node failed. run.error is
+  // itself humanized at the source now, so only keep the raw `- Error:` line
+  // when it adds something the explanation doesn't (no node info, or it differs).
+  const explanation = info.failedNodeId
+    ? explainNodeFailure({ nodeId: info.failedNodeId, category: info.errorCategory, exitCode: info.exitCode, error: info.error })
+    : undefined;
+  // Auto-attach troubleshooting from the error-reference catalog (deterministic,
+  // no LLM/integration setup). Keyed on the failed node's category + exit code;
+  // the exit code wins when catalogued (more specific). Silently omitted when the
+  // failure has no catalogued help.
+  const help = lookupErrorHelp({ category: info.errorCategory, exitCode: info.exitCode });
   const lines = [
     temporalLink
       ? `Agent **${run.agentName}** failed a run on the Temporal worker.`
       : `Agent **${run.agentName}** failed a run.`,
     '',
     `- Run: [${run.id.slice(0, 8)}](${runLink})`,
-    ...(info.failedNodeId ? [`- Failed node: \`${info.failedNodeId}\`${info.errorCategory ? ` (${info.errorCategory})` : ''}`] : []),
-    ...(run.error ? [`- Error: ${run.error}`] : []),
+    ...(explanation ? [`- ${explanation}`] : []),
+    ...(run.error && run.error !== explanation ? [`- Error: ${run.error}`] : []),
+    ...(help ? ['', renderTroubleshootingMarkdown(help)] : []),
     '',
     temporalLink
       ? `Open the [run page](${runLink}) for details, or [view the workflow in the Temporal UI](${temporalLink}).`
@@ -73,8 +89,10 @@ export interface RaisedRunFailure {
 export function buildCoalescedFailureNote(info: RunFailureInfo, dashboardBaseUrl?: string): string {
   const { run } = info;
   const runLink = dashboardBaseUrl ? `${dashboardBaseUrl.replace(/\/$/, '')}/runs/${run.id}` : `/runs/${run.id}`;
-  const detail = info.failedNodeId ? ` (node \`${info.failedNodeId}\`)` : '';
-  return `Another run of **${run.agentName}** failed${detail}: [${run.id.slice(0, 8)}](${runLink})${run.error ? ` — ${run.error}` : ''}`;
+  const explanation = info.failedNodeId
+    ? explainNodeFailure({ nodeId: info.failedNodeId, category: info.errorCategory, exitCode: info.exitCode, error: info.error })
+    : run.error;
+  return `Another run of **${run.agentName}** failed: [${run.id.slice(0, 8)}](${runLink})${explanation ? ` — ${explanation}` : ''}`;
 }
 
 /**

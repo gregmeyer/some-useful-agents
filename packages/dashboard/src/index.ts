@@ -12,6 +12,7 @@ import {
   BlockedImgHostsStore,
   InboxStore,
   IntegrationsStore,
+  ensureErrorReferenceIntegration,
   PlannerTelemetryStore,
   PlannerLoopStepLogStore,
   PlannerMemoryStore,
@@ -445,7 +446,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // failures only fire at runtime, well after boot.
   let ctxForInboxKick: DashboardContext | undefined;
   const onRunFailure = inboxStore
-    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => {
+    ? (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string; exitCode?: number | null; error?: string }) => {
         const raised = raiseRunFailureInbox(inboxStore, info, dashboardBaseUrl);
         if (!raised || !ctxForInboxKick) return;
         // A run failure changed the inbox (new thread, or fresh activity on a
@@ -519,6 +520,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     integrationsStore = new IntegrationsStore(opts.dbPath);
   } catch {
     // Non-fatal: settings/integrations surface stays absent.
+  }
+
+  // Provision the read-only `error-reference` SQLite integration that backs the
+  // `error-troubleshooter` agent, generating its catalog DB from ERROR_CATALOG.
+  // Idempotent + non-fatal: a failure here must never keep the dashboard offline.
+  if (integrationsStore) {
+    try {
+      ensureErrorReferenceIntegration(integrationsStore, opts.dbPath);
+    } catch {
+      // Non-fatal: the troubleshooter agent's sqlite tool just won't exist.
+    }
   }
 
 

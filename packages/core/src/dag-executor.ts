@@ -40,6 +40,7 @@ import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from 
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
 import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
+import { explainNodeFailure } from './failure-explain.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
@@ -122,7 +123,7 @@ export interface DagExecutorDeps {
    * on a remote Temporal worker doesn't die silently. Errors are swallowed by
    * the caller — a misbehaving hook can't break the run path.
    */
-  onRunFailure?: (info: { run: Run; failedNodeId?: string; errorCategory?: NodeErrorCategory }) => void;
+  onRunFailure?: (info: { run: Run; failedNodeId?: string; errorCategory?: NodeErrorCategory; exitCode?: number | null; error?: string }) => void;
   /**
    * Optional dashboard URL prefix used by the notify dispatcher to embed
    * a "view run in dashboard" link in Slack messages. When absent, the
@@ -322,7 +323,7 @@ export async function executeAgentDag(
 
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
-  let firstFailure: { nodeId: string; category: NodeErrorCategory } | undefined;
+  let firstFailure: { nodeId: string; category: NodeErrorCategory; exitCode?: number | null; error?: string } | undefined;
   // Roll-up of the per-node execution backend: if any node ran on Temporal,
   // the run-level usedWorkflowProvider is promoted from its created 'local'.
   let ranOnTemporal = false;
@@ -1069,7 +1070,7 @@ export async function executeAgentDag(
         error: message,
         stateBytesAfter,
       });
-      firstFailure = { nodeId: node.id, category: errorCategory };
+      firstFailure = { nodeId: node.id, category: errorCategory, error: message };
       continue;
     }
 
@@ -1118,7 +1119,7 @@ export async function executeAgentDag(
         usedWorkflowProvider: result.usedWorkflowProvider,
         stateBytesAfter,
       });
-      firstFailure = { nodeId: node.id, category };
+      firstFailure = { nodeId: node.id, category, exitCode: result.exitCode, error: result.error };
     }
   }
 
@@ -1128,7 +1129,12 @@ export async function executeAgentDag(
   // and gives multi-node agents a meaningful summary string.
   const lastCompleted = [...outputs.values()].pop();
   let finalError = firstFailure
-    ? `Failed at node "${firstFailure.nodeId}" (${firstFailure.category})`
+    ? explainNodeFailure({
+        nodeId: firstFailure.nodeId,
+        category: firstFailure.category,
+        exitCode: firstFailure.exitCode,
+        error: firstFailure.error,
+      })
     : undefined;
 
   // Root-cause guard for CSP-blocked widget images: an agent whose ai-template
@@ -1180,7 +1186,7 @@ export async function executeAgentDag(
   // a misbehaving hook can't bubble into the run path.
   if (deps.onRunFailure && finalStatus === 'failed' && !options.suppressNotify) {
     try {
-      deps.onRunFailure({ run, failedNodeId: firstFailure?.nodeId, errorCategory: firstFailure?.category });
+      deps.onRunFailure({ run, failedNodeId: firstFailure?.nodeId, errorCategory: firstFailure?.category, exitCode: firstFailure?.exitCode, error: firstFailure?.error });
     } catch {
       // Hook errors are non-fatal — the run result is already committed.
     }

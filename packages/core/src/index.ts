@@ -26,6 +26,8 @@ export * from './input-resolver.js';
 export * from './http-auth.js';
 export * from './daemon-supervisor.js';
 export * from './agent-v2-types.js';
+export * from './failure-explain.js';
+export * from './error-catalog.js';
 export * from './agent-capabilities.js';
 export * from './node-catalog.js';
 export * from './agent-state.js';
@@ -166,6 +168,12 @@ export {
   type SqliteColumnType,
   type SqliteConnectionConfig,
 } from './integrations/sqlite-driver.js';
+export {
+  ensureErrorReferenceIntegration,
+  writeErrorReferenceDb,
+  ERROR_REFERENCE_INTEGRATION_ID,
+  ERROR_REFERENCE_TABLE,
+} from './integrations/error-reference.js';
 export {
   listGeneratedTools,
   getGeneratedTool,

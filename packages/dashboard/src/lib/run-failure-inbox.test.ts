@@ -35,7 +35,13 @@ afterEach(() => {
 describe('buildRunFailureMessage', () => {
   it('produces a high-priority run-failure message with the documented dedupeKey', () => {
     const msg = buildRunFailureMessage(
-      { run: run({ error: 'boom' }), failedNodeId: 'fetch', errorCategory: 'exit_nonzero' },
+      {
+        run: run({ error: 'Node "fetch" exited with code 127 (command not found): curl: command not found' }),
+        failedNodeId: 'fetch',
+        errorCategory: 'exit_nonzero',
+        exitCode: 127,
+        error: 'curl: command not found',
+      },
       'http://127.0.0.1:3000/',
     );
     expect(msg.priority).toBe('high');
@@ -44,7 +50,13 @@ describe('buildRunFailureMessage', () => {
     expect(msg.dedupeKey).toBe('run-failure:run-abc12345-xyz');
     expect(msg.runId).toBe('run-abc12345-xyz');
     expect(msg.body).toContain('fetch');
-    expect(msg.body).toContain('boom');
+    // Humanized explanation, not the raw enum token.
+    expect(msg.body).toContain('exited with code 127 (command not found)');
+    expect(msg.body).not.toContain('(exit_nonzero)');
+    // Auto-attached troubleshooting from the error-reference catalog (exit 127).
+    expect(msg.body).toContain('**What this means:**');
+    expect(msg.body).toContain('Try:');
+    expect(msg.body).toContain('$PATH');
     expect(msg.body).toContain('/runs/run-abc12345-xyz'); // trailing slash on base url normalized
   });
 
@@ -111,7 +123,7 @@ describe('raiseRunFailureInbox', () => {
   it('coalesces a repeat failure of the same agent into the active thread', () => {
     const first = raiseRunFailureInbox(store, { run: run({ id: 'run-1' }) });
     expect(first?.coalesced).toBe(false);
-    const second = raiseRunFailureInbox(store, { run: run({ id: 'run-2', error: 'boom again' }), failedNodeId: 'fetch' });
+    const second = raiseRunFailureInbox(store, { run: run({ id: 'run-2', error: 'boom again' }), failedNodeId: 'fetch', errorCategory: 'exit_nonzero', exitCode: 1, error: 'boom again' });
     expect(second?.coalesced).toBe(true);
     expect(second?.message.id).toBe(first!.message.id);
     expect(second?.response?.role).toBe('system');
@@ -158,13 +170,13 @@ describe('raiseRunFailureInbox', () => {
 describe('buildCoalescedFailureNote', () => {
   it('links the run and mentions the failed node + error', () => {
     const note = buildCoalescedFailureNote(
-      { run: run({ id: 'run-xyz789', error: 'timeout' }), failedNodeId: 'fetch' },
+      { run: run({ id: 'run-xyz789', error: 'Node "fetch" timed out' }), failedNodeId: 'fetch', errorCategory: 'timeout' },
       'http://127.0.0.1:3000/',
     );
     expect(note).toContain('news-digest');
     expect(note).toContain('run-xyz7');
     expect(note).toContain('/runs/run-xyz789');
     expect(note).toContain('fetch');
-    expect(note).toContain('timeout');
+    expect(note).toContain('timed out');
   });
 });
