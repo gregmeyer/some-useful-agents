@@ -28,6 +28,8 @@ export * from './daemon-supervisor.js';
 export * from './agent-v2-types.js';
 export * from './failure-explain.js';
 export * from './error-catalog.js';
+export { webFetch, WebFetchError } from './web-fetch/index.js';
+export type { WebFetchResult, WebFetchOptions, WebFetchMethod, BrowserMode } from './web-fetch/index.js';
 export * from './agent-capabilities.js';
 export * from './node-catalog.js';
 export * from './agent-state.js';

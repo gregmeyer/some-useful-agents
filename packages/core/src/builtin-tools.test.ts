@@ -7,15 +7,24 @@ import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from '
 import { MemorySecretsStore } from './secrets-store.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 10 built-in tools', () => {
+  it('lists all 11 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(11);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
       'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
       'http-post', 'json-parse', 'json-path', 'oauth-loopback',
-      'shell-exec', 'template',
+      'shell-exec', 'template', 'web-fetch',
     ]);
+  });
+
+  it('web-fetch has the expected input/output shape', () => {
+    const entry = getBuiltinTool('web-fetch');
+    expect(entry).toBeDefined();
+    expect(entry!.definition.inputs.url.required).toBe(true);
+    expect(entry!.definition.outputs.content.type).toBe('string');
+    expect(entry!.definition.outputs.method.type).toBe('string');
+    expect(entry!.definition.outputs.error.type).toBe('string');
   });
 
   it('retrieves shell-exec by id', () => {
