@@ -21,6 +21,10 @@ import {
   slugifyDashboardName,
   allocateUserDashboardId,
   mutateSections,
+  validateScheduleInterval,
+  cronToHuman,
+  CronInvalidError,
+  CronTooFrequentError,
   LEARNING_CATEGORIES,
   LEARNING_SCOPES,
   type Agent,
@@ -121,6 +125,7 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-catalog-search',
   'agent-builder',
   'dashboard-editor',
+  'agent-schedule',
 ]);
 
 /**
@@ -163,7 +168,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -801,6 +806,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'dashboard-editor') {
     return executeDashboardEditor(ctx, meta);
   }
+  if (meta.agentId === 'agent-schedule') {
+    return executeAgentSchedule(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
@@ -924,6 +932,53 @@ export function executeDashboardEditor(
   }
 
   return { status: 'failed', refusalReason: `Unknown dashboard-editor op "${op}".` };
+}
+
+/**
+ * `agent-schedule` — change (or clear) an agent's cron cadence. Route-handled,
+ * synchronous, mutates the store directly (like dashboard-editor). `SCHEDULE` is
+ * a 5-field cron string, or empty to unschedule. Applied via `updateAgentMeta`
+ * (schedule is agents-row metadata — no version bump).
+ *
+ * The running LocalScheduler snapshots cron at daemon start and does not reload,
+ * so the change only fires on the new cadence after `sua schedule start` is
+ * restarted — the summary says so explicitly (matching the dashboard editor).
+ */
+export function executeAgentSchedule(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const agentId = (meta.inputs.AGENT_ID ?? '').trim();
+  if (!agentId) return { status: 'failed', refusalReason: 'agent-schedule requires AGENT_ID.' };
+
+  const agent = ctx.agentStore.getAgent(agentId);
+  if (!agent) return { status: 'failed', refusalReason: `Agent "${agentId}" is not installed.` };
+
+  const schedule = (meta.inputs.SCHEDULE ?? '').trim();
+  const label = agent.name || agentId;
+  const restart = 'Restart the scheduler daemon (`sua schedule start`) to activate.';
+
+  // Clear the schedule.
+  if (!schedule) {
+    ctx.agentStore.updateAgentMeta(agentId, { schedule: undefined });
+    return { status: 'completed', summary: `Unscheduled "${label}". ${restart}` };
+  }
+
+  // Validate before applying — same rules the dashboard schedule editor enforces.
+  try {
+    validateScheduleInterval(schedule, { allowHighFrequency: agent.allowHighFrequency });
+  } catch (err) {
+    if (err instanceof CronTooFrequentError || err instanceof CronInvalidError) {
+      return { status: 'failed', refusalReason: err.message };
+    }
+    throw err;
+  }
+
+  ctx.agentStore.updateAgentMeta(agentId, { schedule });
+  return {
+    status: 'completed',
+    summary: `Set "${label}" to run ${cronToHuman(schedule)} (\`${schedule}\`). ${restart}`,
+  };
 }
 
 /**

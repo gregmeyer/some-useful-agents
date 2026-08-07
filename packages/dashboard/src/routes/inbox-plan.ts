@@ -338,6 +338,33 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `agent-schedule` changes an agent's cron cadence (route-handled pseudo-agent,
+    // like dashboard-editor). `inputs.SCHEDULE` is a 5-field cron string, or empty
+    // to unschedule. The engine executor validates the cron + applies it; the
+    // parser checks shape only.
+    if (type === 'agent-schedule') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof k === 'string' && typeof v === 'string') inputs[k] = v;
+        }
+      }
+      if (!inputs.AGENT_ID) {
+        rejected.push({ agentId: 'agent-schedule', reason: 'agent-schedule requires inputs.AGENT_ID' });
+        continue;
+      }
+      const hasSchedule = Boolean((inputs.SCHEDULE ?? '').trim());
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'agent-schedule',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: hasSchedule ? 'Set schedule' : 'Unschedule',
+      });
+      continue;
+    }
     if (type !== 'run-agent' || !agentId) {
       rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
       continue;
