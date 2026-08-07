@@ -11,6 +11,7 @@ import type {
   BuiltinToolContext,
 } from './tool-types.js';
 import { webFetch } from './web-fetch/index.js';
+import { webScrape } from './web-fetch/scrape.js';
 
 /**
  * SSRF guard: resolve the hostname to an IP and reject private, loopback,
@@ -386,6 +387,43 @@ const BUILTINS: BuiltinToolEntry[] = [
       // `result` is the node's stdout: the clean content, or the error so a
       // downstream text consumer (or small model) sees why it failed.
       return { ...r, result: r.content ?? (r.error ?? '') };
+    },
+  ),
+
+  def(
+    'web-scrape',
+    'Web scrape',
+    'Extract STRUCTURED data from a web page: JSON-LD (schema.org — products, offers, prices, articles), page metadata (title, og/meta tags), and optionally the raw HTML. Use this when you need data fields rather than readable prose (use web-fetch for prose). Renders the page in a headless browser only if needed.',
+    {
+      url: { type: 'string', description: 'Absolute http(s) URL to scrape.', required: true },
+      render: { type: 'string', description: "Browser render: 'auto' (default, render if HTTP has no JSON-LD), 'never', or 'always'.", default: 'auto' },
+      include_html: { type: 'boolean', description: 'Include the raw/rendered HTML in the result (capped). Default false.', default: false },
+      max_html_chars: { type: 'number', description: 'Max characters of HTML to return when include_html is set.', default: 50000 },
+    },
+    {
+      url: { type: 'string', description: 'Final URL after redirects.' },
+      status: { type: 'number', description: 'HTTP status code (null if never fetched).' },
+      method: { type: 'string', description: "How it was retrieved: 'http' or 'browser'." },
+      json_ld: { type: 'array', description: 'Parsed JSON-LD objects found on the page.' },
+      meta: { type: 'object', description: 'Title + og/meta tags as a flat map.' },
+      html: { type: 'string', description: 'Raw/rendered HTML (null unless include_html).' },
+      truncated: { type: 'boolean', description: 'True if html was cut to max_html_chars.' },
+      error: { type: 'string', description: 'Plain-English failure reason, or null on success.' },
+    },
+    async (inputs) => {
+      const url = String(inputs.url ?? '');
+      const renderRaw = String(inputs.render ?? 'auto');
+      const render = renderRaw === 'never' || renderRaw === 'always' ? renderRaw : 'auto';
+      const r = await webScrape(url, {
+        render,
+        includeHtml: inputs.include_html === true || inputs.include_html === 'true',
+        maxHtmlChars: inputs.max_html_chars != null ? Number(inputs.max_html_chars) : undefined,
+      });
+      // stdout: the structured payload as JSON when present, else html, else error.
+      const result = r.json_ld.length > 0
+        ? JSON.stringify(r.json_ld)
+        : (r.html ?? r.error ?? JSON.stringify(r.meta));
+      return { ...r, result };
     },
   ),
 

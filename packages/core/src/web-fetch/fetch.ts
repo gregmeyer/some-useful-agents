@@ -32,6 +32,36 @@ export class WebFetchError extends Error {
   }
 }
 
+/**
+ * Map a tagged retrieval error to a human sentence + status for a tool result.
+ * Shared by web-fetch and web-scrape so both report failures identically.
+ */
+export function describeWebError(err: unknown): { error: string; status: number | null } {
+  if (!(err instanceof WebFetchError)) {
+    return { error: 'The page could not be retrieved.', status: null };
+  }
+  switch (err.kind) {
+    case 'invalid_url': return { error: 'The URL is not valid.', status: null };
+    case 'blocked': return { error: 'Blocked for safety: the URL points to a private or disallowed address.', status: null };
+    case 'dns': return { error: "The site's domain could not be resolved.", status: null };
+    case 'content_type': return { error: 'The URL is not a readable web page (unsupported content type).', status: err.status };
+    case 'timeout': return { error: 'The request timed out.', status: null };
+    case 'too_many_redirects': return { error: 'The page redirected too many times.', status: null };
+    case 'network': return { error: 'The page could not be retrieved (network error).', status: null };
+    case 'empty': return { error: 'The page had no readable content.', status: err.status };
+    case 'http_status': {
+      const s = err.status;
+      if (s === 403) return { error: 'The server denied access to this page.', status: s };
+      if (s === 404) return { error: 'The page was not found.', status: s };
+      if (s === 401) return { error: 'The page requires authentication.', status: s };
+      if (s === 429) return { error: 'The server is rate-limiting requests; try again later.', status: s };
+      if (s && s >= 500) return { error: 'The server returned an error.', status: s };
+      return { error: `The server returned HTTP ${s}.`, status: s };
+    }
+    default: return { error: 'The page could not be retrieved.', status: null };
+  }
+}
+
 /** Map assertSafeUrl's thrown messages onto our tagged errors. */
 async function guard(url: string): Promise<void> {
   try {
