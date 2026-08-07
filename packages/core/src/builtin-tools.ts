@@ -10,6 +10,7 @@ import type {
   BuiltinToolEntry,
   BuiltinToolContext,
 } from './tool-types.js';
+import { webFetch } from './web-fetch/index.js';
 
 /**
  * SSRF guard: resolve the hostname to an IP and reject private, loopback,
@@ -351,6 +352,40 @@ const BUILTINS: BuiltinToolEntry[] = [
       } finally {
         clearTimeout(timer);
       }
+    },
+  ),
+
+  def(
+    'web-fetch',
+    'Web fetch',
+    'Fetch a public web page and return clean, readable text. Give it a URL; the tool handles HTTP, strips navigation/scripts/boilerplate, and (only if needed) renders the page in a headless browser. Use this whenever you need to read the contents of a web page.',
+    {
+      url: { type: 'string', description: 'Absolute http(s) URL of the page to read.', required: true },
+      max_chars: { type: 'number', description: 'Max characters of content to return.', default: 30000 },
+      timeout: { type: 'number', description: 'Per-attempt timeout in seconds.', default: 20 },
+      browser: { type: 'string', description: "Browser fallback: 'auto' (default, escalate only if HTTP yields too little), 'never', or 'always'.", default: 'auto' },
+    },
+    {
+      url: { type: 'string', description: 'Final URL after redirects.' },
+      title: { type: 'string', description: 'Page title (null if unavailable).' },
+      content: { type: 'string', description: 'Clean Markdown/plaintext content (null on failure).' },
+      method: { type: 'string', description: "How it was retrieved: 'http' or 'browser'." },
+      status: { type: 'number', description: 'HTTP status code (null if never fetched).' },
+      truncated: { type: 'boolean', description: 'True if content was cut to max_chars.' },
+      error: { type: 'string', description: 'Plain-English failure reason, or null on success.' },
+    },
+    async (inputs) => {
+      const url = String(inputs.url ?? '');
+      const browserRaw = String(inputs.browser ?? 'auto');
+      const browser = browserRaw === 'never' || browserRaw === 'always' ? browserRaw : 'auto';
+      const r = await webFetch(url, {
+        maxChars: inputs.max_chars != null ? Number(inputs.max_chars) : undefined,
+        timeoutSec: inputs.timeout != null ? Number(inputs.timeout) : undefined,
+        browser,
+      });
+      // `result` is the node's stdout: the clean content, or the error so a
+      // downstream text consumer (or small model) sees why it failed.
+      return { ...r, result: r.content ?? (r.error ?? '') };
     },
   ),
 
