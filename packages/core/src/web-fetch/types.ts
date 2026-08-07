@@ -40,3 +40,33 @@ export interface RawPage {
   status: number;
   html: string;
 }
+
+export interface WebScrapeOptions {
+  /** Browser render policy. Default 'auto' (render if HTTP yields no JSON-LD). */
+  render?: BrowserMode;
+  /** Include the raw/rendered HTML in the result (capped). Default false. */
+  includeHtml?: boolean;
+  /** Cap on returned `html` characters when includeHtml is set. Default 50000. */
+  maxHtmlChars?: number;
+  /** Per-attempt network timeout in seconds. Default 20. */
+  timeoutSec?: number;
+}
+
+/**
+ * Structured/raw view of a page for machine consumption (vs web-fetch's readable
+ * prose). Never thrown — failures set `error` with `json_ld: []`.
+ */
+export interface WebScrapeResult {
+  url: string;
+  status: number | null;
+  method: WebFetchMethod;
+  /** Parsed JSON-LD objects (schema.org: Product, Offer, Article, …). */
+  json_ld: unknown[];
+  /** `<title>` + og/meta tags as a flat map. */
+  meta: Record<string, string>;
+  /** Raw/rendered HTML when `includeHtml` was set, else null. */
+  html: string | null;
+  /** True if `html` was cut to `maxHtmlChars`. */
+  truncated: boolean;
+  error: string | null;
+}

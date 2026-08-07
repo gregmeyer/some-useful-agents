@@ -9,7 +9,7 @@
  * The core function is independent of the tool/LLM protocol; builtin-tools.ts
  * wraps it as the `web-fetch` builtin.
  */
-import { httpFetch, WebFetchError } from './fetch.js';
+import { httpFetch, describeWebError } from './fetch.js';
 import { extractContent } from './extract.js';
 import { renderWithBrowser } from './browser.js';
 import type { WebFetchOptions, WebFetchResult } from './types.js';
@@ -21,33 +21,6 @@ export { WebFetchError } from './fetch.js';
 const MIN_USEFUL_CHARS = 200;
 const DEFAULT_MAX_CHARS = 30000;
 const DEFAULT_TIMEOUT_SEC = 20;
-
-/** Map a tagged retrieval error to a human sentence + status for the result. */
-function mapError(err: unknown): { error: string; status: number | null } {
-  if (!(err instanceof WebFetchError)) {
-    return { error: 'The page could not be retrieved.', status: null };
-  }
-  switch (err.kind) {
-    case 'invalid_url': return { error: 'The URL is not valid.', status: null };
-    case 'blocked': return { error: 'Blocked for safety: the URL points to a private or disallowed address.', status: null };
-    case 'dns': return { error: "The site's domain could not be resolved.", status: null };
-    case 'content_type': return { error: 'The URL is not a readable web page (unsupported content type).', status: err.status };
-    case 'timeout': return { error: 'The request timed out.', status: null };
-    case 'too_many_redirects': return { error: 'The page redirected too many times.', status: null };
-    case 'network': return { error: 'The page could not be retrieved (network error).', status: null };
-    case 'empty': return { error: 'The page had no readable content.', status: err.status };
-    case 'http_status': {
-      const s = err.status;
-      if (s === 403) return { error: 'The server denied access to this page.', status: s };
-      if (s === 404) return { error: 'The page was not found.', status: s };
-      if (s === 401) return { error: 'The page requires authentication.', status: s };
-      if (s === 429) return { error: 'The server is rate-limiting requests; try again later.', status: s };
-      if (s && s >= 500) return { error: 'The server returned an error.', status: s };
-      return { error: `The server returned HTTP ${s}.`, status: s };
-    }
-    default: return { error: 'The page could not be retrieved.', status: null };
-  }
-}
 
 const base = (url: string): WebFetchResult => ({
   url, title: null, content: null, method: 'http', status: null, truncated: false, error: null,
@@ -76,7 +49,7 @@ export async function webFetch(url: string, opts: WebFetchOptions = {}): Promise
         error: hasContent ? null : 'No readable content could be extracted from the page.',
       };
     } catch (err) {
-      httpErr = mapError(err);
+      httpErr = describeWebError(err);
     }
   }
 
