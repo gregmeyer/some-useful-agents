@@ -1,5 +1,199 @@
 # @some-useful-agents/temporal-provider
 
+## 0.27.0
+
+### Minor Changes
+
+- 1b2487a: Daily run digest in the inbox — know at a glance whether your agents ran.
+
+  Failures already open an inbox thread, but successful runs had no inbox surface,
+  so a day of green runs was invisible in the review queue. SUA now posts one
+  low-priority `cadence` thread each morning summarizing the previous day's runs:
+  a counts header (`12 runs · 10 ok · 2 failed · 5 agents`) plus one line per
+  agent — a clean one-line summary for successes, and a link to the existing
+  run-failure thread for failures (never restating the error). The summary parses
+  structured output (a final JSON object's `headline` / `summary` / `label:value`)
+  instead of dumping raw JSON, and internal system agents (inbox-triage, …) are
+  excluded so it's about your own agents. Empty days are skipped; exactly one
+  thread per day (restart-safe, catches up the previous day after downtime). It's the first real `cadence` producer, runs in-process in the
+  dashboard, and is default-on (`SUA_DAILY_DIGEST=0` to opt out).
+
+  Also adds optional `since` / `until` (ISO `startedAt` bounds) to
+  `RunStore.queryRuns` for correct time-window queries.
+
+- f06f423: Error-reference catalog + auto-attached troubleshooting + `error-troubleshooter` agent.
+
+  Every run failure now comes with actionable help. A new error-reference catalog
+  in core (`ERROR_CATALOG`) maps every failure category and common shell exit code
+  to what it means, its likely causes, and concrete troubleshooting steps — the
+  single source of truth for two surfaces:
+
+  - **Auto-attach**: when a run fails, its inbox thread now includes a
+    "What this means / Likely causes / Try:" section, looked up by the failed
+    node's category + exit code (the exit code wins when catalogued). Deterministic,
+    no LLM, no setup.
+  - **`error-troubleshooter` agent**: a new bundled example agent (inbox-runnable)
+    that answers "what does exit 127 mean?" on demand, reading the catalog via a
+    read-only SQLite tool. Its `error-reference` SQLite integration is
+    auto-provisioned on dashboard boot and `sua examples install` / `sua init`
+    (generated from the catalog), so the agent works out of the box.
+
+- f06f423: Humanize node-run failures — no more bare `exit_nonzero`.
+
+  When a node in an agent run exited non-zero, the failure surfaced as jargon: a
+  run-level `Failed at node "X" (exit_nonzero)` string echoed verbatim in the
+  dashboard error banner, the inbox run-failure thread, and the CLI (`sua run`,
+  `sua status`). The exit code, its meaning, and the stderr all existed but were
+  never combined into one readable sentence.
+
+  A new shared explainer in core (`explainNodeFailure`) now turns a node failure
+  into one plain line — e.g. `Node "fetch" exited with code 127 (command not
+found): curl: command not found` — combining the failing node, the exit code and
+  its common meaning, and the last line of stderr. The run-level error is built
+  from it at the source, so every surface (dashboard banner, inbox thread, and
+  CLI) reads the same clear explanation. The machine-readable `errorCategory` field
+  is unchanged, so retry policies and dashboard badges behave exactly as before.
+  The failure-category label map also gains the previously-missing `abandoned` and
+  `policy_denied` entries.
+
+- 486d215: LLM tool-calling: local models can now call builtin tools mid-generation.
+
+  Under a custom OpenAI-compatible provider (a local model like Qwen), an
+  llm-prompt / claude-code node can let the model actually invoke builtin tools
+  (`web-scrape`, `web-fetch`, `http-get`, …) during generation — so agents authored
+  "tell the model to search the web" work instead of the model pretending. The
+  OpenAI invoker now runs a function-calling loop: it sends the exposed tools as
+  function schemas, executes each requested call (SSRF/size-capped by the tools,
+  and routed through the tool-policy seam), feeds results back, and loops until a
+  final answer or `maxTurns` (default 5).
+
+  Expose tools via a new node `tools: [...]` field (builtin ids); builtin-id
+  entries in `allowedTools` are also honored for back-compat. No tools listed →
+  plain completion (unchanged). Works on the OpenAI-compatible path only; the
+  claude/codex CLIs use their own tools (an MCP bridge for our builtins is a
+  follow-up).
+
+- a36f4b3: MCP outbound client: migrate to SDK v2 with automatic era negotiation.
+
+  The client sua uses to consume external MCP servers (as agent tools and as
+  `mcp-tool` notify destinations) now runs on `@modelcontextprotocol/client` v2
+  with `versionNegotiation:'auto'`, so a single connection transparently talks to
+  both 2025-era and 2026-07-28 external servers. Connection pooling, stdio +
+  streamable-HTTP transports, and the `callMcpTool`/`listMcpTools` surface are
+  unchanged for callers.
+
+  Because agent tool calls are non-interactive, the client keeps the SDK's
+  non-fulfilling `inputRequired` default: a remote server that demands mid-call
+  input surfaces as an error instead of hanging the DAG node.
+
+- 0443033: MCP inbound server: migrate to the 2026-07-28 spec (SDK v2, stateless transport).
+
+  The inbound MCP server (which exposes your agents to Claude Desktop / Cursor) now
+  runs on the stateless MCP 2026-07-28 protocol via `@modelcontextprotocol/server`
+  v2's `createMcpHandler`. There is no longer an `Mcp-Session-Id` or in-memory
+  session map — each request is self-contained and re-authenticates against the
+  bearer token, so the server can sit behind ordinary load balancers. Existing
+  2025-era clients (including current Claude Desktop installs) keep working
+  unchanged via the `legacy: 'stateless'` compatibility mode; no config change is
+  required.
+
+  Security note: the previous session-to-token binding (which stopped a rotated
+  token from hijacking a live session) is removed because the stateless protocol
+  has no sessions to hijack — every request runs the full Host/Origin + bearer
+  check fresh. The loopback Host/Origin defenses and single shared bearer-token
+  model are otherwise unchanged.
+
+- 07fa1d9: Persistent `sua ›` ask band on every page; Signals move to a first-class `/pulse` page; snappier navigation.
+
+  The `sua ›` prompt is now global chrome — a band under the top bar on every page (prominent on the home front door, quiet on inner pages so it doesn't compete with page headings). Focus it from anywhere with `Cmd/Ctrl+K` (or `/`), and an in-progress draft survives navigation. Signals (the Pulse board) moved off the crowded home into a dedicated **Pulse** page with its own nav item; home now leads cleanly with the cadence inbox feed (recent activity lives at `/runs`). The client JS bundle is served as one cached external file (`/assets/dashboard.js`) instead of being inlined into every page, so the browser parses it once and navigation no longer re-parses ~370KB on every page load.
+
+- 74b4620: Inbox triage can change an agent's schedule.
+
+  Ask triage in plain English — "run the news digest hourly instead of daily",
+  "this is too noisy, make it weekly", "stop scheduling X" — and it proposes a new
+  `agent-schedule` action that sets (or clears) the agent's cron cadence. It
+  validates the cron (rejecting invalid or sub-minute expressions), applies it via
+  a targeted metadata update (no version bump), and reports the new cadence in plain
+  English. Route-handled and auto-approvable like the other editor actions.
+
+  Note: like the dashboard's existing schedule editor, a change takes effect on the
+  new cadence only after the scheduler daemon (`sua schedule start`) is restarted —
+  the action summary says so.
+
+- 1a0e61b: New `web-fetch` builtin tool — free, local web-page retrieval for agents.
+
+  Give it a URL; it returns clean, readable Markdown optimized for an LLM (not raw
+  HTML). The harness owns the complexity: HTTP via native fetch with a browser-like
+  User-Agent and per-redirect SSRF re-validation, main-content extraction via
+  Readability + Turndown (dropping nav/scripts/boilerplate), and an optional
+  headless-browser fallback (Playwright, only when HTTP yields too little). It never
+  throws — every failure is a predictable structured result with a plain-English
+  `error` a small model can reason about.
+
+  Safety: http/https only, private/loopback/metadata IP blocking on every hop, and
+  caps on redirects, downloaded bytes, and extracted characters. Playwright is an
+  optional dependency (`npx playwright install chromium` to enable the browser
+  fallback); without it the tool stays HTTP-only and reports so. Appears on the
+  dashboard `/tools` page and is usable from any agent node via `tool: web-fetch`.
+
+- 394632a: New `web-scrape` builtin tool — structured data + raw HTML extraction.
+
+  The complement to `web-fetch`: where web-fetch returns readable prose, web-scrape
+  returns the machine layer — JSON-LD (schema.org products/offers/prices/articles),
+  page metadata (title, og/meta tags), and optionally the raw or browser-rendered
+  HTML. Use it when an agent needs data fields, not article text.
+
+  It reuses the entire web-fetch HTTP + SSRF + optional-browser stack, so it inherits
+  the same safety (http/https only, per-hop private-IP blocking, redirect/byte caps,
+  timeouts) and never throws — failures return a structured result with a
+  plain-English error. Under `render: auto` it renders the page in a headless browser
+  only when HTTP returns no JSON-LD (SPAs inject it via JS); no new dependencies.
+  Appears on the dashboard `/tools` page and is usable from any node via
+  `tool: web-scrape`.
+
+### Patch Changes
+
+- ffe1a49: Fix: the Agents overview stat tile no longer contradicts the list filter.
+
+  The `AGENTS` / `N active` tile on `/agents` was computed from the status- and
+  search-filtered agent list, and it added every legacy v1 agent to the active
+  count unconditionally (v1 agents have no status). Filtering the list to a
+  non-active status therefore produced a nonsensical strip — e.g. filtering to
+  "paused" showed `AGENTS 5 / 1 active`, while `Total Runs` / `In Flight` in the
+  same strip stayed global. The overview strip now counts the whole tab
+  regardless of the list's status/search filters, so it stays a stable header.
+
+- b4cb54a: Fix: dashboard no longer slows down when clicking through nav links in quick succession.
+
+  The global inbox live-update stream opened a persistent `EventSource('/inbox/events')` on every page but never closed it, relying on the browser to reap the socket lazily on navigation. Under HTTP/1.1's ~6-connections-per-origin cap (in play on the local dashboard), rapid page-to-page navigation stacked not-yet-closed SSE connections, and subsequent requests — page HTML, assets — queued behind them, producing a progressive stall. The stream now closes on `pagehide`, releasing the connection slot the instant you navigate.
+
+- 3035179: Fix: `loop` nodes now iterate over a shell node's unframed (pretty-printed) JSON.
+
+  A `loop` whose upstream was a shell node emitting multi-line JSON — e.g. the
+  default output of `jq -n '{queries: [...]}'` — failed setup with
+  `Loop field "<over>" on upstream "<id>" is not an array`, even though the
+  stdout plainly contained the array. The output-framing protocol only parses
+  the _last_ stdout line as structured output, so multi-line JSON left the array
+  buried inside `outputs.result` as a string and unreachable by the loop's
+  `over` path. `resolveLoop` now falls back to parsing the upstream's raw stdout
+  as JSON when the structured-outputs lookup doesn't yield an array, so loops
+  work regardless of whether the upstream shell node compact-prints its JSON.
+
+- Updated dependencies [ffe1a49]
+- Updated dependencies [1b2487a]
+- Updated dependencies [f06f423]
+- Updated dependencies [f06f423]
+- Updated dependencies [b4cb54a]
+- Updated dependencies [486d215]
+- Updated dependencies [3035179]
+- Updated dependencies [a36f4b3]
+- Updated dependencies [0443033]
+- Updated dependencies [07fa1d9]
+- Updated dependencies [74b4620]
+- Updated dependencies [1a0e61b]
+- Updated dependencies [394632a]
+  - @some-useful-agents/core@0.27.0
+
 ## 0.26.0
 
 ### Minor Changes
