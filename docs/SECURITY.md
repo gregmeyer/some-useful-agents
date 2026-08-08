@@ -33,10 +33,10 @@ Trust flows with the agent's source through the chain executor. A local agent th
 
 The MCP HTTP server on `localhost:3003` has three layered defenses. (As of the
 2026-07-28 / SDK v2 migration the server is **stateless** — there is no
-`Mcp-Session-Id` and no session state; see [ADR-0028](adr/0028-mcp-2026-07-28-sdk-v2.md).)
+`Mcp-Session-Id` and no session state; see [ADR-0029](adr/0029-mcp-2026-07-28-sdk-v2.md).)
 
 1. **Loopback bind.** `httpServer.listen(port, '127.0.0.1')` by default. A LAN attacker on the same Wi-Fi cannot reach the port. Override with `sua mcp start --host <host>` only when you genuinely need LAN exposure (a warning is printed).
-2. **Bearer token auth.** Every `/mcp` request must carry `Authorization: Bearer <token>`. `/health` stays unauthenticated. The token is a 32-byte random value in `~/.sua/mcp-token` (chmod 0600). `crypto.timingSafeEqual` avoids timing leaks on compare. Because the protocol is stateless, **every request re-authenticates** — there is no session to outlive a token rotation, so `sua mcp rotate-token` takes effect on the very next request.
+2. **Bearer token auth.** Every `/mcp` request must carry `Authorization: Bearer <token>`. `/health` stays unauthenticated. The token is a 32-byte random value in `~/.sua/mcp-token` (chmod 0600). `crypto.timingSafeEqual` avoids timing leaks on compare. Because the protocol is stateless, **every request re-authenticates** against the token the server loaded at startup — there are no lingering sessions authenticated under an old token. (`sua mcp rotate-token` rewrites the file; the running server holds its token in memory, so a rotation takes effect once the server is restarted.)
 3. **Host and Origin allowlists.** The server rejects requests whose `Host` header is not in a loopback allowlist (belt-and-suspenders for the `--host` case), and requests whose `Origin` header is present and not loopback (the actual DNS-rebinding defense — a browser tab pointed at `evil.com` that rebinds DNS to 127.0.0.1 still sends its real `Origin`).
 
 > **Removed in the stateless migration:** the previous *session-to-token binding* (each `mcp-session-id` pinned to the sha256 of its creating token) is gone — a stateless protocol has no live session to hijack, so per-request auth (defense 2) fully replaces it.
