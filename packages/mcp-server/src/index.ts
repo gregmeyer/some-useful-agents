@@ -1,7 +1,6 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import {
   AgentStore,
@@ -46,23 +45,6 @@ export interface McpServerOptions {
    * `sua mcp start --provider temporal` is used.
    */
   provider?: Provider;
-}
-
-interface SessionEntry {
-  transport: StreamableHTTPServerTransport;
-  /**
-   * The McpServer this transport is connected to. The MCP SDK requires a
-   * fresh `McpServer` per transport — calling `connect()` twice on the same
-   * server throws "Already connected to a transport". Each session gets its
-   * own; on session DELETE we close it to release the listener handlers.
-   */
-  server: McpServer;
-  /** sha256(token) at the time the session was created. Pins this session to that token. */
-  tokenHash: string;
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token, 'utf-8').digest('hex');
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -131,25 +113,30 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     catch { return undefined; }
   })();
 
-  // Each MCP session gets its own McpServer instance. The SDK couples a
-  // server 1:1 with a transport — calling `server.connect()` twice on the
-  // same instance throws. Stores are safe to share across sessions —
+  // MCP 2026-07-28 is a STATELESS protocol: there is no `initialize`
+  // handshake to pin, no `Mcp-Session-Id`, and no long-lived server↔transport
+  // coupling. `createMcpHandler` builds a fresh McpServer per request via this
+  // factory, so the old session Map / session-to-token binding is gone —
+  // every request re-runs the auth gate below instead. `legacy: 'stateless'`
+  // keeps serving 2025-era clients (e.g. existing Claude Desktop installs)
+  // over the same endpoint. Stores are shared across requests via closure;
   // each store handles its own concurrency.
-  const buildSessionServer = (): McpServer => {
-    const s = new McpServer({ name: 'some-useful-agents', version: '0.3.2' });
-    registerTools(s, {
-      provider,
-      agentStore,
-      runStore,
-      secretsStore,
-      variablesStore,
-      dataRoot,
-      agentDirs: options.agentDirs,
-    });
-    return s;
-  };
+  const mcpHandler = toNodeHandler(
+    createMcpHandler(() => {
+      const s = new McpServer({ name: 'some-useful-agents', version: '0.26.0' });
+      registerTools(s, {
+        provider,
+        agentStore,
+        runStore,
+        secretsStore,
+        variablesStore,
+        dataRoot,
+        agentDirs: options.agentDirs,
+      });
+      return s;
+    }, { legacy: 'stateless' }),
+  );
 
-  const sessions = new Map<string, SessionEntry>();
   // Allowlist is reassigned once the server has actually bound — when
   // the caller passes `port: 0`, options.port is meaningless and we
   // need to authorize the kernel-assigned port instead. `let` so the
@@ -163,7 +150,7 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
       // Health is intentionally unauthenticated and does not check Host/Origin
       // so monitoring tools can hit it. It returns no sensitive data.
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', sessions: sessions.size }));
+      res.end(JSON.stringify({ status: 'ok' }));
       return;
     }
 
@@ -183,76 +170,16 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     const originHeader = Array.isArray(origin) ? origin[0] : origin;
     if (rejectIfNotOk(res, checkOrigin(originHeader, allowlist))) return;
 
-    // Phase 3: Bearer token.
+    // Phase 3: Bearer token. Runs on every request — the stateless protocol
+    // has no session to hijack, so per-request auth fully replaces the old
+    // session-to-token binding.
     const auth = req.headers.authorization;
     const authHeader = Array.isArray(auth) ? auth[0] : auth;
     if (rejectIfNotOk(res, checkAuthorization(authHeader, token))) return;
 
-    const requestTokenHash = hashToken(token); // We just verified equality, so this is the request's token hash.
-    const sessionIdHeader = req.headers['mcp-session-id'];
-    const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
-
-    if (req.method === 'POST') {
-      let entry: SessionEntry | undefined;
-
-      if (sessionId && sessions.has(sessionId)) {
-        entry = sessions.get(sessionId)!;
-        // Session-to-token binding: a rotated token must not let an attacker
-        // hijack a still-live session created under the previous token.
-        if (entry.tokenHash !== requestTokenHash) {
-          send(res, 401, { error: 'Session does not match presented bearer token' });
-          return;
-        }
-      } else {
-        const newSessionId = randomUUID();
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => newSessionId,
-        });
-        const sessionServer = buildSessionServer();
-        entry = { transport, server: sessionServer, tokenHash: requestTokenHash };
-        sessions.set(newSessionId, entry);
-        await sessionServer.connect(transport);
-      }
-
-      await entry.transport.handleRequest(req, res);
-      return;
-    }
-
-    if (req.method === 'GET') {
-      if (!sessionId || !sessions.has(sessionId)) {
-        send(res, 400, { error: 'No session. Send a POST first.' });
-        return;
-      }
-      const entry = sessions.get(sessionId)!;
-      if (entry.tokenHash !== requestTokenHash) {
-        send(res, 401, { error: 'Session does not match presented bearer token' });
-        return;
-      }
-      await entry.transport.handleRequest(req, res);
-      return;
-    }
-
-    if (req.method === 'DELETE') {
-      if (!sessionId || !sessions.has(sessionId)) {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-      const entry = sessions.get(sessionId)!;
-      if (entry.tokenHash !== requestTokenHash) {
-        send(res, 401, { error: 'Session does not match presented bearer token' });
-        return;
-      }
-      await entry.transport.handleRequest(req, res);
-      // Release the per-session McpServer's listener handlers. Best effort —
-      // McpServer.close() may or may not exist depending on SDK version.
-      try { await entry.server.close?.(); } catch { /* ignore */ }
-      sessions.delete(sessionId);
-      return;
-    }
-
-    res.writeHead(405);
-    res.end();
+    // Auth passed — hand the request to the stateless MCP handler. It owns
+    // method dispatch (POST/GET) and serves both 2025 and 2026-07-28 clients.
+    await mcpHandler(req, res);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -286,12 +213,8 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
     shuttingDown = true;
     // Stop accepting new connections + actively close existing ones via
     // closeAllConnections so the close-callback fires promptly even when
-    // streamable-HTTP sessions left long-lived responses open. This is
-    // intentionally simpler than calling McpServer.close() per session —
-    // doing that races SDK transport teardown against the next test's
-    // first request and surfaces as "other side closed" client errors.
+    // streamable-HTTP responses left long-lived responses open.
     try { (httpServer as unknown as { closeAllConnections?: () => void }).closeAllConnections?.(); } catch { /* ignore */ }
-    sessions.clear();
     try { await provider.shutdown(); } catch { /* ignore */ }
     try { runStore.close(); } catch { /* ignore */ }
     try { agentStore.close(); } catch { /* ignore */ }

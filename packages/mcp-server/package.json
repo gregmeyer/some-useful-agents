@@ -9,10 +9,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@some-useful-agents/core": "*",
-    "@modelcontextprotocol/sdk": "1.30.0"
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "@some-useful-agents/core": "*"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "typescript": "7.0.2"
   },
   "license": "MIT",

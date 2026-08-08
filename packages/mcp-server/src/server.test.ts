@@ -8,15 +8,16 @@ import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
- * Regression test for the "Already connected to a transport" crash.
+ * Stateless (2026-07-28) request handling.
  *
- * Pre-fix, the MCP server reused a single McpServer instance across all
- * sessions and called `server.connect(transport)` once per new session.
- * The MCP SDK rejects the second connect — uncaught, the error surfaced as
- * an HTTP parser exception and crashed the process. Two consecutive
- * `initialize` POSTs from independent clients reproduce it.
+ * The server is stateless: `createMcpHandler` builds a fresh McpServer per
+ * request, so there is no `Mcp-Session-Id` and no session Map to hijack. Two
+ * concurrent requests must each be served independently without crashing —
+ * this is the successor to the old "Already connected to a transport"
+ * regression, which existed only because v1 coupled one server to one
+ * transport.
  */
-describe('MCP server multi-session', () => {
+describe('MCP server stateless requests', () => {
   let dataDir: string;
   let tokenPath: string;
   let secretsPath: string;
@@ -45,7 +46,7 @@ describe('MCP server multi-session', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('serves two independent initialize requests without crashing', async () => {
+  it('serves two concurrent 2025-era initialize requests without crashing', async () => {
     serverHandle = await startMcpServer({
       port: 0,
       host: '127.0.0.1',
@@ -57,6 +58,7 @@ describe('MCP server multi-session', () => {
     port = serverHandle.port;
 
     const token = 't'.repeat(64);
+    // A 2025-era `initialize` — the legacy:'stateless' shim must still serve it.
     const init = {
       jsonrpc: '2.0',
       method: 'initialize',
@@ -74,33 +76,39 @@ describe('MCP server multi-session', () => {
       Accept: 'application/json, text/event-stream',
     };
 
-    // Session 1.
-    const r1 = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(init),
-    });
+    // Fire both concurrently — pre-2026 this class of overlap is what the
+    // per-request-server model has to handle. Neither must crash the process.
+    const [r1, r2] = await Promise.all([
+      fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers, body: JSON.stringify(init) }),
+      fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers, body: JSON.stringify(init) }),
+    ]);
     expect(r1.status).toBe(200);
-    const sid1 = r1.headers.get('mcp-session-id');
-    expect(sid1).toBeTruthy();
-
-    // Session 2 — the one that crashed pre-fix.
-    const r2 = await fetch(`http://127.0.0.1:${port}/mcp`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(init),
-    });
     expect(r2.status).toBe(200);
-    const sid2 = r2.headers.get('mcp-session-id');
-    expect(sid2).toBeTruthy();
-    expect(sid2).not.toBe(sid1);
 
-    // Server still alive — health reports both sessions.
+    // Server still alive.
     const health = await fetch(`http://127.0.0.1:${port}/health`);
     expect(health.status).toBe(200);
-    const body = (await health.json()) as { status: string; sessions: number };
+    const body = (await health.json()) as { status: string };
     expect(body.status).toBe('ok');
-    expect(body.sessions).toBe(2);
+  });
+
+  it('rejects an unauthenticated /mcp request before reaching the handler', async () => {
+    serverHandle = await startMcpServer({
+      port: 0,
+      host: '127.0.0.1',
+      agentDirs: [dataDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+    port = serverHandle.port;
+
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 }),
+    });
+    expect(res.status).toBe(401);
   });
 });
 
@@ -238,6 +246,36 @@ describe('MCP run-agent with inputs', () => {
     await client.connect(transport);
     return client;
   }
+
+  it('serves a 2026-era (v2 SDK) client with era negotiation', async () => {
+    // Proves the same stateless endpoint serves a modern client — the
+    // counterpart to the v1-client tests above (which prove 2025-era compat).
+    const { Client: ClientV2, StreamableHTTPClientTransport: TransportV2 } =
+      await import('@modelcontextprotocol/client');
+    serverHandle = await startMcpServer({
+      port: 0,
+      host: '127.0.0.1',
+      agentDirs: [agentDir],
+      dbPath: join(dataDir, 'runs.db'),
+      secretsPath,
+      tokenPath,
+    });
+    port = serverHandle.port;
+
+    const transport = new TransportV2(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${'t'.repeat(64)}` } },
+    });
+    const client = new ClientV2({ name: 'test-v2', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+    await client.connect(transport);
+    try {
+      expect(client.getProtocolEra()).toBe('modern');
+      const res = await client.callTool({ name: 'list-agents', arguments: {} });
+      const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
+      expect(payload[0]).toMatchObject({ name: 'echoer' });
+    } finally {
+      await client.close();
+    }
+  });
 
   it('list-agents returns the declared input schema', async () => {
     serverHandle = await startMcpServer({
