@@ -32,6 +32,8 @@ export { webFetch, WebFetchError } from './web-fetch/index.js';
 export type { WebFetchResult, WebFetchOptions, WebFetchMethod, BrowserMode } from './web-fetch/index.js';
 export { webScrape, extractStructured } from './web-fetch/scrape.js';
 export type { WebScrapeResult, WebScrapeOptions } from './web-fetch/scrape.js';
+export { toOpenAiFunctionSchema, buildBuiltinToolExecutor, resolveExposedTools } from './llm-tools.js';
+export type { OpenAiTool, ToolCallExecutor, ToolCallResult } from './llm-tools.js';
 export * from './agent-capabilities.js';
 export * from './node-catalog.js';
 export * from './agent-state.js';

@@ -93,3 +93,34 @@ When a hop fires, `/settings/llm` records the last fallback (`from → to`,
 reason, agent/node). Each run's node execution also stores `usedProvider` (which
 provider actually produced the output) and the full `attemptedProviders` trail,
 visible on the run-detail page.
+
+## Tool-calling (OpenAI-compatible providers)
+
+Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a
+`/v1/chat/completions` endpoint), an `llm-prompt` / `claude-code` node can let the
+model **call builtin tools mid-generation** — so a prompt like "search the web and
+return the top results" actually works instead of the model pretending.
+
+List the builtin tool ids the model may call in the node's `tools` field (builtin
+ids in `allowedTools` are also honored for back-compat):
+
+```yaml
+- id: search
+  type: llm-prompt
+  provider: my-qwen          # a custom OpenAI-compatible provider
+  tools: [web-scrape, web-fetch]
+  maxTurns: 6                # cap on tool-call turns (default 5)
+  prompt: |
+    Find the top 5 results for "best trail cameras 2026". Use web-scrape on
+    https://html.duckduckgo.com/html/?q=... then return a JSON list.
+```
+
+How it works: the harness sends the tools as OpenAI function schemas, runs each
+tool call the model requests (SSRF/size-capped, and gated by the tool policy),
+feeds the results back, and loops until the model returns a final answer or
+`maxTurns` is hit. Only builtin tools are exposed today.
+
+**Provider support:** this works on the **OpenAI-compatible HTTP path only**. The
+`claude` and `codex` CLIs run their own tool loops with their own tools; exposing
+these builtins to them needs an MCP bridge (a future follow-up). Apple Foundation
+Models has no tool support.

@@ -232,6 +232,8 @@ export interface AgentNode {
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
+  /** Builtin tool ids the model may call mid-generation (OpenAI-compatible tool loop). */
+  tools?: string[];
 
   // file-write (first-class node type — desugars to tool: 'file-write')
   /** Path to write (relative to working directory). Required when type is file-write. */

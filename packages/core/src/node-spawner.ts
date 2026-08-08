@@ -16,6 +16,9 @@ import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } fr
 import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
 import { invokeOpenAiChat } from './openai-http-invoker.js';
 import type { CustomLlmProvider } from './llm-settings-store.js';
+import { resolveExposedTools, buildBuiltinToolExecutor } from './llm-tools.js';
+import type { PolicyDocument } from './policy-store.js';
+import type { SecretsStore } from './secrets-store.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -603,7 +606,7 @@ export function getSpawner(provider?: string): LlmSpawner {
 export async function spawnNodeReal(
   node: AgentNode,
   env: Record<string, string>,
-  _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string>; llmSettings?: LlmSettingsSnapshot },
+  _opts: { agentId: string; agentSource: Agent['source']; allowUntrustedShell?: ReadonlySet<string>; llmSettings?: LlmSettingsSnapshot; secretsStore?: SecretsStore; policyDocument?: PolicyDocument },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
@@ -674,7 +677,12 @@ export async function spawnNodeReal(
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     attemptedProviders.push(provider);
-    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, _opts.llmSettings?.customProviders);
+    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, _opts.llmSettings?.customProviders, {
+      agentId: _opts.agentId,
+      agentSource: _opts.agentSource,
+      secretsStore: _opts.secretsStore,
+      policyDocument: _opts.policyDocument,
+    });
 
     // A 0-exit result still has to satisfy the node's output contract. A weak
     // fallback model that ignores the required format (e.g. no <plan> block)
@@ -760,12 +768,31 @@ async function runLlmAttempt(
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
   customProviders?: readonly CustomLlmProvider[],
+  toolCtx?: { agentId: string; agentSource: Agent['source']; secretsStore?: SecretsStore; policyDocument?: PolicyDocument },
 ): Promise<SpawnResult> {
   // Custom OpenAI-compatible provider ⇒ HTTP transport, not a CLI spawn. This
   // is the ONLY divergence from the CLI path; the returned SpawnResult flows
   // through the same waterfall (contract check, classifyLlmFailure, fallback).
   const custom = customProviders?.find((c) => c.name === provider);
   if (custom && custom.kind === 'openai') {
+    // Expose builtin tools the model may CALL: the union of node.tools and any
+    // builtin-id entries in node.allowedTools (back-compat). Only builtins that
+    // actually exist are exposed. Empty ⇒ plain completion (no tool loop).
+    const candidateIds = [...(node.tools ?? []), ...(node.allowedTools ?? [])];
+    const tools = resolveExposedTools(candidateIds);
+    const exposedToolIds = tools.map((t) => t.function.name);
+    const onToolCall = exposedToolIds.length > 0 && toolCtx
+      ? buildBuiltinToolExecutor({
+          exposedToolIds,
+          agentId: toolCtx.agentId,
+          agentSource: toolCtx.agentSource,
+          policyDocument: toolCtx.policyDocument,
+          env: childEnv,
+          workingDirectory: node.workingDirectory,
+          timeoutSec: node.timeout ?? 300,
+          secretsStore: toolCtx.secretsStore,
+        })
+      : undefined;
     return invokeOpenAiChat({
       apiBase: custom.apiBase,
       apiKey: custom.apiKey,
@@ -775,6 +802,7 @@ async function runLlmAttempt(
       prompt: resolvedPrompt,
       timeoutSec: node.timeout ?? 300,
       signal,
+      ...(onToolCall ? { tools, onToolCall, maxTurns: node.maxTurns ?? 5 } : {}),
     });
   }
   const spawner = getSpawner(provider);
