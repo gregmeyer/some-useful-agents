@@ -48,6 +48,12 @@ outputs:
   message:
     type: string
     description: Markdown-formatted watch link
+permissions:
+  # Thumbnail host is only known at runtime (comes from the format node's
+  # output, not a literal in the template), so it can't be auto-backfilled.
+  # Declare it here so the dashboard CSP allows the <img>.
+  imgSrc:
+    - img.youtube.com
 nodes:
   - id: search
     type: shell
