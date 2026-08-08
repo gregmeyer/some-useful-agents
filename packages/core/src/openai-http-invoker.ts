@@ -12,6 +12,7 @@
  */
 
 import type { SpawnResult } from './node-spawner.js';
+import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
 
 export interface OpenAiInvokeArgs {
   /** Base URL including the version segment, e.g. http://127.0.0.1:8181/v1 */
@@ -26,10 +27,26 @@ export interface OpenAiInvokeArgs {
   signal?: AbortSignal;
   /** Injectable fetch for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
+  /** Function schemas exposed to the model. When present, runs a tool loop. */
+  tools?: OpenAiTool[];
+  /** Executes a model tool_call → result content fed back into the loop. */
+  onToolCall?: ToolCallExecutor;
+  /** Max tool-call turns before giving up (default 5). Ignored without tools. */
+  maxTurns?: number;
 }
 
+interface ToolCall {
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+}
+interface ChatMessage {
+  role?: string;
+  content?: string | null;
+  tool_calls?: ToolCall[];
+}
 interface ChatCompletionResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: ChatMessage }>;
 }
 
 /**
@@ -52,42 +69,78 @@ export async function invokeOpenAiChat(args: OpenAiInvokeArgs): Promise<SpawnRes
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (args.apiKey) headers.authorization = `Bearer ${args.apiKey}`;
 
+  const useTools = Boolean(args.tools && args.tools.length > 0 && args.onToolCall);
+  const maxTurns = Math.max(1, args.maxTurns ?? 5);
+
   try {
-    const res = await doFetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: args.model,
-        messages: [{ role: 'user', content: args.prompt }],
-        stream: false,
-      }),
-      signal: timeoutController.signal,
-    });
+    // Conversation state. With tools, we iterate: model → tool_calls → tool
+    // results → model, up to maxTurns. Without tools, the loop runs exactly
+    // once (identical to the original single-POST behavior).
+    const messages: Array<Record<string, unknown>> = [{ role: 'user', content: args.prompt }];
+    let lastContent = '';
 
-    if (!res.ok) {
-      const bodyText = (await safeText(res)).slice(0, 500);
-      // The status number rides in the error string so classifyLlmFailure's
-      // free-text matchers ("401", "unauthorized", "429", "rate limit") route
-      // it to the right fallback category without a bespoke mapping table.
-      return {
-        result: '',
-        exitCode: 1,
-        error: `HTTP ${res.status} ${res.statusText} from ${url}: ${bodyText || '(no body)'}`,
-        category: 'exit_nonzero',
-      };
+    for (let turn = 0; turn < (useTools ? maxTurns : 1); turn++) {
+      const body: Record<string, unknown> = { model: args.model, messages, stream: false };
+      if (useTools) { body.tools = args.tools; body.tool_choice = 'auto'; }
+
+      const res = await doFetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: timeoutController.signal,
+      });
+
+      if (!res.ok) {
+        const bodyText = (await safeText(res)).slice(0, 500);
+        // The status number rides in the error string so classifyLlmFailure's
+        // free-text matchers ("401", "unauthorized", "429", "rate limit") route
+        // it to the right fallback category without a bespoke mapping table.
+        return {
+          result: '',
+          exitCode: 1,
+          error: `HTTP ${res.status} ${res.statusText} from ${url}: ${bodyText || '(no body)'}`,
+          category: 'exit_nonzero',
+        };
+      }
+
+      const json = (await res.json()) as ChatCompletionResponse;
+      const message = json.choices?.[0]?.message;
+      const toolCalls = message?.tool_calls ?? [];
+      if (typeof message?.content === 'string') lastContent = message.content;
+
+      // Model wants to call tools → execute each, feed results back, loop.
+      if (useTools && toolCalls.length > 0) {
+        messages.push({ role: 'assistant', content: message?.content ?? '', tool_calls: toolCalls });
+        for (const call of toolCalls) {
+          const name = call.function?.name ?? '';
+          const argsJson = call.function?.arguments ?? '{}';
+          const { content } = await args.onToolCall!(name, argsJson);
+          messages.push({ role: 'tool', tool_call_id: call.id ?? name, content });
+        }
+        continue;
+      }
+
+      // No tool calls → this is the final answer.
+      if (typeof message?.content !== 'string' || message.content.length === 0) {
+        return {
+          result: '',
+          exitCode: 1,
+          error: `${url} returned no message content (empty or malformed choices[]).`,
+          category: 'exit_nonzero',
+        };
+      }
+      return { result: message.content, exitCode: 0 };
     }
 
-    const json = (await res.json()) as ChatCompletionResponse;
-    const content = json.choices?.[0]?.message?.content;
-    if (typeof content !== 'string' || content.length === 0) {
-      return {
-        result: '',
-        exitCode: 1,
-        error: `${url} returned no message content (empty or malformed choices[]).`,
-        category: 'exit_nonzero',
-      };
-    }
-    return { result: content, exitCode: 0 };
+    // Ran out of turns while still requesting tools. Return the last text if the
+    // model produced any, else a fallback-worthy error.
+    if (lastContent.length > 0) return { result: lastContent, exitCode: 0 };
+    return {
+      result: '',
+      exitCode: 1,
+      error: `${url} exceeded the tool-call limit (${maxTurns} turns) without a final answer.`,
+      category: 'exit_nonzero',
+    };
   } catch (err) {
     // Abort ⇒ either our timeout or the caller's signal fired. Treat as timeout
     // so the waterfall falls through to the next provider.

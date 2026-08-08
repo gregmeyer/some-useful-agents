@@ -74,4 +74,61 @@ describe('invokeOpenAiChat', () => {
     expect(r.exitCode).not.toBe(0);
     expect(r.error).toMatch(/no message content/);
   });
+
+  it('does NOT send a tools array when no tools are provided (back-compat)', async () => {
+    let body: Record<string, unknown> = {};
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return jsonResponse(200, { choices: [{ message: { content: 'plain' } }] });
+    }) as unknown as typeof fetch;
+    const r = await invokeOpenAiChat({ ...base, fetchImpl });
+    expect(r.result).toBe('plain');
+    expect('tools' in body).toBe(false);
+  });
+
+  describe('tool loop', () => {
+    const tools = [{ type: 'function' as const, function: { name: 'web-scrape', parameters: { type: 'object' as const, properties: {}, required: [], additionalProperties: false } } }];
+
+    it('runs a tool_call, feeds the result back, and returns the final answer', async () => {
+      const seenToolArgs: string[] = [];
+      let post = 0;
+      const bodies: Array<Record<string, unknown>> = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        post++;
+        if (post === 1) {
+          // First response: model asks to call web-scrape.
+          return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [
+            { id: 'call_1', type: 'function', function: { name: 'web-scrape', arguments: '{"url":"https://x.test"}' } },
+          ] } }] });
+        }
+        // Second response: model produces the final answer.
+        return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: 'DONE' } }] });
+      }) as unknown as typeof fetch;
+
+      const onToolCall = async (name: string, argsJson: string) => {
+        seenToolArgs.push(`${name}:${argsJson}`);
+        return { content: '{"json_ld":[]}' };
+      };
+
+      const r = await invokeOpenAiChat({ ...base, fetchImpl, tools, onToolCall, maxTurns: 5 });
+      expect(r.exitCode).toBe(0);
+      expect(r.result).toBe('DONE');
+      expect(seenToolArgs).toEqual(['web-scrape:{"url":"https://x.test"}']);
+      // Second request carried the tools + the tool result message.
+      expect(bodies[0].tools).toBeDefined();
+      const msgs = bodies[1].messages as Array<Record<string, unknown>>;
+      expect(msgs.some((m) => m.role === 'tool' && m.content === '{"json_ld":[]}')).toBe(true);
+    });
+
+    it('stops at maxTurns if the model keeps calling tools', async () => {
+      const fetchImpl = (async () => jsonResponse(200, { choices: [{ message: { role: 'assistant', content: 'thinking', tool_calls: [
+        { id: 'c', type: 'function', function: { name: 'web-scrape', arguments: '{}' } },
+      ] } }] })) as unknown as typeof fetch;
+      const onToolCall = async () => ({ content: 'x' });
+      const r = await invokeOpenAiChat({ ...base, fetchImpl, tools, onToolCall, maxTurns: 2 });
+      // Never got a final (no-tool) answer; returns last text content, exit 0.
+      expect(r.result).toBe('thinking');
+    });
+  });
 });

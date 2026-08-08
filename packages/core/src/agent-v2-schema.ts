@@ -113,6 +113,11 @@ export const agentNodeSchema = z.object({
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   allowedTools: z.array(z.string()).optional(),
+  // Builtin tool ids an llm-prompt node's model may CALL mid-generation (via the
+  // OpenAI-compatible tool loop), e.g. ['web-scrape','web-fetch']. Distinct from
+  // allowedTools (claude-CLI tool names); builtin-id entries in allowedTools are
+  // also honored for back-compat.
+  tools: z.array(z.string()).optional(),
   provider: providerEnumSchema.optional(),
 
   // file-write node fields (top-level for ergonomics; desugar to toolInputs at dispatch).
