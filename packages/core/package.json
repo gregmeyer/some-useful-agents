@@ -9,7 +9,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/client": "2.0.0",
     "@mozilla/readability": "0.6.0",
     "cron-parser": "5.6.2",
     "linkedom": "0.18.12",
@@ -24,6 +24,8 @@
     "playwright": "1.56.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@types/pg": "8.20.2",
     "@types/turndown": "5.0.6",
     "@types/uuid": "11.0.0",
