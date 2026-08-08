@@ -1,7 +1,9 @@
 # ADR-0003: MCP via HTTP/SSE streamable transport
 
 ## Status
-Accepted
+Accepted. The HTTP transport choice still holds; the stateful-session
+mechanics described here were superseded by the stateless 2026-07-28 migration
+— see [ADR-0028](0028-mcp-2026-07-28-sdk-v2.md).
 
 ## Context
 

@@ -149,6 +149,7 @@ On the home board (`/`) the run's output widget will render (assuming the agent 
 - **First call per server** includes the docker-container or child-process startup cost. Subsequent calls in the same sua process reuse the pooled client.
 - **Server env** from the paste is merged over `process.env` — anything you set there overrides host env for the child process only.
 - **HTTP transport** uses the MCP streamable-HTTP spec. Plain SSE is not a supported client yet.
+- **Protocol versions** — sua runs the MCP **2026-07-28** spec via SDK v2. The outbound client negotiates the era automatically (`versionNegotiation:'auto'`), so it consumes both 2025-era and 2026-07-28 external servers from one pooled connection. Because agent tool calls are non-interactive, a server that demands mid-call input (`inputRequired`) surfaces as an error rather than hanging the node.
 - **Re-importing** a server (same id) is idempotent: the row is upserted, existing tool ids are skipped, new tools are created.
 - **No certificate pinning** for HTTP servers yet. Run loopback-only unless you trust the network path.
 
