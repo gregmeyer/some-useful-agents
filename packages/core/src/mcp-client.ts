@@ -9,9 +9,8 @@
  * upstream by the executor before this module sees them.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { ToolImplementation, ToolOutput } from './tool-types.js';
 
 type PooledClient = { client: Client; close: () => Promise<void> };
@@ -27,9 +26,15 @@ function signature(impl: ToolImplementation): string {
 }
 
 async function open(impl: ToolImplementation): Promise<PooledClient> {
+  // versionNegotiation:'auto' probes with `server/discover` and falls back to
+  // the 2025-era protocol, so a single client talks to BOTH old and new
+  // external MCP servers. We intentionally leave `inputRequired` at its
+  // non-fulfilling default: agent tool calls are non-interactive (no human in
+  // the loop), so a server that demands mid-call input surfaces as an error
+  // rather than hanging the DAG node.
   const client = new Client(
     { name: 'sua-executor', version: '0.1.0' },
-    { capabilities: {} },
+    { versionNegotiation: { mode: 'auto' } },
   );
 
   if (impl.mcpTransport === 'http') {
@@ -75,14 +80,13 @@ export async function callMcpTool(
   const client = await getClient(impl);
   const res = await client.callTool(
     { name: impl.mcpToolName, arguments: inputs },
-    undefined,
     { signal },
   );
 
   const content = Array.isArray(res.content) ? res.content : [];
   const text = content
-    .filter((c: { type?: string }) => c.type === 'text')
-    .map((c: { text?: string }) => c.text ?? '')
+    .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+    .map((c) => c.text)
     .join('\n');
 
   const structured = (res as { structuredContent?: Record<string, unknown> }).structuredContent ?? {};
