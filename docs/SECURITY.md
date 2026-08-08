@@ -31,12 +31,15 @@ Trust flows with the agent's source through the chain executor. A local agent th
 
 ### MCP server (v0.4.0)
 
-The MCP HTTP server on `localhost:3003` has four layered defenses:
+The MCP HTTP server on `localhost:3003` has three layered defenses. (As of the
+2026-07-28 / SDK v2 migration the server is **stateless** — there is no
+`Mcp-Session-Id` and no session state; see [ADR-0028](adr/0028-mcp-2026-07-28-sdk-v2.md).)
 
 1. **Loopback bind.** `httpServer.listen(port, '127.0.0.1')` by default. A LAN attacker on the same Wi-Fi cannot reach the port. Override with `sua mcp start --host <host>` only when you genuinely need LAN exposure (a warning is printed).
-2. **Bearer token auth.** Every `/mcp` POST/GET/DELETE must carry `Authorization: Bearer <token>`. `/health` stays unauthenticated. The token is a 32-byte random value in `~/.sua/mcp-token` (chmod 0600). `crypto.timingSafeEqual` avoids timing leaks on compare.
+2. **Bearer token auth.** Every `/mcp` request must carry `Authorization: Bearer <token>`. `/health` stays unauthenticated. The token is a 32-byte random value in `~/.sua/mcp-token` (chmod 0600). `crypto.timingSafeEqual` avoids timing leaks on compare. Because the protocol is stateless, **every request re-authenticates** — there is no session to outlive a token rotation, so `sua mcp rotate-token` takes effect on the very next request.
 3. **Host and Origin allowlists.** The server rejects requests whose `Host` header is not in a loopback allowlist (belt-and-suspenders for the `--host` case), and requests whose `Origin` header is present and not loopback (the actual DNS-rebinding defense — a browser tab pointed at `evil.com` that rebinds DNS to 127.0.0.1 still sends its real `Origin`).
-4. **Session-to-token binding.** Each `mcp-session-id` is pinned to the sha256 of the bearer token that created it. After `sua mcp rotate-token`, in-flight sessions created under the previous token are refused. No hijack window.
+
+> **Removed in the stateless migration:** the previous *session-to-token binding* (each `mcp-session-id` pinned to the sha256 of its creating token) is gone — a stateless protocol has no live session to hijack, so per-request auth (defense 2) fully replaces it.
 
 The bearer token's only job is to gate *any process that can hit localhost* from *the user's intended MCP clients*. It is not a credential against a remote attacker — for that we have the loopback bind. Both layers must hold for the system to be safe.
 
