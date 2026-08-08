@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type {
   Agent as V2Agent,
   AgentDefinition,
@@ -171,10 +171,13 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     agentDirs: opts.agentDirs,
   };
 
-  server.tool(
+  server.registerTool(
     'list-agents',
-    "List agent definitions exposed to MCP (those with `mcp: true`), including each agent's declared inputs schema. Sources both dashboard-managed (DB) and legacy filesystem agents",
-    {},
+    {
+      description:
+        "List agent definitions exposed to MCP (those with `mcp: true`), including each agent's declared inputs schema. Sources both dashboard-managed (DB) and legacy filesystem agents",
+      inputSchema: {},
+    },
     async () => {
       const agents = loadMcpExposedAgents(loadOpts);
       const list = Array.from(agents.values()).map((entry) => {
@@ -191,14 +194,17 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     },
   );
 
-  server.tool(
+  server.registerTool(
     'run-agent',
-    "Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent's schema",
     {
-      name: z.string().describe('Agent name to run'),
-      inputs: z.record(z.string(), z.string()).optional().describe(
-        'Map of input name → string value. Required inputs without a default must be supplied; undeclared keys are rejected. Values are capped at 8 KB each (64 KB total).',
-      ),
+      description:
+        "Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent's schema",
+      inputSchema: {
+        name: z.string().describe('Agent name to run'),
+        inputs: z.record(z.string(), z.string()).optional().describe(
+          'Map of input name → string value. Required inputs without a default must be supplied; undeclared keys are rejected. Values are capped at 8 KB each (64 KB total).',
+        ),
+      },
     },
     async ({ name, inputs }) => {
       const agents = loadMcpExposedAgents(loadOpts);
@@ -301,10 +307,9 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     },
   );
 
-  server.tool(
+  server.registerTool(
     'get-status',
-    'Get the status of a run',
-    { runId: z.string().describe('Run ID') },
+    { description: 'Get the status of a run', inputSchema: { runId: z.string().describe('Run ID') } },
     async ({ runId }) => {
       const run = await opts.provider.getRun(runId);
       if (!run) {
@@ -314,32 +319,32 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     },
   );
 
-  server.tool(
+  server.registerTool(
     'get-logs',
-    'Get logs for a run',
-    { runId: z.string().describe('Run ID') },
+    { description: 'Get logs for a run', inputSchema: { runId: z.string().describe('Run ID') } },
     async ({ runId }) => {
       const logs = await opts.provider.getRunLogs(runId);
       return { content: [{ type: 'text' as const, text: logs || '(no output)' }] };
     },
   );
 
-  server.tool(
+  server.registerTool(
     'cancel-agent',
-    'Cancel a running agent',
-    { runId: z.string().describe('Run ID to cancel') },
+    { description: 'Cancel a running agent', inputSchema: { runId: z.string().describe('Run ID to cancel') } },
     async ({ runId }) => {
       await opts.provider.cancelRun(runId);
       return { content: [{ type: 'text' as const, text: `Cancelled run ${runId}` }] };
     },
   );
 
-  server.tool(
+  server.registerTool(
     'list-runs',
-    'List recent runs',
     {
-      agentName: z.string().optional().describe('Filter by agent name'),
-      limit: z.number().optional().default(20).describe('Max results'),
+      description: 'List recent runs',
+      inputSchema: {
+        agentName: z.string().optional().describe('Filter by agent name'),
+        limit: z.number().optional().default(20).describe('Max results'),
+      },
     },
     async ({ agentName, limit }) => {
       const runs = await opts.provider.listRuns({ agentName, limit });
