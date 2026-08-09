@@ -65,6 +65,21 @@ describe('AgentStore.createAgent + getAgent', () => {
     expect(got.mcp).toBe(true);
   });
 
+  it('persists routing metadata through the versioned dag blob', () => {
+    store.createAgent(
+      seed({
+        entryConditions: ['user asks about the forecast'],
+        nonEntryConditions: ['user asks about historical climate'],
+        sampleQuestions: ['Will it rain tomorrow?'],
+      }),
+      'cli',
+    );
+    const got = store.getAgent('hello')!;
+    expect(got.entryConditions).toEqual(['user asks about the forecast']);
+    expect(got.nonEntryConditions).toEqual(['user asks about historical climate']);
+    expect(got.sampleQuestions).toEqual(['Will it rain tomorrow?']);
+  });
+
   it('returns null for unknown id', () => {
     expect(store.getAgent('nope')).toBeNull();
   });
