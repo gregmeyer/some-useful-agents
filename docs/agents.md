@@ -15,6 +15,13 @@ source: local                 # local | examples | community (default: local)
 version: 1                    # auto-managed by the store
 mcp: false                    # whether to expose via the MCP server (default: false)
 
+entryConditions:              # optional routing — when this agent SHOULD handle a request
+  - user asks for today's weather
+nonEntryConditions:           # optional routing — when it should NOT (disambiguation)
+  - user asks about historical climate
+sampleQuestions:              # optional routing — representative questions it answers
+  - What's the weather in Denver tomorrow?
+
 provider: claude              # optional agent-level LLM default (claude | codex)
 model: claude-sonnet-4-5      # optional agent-level model default
 
@@ -293,6 +300,16 @@ Recommended sizing: pick something like 2–3× the agent's expected runtime. Th
 ## `pulseVisible`
 
 Whether this agent's `signal` tile appears on the home board (`/`) (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
+
+## Routing metadata — `entryConditions`, `nonEntryConditions`, `sampleQuestions`
+
+Three optional lists of short natural-language strings that describe *when* an agent should be picked, so routers reach the right agent instead of guessing from the `description` alone:
+
+- **`entryConditions`** — situations this agent is for. A request matching one is strong evidence this is the agent to run.
+- **`nonEntryConditions`** — look-alike situations it is explicitly *not* for. Used to disambiguate from sibling agents.
+- **`sampleQuestions`** — representative questions a user would ask that this agent answers.
+
+They are read by three routers: the **inbox triage** ranker + LLM (`entryConditions`/`sampleQuestions` boost relevance; `nonEntryConditions` is an LLM-applied veto, never a deterministic filter), the **build-from-goal surveyor** (to reuse an existing agent instead of drafting a duplicate), and the **MCP `list-agents`** payload (so external clients like Claude Desktop route on them). The build-from-goal drafter populates these automatically for new agents; edit them any time on the agent's YAML tab. All three are versioned with the rest of the agent definition.
 
 ## `permissions`
 

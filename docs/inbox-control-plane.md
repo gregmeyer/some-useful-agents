@@ -59,6 +59,15 @@ sweeper (`packages/dashboard/src/lib/daily-digest.ts`), default-on with
 `SUA_DAILY_DIGEST=0` to opt out. The `permission-request` producer remains
 unbuilt (enum + playbook exist, no emitter yet — see Open questions).
 
+- **Routing on agent metadata**: triage picks which agent to dispatch using each
+  agent's routing metadata (see [Agents → Routing metadata](agents.md#routing-metadata--entryconditions-nonentryconditions-samplequestions)).
+  `entryConditions` and `sampleQuestions` boost an agent's relevance in the ranked
+  `AGENT_CATALOG` (so it surfaces even when its name/description miss the request),
+  and all three fields are handed to the triage LLM — which prefers agents whose
+  entry conditions / sample questions match and treats `nonEntryConditions` as a
+  veto. `nonEntryConditions` is never scored deterministically, so it can't drop a
+  valid agent out of the catalog before the LLM sees it.
+
 That is enough to prove the surface, but not enough to make inbox the default place to build and operate agents end to end.
 
 ## Product goal

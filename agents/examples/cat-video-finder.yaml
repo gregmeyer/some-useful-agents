@@ -19,6 +19,13 @@ name: Cat Video Finder
 description: Searches YouTube for a popular cat video and returns a playable link.
 status: draft
 source: local
+entryConditions:
+  - user wants a cat video (or a video on a given topic) from YouTube
+nonEntryConditions:
+  - user wants to download or embed a video file
+sampleQuestions:
+  - Find me a funny cat video.
+  - Show me a video of kittens playing.
 mcp: false
 version: 11
 inputs:

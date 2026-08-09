@@ -98,6 +98,16 @@ nodes:
 
       YAML CONTENT — the agent's YAML must be a complete, parseable sua agent:
       - source: must be "local".
+      - ROUTING METADATA — always include these so the agent routes well:
+          entryConditions: a list of 1-3 short phrases describing when a request
+            SHOULD go to this agent (e.g. "user asks for today's weather").
+          nonEntryConditions: a list of 0-2 phrases describing look-alike requests
+            this agent is NOT for, to prevent mis-routing (e.g. "historical
+            climate data" for a live-forecast agent). Omit if nothing applies.
+          sampleQuestions: a list of 2-3 representative questions a user would ask
+            that this agent answers, in natural phrasing.
+        Keep each entry one short line. These feed the inbox router and the
+        build surveyor, so make them specific and distinct from sibling agents.
       - inputs: an object/map. Input names UPPERCASE_WITH_UNDERSCORES.
       - outputs: object. Names lowercase_snake_case (NOT camelCase). Each value
         is a type (string|number|boolean|object|array) OR an object {type, description}.
