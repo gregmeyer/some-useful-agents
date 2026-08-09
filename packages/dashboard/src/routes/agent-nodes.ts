@@ -72,6 +72,7 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     model: typeof body.model === 'string' ? body.model : undefined,
     maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
     allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
+    tools: typeof body.tools === 'string' ? body.tools : undefined,
   };
 
   // Validate.
@@ -151,6 +152,7 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
       ...(llm.model ? { model: llm.model } : {}),
       ...(llm.maxTurns ? { maxTurns: llm.maxTurns } : {}),
       ...(llm.allowedTools ? { allowedTools: llm.allowedTools } : {}),
+      ...(llm.tools ? { tools: llm.tools } : {}),
     };
   }
 
@@ -218,6 +220,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     model: typeof body.model === 'string' ? body.model : undefined,
     maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
     allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
+    tools: typeof body.tools === 'string' ? body.tools : undefined,
   };
 
   // Every declared dependency must be a node that's not the current
@@ -273,6 +276,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
         model: undefined,
         maxTurns: undefined,
         allowedTools: undefined,
+        tools: undefined,
         ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
       }
     : {
@@ -284,6 +288,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
         model: llm.model,
         maxTurns: llm.maxTurns,
         allowedTools: llm.allowedTools,
+        tools: llm.tools,
         ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
       };
 

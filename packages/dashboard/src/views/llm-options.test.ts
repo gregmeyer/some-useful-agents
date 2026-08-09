@@ -35,18 +35,27 @@ describe('parseLlmOptions', () => {
     expect(parseLlmOptions({ allowedTools: '' })).toEqual({});
   });
 
-  it('combines all four fields', () => {
+  it('splits the tools field (registry ids the model may call) independently of allowedTools', () => {
+    expect(parseLlmOptions({ tools: 'web-scrape, csv.read.sales, notion.search' })).toEqual({
+      tools: ['web-scrape', 'csv.read.sales', 'notion.search'],
+    });
+    expect(parseLlmOptions({ tools: '   ' })).toEqual({});
+  });
+
+  it('combines all fields including the tools list', () => {
     const body = {
       provider: 'codex',
       model: 'gpt-5',
       maxTurns: '10',
       allowedTools: 'Read, web-search',
+      tools: 'web-scrape, notion.search',
     };
     expect(parseLlmOptions(body)).toEqual({
       provider: 'codex',
       model: 'gpt-5',
       maxTurns: 10,
       allowedTools: ['Read', 'web-search'],
+      tools: ['web-scrape', 'notion.search'],
     });
   });
 });

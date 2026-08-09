@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { toOpenAiFunctionSchema, resolveExposedTools, buildBuiltinToolExecutor } from './llm-tools.js';
+import { toOpenAiFunctionSchema, resolveExposedTools } from './llm-tools.js';
+import { buildBuiltinToolExecutor } from './llm-tool-dispatch.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import type { PolicyDocument } from './policy-store.js';
 

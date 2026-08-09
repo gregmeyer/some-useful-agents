@@ -16,6 +16,7 @@ export interface EditNodeFormValues {
   model?: string;
   maxTurns?: number | string;
   allowedTools?: string[] | string;
+  tools?: string[] | string;
 }
 
 export function renderAgentEditNode(args: {
@@ -117,6 +118,7 @@ export function renderAgentEditNode(args: {
             model: submitted?.model ?? node.model,
             maxTurns: submitted?.maxTurns ?? node.maxTurns,
             allowedTools: submitted?.allowedTools ?? node.allowedTools,
+            tools: submitted?.tools ?? node.tools,
           })}
         </div>
       </fieldset>
