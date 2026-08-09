@@ -7,6 +7,11 @@ name: Daily joke
 description: Fetches a real joke from the internet using the http-get tool.
 status: active
 source: examples
+entryConditions:
+  - user wants a joke or something funny
+sampleQuestions:
+  - Tell me a joke.
+  - Make me laugh.
 outputs:
   result:
     type: string

@@ -19,6 +19,15 @@ name: Weather Forecast
 description: Live weather + 7-day forecast with view-switch (today/week), field-toggle (extras), and replay (different city). Tests dashboard widget controls.
 status: active
 source: local
+entryConditions:
+  - user asks for the current weather, temperature, or forecast for a place
+  - user asks whether they need an umbrella / will it rain
+nonEntryConditions:
+  - user asks about historical climate or long-term averages
+sampleQuestions:
+  - What's the weather in Austin today?
+  - Will it rain this weekend in Denver?
+  - Do I need a jacket tomorrow?
 mcp: false
 version: 4
 inputs:
