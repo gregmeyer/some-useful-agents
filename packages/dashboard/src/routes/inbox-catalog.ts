@@ -159,6 +159,10 @@ export function buildAgentCatalogJson(ctx: ReturnType<typeof getContext>): strin
         name: a.name,
         description: a.description ?? '',
         tags: a.tags ?? [],
+        // Routing metadata — the deep capability search matches on these too.
+        ...(a.entryConditions?.length ? { entryConditions: a.entryConditions } : {}),
+        ...(a.nonEntryConditions?.length ? { nonEntryConditions: a.nonEntryConditions } : {}),
+        ...(a.sampleQuestions?.length ? { sampleQuestions: a.sampleQuestions } : {}),
         source: a.source,
         status: a.status,
         createdAt: a.createdAt,
@@ -199,11 +203,15 @@ function catalogTokens(text: string): string[] {
   ));
 }
 
-/** Relevance score of an agent to the request tokens: id/name/tags weigh more
- *  than description. 0 = no signal. */
+/** Relevance score of an agent to the request tokens: id/name/tags and the
+ *  deliberate routing signals (entryConditions, sampleQuestions) weigh more than
+ *  the prose description. `nonEntryConditions` is intentionally NOT scored — it's
+ *  a negative signal handled by the triage LLM, not the deterministic ranker, so
+ *  a matching non-entry phrase can't quietly drop an agent below the cap before
+ *  the LLM ever sees it. 0 = no signal. */
 function catalogRelevance(agent: Agent, tokens: readonly string[]): number {
   if (tokens.length === 0) return 0;
-  const strong = `${agent.id} ${agent.name} ${(agent.tags ?? []).join(' ')}`.toLowerCase();
+  const strong = `${agent.id} ${agent.name} ${(agent.tags ?? []).join(' ')} ${(agent.entryConditions ?? []).join(' ')} ${(agent.sampleQuestions ?? []).join(' ')}`.toLowerCase();
   const weak = (agent.description ?? '').toLowerCase();
   let score = 0;
   for (const t of tokens) {
@@ -276,6 +284,11 @@ export function buildTriageCatalogJson(
       name: a.name,
       description: (a.description ?? '').slice(0, TRIAGE_CATALOG_DESC_CAP),
       tags: a.tags ?? [],
+      // Routing metadata — omitted when empty for token thrift. entry/sample are
+      // positive signals; nonEntry tells triage when to EXCLUDE this agent.
+      ...(a.entryConditions?.length ? { entryConditions: a.entryConditions } : {}),
+      ...(a.nonEntryConditions?.length ? { nonEntryConditions: a.nonEntryConditions } : {}),
+      ...(a.sampleQuestions?.length ? { sampleQuestions: a.sampleQuestions } : {}),
       createdAt: a.createdAt,
       // Whether this agent has an inline-able output widget — lets triage pick a
       // sensible target for a `show-widget` action. Omitted when false (token thrift).
