@@ -25,6 +25,42 @@ describe('selectTriageCatalog', () => {
     expect(ids(out)[0]).toBe('weather-dashboard'); // relevance is front-loaded
   });
 
+  it('surfaces an agent via sampleQuestions/entryConditions when name+description miss', () => {
+    // The request shares NO words with the agent's id/name/description, only
+    // with its routing metadata — it must still rank in (front, by relevance).
+    const agents = [
+      mk('aurora', '2026-01-01T00:00:00Z', {
+        description: 'Atmospheric optics helper',
+        entryConditions: ['user asks whether it will rain'],
+        sampleQuestions: ['Do I need an umbrella tomorrow?'],
+      }),
+      ...Array.from({ length: 30 }, (_, i) => mk(`agent-${i}`, `2026-06-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`)),
+    ];
+    const out = selectTriageCatalog(agents, new Map(), 'will it rain tomorrow, need an umbrella?', 40);
+    expect(ids(out)).toContain('aurora');
+    expect(ids(out)[0]).toBe('aurora'); // relevance front-loads it
+  });
+
+  it('does not let nonEntryConditions change the relevance score', () => {
+    // Two identical agents; one has a nonEntryConditions phrase that matches the
+    // request. Since nonEntry is LLM-only (never scored), neither is demoted —
+    // both rank equally and appear. (nonEntry is a veto the LLM applies, not a
+    // deterministic filter that could drop an agent below the cap unseen.)
+    const base = { description: 'general helper' };
+    const agents = [
+      mk('plain', '2026-01-02T00:00:00Z', { ...base, entryConditions: ['user needs a report'] }),
+      mk('with-nonentry', '2026-01-01T00:00:00Z', {
+        ...base,
+        entryConditions: ['user needs a report'],
+        nonEntryConditions: ['user needs a report about payroll'],
+      }),
+    ];
+    const out = selectTriageCatalog(agents, new Map(), 'I need a report about payroll', 40);
+    // Both surface; the nonEntry match neither boosts nor demotes with-nonentry.
+    expect(ids(out)).toContain('plain');
+    expect(ids(out)).toContain('with-nonentry');
+  });
+
   it('ranks a recently-used agent above an old unused one', () => {
     const agents = [
       mk('old-unused', '2026-01-01T00:00:00Z'),
