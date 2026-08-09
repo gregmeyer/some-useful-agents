@@ -120,15 +120,26 @@ describe('strongestReuseCandidate', () => {
     sampleQuestions: ['Will it rain tomorrow?'],
   });
 
-  it('returns the clear match when two strong signals hit (score >= 6)', () => {
+  it('returns the clear match when three strong signals hit (score >= 9)', () => {
+    // "open" + "jobs" + "hiring" all hit roster's entryConditions → 3×3 = 9.
     const c = strongestReuseCandidate([roster, weather], 'open jobs and hiring');
     expect(c?.id).toBe('roster-scout');
-    expect(c!.score).toBeGreaterThanOrEqual(6);
+    expect(c!.score).toBeGreaterThanOrEqual(9);
   });
 
   it('returns null below the strong threshold (a single generic token)', () => {
-    // Only "jobs" hits → score 3 (< 6) → not strong enough to spotlight.
+    // Only "jobs" hits → score 3 (< 9) → not strong enough to spotlight.
     expect(strongestReuseCandidate([roster, weather], 'jobs')).toBeNull();
+  });
+
+  it('returns null on a two-keyword collision (the crypto/ccusage finding)', () => {
+    // Two hits → score 6, still < 9. Guards the dogfooded false-positive where
+    // "track ... daily" spotlighted an unrelated usage-tracking agent.
+    const usage = mk('ccusage-daily', '2026-01-04T00:00:00Z', {
+      description: 'tracks daily Claude Code usage and cost',
+      tags: ['track', 'daily'],
+    });
+    expect(strongestReuseCandidate([usage, roster, weather], 'track my crypto portfolio daily')).toBeNull();
   });
 
   it('returns null when there is no clear leader (a tie)', () => {

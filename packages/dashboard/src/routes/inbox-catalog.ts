@@ -267,21 +267,36 @@ export function selectTriageCatalog(
 /**
  * Minimum relevance score for an agent to count as a STRONG reuse candidate.
  * catalogRelevance scores strong-signal tokens (id/name/tags/entryConditions/
- * sampleQuestions) at +3 each, so 6 ≈ two distinct strong hits — specific enough
- * that we're confident an existing agent fits, not a single generic keyword.
+ * sampleQuestions) at +3 each, so 9 ≈ three distinct strong hits. Set to 9 (up
+ * from an initial 6) after dogfooding: at 6, a two-keyword collision could
+ * spotlight the wrong agent (e.g. "track my crypto portfolio daily" matched a
+ * Claude-Code-usage agent on "track" + "daily"). Requiring three hits makes a
+ * false reuse hint far less likely; real matches score well above this (observed
+ * 12–15 for weather/jobs/cat-video asks).
  */
-const STRONG_CANDIDATE_MIN_SCORE = 6;
+const STRONG_CANDIDATE_MIN_SCORE = 9;
+
+/**
+ * The candidate must also beat the runner-up by at least this margin. A weak
+ * description hit is +1, so a bare `> runnerUp` could pass on a single-point
+ * edge; requiring +3 means the leader is ahead by a full strong signal, not a
+ * coincidental description word. Together with the min score this keeps the hint
+ * to genuinely unambiguous matches — near-ties yield no hint and fall through to
+ * agent-catalog-search + the LLM.
+ */
+const STRONG_CANDIDATE_MIN_MARGIN = 3;
 
 /**
  * The single existing agent that clearly fits `currentRequest`, or null. Used to
  * bias triage toward REUSE: when a strong match exists, triage should propose
  * running it (or an "Enable & run") rather than recommending a brand-new agent.
  *
- * "Clear" = top relevance ≥ STRONG_CANDIDATE_MIN_SCORE AND strictly ahead of the
- * runner-up, so an ambiguous field of near-ties yields no hint (let the LLM +
- * agent-catalog-search sort it out) rather than a false "just reuse X". Pure +
- * exported for testing. Deliberately reuses the same `catalogRelevance` ranker
- * the catalog uses, so the hint and the catalog never disagree.
+ * "Clear" = top relevance ≥ STRONG_CANDIDATE_MIN_SCORE AND ahead of the runner-up
+ * by ≥ STRONG_CANDIDATE_MIN_MARGIN, so an ambiguous field of near-ties or a
+ * single-keyword collision yields no hint (let the LLM + agent-catalog-search
+ * sort it out) rather than a false "just reuse X". Pure + exported for testing.
+ * Deliberately reuses the same `catalogRelevance` ranker the catalog uses, so the
+ * hint and the catalog never disagree.
  */
 export function strongestReuseCandidate(
   agents: readonly Agent[],
@@ -296,7 +311,7 @@ export function strongestReuseCandidate(
   if (scored.length === 0) return null;
   const top = scored[0];
   const runnerUp = scored[1]?.score ?? 0;
-  if (top.score < STRONG_CANDIDATE_MIN_SCORE || top.score <= runnerUp) return null;
+  if (top.score < STRONG_CANDIDATE_MIN_SCORE || top.score - runnerUp < STRONG_CANDIDATE_MIN_MARGIN) return null;
   return { id: top.a.id, name: top.a.name, score: top.score };
 }
 
