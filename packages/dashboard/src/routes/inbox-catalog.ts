@@ -265,6 +265,61 @@ export function selectTriageCatalog(
 }
 
 /**
+ * Minimum relevance score for an agent to count as a STRONG reuse candidate.
+ * catalogRelevance scores strong-signal tokens (id/name/tags/entryConditions/
+ * sampleQuestions) at +3 each, so 6 ≈ two distinct strong hits — specific enough
+ * that we're confident an existing agent fits, not a single generic keyword.
+ */
+const STRONG_CANDIDATE_MIN_SCORE = 6;
+
+/**
+ * The single existing agent that clearly fits `currentRequest`, or null. Used to
+ * bias triage toward REUSE: when a strong match exists, triage should propose
+ * running it (or an "Enable & run") rather than recommending a brand-new agent.
+ *
+ * "Clear" = top relevance ≥ STRONG_CANDIDATE_MIN_SCORE AND strictly ahead of the
+ * runner-up, so an ambiguous field of near-ties yields no hint (let the LLM +
+ * agent-catalog-search sort it out) rather than a false "just reuse X". Pure +
+ * exported for testing. Deliberately reuses the same `catalogRelevance` ranker
+ * the catalog uses, so the hint and the catalog never disagree.
+ */
+export function strongestReuseCandidate(
+  agents: readonly Agent[],
+  currentRequest: string,
+): { id: string; name: string; score: number } | null {
+  const tokens = catalogTokens(currentRequest);
+  if (tokens.length === 0) return null;
+  const scored = agents
+    .map((a) => ({ a, score: catalogRelevance(a, tokens) }))
+    .filter((x) => x.score > 0)
+    .sort((x, y) => y.score - x.score);
+  if (scored.length === 0) return null;
+  const top = scored[0];
+  const runnerUp = scored[1]?.score ?? 0;
+  if (top.score < STRONG_CANDIDATE_MIN_SCORE || top.score <= runnerUp) return null;
+  return { id: top.a.id, name: top.a.name, score: top.score };
+}
+
+/**
+ * Serialize the strong reuse candidate for injection into the triage turn as
+ * `STRONG_CANDIDATE`. Empty string when there's no clear match (triage then
+ * decides normally). System/scaffolding agents are excluded — we never spotlight
+ * inbox-triage itself as a reuse target.
+ */
+export function buildStrongCandidateHint(
+  ctx: ReturnType<typeof getContext>,
+  currentRequest = '',
+): string {
+  try {
+    const agents = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id));
+    const candidate = strongestReuseCandidate(agents, currentRequest);
+    return candidate ? JSON.stringify({ id: candidate.id, name: candidate.name }) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Trimmed catalog for the triage turn: id, name, short description, createdAt,
  * tags (+ hasWidget). Selected by relevance to `currentRequest` + recency-of-use
  * + newest-created (see selectTriageCatalog), capped at TRIAGE_CATALOG_MAX_AGENTS.

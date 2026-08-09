@@ -63,6 +63,7 @@ import {
   getRunnableCandidates,
   ensureSystemAgentCurrent,
   buildTriageCatalogJson,
+  buildStrongCandidateHint,
   buildDashboardsCatalogJson,
   buildRunnableAgentSpecsJson,
   enrichAgentAnalyzerInputs,
@@ -1578,6 +1579,9 @@ export async function runTriageAgent(
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
           AGENT_CATALOG: buildTriageCatalogJson(ctx, currentRequest),
+          // A single existing agent that clearly fits the request (or ""), so
+          // triage leads with REUSE instead of recommending a brand-new agent.
+          STRONG_CANDIDATE: buildStrongCandidateHint(ctx, currentRequest),
           // The operator's existing dashboards so triage can answer "where can
           // I add agents" and target an existing one by id (no duplicates).
           DASHBOARDS: buildDashboardsCatalogJson(ctx),

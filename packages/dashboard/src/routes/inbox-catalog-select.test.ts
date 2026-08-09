@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { selectTriageCatalog } from './inbox-catalog.js';
+import { selectTriageCatalog, strongestReuseCandidate } from './inbox-catalog.js';
 
 /** Minimal Agent for selection tests (only id/name/description/tags/createdAt are read). */
 function mk(id: string, createdAt: string, extra: Partial<Agent> = {}): Agent {
@@ -103,5 +103,44 @@ describe('selectTriageCatalog', () => {
     // "show me the output" is all stopwords/short → no relevance signal → pure recency order.
     const out = selectTriageCatalog(agents, new Map(), 'show me the output', 40);
     expect(ids(out).sort()).toEqual(['pr-reviewer', 'weather-bot']); // both present, none "matched"
+  });
+});
+
+describe('strongestReuseCandidate', () => {
+  // Bland id/name so the only match signal is the routing metadata (mirrors real
+  // agents whose name/description don't contain the user's words).
+  const roster = mk('roster-scout', '2026-01-01T00:00:00Z', {
+    description: 'company roster utility',
+    entryConditions: ['user wants open jobs or hiring at a named company'],
+    sampleQuestions: ['What roles is Ramp hiring?'],
+  });
+  const weather = mk('sky-helper', '2026-01-02T00:00:00Z', {
+    description: 'atmospheric utility',
+    entryConditions: ['user asks about rain or the forecast'],
+    sampleQuestions: ['Will it rain tomorrow?'],
+  });
+
+  it('returns the clear match when two strong signals hit (score >= 6)', () => {
+    const c = strongestReuseCandidate([roster, weather], 'open jobs and hiring');
+    expect(c?.id).toBe('roster-scout');
+    expect(c!.score).toBeGreaterThanOrEqual(6);
+  });
+
+  it('returns null below the strong threshold (a single generic token)', () => {
+    // Only "jobs" hits → score 3 (< 6) → not strong enough to spotlight.
+    expect(strongestReuseCandidate([roster, weather], 'jobs')).toBeNull();
+  });
+
+  it('returns null when there is no clear leader (a tie)', () => {
+    const dup = mk('roster-twin', '2026-01-03T00:00:00Z', {
+      entryConditions: ['user wants open jobs or hiring at a named company'],
+    });
+    // Both match "open jobs hiring" equally → no strict leader → no hint.
+    expect(strongestReuseCandidate([roster, dup], 'open jobs hiring')).toBeNull();
+  });
+
+  it('returns null for a request nothing matches', () => {
+    expect(strongestReuseCandidate([roster, weather], 'xylophone tuning schedule')).toBeNull();
+    expect(strongestReuseCandidate([roster, weather], '')).toBeNull();
   });
 });

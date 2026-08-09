@@ -123,6 +123,17 @@ inputs:
       {"agents":[{id,name,description,tags,createdAt}], "truncated"?:N}.
       Lets triage answer recency / "what does agent X do" questions
       directly (with a link) instead of dispatching agent-catalog-search.
+  STRONG_CANDIDATE:
+    type: string
+    required: false
+    default: ""
+    description: >
+      JSON {id,name} of the ONE installed agent that clearly fits the
+      current request, or "" when there's no clear match. Computed
+      deterministically from the same relevance ranker as AGENT_CATALOG.
+      When present, prefer REUSING this agent (propose running it / an
+      "Enable & run") over recommending a brand-new agent. See the
+      kernel's REUSE-BEFORE-BUILD section.
   DASHBOARDS:
     type: string
     required: false
@@ -206,6 +217,9 @@ nodes:
 
       Installed agent catalog — newest first (may be empty):
       {{inputs.AGENT_CATALOG}}
+
+      Strong reuse candidate for THIS request — {id,name} or empty:
+      {{inputs.STRONG_CANDIDATE}}
 
       Your existing dashboards — where agents can be pinned (may be empty):
       {{inputs.DASHBOARDS}}
