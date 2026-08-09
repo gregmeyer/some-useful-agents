@@ -119,6 +119,27 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('outputs: articles, count');
   });
 
+  it('includes per-agent routing metadata when declared', () => {
+    const catalog = buildDiscoveryCatalog({
+      agents: [{
+        id: 'weather',
+        name: 'Weather',
+        description: 'Forecasts',
+        status: 'active',
+        version: 1,
+        nodes: [],
+        entryConditions: ['user asks about the forecast'],
+        nonEntryConditions: ['user asks about historical climate'],
+        sampleQuestions: ['Will it rain tomorrow?'],
+      } as unknown as Agent],
+      tools: [],
+      templateRegistry: {},
+    });
+    expect(catalog).toContain('use when: user asks about the forecast');
+    expect(catalog).toContain('not for: user asks about historical climate');
+    expect(catalog).toContain('sample questions: Will it rain tomorrow?');
+  });
+
   it('includes per-agent capabilities when present', () => {
     const catalog = buildDiscoveryCatalog({
       agents: [{

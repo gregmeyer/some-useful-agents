@@ -188,6 +188,15 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         };
         const inputs = describeInputs(entry.inputs);
         if (inputs) out.inputs = inputs;
+        // Routing metadata (v2 agents only) — lets an external client pick the
+        // right agent on entry conditions / sample questions, not just the
+        // description. Omitted when empty.
+        if (entry.kind === 'v2') {
+          const a = entry.agent;
+          if (a.entryConditions?.length) out.entryConditions = a.entryConditions;
+          if (a.nonEntryConditions?.length) out.nonEntryConditions = a.nonEntryConditions;
+          if (a.sampleQuestions?.length) out.sampleQuestions = a.sampleQuestions;
+        }
         return out;
       });
       return { content: [{ type: 'text' as const, text: JSON.stringify(list, null, 2) }] };
