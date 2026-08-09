@@ -122,6 +122,9 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(p.notify && { notify: p.notify as Agent['notify'] }),
     ...(p.author !== undefined && { author: p.author }),
     ...(p.tags && { tags: p.tags }),
+    ...(p.entryConditions && { entryConditions: p.entryConditions }),
+    ...(p.nonEntryConditions && { nonEntryConditions: p.nonEntryConditions }),
+    ...(p.sampleQuestions && { sampleQuestions: p.sampleQuestions }),
   };
 }
 
@@ -146,6 +149,7 @@ const AGENT_KEY_ORDER = [
   'retry',
   'notify',
   'author', 'tags',
+  'entryConditions', 'nonEntryConditions', 'sampleQuestions',
 ] as const;
 
 const NODE_KEY_ORDER = [

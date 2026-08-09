@@ -416,6 +416,12 @@ export const agentV2Schema = z.object({
 
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
+
+  // Routing metadata — free-text signals that help the inbox triage router,
+  // the build surveyor, and external MCP clients pick the right agent.
+  entryConditions: z.array(z.string()).optional(),
+  nonEntryConditions: z.array(z.string()).optional(),
+  sampleQuestions: z.array(z.string()).optional(),
 }).superRefine((data, ctx) => {
   // Unique node ids
   const seen = new Map<string, number>();

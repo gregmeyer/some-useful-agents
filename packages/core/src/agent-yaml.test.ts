@@ -270,6 +270,39 @@ nodes:
     expect(roundTripped.permissions?.inboxRunnable).toBe(true);
   });
 
+  it('round-trips routing metadata (entry/non-entry conditions + sample questions)', () => {
+    const yaml = `
+id: weather
+name: Weather
+status: active
+source: local
+mcp: false
+version: 1
+entryConditions:
+  - user asks about the forecast or temperature
+nonEntryConditions:
+  - user asks about historical climate data
+sampleQuestions:
+  - What's the weather in Denver tomorrow?
+  - Will it rain this weekend?
+nodes:
+  - id: main
+    type: shell
+    command: echo ok
+`.trim();
+    const parsed = parseAgent(yaml);
+    expect(parsed.entryConditions).toEqual(['user asks about the forecast or temperature']);
+    expect(parsed.nonEntryConditions).toEqual(['user asks about historical climate data']);
+    expect(parsed.sampleQuestions).toEqual([
+      "What's the weather in Denver tomorrow?",
+      'Will it rain this weekend?',
+    ]);
+    const roundTripped = parseAgent(exportAgent(parsed));
+    expect(roundTripped.entryConditions).toEqual(parsed.entryConditions);
+    expect(roundTripped.nonEntryConditions).toEqual(parsed.nonEntryConditions);
+    expect(roundTripped.sampleQuestions).toEqual(parsed.sampleQuestions);
+  });
+
   it('emits outputs after inputs and before nodes', () => {
     const a: Agent = {
       id: 'x', name: 'X', status: 'active', source: 'local', mcp: false, version: 1,

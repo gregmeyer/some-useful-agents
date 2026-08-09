@@ -498,6 +498,14 @@ export interface Agent {
   // Metadata
   author?: string;
   tags?: string[];
+
+  // Routing metadata — help routers pick this agent (see AgentVersionDag; versioned).
+  /** When this agent SHOULD handle a request. */
+  entryConditions?: string[];
+  /** When this agent should NOT handle a request (negative/disambiguation signal). */
+  nonEntryConditions?: string[];
+  /** Representative questions this agent answers. */
+  sampleQuestions?: string[];
 }
 
 /**
@@ -608,6 +616,10 @@ export interface AgentVersionDag {
   retry?: RetryPolicy;
   author?: string;
   tags?: string[];
+  /** Routing metadata — see Agent.entryConditions / nonEntryConditions / sampleQuestions. */
+  entryConditions?: string[];
+  nonEntryConditions?: string[];
+  sampleQuestions?: string[];
   /** CSP allowlist contributions + inbox execution capabilities — see Agent.permissions. */
   permissions?: { imgSrc?: string[]; inboxRunnable?: boolean };
   /** See Agent.allowedSubAgents. */
