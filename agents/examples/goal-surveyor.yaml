@@ -69,7 +69,11 @@ nodes:
       STEP 2 — DECOMPOSE THE GOAL INTO FRAGMENTS.
       A fragment is one logical thing the goal needs ("today's weather",
       "HN top stories", "my notes list"). For each fragment:
-        - Search INSTALLED AGENTS for a fuzzy id+description match.
+        - Search INSTALLED AGENTS for a fuzzy id+description match. When an
+          agent lists "use when" (entry conditions) or "sample questions",
+          weight those above the description — they say exactly what the agent
+          is for. Respect "not for" (non-entry conditions): if the fragment
+          matches one, that agent is NOT a match.
         - Match found → add to `matchedAgents` with the fragment text in `matchedFor`.
         - No match → add a fragment entry to `fragments[]` with `purpose` set to
           a clean one-sentence description of what the missing agent should do,

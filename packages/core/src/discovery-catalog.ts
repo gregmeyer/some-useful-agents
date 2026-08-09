@@ -219,12 +219,20 @@ function buildAgentsSection(agents: Agent[]): string {
     const outputNames = a.outputs ? Object.keys(a.outputs).join(', ') : '';
     const tools = a.capabilities?.tools_used?.join(', ') ?? '';
     const sideEffects = a.capabilities?.side_effects?.join(', ') ?? '';
+    // Routing metadata — helps the surveyor match a goal fragment to an existing
+    // agent (reuse) instead of drafting a near-duplicate.
+    const useWhen = a.entryConditions?.join('; ') ?? '';
+    const notFor = a.nonEntryConditions?.join('; ') ?? '';
+    const samples = a.sampleQuestions?.join(' | ') ?? '';
     const statusTag = a.status === 'draft' ? ' (draft)' : '';
     const parts: string[] = [`- ${a.id}${statusTag}: ${desc}`];
     if (inputNames) parts.push(`    inputs: ${inputNames}`);
     if (outputNames) parts.push(`    outputs: ${outputNames}`);
     if (tools) parts.push(`    tools: ${tools}`);
     if (sideEffects) parts.push(`    side effects: ${sideEffects}`);
+    if (useWhen) parts.push(`    use when: ${useWhen}`);
+    if (notFor) parts.push(`    not for: ${notFor}`);
+    if (samples) parts.push(`    sample questions: ${samples}`);
     return parts.join('\n');
   });
 
