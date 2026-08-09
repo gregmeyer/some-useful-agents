@@ -63,6 +63,7 @@ export interface AddNodeFormValues {
   model?: string;
   maxTurns?: number | string;
   allowedTools?: string[] | string;
+  tools?: string[] | string;
 }
 
 export function renderAgentAddNode(args: {
@@ -183,6 +184,7 @@ export function renderAgentAddNode(args: {
             model: v.model,
             maxTurns: v.maxTurns,
             allowedTools: v.allowedTools,
+            tools: v.tools,
           })}
         </div>
       </fieldset>

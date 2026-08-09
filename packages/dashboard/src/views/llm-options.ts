@@ -21,6 +21,7 @@ export interface LlmOptionsValues {
   model?: string;
   maxTurns?: number | string;
   allowedTools?: string[] | string;
+  tools?: string[] | string;
 }
 
 export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
@@ -35,6 +36,10 @@ export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
   const allowedTools =
     Array.isArray(values.allowedTools) ? values.allowedTools.join(', ')
     : typeof values.allowedTools === 'string' ? values.allowedTools
+    : '';
+  const tools =
+    Array.isArray(values.tools) ? values.tools.join(', ')
+    : typeof values.tools === 'string' ? values.tools
     : '';
 
   return html`
@@ -66,6 +71,13 @@ export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
         placeholder="Read, Write, Edit, web-search" class="form-field__input">
       <span class="form-field__hint">Comma-separated allowlist of tools the LLM may invoke. Leave empty to use the provider's defaults.</span>
     </div>
+
+    <div class="form-field">
+      <strong>Tools the model may call <span class="dim text-xs">(optional)</span></strong>
+      <input type="text" name="tools" value="${tools}"
+        placeholder="web-scrape, csv.read.sales, notion.search" class="form-field__input">
+      <span class="form-field__hint">Comma-separated registry tool ids (builtins, integration tools, MCP tools) an OpenAI-compatible model may call mid-generation. Distinct from Allowed tools (Claude/Codex CLI tool names).</span>
+    </div>
   `;
 }
 
@@ -74,6 +86,7 @@ export interface ParsedLlmOptions {
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
+  tools?: string[];
 }
 
 /** Parse LLM-options form fields out of a request body. Empty fields are omitted. */
@@ -98,6 +111,11 @@ export function parseLlmOptions(body: Record<string, unknown>): ParsedLlmOptions
   if (typeof body.allowedTools === 'string' && body.allowedTools.trim()) {
     const tools = body.allowedTools.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
     if (tools.length > 0) result.allowedTools = tools;
+  }
+
+  if (typeof body.tools === 'string' && body.tools.trim()) {
+    const tools = body.tools.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+    if (tools.length > 0) result.tools = tools;
   }
 
   return result;

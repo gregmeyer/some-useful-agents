@@ -101,26 +101,38 @@ Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a
 model **call builtin tools mid-generation** — so a prompt like "search the web and
 return the top results" actually works instead of the model pretending.
 
-List the builtin tool ids the model may call in the node's `tools` field (builtin
+List the registry tool ids the model may call in the node's `tools` field. Builtin,
+generated integration (csv/postgres/sqlite), and MCP tools are all supported (builtin
 ids in `allowedTools` are also honored for back-compat):
 
 ```yaml
-- id: search
+- id: research
   type: llm-prompt
   provider: my-qwen          # a custom OpenAI-compatible provider
-  tools: [web-scrape, web-fetch]
+  tools:
+    - web-scrape             # builtin
+    - csv.read.sales         # generated integration tool
+    - notion.search          # MCP tool (from a registered, enabled server)
   maxTurns: 6                # cap on tool-call turns (default 5)
   prompt: |
-    Find the top 5 results for "best trail cameras 2026". Use web-scrape on
-    https://html.duckduckgo.com/html/?q=... then return a JSON list.
+    Look up this quarter's sales in the CSV, cross-reference the roadmap in
+    Notion, and summarize. Use the tools — don't guess.
 ```
 
-How it works: the harness sends the tools as OpenAI function schemas, runs each
-tool call the model requests (SSRF/size-capped, and gated by the tool policy),
-feeds the results back, and loops until the model returns a final answer or
-`maxTurns` is hit. Only builtin tools are exposed today.
+How it works: the harness sends the tools as OpenAI function schemas (tool ids with
+dots — generated + MCP — are given safe function names and mapped back on the way in),
+runs each tool call the model requests (output size-capped, and gated by the tool
+policy), feeds the results back, and loops until the model returns a final answer or
+`maxTurns` is hit. MCP tools are invoked through the same pooled client and
+server-enable gate as MCP tool *nodes*; a disabled server surfaces as an in-loop error
+the model can read, not a crash.
 
-**Provider support:** this works on the **OpenAI-compatible HTTP path only**. The
-`claude` and `codex` CLIs run their own tool loops with their own tools; exposing
-these builtins to them needs an MCP bridge (a future follow-up). Apple Foundation
-Models has no tool support.
+**Provider support:** this works on the **OpenAI-compatible HTTP path only** — any
+`kind:'openai'` custom provider (local llama.cpp/Ollama, or a hosted OpenAI-compatible
+API). The `claude` and `codex` CLIs run their own tool loops with their own tools;
+the `tools` field does not apply to them. Apple Foundation Models has no tool support.
+
+**Not yet exposed:** shell / claude-code *user* tools (they are spawn-based), and
+per-action schemas for multi-action tools (the tool is exposed with its shared input
+schema). Resource-scoped policy enforcement for generated/MCP tools is pending — the
+policy gate is wired but currently evaluates to allow.

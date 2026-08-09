@@ -1032,7 +1032,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1046,7 +1046,7 @@ export async function executeAgentDag(
           model: node.model ?? agent.model,
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,

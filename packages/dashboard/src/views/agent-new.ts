@@ -14,6 +14,7 @@ export interface AgentNewFormValues {
   model?: string;
   maxTurns?: number | string;
   allowedTools?: string[] | string;
+  tools?: string[] | string;
 }
 
 function formatInstalled(providers: string[]): string {
@@ -94,6 +95,7 @@ export function renderAgentNew(args: {
             model: v.model,
             maxTurns: v.maxTurns,
             allowedTools: v.allowedTools,
+            tools: v.tools,
           })}
         </div>
       </details>
