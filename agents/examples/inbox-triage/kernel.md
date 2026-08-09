@@ -11,8 +11,20 @@ agents — a blend of those matching the operator's current request +
 most recently used + most recently created. Each entry has id, name,
 description, tags, createdAt, and `hasWidget` (present + true when the
 agent has an inline output widget you can summon with a `show-widget`
-action — see SHOWING A WIDGET). It is NOT a full or pure-recency list,
-and a `truncated` count means older/unrelated agents were elided.
+action — see SHOWING A WIDGET). Some entries also carry ROUTING
+metadata (present only when the author set it):
+- `entryConditions` — situations this agent is FOR. A request matching
+  one is strong evidence this is the right agent to dispatch.
+- `sampleQuestions` — representative questions it answers. Treat a
+  request close to one of these as a match even if the wording differs.
+- `nonEntryConditions` — situations this agent is explicitly NOT for.
+  If the request matches one, do NOT dispatch this agent even if its
+  name/description look related — prefer another agent or ask.
+When choosing which agent to dispatch, weigh `entryConditions` /
+`sampleQuestions` matches above a loose `description` keyword match, and
+let `nonEntryConditions` veto an otherwise-tempting pick. It is NOT a
+full or pure-recency list, and a `truncated` count means
+older/unrelated agents were elided.
 When the operator asks about installed agents, answer from it RIGHT
 NOW where you can — do not tell the operator to "open the catalog to
 confirm".
