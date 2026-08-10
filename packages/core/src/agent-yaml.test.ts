@@ -390,6 +390,34 @@ nodes:
     expect(a2).toEqual(a1);
   });
 
+  it('round-trips the llm-prompt `tools` field (model-callable tool ids)', () => {
+    const yaml = `
+id: qwen-tools
+name: Qwen Tools
+status: active
+source: local
+mcp: false
+version: 1
+nodes:
+  - id: research
+    type: llm-prompt
+    provider: local-qwen-8b
+    tools:
+      - web-scrape
+      - notion.search
+    maxTurns: 5
+    prompt: Use the tools to answer.
+`;
+    const a1 = parseAgent(yaml);
+    // Regression: `tools` must survive parse (it was dropped by the node
+    // reconstruction map before, silently disabling model tool-calling).
+    expect(a1.nodes[0].tools).toEqual(['web-scrape', 'notion.search']);
+    // And survive a full parse → export → parse round-trip.
+    const a2 = parseAgent(exportAgent(a1));
+    expect(a2).toEqual(a1);
+    expect(a2.nodes[0].tools).toEqual(['web-scrape', 'notion.search']);
+  });
+
   it('round-trips control-flow nodes (conditional + switch + loop + agent-invoke + end)', () => {
     const yaml = `
 id: ctrl
