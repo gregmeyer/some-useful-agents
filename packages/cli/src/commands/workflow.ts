@@ -10,6 +10,7 @@ import {
   IntegrationsStore,
   VariablesStore,
   ToolStore,
+  LlmSettingsStore,
   loadAgents,
   executeAgentDag,
   executeAgentWithRetry,
@@ -24,8 +25,29 @@ import {
 } from '@some-useful-agents/core';
 import { readFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { dirname, join, extname } from 'node:path';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getDashboardBaseUrl } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getDashboardBaseUrl, getLlmSettingsPath } from '../config.js';
 import * as ui from '../ui.js';
+
+/**
+ * Load the operator's LLM settings (waterfall + custom OpenAI-compatible
+ * providers) as an executor snapshot. Without this, CLI runs can't resolve a
+ * `kind:'openai'` custom provider (e.g. a local model) and silently fall through
+ * to the default `claude` spawner. Best-effort: absent settings ⇒ undefined.
+ */
+function loadLlmSettingsSnapshot(config: ReturnType<typeof loadConfig>) {
+  try {
+    const store = new LlmSettingsStore(getLlmSettingsPath(config));
+    const current = store.get();
+    const disabled = new Set(current.disabledProviders ?? []);
+    return {
+      providers: current.providers.filter((p) => !disabled.has(p)),
+      disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
+      customProviders: current.customProviders ? [...current.customProviders] : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * `sua workflow` is the v2 CLI surface. v0.13 ships a read-first-then-run
@@ -330,6 +352,7 @@ workflowCommand
           allowUntrustedShell: new Set(options.allowUntrustedShell),
           dashboardBaseUrl: getDashboardBaseUrl(config),
           dataRoot: stores.agents.dataRoot,
+          llmSettings: loadLlmSettingsSnapshot(config),
         },
       );
       if (run.status === 'completed') {
@@ -562,6 +585,7 @@ workflowCommand
           allowUntrustedShell: new Set(options.allowUntrustedShell),
           dashboardBaseUrl: getDashboardBaseUrl(config),
           dataRoot: stores.agents.dataRoot,
+          llmSettings: loadLlmSettingsSnapshot(config),
         },
       );
       if (replay.status === 'completed') {
