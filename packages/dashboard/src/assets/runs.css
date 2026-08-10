@@ -339,3 +339,28 @@
 .ow-page:not([data-active-tab="fields"]) #add-widget-field-btn,
 .ow-page:not([data-active-tab="fields"]) #ow-example { display: none; }
 
+
+/* Model-driven tool-call timeline on a node card (local/OpenAI-compatible
+ * tool loop). Each row is a call (→) or a result (←), errors marked (✗). */
+.run-tool-calls {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.run-tool-call {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.run-tool-call__arrow {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #888);
+}
+.run-tool-call--err .run-tool-call__arrow { color: var(--color-danger, #d33); }
+.run-tool-call--err { color: var(--color-danger, #d33); }

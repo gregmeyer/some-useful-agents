@@ -11,7 +11,7 @@
  * v1 is non-streaming: the full completion is returned on success.
  */
 
-import type { SpawnResult } from './node-spawner.js';
+import type { SpawnResult, SpawnProgress } from './node-spawner.js';
 import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
 
 export interface OpenAiInvokeArgs {
@@ -33,6 +33,13 @@ export interface OpenAiInvokeArgs {
   onToolCall?: ToolCallExecutor;
   /** Max tool-call turns before giving up (default 5). Ignored without tools. */
   maxTurns?: number;
+  /**
+   * Progress sink for the tool loop. Emits a `tool_use` event per model tool
+   * call (toolStatus:'call') and per tool result (toolStatus:'result'), so the
+   * run record shows what the model actually invoked — the difference between a
+   * real round-trip and a plain completion that ignored the tools.
+   */
+  onProgress?: (event: SpawnProgress) => void;
 }
 
 interface ToolCall {
@@ -114,7 +121,22 @@ export async function invokeOpenAiChat(args: OpenAiInvokeArgs): Promise<SpawnRes
         for (const call of toolCalls) {
           const name = call.function?.name ?? '';
           const argsJson = call.function?.arguments ?? '{}';
-          const { content } = await args.onToolCall!(name, argsJson);
+          emitProgress(args.onProgress, {
+            type: 'tool_use',
+            toolStatus: 'call',
+            toolName: name,
+            message: `Calling ${name}`,
+            preview: argsJson.slice(0, 200),
+          });
+          const { content, isError } = await args.onToolCall!(name, argsJson);
+          emitProgress(args.onProgress, {
+            type: 'tool_use',
+            toolStatus: 'result',
+            toolName: name,
+            isError: isError === true,
+            message: `${name} ${isError ? 'errored' : 'returned'}`,
+            preview: content.slice(0, 200),
+          });
           messages.push({ role: 'tool', tool_call_id: call.id ?? name, content });
         }
         continue;
@@ -165,6 +187,15 @@ export async function invokeOpenAiChat(args: OpenAiInvokeArgs): Promise<SpawnRes
     clearTimeout(timer);
     if (args.signal) args.signal.removeEventListener('abort', onExternalAbort);
   }
+}
+
+/** Emit a timestamped progress event if a sink is present. */
+function emitProgress(
+  cb: ((e: SpawnProgress) => void) | undefined,
+  partial: Omit<SpawnProgress, 'timestamp'>,
+): void {
+  if (!cb) return;
+  cb({ timestamp: new Date().toISOString(), ...partial });
 }
 
 async function safeText(res: Response): Promise<string> {
