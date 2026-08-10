@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { invokeOpenAiChat } from './openai-http-invoker.js';
-import { classifyLlmFailure } from './node-spawner.js';
+import { classifyLlmFailure, type SpawnProgress } from './node-spawner.js';
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -119,6 +119,41 @@ describe('invokeOpenAiChat', () => {
       expect(bodies[0].tools).toBeDefined();
       const msgs = bodies[1].messages as Array<Record<string, unknown>>;
       expect(msgs.some((m) => m.role === 'tool' && m.content === '{"json_ld":[]}')).toBe(true);
+    });
+
+    it('emits tool_use progress events (call + result) so the run record shows the round-trip', async () => {
+      let post = 0;
+      const fetchImpl = (async () => {
+        post++;
+        if (post === 1) {
+          return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [
+            { id: 'call_1', type: 'function', function: { name: 'http-get', arguments: '{"url":"https://wttr.in"}' } },
+          ] } }] });
+        }
+        return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: '65F' } }] });
+      }) as unknown as typeof fetch;
+      const onToolCall = async () => ({ content: 'temp_F:65 humidity:70' });
+
+      const events: SpawnProgress[] = [];
+      await invokeOpenAiChat({ ...base, fetchImpl, tools, onToolCall, maxTurns: 5, onProgress: (e) => events.push(e) });
+
+      const toolEvents = events.filter((e) => e.type === 'tool_use');
+      expect(toolEvents).toHaveLength(2);
+      expect(toolEvents[0]).toMatchObject({ toolStatus: 'call', toolName: 'http-get' });
+      expect(String(toolEvents[0].preview)).toContain('wttr.in');
+      expect(toolEvents[1]).toMatchObject({ toolStatus: 'result', toolName: 'http-get', isError: false });
+      expect(String(toolEvents[1].preview)).toContain('humidity:70');
+    });
+
+    it('marks a tool error in the result progress event', async () => {
+      const fetchImpl = (async () => jsonResponse(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [
+        { id: 'c', type: 'function', function: { name: 'http-get', arguments: '{}' } },
+      ] } }] })) as unknown as typeof fetch;
+      const onToolCall = async () => ({ content: 'boom', isError: true });
+      const events: SpawnProgress[] = [];
+      await invokeOpenAiChat({ ...base, fetchImpl, tools, onToolCall, maxTurns: 1, onProgress: (e) => events.push(e) });
+      const result = events.find((e) => e.type === 'tool_use' && e.toolStatus === 'result');
+      expect(result).toMatchObject({ isError: true });
     });
 
     it('stops at maxTurns if the model keeps calling tools', async () => {

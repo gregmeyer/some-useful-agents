@@ -443,6 +443,31 @@ function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
 }
 
 /**
+ * Render the model-driven tool calls from a node's progressJson as a compact
+ * timeline: each `→` is a call the model made, each `←` the tool's result (or
+ * error). This is what distinguishes a real tool round-trip from a plain
+ * completion — if the model ignored the exposed tools, this block is absent and
+ * the node just shows stdout, making the "no tool calls" case obvious at a glance.
+ */
+function renderToolActivity(e: NodeExecutionRecord): SafeHtml | null {
+  if (!e.progressJson) return null;
+  let events: Array<{ type: string; toolStatus?: string; toolName?: string; preview?: string; isError?: boolean }>;
+  try { events = JSON.parse(e.progressJson); } catch { return null; }
+  const toolEvents = events.filter((ev) => ev.type === 'tool_use' && ev.toolName);
+  if (toolEvents.length === 0) return null;
+  const rows = toolEvents.map((ev) => {
+    const isResult = ev.toolStatus === 'result';
+    const arrow = isResult ? (ev.isError ? '✗' : '←') : '→';
+    const cls = ev.isError ? 'run-tool-call run-tool-call--err' : 'run-tool-call';
+    return html`<li class="${cls}"><span class="run-tool-call__arrow">${arrow}</span> <span class="mono">${ev.toolName!}</span>${ev.preview ? html` <span class="dim">${ev.preview}</span>` : html``}</li>`;
+  });
+  const callCount = toolEvents.filter((ev) => ev.toolStatus === 'call').length;
+  return html`
+    <h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">tool calls (${String(callCount)})</h4>
+    <ul class="run-tool-calls">${rows as unknown as SafeHtml[]}</ul>`;
+}
+
+/**
  * Duration cell for a run or node. Completed → the final formatted duration.
  * Still running → a live `[data-elapsed-since]` span the poll JS ticks every
  * second (seeded server-side so there's no flash of "—").
@@ -523,6 +548,8 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     if (varsPanel) bodyBlocks.push(varsPanel);
 
     if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
+    const toolActivity = renderToolActivity(e);
+    if (toolActivity) bodyBlocks.push(toolActivity);
     if (e.result && e.result.length > 0) {
       bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">stdout</h4>`);
       bodyBlocks.push(outputFrame(e.result));

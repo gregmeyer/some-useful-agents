@@ -184,6 +184,14 @@ export interface SpawnProgress {
   turn?: number;
   maxTurns?: number;
   message?: string;
+  /** Tool being invoked (model-driven tool loop). Present on `tool_use` events. */
+  toolName?: string;
+  /** Whether this `tool_use` event is the model's call or the tool's result. */
+  toolStatus?: 'call' | 'result';
+  /** Short preview of the call args (on 'call') or the result (on 'result'). */
+  preview?: string;
+  /** True when a tool result was an error the model must recover from. */
+  isError?: boolean;
 }
 
 // ── LlmSpawner interface ───────────────────────────────────────────────
@@ -853,7 +861,7 @@ async function runLlmAttempt(
       prompt: resolvedPrompt,
       timeoutSec: node.timeout ?? 300,
       signal,
-      ...(onToolCall ? { tools, onToolCall, maxTurns: node.maxTurns ?? 5 } : {}),
+      ...(onToolCall ? { tools, onToolCall, maxTurns: node.maxTurns ?? 5, onProgress } : {}),
     });
   }
   const spawner = getSpawner(provider);
