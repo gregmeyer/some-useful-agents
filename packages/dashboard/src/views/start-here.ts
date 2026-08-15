@@ -1,12 +1,17 @@
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { pageHeader } from './page-header.js';
 import { sectionTabs } from './section-tabs.js';
+import { miniDag, describeDag, type MiniDagNode } from './mini-dag.js';
 
 export interface StarterCard {
   id: string;
   name: string;
   description?: string;
   scheduled: boolean;
+  nodeCount: number;
+  shape: MiniDagNode[];
+  parallel: boolean;
   tools: string[];
   inputs: string[];
 }
@@ -55,6 +60,10 @@ export function renderStartHerePage(args: StartHereArgs): string {
           ${s.description ? html`<p class="starter__desc">${s.description}</p>` : html``}
         </div>
         <div class="starter__body">
+          <div class="starter__shape">
+            ${miniDag(s.shape, { title: `${s.name}: ${describeDag(s.shape)}` })}
+            <span class="starter__shape-text">${describeDag(s.shape)}</span>
+          </div>
           ${pattern.teaches ? html`<p class="starter__teaches">${pattern.teaches}</p>` : html``}
           <dl class="starter__facts">
             <dt>Tools</dt>
@@ -86,14 +95,23 @@ export function renderStartHerePage(args: StartHereArgs): string {
   `;
 
   const body = html`
+    ${pageHeader({
+      title: 'Quick start',
+      cta: html`<a class="btn btn--ghost btn--sm" href="/help">Help &amp; docs</a>`,
+    })}
+
     ${sectionTabs('start')}
+
     <div class="starters">
-      <p class="starters__kicker">Start here</p>
-      <h1 class="starters__title">Three agents, three patterns</h1>
+      ${/* pageHeader owns the page's only top-level heading, so this one is a
+            level down. The old "START HERE" kicker is gone — it just repeated
+            the tab label. */ html``}
+      <h2 class="starters__title">Three agents, three patterns</h2>
       <p class="starters__lede">
-        Each one is a single instruction plus a tool or two — that is the whole
-        thing. Run one, watch the graph, then open the YAML and you'll see
-        there was no magic in it.
+        Each one is a handful of steps wired together, and every step is just
+        an instruction plus a tool or two. Run one and watch the graph — nodes
+        light up as they go, some run side by side, some get skipped. Then open
+        the YAML and you'll see there was no magic in it.
       </p>
 
       ${args.starters.length > 0

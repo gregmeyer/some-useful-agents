@@ -1,23 +1,39 @@
 # STARTER 2 of 3 — "Watch something"
 #
-# The shape: the same single instruction + tool, but on a clock. This is the
-# difference between a chatbot and an agent — nobody has to be at the keyboard.
+# Three nodes, and the interesting one usually does NOT run:
 #
-# `schedule:` is a cron expression. This one runs at 9am daily. Change it on
-# the agent's Config tab, or pause the agent to stop it. Delete the line and
-# it only runs when you press Run.
+#   fetch → judge → alert     (alert only when the verdict is YES)
+#
+# `onlyIf` on the alert node is a per-edge condition. When the verdict comes
+# back NO, the graph shows `alert` as SKIPPED with the reason attached — which
+# is the point. A watch that fires every time is just a cron job.
+#
+# `schedule:` is cron. This runs at 9am daily, but only while the scheduler
+# daemon is up (`sua schedule start`). Delete the line and it runs only when
+# you press Run. Pause the agent to stop it without editing anything.
 #
 # Run once by hand: sua workflow run starter-watch --input URL=https://example.com
 id: starter-watch
 name: Watch a page
 description: >
-  Checks a page on a schedule and tells you whether something you care about
-  is true yet. The "an agent runs without you" pattern.
+  Checks a page on a schedule, decides whether the thing you care about is
+  true yet, and only raises an alert when it is.
 status: active
 source: examples
 
-# 9:00 every morning. The scheduler daemon has to be running: `sua schedule start`.
+# 9:00 every morning.
 schedule: "0 9 * * *"
+
+entryConditions:
+  - user wants to be told when a web page changes or meets a condition
+  - user wants a recurring check on a site, price, status page, or listing
+nonEntryConditions:
+  - user wants a one-off answer right now (use starter-research)
+  - user wants to monitor a local file or database rather than a web page
+sampleQuestions:
+  - Tell me when this page mentions a discount.
+  - Watch this status page and alert me if anything is degraded.
+  - Check daily whether that job listing is still open.
 
 inputs:
   URL:
@@ -32,44 +48,137 @@ inputs:
     description: What you are waiting to become true. Write it as a statement, not a question.
 
 outputs:
-  result:
+  verdict:
     type: string
-    description: VERDICT line plus the reasoning and evidence.
+    description: YES or NO.
+  why:
+    type: string
+    description: One sentence of reasoning.
+  evidence:
+    type: string
+    description: The exact text quoted from the page.
+  checked_url:
+    type: string
+    description: The URL that was actually read.
+  alert_note:
+    type: string
+    description: What to do about it. Only set when the watch fired; "" otherwise.
 
-signal:
-  title: Watch
-  icon: "\U0001F440"
-  format: text
-  template: text-headline
-  mapping:
-    headline: Page watch
-    body: result
-  refresh: 6h
+outputWidget:
+  type: ai-template
+  interactive: true
+  template: |
+    <div style="font-family:system-ui,sans-serif;max-width:680px;">
+      {{#if outputs.evidence}}
+      <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#0f766e;">
+        Page watch
+      </div>
+      {{/if}}
+
+      <div style="display:flex;align-items:baseline;gap:12px;margin:10px 0 14px;">
+        <span style="font:700 1.75rem/1 ui-monospace,monospace;">{{outputs.verdict}}</span>
+        <span style="font-size:.9375rem;opacity:.85;">{{outputs.why}}</span>
+      </div>
+
+      {{#if outputs.evidence}}
+      <blockquote style="margin:0 0 14px;padding:10px 14px;border-left:3px solid rgba(128,128,128,.4);background:rgba(128,128,128,.08);font-size:.9375rem;">
+        {{outputs.evidence}}
+      </blockquote>
+      {{/if}}
+
+      {{#if outputs.alert_note}}
+      <div style="margin:0 0 14px;padding:10px 14px;border-left:3px solid #0f766e;background:rgba(15,118,110,.1);font-size:.9375rem;">
+        {{outputs.alert_note}}
+      </div>
+      {{/if}}
+
+      {{#if outputs.checked_url}}
+      <a href="{{outputs.checked_url}}" target="_blank" rel="noopener"
+         style="font-size:.8125rem;color:#0f766e;text-decoration:none;">
+        {{outputs.checked_url}} ↗
+      </a>
+      {{/if}}
+    </div>
+  controls:
+    - type: replay
+      label: Check again
+      inputs:
+        - URL
+        - CRITERION
 
 nodes:
-  - id: check
+  # 1. Read the page. A tool call, not a judgement — kept separate so a fetch
+  #    failure is visibly a FETCH failure in the graph, not a bad verdict.
+  - id: fetch
     type: llm-prompt
     tools: [web-fetch]
     prompt: |
-      Open this page with the web-fetch tool: {{inputs.URL}}
+      Open this page with the web-fetch tool and return its readable content:
+      {{inputs.URL}}
 
-      Then decide whether this is true of what you found:
+      Return the content as-is. Do not summarise, rank, or comment on it —
+      the next step does the judging. If the fetch fails, say exactly what
+      went wrong and nothing else.
+    maxTurns: 3
+    timeout: 120
+
+  # 2. Judge. No tools on purpose: it can only reason about what `fetch`
+  #    actually returned, so it can't quietly go look something up.
+  - id: judge
+    type: llm-prompt
+    dependsOn: [fetch]
+    prompt: |
+      Here is what the page returned:
+      {{upstream.fetch.result}}
+
+      Decide whether this is true of it right now:
         {{inputs.CRITERION}}
 
-      Answer in exactly this shape:
-
-        VERDICT: YES or NO
-        WHY: one sentence.
-        EVIDENCE: the specific line, headline, price, or value you based it
-          on — quoted from the page. If you cannot quote something, the
-          verdict is NO.
-
       Rules that matter more than being helpful:
-        - Judge only what is on the page right now. Do not reason from what
-          you remember about this site.
-        - If the page failed to load, say VERDICT: NO and give the fetch
-          error as the evidence. Do not guess.
-        - A partial or "sort of" match is a NO. The point of a watch is that
-          YES means something.
-    maxTurns: 4
-    timeout: 120
+        - Judge only the content above. Do not reason from what you remember
+          about this site.
+        - If the fetch failed, the verdict is NO and the evidence is the error.
+        - A partial or "sort of" match is a NO. YES has to mean something.
+
+      Explain your reasoning in a sentence or two. Then, on the LAST line,
+      emit ONLY this JSON object and nothing after it:
+      {"verdict": "YES or NO",
+       "why": "one sentence",
+       "evidence": "text quoted verbatim from the page, or the fetch error",
+       "checked_url": "{{inputs.URL}}",
+       "alert_note": ""}
+
+  # 3. Only runs when the verdict is YES. On a NO this node is SKIPPED and
+  #    the graph says why — that visible skip is the lesson.
+  #
+  #    It re-emits the SAME JSON contract as `judge`, plus the note. That
+  #    isn't redundancy: the run's `result` is the LAST COMPLETED node's
+  #    output (dag-executor), and the output widget reads its fields from
+  #    there. Whichever node ends the run has to satisfy the contract, or a
+  #    fired watch would render an empty card while a quiet one rendered fine.
+  - id: alert
+    type: llm-prompt
+    dependsOn: [judge]
+    onlyIf:
+      upstream: judge
+      field: verdict
+      equals: "YES"
+    prompt: |
+      The watch fired. Write the note the person should read.
+
+      What they were waiting for: {{inputs.CRITERION}}
+      Page: {{inputs.URL}}
+      Evidence: {{upstream.judge.evidence}}
+
+      Two sentences maximum: what happened, and what they might do about it.
+      No preamble, no "I hope this helps".
+
+      Then, on the LAST line, emit ONLY this JSON object and nothing after it,
+      carrying the verdict fields through unchanged:
+      {"verdict": "YES",
+       "why": "{{upstream.judge.why}}",
+       "evidence": "{{upstream.judge.evidence}}",
+       "checked_url": "{{inputs.URL}}",
+       "alert_note": "the two sentences you just wrote"}
+    maxTurns: 1
+    timeout: 60

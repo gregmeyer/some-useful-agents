@@ -11,22 +11,12 @@
   max-width: 68rem;
 }
 
-.starters__kicker {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-primary);
-  margin: 0;
-}
-
 .starters__title {
   font-family: var(--font-mono);
   font-size: var(--font-size-2xl);
   font-weight: var(--weight-bold);
   line-height: var(--line-heading);
-  margin: var(--space-2) 0 var(--space-3);
+  margin: var(--space-6) 0 var(--space-3);
 }
 
 .starters__lede {
@@ -160,4 +150,92 @@
 .starters__foot-note {
   color: var(--color-text-subtle);
   font-size: var(--font-size-sm);
+}
+
+/* ---------- Mini DAG (shared: starter cards, agent list) ---------- */
+
+/*
+ * The silhouette of an agent's graph, server-rendered as inline SVG. Sized in
+ * absolute px by the renderer because it's a diagram, not a text block — but
+ * it scales down inside narrow cards via max-width.
+ */
+.mini-dag {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.mini-dag__node {
+  fill: var(--color-primary);
+}
+
+/* A step that only sometimes runs reads as an outline, not a solid. */
+.mini-dag__node--cond {
+  fill: var(--color-bg);
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
+}
+
+.mini-dag__hitarea {
+  fill: transparent;
+  /* Transparent fills don't receive pointer events by default. */
+  pointer-events: all;
+  cursor: help;
+}
+
+/* Light up the dot the pointer is actually over. */
+.mini-dag__hit:hover .mini-dag__node {
+  fill: var(--color-primary-hover);
+}
+
+.mini-dag__hit:hover .mini-dag__node--cond {
+  fill: var(--color-primary-soft);
+  stroke: var(--color-primary-hover);
+}
+
+.mini-dag__edge {
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5;
+}
+
+.mini-dag__edge--cond {
+  stroke-dasharray: 3 3;
+}
+
+.mini-dag--summary {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Shape row on a starter card: diagram left, plain-English summary right. */
+.starter__shape {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.starter__shape-text {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+/* Agent-list card footer: the diagram sits where the old text glyph did. */
+.agent-card__dag-shape .mini-dag {
+  /* Cards are dense; cap the silhouette so a wide DAG can't push the
+     run button out of the footer row. */
+  max-width: 8rem;
+  max-height: 2.25rem;
+}
+
+.agent-card__dag-glyph {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
 }

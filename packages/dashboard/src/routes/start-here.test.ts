@@ -127,6 +127,31 @@ describe('GET /start', () => {
     expect(res.text).toContain('on a schedule');
   });
 
+  it('carries a page heading and tab strip like its sibling section pages', async () => {
+    const app = await makeApp({ installStarters: true });
+    const res = await request(app).get('/start').set(HDRS);
+    // /agents, /packs et al render pageHeader() then sectionTabs(); without
+    // the header this page reads as structurally different from its siblings.
+    expect(res.text).toContain('Quick start');
+    expect(res.text).toContain('class="page-header"');
+    expect(res.text).toContain('tab-strip');
+    // Exactly one h1 — pageHeader owns it.
+    expect((res.text.match(/<h1/g) ?? []).length).toBe(1);
+  });
+
+  it('draws the DAG shape on the card, before you run or open anything', async () => {
+    const app = await makeApp({ installStarters: true });
+    const res = await request(app).get('/start').set(HDRS);
+    // The silhouette itself...
+    expect(res.text).toContain('class="mini-dag"');
+    // ...its plain-English summary...
+    expect(res.text).toContain('4 steps · 2 in parallel');
+    expect(res.text).toContain('3 steps · 1 conditional');
+    // ...and per-node hover text, so the dots aren't just decoration.
+    expect(res.text).toContain('tools: web-fetch');
+    expect(res.text).toContain('runs only if judge.verdict = YES');
+  });
+
   it('links out to the full examples list', async () => {
     const app = await makeApp({ installStarters: true });
     const res = await request(app).get('/start').set(HDRS);
@@ -145,6 +170,16 @@ describe('GET /start', () => {
     const app = await makeApp({ withPacks: false });
     const res = await request(app).get('/start').set(HDRS);
     expect(res.status).toBe(200);
+  });
+
+  it('is linked from the Help page', async () => {
+    // /start is useless if nobody can find it. Help is where someone goes
+    // when they don't know where to start.
+    const app = await makeApp({ installStarters: true });
+    const res = await request(app).get('/help').set(HDRS);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('href="/start"');
+    expect(res.text).toContain('Quick start');
   });
 
   it('shows the flash handed over by the connect-a-model redirect', async () => {

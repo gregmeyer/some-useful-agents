@@ -37,6 +37,24 @@ startHereRouter.get('/start', (req: Request, res: Response) => {
       name: agent.name,
       description: agent.description,
       scheduled: Boolean(agent.schedule),
+      nodeCount: agent.nodes.length,
+      // Shape of the graph, so the card can draw it without the viewer
+      // opening the agent and finding the Nodes tab.
+      shape: agent.nodes.map((n) => ({
+        id: n.id,
+        dependsOn: n.dependsOn,
+        conditional: Boolean(n.onlyIf),
+        type: n.type,
+        tools: n.tools,
+        condition: n.onlyIf
+          ? `${n.onlyIf.upstream}.${n.onlyIf.field} = ${String(n.onlyIf.equals ?? n.onlyIf.notEquals ?? '')}`
+          : undefined,
+      })),
+      // Two nodes sharing a parent = a visible fan-out in the graph.
+      parallel: agent.nodes.some((n) => {
+        const deps = JSON.stringify(n.dependsOn ?? []);
+        return deps !== '[]' && agent.nodes.filter((m) => JSON.stringify(m.dependsOn ?? []) === deps).length > 1;
+      }),
       // Surfaced so a newcomer can see, before running anything, that an
       // agent is "instructions + tools" — the one idea this page exists
       // to land.

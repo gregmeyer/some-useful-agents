@@ -9,6 +9,7 @@ import { installPack } from './pack-installer.js';
 import { AgentStore } from './agent-store.js';
 import { DashboardsStore } from './dashboards-store.js';
 import { parseAgent } from './agent-yaml.js';
+import { substitutePlaceholders } from './html-sanitizer.js';
 
 /**
  * The other pack tests all use synthetic fixtures written to a temp dir, so
@@ -102,6 +103,118 @@ describe('shipped builtin packs', () => {
       expect(llm.length, `${ref.id} has no llm-prompt node`).toBeGreaterThan(0);
       const withTools = llm.filter((n) => (n.tools?.length ?? 0) > 0);
       expect(withTools.length, `${ref.id} exposes no tools`).toBeGreaterThan(0);
+    }
+  });
+
+  it('each starter is a real multi-node DAG, not a single node', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+
+    for (const ref of refs) {
+      const agent = parseAgent(ref.yaml!);
+      // A one-node "DAG" renders as a dot, which makes "watch the graph"
+      // and "click a node" hollow on the very first run someone does.
+      expect(agent.nodes.length, `${ref.id} is single-node`).toBeGreaterThanOrEqual(3);
+
+      // Every node past the roots must actually be wired up, or the graph
+      // is several disconnected dots rather than a DAG.
+      const ids = new Set(agent.nodes.map((n) => n.id));
+      const wired = agent.nodes.filter((n) => (n.dependsOn?.length ?? 0) > 0);
+      expect(wired.length, `${ref.id} has no edges`).toBeGreaterThan(0);
+      for (const n of agent.nodes) {
+        for (const dep of n.dependsOn ?? []) {
+          expect(ids.has(dep), `${ref.id}: node "${n.id}" depends on unknown "${dep}"`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('starter-research fans out — two gather nodes share a parent and run concurrently', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+    const agent = parseAgent(refs.find((r) => r.id === 'starter-research')!.yaml!);
+
+    const gatherers = agent.nodes.filter((n) => n.dependsOn?.includes('plan'));
+    expect(gatherers.length, 'no fan-out from plan').toBe(2);
+    // Neither may depend on the other, or they serialize and the graph shows
+    // one node pulsing at a time instead of two.
+    const ids = gatherers.map((n) => n.id);
+    for (const g of gatherers) {
+      for (const other of ids) {
+        if (other !== g.id) expect(g.dependsOn).not.toContain(other);
+      }
+    }
+    const merge = agent.nodes.find((n) => ids.every((i) => n.dependsOn?.includes(i)));
+    expect(merge, 'nothing merges the two gather branches').toBeDefined();
+  });
+
+  it('starter-watch guards its alert with onlyIf so a NO run visibly skips', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+    const agent = parseAgent(refs.find((r) => r.id === 'starter-watch')!.yaml!);
+
+    const alert = agent.nodes.find((n) => n.onlyIf);
+    expect(alert, 'no conditional node').toBeDefined();
+    expect(alert!.onlyIf).toMatchObject({ upstream: 'judge', field: 'verdict', equals: 'YES' });
+  });
+
+  it('every terminal path emits the JSON contract the widget reads', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+
+    for (const ref of refs) {
+      const agent = parseAgent(ref.yaml!);
+      const depended = new Set(agent.nodes.flatMap((n) => n.dependsOn ?? []));
+      const terminals = agent.nodes.filter((n) => !depended.has(n.id));
+      expect(terminals.length, `${ref.id} has no terminal node`).toBeGreaterThan(0);
+
+      // The run's `result` is the LAST COMPLETED node's output, and the
+      // widget parses its fields from there. So EVERY node that can end a
+      // run has to emit the framed JSON — otherwise one branch renders a
+      // populated card and another renders an empty one.
+      for (const t of terminals) {
+        expect(
+          t.prompt ?? '',
+          `${ref.id}: terminal node "${t.id}" never emits framed JSON`,
+        ).toMatch(/LAST line/i);
+      }
+    }
+  });
+
+  it('each starter widget template renders against its declared outputs', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+
+    for (const ref of refs) {
+      const agent = parseAgent(ref.yaml!);
+      const widget = agent.outputWidget;
+      expect(widget?.type, `${ref.id} is not an ai-template widget`).toBe('ai-template');
+      expect(widget?.controls?.length, `${ref.id} has no replay control`).toBeGreaterThan(0);
+
+      // Build a payload from the DECLARED outputs, so a template referencing
+      // a field the agent never declares shows up as an unrendered token.
+      const payload: Record<string, unknown> = {};
+      for (const [name, spec] of Object.entries(agent.outputs ?? {})) {
+        payload[name] = spec.type === 'array'
+          ? [{ point: `POINT_${name}`, source_title: 'T', source_url: 'https://example.com' }]
+          : `VALUE_${name}`;
+      }
+
+      const rendered = substitutePlaceholders(widget!.template!, { outputs: payload, result: '' });
+
+      // Nothing may survive unsubstituted — that catches typo'd field names
+      // and syntax the renderer doesn't actually support.
+      expect(rendered, `${ref.id} left an unrendered token`).not.toMatch(/\{\{/);
+      for (const name of Object.keys(agent.outputs ?? {})) {
+        const spec = agent.outputs![name];
+        if (spec.type === 'array') continue;
+        expect(rendered, `${ref.id}: declared output "${name}" is never shown`).toContain(`VALUE_${name}`);
+      }
     }
   });
 });
