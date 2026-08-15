@@ -153,13 +153,19 @@ export function miniDag(nodes: MiniDagNode[], opts: { title?: string } = {}): Sa
     </g>
   `);
 
-  // aria-label carries the shape for screen readers; the SVG itself is
-  // decorative detail they don't need read out dot by dot.
   const label = opts.title ?? `${nodes.length} steps`;
 
+  // NO role="img" / aria-label here, deliberately. Both collapse the SVG into
+  // a single graphical object, and the browser then uses the root label for
+  // the whole thing and SUPPRESSES the per-node <title> tooltips — you get the
+  // help cursor on hover and nothing else. The root <title> below names the
+  // diagram (it's the spec-correct accessible name, and shows when you hover
+  // the whitespace between nodes); each node's own <title> wins over it
+  // because the nearest ancestor title always does.
   return html`
     <svg class="mini-dag" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}"
-      role="img" aria-label="${label}" focusable="false">
+      focusable="false">
+      <title>${label}</title>
       ${edges as unknown as SafeHtml[]}
       ${dots as unknown as SafeHtml[]}
     </svg>

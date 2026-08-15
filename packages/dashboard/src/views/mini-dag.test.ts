@@ -74,6 +74,19 @@ describe('miniDag', () => {
     expect(svg).toContain('runs only if judge.verdict = YES');
   });
 
+  it('does not put role="img" on the root — it suppresses per-node tooltips', () => {
+    // Regression guard. `role="img"` (and aria-label) collapse the SVG into a
+    // single graphical object; the browser then uses the root label for the
+    // whole thing and never shows the per-node <title>. Symptom is subtle:
+    // you get the `cursor: help` on hover and no tooltip at all. Someone will
+    // want to add this back for accessibility — the root <title> below is the
+    // accessible name, and it doesn't break hover.
+    const svg = render(miniDag(chain, { title: 'Chain: 3 steps' }));
+    expect(svg).not.toContain('role="img"');
+    expect(svg).not.toContain('aria-label');
+    expect(svg).toContain('<title>Chain: 3 steps</title>');
+  });
+
   it('gives each node an oversized invisible hit target', () => {
     // A 5px dot is a mean thing to ask a mouse to hit.
     const svg = render(miniDag(chain));
