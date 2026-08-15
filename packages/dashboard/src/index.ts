@@ -35,7 +35,9 @@ import {
 import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
 import { EncryptedFileSecretsSession } from './secrets-session.js';
-import { requireAuth } from './auth-middleware.js';
+import { requireAuth, readCookie } from './auth-middleware.js';
+import { connectModelRouter, MODEL_GATE_SKIP_COOKIE } from './routes/connect-model.js';
+import { getProviderReadiness, warmProviderReadiness } from './lib/provider-readiness.js';
 import { buildDashboardErrorHandler } from './error-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
@@ -211,6 +213,20 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
   // Home page with today's stats + recent activity (paginated).
   app.get('/', (req, res) => {
+    // First-run gate: without a model, every llm-prompt agent fails at spawn
+    // time with a confusing `binary_missing`. Readiness cannot be read out of
+    // llm-settings.json — see lib/provider-readiness.ts for why — so this is a
+    // probed answer. Only `/` is gated, and only when NOTHING resolves; the
+    // rest of the dashboard stays reachable, and "Skip for now" sets a cookie.
+    {
+      const ctx = getContext(req.app.locals);
+      const skipped = readCookie(req.headers.cookie, MODEL_GATE_SKIP_COOKIE) === '1';
+      if (ctx.llmSettingsStore && !skipped && !getProviderReadiness(ctx).ready) {
+        res.redirect(302, '/connect-model');
+        return;
+      }
+    }
+
     // Dynamic import to avoid circular deps at module load.
     Promise.all([import('./views/home.js'), import('./routes/pulse.js')])
       .then(([{ renderHomePage }, { parsePulseFlash }]) => {
@@ -238,6 +254,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       });
   });
 
+  app.use(connectModelRouter);
   app.use(agentInstallRouter);
   app.use(agentsRouter);
   app.use(agentNodesRouter);
@@ -653,6 +670,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   });
 
   const app = buildDashboardApp(ctx);
+
+  // Pay the detectLlms() spawn cost (and any Apple-runner compile) off the
+  // request path, so the gate check on the first `GET /` is a cache read.
+  warmProviderReadiness(ctx);
 
   if (host !== '127.0.0.1' && host !== '::1' && host !== 'localhost') {
     console.warn(

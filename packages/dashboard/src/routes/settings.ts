@@ -27,6 +27,11 @@ import { renderSettingsIntegrations } from '../views/settings-integrations.js';
 import { renderSettingsLlm } from '../views/settings-llm.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
+import {
+  probeProvider,
+  probeCustomProvider,
+  invalidateProviderReadiness,
+} from '../lib/provider-readiness.js';
 
 export const settingsRouter: Router = Router();
 
@@ -687,62 +692,6 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
-/** GET the endpoint's /models to confirm a custom provider is reachable. */
-async function probeCustomProvider(def: { apiBase: string; apiKey?: string }): Promise<{ ok: boolean; message: string }> {
-  const url = def.apiBase.replace(/\/+$/, '') + '/models';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const headers: Record<string, string> = {};
-    if (def.apiKey) headers.authorization = `Bearer ${def.apiKey}`;
-    const res = await fetch(url, { signal: controller.signal, headers });
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status} from ${url}` };
-    return { ok: true, message: `reachable (${url})` };
-  } catch (err) {
-    if (controller.signal.aborted) return { ok: false, message: 'probe timed out after 5s' };
-    return { ok: false, message: `unreachable: ${err instanceof Error ? err.message : String(err)}` };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Briefly spawn each CLI with --version (or similar) to confirm liveness. */
-async function probeProvider(provider: LlmProvider): Promise<{ ok: boolean; message: string }> {
-  const binary = provider === 'codex' ? 'codex' : 'claude';
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const finish = (result: { ok: boolean; message: string }) => {
-      if (settled) return;
-      settled = true;
-      try { child.kill('SIGTERM'); } catch { /* */ }
-      resolve(result);
-    };
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      finish({ ok: false, message: `spawn failed: ${(err as Error).message}` });
-      return;
-    }
-    child.stdout?.on('data', (b) => { stdout += b.toString(); });
-    child.stderr?.on('data', (b) => { stderr += b.toString(); });
-    child.on('error', (err) => {
-      finish({ ok: false, message: `binary not found: ${err.message}` });
-    });
-    child.on('close', (code) => {
-      if (code === 0) {
-        const line = (stdout + stderr).split('\n').find((l) => l.trim()) ?? '';
-        finish({ ok: true, message: line.trim() || 'reachable' });
-      } else {
-        finish({ ok: false, message: (stderr || stdout || `exit ${code}`).split('\n')[0].slice(0, 200) });
-      }
-    });
-    setTimeout(() => finish({ ok: false, message: 'probe timed out after 5s' }), 5000);
-  });
-}
-
 settingsRouter.get('/settings/llm', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -881,33 +830,13 @@ settingsRouter.post('/settings/llm/toggle', (req: Request, res: Response) => {
   redirectWith(res, '/settings/llm', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${provider}.`);
 });
 
-/**
- * Define a custom OpenAI-compatible provider (a local / self-hosted model behind
- * a `/v1/chat/completions` endpoint). Does NOT add it to the waterfall — the
- * operator adds it via the normal "Add provider" control afterward.
- */
-settingsRouter.post('/settings/llm/custom/add', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  if (!ctx.llmSettingsStore) {
-    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
-    return;
-  }
-  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-  try {
-    ctx.llmSettingsStore.addCustomProvider({
-      name: str(req.body?.name),
-      kind: 'openai',
-      displayName: str(req.body?.displayName) || undefined,
-      apiBase: str(req.body?.apiBase),
-      apiKey: str(req.body?.apiKey) || undefined,
-      model: str(req.body?.model),
-    });
-  } catch (err) {
-    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
-    return;
-  }
-  redirectWith(res, '/settings/llm', 'flash', `Saved custom provider "${str(req.body?.name)}". Add it to the chain below to use it.`);
-});
+// NOTE: defining a custom OpenAI-compatible provider used to live here as
+// `POST /settings/llm/custom/add`. It now has exactly one home —
+// `POST /connect-model/connect` — which derives the slug from the model id,
+// probes the endpoint before writing, and promotes the result to the front of
+// the chain. The old route saved without probing and left the endpoint OUT of
+// the waterfall, so "saved" and "usable" were two different things. This page
+// keeps the manage half: reorder, disable, remove.
 
 /** Delete a custom provider (also strips it from the waterfall). */
 settingsRouter.post('/settings/llm/custom/remove', (req: Request, res: Response) => {
@@ -923,6 +852,7 @@ settingsRouter.post('/settings/llm/custom/remove', (req: Request, res: Response)
     redirectWith(res, '/settings/llm', 'error', (err as Error).message);
     return;
   }
+  invalidateProviderReadiness();
   redirectWith(res, '/settings/llm', 'flash', `Removed custom provider "${name}".`);
 });
 

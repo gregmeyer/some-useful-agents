@@ -170,23 +170,19 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     <section class="settings-section" style="margin-top: var(--space-6);">
       <h2 class="mt-0">Custom OpenAI-compatible endpoints</h2>
       <p class="dim">
-        Point sua at a local or self-hosted model that speaks the OpenAI
+        Local or self-hosted models reached over the OpenAI
         <code>/v1/chat/completions</code> API (llama.cpp, LM Studio, Ollama, vLLM,
-        a gateway…). Saved endpoints appear in the <strong>Add provider</strong>
+        a gateway…). Each one appears in the <strong>Add provider</strong>
         dropdown above and can be pinned per-node via <code>provider:</code>.
       </p>
       ${customProviders.length > 0 ? html`<ol class="settings-llm__chain">${customRows as unknown as SafeHtml[]}</ol>` : html`<p class="dim" style="font-size: var(--font-size-sm);">No custom endpoints yet.</p>`}
-      <form method="POST" action="/settings/llm/custom/add" class="settings-llm__custom-add" style="display: grid; gap: var(--space-2); max-width: 520px; margin-top: var(--space-3);">
-        <label class="dim" for="cp-name">Name <span class="dim" style="font-size: var(--font-size-xs);">(slug — used in the waterfall + node pins)</span></label>
-        <input id="cp-name" name="name" class="form-field" placeholder="local-qwen-8b" required>
-        <label class="dim" for="cp-base">API base URL</label>
-        <input id="cp-base" name="apiBase" class="form-field" placeholder="http://127.0.0.1:8181/v1" required>
-        <label class="dim" for="cp-model">Model</label>
-        <input id="cp-model" name="model" class="form-field" placeholder="unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL" required>
-        <label class="dim" for="cp-key">API key <span class="dim" style="font-size: var(--font-size-xs);">(optional — leave blank for a local server)</span></label>
-        <input id="cp-key" name="apiKey" class="form-field" type="password" autocomplete="off" placeholder="local">
-        <div><button type="submit" class="btn btn--sm btn--primary">Save endpoint</button></div>
-      </form>
+      <p class="dim" style="font-size: var(--font-size-sm); margin-top: var(--space-3);">
+        Endpoints are defined on <strong>Connect a model</strong> — it derives the
+        slug, checks the endpoint is reachable before saving, and puts the result
+        at the front of the chain. This page is where you reorder, disable, or
+        remove one afterwards.
+      </p>
+      <a class="btn btn--sm btn--primary" href="/connect-model">Connect a model →</a>
     </section>
   `;
 

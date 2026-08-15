@@ -29,8 +29,10 @@ describe('renderSettingsLlm — custom providers', () => {
     // The plaintext key must NEVER reach the HTML.
     expect(out).not.toContain('super-secret');
     expect(out).toContain('key ••••');
-    // The add form + remove control exist.
-    expect(out).toContain('/settings/llm/custom/add');
+    // Defining an endpoint now lives on Connect a model; this page manages
+    // the ones that already exist.
+    expect(out).toContain('/connect-model');
+    expect(out).not.toContain('/settings/llm/custom/add');
     expect(out).toContain('/settings/llm/custom/remove');
   });
 

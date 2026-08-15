@@ -1,0 +1,223 @@
+/*
+ * Connect a model — the first-run provider gate.
+ *
+ * This is the one screen a newcomer sees before anything else works, so it
+ * gets an editorial treatment the rest of the dashboard doesn't: a mono
+ * display headline, numbered routes, and a hairline-ruled footer. Everything
+ * still comes out of tokens.css — no raw hex, no off-grid spacing.
+ */
+
+.connect {
+  max-width: 68rem;
+}
+
+/* ---------- Masthead ---------- */
+
+.connect__kicker {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.connect__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--line-heading);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.connect__lede {
+  color: var(--color-text-muted);
+  max-width: 62ch;
+  margin: 0 0 var(--space-8);
+}
+
+/* ---------- The two routes ---------- */
+
+.connect__grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  /* Stretch, not start: two routes of equal standing should not have ragged
+     bottoms. The hint paragraph takes up the slack (margin-top: auto). */
+  align-items: stretch;
+}
+
+.connect-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.connect-card__head {
+  padding: var(--space-4) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+/* The ordinal is the whole reason these read as "routes" and not as two
+   unrelated forms. Teal because it is the one accent we spend. */
+.connect-card__ord {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+}
+
+.connect-card__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-bold);
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.connect-card__sub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.connect-card__body {
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.connect-card__form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.connect-card__actions {
+  margin-top: var(--space-2);
+}
+
+.connect-card__hint {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-body);
+  /* auto takes the slack so both cards bottom out together. */
+  margin: auto 0 0;
+  padding-top: var(--space-6);
+}
+
+.connect-field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.connect-field__label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.connect-field__label span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--weight-regular);
+  color: var(--color-text-subtle);
+}
+
+/* ---------- Detected / connected lists ---------- */
+
+.connect__section {
+  margin-top: var(--space-8);
+}
+
+.connect__section-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+}
+
+.connect__section-note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0 0 var(--space-3);
+  max-width: 62ch;
+}
+
+.connect-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.connect-row + .connect-row {
+  margin-top: var(--space-2);
+}
+
+/* An undetected provider is context, not an option — recede it so the eye
+   lands on what actually works. */
+.connect-row--off {
+  background: transparent;
+  border-style: dashed;
+}
+
+.connect-row__name {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  flex: 0 0 auto;
+}
+
+.connect-row__meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connect-row__tail {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding-left: var(--space-3);
+}
+
+.connect-row__hint {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+/* ---------- Footer rule ---------- */
+
+.connect__foot {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.connect__foot-note {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.connect__foot-end {
+  margin-left: auto;
+}
