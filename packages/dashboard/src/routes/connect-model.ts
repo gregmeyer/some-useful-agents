@@ -114,8 +114,10 @@ connectModelRouter.post('/connect-model/connect', async (req: Request, res: Resp
   }
 
   invalidateProviderReadiness();
-  // `?ok=` is what the home page's flash parser reads (parsePulseFlash).
-  res.redirect(302, '/?ok=' + encodeURIComponent(`Connected "${name}". Run an agent to try it.`));
+  // Land on the starters, not the (probably empty) home feed. "Connected a
+  // model" and "here are three agents that use it" is the whole first-run
+  // loop; sending them to `/` would make them go find the second half.
+  res.redirect(302, '/start?ok=' + encodeURIComponent(`Connected "${name}". Pick one and run it.`));
 });
 
 /** Suppress the first-run gate without connecting anything. */

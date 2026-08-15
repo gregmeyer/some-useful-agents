@@ -147,6 +147,7 @@ export function renderHomePage(input: HomePageInput): string {
         <h3 style="margin-top: 0;">No agents yet</h3>
         <p class="dim">An agent is a named task sua can run — a shell command, an LLM prompt, or a chain of both. <strong>↑ Describe what you want in the <span class="mono">sua ›</span> bar above and sua will build it</strong> — or use the guided builder.</p>
         <p style="display: flex; gap: var(--space-3); justify-content: center; margin: 0;">
+          <a class="btn btn--primary" href="/start">Start here</a>
           ${buildFromGoalButton({ variant: 'ghost' })}
           <a class="btn" href="/help/tutorial">Open tutorial</a>
         </p>

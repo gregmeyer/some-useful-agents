@@ -1,7 +1,7 @@
 import { html, type SafeHtml } from './html.js';
 
 /** The Agents section groups the building blocks + executions + scheduling. */
-export type AgentsSection = 'agents' | 'tools' | 'nodes' | 'runs' | 'packs' | 'scheduled';
+export type AgentsSection = 'start' | 'agents' | 'tools' | 'nodes' | 'runs' | 'packs' | 'scheduled';
 
 /**
  * In-page tab strip for the Agents section, mirroring the Settings shell's
@@ -19,6 +19,7 @@ export function sectionTabs(active: AgentsSection): SafeHtml {
   `;
   return html`
     <nav class="tab-strip" aria-label="Agents section">
+      ${tab('start', '/start', 'Start here')}
       ${tab('agents', '/agents', 'Agents')}
       ${tab('tools', '/tools', 'Tools')}
       ${tab('nodes', '/nodes', 'Nodes')}

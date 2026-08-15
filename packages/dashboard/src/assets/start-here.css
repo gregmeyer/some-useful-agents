@@ -1,0 +1,163 @@
+/*
+ * Start here — the curated first surface (/start).
+ *
+ * Shares the editorial masthead treatment with the Connect-a-model gate:
+ * mono display headline, ordinal kickers, hairline-ruled footer. These are
+ * the two screens a newcomer sees before anything else, so they read as a
+ * pair. All values come from tokens.css.
+ */
+
+.starters {
+  max-width: 68rem;
+}
+
+.starters__kicker {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+  margin: 0;
+}
+
+.starters__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--line-heading);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.starters__lede {
+  color: var(--color-text-muted);
+  max-width: 62ch;
+  margin: 0 0 var(--space-8);
+}
+
+.starters__grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  /* Two named rows (head, body) so every card's header rule lands on the
+     same baseline no matter how long its description is. Cards opt in via
+     `grid-template-rows: subgrid` below. */
+  grid-template-rows: auto 1fr;
+  align-items: stretch;
+}
+
+.starter {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+}
+
+.starter__head {
+  padding: var(--space-4) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.starter__ord {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+}
+
+.starter__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-bold);
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.starter__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.starter__body {
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* The pattern line is the actual lesson — give it more weight than the
+   agent's own description above it. */
+.starter__teaches {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text);
+}
+
+.starter__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.starter__facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  padding-top: 0.15em; /* optical: align caps to the code baseline opposite */
+}
+
+.starter__facts dd {
+  margin: 0;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* Without a gap these read as one run-on phrase ("REQUEST REFERENCE TONE"),
+   which hides that they're three separate inputs. */
+.starter__facts dd code {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+.starter__actions {
+  margin-top: auto;
+  padding-top: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.starter__yaml {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.starters__foot {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.starters__foot-note {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+}

@@ -1,0 +1,75 @@
+# STARTER 3 of 3 — "Do something"
+#
+# The shape: an agent that produces an artifact you'd otherwise have written
+# yourself. Same single node, but the output is the deliverable rather than a
+# summary of someone else's page.
+#
+# The interesting field here is REFERENCE: leave it blank and the model works
+# from what it knows; give it a URL and it reads that first with `web-fetch`
+# and grounds the draft in it. One agent, two behaviors, chosen at run time.
+#
+# Run: sua workflow run starter-draft --input REQUEST="a changelog entry for a dark mode toggle"
+id: starter-draft
+name: Draft something
+description: >
+  Turns a one-line request into a finished draft — a changelog entry, a
+  release note, an email, a summary. Optionally grounded in a URL you give it.
+status: active
+source: examples
+
+inputs:
+  REQUEST:
+    type: string
+    default: a changelog entry for a new dark mode toggle
+    required: true
+    description: What you want written. One line is enough.
+  REFERENCE:
+    type: string
+    default: ""
+    required: false
+    description: Optional URL to ground the draft in. Leave blank to skip.
+  TONE:
+    type: enum
+    values: [plain, formal, playful]
+    default: plain
+    description: How it should read.
+
+outputs:
+  result:
+    type: string
+    description: The finished draft, and nothing else.
+
+signal:
+  title: Draft
+  icon: "\U0001F4DD"
+  format: text
+  template: text-headline
+  mapping:
+    headline: Draft
+    body: result
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    tools: [web-fetch]
+    prompt: |
+      Write this: {{inputs.REQUEST}}
+
+      Tone: {{inputs.TONE}}.
+
+      Reference URL (may be empty): {{inputs.REFERENCE}}
+      If that reference is not empty, open it with the web-fetch tool FIRST
+      and ground the draft in what it actually says. If it is empty, skip the
+      tool entirely and just write.
+
+      Output rules:
+        - Return the draft and nothing else. No preamble, no "here's your
+          draft", no closing offer to revise it. The output of this agent is
+          the deliverable.
+        - Match the length the request implies. A changelog entry is two
+          sentences, not an essay.
+        - If the request is too vague to write well, don't stall — write the
+          most useful version you can, then add one final line starting with
+          "ASSUMED:" naming what you had to guess.
+    maxTurns: 4
+    timeout: 120

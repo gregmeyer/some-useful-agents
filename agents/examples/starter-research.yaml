@@ -1,0 +1,75 @@
+# STARTER 1 of 3 — "Research something"
+#
+# The shape: one instruction + a couple of tools. That's a whole agent.
+# The model reads your topic, decides which pages to open, opens them with
+# `web-fetch`, and writes the brief. You never told it which URLs to visit.
+#
+# About `tools:` — these are builtin tool ids the model may CALL mid-answer
+# when you're on an OpenAI-compatible provider (anything you set up via
+# Connect a model: OpenAI, Groq, Ollama, LM Studio, vLLM...). On the claude
+# and codex CLIs the model uses that CLI's own built-in web tools instead,
+# so this agent works either way.
+#
+# Run: sua workflow run starter-research --input TOPIC="local-first software"
+id: starter-research
+name: Research a topic
+description: >
+  Give it a topic; it searches the web, reads the pages it picks, and writes
+  a sourced brief. The "give an agent tools and let it decide" pattern in a
+  single node.
+status: active
+source: examples
+
+inputs:
+  TOPIC:
+    type: string
+    default: local-first software
+    required: true
+    description: What to research. A question works better than a keyword.
+  DEPTH:
+    type: enum
+    values: [quick, thorough]
+    default: quick
+    description: quick = 2-3 sources, thorough = 5-6 sources.
+
+outputs:
+  result:
+    type: string
+    description: A short sourced brief in Markdown.
+
+signal:
+  title: Research
+  icon: "\U0001F50E"
+  format: text
+  template: text-headline
+  mapping:
+    headline: Research brief
+    body: result
+
+nodes:
+  - id: research
+    type: llm-prompt
+    tools: [web-fetch, web-scrape]
+    prompt: |
+      Research this topic and write a brief: {{inputs.TOPIC}}
+
+      Depth: {{inputs.DEPTH}} — use 2-3 sources for "quick", 5-6 for "thorough".
+
+      How to work:
+        1. Decide which pages would actually answer this.
+        2. Open them with the web-fetch tool. Use web-scrape instead when you
+           need structured fields (prices, specs, article metadata) rather
+           than prose.
+        3. If a page is thin or off-topic, go get a better one.
+
+      Then write, in Markdown:
+        - A one-sentence answer up top. Lead with the conclusion.
+        - 3-5 bullets of substance. Concrete claims, not throat-clearing.
+        - A "Sources" list of the URLs you actually opened, each with a
+          few words on what it contributed.
+
+      If the sources disagree, say so and say which you find more credible
+      and why. If you could not verify something, mark it as unverified
+      rather than stating it flatly.
+    maxTurns: 8
+    timeout: 180

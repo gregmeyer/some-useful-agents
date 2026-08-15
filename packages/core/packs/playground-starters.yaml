@@ -1,0 +1,36 @@
+# The curated "Start here" set.
+#
+# `sua init` installs all ~40 example agents, which is a wall for someone who
+# has been using sua for four minutes. This pack is the curation layer: it
+# names the three agents a newcomer should meet first, one per pattern —
+# research (ask), watch (schedule), draft (produce). Everything else stays
+# installed and one click away under Agents → Examples.
+#
+# These three are also the reference implementations of the `tools:` field:
+# an LLM node that calls builtin tools mid-answer.
+id: playground-starters
+name: Start here
+description: >
+  Three agents, three patterns. Research something, watch something, draft
+  something. Each is a single instruction plus a tool or two — read the YAML
+  after you run one and the whole model clicks.
+version: 0.1.0
+author: some-useful-agents
+
+agents:
+  - id: starter-research
+    yamlPath: ../../../agents/examples/starter-research.yaml
+  - id: starter-watch
+    yamlPath: ../../../agents/examples/starter-watch.yaml
+  - id: starter-draft
+    yamlPath: ../../../agents/examples/starter-draft.yaml
+
+dashboards:
+  - id: start-here
+    name: Start here
+    sections:
+      - title: Three patterns
+        agentIds:
+          - starter-research
+          - starter-watch
+          - starter-draft

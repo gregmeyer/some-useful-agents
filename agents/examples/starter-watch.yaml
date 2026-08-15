@@ -1,0 +1,75 @@
+# STARTER 2 of 3 — "Watch something"
+#
+# The shape: the same single instruction + tool, but on a clock. This is the
+# difference between a chatbot and an agent — nobody has to be at the keyboard.
+#
+# `schedule:` is a cron expression. This one runs at 9am daily. Change it on
+# the agent's Config tab, or pause the agent to stop it. Delete the line and
+# it only runs when you press Run.
+#
+# Run once by hand: sua workflow run starter-watch --input URL=https://example.com
+id: starter-watch
+name: Watch a page
+description: >
+  Checks a page on a schedule and tells you whether something you care about
+  is true yet. The "an agent runs without you" pattern.
+status: active
+source: examples
+
+# 9:00 every morning. The scheduler daemon has to be running: `sua schedule start`.
+schedule: "0 9 * * *"
+
+inputs:
+  URL:
+    type: string
+    default: https://news.ycombinator.com
+    required: true
+    description: The page to check.
+  CRITERION:
+    type: string
+    default: a story about local-first or offline-first software is on the front page
+    required: true
+    description: What you are waiting to become true. Write it as a statement, not a question.
+
+outputs:
+  result:
+    type: string
+    description: VERDICT line plus the reasoning and evidence.
+
+signal:
+  title: Watch
+  icon: "\U0001F440"
+  format: text
+  template: text-headline
+  mapping:
+    headline: Page watch
+    body: result
+  refresh: 6h
+
+nodes:
+  - id: check
+    type: llm-prompt
+    tools: [web-fetch]
+    prompt: |
+      Open this page with the web-fetch tool: {{inputs.URL}}
+
+      Then decide whether this is true of what you found:
+        {{inputs.CRITERION}}
+
+      Answer in exactly this shape:
+
+        VERDICT: YES or NO
+        WHY: one sentence.
+        EVIDENCE: the specific line, headline, price, or value you based it
+          on — quoted from the page. If you cannot quote something, the
+          verdict is NO.
+
+      Rules that matter more than being helpful:
+        - Judge only what is on the page right now. Do not reason from what
+          you remember about this site.
+        - If the page failed to load, say VERDICT: NO and give the fetch
+          error as the evidence. Do not guess.
+        - A partial or "sort of" match is a NO. The point of a watch is that
+          YES means something.
+    maxTurns: 4
+    timeout: 120
