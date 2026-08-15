@@ -108,7 +108,8 @@ function loadDashboardCss(): string {
   // byte-identical to the former single file.
   const order = [
     'tokens.css', 'base.css', 'components.css',
-    'shell.css', 'agent-detail.css', 'runs.css', 'settings.css', 'pulse.css', 'inbox.css',
+    'shell.css', 'agent-detail.css', 'runs.css', 'settings.css', 'connect-model.css',
+    'pulse.css', 'inbox.css',
     'themes.css',
   ];
   const parts: string[] = [];

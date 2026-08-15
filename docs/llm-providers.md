@@ -6,6 +6,34 @@ waterfall**: the primary provider is tried first, and on a *classified* failure
 the runtime walks the rest of the chain until one succeeds. Manage it all at
 **Settings → LLM** (`/settings/llm`).
 
+## First run: Connect a model
+
+On a fresh install the dashboard checks whether **any** provider actually
+resolves before it shows you the home page. If none does, `GET /` redirects to
+**Connect a model** (`/connect-model`), which offers two routes side by side:
+
+1. **Hosted** — paste an API base URL, a model, and a key for any service
+   speaking the OpenAI `/v1/chat/completions` API.
+2. **Local** — point sua at Ollama / LM Studio / llama.cpp / vLLM. No key
+   needed.
+
+Either route saves a custom provider **and promotes it to the front of the
+waterfall**, so the next `llm-prompt` run uses it immediately. The endpoint is
+probed first (`GET {apiBase}/models`); on a failure the page offers **Save
+anyway**, for a server you haven't started yet. **Skip for now** dismisses the
+gate (a cookie) — shell agents still run, `llm-prompt` agents will fail until a
+model is connected.
+
+The page also lists which built-in CLIs were **detected on this machine** — if
+one is installed, sua uses it with no configuration at all, and the gate never
+fires.
+
+> **Why a probe and not a config read?** The settings store returns
+> `providers: ['claude']` even when no settings file exists, and the runtime
+> falls back to the literal `claude` when the chain is empty. A machine with no
+> `claude` binary therefore *looks* configured and then fails at spawn time.
+> Readiness is only truthful when it's probed.
+
 ## Providers
 
 Two kinds of provider can sit in the waterfall:
@@ -36,15 +64,20 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
 
 ## Add a custom endpoint
 
-At **Settings → LLM → Custom OpenAI-compatible endpoints**:
+Endpoints are defined in exactly one place: **Connect a model**
+(`/connect-model`), reachable any time from **Settings → LLM**.
 
-1. Fill in **Name** (a slug, e.g. `local-qwen-8b`), **API base URL** (e.g.
-   `http://127.0.0.1:8181/v1`), **Model** (e.g.
-   `unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL`), and an optional **API key** (leave blank
-   for a local server).
-2. **Probe** does a reachability check (`GET {apiBase}/models`).
-3. Add it to the waterfall from the **Add provider** dropdown, and reorder with
-   the ↑/↓ controls to make it primary or a fallback.
+1. Pick the **Hosted** or **Local** route and fill in the API base URL, model,
+   and (for hosted) a key. The provider slug is derived from the model id.
+2. The endpoint is probed (`GET {apiBase}/models`) *before* it is written. On a
+   failure you get **Save anyway**.
+3. It's saved **and promoted to the front of the waterfall**, so the next run
+   uses it. Reorder or demote it afterwards on **Settings → LLM**.
+
+Settings → LLM owns the other half of the lifecycle: chain order, enable /
+disable, remove, probe-all, and fallback telemetry. Splitting it this way means
+"saved" and "usable" are never two different states — the old add-then-add-to-
+chain flow could leave a defined endpoint sitting outside the waterfall.
 
 The endpoint is stored in your local LLM settings; the API key is masked in the
 UI and never re-rendered into a form field.
