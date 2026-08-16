@@ -25,7 +25,8 @@ sua init
 This scaffolds:
 
 - `agents/local/` — where your own agents live (empty at first)
-- `agents/examples/` — 15 bundled example agents auto-installed into the DB
+- `agents/examples/` — 40+ bundled example agents auto-installed into the DB.
+  Start with the curated three at **/start** rather than the full list.
 - `data/runs.db` — SQLite DB for runs, agents, tools, MCP servers
 - `.sua/` — local config (variables, MCP token)
 

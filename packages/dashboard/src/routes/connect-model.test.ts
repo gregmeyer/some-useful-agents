@@ -225,7 +225,9 @@ describe('POST /connect-model/connect', () => {
       .send({ mode: 'local', apiBase, model: 'llama3.2' });
 
     expect(res.status).toBe(302);
-    expect(res.headers.location).toContain('/?ok=');
+    // Lands on the starters, not the home feed — connecting a model and
+    // having something to run with it are one flow.
+    expect(res.headers.location).toContain('/start?ok=');
 
     const settings = llmSettingsStore.get();
     expect(settings.customProviders?.map((c) => c.name)).toEqual(['llama3.2']);

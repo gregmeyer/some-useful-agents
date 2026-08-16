@@ -3,6 +3,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { sectionTabs } from './section-tabs.js';
+import { miniDag, describeDag } from './mini-dag.js';
 import { typeBadge, sourceBadge, formatAge, cronToHuman } from './components.js';
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
@@ -254,7 +255,7 @@ function renderEmptyState(): SafeHtml {
 }
 
 function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
-  const shape = dagShape(a);
+  const shape = dagShapeSvg(a);
   const runInfo = lastRun
     ? html`<span class="agent-card__last-run">
         Last run <span class="mono">${lastRun.status}</span> \u00b7 ${formatAge(lastRun.startedAt)}
@@ -305,7 +306,7 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
       </div>
       ${nodesDisclosure}
       <div class="agent-card__footer">
-        <span class="agent-card__dag-shape" aria-hidden="true">${shape}</span>
+        <span class="agent-card__dag-shape">${shape}</span>
         ${runInfo}
         <form method="POST" action="/agents/${a.id}/run" style="margin: 0;"
               onclick="event.stopPropagation();">
@@ -403,13 +404,21 @@ function oneLine(text: string, max = 80): string {
  * A compact mono-string visual for the DAG: one dot per node, arrows
  * for edges in topological order. Caps at 6 nodes to avoid overflow.
  */
-function dagShape(a: Agent): string {
-  const nodes = a.nodes.slice(0, 6);
-  if (nodes.length === 0) return '\u25cb';
-  const hasEdges = nodes.some((n) => (n.dependsOn?.length ?? 0) > 0);
-  const dots = nodes.map(() => '\u25cf');
-  const joined = hasEdges ? dots.join(' \u2192 ') : dots.join(' \u00b7 ');
-  return a.nodes.length > 6 ? `${joined} \u2026` : joined;
+function dagShapeSvg(a: Agent): SafeHtml {
+  const nodes = a.nodes.map((n) => ({
+    id: n.id,
+    dependsOn: n.dependsOn,
+    conditional: Boolean(n.onlyIf),
+    type: n.type,
+    tools: n.tools,
+    condition: n.onlyIf
+      ? `${n.onlyIf.upstream}.${n.onlyIf.field} = ${String(n.onlyIf.equals ?? n.onlyIf.notEquals ?? '')}`
+      : undefined,
+  }));
+  if (nodes.length < 2) {
+    return html`<span class="agent-card__dag-glyph" aria-label="1 step">\u25cf</span>`;
+  }
+  return miniDag(nodes, { title: describeDag(nodes) });
 }
 
 function renderV1Block(v1: AgentDefinition[], hasV2: boolean): SafeHtml {

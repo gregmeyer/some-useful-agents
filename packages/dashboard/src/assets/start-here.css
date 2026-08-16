@@ -1,0 +1,273 @@
+/*
+ * Start here — the curated first surface (/start).
+ *
+ * Shares the editorial masthead treatment with the Connect-a-model gate:
+ * mono display headline, ordinal kickers, hairline-ruled footer. These are
+ * the two screens a newcomer sees before anything else, so they read as a
+ * pair. All values come from tokens.css.
+ */
+
+.starters {
+  max-width: 68rem;
+}
+
+.starters__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--line-heading);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.starters__lede {
+  color: var(--color-text-muted);
+  max-width: 62ch;
+  margin: 0 0 var(--space-8);
+}
+
+.starters__grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  /* Two named rows (head, body) so every card's header rule lands on the
+     same baseline no matter how long its description is. Cards opt in via
+     `grid-template-rows: subgrid` below. */
+  grid-template-rows: auto 1fr;
+  align-items: stretch;
+}
+
+.starter {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+}
+
+.starter__head {
+  padding: var(--space-4) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.starter__ord {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+}
+
+.starter__title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-bold);
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.starter__desc {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.starter__body {
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* The pattern line is the actual lesson — give it more weight than the
+   agent's own description above it. */
+.starter__teaches {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text);
+}
+
+.starter__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.starter__facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  padding-top: 0.15em; /* optical: align caps to the code baseline opposite */
+}
+
+.starter__facts dd {
+  margin: 0;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+/* Without a gap these read as one run-on phrase ("REQUEST REFERENCE TONE"),
+   which hides that they're three separate inputs. */
+.starter__facts dd code {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+.starter__actions {
+  margin-top: auto;
+  padding-top: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.starter__yaml {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.starters__foot {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.starters__foot-note {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+}
+
+/* ---------- Mini DAG (shared: starter cards, agent list) ---------- */
+
+/*
+ * The silhouette of an agent's graph, server-rendered as inline SVG. Sized in
+ * absolute px by the renderer because it's a diagram, not a text block — but
+ * it scales down inside narrow cards via max-width.
+ */
+.mini-dag {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.mini-dag__node {
+  fill: var(--color-primary);
+}
+
+/* A step that only sometimes runs reads as an outline, not a solid. */
+.mini-dag__node--cond {
+  fill: var(--color-bg);
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
+}
+
+.mini-dag__hitarea {
+  fill: transparent;
+  /* Transparent fills don't receive pointer events by default. */
+  pointer-events: all;
+  cursor: help;
+}
+
+/* Light up the dot the pointer is actually over. */
+.mini-dag__hit:hover .mini-dag__node {
+  fill: var(--color-primary-hover);
+}
+
+.mini-dag__hit:hover .mini-dag__node--cond {
+  fill: var(--color-primary-soft);
+  stroke: var(--color-primary-hover);
+}
+
+.mini-dag__edge {
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5;
+}
+
+.mini-dag__edge--cond {
+  stroke-dasharray: 3 3;
+}
+
+.mini-dag--summary {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Shape row on a starter card: diagram left, plain-English summary right. */
+.starter__shape {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.starter__shape-text {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+/* Agent-list card footer: the diagram sits where the old text glyph did. */
+.agent-card__dag-shape .mini-dag {
+  /* Cards are dense; cap the silhouette so a wide DAG can't push the
+     run button out of the footer row. */
+  max-width: 8rem;
+  max-height: 2.25rem;
+}
+
+.agent-card__dag-glyph {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+}
+
+/*
+ * Mini-DAG hover explanation. Replaces the SVG's native <title> tooltip,
+ * which was unreliable enough that nodes showed a help cursor and no text.
+ * Positioned by mini-dag-tip.js against the cursor.
+ */
+.mini-dag-tip {
+  position: fixed;
+  z-index: 90;
+  max-width: 22rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  pointer-events: none;
+  /* The tip is three short lines, not a jargon chain — keep the breaks. */
+  white-space: pre-line;
+}
+
+/* First line is the step's identity; give it a little more presence. */
+.mini-dag-tip::first-line {
+  font-weight: var(--weight-semibold);
+}
+
+.mini-dag-tip[hidden] {
+  display: none;
+}

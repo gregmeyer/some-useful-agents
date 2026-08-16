@@ -1,0 +1,171 @@
+# STARTER 3 of 3 — "Do something"
+#
+# Three nodes, and the middle one is where the quality comes from:
+#
+#   ground → draft → critique
+#
+# `critique` reads the draft, finds what's actually wrong with it, and rewrites
+# it. That's not ceremony — a model reviewing its own output against explicit
+# criteria beats the same model one-shotting, and here you can watch both
+# nodes' outputs separately in the run detail and judge for yourself.
+#
+# `ground` only does real work when you pass a REFERENCE URL. Leave it blank
+# and it returns a single line, which is a cheap way to make an optional step
+# without inventing a branch.
+#
+# Run: sua workflow run starter-draft --input REQUEST="a changelog entry for a dark mode toggle"
+id: starter-draft
+name: Draft something
+description: >
+  Turns a one-line request into a finished draft, then critiques and rewrites
+  its own work before handing it to you.
+status: active
+source: examples
+
+entryConditions:
+  - user wants something written — a changelog entry, release note, email, summary, or post
+  - user wants existing text rewritten in a different tone
+nonEntryConditions:
+  - user wants facts gathered from the web (use starter-research)
+  - user wants a recurring check on a page (use starter-watch)
+sampleQuestions:
+  - Write a changelog entry for the new dark mode toggle.
+  - Draft a release note for pagination on the runs list.
+  - Turn this page into a short announcement email.
+
+inputs:
+  REQUEST:
+    type: string
+    default: a changelog entry for a new dark mode toggle
+    required: true
+    description: What you want written. One line is enough.
+  REFERENCE:
+    type: string
+    default: ""
+    required: false
+    description: Optional URL to ground the draft in. Leave blank to skip.
+  TONE:
+    type: enum
+    values: [plain, formal, playful]
+    default: plain
+    description: How it should read.
+
+outputs:
+  title:
+    type: string
+    description: Short label for the draft.
+  body:
+    type: string
+    description: The finished draft.
+  changed:
+    type: string
+    description: What the critique pass actually fixed.
+  assumed:
+    type: string
+    description: What had to be guessed, or "" if nothing.
+
+outputWidget:
+  type: ai-template
+  interactive: true
+  template: |
+    <div style="font-family:system-ui,sans-serif;max-width:720px;">
+      <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#0f766e;">
+        Draft
+      </div>
+      <h2 style="margin:8px 0 14px;font-size:1.25rem;line-height:1.35;">{{outputs.title}}</h2>
+
+      <div style="padding:16px 18px;border:1px solid rgba(128,128,128,.3);border-radius:10px;white-space:pre-wrap;font-size:.9375rem;line-height:1.6;">{{outputs.body}}</div>
+
+      {{#if outputs.changed}}
+      <div style="margin-top:14px;font-size:.8125rem;opacity:.75;">
+        <strong style="font-weight:600;">Revised:</strong> {{outputs.changed}}
+      </div>
+      {{/if}}
+
+      {{#if outputs.assumed}}
+      <div style="margin-top:10px;padding:10px 14px;border-left:3px solid #b45309;background:rgba(180,83,9,.08);font-size:.8125rem;">
+        <strong style="font-weight:600;">Assumed:</strong> {{outputs.assumed}}
+      </div>
+      {{/if}}
+    </div>
+  controls:
+    - type: replay
+      label: Draft something else
+      inputs:
+        - REQUEST
+        - REFERENCE
+        - TONE
+
+nodes:
+  # 1. Optional grounding. Blank REFERENCE → one line and out; no tool call,
+  #    no cost. This is the cheap way to make a step conditional without
+  #    reaching for a branch node.
+  - id: ground
+    type: llm-prompt
+    tools: [web-fetch]
+    prompt: |
+      Reference URL (may be empty): {{inputs.REFERENCE}}
+
+      If that URL is empty, reply with exactly this and stop:
+        NO REFERENCE
+
+      Otherwise open it with the web-fetch tool and return the facts from it
+      that bear on this request: {{inputs.REQUEST}}
+      Facts only — names, numbers, behaviours, quotes. No prose about the
+      page, and do not start writing the draft.
+    maxTurns: 3
+    timeout: 120
+
+  # 2. First pass.
+  - id: draft
+    type: llm-prompt
+    dependsOn: [ground]
+    prompt: |
+      Write this: {{inputs.REQUEST}}
+      Tone: {{inputs.TONE}}.
+
+      Grounding facts (the literal text "NO REFERENCE" means there were none,
+      so write from general knowledge):
+      {{upstream.ground.result}}
+
+      Return the draft and nothing else. No preamble, no "here's your draft",
+      no closing offer to revise. Match the length the request implies — a
+      changelog entry is two sentences, not an essay.
+    maxTurns: 1
+    timeout: 120
+
+  # 3. Critique and rewrite. Separate node so you can read the before and the
+  #    after side by side in the run detail.
+  - id: critique
+    type: llm-prompt
+    dependsOn: [ground, draft]
+    prompt: |
+      Original request: {{inputs.REQUEST}}
+      Requested tone: {{inputs.TONE}}
+      Grounding facts ("NO REFERENCE" means none were given):
+      {{upstream.ground.result}}
+
+      Here is the draft:
+      {{upstream.draft.result}}
+
+      Critique it honestly against exactly these:
+        - Does it do what was asked, or something adjacent?
+        - Any claim not supported by the grounding facts? Cut or soften it.
+        - Filler: "in today's fast-paced world", "seamlessly", "robust",
+          "we're excited to", throat-clearing before the point.
+        - Is the tone actually {{inputs.TONE}}?
+        - Is it the right length, or padded?
+
+      Then rewrite it fixing what you found. If the draft was already good,
+      keep it and say so — do not churn it to look busy.
+
+      On the LAST line, emit ONLY this JSON object and nothing after it:
+      {"title": "a 2-5 word label for this draft",
+       "body": "the final draft, newlines as \\n",
+       "changed": "what you fixed, one sentence — or \"\" if you kept it as-is",
+       "assumed": "anything you had to guess — or \"\" if nothing"}
+
+      Every value must be a flat string. `body` is the deliverable: no
+      commentary inside it.
+    maxTurns: 1
+    timeout: 120

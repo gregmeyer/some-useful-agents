@@ -1,0 +1,198 @@
+# STARTER 1 of 3 — "Research something"
+#
+# Four nodes, and the middle two run AT THE SAME TIME:
+#
+#         ┌── gather-main ────┐
+#   plan ─┤                   ├─ synthesize
+#         └── gather-counter ─┘
+#
+# Watch the graph while it runs and you'll see both gather nodes pulse
+# together. That's not decoration — `gather-counter` is deliberately hunting
+# for the case AGAINST whatever the main angle finds, so the brief comes back
+# with the disagreement already surfaced instead of one confident summary.
+#
+# The `tools:` field is what lets the model open pages mid-answer. Those are
+# builtin tool ids, used when you're on an OpenAI-compatible provider (what
+# Connect a model sets up). The claude and codex CLIs use their own web tools
+# instead, so this works either way.
+#
+# Run: sua workflow run starter-research --input TOPIC="local-first software"
+id: starter-research
+name: Research a topic
+description: >
+  Plans two angles on your topic, researches both at once, then writes a
+  sourced brief that names where the sources disagree.
+status: active
+source: examples
+
+entryConditions:
+  - user wants a researched summary or brief on a topic
+  - user asks what the current state of something is and wants sources
+nonEntryConditions:
+  - user wants to monitor a page over time (use starter-watch)
+  - user wants a written artifact rather than research (use starter-draft)
+sampleQuestions:
+  - Research local-first software and give me a sourced brief.
+  - What's the current state of WebGPU support? Cite sources.
+  - Give me the case for and against SQLite in production.
+
+inputs:
+  TOPIC:
+    type: string
+    default: local-first software
+    required: true
+    description: What to research. A question works better than a keyword.
+  DEPTH:
+    type: enum
+    values: [quick, thorough]
+    default: quick
+    description: quick = 2 sources per angle, thorough = 4.
+
+outputs:
+  headline:
+    type: string
+    description: One-sentence answer to the topic.
+  bullets:
+    type: array
+    description: Findings, each {point, source_title, source_url}. Flat strings only — the template's #each supports single-level item.FIELD.
+  tension:
+    type: string
+    description: Where the sources disagree, or empty if they broadly agree.
+  source_count:
+    type: string
+    description: How many distinct pages were actually read.
+
+outputWidget:
+  type: ai-template
+  interactive: true
+  template: |
+    <div style="font-family:system-ui,sans-serif;max-width:760px;">
+      <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#0f766e;">
+        Research brief · {{outputs.source_count}} sources read
+      </div>
+      <h2 style="margin:8px 0 16px;font-size:1.25rem;line-height:1.35;">{{outputs.headline}}</h2>
+
+      {{#each outputs.bullets as item}}
+      <div style="padding:12px 0;border-top:1px solid rgba(128,128,128,.25);">
+        <div style="margin-bottom:4px;">{{item.point}}</div>
+        {{#if item.source_url}}
+        <a href="{{item.source_url}}" target="_blank" rel="noopener"
+           style="font-size:.8125rem;color:#0f766e;text-decoration:none;">
+          {{item.source_title}} ↗
+        </a>
+        {{/if}}
+        {{#unless item.source_url}}
+        <span style="font-size:.8125rem;opacity:.6;">{{item.source_title}}</span>
+        {{/unless}}
+      </div>
+      {{/each}}
+
+      {{#if outputs.tension}}
+      <div style="margin-top:16px;padding:12px 14px;border-left:3px solid #b45309;background:rgba(180,83,9,.08);">
+        <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-bottom:6px;">
+          Where sources disagree
+        </div>
+        <div style="font-size:.9375rem;">{{outputs.tension}}</div>
+      </div>
+      {{/if}}
+      {{#unless outputs.tension}}
+      <div style="margin-top:16px;font-size:.8125rem;opacity:.6;">
+        Sources broadly agreed on this one.
+      </div>
+      {{/unless}}
+    </div>
+  controls:
+    - type: replay
+      label: Research something else
+      inputs:
+        - TOPIC
+        - DEPTH
+
+nodes:
+  # 1. Split the topic into two angles. Cheap, no tools — this node exists so
+  #    the two gather nodes below have genuinely different jobs.
+  - id: plan
+    type: llm-prompt
+    prompt: |
+      Topic: {{inputs.TOPIC}}
+
+      Split this into two research angles that a careful person would want
+      covered separately:
+        - main: the direct question — what is it, what's the current state
+        - counter: the skeptical read — the objections, failure cases, costs,
+          or the strongest argument that the mainstream take is wrong
+
+      Answer with one short line describing each. Then, on the LAST line,
+      emit ONLY this JSON object and nothing after it:
+      {"main_angle": "...", "counter_angle": "..."}
+    maxTurns: 1
+    timeout: 60
+
+  # 2 + 3. No dependsOn between these two, so the executor runs them
+  #        concurrently — this is the fan-out you can see in the graph.
+  - id: gather-main
+    type: llm-prompt
+    dependsOn: [plan]
+    tools: [web-fetch, web-scrape]
+    prompt: |
+      Research this angle: {{upstream.plan.main_angle}}
+      (Overall topic: {{inputs.TOPIC}})
+
+      Open {{inputs.DEPTH}} — 2 pages for "quick", 4 for "thorough" — using the
+      web-fetch tool. Use web-scrape when you need structured fields rather
+      than prose. If a page turns out to be thin or off-topic, go get a
+      better one instead of making do.
+
+      Report what you actually found, with the URL beside each claim. Do not
+      pad with things you already believed before opening anything.
+    maxTurns: 8
+    timeout: 180
+
+  - id: gather-counter
+    type: llm-prompt
+    dependsOn: [plan]
+    tools: [web-fetch, web-scrape]
+    prompt: |
+      Research this angle: {{upstream.plan.counter_angle}}
+      (Overall topic: {{inputs.TOPIC}})
+
+      You are the skeptic on this one. Open {{inputs.DEPTH}} — 2 pages for
+      "quick", 4 for "thorough" — with the web-fetch tool and look for
+      objections, costs, failure reports, and credible dissent.
+
+      Report what you found with the URL beside each claim. If the skeptical
+      case turns out to be weak, say so plainly — do not manufacture a
+      controversy that isn't there.
+    maxTurns: 8
+    timeout: 180
+
+  # 4. Merge. Both upstreams must finish before this starts.
+  - id: synthesize
+    type: llm-prompt
+    dependsOn: [gather-main, gather-counter]
+    prompt: |
+      Topic: {{inputs.TOPIC}}
+
+      Main-angle research:
+      {{upstream.gather-main.result}}
+
+      Counter-angle research:
+      {{upstream.gather-counter.result}}
+
+      Write the brief. Lead with the conclusion. Only use claims that appeared
+      in the research above — if something wasn't found, leave it out rather
+      than filling the gap from memory.
+
+      Then, on the LAST line, emit ONLY this JSON object and nothing after it:
+      {"headline": "one sentence answering the topic",
+       "bullets": [{"point": "a concrete claim", "source_title": "page title", "source_url": "https://..."}],
+       "tension": "one sentence on where the two angles disagreed, or \"\" if they broadly agreed",
+       "source_count": "3"}
+
+      Rules for that JSON:
+        - 3 to 5 bullets. Each `point` is one sentence, concrete, no hedging.
+        - `source_url` must be a URL that actually appears above. If a claim
+          has no source, use "" and say so in the point.
+        - Keep every value a flat string. No nested objects inside bullets.
+    maxTurns: 1
+    timeout: 120
