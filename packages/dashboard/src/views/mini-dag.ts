@@ -45,18 +45,99 @@ interface Placed {
 }
 
 /**
- * The hover text for one node. Native SVG `<title>` — no JS, no tooltip
- * library, and screen readers pick it up as the element's accessible name.
+ * What each node type does, in words someone who has never opened this agent
+ * would use. "llm-prompt" and "shell" are our vocabulary, not theirs.
  */
-function nodeTooltip(n: MiniDagNode, order: number): string {
-  const bits = [`${order}. ${n.id}`];
-  if (n.type) bits.push(n.type);
-  if (n.tools?.length) bits.push(`tools: ${n.tools.join(', ')}`);
-  if (n.conditional) bits.push(n.condition ? `runs only if ${n.condition}` : 'runs conditionally');
-  const deps = n.dependsOn ?? [];
-  if (deps.length > 0) bits.push(`after ${deps.join(' + ')}`);
-  else bits.push('starts the run');
-  return bits.join(' · ');
+const TYPE_PLAIN: Record<string, string> = {
+  'llm-prompt': 'Asks the AI to do this part',
+  'claude-code': 'Asks the AI to do this part',
+  shell: 'Runs a command on your computer',
+  'file-write': 'Writes a file',
+  conditional: 'Picks which way the run goes next',
+  branch: 'Picks which way the run goes next',
+  switch: 'Picks which way the run goes next',
+  loop: 'Repeats a step for each item in a list',
+  'agent-invoke': 'Hands the work to another agent',
+  end: 'Ends the run here',
+  break: 'Stops the loop early',
+};
+
+/** Builtin tool ids → what they let the AI actually do. */
+const TOOL_PLAIN: Record<string, string> = {
+  'web-fetch': 'read web pages',
+  'web-scrape': 'pull data out of web pages',
+  'http-get': 'call web APIs',
+  'http-post': 'send data to web APIs',
+  'file-read': 'read files on your computer',
+  'file-write': 'write files on your computer',
+  'json-parse': 'work with JSON',
+  'json-path': 'work with JSON',
+  'shell-exec': 'run shell commands',
+  template: 'fill in templates',
+  'csv-to-chart-json': 'turn spreadsheets into charts',
+  'oauth-loopback': 'sign in to a service',
+};
+
+function joinPhrases(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+/**
+ * Turn `judge.verdict = YES` into something a person can read.
+ * Falls back to the raw expression rather than inventing meaning.
+ */
+function plainCondition(condition: string | undefined): string | undefined {
+  if (!condition) return undefined;
+  const m = /^(\S+)\.(\S+)\s*=\s*(.*)$/.exec(condition);
+  if (!m) return condition;
+  const [, upstream, field, value] = m;
+  return `the "${upstream}" step's ${field} comes back ${value}`;
+}
+
+/**
+ * The hover text for one node, written for someone meeting this agent for the
+ * first time: what the step does, what it's allowed to touch, and when it
+ * runs. Three short lines rather than a jargon chain — the old version read
+ * "gather-main · llm-prompt · tools: web-fetch · after plan", which only makes
+ * sense if you already know the vocabulary and the agent.
+ */
+function nodeTooltip(n: MiniDagNode, order: number, all: MiniDagNode[]): string {
+  const lines: string[] = [`Step ${order} of ${all.length}: ${n.id}`];
+
+  // What it does, plus what it can reach.
+  let does = n.type ? (TYPE_PLAIN[n.type] ?? `Runs a ${n.type} step`) : 'Runs this step';
+  if (n.tools?.length) {
+    const plain = n.tools.map((t) => TOOL_PLAIN[t] ?? t);
+    does += `. While it works it can ${joinPhrases(plain)}`;
+  }
+  lines.push(`${does}.`);
+
+  // When it runs.
+  const deps = (n.dependsOn ?? []).filter((d) => all.some((m) => m.id === d));
+  const when: string[] = [];
+  if (deps.length === 0) {
+    when.push('Goes first.');
+  } else {
+    when.push(`Waits for ${joinPhrases(deps.map((d) => `"${d}"`))} to finish.`);
+    // Siblings with the identical dependency set start together — that's the
+    // fan-out the diagram is showing, said out loud.
+    const key = JSON.stringify([...deps].sort());
+    const siblings = all
+      .filter((m) => m.id !== n.id && JSON.stringify([...(m.dependsOn ?? [])].sort()) === key)
+      .map((m) => `"${m.id}"`);
+    if (siblings.length > 0) {
+      when.push(`Runs at the same time as ${joinPhrases(siblings)}.`);
+    }
+  }
+  if (n.conditional) {
+    const cond = plainCondition(n.condition);
+    when.push(cond ? `Only runs if ${cond}.` : 'Only runs when an earlier step says so.');
+  }
+  lines.push(when.join(' '));
+
+  return lines.join('\n');
 }
 
 /**
@@ -148,7 +229,7 @@ export function miniDag(nodes: MiniDagNode[], opts: { title?: string } = {}): Sa
       <circle cx="${p.x}" cy="${p.y}" r="${NODE_R}"
         class="mini-dag__node ${p.conditional ? 'mini-dag__node--cond' : ''}" />
       <circle cx="${p.x}" cy="${p.y}" r="${HIT_R}" class="mini-dag__hitarea">
-        <title>${nodeTooltip(p.node, order.get(p.id) ?? 0)}</title>
+        <title>${nodeTooltip(p.node, order.get(p.id) ?? 0, nodes)}</title>
       </circle>
     </g>
   `);

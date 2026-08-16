@@ -147,9 +147,11 @@ describe('GET /start', () => {
     // ...its plain-English summary...
     expect(res.text).toContain('4 steps · 2 in parallel');
     expect(res.text).toContain('3 steps · 1 conditional');
-    // ...and per-node hover text, so the dots aren't just decoration.
-    expect(res.text).toContain('tools: web-fetch');
-    expect(res.text).toContain('runs only if judge.verdict = YES');
+    // ...and per-node hover text, in words someone who has never opened this
+    // agent would use.
+    expect(res.text).toContain('While it works it can read web pages');
+    expect(res.text).toContain('Runs at the same time as');
+    expect(res.text).toContain('Only runs if the &quot;judge&quot; step&#39;s verdict comes back YES.');
   });
 
   it('links out to the full examples list', async () => {

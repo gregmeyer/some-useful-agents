@@ -239,3 +239,35 @@
   color: var(--color-primary);
   font-size: var(--font-size-xs);
 }
+
+/*
+ * Mini-DAG hover explanation. Replaces the SVG's native <title> tooltip,
+ * which was unreliable enough that nodes showed a help cursor and no text.
+ * Positioned by mini-dag-tip.js against the cursor.
+ */
+.mini-dag-tip {
+  position: fixed;
+  z-index: 90;
+  max-width: 22rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  pointer-events: none;
+  /* The tip is three short lines, not a jargon chain — keep the breaks. */
+  white-space: pre-line;
+}
+
+/* First line is the step's identity; give it a little more presence. */
+.mini-dag-tip::first-line {
+  font-weight: var(--weight-semibold);
+}
+
+.mini-dag-tip[hidden] {
+  display: none;
+}

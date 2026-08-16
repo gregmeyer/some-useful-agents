@@ -62,16 +62,55 @@ describe('miniDag', () => {
     expect(svg).toContain('mini-dag__edge--cond');
   });
 
-  it('gives every node a hover tooltip naming its position, type and wiring', () => {
+  it('explains each node in plain English, not our vocabulary', () => {
     const svg = render(miniDag(fanOut));
-    expect(svg).toContain('<title>1. plan · llm-prompt · starts the run</title>');
-    expect(svg).toContain('2. left · llm-prompt · tools: web-fetch · after plan');
-    expect(svg).toContain('4. merge · llm-prompt · after left + right');
+    // Written for someone who has never opened this agent: no "llm-prompt",
+    // no raw tool ids, no "dependsOn".
+    expect(svg).toContain('Step 1 of 4: plan');
+    expect(svg).toContain('Asks the AI to do this part.');
+    expect(svg).toContain('Goes first.');
+    expect(svg).not.toContain('llm-prompt ·');
   });
 
-  it('spells out the guard on a conditional node', () => {
+  it('says what a node&#39;s tools actually let it do', () => {
+    const svg = render(miniDag(fanOut));
+    expect(svg).toContain('While it works it can read web pages');
+    // The raw builtin id is not the explanation.
+    expect(svg).not.toContain('tools: web-fetch');
+  });
+
+  it('names the parallel sibling, so the fan-out is stated as well as drawn', () => {
+    const svg = render(miniDag(fanOut));
+    expect(svg).toContain('Waits for &quot;plan&quot; to finish.');
+    expect(svg).toContain('Runs at the same time as &quot;right&quot;.');
+  });
+
+  it('joins multiple upstreams readably', () => {
+    const svg = render(miniDag(fanOut));
+    expect(svg).toContain('Waits for &quot;left&quot; and &quot;right&quot; to finish.');
+  });
+
+  it('spells the guard on a conditional node out in words', () => {
     const svg = render(miniDag(conditional));
-    expect(svg).toContain('runs only if judge.verdict = YES');
+    expect(svg).toContain('Only runs if the &quot;judge&quot; step&#39;s verdict comes back YES.');
+  });
+
+  it('falls back to the raw guard rather than inventing meaning', () => {
+    const odd: MiniDagNode[] = [
+      { id: 'a', type: 'shell' },
+      { id: 'b', dependsOn: ['a'], conditional: true, condition: 'something unparseable' },
+    ];
+    const svg = render(miniDag(odd));
+    expect(svg).toContain('Only runs if something unparseable.');
+  });
+
+  it('translates node types other than llm-prompt', () => {
+    const svg = render(miniDag([
+      { id: 'a', type: 'shell' },
+      { id: 'b', type: 'file-write', dependsOn: ['a'] },
+    ]));
+    expect(svg).toContain('Runs a command on your computer.');
+    expect(svg).toContain('Writes a file.');
   });
 
   it('does not put role="img" on the root — it suppresses per-node tooltips', () => {
