@@ -58,15 +58,15 @@ export interface DetectOutcomeInput {
   now?: () => Date;
 }
 
+export interface EvaluateOutcomeInput extends Omit<DetectOutcomeInput, 'stateDir'> {
+  expectation: OutcomeExpectation;
+  evidence: EvidenceItem[];
+}
+
 export async function detectOutcome(input: DetectOutcomeInput): Promise<OutcomeRecord> {
   const now = input.now ?? (() => new Date());
   const expectation = input.expectation ?? input.agent.outcome ?? {};
-  const unknowns: UnknownItem[] = [];
-
-  const assumptions = expectation.assumptions ?? [];
-  const unobservable = expectation.unobservable ?? [];
   const selectors = expectation.evidence ?? [];
-  const criteria = expectation.success ?? [];
 
   // ── 1. Observed ───────────────────────────────────────────────────────
   const evidence = collectEvidence({
@@ -77,6 +77,28 @@ export async function detectOutcome(input: DetectOutcomeInput): Promise<OutcomeR
     stateDir: input.stateDir,
     now,
   });
+
+  return evaluateOutcome({
+    agent: input.agent,
+    run: input.run,
+    nodeExecutions: input.nodeExecutions,
+    expectation,
+    evidence,
+    judge: input.judge,
+    signal: input.signal,
+    now,
+  });
+}
+
+export async function evaluateOutcome(input: EvaluateOutcomeInput): Promise<OutcomeRecord> {
+  const now = input.now ?? (() => new Date());
+  const unknowns: UnknownItem[] = [];
+
+  const assumptions = input.expectation.assumptions ?? [];
+  const unobservable = input.expectation.unobservable ?? [];
+  const criteria = input.expectation.success ?? [];
+  const selectors = input.expectation.evidence ?? [];
+  const evidence = input.evidence;
 
   if (selectors.length === 0) {
     unknowns.push({
@@ -134,7 +156,7 @@ export async function detectOutcome(input: DetectOutcomeInput): Promise<OutcomeR
   let verdict: JudgeVerdict | null = null;
   if (input.judge) {
     verdict = await input.judge({
-      expected: expectation.expected,
+      expected: input.expectation.expected,
       assumptions,
       unobservable,
       evidence,
@@ -229,7 +251,7 @@ export async function detectOutcome(input: DetectOutcomeInput): Promise<OutcomeR
     detectedAt: now().toISOString(),
 
     intent: {
-      ...(expectation.expected !== undefined && { expected: expectation.expected }),
+      ...(input.expectation.expected !== undefined && { expected: input.expectation.expected }),
       assumptions,
       ...(criteria.length > 0 && { success: criteria }),
       unobservable,

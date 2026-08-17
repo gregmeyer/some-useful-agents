@@ -18,6 +18,11 @@ export {
   type JudgeVerdict,
   type OutcomeBasis,
   type OutcomeConfidence,
+  type OutcomeEvaluationRecord,
+  type OutcomeHistory,
+  type OutcomeHistoryChangeReason,
+  type OutcomeHistoryEvaluation,
+  type OutcomeHistoryEvidence,
   type OutcomeExpectation,
   type OutcomeRecord,
   type OutcomeVerdict,
@@ -33,7 +38,7 @@ export {
   type CollectEvidenceInput,
 } from './evidence.js';
 
-export { detectOutcome, type DetectOutcomeInput } from './detect.js';
+export { detectOutcome, evaluateOutcome, type DetectOutcomeInput, type EvaluateOutcomeInput } from './detect.js';
 
 export {
   buildOutcomeFeedback,
@@ -53,8 +58,11 @@ export {
 
 export {
   OutcomeStore,
+  type AttachOutcomeEvidenceInput,
   type ListOutcomesQuery,
   type OutcomeRow,
+  type PersistedOutcomeEvidence,
+  type RecordOutcomeOptions,
 } from './outcome-store.js';
 
 export {

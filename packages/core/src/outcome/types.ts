@@ -104,12 +104,24 @@ export interface EvidenceItem {
   /** Human label from the selector, when the author supplied one. */
   label?: string;
   source: {
+    /** The run whose outcome this evidence is attached to. */
     runId: string;
     nodeId?: string;
     field?: string;
     path?: string;
     /** Which selector produced this item — kept so `absent` rows stay legible. */
-    selector: EvidenceSelectorKind;
+    selector?: EvidenceSelectorKind;
+    /** How this fact was observed, for post-execution verification. */
+    provenance?: {
+      source: string;
+      observingRunId?: string;
+      observationMode: 'direct' | 'inferred';
+    };
+  };
+  /** What durable object or state this fact describes, when known. */
+  subject?: {
+    type: string;
+    id: string;
   };
   /** Redacted and truncated. Empty string for `absent` items. */
   value: string;
@@ -219,6 +231,71 @@ export interface OutcomeRecord {
    * docs/adr/0030-outcome-detection.md § Why learning is out of scope.
    */
   followUp?: string[];
+}
+
+export interface OutcomeEvaluationRecord {
+  evaluationId: string;
+  runId: string;
+  evaluatedAt: string;
+  inputFingerprint: string;
+  contractHash: string;
+  contractSnapshot: OutcomeExpectation;
+  evidenceIds: string[];
+  evaluator: {
+    kind: 'deterministic' | 'judge';
+    version: string;
+    judge?: string;
+  };
+  criteriaEngineVersion: string;
+  verdict: OutcomeVerdict;
+  basis: OutcomeBasis;
+  confidence: OutcomeConfidence;
+  unknowns: UnknownItem[];
+  criteriaResults?: CriterionResult[];
+  record: OutcomeRecord;
+}
+
+export type OutcomeHistoryChangeReason =
+  | 'initial evaluation'
+  | 'new evidence'
+  | 'contract changed'
+  | 'evaluator changed'
+  | 'criteria engine changed'
+  | 'identical-input rerun';
+
+export interface OutcomeHistoryEvidence {
+  id: string;
+  observedAt: string;
+  source: string;
+  subject?: {
+    type: string;
+    id: string;
+  };
+  originatingRunId: string;
+  observingRunId?: string;
+  observationMode: 'direct' | 'inferred';
+}
+
+export interface OutcomeHistoryEvaluation {
+  evaluationId: string;
+  inputFingerprint: string;
+  evaluatedAt: string;
+  verdict: OutcomeVerdict;
+  contractHash: string;
+  contractSnapshot: OutcomeExpectation;
+  evaluator: OutcomeEvaluationRecord['evaluator'];
+  criteriaEngineVersion: string;
+  evidenceIds: string[];
+  changeReason: OutcomeHistoryChangeReason[];
+  evidence: OutcomeHistoryEvidence[];
+  addedEvidence: OutcomeHistoryEvidence[];
+}
+
+export interface OutcomeHistory {
+  runId: string;
+  latestVerdict: OutcomeVerdict;
+  latestEvaluatedAt: string;
+  evaluations: OutcomeHistoryEvaluation[];
 }
 
 /** What a judge returns, before citation validation. */
