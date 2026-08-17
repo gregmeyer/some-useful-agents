@@ -11,10 +11,10 @@
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@mozilla/readability": "0.6.0",
-    "cron-parser": "5.7.0",
+    "cron-parser": "5.10.0",
     "linkedom": "0.18.13",
     "node-cron": "4.6.0",
-    "pg": "8.22.0",
+    "pg": "8.23.0",
     "turndown": "7.2.4",
     "uuid": "14.0.1",
     "yaml": "2.9.0",
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "@types/pg": "8.20.2",
+    "@types/pg": "8.21.0",
     "@types/turndown": "5.0.6",
     "@types/uuid": "11.0.0",
     "typescript": "7.0.2"
