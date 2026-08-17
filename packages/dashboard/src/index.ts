@@ -17,6 +17,8 @@ import {
   PlannerLoopStepLogStore,
   PlannerMemoryStore,
   AgentMemoryStore,
+  OutcomeStore,
+  outcomeDetectionHook,
   loadBuiltinPacks,
   defaultBuiltinPacksDir,
   LlmSettingsStore,
@@ -67,6 +69,7 @@ import { inboxCountRouter } from './routes/inbox-count.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
+import { raiseOutcomeInbox } from './lib/outcome-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { buildHomeFeedData } from './lib/home-feed.js';
@@ -590,6 +593,55 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // Non-fatal: agent loop still runs, just doesn't persist iterations.
   }
 
+  // OutcomeDetection (docs/outcome-detection.md). Records what RESULTED from a
+  // run, for agents that declare an `outcome:` block. Non-fatal if unavailable.
+  let outcomeStore: OutcomeStore | undefined;
+  try {
+    outcomeStore = new OutcomeStore(opts.dbPath);
+  } catch {
+    // Non-fatal: runs still execute, they just aren't evaluated for outcomes.
+  }
+
+  // Two post-run observers, both deterministic — NO LLM judge on the dashboard
+  // path, so a background run can never silently spend tokens.
+  //
+  //   onRunComplete      records the outcome AND raises an inbox thread when a
+  //                      run completed but missed what it promised.
+  //   onRunCompleteQuiet records only. Used by runs that ARE inbox actions:
+  //                      they already have a thread, and raising from inside
+  //                      one would start a parallel conversation about the
+  //                      same work. Verification still needs the record.
+  //
+  // Both no-op for agents without an `outcome:` block, so passing them
+  // everywhere costs nothing for every agent that predates this feature.
+  const onRunCompleteQuiet = outcomeStore
+    ? outcomeDetectionHook({ outcomeStore })
+    : undefined;
+  const onRunComplete = outcomeStore
+    ? outcomeDetectionHook({
+        outcomeStore,
+        onRecord: (record) => {
+          if (!ctxForInboxKick) return;
+          const run = runStore.getRun(record.runId);
+          if (!run) return;
+          const raised = raiseOutcomeInbox(inboxStore, record, run, dashboardBaseUrl);
+          if (!raised) return;
+          publishInboxChanged(ctxForInboxKick, raised.message.id, raised.message.status);
+          if (raised.coalesced) {
+            // Same rule as run-failure: a note on an existing thread is input
+            // for its NEXT turn, not grounds to start a parallel one.
+            if (raised.response) {
+              publishInboxEvent(ctxForInboxKick, raised.message.id, 'message:created', {
+                responseId: raised.response.id, role: 'system', body: raised.response.body, createdAt: raised.response.createdAt,
+              });
+            }
+            return;
+          }
+          maybeAutoFirstTouch(ctxForInboxKick, raised.message.id, runTriageAgent);
+        },
+      })
+    : undefined;
+
   // v2 DAG node backend. When the provider is Temporal it builds a SpawnNodeFn
   // that runs each node on the worker; every executeAgentDag call passes it as
   // deps.spawnNode. Undefined for local ⇒ in-process execution (unchanged).
@@ -603,6 +655,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     workflowSpawnNode,
     temporal: opts.temporal,
     onRunFailure,
+    onRunComplete,
+    onRunCompleteQuiet,
+    outcomeStore,
     runStore,
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),

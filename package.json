@@ -10,6 +10,7 @@
     "build": "tsc --build && node packages/dashboard/scripts/copy-assets.mjs && node packages/dashboard/scripts/gen-build-info.mjs && chmod +x packages/cli/dist/index.js",
     "clean": "tsc --build --clean",
     "test": "vitest run",
+    "outcome:fixture": "SUA_WRITE_OUTCOME_FIXTURE=1 vitest run packages/core/src/outcome/e2e.test.ts",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "validate-agents": "node packages/core/dist/validate-agents.js"

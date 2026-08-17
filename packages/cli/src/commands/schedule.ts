@@ -12,6 +12,8 @@ import {
   VariablesStore,
   IntegrationsStore,
   AgentMemoryStore,
+  OutcomeStore,
+  outcomeDetectionHook,
   EncryptedFileStore,
   cronToHuman,
   getSchedulerStatus,
@@ -260,12 +262,23 @@ scheduleCommand
       catch { return undefined; }
     })();
 
+    // OutcomeDetection: scheduled runs are the case this matters most for —
+    // a nightly agent that quietly stops producing anything has no other
+    // signal. Deterministic only (no LLM judge) so an unattended daemon can
+    // never spend tokens on its own.
+    const outcomeStore = (() => {
+      try { return new OutcomeStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
+
     const scheduler = new LocalScheduler({
       provider,
       agents,
       v2Agents,
       v2Deps: {
         runStore,
+        outcomeStore,
+        ...(outcomeStore && { onRunComplete: outcomeDetectionHook({ outcomeStore }) }),
         secretsStore,
         variablesStore,
         integrationsStore,

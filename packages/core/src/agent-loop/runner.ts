@@ -14,6 +14,7 @@ import type { Agent } from '../agent-v2-types.js';
 import type { DagExecuteOptions, DagExecutorDeps } from '../dag-executor.js';
 import type { Run } from '../types.js';
 import { executeAgentWithRetry, type ExecuteAgentWithRetryHooks } from '../retry.js';
+import { fireRunComplete } from '../dag-executor.js';
 import { evaluateCriteria, formatCriterionFailures, type CriterionResult } from './eval-criteria.js';
 import type { AgentMemoryStore, AgentMemoryEvalStatus } from './memory-store.js';
 
@@ -63,6 +64,20 @@ export async function executeAgentLoop(
     return executeAgentWithRetry(agent, options, deps, hooks);
   }
 
+  // Post-run observers fire once per LOGICAL run, not once per iteration.
+  // A 3-iteration loop is one attempt at one outcome; emitting three
+  // outcome records for it would triple-count in any later aggregate. We
+  // strip the hook from the per-iteration deps and fire it at the end for
+  // whichever run we actually return. (Notify is deliberately untouched —
+  // its per-iteration behaviour predates this and is a separate call.)
+  const iterDeps: DagExecutorDeps = deps.onRunComplete
+    ? { ...deps, onRunComplete: undefined }
+    : deps;
+  const finish = async (run: Run): Promise<Run> => {
+    if (deps.onRunComplete) await fireRunComplete(agent, run, options, deps);
+    return run;
+  };
+
   let rootRunId: string | null = null;
   let lastRun: Run | null = null;
   let lastFailures: CriterionResult[] = [];
@@ -83,7 +98,7 @@ export async function executeAgentLoop(
 
     const iterOptions: DagExecuteOptions = { ...options, inputs: iterInputs };
 
-    const run = await executeAgentWithRetry(agent, iterOptions, deps, hooks);
+    const run = await executeAgentWithRetry(agent, iterOptions, iterDeps, hooks);
     lastRun = run;
     if (rootRunId === null) rootRunId = run.id;
 
@@ -92,7 +107,7 @@ export async function executeAgentLoop(
     // the failed run.
     if (run.status === 'failed') {
       recordIteration(loopDeps.memoryStore, agent.id, rootRunId, iteration, run.id, iterInputs, null, 'transient-error', null);
-      return run;
+      return finish(run);
     }
 
     // Eval against the just-completed run's per-node executions.
@@ -111,16 +126,16 @@ export async function executeAgentLoop(
       evalResult.passed ? null : evalResult.results.filter((r) => !r.passed),
     );
 
-    if (evalResult.passed) return run;
+    if (evalResult.passed) return finish(run);
 
     lastFailures = evalResult.results.filter((r) => !r.passed);
-    if (options.signal?.aborted) return run;
+    if (options.signal?.aborted) return finish(run);
   }
 
   // Loop budget exhausted with eval still failing. Surface the last run
   // — callers can inspect `agent_memory` to see what each iteration
   // produced, plus the per-iteration failure lists.
-  return lastRun!;
+  return finish(lastRun!);
 }
 
 function recordIteration(

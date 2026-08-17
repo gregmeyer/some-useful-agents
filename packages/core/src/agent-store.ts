@@ -396,6 +396,9 @@ export class AgentStore {
     // platform default" signal.
     if (agent.allowedSubAgents !== undefined) dag.allowedSubAgents = agent.allowedSubAgents;
     if (agent.runOn !== undefined) dag.runOn = agent.runOn;
+    if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
+    if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
+    if (agent.outcome) dag.outcome = agent.outcome;
 
     // Backfill permissions.imgSrc by static analysis of the outputWidget
     // template. The drafter prompt teaches the LLM to emit this field
@@ -472,6 +475,9 @@ export class AgentStore {
       permissions: dag.permissions,
       allowedSubAgents: dag.allowedSubAgents,
       runOn: dag.runOn,
+      successCriteria: dag.successCriteria,
+      maxLoopIterations: dag.maxLoopIterations,
+      outcome: dag.outcome,
     };
     agent.capabilities = deriveCapabilities(agent);
     return agent;

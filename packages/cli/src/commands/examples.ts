@@ -204,16 +204,74 @@ nodes:
     command: echo "Hello from sua! You just ran your first agent."
 `,
 
-  'two-step-digest': `id: two-step-digest
+  'two-step-digest': `# Tutorial step 2: Chain two nodes — fetch data, then format it.
+# Teaches: dependsOn, upstream output passing ($UPSTREAM_<ID>_RESULT).
+# Run: sua workflow run two-step-digest
+id: two-step-digest
 name: Two-step digest
 description: Reads local headlines and formats a summary. Teaches dependsOn + upstream passing.
 status: active
 source: examples
+
+# Cross-run outcome feedback. Declaring this input is the ONLY thing needed to
+# opt in — when the PREVIOUS run of this agent missed its outcome, sua fills it
+# with what went wrong and the evidence behind it. Undeclared inputs are dropped
+# by the executor, so agents that don't want this are unaffected.
+inputs:
+  OUTCOME_FEEDBACK:
+    type: string
+    required: false
+    default: ""
+    description: >
+      What the previous run failed to achieve, when it missed its declared
+      outcome. Empty on the first run and after any run that succeeded.
+
+outputs:
+  result:
+    type: string
+    description: Formatted digest text — first 5 headlines plus a count line.
 signal:
   title: Daily Digest
   icon: "\\U0001F4F0"
   format: text
+  template: text-headline
+  mapping:
+    headline: Daily Digest
+    body: result
   size: 2x1
+# OutcomeDetection: what this agent is supposed to RESULT in, and what
+# counts as evidence of it. Inert unless the caller passes an
+# \`onRunComplete: outcomeDetectionHook({ outcomeStore })\` dep — adding this
+# block changes nothing about how the agent executes.
+#
+# Note the split from \`successCriteria:\` (not used here): that one is a
+# CONTROL input that makes the agent re-run on failure. This is an
+# OBSERVATION input. See docs/outcome-detection.md.
+outcome:
+  expected: >
+    A digest was produced that lists headlines read from the source file and
+    ends with a count line reporting a non-zero number of headlines loaded.
+  assumptions:
+    - The source file is valid JSON with one "title" key per headline.
+  evidence:
+    - kind: nodeStatus
+      nodeId: fetch
+      label: Did the source file read succeed?
+    - kind: nodeResult
+      nodeId: summarise
+      label: The digest text itself
+    - kind: nodeOutputField
+      nodeId: fetch
+      field: bytes
+      label: How much source data was read
+    - kind: runStatus
+  success:
+    - kind: shellExitZero
+      nodeId: summarise
+    - kind: regexMatch
+      nodeId: summarise
+      pattern: "[1-9][0-9]* headlines loaded"
+
 nodes:
   - id: fetch
     type: shell
@@ -224,6 +282,14 @@ nodes:
     type: shell
     command: |
       echo "=== Daily Digest ==="
+      # Echo last run's shortfall so the feedback loop is visible end to end.
+      # A real agent would ACT on this (widen the query, pick another source)
+      # rather than just printing it.
+      if [ -n "$OUTCOME_FEEDBACK" ]; then
+        echo "[note] the previous run missed its outcome:"
+        echo "$OUTCOME_FEEDBACK" | head -3
+        echo "---"
+      fi
       echo "$UPSTREAM_FETCH_RESULT" | head -5
       echo "---"
       TOTAL=$(echo "$UPSTREAM_FETCH_RESULT" | grep -c '"title"' || echo 0)
@@ -283,7 +349,7 @@ signal:
 nodes:
   - id: classify
     type: shell
-    command: echo '{"category":"tech","title":"New AI model released"}'
+    command: echo '{"category":"tech","title":"New AI model released","priority":"high"}'
   - id: check
     type: conditional
     dependsOn: [classify]
@@ -291,13 +357,17 @@ nodes:
       predicate: { field: category, equals: tech }
   - id: tech-path
     type: shell
-    command: echo "TECH ALERT - $UPSTREAM_CLASSIFY_RESULT"
-    dependsOn: [check]
+    command: |
+      echo "TECH ALERT: $UPSTREAM_CLASSIFY_RESULT"
+    # classify is listed so $UPSTREAM_CLASSIFY_RESULT is injected — the executor
+    # only passes DIRECT dependencies' outputs, not transitive ancestors.
+    dependsOn: [check, classify]
     onlyIf: { upstream: check, field: matched, equals: true }
   - id: general-path
     type: shell
-    command: echo "General news - $UPSTREAM_CLASSIFY_RESULT"
-    dependsOn: [check]
+    command: |
+      echo "General news: $UPSTREAM_CLASSIFY_RESULT"
+    dependsOn: [check, classify]
     onlyIf: { upstream: check, field: matched, notEquals: true }
   - id: merge
     type: branch

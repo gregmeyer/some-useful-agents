@@ -31,6 +31,12 @@ This directory captures the **why** behind architectural choices in
 | [0022](0022-output-widget-schema-v2.md) | Output widget schema extension for ai-template | Accepted |
 | [0023](0023-llm-prompt-unification.md) | Unify `claude-code` and `llm-prompt` node types | Accepted |
 | [0024](0024-build-planner-split-orchestrator.md) | Split the build-planner into orchestrated specialist agents | Accepted |
+| [0025](0025-build-eval-image-link-verification.md) | Verify hardcoded image links during build evaluation | Accepted |
+| [0026](0026-apple-runner-code-signing.md) | Code-sign the Apple runner for daemon + distributed TCC access | Accepted |
+| [0027](0027-oauth-loopback-tool.md) | `oauth-loopback` built-in tool | Accepted |
+| [0028](0028-hardware-design-team-on-sua.md) | Hardware Design Team as a sua multi-agent system | Accepted |
+| [0029](0029-mcp-2026-07-28-sdk-v2.md) | MCP 2026-07-28 migration — stateless server + SDK v2 | Accepted |
+| [0030](0030-outcome-detection.md) | Outcome detection as a post-run observer, not a node | Accepted |
 
 ## Template
 

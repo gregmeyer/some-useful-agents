@@ -55,6 +55,19 @@ import {
 export { resolveUpstreamTemplate, resolveVarsTemplate } from './node-templates.js';
 export type { SpawnResult, SpawnNodeFn } from './node-spawner.js';
 
+/** Payload handed to `DagExecutorDeps.onRunComplete`. */
+export interface OnRunCompleteInfo {
+  agent: Agent;
+  /** The committed run row, with its final status. */
+  run: Run;
+  /** This run's per-node records. Node-level truth is NOT on `run`. */
+  nodeExecutions: NodeExecutionRecord[];
+  /** Inputs the run was given (agent defaults merged with caller inputs). */
+  inputs?: Record<string, string>;
+  /** The agent's state dir, when the executor had a `dataRoot` configured. */
+  stateDir?: string;
+}
+
 export interface DagExecutorDeps {
   runStore: RunStore;
   /**
@@ -124,6 +137,29 @@ export interface DagExecutorDeps {
    * the caller — a misbehaving hook can't break the run path.
    */
   onRunFailure?: (info: { run: Run; failedNodeId?: string; errorCategory?: NodeErrorCategory; exitCode?: number | null; error?: string }) => void;
+  /**
+   * Optional post-run observer, fired once after the run row is committed
+   * — on success AND failure, unlike `onRunFailure`. Awaited, so an async
+   * observer finishes before the run resolves; wrapped in try/catch so it
+   * can never change what the run reports.
+   *
+   * This is the seam OutcomeDetection attaches to (see
+   * `outcome/hook.ts`), but it is deliberately generic: it hands over the
+   * agent, the committed run, and the per-node records, and knows nothing
+   * about outcomes.
+   *
+   * Coverage caveat, stated because it is easy to assume otherwise: this
+   * fires for the two statuses the executor itself computes — `completed`
+   * and `failed`. A run finalized OUTSIDE the executor never reaches here:
+   * a user Stop that the abort didn't land (the dashboard writes
+   * `cancelled` directly) and orphan-reaper finalization both bypass this
+   * function entirely.
+   *
+   * Suppressed when `options.suppressNotify` is set, mirroring notify's
+   * once-per-chain semantics; `executeAgentWithRetry` re-fires it once
+   * after the retry chain settles.
+   */
+  onRunComplete?: (info: OnRunCompleteInfo) => void | Promise<void>;
   /**
    * Optional dashboard URL prefix used by the notify dispatcher to embed
    * a "view run in dashboard" link in Slack messages. When absent, the
@@ -1219,7 +1255,42 @@ export async function executeAgentDag(
     }
   }
 
+  // Post-run observer (OutcomeDetection's attach point). Fires last, after
+  // the run row and every node row are committed, so an observer reading
+  // the store sees exactly what a later reader would. Awaited so async
+  // observers finish before the caller resumes; try/catch'd so a broken
+  // observer can't change a result that's already final.
+  if (deps.onRunComplete && !options.suppressNotify) {
+    await fireRunComplete(agent, run, options, deps);
+  }
+
   return run;
+}
+
+/**
+ * Invoke `deps.onRunComplete` defensively. Shared with
+ * `executeAgentWithRetry`, which fires it once for the whole chain rather
+ * than once per attempt.
+ */
+export async function fireRunComplete(
+  agent: Agent,
+  run: Run,
+  options: DagExecuteOptions,
+  deps: DagExecutorDeps,
+): Promise<void> {
+  if (!deps.onRunComplete) return;
+  try {
+    await deps.onRunComplete({
+      agent,
+      run,
+      nodeExecutions: deps.runStore.listNodeExecutions(run.id),
+      inputs: mergedInputs(agent, options.inputs ?? {}),
+      stateDir: deps.dataRoot ? stateDirFor(agent.id, deps.dataRoot) : undefined,
+    });
+  } catch (err) {
+    const logger = deps.notifyLogger ?? { warn: (m: string) => console.warn(`[run-complete] ${m}`) };
+    logger.warn(`onRunComplete hook failed for run ${run.id}: ${(err as Error).message}`);
+  }
 }
 
 // -- Topological sort --

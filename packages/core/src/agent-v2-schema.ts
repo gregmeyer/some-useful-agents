@@ -17,6 +17,7 @@
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
+import { outcomeExpectationSchema } from './outcome/schema.js';
 import { PROVIDER_IDS } from './llm-providers.js';
 import { inputSpecSchema, outputSpecSchema } from './schema.js';
 import { outputWidgetSchema } from './output-widget-schema.js';
@@ -414,6 +415,19 @@ export const agentV2Schema = z.object({
    */
   maxLoopIterations: z.number().int().min(1).max(5).optional(),
 
+  /**
+   * OutcomeDetection (v0.1). Declares what this agent should *result in*
+   * and what counts as evidence of that, so a post-run detector can emit
+   * an evidence-backed `OutcomeRecord`.
+   *
+   * Distinct from `successCriteria` above: that one is a control input
+   * (re-run the agent on failure); this one is an observation input
+   * (describe what happened, and say what could not be determined).
+   * `outcome.success` reuses the same criterion grammar so there is only
+   * one thing to learn. See docs/outcome-detection.md.
+   */
+  outcome: outcomeExpectationSchema.optional(),
+
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
 
@@ -438,6 +452,32 @@ export const agentV2Schema = z.object({
   }
 
   const nodeIds = new Set(data.nodes.map((n) => n.id));
+
+  // successCriteria / outcome.success / outcome.evidence node references.
+  // Previously unvalidated: a typo'd nodeId parsed clean and then failed
+  // silently at eval time as `node "typo" did not run`, which reads like a
+  // flow bug rather than a typo. Both now fail at import.
+  const checkNodeRef = (nodeId: string, path: (string | number)[]) => {
+    if (!nodeIds.has(nodeId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path,
+        message: `References node "${nodeId}", which is not a node in this agent.`,
+      });
+    }
+  };
+  for (let i = 0; i < (data.successCriteria ?? []).length; i++) {
+    const c = data.successCriteria![i];
+    if ('nodeId' in c) checkNodeRef(c.nodeId, ['successCriteria', i, 'nodeId']);
+  }
+  for (let i = 0; i < (data.outcome?.success ?? []).length; i++) {
+    const c = data.outcome!.success![i];
+    if ('nodeId' in c) checkNodeRef(c.nodeId, ['outcome', 'success', i, 'nodeId']);
+  }
+  for (let i = 0; i < (data.outcome?.evidence ?? []).length; i++) {
+    const s = data.outcome!.evidence![i];
+    if ('nodeId' in s) checkNodeRef(s.nodeId, ['outcome', 'evidence', i, 'nodeId']);
+  }
 
   // dependsOn targets exist in this agent's node list
   for (let i = 0; i < data.nodes.length; i++) {

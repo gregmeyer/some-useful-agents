@@ -17,7 +17,7 @@
 
 import type { Agent, NodeErrorCategory, RetryPolicy } from './agent-v2-types.js';
 import type { Run } from './types.js';
-import { executeAgentDag, type DagExecuteOptions, type DagExecutorDeps } from './dag-executor.js';
+import { executeAgentDag, fireRunComplete, type DagExecuteOptions, type DagExecutorDeps } from './dag-executor.js';
 import { dispatchNotify } from './notify-dispatcher.js';
 
 /**
@@ -200,5 +200,13 @@ export async function executeAgentWithRetry(
       logger.warn(`dispatch failed: ${(err as Error).message}`);
     }
   }
+
+  // Same once-per-chain rule for the post-run observer. `internalOptions`
+  // sets `suppressNotify` on every attempt (including the last), so the
+  // executor never fires the hook on this path — the wrapper must. Without
+  // this, any agent with `retry.attempts > 1` would silently produce no
+  // outcome record at all.
+  await fireRunComplete(agent, currentRun, options, deps);
+
   return currentRun;
 }

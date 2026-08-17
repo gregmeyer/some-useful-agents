@@ -105,6 +105,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 const SOURCE_LABEL: Record<string, string> = {
   'run-failure': 'Run failure',
+  'outcome': 'Outcome missed',
   'permission-request': 'Permission',
   'cadence': 'Cadence',
   'manual': 'Manual',

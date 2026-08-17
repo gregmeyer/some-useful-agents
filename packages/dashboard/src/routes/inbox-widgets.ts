@@ -21,6 +21,7 @@ import {
 import { getContext } from '../context.js';
 import { html, type SafeHtml } from '../views/html.js';
 import { renderOutputWidget } from '../views/output-widgets.js';
+import { renderOutcomeRecord } from '../views/outcome-record.js';
 import {
   summarizeInline,
   humanInboxStatus,
@@ -127,24 +128,58 @@ export function buildInlineActionWidgets(
   for (const response of responses) {
     const meta = parseActionMeta(response);
     if (!meta || meta.status !== 'completed' || !meta.runId) continue;
-    const agent = ctx.agentStore.getAgent(meta.agentId);
-    if (!canRenderInlineInboxWidget(agent)) continue;
-    const run = ctx.runStore.getRun(meta.runId);
-    if (!run?.result) continue;
 
-    const blockedHosts = unallowedWidgetImageHosts({
-      outputWidget: agent.outputWidget,
-      permissions: agent.permissions,
-      result: run.result,
-    });
-    if (blockedHosts.length > 0) {
-      inlineWidgets[response.id] = renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
-      continue;
-    }
-
-    inlineWidgets[response.id] = renderOutputWidget(agent.outputWidget, run.result, agent.id);
+    // Two independent things can render under one action card: the agent's
+    // output widget (what it produced) and its outcome card (whether that
+    // was what it was supposed to produce). They're computed separately
+    // because either can exist without the other — an agent can declare an
+    // `outcome:` block and no widget, or vice versa.
+    const widget = renderActionWidget(ctx, messageId, meta);
+    const outcome = renderOutcomeCard(ctx, meta.runId);
+    if (!widget && !outcome) continue;
+    inlineWidgets[response.id] = html`${widget ?? ''}${outcome ?? ''}`;
   }
   return inlineWidgets;
+}
+
+function renderActionWidget(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  meta: { agentId: string; runId?: string },
+): SafeHtml | undefined {
+  if (!meta.runId) return undefined;
+  const agent = ctx.agentStore.getAgent(meta.agentId);
+  if (!canRenderInlineInboxWidget(agent)) return undefined;
+  const run = ctx.runStore.getRun(meta.runId);
+  if (!run?.result) return undefined;
+
+  const blockedHosts = unallowedWidgetImageHosts({
+    outputWidget: agent.outputWidget,
+    permissions: agent.permissions,
+    result: run.result,
+  });
+  if (blockedHosts.length > 0) {
+    return renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
+  }
+  return renderOutputWidget(agent.outputWidget, run.result, agent.id);
+}
+
+/**
+ * Compact outcome card for a completed action run. Delegates to the shared
+ * renderer so the thread and the run detail page can never drift apart.
+ */
+export function renderOutcomeCard(
+  ctx: ReturnType<typeof getContext>,
+  runId: string,
+): SafeHtml | undefined {
+  let record;
+  try {
+    record = ctx.outcomeStore?.get(runId)?.record;
+  } catch {
+    return undefined;
+  }
+  if (!record) return undefined;
+  return renderOutcomeRecord(record, { variant: 'compact' });
 }
 
 /**

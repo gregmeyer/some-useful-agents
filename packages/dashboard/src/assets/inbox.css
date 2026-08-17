@@ -400,6 +400,9 @@
   color: var(--color-text-muted);
 }
 .inbox-row2__source--run-failure { background: var(--color-warn-soft); color: var(--color-warn); }
+/* Outcome-missed reads as "look at this", not "it's on fire" — the run itself
+ * completed cleanly. Deliberately calmer than the run-failure chip. */
+.inbox-row2__source--outcome { background: var(--color-accent-soft, var(--color-surface-raised)); color: var(--color-accent, var(--color-text-muted)); }
 .inbox-tag-chip:hover {
   color: var(--color-text);
   border-color: var(--color-border-strong);

@@ -49,6 +49,7 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
       llmSettings: buildLlmSettingsSnapshot(ctx),
       spawnNode: ctx.workflowSpawnNode,
       onRunFailure: ctx.onRunFailure,
+      onRunComplete: ctx.onRunComplete,
     },
   );
 

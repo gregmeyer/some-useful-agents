@@ -6,6 +6,20 @@ name: Two-step digest
 description: Reads local headlines and formats a summary. Teaches dependsOn + upstream passing.
 status: active
 source: examples
+
+# Cross-run outcome feedback. Declaring this input is the ONLY thing needed to
+# opt in — when the PREVIOUS run of this agent missed its outcome, sua fills it
+# with what went wrong and the evidence behind it. Undeclared inputs are dropped
+# by the executor, so agents that don't want this are unaffected.
+inputs:
+  OUTCOME_FEEDBACK:
+    type: string
+    required: false
+    default: ""
+    description: >
+      What the previous run failed to achieve, when it missed its declared
+      outcome. Empty on the first run and after any run that succeeded.
+
 outputs:
   result:
     type: string
@@ -19,6 +33,39 @@ signal:
     headline: Daily Digest
     body: result
   size: 2x1
+# OutcomeDetection: what this agent is supposed to RESULT in, and what
+# counts as evidence of it. Inert unless the caller passes an
+# `onRunComplete: outcomeDetectionHook({ outcomeStore })` dep — adding this
+# block changes nothing about how the agent executes.
+#
+# Note the split from `successCriteria:` (not used here): that one is a
+# CONTROL input that makes the agent re-run on failure. This is an
+# OBSERVATION input. See docs/outcome-detection.md.
+outcome:
+  expected: >
+    A digest was produced that lists headlines read from the source file and
+    ends with a count line reporting a non-zero number of headlines loaded.
+  assumptions:
+    - The source file is valid JSON with one "title" key per headline.
+  evidence:
+    - kind: nodeStatus
+      nodeId: fetch
+      label: Did the source file read succeed?
+    - kind: nodeResult
+      nodeId: summarise
+      label: The digest text itself
+    - kind: nodeOutputField
+      nodeId: fetch
+      field: bytes
+      label: How much source data was read
+    - kind: runStatus
+  success:
+    - kind: shellExitZero
+      nodeId: summarise
+    - kind: regexMatch
+      nodeId: summarise
+      pattern: "[1-9][0-9]* headlines loaded"
+
 nodes:
   - id: fetch
     type: shell
@@ -29,6 +76,14 @@ nodes:
     type: shell
     command: |
       echo "=== Daily Digest ==="
+      # Echo last run's shortfall so the feedback loop is visible end to end.
+      # A real agent would ACT on this (widen the query, pick another source)
+      # rather than just printing it.
+      if [ -n "$OUTCOME_FEEDBACK" ]; then
+        echo "[note] the previous run missed its outcome:"
+        echo "$OUTCOME_FEEDBACK" | head -3
+        echo "---"
+      fi
       echo "$UPSTREAM_FETCH_RESULT" | head -5
       echo "---"
       TOTAL=$(echo "$UPSTREAM_FETCH_RESULT" | grep -c '"title"' || echo 0)

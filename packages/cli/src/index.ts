@@ -34,6 +34,7 @@ import { examplesCommand } from './commands/examples.js';
 import { varsCommand } from './commands/vars.js';
 import { plannerCommand } from './commands/planner.js';
 import { appleCommand } from './commands/apple.js';
+import { outcomeCommand } from './commands/outcome.js';
 
 // Read version from our own package.json so `sua --version` always matches
 // the installed package version (no hardcoded drift).
@@ -61,6 +62,7 @@ Examples:
   $ sua daemon start                             Run schedule + dashboard as detached background services
   $ sua mcp start                                Start the MCP server on 127.0.0.1:3003
   $ sua doctor --security                        Audit security posture
+  $ sua outcome list --unsatisfied               Runs whose declared outcome was not achieved
 
 Template syntax in agent YAML:
   {{inputs.X}}               caller-supplied values (see \`sua agent run --help\`)
@@ -104,5 +106,6 @@ program.addCommand(examplesCommand);
 program.addCommand(varsCommand);
 program.addCommand(plannerCommand);
 program.addCommand(appleCommand);
+program.addCommand(outcomeCommand);
 
 program.parse();

@@ -168,6 +168,7 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
       llmSettings: buildLlmSettingsSnapshot(ctx),
       spawnNode: ctx.workflowSpawnNode,
       onRunFailure: ctx.onRunFailure,
+      onRunComplete: ctx.onRunComplete,
     },
   );
 
@@ -290,6 +291,7 @@ runMutationsRouter.post('/runs/:id/retry', async (req: Request, res: Response) =
       llmSettings: buildLlmSettingsSnapshot(ctx),
       spawnNode: ctx.workflowSpawnNode,
       onRunFailure: ctx.onRunFailure,
+      onRunComplete: ctx.onRunComplete,
     },
     { memoryStore: ctx.agentMemoryStore },
   );

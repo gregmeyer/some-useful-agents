@@ -14,6 +14,9 @@ import {
   loadAgents,
   executeAgentDag,
   executeAgentWithRetry,
+  OutcomeStore,
+  outcomeDetectionHook,
+  withOutcomeFeedback,
   planMigration,
   applyMigration,
   exportAgent,
@@ -331,6 +334,14 @@ workflowCommand
       try { return new ToolStore(getDbPath(config)); }
       catch { return undefined; }
     })();
+    // OutcomeDetection: a no-op for agents with no `outcome:` block, so
+    // this is safe to register unconditionally. Deterministic only — no
+    // LLM judge on the CLI path, so `sua workflow run` never silently
+    // spends tokens. See docs/outcome-detection.md.
+    const outcomeStore = (() => {
+      try { return new OutcomeStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
     const spinner = ora(`Running ${ui.agent(id)}...`).start();
     try {
       const agent = stores.agents.getAgent(id);
@@ -341,7 +352,13 @@ workflowCommand
       }
       const run = await executeAgentWithRetry(
         agent,
-        { triggeredBy: 'cli', inputs: options.input },
+        {
+          triggeredBy: 'cli',
+          // Cross-run feedback: hand this run what the PREVIOUS run of the same
+          // agent failed to achieve. No-op unless the agent declares
+          // OUTCOME_FEEDBACK in its `inputs:` block.
+          inputs: withOutcomeFeedback(options.input, outcomeStore, id),
+        },
         {
           runStore: stores.runs,
           secretsStore,
@@ -353,6 +370,7 @@ workflowCommand
           dashboardBaseUrl: getDashboardBaseUrl(config),
           dataRoot: stores.agents.dataRoot,
           llmSettings: loadLlmSettingsSnapshot(config),
+          ...(outcomeStore && { onRunComplete: outcomeDetectionHook({ outcomeStore }) }),
         },
       );
       if (run.status === 'completed') {
@@ -367,7 +385,13 @@ workflowCommand
       }
       console.log(ui.dim(`\nRun ID: ${run.id}`));
       console.log(ui.dim(`Inspect per-node logs: sua workflow logs ${run.id}`));
+      // Only advertise the outcome record when one was actually written —
+      // agents without an `outcome:` block produce none.
+      if (outcomeStore?.get(run.id)) {
+        console.log(ui.dim(`Inspect the outcome record: sua outcome show ${run.id.slice(0, 8)}`));
+      }
     } finally {
+      outcomeStore?.close();
       stores.close();
     }
   });

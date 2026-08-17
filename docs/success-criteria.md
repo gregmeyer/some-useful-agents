@@ -72,3 +72,11 @@ There's no UI for this yet — query the SQLite table directly to inspect. A das
 - **Agents where iteration cost matters** (each iteration is a fresh DAG run with its own LLM/HTTP costs).
 
 When `successCriteria` is absent or empty, the runtime is a pure pass-through to the existing retry-wrapped executor — no behaviour change.
+
+## Related: outcome detection
+
+`successCriteria` is a **control** input — it makes the agent re-run when criteria fail.
+If what you want is a record of *what resulted* from a run, with the evidence behind it,
+see [outcome detection](outcome-detection.md). It reuses this same criterion grammar
+under `outcome.success`, but declaring it there does not opt the agent into the re-run
+loop.
