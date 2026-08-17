@@ -1107,6 +1107,38 @@ export function executeAgentEditor(
       refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
     };
   }
+  // Carry the agent's ACCEPTANCE fields across the rewrite when NEW_YAML omits
+  // them.
+  //
+  // `NEW_YAML` replaces the whole definition — there is no merge — so anything
+  // the model didn't re-emit is silently dropped. For most fields that's the
+  // intended semantics. For `outcome:` and `successCriteria:` it is not, because
+  // those are the criteria this very loop is graded against: verify-on-resolve
+  // reads the outcome record to decide whether the fix worked. An analyzer that
+  // tidies away the `outcome:` block makes the next run trivially "pass" and the
+  // thread auto-resolve — the loop grading its own homework. This is not an
+  // attack scenario; an LLM told to emit "the complete improved YAML" dropping a
+  // block it considers noise is routine.
+  //
+  // Preserving on OMISSION only. An edit that deliberately rewrites the criteria
+  // is still honoured — we can't distinguish a legitimate tightening from a
+  // weakening, and pretending otherwise would be security theatre. What this
+  // closes is the silent path.
+  const before = ctx.agentStore.getAgent(agentId);
+  const preserved: string[] = [];
+  if (before) {
+    if (before.outcome && !parsed.outcome) {
+      parsed.outcome = before.outcome;
+      preserved.push('outcome');
+    }
+    if (before.successCriteria && !parsed.successCriteria) {
+      parsed.successCriteria = before.successCriteria;
+      if (before.maxLoopIterations !== undefined && parsed.maxLoopIterations === undefined) {
+        parsed.maxLoopIterations = before.maxLoopIterations;
+      }
+      preserved.push('successCriteria');
+    }
+  }
   try {
     ctx.agentStore.upsertAgent(parsed, 'dashboard', 'Inbox triage applied YAML fix');
   } catch (err) {
@@ -1119,11 +1151,16 @@ export function executeAgentEditor(
   const version = after?.version ?? '?';
   const message = ctx.inboxStore?.get(messageId);
   const installed = !message?.agentId || message.agentId !== agentId;
+  // Say so out loud — a silent preservation is only marginally better than a
+  // silent deletion.
+  const note = preserved.length > 0
+    ? ` Kept the existing ${preserved.join(' and ')} (the edit omitted ${preserved.length === 1 ? 'it' : 'them'}).`
+    : '';
   return {
     status: 'completed',
     summary: installed
-      ? `Installed agent \`${agentId}\` at v${version}.`
-      : `Updated agent \`${agentId}\` to v${version}.`,
+      ? `Installed agent \`${agentId}\` at v${version}.${note}`
+      : `Updated agent \`${agentId}\` to v${version}.${note}`,
   };
 }
 
@@ -1188,6 +1225,13 @@ export function maybeAutoProposeEditorAction(
     kind: 'action',
     status: 'proposed',
     agentId: 'agent-editor',
+    // `effect: 'write'` is load-bearing, not decoration. `writeActionExecuted`
+    // keys the verify-on-resolve gate off it, and inbox-plan's sequencer keys
+    // the one-write-per-turn rule off it. Omitting it here — which this card
+    // did — meant the primary analyzer→editor path rewrote an agent and then
+    // resolved the thread WITHOUT verifying anything, because the gate saw no
+    // write. Only inbox-plan's parser had ever set the field.
+    effect: 'write',
     inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
     rationale: `Apply the YAML fix that agent-analyzer produced.`,
   };
@@ -1243,6 +1287,9 @@ function maybeAutoProposeBuilderInstallAction(
     kind: 'action',
     status: 'proposed',
     agentId: 'agent-editor',
+    // See the note on the analyzer-fix card above — installing a builder draft
+    // is a write too, and must reach the same verify gate.
+    effect: 'write',
     inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
     rationale,
     ctaLabel: alreadyInstalled ? 'Apply draft' : 'Install draft',
@@ -1316,6 +1363,30 @@ export function writeActionExecuted(
 }
 
 /**
+ * When did this thread last change something? Returns the `createdAt` of the
+ * most recent completed `write` action, or undefined if none.
+ *
+ * Used to reject stale evidence: a run that STARTED before the fix landed
+ * cannot tell you whether the fix worked, however clean it looks.
+ */
+export function latestWriteActionAt(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+): number | undefined {
+  if (!ctx.inboxStore) return undefined;
+  let latest: number | undefined;
+  for (const r of ctx.inboxStore.listResponses(messageId)) {
+    const m = parseActionMeta(r);
+    if (m && m.status === 'completed' && m.effect === 'write') {
+      // InboxResponse.createdAt is epoch ms; Run.startedAt is an ISO string.
+      // Normalising here keeps the comparison in one place.
+      if (latest === undefined || r.createdAt > latest) latest = r.createdAt;
+    }
+  }
+  return latest;
+}
+
+/**
  * Programmatic verdict for the verify-on-resolve gate. Rather than take triage
  * at its word that a fix worked, confirm against evidence already on hand: the
  * focus agent's most recent run.
@@ -1341,6 +1412,14 @@ export function writeActionExecuted(
 export function verifyResolveEvidence(
   ctx: ReturnType<typeof getContext>,
   focusAgentId: string | undefined,
+  /**
+   * When the fix landed. A run that started before this cannot be evidence
+   * that the fix worked — nothing re-runs the agent on this path, so the
+   * "latest run" is usually the pre-edit failing one (or an unrelated run from
+   * a cron tick). Without this, an edit gets declared verified against a run
+   * the edited definition never produced.
+   */
+  since?: number,
 ): { verdict: 'ok' | 'not_ok' | 'pending'; evidence: string } {
   if (!focusAgentId) return { verdict: 'pending', evidence: 'no target agent to verify against' };
   let latest;
@@ -1352,6 +1431,14 @@ export function verifyResolveEvidence(
   if (!latest) return { verdict: 'pending', evidence: `no run of \`${focusAgentId}\` to check yet` };
 
   const shortId = latest.id.slice(0, 8);
+
+  const startedAtMs = Date.parse(latest.startedAt);
+  if (since !== undefined && Number.isFinite(startedAtMs) && startedAtMs <= since) {
+    return {
+      verdict: 'pending',
+      evidence: `\`${focusAgentId}\` hasn't run since the fix was applied — its latest run (${shortId}) predates the change, so it can't confirm anything`,
+    };
+  }
 
   // Outcome evidence wins when the agent declared what it was supposed to
   // achieve. Wrapped: a store failure must degrade to the run-status path
@@ -1891,7 +1978,7 @@ export async function runTriageAgent(
             publishInboxChanged(ctx, messageId, 'verifying');
             publishInboxEvent(ctx, messageId, 'state', { phase: 'verifying', since: now });
             const focusAgentId = resolveFocusAgentId(ctx, message.agentId, ctx.inboxStore.listResponses(messageId));
-            const { verdict, evidence } = verifyResolveEvidence(ctx, focusAgentId);
+            const { verdict, evidence } = verifyResolveEvidence(ctx, focusAgentId, latestWriteActionAt(ctx, messageId));
             if (verdict === 'not_ok') {
               addSystemMessage(ctx, messageId, `Didn't resolve — couldn't verify the fix: ${evidence}. Leaving this with you.`, JSON.stringify({ kind: 'verify-failed' }));
               try { ctx.inboxStore.updateStatus(messageId, 'awaiting_user'); } catch { /* ignore */ }

@@ -272,3 +272,17 @@ when the focus agent's latest run actually achieved its outcome, not merely when
 it exited 0. An `undetermined` outcome leaves the thread open.
 
 See [outcome detection](outcome-detection.md).
+
+### Why an inbox fix can't quietly lower the bar
+
+`agent-editor` replaces an agent's whole definition, so a rewrite that omits a
+field drops it. For `outcome:` and `successCriteria:` that would let the fix
+loop delete the criteria it is graded against and then auto-resolve the thread.
+Both are carried forward when the replacement YAML omits them, and the action
+summary says so. An edit that *deliberately* rewrites them is still applied —
+the guard closes the silent path, not intentional change.
+
+Verification also requires a run that started **after** the fix landed. Nothing
+re-runs the target agent automatically, so the latest run is usually the
+pre-edit failing one; verifying against it would declare a fix good on evidence
+it never produced. That case now reports `pending`, leaving the thread open.

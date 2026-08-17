@@ -78,3 +78,98 @@ describe('executeAgentEditor safety', () => {
     expect(after.version).toBe(before.version);
   });
 });
+
+/**
+ * The self-grading loop.
+ *
+ * `NEW_YAML` replaces the whole definition, so anything the model doesn't
+ * re-emit is dropped. For `outcome:` / `successCriteria:` that's not a
+ * preference — those are the criteria verify-on-resolve grades this very loop
+ * against. Dropping them makes the next run trivially "pass" and the thread
+ * auto-resolve while the agent is still broken.
+ */
+describe('executeAgentEditor preserves acceptance criteria', () => {
+  const withOutcome = [
+    'id: graded', 'name: Graded', 'version: 1', 'source: local',
+    'outcome:',
+    '  expected: A non-empty digest.',
+    '  evidence:',
+    '    - kind: nodeResult',
+    '      nodeId: work',
+    '  success:',
+    '    - kind: regexMatch',
+    '      nodeId: work',
+    '      pattern: "[1-9]"',
+    'successCriteria:',
+    '  - kind: shellExitZero',
+    '    nodeId: work',
+    'maxLoopIterations: 3',
+    'nodes:', '  - id: work', '    type: shell', '    command: echo 1',
+  ].join('\n');
+
+  const rewriteWithoutCriteria = [
+    'id: graded', 'name: Graded', 'version: 1', 'source: local',
+    'nodes:', '  - id: work', '    type: shell', '    command: echo 2',
+  ].join('\n');
+
+  const meta = (newYaml: string): InboxActionMeta => ({
+    kind: 'action', status: 'running', agentId: 'agent-editor', effect: 'write',
+    inputs: { AGENT_ID: 'graded', NEW_YAML: newYaml },
+  });
+
+  it('carries outcome and successCriteria across a rewrite that omits them', () => {
+    const ctx = setup();
+    agentStore.upsertAgent(parseAgent(withOutcome), 'cli');
+
+    const res = executeAgentEditor(ctx, 'msg-1', meta(rewriteWithoutCriteria));
+    expect(res.status).toBe('completed');
+
+    const after = agentStore.getAgent('graded')!;
+    // The actual edit landed…
+    expect(after.nodes[0].command).toContain('echo 2');
+    // …but the loop did not quietly delete its own grading criteria.
+    expect(after.outcome?.expected).toBe('A non-empty digest.');
+    expect(after.outcome?.success).toHaveLength(1);
+    expect(after.successCriteria).toEqual([{ kind: 'shellExitZero', nodeId: 'work' }]);
+    expect(after.maxLoopIterations).toBe(3);
+  });
+
+  it('says so in the summary — a silent preservation is barely better than a silent deletion', () => {
+    const ctx = setup();
+    agentStore.upsertAgent(parseAgent(withOutcome), 'cli');
+    const res = executeAgentEditor(ctx, 'msg-1', meta(rewriteWithoutCriteria));
+    expect(res.summary).toContain('Kept the existing outcome and successCriteria');
+  });
+
+  it('still honours an edit that deliberately rewrites the criteria', () => {
+    const ctx = setup();
+    agentStore.upsertAgent(parseAgent(withOutcome), 'cli');
+
+    const tightened = [
+      'id: graded', 'name: Graded', 'version: 1', 'source: local',
+      'outcome:',
+      '  expected: A digest with at least ten items.',
+      '  success:',
+      '    - kind: regexMatch',
+      '      nodeId: work',
+      '      pattern: "[1-9][0-9]+"',
+      'nodes:', '  - id: work', '    type: shell', '    command: echo 2',
+    ].join('\n');
+
+    executeAgentEditor(ctx, 'msg-1', meta(tightened));
+    const after = agentStore.getAgent('graded')!;
+    // Preservation is on OMISSION only — an explicit rewrite wins.
+    expect(after.outcome?.expected).toBe('A digest with at least ten items.');
+  });
+
+  it('is a no-op for agents that never declared criteria', () => {
+    const ctx = setup();
+    const res = executeAgentEditor(ctx, 'msg-1', editMeta([
+      'id: make-a-reminder', 'name: Make a reminder', 'version: 1', 'source: local',
+      'nodes:', '  - id: create', '    type: shell', '    command: echo hi',
+    ].join('\n')));
+    expect(res.status).toBe('completed');
+    expect(res.summary).not.toContain('Kept the existing');
+    expect(agentStore.getAgent('make-a-reminder')!.outcome).toBeUndefined();
+  });
+});

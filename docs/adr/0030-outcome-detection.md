@@ -147,6 +147,33 @@ One renderer serves both so they cannot drift.
 `undetermined` outcome. Still context for one run, not a modification: the line
 below holds.
 
+### Criteria must survive the loop that is graded by them
+
+Making verification depend on the outcome record created a way to cheat it. The
+inbox can already replace an agent's entire definition (`agent-editor`, gated
+only on schema validity and an id match — there is no field-level policy), and
+`outcome:` is an ordinary optional field: a rewrite that omits it drops it
+silently. An analyzer told to emit "the complete improved YAML" tidying away a
+block it considers noise is routine, not adversarial. The result would be a loop
+that fixes a failing agent by deleting the criteria proving it fails, then
+auto-resolves the thread.
+
+Three guards, none of which require a general field-level policy:
+
+1. `executeAgentEditor` carries `outcome` / `successCriteria` forward when the
+   replacement YAML **omits** them, and says so in the action summary. An edit
+   that deliberately rewrites them is still honoured — we cannot distinguish a
+   legitimate tightening from a weakening, and pretending otherwise would be
+   theatre. What this closes is the *silent* path.
+2. Verification requires evidence that **post-dates the fix**. Nothing on this
+   path re-runs the target agent, so the "latest run" is normally the pre-edit
+   failing one; a run that started before the write can't confirm anything, and
+   now yields `pending` instead of `ok`.
+3. The auto-proposed editor card sets `effect: 'write'`. It never did, and
+   `writeActionExecuted` keys the verify gate off exactly that field — so on the
+   primary analyzer→editor path the gate never fired and threads resolved
+   unverified. Pre-existing, but it made guard (2) unreachable.
+
 ## Consequences
 
 ### Positive

@@ -38,3 +38,14 @@ unaffected. Only the immediately-previous run is read, and an undetermined
 outcome produces no feedback. Nothing modifies an agent, prompt, or config.
 
 See docs/outcome-detection.md and docs/adr/0030-outcome-detection.md.
+
+Also closes a self-grading loop this created. The inbox can already replace an
+agent's whole definition via `agent-editor`, and `outcome:` is an ordinary
+optional field — so a rewrite that omitted it dropped it silently, letting a
+failing agent be "fixed" by deleting the criteria that proved it failed.
+`agent-editor` now carries `outcome` and `successCriteria` forward when the
+replacement YAML omits them (and says so), verification requires a run that
+post-dates the fix rather than accepting a pre-edit run as evidence, and the
+auto-proposed editor card sets `effect: 'write'` — it never did, which meant the
+verify-on-resolve gate never fired on the primary analyzer→editor path and
+threads resolved without checking anything.

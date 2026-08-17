@@ -19,7 +19,7 @@ import {
   fixLoopExhausted,
   MAX_FIX_ATTEMPTS_PER_TARGET,
 } from './inbox-plan.js';
-import { writeActionExecuted, verifyResolveEvidence } from './inbox-engine.js';
+import { writeActionExecuted, latestWriteActionAt, verifyResolveEvidence } from './inbox-engine.js';
 
 type Ctx = ReturnType<typeof import('../context.js').getContext>;
 
@@ -236,5 +236,82 @@ describe('verifyResolveEvidence — outcome records override exit codes', () => 
       outcomeStore: { get: () => { throw new Error('db locked'); } },
     } as unknown as Ctx;
     expect(verifyResolveEvidence(ctx, 'checker').verdict).toBe('ok');
+  });
+});
+
+/**
+ * Stale evidence. Nothing on the analyzer→editor path re-runs the target
+ * agent, so "the latest run" is normally the pre-edit failing one — or an
+ * unrelated run from a cron tick. Verifying against it declares a fix good on
+ * the strength of a run the edited definition never produced.
+ */
+describe('verifyResolveEvidence — evidence must post-date the fix', () => {
+  const runAt = (iso: string): Partial<Run> => ({
+    id: 'run-' + iso, agentName: 'checker', status: 'completed', startedAt: iso,
+  });
+
+  it('is pending when the latest run predates the fix', () => {
+    freshStore();
+    const fixAt = Date.parse('2026-01-01T12:00:00Z');
+    const v = verifyResolveEvidence(ctxWith([runAt('2026-01-01T11:00:00Z')]), 'checker', fixAt);
+    expect(v.verdict).toBe('pending');
+    expect(v.evidence).toContain("hasn't run since the fix");
+  });
+
+  it('is pending for a run that started at the exact moment of the fix', () => {
+    freshStore();
+    const iso = '2026-01-01T12:00:00Z';
+    const v = verifyResolveEvidence(ctxWith([runAt(iso)]), 'checker', Date.parse(iso));
+    expect(v.verdict).toBe('pending');
+  });
+
+  it('judges normally once a run post-dates the fix', () => {
+    freshStore();
+    const fixAt = Date.parse('2026-01-01T12:00:00Z');
+    const v = verifyResolveEvidence(ctxWith([runAt('2026-01-01T13:00:00Z')]), 'checker', fixAt);
+    expect(v.verdict).toBe('ok');
+    expect(v.evidence).toContain('completed cleanly');
+  });
+
+  it('behaves as before when no fix timestamp is supplied', () => {
+    freshStore();
+    expect(verifyResolveEvidence(ctxWith([runAt('2026-01-01T11:00:00Z')]), 'checker').verdict).toBe('ok');
+  });
+});
+
+/**
+ * `effect: 'write'` gates verify-on-resolve. The auto-proposed agent-editor
+ * card omitted it, so the primary path rewrote an agent and then resolved the
+ * thread without verifying anything.
+ */
+describe('write-action detection', () => {
+  const editorMeta = (status: InboxActionMeta['status'], effect?: 'read' | 'write'): string =>
+    JSON.stringify({
+      kind: 'action', status, agentId: 'agent-editor',
+      ...(effect ? { effect } : {}),
+      inputs: { AGENT_ID: 'checker', NEW_YAML: 'id: checker' },
+    } satisfies InboxActionMeta);
+
+  it('does not see an editor card that omits effect — the bug this fixes', () => {
+    freshStore();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'applied', editorMeta('completed'));
+    expect(writeActionExecuted(ctxWith(), m.id)).toBe(false);
+  });
+
+  it('sees it once the card declares effect: write', () => {
+    freshStore();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'applied', editorMeta('completed', 'write'));
+    expect(writeActionExecuted(ctxWith(), m.id)).toBe(true);
+    expect(latestWriteActionAt(ctxWith(), m.id)).toBeTypeOf('number');
+  });
+
+  it('ignores writes that have not completed', () => {
+    freshStore();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'action', 'proposed', editorMeta('proposed', 'write'));
+    expect(writeActionExecuted(ctxWith(), m.id)).toBe(false);
+    expect(latestWriteActionAt(ctxWith(), m.id)).toBeUndefined();
   });
 });
