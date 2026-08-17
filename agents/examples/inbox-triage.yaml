@@ -104,6 +104,16 @@ inputs:
       FAILED" block (error + failing node) when the last run failed. Lets
       triage REPORT a run outcome directly instead of asking the operator
       to run the agent and report back. Empty when there's no run yet.
+  FOCUS_AGENT_OUTCOME:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Whether FOCUS_AGENT's latest run achieved the outcome it DECLARED,
+      with the failed checks and the evidence behind them. A run can
+      complete cleanly and still miss its outcome — when this says NO or
+      PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
+      healthy. Empty when the agent declares no `outcome:` block.
   ALLOWED_SUB_AGENTS:
     type: string
     required: false
@@ -294,6 +304,13 @@ nodes:
       do not tell the operator to run it and report back. See the kernel's
       REPORTING A RUN OUTCOME section:
       {{inputs.FOCUS_AGENT_RUN}}
+
+      Did that run achieve what the agent DECLARED it should achieve (may
+      be empty when the agent declares no outcome). Trust this over the raw
+      run output: a run that completed cleanly can still have missed its
+      outcome, and when it says NO or PARTIAL the agent is NOT working —
+      report the failed check and the evidence, do not call it healthy:
+      {{inputs.FOCUS_AGENT_OUTCOME}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

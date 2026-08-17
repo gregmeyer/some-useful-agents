@@ -252,3 +252,23 @@ Why this order:
 - when should an inbox-runnable user agent be auto-run, if ever?
 - should inline widgets in inbox gain input editing, or should that stay a Pulse/agent-page behavior?
 - do we want a thread-level state summary stored explicitly, or derived from the latest responses and actions?
+
+## Outcome threads
+
+Alongside `run-failure`, the inbox has an `outcome` source for the class of
+failure `run-failure` structurally cannot catch: **the run completed, so nothing
+fired, but the agent missed the outcome it declared.** A digest that quietly
+produces zero headlines exits 0 every morning and, before this source existed,
+generated no signal anywhere in sua.
+
+Raised only for `status: completed` runs whose outcome verdict is `no` or
+`partial`. Never for failed runs (`run-failure` owns those) and never for
+`undetermined` — "we couldn't tell" is not evidence of a problem, and raising on
+it teaches operators to ignore the inbox. `medium` priority, coalesced per agent
+like run-failures. `SUA_INBOX_OUTCOME_MISSES=0` disables it.
+
+Outcome records also change **verify-on-resolve**: a thread auto-resolves only
+when the focus agent's latest run actually achieved its outcome, not merely when
+it exited 0. An `undetermined` outcome leaves the thread open.
+
+See [outcome detection](outcome-detection.md).

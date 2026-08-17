@@ -37,7 +37,12 @@ export const INBOX_STATUSES = [
 ] as const;
 export type InboxStatus = typeof INBOX_STATUSES[number];
 
-export const INBOX_SOURCES = ['run-failure', 'permission-request', 'cadence', 'manual'] as const;
+/**
+ * `outcome` is the silent-failure source: the run COMPLETED, so `run-failure`
+ * never fires, but the agent missed the outcome it declared. See
+ * docs/outcome-detection.md.
+ */
+export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
 /**

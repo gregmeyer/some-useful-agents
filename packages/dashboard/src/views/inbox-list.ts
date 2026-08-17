@@ -106,6 +106,7 @@ export const INBOX_DEFAULT_SORT: { sort: InboxSortKey; dir: InboxSortDir } = {
 
 const SOURCE_LABEL: Record<InboxSource, string> = {
   'run-failure': 'Run failure',
+  'outcome': 'Outcome missed',
   'permission-request': 'Permission',
   'cadence': 'Cadence',
   'manual': 'Manual',

@@ -495,6 +495,16 @@ export interface Agent {
    */
   maxLoopIterations?: number;
 
+  /**
+   * OutcomeDetection: what this agent is supposed to *result in*, and what
+   * counts as evidence of that. Distinct from `successCriteria`, which is a
+   * control input (re-run the agent when it fails). This is an observation
+   * input — after the run, a detector produces an evidence-backed
+   * `OutcomeRecord`. Absent → no detection happens for this agent.
+   * See docs/outcome-detection.md.
+   */
+  outcome?: import('./outcome/types.js').OutcomeExpectation;
+
   // Metadata
   author?: string;
   tags?: string[];
@@ -626,6 +636,20 @@ export interface AgentVersionDag {
   allowedSubAgents?: string[];
   /** See Agent.runOn. */
   runOn?: 'local' | 'temporal';
+  /**
+   * See Agent.successCriteria / maxLoopIterations / outcome. All three are
+   * versioned: they are design-time acceptance and observation decisions
+   * authored alongside the topology, so a change to them is a change to
+   * the agent, not casual row metadata.
+   *
+   * `successCriteria` and `maxLoopIterations` were absent here (and from
+   * `parsedToAgent`) until OutcomeDetection landed, which meant the field
+   * validated in YAML and was then silently dropped before it reached the
+   * store — `executeAgentLoop` could never see criteria in production.
+   */
+  successCriteria?: AgentSuccessCriterion[];
+  maxLoopIterations?: number;
+  outcome?: import('./outcome/types.js').OutcomeExpectation;
 }
 
 /**

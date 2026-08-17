@@ -397,5 +397,6 @@ nodes:
 - [Output widgets](output-widgets.md) — render run output as UI
 - [Pattern: SQLite log + table widget](patterns/sqlite-log-widget.md) — a writer + reader agent pair over a shared SQLite store
 - [Success criteria + agent loop](success-criteria.md) — author-declared eval gate, re-runs on failure
+- [Outcome detection](outcome-detection.md) — evidence-backed records of what resulted from a run
 - [Retry policy](retry.md) — transient-failure backoff (separate from success criteria)
 - [Security model](SECURITY.md) — trust rings, shell gate, env filter

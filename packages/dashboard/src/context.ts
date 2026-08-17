@@ -1,4 +1,4 @@
-import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore } from '@some-useful-agents/core';
+import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore, OutcomeStore, OnRunCompleteInfo } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -40,6 +40,25 @@ export interface DashboardContext {
    * Undefined when there's no inbox store.
    */
   onRunFailure?: (info: { run: import('@some-useful-agents/core').Run; failedNodeId?: string; errorCategory?: string }) => void;
+  /**
+   * Post-run observer passed into every executeAgentDag call for a
+   * user-initiated run. Detects the outcome (deterministic — no LLM judge on
+   * the dashboard path) and, when a run completed but MISSED its declared
+   * outcome, raises an inbox thread. No-ops for agents with no `outcome:`
+   * block, so it is safe to pass everywhere. Undefined when there's no
+   * outcome store.
+   */
+  onRunComplete?: (info: OnRunCompleteInfo) => Promise<void>;
+  /**
+   * Record-only variant: detects and stores the outcome but never raises an
+   * inbox thread. Used for runs that ARE inbox actions — their thread already
+   * exists, and raising from inside it would spawn a parallel conversation
+   * about the same work. Verification still needs the record, hence recording
+   * rather than skipping detection entirely.
+   */
+  onRunCompleteQuiet?: (info: OnRunCompleteInfo) => Promise<void>;
+  /** Outcome records for finished runs. See docs/outcome-detection.md. */
+  outcomeStore?: OutcomeStore;
   /** Run store reader for /runs and /runs/:id. */
   runStore: RunStore;
   /**

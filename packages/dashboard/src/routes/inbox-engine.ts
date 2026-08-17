@@ -72,6 +72,7 @@ import {
   extractAgentBuilderProviderPin,
   deriveRunFailureReason,
   collectRunSummary,
+  collectOutcomeSummary,
 } from './inbox-catalog.js';
 import {
   parseProposedActions,
@@ -299,6 +300,13 @@ async function runDispatchedAgentToTerminal(
         // Deliberately NO onRunFailure: this run IS an inbox action — its
         // failure lands on the action card (refusalReason + follow-up triage
         // turn). Raising a second run-failure thread for it would be noise.
+        //
+        // Outcome detection DOES run, but in record-only mode for the same
+        // reason: verification (`verifyResolveEvidence`) needs a record for
+        // this run to tell whether the action actually achieved anything,
+        // while raising an outcome thread from inside a thread would start a
+        // parallel conversation about the work we're already discussing.
+        onRunComplete: ctx.onRunCompleteQuiet,
         experimentalApple: isAppleIntegrationEnabled(),
       },
     );
@@ -1310,11 +1318,25 @@ export function writeActionExecuted(
 /**
  * Programmatic verdict for the verify-on-resolve gate. Rather than take triage
  * at its word that a fix worked, confirm against evidence already on hand: the
- * focus agent's most recent run. `ok` when its latest run completed cleanly;
- * `not_ok` when the latest run failed (the fix didn't hold); `pending` when
- * there's no run yet to judge (e.g. a scheduled agent whose next run will tell).
+ * focus agent's most recent run.
+ *
+ * When that agent declares an `outcome:` block, the verdict comes from the
+ * OUTCOME of the run, not its exit code. This distinction is the whole reason
+ * OutcomeDetection exists: this function used to answer `ok` whenever the
+ * latest run reached `completed`, which auto-resolved the thread as "fixed"
+ * for an agent that ran perfectly and produced nothing. A digest agent that
+ * emits zero headlines exits 0 every time.
+ *
+ * Precedence, and why:
+ *   1. outcome record  — what the run actually achieved (agent opted in)
+ *   2. run status      — unchanged legacy behaviour for every other agent
+ *
+ * `undetermined` deliberately maps to `pending`, never `ok`: not being able to
+ * tell whether something worked is not the same as it having worked, and this
+ * verdict closes threads.
+ *
  * Deterministic and side-effect-free — it never re-runs an agent (that would be
- * unbounded spend on arbitrary agents); it only reads the run store.
+ * unbounded spend on arbitrary agents); it only reads the run + outcome stores.
  */
 export function verifyResolveEvidence(
   ctx: ReturnType<typeof getContext>,
@@ -1328,11 +1350,52 @@ export function verifyResolveEvidence(
     latest = undefined;
   }
   if (!latest) return { verdict: 'pending', evidence: `no run of \`${focusAgentId}\` to check yet` };
+
+  const shortId = latest.id.slice(0, 8);
+
+  // Outcome evidence wins when the agent declared what it was supposed to
+  // achieve. Wrapped: a store failure must degrade to the run-status path
+  // rather than block resolution entirely.
+  let outcome;
+  try {
+    outcome = ctx.outcomeStore?.get(latest.id)?.record;
+  } catch {
+    outcome = undefined;
+  }
+  if (outcome) {
+    const { satisfied } = outcome.evaluation;
+    if (satisfied === 'yes') {
+      const checks = outcome.evaluation.criteriaResults?.length ?? 0;
+      return {
+        verdict: 'ok',
+        evidence: checks > 0
+          ? `latest run of \`${focusAgentId}\` (${shortId}) achieved its declared outcome — all ${checks} check${checks === 1 ? '' : 's'} passed`
+          : `latest run of \`${focusAgentId}\` (${shortId}) achieved its declared outcome`,
+      };
+    }
+    if (satisfied === 'no' || satisfied === 'partial') {
+      const failed = (outcome.evaluation.criteriaResults ?? []).filter((c) => !c.passed);
+      const why = failed.length > 0
+        ? ` — \`${failed[0].description}\`: ${failed[0].reason ?? 'failed'}`
+        : '';
+      // The run itself is fine; say so, or this reads like a crash report.
+      return {
+        verdict: 'not_ok',
+        evidence: `latest run of \`${focusAgentId}\` (${shortId}) completed but ${satisfied === 'partial' ? 'only partly achieved' : 'did not achieve'} its declared outcome${why}`,
+      };
+    }
+    // undetermined
+    return {
+      verdict: 'pending',
+      evidence: `latest run of \`${focusAgentId}\` (${shortId}) finished, but there isn't enough evidence to tell whether the outcome was achieved`,
+    };
+  }
+
   if (latest.status === 'completed') {
-    return { verdict: 'ok', evidence: `latest run of \`${focusAgentId}\` (${latest.id.slice(0, 8)}) completed cleanly` };
+    return { verdict: 'ok', evidence: `latest run of \`${focusAgentId}\` (${shortId}) completed cleanly` };
   }
   if (latest.status === 'failed') {
-    return { verdict: 'not_ok', evidence: `latest run of \`${focusAgentId}\` (${latest.id.slice(0, 8)}) still failed` };
+    return { verdict: 'not_ok', evidence: `latest run of \`${focusAgentId}\` (${shortId}) still failed` };
   }
   return { verdict: 'pending', evidence: `latest run of \`${focusAgentId}\` is ${latest.status}` };
 }
@@ -1518,6 +1581,11 @@ export async function runTriageAgent(
   // (node + error) directly instead of telling the operator to "run it and see".
   const focusAgentId = resolveFocusAgentId(ctx, message.agentId, responsesSnapshot);
   const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
+  // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
+  // it did. Run output alone can't answer that — a clean run with an empty
+  // digest looks fine in FOCUS_AGENT_RUN. Empty when the agent declared no
+  // `outcome:` block.
+  const focusAgentOutcome = focusAgentId ? collectOutcomeSummary(ctx, focusAgentId) : '';
 
   const allowlist = getSubAgentAllowlist(ctx);
   const runnableAgentSpecs = buildRunnableAgentSpecsJson(ctx, allowlist);
@@ -1571,6 +1639,7 @@ export async function runTriageAgent(
           CONVERSATION: conversation,
           FOCUS_AGENT: focusAgentId ?? '',
           FOCUS_AGENT_RUN: focusAgentRun,
+          FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           RUNNABLE_CANDIDATES: candidates.join(', '),

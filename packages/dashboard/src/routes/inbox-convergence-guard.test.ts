@@ -12,7 +12,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { InboxStore, type InboxActionMeta, type Run } from '@some-useful-agents/core';
+import { InboxStore, type InboxActionMeta, type OutcomeRecord, type OutcomeVerdict, type Run } from '@some-useful-agents/core';
 import {
   fixTargetOf,
   countAppliedFixes,
@@ -26,14 +26,48 @@ type Ctx = ReturnType<typeof import('../context.js').getContext>;
 let dir: string;
 let inboxStore: InboxStore;
 
-function ctxWith(runs: Partial<Run>[] = []): Ctx {
+function ctxWith(runs: Partial<Run>[] = [], outcomes: Record<string, OutcomeRecord> = {}): Ctx {
   return {
     inboxStore,
     runStore: {
       listRuns: (f?: { agentName?: string; limit?: number }) =>
         runs.filter((r) => !f?.agentName || r.agentName === f.agentName).slice(0, f?.limit ?? 100),
     },
+    outcomeStore: Object.keys(outcomes).length > 0
+      ? { get: (runId: string) => (outcomes[runId] ? { record: outcomes[runId] } : null) }
+      : undefined,
   } as unknown as Ctx;
+}
+
+/** Minimal outcome record for the verify tests. */
+function outcomeFor(runId: string, satisfied: OutcomeVerdict, failReason = 'regex did not match'): OutcomeRecord {
+  return {
+    version: 1,
+    runId,
+    agentId: 'checker',
+    agentVersion: 1,
+    detectedAt: '2026-01-01T00:00:00Z',
+    intent: { expected: 'the check passes', assumptions: [], unobservable: [] },
+    execution: {
+      actor: { agentId: 'checker', agentVersion: 1, triggeredBy: 'dashboard' },
+      runStatus: 'completed',
+      startedAt: '2026-01-01T00:00:00Z',
+      nodes: [],
+    },
+    observation: { evidence: [] },
+    evaluation: {
+      satisfied,
+      basis: satisfied === 'undetermined' ? 'undetermined' : 'criteria',
+      confidence: satisfied === 'undetermined' ? 'low' : 'high',
+      ...(satisfied === 'undetermined' ? {} : {
+        criteriaResults: [
+          { description: 'shellExitZero(check)', passed: true },
+          ...(satisfied === 'yes' ? [] : [{ description: 'regexMatch(check, /ok/)', passed: false, reason: failReason }]),
+        ],
+      }),
+    },
+    unknowns: [],
+  };
 }
 
 function editorFix(target: string, status: InboxActionMeta['status'] = 'completed'): string {
@@ -141,5 +175,66 @@ describe('verifyResolveEvidence', () => {
   it('pending when there is no focus agent at all', () => {
     freshStore();
     expect(verifyResolveEvidence(ctxWith([run('completed')]), undefined).verdict).toBe('pending');
+  });
+});
+
+/**
+ * The reason OutcomeDetection exists. Before this, `verifyResolveEvidence`
+ * answered `ok` for ANY run that reached `completed` — so a thread auto-resolved
+ * as "fixed" for an agent that ran perfectly and produced nothing. A digest
+ * emitting zero headlines exits 0 every time.
+ */
+describe('verifyResolveEvidence — outcome records override exit codes', () => {
+  const completed = (id: string): Partial<Run> => ({ id, agentName: 'checker', status: 'completed' });
+
+  it('ok when the run achieved its declared outcome', () => {
+    freshStore();
+    const v = verifyResolveEvidence(ctxWith([completed('run-1')], { 'run-1': outcomeFor('run-1', 'yes') }), 'checker');
+    expect(v.verdict).toBe('ok');
+    expect(v.evidence).toContain('achieved its declared outcome');
+  });
+
+  it('not_ok when the run completed cleanly but MISSED its outcome', () => {
+    freshStore();
+    const v = verifyResolveEvidence(ctxWith([completed('run-1')], { 'run-1': outcomeFor('run-1', 'no') }), 'checker');
+    expect(v.verdict).toBe('not_ok');
+    // Names why, and makes clear the execution itself was fine.
+    expect(v.evidence).toContain('completed but did not achieve');
+    expect(v.evidence).toContain('regex did not match');
+  });
+
+  it('not_ok, described as partial, when only some checks passed', () => {
+    freshStore();
+    const v = verifyResolveEvidence(ctxWith([completed('run-1')], { 'run-1': outcomeFor('run-1', 'partial') }), 'checker');
+    expect(v.verdict).toBe('not_ok');
+    expect(v.evidence).toContain('only partly achieved');
+  });
+
+  // Not knowing whether something worked is not the same as it having worked,
+  // and this verdict closes threads.
+  it('pending — never ok — when the outcome is undetermined', () => {
+    freshStore();
+    const v = verifyResolveEvidence(ctxWith([completed('run-1')], { 'run-1': outcomeFor('run-1', 'undetermined') }), 'checker');
+    expect(v.verdict).toBe('pending');
+    expect(v.evidence).toContain("isn't enough evidence");
+  });
+
+  it('falls back to run status for agents that declared no outcome', () => {
+    freshStore();
+    // Record exists for a DIFFERENT run — this run has none.
+    const ctx = ctxWith([completed('run-2')], { 'run-1': outcomeFor('run-1', 'no') });
+    const v = verifyResolveEvidence(ctx, 'checker');
+    expect(v.verdict).toBe('ok');
+    expect(v.evidence).toContain('completed cleanly');
+  });
+
+  it('degrades to run status when the outcome store throws', () => {
+    freshStore();
+    const ctx = {
+      inboxStore,
+      runStore: { listRuns: () => [completed('run-1')] },
+      outcomeStore: { get: () => { throw new Error('db locked'); } },
+    } as unknown as Ctx;
+    expect(verifyResolveEvidence(ctx, 'checker').verdict).toBe('ok');
   });
 });

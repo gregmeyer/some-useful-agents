@@ -1272,3 +1272,71 @@
   cursor: pointer;
 }
 .page-intro__dismiss:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+
+/* ---------- Outcome record (docs/outcome-detection.md) ----------
+ * Rendered on /runs/:id and, in compact form, inside inbox threads.
+ * The visual job is to keep the record's tiers distinguishable — declared
+ * vs. observed vs. inferred — rather than reading as one undifferentiated
+ * block of text. Labels carry that separation; values are monospace so
+ * evidence reads as data, not prose. */
+.outcome-record {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--color-surface-raised);
+}
+.outcome-record--compact {
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+}
+.outcome-record--compact > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.outcome-record__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.outcome-record__body {
+  display: grid;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.outcome-record--compact .outcome-record__body { margin-top: var(--space-3); }
+.outcome-record__label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+.outcome-record__body ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+}
+.outcome-record__evidence { list-style: none; padding-left: 0; gap: var(--space-2); }
+.outcome-record__ev-id {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  margin-right: var(--space-1);
+}
+.outcome-record__value {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  word-break: break-word;
+}
+.outcome-record__tick { color: var(--color-ok); }
+.outcome-record__x { color: var(--color-err); }

@@ -17,6 +17,8 @@ import type { IntegrationsStore } from './integrations-store.js';
 import type { AgentStore } from './agent-store.js';
 import type { ToolStore } from './tool-store.js';
 import { executeAgentLoop } from './agent-loop/runner.js';
+import type { DagExecutorDeps } from './dag-executor.js';
+import { withOutcomeFeedback, type OutcomeFeedbackSource } from './outcome/feedback.js';
 import type { AgentMemoryStore } from './agent-loop/memory-store.js';
 
 export interface ScheduledAgentEntry {
@@ -54,6 +56,15 @@ export interface V2SchedulerDeps {
    * agent loop still runs, just silently.
    */
   agentMemoryStore?: AgentMemoryStore;
+  /**
+   * Outcome records (docs/outcome-detection.md). Threaded through for two
+   * reasons: `onRunComplete` writes this run's record, and
+   * `withOutcomeFeedback` reads the PREVIOUS run's so a nightly agent that
+   * missed its outcome starts the next run knowing what went wrong.
+   */
+  outcomeStore?: OutcomeFeedbackSource;
+  /** Post-run observer. See DagExecutorDeps.onRunComplete. */
+  onRunComplete?: DagExecutorDeps['onRunComplete'];
 }
 
 export interface LocalSchedulerOptions {
@@ -311,7 +322,13 @@ export class LocalScheduler {
     // each iteration's pass/fail + observations land in agent_memory.
     executeAgentLoop(
       agent,
-      { triggeredBy: 'schedule', inputs: this.inputs },
+      {
+        triggeredBy: 'schedule',
+        // Cross-run feedback: when the previous run of this agent missed its
+        // declared outcome, hand the next run what went wrong. No-op unless
+        // the agent declares OUTCOME_FEEDBACK in its `inputs:` block.
+        inputs: withOutcomeFeedback(this.inputs, this.v2Deps?.outcomeStore, agent.id),
+      },
       {
         runStore: this.v2Deps.runStore,
         secretsStore: this.v2Deps.secretsStore,
@@ -322,6 +339,7 @@ export class LocalScheduler {
         allowUntrustedShell: this.v2Deps.allowUntrustedShell,
         dashboardBaseUrl: this.v2Deps.dashboardBaseUrl,
         dataRoot: this.v2Deps.dataRoot,
+        onRunComplete: this.v2Deps.onRunComplete,
       },
       { memoryStore: this.v2Deps.agentMemoryStore },
     ).then(

@@ -630,6 +630,63 @@ const NODE_DIGEST_TOTAL_CAP = 4500;
  * This surfaces every node's output so the analyzer can diagnose from what the
  * steps actually produced. Empty string when there's no completed run.
  */
+/**
+ * Render the outcome record for an agent's latest run, for triage context.
+ *
+ * This is the piece `collectRunSummary` structurally cannot provide: run
+ * output alone says what came out, not whether it was what the agent was
+ * SUPPOSED to produce. Without it, triage sees a clean run and a plausible
+ * digest and concludes everything is fine, when the declared outcome says
+ * otherwise. Empty string when the agent declared no `outcome:` block or has
+ * no run yet — the prompt section degrades to a no-op.
+ */
+export function collectOutcomeSummary(
+  ctx: ReturnType<typeof getContext>,
+  agentName: string,
+): string {
+  let record;
+  try {
+    const latest = ctx.runStore.listRuns({ agentName, limit: 1 })[0];
+    if (!latest) return '';
+    record = ctx.outcomeStore?.get(latest.id)?.record;
+  } catch {
+    return '';
+  }
+  if (!record) return '';
+
+  const lines: string[] = [
+    `OUTCOME OF THE LATEST RUN (${record.runId.slice(0, 8)}): ${record.evaluation.satisfied.toUpperCase()}`,
+    `Basis: ${record.evaluation.basis} (confidence: ${record.evaluation.confidence})`,
+  ];
+  if (record.intent.expected) lines.push(`Expected: ${record.intent.expected.trim()}`);
+
+  const failed = (record.evaluation.criteriaResults ?? []).filter((c) => !c.passed);
+  if (failed.length > 0) {
+    lines.push('Checks that FAILED:');
+    for (const c of failed) lines.push(`  - ${c.description}: ${c.reason ?? 'failed'}`);
+  }
+  if (record.observation.observedOutcome) {
+    lines.push(`Observed (inferred): ${record.observation.observedOutcome.text}`);
+  }
+  const evidence = record.observation.evidence.slice(0, 4);
+  if (evidence.length > 0) {
+    lines.push('Evidence:');
+    for (const e of evidence) {
+      const where = e.source.nodeId
+        ? `${e.source.nodeId}${e.source.field ? `.${e.source.field}` : ''}`
+        : e.source.path ?? 'run';
+      const oneLine = e.value.replace(/\s+/g, ' ').trim().slice(0, 300);
+      lines.push(`  - [${e.id}] ${where}${e.kind === 'absent' ? ' NOT FOUND' : ''}: ${oneLine}`);
+    }
+  }
+  const unknowns = record.unknowns.filter((u) => u.reason !== 'not-inferred');
+  if (unknowns.length > 0) {
+    lines.push('Could NOT be determined:');
+    for (const u of unknowns) lines.push(`  - ${u.detail ?? u.field} (${u.reason})`);
+  }
+  return lines.join('\n');
+}
+
 export function collectLatestRunNodeDigest(
   ctx: ReturnType<typeof getContext>,
   agentName: string,

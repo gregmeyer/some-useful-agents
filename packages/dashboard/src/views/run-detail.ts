@@ -1,4 +1,4 @@
-import type { Agent, NodeExecutionRecord, Run } from '@some-useful-agents/core';
+import type { Agent, NodeExecutionRecord, OutcomeRecord, Run } from '@some-useful-agents/core';
 import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -6,6 +6,7 @@ import { pageHeader, type PageHeaderBack } from './page-header.js';
 import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory, explainNodeFailure } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
+import { renderOutcomeRecord } from './outcome-record.js';
 
 export interface RunDetailOptions {
   run: Run;
@@ -26,10 +27,17 @@ export interface RunDetailOptions {
    * only for runs that executed on Temporal (workflow id `sua-run-<runId>`).
    */
   temporalLink?: string;
+  /**
+   * Evidence-backed record of what RESULTED from this run, when the agent
+   * declared an `outcome:` block. Rendered above the raw result: "did this
+   * achieve what it was for" is a more useful first question than "what did
+   * it print". See docs/outcome-detection.md.
+   */
+  outcome?: OutcomeRecord;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -225,7 +233,11 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             ${canReplay ? renderReplayFallback(run, agent!) : html``}
           </div>
           <div class="run-detail-grid__result" data-poll-region="result">
-            <h2 style="margin-top: 0;">Result</h2>
+            ${outcome ? html`
+              <h2 style="margin-top: 0;">Outcome</h2>
+              ${renderOutcomeRecord(outcome)}
+              <h2>Result</h2>
+            ` : html`<h2 style="margin-top: 0;">Result</h2>`}
             ${!inProgress && run.result
               ? (widgetBlocked
                   ? widgetHiddenNotice
@@ -258,6 +270,10 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay)}</div>
         </section>
       ` : html`
+        ${outcome ? html`
+          <h2>Outcome</h2>
+          ${renderOutcomeRecord(outcome)}
+        ` : ''}
         <h2>Output</h2>
         <div data-poll-region="result">${run.result
           ? (widgetBlocked

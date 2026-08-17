@@ -126,7 +126,15 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
 
   const temporalLink = temporalWorkflowLink(run, ctx.temporal?.namespace);
 
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink }));
+  // OutcomeDetection: what this run was supposed to achieve and whether it
+  // did. Undefined for agents that declare no `outcome:` block.
+  let outcome;
+  try {
+    outcome = ctx.outcomeStore?.get(run.id)?.record;
+  } catch {
+    outcome = undefined;
+  }
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

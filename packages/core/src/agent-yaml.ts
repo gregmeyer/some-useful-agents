@@ -121,6 +121,9 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(p.outputWidget && { outputWidget: p.outputWidget }),
     ...(p.retry && { retry: p.retry }),
     ...(p.notify && { notify: p.notify as Agent['notify'] }),
+    ...(p.successCriteria && { successCriteria: p.successCriteria as Agent['successCriteria'] }),
+    ...(p.maxLoopIterations !== undefined && { maxLoopIterations: p.maxLoopIterations }),
+    ...(p.outcome && { outcome: p.outcome as Agent['outcome'] }),
     ...(p.author !== undefined && { author: p.author }),
     ...(p.tags && { tags: p.tags }),
     ...(p.entryConditions && { entryConditions: p.entryConditions }),
@@ -149,6 +152,8 @@ const AGENT_KEY_ORDER = [
   'outputWidget',
   'retry',
   'notify',
+  'successCriteria', 'maxLoopIterations',
+  'outcome',
   'author', 'tags',
   'entryConditions', 'nonEntryConditions', 'sampleQuestions',
 ] as const;

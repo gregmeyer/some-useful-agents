@@ -185,6 +185,7 @@ async function kickoffLayoutPlannerRun(args: {
       llmSettings: buildLlmSettingsSnapshot(ctx),
       spawnNode: ctx.workflowSpawnNode,
       onRunFailure: ctx.onRunFailure,
+      onRunComplete: ctx.onRunComplete,
     },
   );
 
