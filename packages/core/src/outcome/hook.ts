@@ -49,7 +49,7 @@ export function outcomeDetectionHook(
         stateDir: info.stateDir,
         judge: options.judge,
       });
-      options.outcomeStore?.record(record);
+      options.outcomeStore?.record(record, { contractSnapshot: info.agent.outcome });
       options.onRecord?.(record);
     } catch (err) {
       const logger = options.logger ?? { warn: (m: string) => console.warn(`[outcome] ${m}`) };

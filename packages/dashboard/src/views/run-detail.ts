@@ -1,4 +1,4 @@
-import type { Agent, NodeExecutionRecord, OutcomeRecord, Run } from '@some-useful-agents/core';
+import type { Agent, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run } from '@some-useful-agents/core';
 import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -7,6 +7,7 @@ import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
+import { renderOutcomeHistory } from './outcome-history.js';
 
 export interface RunDetailOptions {
   run: Run;
@@ -34,10 +35,11 @@ export interface RunDetailOptions {
    * it print". See docs/outcome-detection.md.
    */
   outcome?: OutcomeRecord;
+  outcomeHistory?: OutcomeHistory | null;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -236,6 +238,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             ${outcome ? html`
               <h2 style="margin-top: 0;">Outcome</h2>
               ${renderOutcomeRecord(outcome)}
+              ${outcomeHistory ? renderOutcomeHistory(outcomeHistory) : ''}
               <h2>Result</h2>
             ` : html`<h2 style="margin-top: 0;">Result</h2>`}
             ${!inProgress && run.result
@@ -273,6 +276,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         ${outcome ? html`
           <h2>Outcome</h2>
           ${renderOutcomeRecord(outcome)}
+          ${outcomeHistory ? renderOutcomeHistory(outcomeHistory) : ''}
         ` : ''}
         <h2>Output</h2>
         <div data-poll-region="result">${run.result

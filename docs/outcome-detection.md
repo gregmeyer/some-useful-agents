@@ -89,13 +89,157 @@ question than "what did it print".
 
 ---
 
+## Canonical example: the reminder pattern
+
+The clearest way to understand Outcome History is the real reminder workflow:
+
+```text
+create reminder
+    ↓
+run completed
+    ↓
+outcome undetermined
+    ↓
+read-back evidence arrives
+    ↓
+outcome yes
+```
+
+This is the product idea in one line:
+
+> Execution success is not the same as outcome success.
+
+### The resolved outcome contract
+
+For the reminder case, the contract is simple:
+
+```yaml
+outcome:
+  expected: >
+    The reminder exists in the Reminders list with the requested title.
+  evidence:
+    - { kind: nodeResult, nodeId: create-reminder }
+```
+
+That contract is not asking whether the tool returned an id. It is asking
+whether the intended reminder state became true in the world.
+
+### Execution evidence
+
+The create step finished cleanly and returned a reminder id and title:
+
+```json
+{
+  "id": "7FB09951-DE0F-4F7B-85BB-887C0F7B62D8",
+  "title": "SUA outcome experiment 2026-08-17 21:55",
+  "list": "Reminders"
+}
+```
+
+That is execution evidence. It tells sua what happened inside the run:
+
+- the `create-reminder` node ran;
+- the tool returned a plausible object;
+- the run completed.
+
+It does **not** prove that the reminder later existed in Apple Reminders.
+
+### Why execution alone is insufficient
+
+On the real reminder run from **August 17, 2026**, execution evidence alone
+left the outcome `undetermined`.
+
+That is the correct answer. The system had evidence that the action API
+reported success, but not yet evidence that the intended state actually existed.
+
+### Later world-state evidence
+
+Later, a separate read-back observed the reminder in the Reminders list:
+
+```json
+{
+  "id": "7FB09951-DE0F-4F7B-85BB-887C0F7B62D8",
+  "title": "SUA outcome experiment 2026-08-17 21:55",
+  "completed": false,
+  "list": "Reminders",
+  "notes": "created for outcome verification on 2026-08-17"
+}
+```
+
+This is different from execution evidence in two ways:
+
+- it was observed **after** the action finished;
+- it came from a read of the world state that should have changed.
+
+In storage, that evidence carries observing-run provenance such as:
+
+- source: `tool:apple.apple.reminder-read`
+- originating run: the original `make-a-reminder` run
+- observing run: the later read-back run
+- observation mode: `direct`
+
+### Updated verdict
+
+Once that read-back evidence was attached, the verdict moved:
+
+```text
+undetermined → yes
+```
+
+Nothing about the original execution changed. What changed was that the world
+was observed afterward.
+
+### History timeline
+
+The important part of Outcome History is not that there are two rows. It is
+that the two rows preserve two different beliefs:
+
+```text
+Evaluation V1
+  evaluatedAt: 2026-08-17T04:51:50.733Z
+  verdict: undetermined
+  evidence: create-reminder execution output
+
+Evaluation V2
+  evaluatedAt: 2026-08-17T04:52:10.500Z
+  verdict: yes
+  delta: new evidence added
+  evidence: V1 evidence + reminder read-back
+  provenance: observed by a later reminder-read run
+```
+
+The latest outcome snapshot alone can tell you only the newest verdict. History
+shows how sua got there.
+
+### Failure case: execution succeeds, persisted state violates the contract
+
+The reminder experiment also produced the opposite pattern:
+
+```text
+create reminder with malformed due date
+    ↓
+run completed
+    ↓
+tool returned success
+    ↓
+read-back shows reminder exists but dueDate is null
+    ↓
+outcome not satisfied
+```
+
+The create tool returned normally, but the persisted reminder state did not
+satisfy the intended contract. This is exactly why outcome success must not be
+collapsed into run success.
+
+---
+
 ## What consumes outcome records
 
 Records aren't just for reading. Four things act on them:
 
 | Consumer | What it does |
 |---|---|
-| **Run detail** (`/runs/:id`) | Shows the verdict, the checks, and the evidence above the raw result. |
+| **Run detail** (`/runs/:id`) | Shows the latest verdict, checks, and evidence above the raw result, plus an Outcome History timeline when more than one evaluation exists. |
 | **Verify-on-resolve** | An inbox thread auto-resolves only when the fix actually achieved the outcome — not merely when the agent exited 0. `undetermined` holds the thread open rather than closing it. |
 | **The inbox** | A run that **completed but missed its outcome** raises an `outcome` thread. This is the silent-failure class: `run-failure` never fires for it, so before this it produced no signal at all. |
 | **The next run** | `OUTCOME_FEEDBACK` (see below). |
@@ -179,6 +323,90 @@ Rule-derived, never asked for:
 - `high` — the verdict came from deterministic criteria
 - `medium` — the verdict came from a judge whose every claim was grounded
 - `low` — a claim was dropped for bad citations, or the verdict is `undetermined`
+
+---
+
+## Outcome history
+
+The latest outcome record answers:
+
+> What does sua believe now?
+
+Outcome History answers:
+
+> What did sua believe first, what changed later, and what was available when
+> each judgment was made?
+
+History is append-only. Each evaluation event is preserved even when the latest
+verdict changes later.
+
+### What can change between evaluations
+
+The UI and read model treat changes as evaluation deltas, not causal claims:
+
+- `new evidence`
+- `contract changed`
+- `evaluator changed`
+- `criteria engine changed`
+- `identical-input rerun`
+
+That wording matters. If new evidence appears and the verdict changes, history
+can say **new evidence was added**. It cannot automatically say **that evidence
+caused the verdict change** unless causal linkage is explicitly recorded.
+
+### Supporting example: contract changed, evidence stayed constant
+
+Sometimes the world does not change at all. The expectation changes.
+
+```text
+Evaluation V1
+  contract: "A 7-day CCUsage summary with total and previous cost was produced."
+  evidence: same summary JSON
+  verdict: yes
+
+Evaluation V2
+  contract: "Current total cost is lower than previous cost."
+  evidence: same summary JSON
+  verdict: no
+```
+
+History makes this legible. The latest `no` by itself can look like a broken
+run. The history says the run did not regress; the success definition changed.
+
+### Supporting example: evaluator changed, contract/evidence stayed constant
+
+Sometimes the observed world and the contract stay the same, but the evaluator
+changes how cautiously it interprets the same evidence.
+
+```text
+Evaluation V1
+  contract: unchanged
+  evidence: same fetched page
+  evaluator: strict
+  verdict: no
+
+Evaluation V2
+  contract: unchanged
+  evidence: same fetched page
+  evaluator: cautious
+  verdict: undetermined
+```
+
+Again, history is not saying the evaluator change caused the new verdict. It is
+saying that evaluator metadata changed while evidence and contract did not.
+
+### Identical-input reruns
+
+Outcome History also keeps identical-input reruns:
+
+- same contract
+- same evidence set
+- same evaluator
+- same criteria engine
+
+These are retained for auditability, but they are visually de-emphasized in the
+run detail because they usually do not add meaning. Their main value is proving
+that a later evaluation event added no new inputs.
 
 ---
 
@@ -326,10 +554,15 @@ const record = await detectOutcome({
 
 ## Storage
 
-One row per run in `outcome_records` (same SQLite file as everything else). Writes are
-upserts keyed on `run_id`, so re-running the executor tail against the same run — which
-`options.resume` and Temporal activity retries both do — updates the record instead of
-throwing.
+The implementation keeps two things at once:
+
+- a **latest-state materialization** in `outcome_records` for fast reads;
+- **append-only evidence and evaluation history** so later observations and
+  reevaluations do not overwrite what sua previously believed.
+
+That split is what makes the reminder pattern work: the latest row can say
+`yes`, while history still preserves that the first honest answer was
+`undetermined`.
 
 ---
 
@@ -366,3 +599,11 @@ npm run outcome:fixture
 - [ADR-0030 — Outcome detection](adr/0030-outcome-detection.md)
 - [Success criteria](success-criteria.md) — the control-loop sibling
 - [Agents](agents.md) — the full agent schema
+
+---
+
+## Mental model
+
+Execution tells sua what happened inside the run. Evidence tells sua what became
+observable. Evaluation tells sua what it can conclude. History preserves how
+that conclusion changed.

@@ -128,13 +128,15 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
 
   // OutcomeDetection: what this run was supposed to achieve and whether it
   // did. Undefined for agents that declare no `outcome:` block.
-  let outcome;
+  let outcome, outcomeHistory;
   try {
     outcome = ctx.outcomeStore?.get(run.id)?.record;
+    outcomeHistory = ctx.outcomeStore?.getHistory(run.id) ?? null;
   } catch {
     outcome = undefined;
+    outcomeHistory = null;
   }
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome }));
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

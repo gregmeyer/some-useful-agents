@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { OutcomeRecord, OutcomeVerdict } from '@some-useful-agents/core';
+import type { OutcomeHistory, OutcomeRecord, OutcomeVerdict } from '@some-useful-agents/core';
 import { render } from './html.js';
 import { renderOutcomeRecord } from './outcome-record.js';
 import { renderRunDetail } from './run-detail.js';
@@ -63,6 +63,181 @@ function record(overrides: Partial<{ satisfied: OutcomeVerdict; judged: boolean 
       { field: 'observation.evidence.ev2', reason: 'evidence-missing', detail: 'no structured output' },
       { field: 'observation.observedOutcome', reason: 'not-inferred', detail: 'No judge was supplied.' },
     ],
+  };
+}
+
+function history(overrides: Partial<OutcomeHistory> = {}): OutcomeHistory {
+  return {
+    runId: 'run-abcd1234-zzz',
+    latestVerdict: 'undetermined',
+    latestEvaluatedAt: '2026-08-17T12:16:05.000Z',
+    evaluations: [
+      {
+        evaluationId: 'oeval-1',
+        inputFingerprint: 'fp-1',
+        evaluatedAt: '2026-08-17T12:00:05.000Z',
+        verdict: 'undetermined',
+        contractHash: 'contract-a',
+        contractSnapshot: { expected: 'Reminder persisted', evidence: [{ kind: 'nodeResult', nodeId: 'create-reminder' }] },
+        evaluator: { kind: 'judge', version: 'judge-v1', judge: 'model-a' },
+        criteriaEngineVersion: 'criteria-v1',
+        evidenceIds: ['ev1'],
+        changeReason: ['initial evaluation'],
+        evidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+        ],
+        addedEvidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+        ],
+      },
+      {
+        evaluationId: 'oeval-2',
+        inputFingerprint: 'fp-2',
+        evaluatedAt: '2026-08-17T12:05:05.000Z',
+        verdict: 'yes',
+        contractHash: 'contract-a',
+        contractSnapshot: { expected: 'Reminder persisted', evidence: [{ kind: 'nodeResult', nodeId: 'create-reminder' }] },
+        evaluator: { kind: 'judge', version: 'judge-v1', judge: 'model-a' },
+        criteriaEngineVersion: 'criteria-v1',
+        evidenceIds: ['ev1', 'ev2'],
+        changeReason: ['new evidence'],
+        evidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+          {
+            id: 'ev2',
+            observedAt: '2026-08-17T12:05:00.000Z',
+            source: 'tool:apple.apple.reminder-read',
+            subject: { type: 'reminder', id: 'rem-2' },
+            originatingRunId: 'run-abcd1234-zzz',
+            observingRunId: 'observe-run-a',
+            observationMode: 'direct',
+          },
+        ],
+        addedEvidence: [
+          {
+            id: 'ev2',
+            observedAt: '2026-08-17T12:05:00.000Z',
+            source: 'tool:apple.apple.reminder-read',
+            subject: { type: 'reminder', id: 'rem-2' },
+            originatingRunId: 'run-abcd1234-zzz',
+            observingRunId: 'observe-run-a',
+            observationMode: 'direct',
+          },
+        ],
+      },
+      {
+        evaluationId: 'oeval-3',
+        inputFingerprint: 'fp-3',
+        evaluatedAt: '2026-08-17T12:10:05.000Z',
+        verdict: 'no',
+        contractHash: 'contract-b',
+        contractSnapshot: { expected: 'Reminder title must mention VIP', evidence: [{ kind: 'nodeResult', nodeId: 'create-reminder' }] },
+        evaluator: { kind: 'judge', version: 'judge-v1', judge: 'model-a' },
+        criteriaEngineVersion: 'criteria-v1',
+        evidenceIds: ['ev1', 'ev2'],
+        changeReason: ['contract changed'],
+        evidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+          {
+            id: 'ev2',
+            observedAt: '2026-08-17T12:05:00.000Z',
+            source: 'tool:apple.apple.reminder-read',
+            subject: { type: 'reminder', id: 'rem-2' },
+            originatingRunId: 'run-abcd1234-zzz',
+            observingRunId: 'observe-run-a',
+            observationMode: 'direct',
+          },
+        ],
+        addedEvidence: [],
+      },
+      {
+        evaluationId: 'oeval-4',
+        inputFingerprint: 'fp-4',
+        evaluatedAt: '2026-08-17T12:15:05.000Z',
+        verdict: 'undetermined',
+        contractHash: 'contract-b',
+        contractSnapshot: { expected: 'Reminder title must mention VIP', evidence: [{ kind: 'nodeResult', nodeId: 'create-reminder' }] },
+        evaluator: { kind: 'judge', version: 'judge-v2', judge: 'model-b' },
+        criteriaEngineVersion: 'criteria-v1',
+        evidenceIds: ['ev1', 'ev2'],
+        changeReason: ['evaluator changed'],
+        evidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+          {
+            id: 'ev2',
+            observedAt: '2026-08-17T12:05:00.000Z',
+            source: 'tool:apple.apple.reminder-read',
+            subject: { type: 'reminder', id: 'rem-2' },
+            originatingRunId: 'run-abcd1234-zzz',
+            observingRunId: 'observe-run-a',
+            observationMode: 'direct',
+          },
+        ],
+        addedEvidence: [],
+      },
+      {
+        evaluationId: 'oeval-5',
+        inputFingerprint: 'fp-4',
+        evaluatedAt: '2026-08-17T12:16:05.000Z',
+        verdict: 'undetermined',
+        contractHash: 'contract-b',
+        contractSnapshot: { expected: 'Reminder title must mention VIP', evidence: [{ kind: 'nodeResult', nodeId: 'create-reminder' }] },
+        evaluator: { kind: 'judge', version: 'judge-v2', judge: 'model-b' },
+        criteriaEngineVersion: 'criteria-v1',
+        evidenceIds: ['ev1', 'ev2'],
+        changeReason: ['identical-input rerun'],
+        evidence: [
+          {
+            id: 'ev1',
+            observedAt: '2026-08-17T12:00:00.000Z',
+            source: 'nodeResult',
+            originatingRunId: 'run-abcd1234-zzz',
+            observationMode: 'direct',
+          },
+          {
+            id: 'ev2',
+            observedAt: '2026-08-17T12:05:00.000Z',
+            source: 'tool:apple.apple.reminder-read',
+            subject: { type: 'reminder', id: 'rem-2' },
+            originatingRunId: 'run-abcd1234-zzz',
+            observingRunId: 'observe-run-a',
+            observationMode: 'direct',
+          },
+        ],
+        addedEvidence: [],
+      },
+    ],
+    ...overrides,
   };
 }
 
@@ -146,8 +321,9 @@ describe('run detail page', () => {
   };
 
   it('shows the outcome above the raw output', () => {
-    const out = renderRunDetail({ run, outcome: record() });
+    const out = renderRunDetail({ run, outcome: record(), outcomeHistory: history() });
     expect(out).toContain('Outcome partly achieved');
+    expect(out).toContain('Outcome history');
     // "did this achieve what it was for" comes before "what did it print".
     expect(out.indexOf('>Outcome<')).toBeLessThan(out.indexOf('>Output<'));
   });
@@ -162,9 +338,26 @@ describe('run detail page', () => {
       agent,
       nodeExecutions: [{ runId: run.id, nodeId: 'summarise', workflowVersion: 2, status: 'completed', startedAt: run.startedAt, exitCode: 0 }] as never,
       outcome: record(),
+      outcomeHistory: history(),
     });
     expect(out).toContain('Outcome partly achieved');
+    expect(out).toContain('new evidence added');
+    expect(out).toContain('contract changed');
+    expect(out).toContain('evaluator changed');
+    expect(out).toContain('identical-input rerun');
+    expect(out).toContain('observe-run-a');
+    expect(out).toContain('fp-4');
     expect(out.indexOf('>Outcome<')).toBeLessThan(out.indexOf('>Result<'));
+  });
+
+  it('keeps the latest outcome summary aligned with the newest history evaluation', () => {
+    const out = renderRunDetail({
+      run,
+      outcome: record({ satisfied: 'undetermined' }),
+      outcomeHistory: history(),
+    });
+    expect(out).toContain('Outcome undetermined');
+    expect(out).toContain('latest undetermined at 2026-08-17T12:16:05.000Z');
   });
 
   it('renders unchanged for runs with no outcome record', () => {
