@@ -71,9 +71,15 @@ jobs:
         with:
           # When the Release PR is merged and changesets have been consumed,
           # this publishes via trusted publishing. Otherwise opens the PR.
-          publish: npx changeset publish
-          version: npx changeset version
-          commit: "chore: release"
-          title: "chore: release"
+          #
+          # Input names are the v2 ones. v2 renamed all four and errors out
+          # (not warns) on the v1 spellings, which is what broke the release
+          # workflow when #623 bumped the action. Note the action's own error
+          # message misspells this one as "commit-mesage" — the real input is
+          # "commit-message", per its valid-inputs list.
+          publish-script: npx changeset publish
+          version-script: npx changeset version
+          commit-message: "chore: release"
+          pr-title: "chore: release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
