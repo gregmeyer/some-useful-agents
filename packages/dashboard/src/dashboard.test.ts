@@ -787,9 +787,12 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(303);
-    // After creation we land on the add-node form so the user can chain
-    // a downstream node, with a fromCreate flag for the friendlier copy.
-    expect(res.headers.location).toMatch(/^\/agents\/test-echo\/add-node\?fromCreate=1$/);
+    // Land on the agent itself, where "Run now" is. Creating your first agent
+    // used to drop you into add-node — a screen about chaining a SECOND node,
+    // before you had ever run the first one.
+    expect(res.headers.location).toMatch(/^\/agents\/test-echo\?flash=/);
+    expect(res.headers.location).not.toContain('add-node');
+    expect(decodeURIComponent(res.headers.location)).toContain('Run it');
 
     const created = agentStore.getAgent('test-echo');
     expect(created).toBeDefined();
@@ -798,7 +801,105 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
     expect(created!.nodes[0].command).toBe('echo hi');
   });
 
-  it('POST /agents/new rejects invalid id with 400 + re-rendered form', async () => {
+  it('tidies a messy id instead of bouncing you off the first field', async () => {
+    // The reported case: a capital letter used to produce
+    // "Id must be lowercase letters, digits, or hyphens" and a retype.
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'what-do-I-wear', name: 'What do I wear', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('what-do-i-wear')).toBeDefined();
+    // And it says what the id became, rather than silently differing from
+    // what was typed.
+    expect(decodeURIComponent(res.headers.location)).toContain('Created as "what-do-i-wear"');
+  });
+
+  it('slugs spaces and punctuation out of an id', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: '  What Do I Wear?!  ', name: 'Outfit', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('what-do-i-wear')).toBeDefined();
+  });
+
+  it('still rejects an id with nothing salvageable in it', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: '!!!', name: 'Nope', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('no letters or digits');
+  });
+
+  it('does not claim a rename when the id was already clean', async () => {
+    const app = await makeApp();
+    const res = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'already-clean', name: 'Already Clean', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(decodeURIComponent(res.headers.location)).toContain('Created. Run it');
+    expect(decodeURIComponent(res.headers.location)).not.toContain('Created as');
+  });
+
+  it('drops the blocking pattern attribute so the server can normalize', async () => {
+    // With pattern= on the input the browser refuses to submit a capital
+    // letter, so the server-side slugify above would never run.
+    const app = await makeApp();
+    const res = await request(app)
+      .get('/agents/new')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.text).not.toContain('pattern="[a-z0-9][a-z0-9-]*"');
+    expect(res.text).toContain('data-slug-source');
+    expect(res.text).toContain('data-slug-target');
+  });
+
+  it('the page you land on after creating actually offers Run', async () => {
+    // The redirect target is only worth anything if running is right there.
+    // Asserting the Location header alone would pass even if we pointed it at
+    // a dead end.
+    const app = await makeApp();
+    const create = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'lands-on-run', name: 'Lands On Run', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const landing = await request(app)
+      .get(create.headers.location)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(landing.status).toBe(200);
+    expect(landing.text).toContain('Run now');
+    expect(landing.text).toContain('/agents/lands-on-run/run');
+    // And the flash tells you that's the next move.
+    expect(landing.text).toContain('Run it to see what it does');
+  });
+
+  it('POST /agents/new normalizes an off-pattern id rather than rejecting it', async () => {
+    // Behaviour change: this used to 400 with "Id must be lowercase…".
+    // Capitals, spaces and punctuation are all fixable, and bouncing someone
+    // off the first field they filled in is a bad trade for a slug. Only
+    // genuinely empty results still error — see the '!!!' case above.
     const app = await makeApp();
     const res = await request(app)
       .post('/agents/new')
@@ -806,10 +907,9 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
       .send({ id: 'Invalid ID!', name: 'x', type: 'shell', command: 'echo' })
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(400);
-    expect(res.text).toMatch(/Id must be lowercase/);
-    // Form re-populates with user's attempt so they don't lose input.
-    expect(res.text).toContain('Invalid ID!');
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('invalid-id')).toBeDefined();
+    expect(decodeURIComponent(res.headers.location)).toContain('Created as "invalid-id"');
   });
 
   it('POST /agents/new rejects duplicate id', async () => {

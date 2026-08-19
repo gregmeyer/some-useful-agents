@@ -6,6 +6,24 @@ import { parseLlmOptions } from '../../views/llm-options.js';
 
 const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
+/**
+ * Turn whatever someone typed into a legal agent id.
+ *
+ * The form used to reject anything off-pattern, which meant a capital letter
+ * or a space bounced you off the very first field — a bad wall to hit on the
+ * one flow we most want beginners to finish. An id is a slug; every other
+ * product on earth just tidies it for you.
+ *
+ * Returns '' when there's nothing to work with (no letters or digits at all),
+ * which the caller turns into a real error.
+ */
+export function slugifyAgentId(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 let cachedProviders: string[] | null = null;
 function getInstalledProviders(): string[] {
   if (cachedProviders) return cachedProviders;
@@ -33,8 +51,16 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const body = (req.body ?? {}) as Record<string, unknown>;
 
+  const rawId = typeof body.id === 'string' ? body.id.trim() : '';
+  const slugId = slugifyAgentId(rawId);
+  // `renamed` drives the arrival flash: silently rewriting what someone typed
+  // is fine for a slug, but they should still be told what it became.
+  const renamed = Boolean(slugId) && slugId !== rawId;
+
   const values: AgentNewFormValues = {
-    id: typeof body.id === 'string' ? body.id.trim() : undefined,
+    // Redisplay the SLUG on error, not the raw text — if they typed something
+    // unusable, showing the cleaned version is the useful next step.
+    id: slugId || rawId || undefined,
     name: typeof body.name === 'string' ? body.name.trim() : undefined,
     description: typeof body.description === 'string' ? body.description.trim() : undefined,
     type: (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell',
@@ -48,13 +74,19 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
 
   // Validate in order of what the user typed top-to-bottom so the error
   // points at the first thing wrong rather than a buried field.
-  if (!values.id || !AGENT_ID_RE.test(values.id)) {
+  // Only reject when there's nothing salvageable — "What Do I Wear?" becomes
+  // "what-do-i-wear" rather than bouncing someone off the first field they
+  // filled in. "!!!" has no letters or digits, so it still errors.
+  if (!slugId || !AGENT_ID_RE.test(slugId)) {
     res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
-      error: 'Id must be lowercase letters, digits, or hyphens, starting with a letter or digit.',
+      error: rawId
+        ? `"${rawId}" has no letters or digits to build an id from. Try something like "my-agent".`
+        : 'Id is required.',
     }));
     return;
   }
+  values.id = slugId;
   if (!values.name) {
     res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
       values,
@@ -112,7 +144,20 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
       'dashboard',
       'Created via /agents/new',
     );
-    res.redirect(303, `/agents/${encodeURIComponent(values.id)}/add-node?fromCreate=1`);
+    // Land on the agent itself, where "Run now" is — NOT on add-node.
+    //
+    // Creating your first agent used to drop you into a screen about chaining
+    // a SECOND node, before you had ever run the first one. That put DAG
+    // composition in front of "does this thing work?", which is backwards for
+    // anyone new: the payoff for creating an agent is running it. Adding
+    // nodes stays one click away on the agent's own page.
+    const flash = renamed
+      ? `Created as "${values.id}". Run it to see what it does.`
+      : 'Created. Run it to see what it does.';
+    res.redirect(
+      303,
+      `/agents/${encodeURIComponent(values.id)}?flash=${encodeURIComponent(flash)}`,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
