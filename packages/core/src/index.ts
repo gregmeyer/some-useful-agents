@@ -17,6 +17,7 @@ export * from './cron-human.js';
 export * from './scheduler-heartbeat.js';
 export * from './scheduler-catchup.js';
 export * from './discovery-catalog.js';
+export * from './agent-relevance.js';
 export * from './llm-providers.js';
 export * from './llm-invoker.js';
 export * from './fs-utils.js';

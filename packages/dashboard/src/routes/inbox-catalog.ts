@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   buildDiscoveryCatalog,
+  catalogRelevance,
+  catalogTokens,
   exportAgent,
   listBuiltinTools,
   parseAgent,
@@ -184,42 +186,11 @@ const TRIAGE_RELEVANCE_CAP = 15;
 /** Slots reserved for newest-created agents so brand-new (never-run) ones appear. */
 const TRIAGE_CREATED_RESERVE = 6;
 
-/**
- * Generic filler words to ignore when matching the operator's request against
- * agent id/name/tags. Deliberately small — topic words like "weather",
- * "dashboard", "pr", "review" must still match.
- */
-const CATALOG_STOPWORDS: ReadonlySet<string> = new Set([
-  'show', 'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'does',
-  'are', 'you', 'can', 'get', 'see', 'pull', 'run', 'now', 'again', 'latest',
-  'current', 'output', 'please', 'give', 'tell', 'about', 'into', 'out', 'any',
-  'all', 'how', 'why', 'who', 'when', 'where', 'has', 'have', 'want', 'need',
-]);
-
-/** Meaningful tokens (≥3 chars, not stopwords) from free text. */
-function catalogTokens(text: string): string[] {
-  return Array.from(new Set(
-    text.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3 && !CATALOG_STOPWORDS.has(t)),
-  ));
-}
-
-/** Relevance score of an agent to the request tokens: id/name/tags and the
- *  deliberate routing signals (entryConditions, sampleQuestions) weigh more than
- *  the prose description. `nonEntryConditions` is intentionally NOT scored — it's
- *  a negative signal handled by the triage LLM, not the deterministic ranker, so
- *  a matching non-entry phrase can't quietly drop an agent below the cap before
- *  the LLM ever sees it. 0 = no signal. */
-function catalogRelevance(agent: Agent, tokens: readonly string[]): number {
-  if (tokens.length === 0) return 0;
-  const strong = `${agent.id} ${agent.name} ${(agent.tags ?? []).join(' ')} ${(agent.entryConditions ?? []).join(' ')} ${(agent.sampleQuestions ?? []).join(' ')}`.toLowerCase();
-  const weak = (agent.description ?? '').toLowerCase();
-  let score = 0;
-  for (const t of tokens) {
-    if (strong.includes(t)) score += 3;
-    else if (weak.includes(t)) score += 1;
-  }
-  return score;
-}
+// `catalogTokens` / `catalogRelevance` / `CATALOG_STOPWORDS` moved to
+// @some-useful-agents/core (agent-relevance.ts) so the /agents search box ranks
+// the same way triage does. The THRESHOLDS below stay here: they're triage
+// budget and confidence policy, calibrated against the triage prompt, not part
+// of the scoring contract.
 
 /**
  * Pick + order the agents triage sees, blending three signals so the operator
