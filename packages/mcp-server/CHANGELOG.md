@@ -1,5 +1,417 @@
 # @some-useful-agents/mcp-server
 
+## 0.27.0
+
+### Minor Changes
+
+- a7b2084: Agents can declare routing metadata: entry conditions, non-entry conditions, and sample questions.
+  
+  New optional agent fields — `entryConditions`, `nonEntryConditions`, and
+  `sampleQuestions` (each a list of strings) — let an agent describe when it should
+  and shouldn't handle a request and what questions it answers. They round-trip
+  through YAML and the versioned agent store like `tags`. Subsequent changes wire
+  these into the routers (inbox triage, the build surveyor, and MCP `list-agents`)
+  so requests reach the right agent more reliably.
+- 3e8f1a0: Add a first-run "Connect a model" screen.
+  
+  A fresh install had no in-product way to connect an LLM. Worse, it looked
+  configured when it wasn't: the settings store reports `providers: ['claude']`
+  even with no settings file, and the runtime falls back to the literal `claude`
+  when the chain is empty, so a machine without the CLI failed only at spawn time
+  with `binary_missing`.
+  
+  The dashboard now probes real provider readiness (`detectLlms()` plus any
+  configured custom endpoints, cached off the request path). When nothing
+  resolves, `GET /` redirects to `/connect-model`, which offers a hosted API key
+  and a local endpoint side by side, probes the endpoint before saving, and
+  promotes the result to the front of the waterfall so the next run actually uses
+  it. "Skip for now" dismisses the gate.
+  
+  Also fixes a provider-probe bug: `apple-foundation-models` was probed by
+  spawning `claude`, so an Apple-FM-only host got the wrong answer. Probes now use
+  each provider's own binary and version argv.
+- 1b2487a: Daily run digest in the inbox — know at a glance whether your agents ran.
+  
+  Failures already open an inbox thread, but successful runs had no inbox surface,
+  so a day of green runs was invisible in the review queue. SUA now posts one
+  low-priority `cadence` thread each morning summarizing the previous day's runs:
+  a counts header (`12 runs · 10 ok · 2 failed · 5 agents`) plus one line per
+  agent — a clean one-line summary for successes, and a link to the existing
+  run-failure thread for failures (never restating the error). The summary parses
+  structured output (a final JSON object's `headline` / `summary` / `label:value`)
+  instead of dumping raw JSON, and internal system agents (inbox-triage, …) are
+  excluded so it's about your own agents. Empty days are skipped; exactly one
+  thread per day (restart-safe, catches up the previous day after downtime). It's the first real `cadence` producer, runs in-process in the
+  dashboard, and is default-on (`SUA_DAILY_DIGEST=0` to opt out).
+  
+  Also adds optional `since` / `until` (ISO `startedAt` bounds) to
+  `RunStore.queryRuns` for correct time-window queries.
+- f06f423: Error-reference catalog + auto-attached troubleshooting + `error-troubleshooter` agent.
+  
+  Every run failure now comes with actionable help. A new error-reference catalog
+  in core (`ERROR_CATALOG`) maps every failure category and common shell exit code
+  to what it means, its likely causes, and concrete troubleshooting steps — the
+  single source of truth for two surfaces:
+  
+  - **Auto-attach**: when a run fails, its inbox thread now includes a
+    "What this means / Likely causes / Try:" section, looked up by the failed
+    node's category + exit code (the exit code wins when catalogued). Deterministic,
+    no LLM, no setup.
+  - **`error-troubleshooter` agent**: a new bundled example agent (inbox-runnable)
+    that answers "what does exit 127 mean?" on demand, reading the catalog via a
+    read-only SQLite tool. Its `error-reference` SQLite integration is
+    auto-provisioned on dashboard boot and `sua examples install` / `sua init`
+    (generated from the catalog), so the agent works out of the box.
+- f06f423: Humanize node-run failures — no more bare `exit_nonzero`.
+  
+  When a node in an agent run exited non-zero, the failure surfaced as jargon: a
+  run-level `Failed at node "X" (exit_nonzero)` string echoed verbatim in the
+  dashboard error banner, the inbox run-failure thread, and the CLI (`sua run`,
+  `sua status`). The exit code, its meaning, and the stderr all existed but were
+  never combined into one readable sentence.
+  
+  A new shared explainer in core (`explainNodeFailure`) now turns a node failure
+  into one plain line — e.g. `Node "fetch" exited with code 127 (command not
+  found): curl: command not found` — combining the failing node, the exit code and
+  its common meaning, and the last line of stderr. The run-level error is built
+  from it at the source, so every surface (dashboard banner, inbox thread, and
+  CLI) reads the same clear explanation. The machine-readable `errorCategory` field
+  is unchanged, so retry policies and dashboard badges behave exactly as before.
+  The failure-category label map also gains the previously-missing `abandoned` and
+  `policy_denied` entries.
+- 3a734d7: Inbox triage prefers reusing an existing agent over recommending a new one.
+  
+  Triage no longer jumps to "build a new agent" when one already fits. A new
+  deterministic `STRONG_CANDIDATE` hint — the single installed agent that clearly
+  matches the request, computed from the same relevance ranker as the catalog — is
+  injected into the triage turn, and the kernel now enforces a REUSE-BEFORE-BUILD
+  gate: reuse the strong candidate when present, run `agent-catalog-search` before
+  ever proposing a build, and name why the closest existing agents don't fit before
+  recommending a new one. Applies to any task request, not just "build me an agent"
+  phrasings.
+- 486d215: LLM tool-calling: local models can now call builtin tools mid-generation.
+  
+  Under a custom OpenAI-compatible provider (a local model like Qwen), an
+  llm-prompt / claude-code node can let the model actually invoke builtin tools
+  (`web-scrape`, `web-fetch`, `http-get`, …) during generation — so agents authored
+  "tell the model to search the web" work instead of the model pretending. The
+  OpenAI invoker now runs a function-calling loop: it sends the exposed tools as
+  function schemas, executes each requested call (SSRF/size-capped by the tools,
+  and routed through the tool-policy seam), feeds results back, and loops until a
+  final answer or `maxTurns` (default 5).
+  
+  Expose tools via a new node `tools: [...]` field (builtin ids); builtin-id
+  entries in `allowedTools` are also honored for back-compat. No tools listed →
+  plain completion (unchanged). Works on the OpenAI-compatible path only; the
+  claude/codex CLIs use their own tools (an MCP bridge for our builtins is a
+  follow-up).
+- 788c875: Local/OpenAI-compatible models can now call MCP + integration tools, not just builtins.
+  
+  The model-driven tool loop (behind a `kind:'openai'` custom provider) previously
+  exposed only builtin tools, because generated integration ids (`csv.read.…`) and MCP
+  tool ids contain dots — invalid as OpenAI function names. The loop now exposes builtin,
+  generated integration (csv/postgres/sqlite), and MCP tools: dotted ids are given safe
+  function names and mapped back on the way in, and dispatch is unified through a new
+  `llm-tool-dispatch` module that resolves builtin → generated → MCP the same way the DAG
+  executor does (including the MCP server-enable gate and pooled client). Tool output fed
+  back to the model is size-capped to protect the context window.
+  
+  Authoring: the dashboard node editor gains a "Tools the model may call" field
+  (registry ids), distinct from "Allowed tools" (Claude/Codex CLI names). Works on the
+  OpenAI-compatible HTTP path only; claude/codex run their own tool loops. Shell/claude-code
+  user tools and per-action schemas for multi-action tools remain out of scope.
+- a36f4b3: MCP outbound client: migrate to SDK v2 with automatic era negotiation.
+  
+  The client sua uses to consume external MCP servers (as agent tools and as
+  `mcp-tool` notify destinations) now runs on `@modelcontextprotocol/client` v2
+  with `versionNegotiation:'auto'`, so a single connection transparently talks to
+  both 2025-era and 2026-07-28 external servers. Connection pooling, stdio +
+  streamable-HTTP transports, and the `callMcpTool`/`listMcpTools` surface are
+  unchanged for callers.
+  
+  Because agent tool calls are non-interactive, the client keeps the SDK's
+  non-fulfilling `inputRequired` default: a remote server that demands mid-call
+  input surfaces as an error instead of hanging the DAG node.
+- 0443033: MCP inbound server: migrate to the 2026-07-28 spec (SDK v2, stateless transport).
+  
+  The inbound MCP server (which exposes your agents to Claude Desktop / Cursor) now
+  runs on the stateless MCP 2026-07-28 protocol via `@modelcontextprotocol/server`
+  v2's `createMcpHandler`. There is no longer an `Mcp-Session-Id` or in-memory
+  session map — each request is self-contained and re-authenticates against the
+  bearer token, so the server can sit behind ordinary load balancers. Existing
+  2025-era clients (including current Claude Desktop installs) keep working
+  unchanged via the `legacy: 'stateless'` compatibility mode; no config change is
+  required.
+  
+  Security note: the previous session-to-token binding (which stopped a rotated
+  token from hijacking a live session) is removed because the stateless protocol
+  has no sessions to hijack — every request runs the full Host/Origin + bearer
+  check fresh. The loopback Host/Origin defenses and single shared bearer-token
+  model are otherwise unchanged.
+- 3a92914: Outcome records now drive verification, the inbox, and the next run.
+  
+  Outcome detection shipped able to produce evidence-backed records, but nothing
+  read them. This wires them in.
+  
+  **Inbox threads no longer auto-resolve just because an agent exited 0.** The
+  verify-on-resolve gate decided whether a triage fix worked by checking that the
+  agent's latest run reached `completed` — so a thread closed as "fixed" for an
+  agent that ran perfectly and produced nothing. It now checks whether the run
+  achieved its declared outcome, quotes the failing check as evidence, and holds
+  the thread open when the outcome is undetermined rather than closing it.
+  
+  **A run that completes but misses its outcome now raises an inbox thread.** This
+  is the silent-failure class: `run-failure` never fires for it, so a digest that
+  quietly produces zero headlines every morning previously generated no signal
+  anywhere. New `outcome` inbox source, `medium` priority, coalesced per agent so a
+  nightly miss yields one thread with a visible frequency. Never raised for failed
+  runs (`run-failure` owns those) or for undetermined outcomes. Disable with
+  `SUA_INBOX_OUTCOME_MISSES=0`.
+  
+  **Records are visible where the run already lives.** `/runs/:id` shows the
+  outcome above the raw result — verdict, checks, evidence, and what could not be
+  determined — and inbox threads show a compact form of the same view. Triage gets
+  a new `FOCUS_AGENT_OUTCOME` input so it can tell "produced plausible output" from
+  "produced what it was supposed to".
+  
+  **`OUTCOME_FEEDBACK` carries a miss into the next run** — the cross-run analogue
+  of `LOOP_FEEDBACK`. Declare the input to opt in; agents that don't are
+  unaffected. Only the immediately-previous run is read, and an undetermined
+  outcome produces no feedback. Nothing modifies an agent, prompt, or config.
+  
+  See docs/outcome-detection.md and docs/adr/0030-outcome-detection.md.
+  
+  Also closes a self-grading loop this created. The inbox can already replace an
+  agent's whole definition via `agent-editor`, and `outcome:` is an ordinary
+  optional field — so a rewrite that omitted it dropped it silently, letting a
+  failing agent be "fixed" by deleting the criteria that proved it failed.
+  `agent-editor` now carries `outcome` and `successCriteria` forward when the
+  replacement YAML omits them (and says so), verification requires a run that
+  post-dates the fix rather than accepting a pre-edit run as evidence, and the
+  auto-proposed editor card sets `effect: 'write'` — it never did, which meant the
+  verify-on-resolve gate never fired on the primary analyzer→editor path and
+  threads resolved without checking anything.
+- 3a92914: Outcome detection: evidence-backed records of what resulted from a run.
+  
+  sua could tell you an agent finished. It could not tell you what happened because the
+  agent ran. Add an `outcome:` block to any agent — what you expect, what counts as
+  evidence, and optionally what success means — and after each run sua produces a
+  structured `OutcomeRecord`: expected vs. observed, the evidence behind it with resolvable
+  provenance pointers, a confidence level, and an explicit list of what could not be
+  determined.
+  
+  Detection is a post-run observer, wired with one dep (`onRunComplete:
+  outcomeDetectionHook({ outcomeStore })`) and opt-in per agent, so registering it globally
+  costs nothing for agents that declare no expectation. `outcome.success` reuses the
+  existing `successCriteria` grammar and evaluator.
+  
+  An optional LLM judge fills in "what happened, in words". It sees only the evidence
+  bundle, must cite evidence ids, and any claim citing evidence that does not exist is
+  dropped rather than accepted — grounding is enforced by the code, not requested in the
+  prompt. Deterministic criteria always beat the judge, and disagreements are recorded.
+  The judge is off by default.
+  
+  Inspect records with `sua outcome list --unsatisfied` and `sua outcome show <runId>`.
+  
+  Also fixes a pre-existing bug this uncovered: `successCriteria` and `maxLoopIterations`
+  were dropped by `parsedToAgent` / `extractDag` / `mergeRowWithVersion`, so they validated
+  in YAML and then vanished before reaching the store — the agent eval loop had never
+  actually engaged in production. Criterion and evidence-selector node ids are now
+  validated at import instead of failing silently at eval time.
+  
+  See docs/outcome-detection.md and docs/adr/0030-outcome-detection.md.
+- 94819e6: Surface the local-model tool loop's tool calls in the run record + run detail.
+  
+  The OpenAI-compatible tool loop now emits a progress event per model tool call
+  (`tool_use`, `toolStatus:'call'`) and per tool result (`toolStatus:'result'`,
+  with `isError`), carrying the tool name and a short args/result preview. These
+  persist to the node's progress record and render as a compact call → result
+  timeline on the run-detail node card.
+  
+  Why it matters: previously a run only showed the final text, so you couldn't
+  tell a real tool round-trip from a plain completion where the model ignored the
+  exposed tools (or hallucinated using one). Now the tool calls are visible — and
+  their absence on a node that exposed tools is an at-a-glance signal that the model
+  didn't actually call anything.
+- 07fa1d9: Persistent `sua ›` ask band on every page; Signals move to a first-class `/pulse` page; snappier navigation.
+  
+  The `sua ›` prompt is now global chrome — a band under the top bar on every page (prominent on the home front door, quiet on inner pages so it doesn't compete with page headings). Focus it from anywhere with `Cmd/Ctrl+K` (or `/`), and an in-progress draft survives navigation. Signals (the Pulse board) moved off the crowded home into a dedicated **Pulse** page with its own nav item; home now leads cleanly with the cadence inbox feed (recent activity lives at `/runs`). The client JS bundle is served as one cached external file (`/assets/dashboard.js`) instead of being inlined into every page, so the browser parses it once and navigation no longer re-parses ~370KB on every page load.
+- 1bf718d: Add a curated "Start here" surface with three starter agents.
+  
+  `sua init` installs every bundled example (40+), which is a wall for someone
+  four minutes into the product — and it made the zero-agent onboarding in the
+  dashboard dead code, since the agent count is never zero.
+  
+  Rather than install fewer agents, this curates the view. A new
+  `playground-starters` pack names three agents, one per pattern: **Research a
+  topic** (you give it a goal, it decides what to open), **Watch a page** (the
+  same agent on a cron), and **Draft something** (the output is the deliverable).
+  They render at `/start`, with their tools and inputs visible before you run
+  anything, and everything else stays one click away under Agents → Examples.
+  
+  These three are also the first bundled agents to use the `tools:` field, so
+  they double as the reference implementation for an LLM node that calls builtin
+  tools mid-answer.
+  
+  Connecting a model now lands on `/start` instead of the home feed, so the
+  first-run loop ends with something to run rather than an empty inbox.
+  
+  Also adds a test over the packs actually shipped in `packages/core/packs/` —
+  `loadBuiltinPacks` swallows per-file failures into `skipped` and the dashboard
+  swallows the whole call, so a malformed manifest or dangling `yamlPath` would
+  previously have shipped silently. And corrects the README/quickstart claim of
+  "15 bundled examples".
+- 45c383b: Inbox triage routes on agent entry conditions and sample questions.
+  
+  The inbox triage router now uses the new agent routing metadata. An agent's
+  `entryConditions` and `sampleQuestions` count as strong relevance signals when
+  ranking which agents triage sees, and all three fields (including
+  `nonEntryConditions`) are handed to the triage LLM so it prefers agents whose
+  entry conditions / sample questions match the request and avoids agents whose
+  non-entry conditions match. `nonEntryConditions` is a veto the LLM applies, not
+  a deterministic filter, so a valid agent is never dropped from the catalog
+  before the LLM sees it.
+- c2140b8: Routing metadata reaches the build surveyor and MCP list-agents.
+  
+  The build-from-goal discovery catalog now renders each agent's `entryConditions`
+  ("use when"), `nonEntryConditions` ("not for"), and `sampleQuestions` so the
+  surveyor reuses an existing agent instead of drafting a near-duplicate. The MCP
+  `list-agents` tool also returns these fields for v2 agents, so an external client
+  (e.g. Claude Desktop) can route on entry conditions and sample questions rather
+  than the description alone.
+- 74b4620: Inbox triage can change an agent's schedule.
+  
+  Ask triage in plain English — "run the news digest hourly instead of daily",
+  "this is too noisy, make it weekly", "stop scheduling X" — and it proposes a new
+  `agent-schedule` action that sets (or clears) the agent's cron cadence. It
+  validates the cron (rejecting invalid or sub-minute expressions), applies it via
+  a targeted metadata update (no version bump), and reports the new cadence in plain
+  English. Route-handled and auto-approvable like the other editor actions.
+  
+  Note: like the dashboard's existing schedule editor, a change takes effect on the
+  new cadence only after the scheduler daemon (`sua schedule start`) is restarted —
+  the action summary says so.
+- 1a0e61b: New `web-fetch` builtin tool — free, local web-page retrieval for agents.
+  
+  Give it a URL; it returns clean, readable Markdown optimized for an LLM (not raw
+  HTML). The harness owns the complexity: HTTP via native fetch with a browser-like
+  User-Agent and per-redirect SSRF re-validation, main-content extraction via
+  Readability + Turndown (dropping nav/scripts/boilerplate), and an optional
+  headless-browser fallback (Playwright, only when HTTP yields too little). It never
+  throws — every failure is a predictable structured result with a plain-English
+  `error` a small model can reason about.
+  
+  Safety: http/https only, private/loopback/metadata IP blocking on every hop, and
+  caps on redirects, downloaded bytes, and extracted characters. Playwright is an
+  optional dependency (`npx playwright install chromium` to enable the browser
+  fallback); without it the tool stays HTTP-only and reports so. Appears on the
+  dashboard `/tools` page and is usable from any agent node via `tool: web-fetch`.
+- 394632a: New `web-scrape` builtin tool — structured data + raw HTML extraction.
+  
+  The complement to `web-fetch`: where web-fetch returns readable prose, web-scrape
+  returns the machine layer — JSON-LD (schema.org products/offers/prices/articles),
+  page metadata (title, og/meta tags), and optionally the raw or browser-rendered
+  HTML. Use it when an agent needs data fields, not article text.
+  
+  It reuses the entire web-fetch HTTP + SSRF + optional-browser stack, so it inherits
+  the same safety (http/https only, per-hop private-IP blocking, redirect/byte caps,
+  timeouts) and never throws — failures return a structured result with a
+  plain-English error. Under `render: auto` it renders the page in a headless browser
+  only when HTTP returns no JSON-LD (SPAs inject it via JS); no new dependencies.
+  Appears on the dashboard `/tools` page and is usable from any node via
+  `tool: web-scrape`.
+
+### Patch Changes
+
+- ffe1a49: Fix: the Agents overview stat tile no longer contradicts the list filter.
+  
+  The `AGENTS` / `N active` tile on `/agents` was computed from the status- and
+  search-filtered agent list, and it added every legacy v1 agent to the active
+  count unconditionally (v1 agents have no status). Filtering the list to a
+  non-active status therefore produced a nonsensical strip — e.g. filtering to
+  "paused" showed `AGENTS 5 / 1 active`, while `Total Runs` / `In Flight` in the
+  same strip stayed global. The overview strip now counts the whole tab
+  regardless of the list's status/search filters, so it stays a stable header.
+- 826bdd9: Fix: `sua workflow run` / `replay` now respect custom LLM providers.
+  
+  The CLI executor never loaded the operator's LLM settings, so `llmSettings`
+  (the provider waterfall + `kind:'openai'` custom providers) never reached the
+  DAG executor. A node pinned to a custom provider (e.g. a local model on a
+  `/v1/chat/completions` endpoint) couldn't be resolved and silently fell through
+  to the default `claude` spawner — so CLI runs answered from Claude instead of the
+  local model, and any exposed tools were the wrong set. The `run` and `replay`
+  commands now build an `LlmSettingsSnapshot` from the settings file (same shape the
+  dashboard uses) and pass it through, so custom providers work identically from the
+  CLI. The dashboard was already correct.
+- b4cb54a: Fix: dashboard no longer slows down when clicking through nav links in quick succession.
+  
+  The global inbox live-update stream opened a persistent `EventSource('/inbox/events')` on every page but never closed it, relying on the browser to reap the socket lazily on navigation. Under HTTP/1.1's ~6-connections-per-origin cap (in play on the local dashboard), rapid page-to-page navigation stacked not-yet-closed SSE connections, and subsequent requests — page HTML, assets — queued behind them, producing a progressive stall. The stream now closes on `pagehide`, releasing the connection slot the instant you navigate.
+- 3035179: Fix: `loop` nodes now iterate over a shell node's unframed (pretty-printed) JSON.
+  
+  A `loop` whose upstream was a shell node emitting multi-line JSON — e.g. the
+  default output of `jq -n '{queries: [...]}'` — failed setup with
+  `Loop field "<over>" on upstream "<id>" is not an array`, even though the
+  stdout plainly contained the array. The output-framing protocol only parses
+  the *last* stdout line as structured output, so multi-line JSON left the array
+  buried inside `outputs.result` as a string and unreachable by the loop's
+  `over` path. `resolveLoop` now falls back to parsing the upstream's raw stdout
+  as JSON when the structured-outputs lookup doesn't yield an array, so loops
+  work regardless of whether the upstream shell node compact-prints its JSON.
+- 21fc78e: Fix: the llm-prompt `tools` field was silently dropped when an agent was saved.
+  
+  The node `tools` field (registry tool ids an OpenAI-compatible model may call
+  mid-generation) was declared in the schema, types, and runtime, but the YAML/DB
+  (de)serializer in `agent-yaml.ts` enumerates node fields explicitly and was
+  missing `tools` — so it survived in-memory but was stripped on every parse /
+  export / reimport / dashboard save. The result: an agent authored with
+  `tools: [...]` ran as a plain completion (no tool loop), and the model answered
+  from memory instead of calling the tool. Added `tools` to both the node
+  reconstruction map and the export key order, with a round-trip regression test.
+- 9273a1c: Add a deterministic ablation eval for the agent routing metadata.
+  
+  A new test measures whether `entryConditions` / `sampleQuestions` actually improve
+  triage routing: it runs a labeled set of request→agent pairs through the pure
+  `selectTriageCatalog` ranker with and without the routing fields, and asserts
+  recall@cap strictly improves with them. Locks the benefit in as a regression guard
+  (no LLM cost). Measured on the fixture: recall@10 rises from 0.08 to 1.00.
+- bb3cd5b: Tighten the inbox reuse-hint threshold to avoid false reuse spotlights.
+  
+  Dogfooding surfaced a two-keyword collision where the `STRONG_CANDIDATE` reuse
+  hint matched an unrelated agent ("track my crypto portfolio daily" spotlighted a
+  Claude-Code-usage tracker on "track" + "daily"). The strong-match bar rises from
+  6 to 9 (three distinct strong signals) and now also requires the leader to beat
+  the runner-up by a full signal (+3), so a single coincidental keyword can't push
+  triage toward the wrong agent. Genuine matches score well above this (12–15
+  observed), so real reuse suggestions are unaffected.
+- Updated dependencies [a7b2084]
+- Updated dependencies [ffe1a49]
+- Updated dependencies [826bdd9]
+- Updated dependencies [3e8f1a0]
+- Updated dependencies [1b2487a]
+- Updated dependencies [f06f423]
+- Updated dependencies [f06f423]
+- Updated dependencies [3a734d7]
+- Updated dependencies [b4cb54a]
+- Updated dependencies [486d215]
+- Updated dependencies [788c875]
+- Updated dependencies [3035179]
+- Updated dependencies [a36f4b3]
+- Updated dependencies [0443033]
+- Updated dependencies [3a92914]
+- Updated dependencies [3a92914]
+- Updated dependencies [94819e6]
+- Updated dependencies [21fc78e]
+- Updated dependencies [07fa1d9]
+- Updated dependencies [1bf718d]
+- Updated dependencies [9273a1c]
+- Updated dependencies [45c383b]
+- Updated dependencies [c2140b8]
+- Updated dependencies [bb3cd5b]
+- Updated dependencies [74b4620]
+- Updated dependencies [1a0e61b]
+- Updated dependencies [394632a]
+  - @some-useful-agents/core@0.27.0
+
 ## 0.26.0
 
 ### Minor Changes
