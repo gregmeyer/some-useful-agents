@@ -787,15 +787,42 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(303);
-    // After creation we land on the add-node form so the user can chain
-    // a downstream node, with a fromCreate flag for the friendlier copy.
-    expect(res.headers.location).toMatch(/^\/agents\/test-echo\/add-node\?fromCreate=1$/);
+    // Land on the agent itself, where "Run now" is. Creating your first agent
+    // used to drop you into add-node — a screen about chaining a SECOND node,
+    // before you had ever run the first one.
+    expect(res.headers.location).toMatch(/^\/agents\/test-echo\?flash=/);
+    expect(res.headers.location).not.toContain('add-node');
+    expect(decodeURIComponent(res.headers.location)).toContain('Run it');
 
     const created = agentStore.getAgent('test-echo');
     expect(created).toBeDefined();
     expect(created!.name).toBe('Test Echo');
     expect(created!.nodes[0].type).toBe('shell');
     expect(created!.nodes[0].command).toBe('echo hi');
+  });
+
+  it('the page you land on after creating actually offers Run', async () => {
+    // The redirect target is only worth anything if running is right there.
+    // Asserting the Location header alone would pass even if we pointed it at
+    // a dead end.
+    const app = await makeApp();
+    const create = await request(app)
+      .post('/agents/new')
+      .type('form')
+      .send({ id: 'lands-on-run', name: 'Lands On Run', type: 'shell', command: 'echo hi' })
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const landing = await request(app)
+      .get(create.headers.location)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    expect(landing.status).toBe(200);
+    expect(landing.text).toContain('Run now');
+    expect(landing.text).toContain('/agents/lands-on-run/run');
+    // And the flash tells you that's the next move.
+    expect(landing.text).toContain('Run it to see what it does');
   });
 
   it('POST /agents/new rejects invalid id with 400 + re-rendered form', async () => {

@@ -112,7 +112,18 @@ agentNewRouter.post('/agents/new', (req: Request, res: Response) => {
       'dashboard',
       'Created via /agents/new',
     );
-    res.redirect(303, `/agents/${encodeURIComponent(values.id)}/add-node?fromCreate=1`);
+    // Land on the agent itself, where "Run now" is — NOT on add-node.
+    //
+    // Creating your first agent used to drop you into a screen about chaining
+    // a SECOND node, before you had ever run the first one. That put DAG
+    // composition in front of "does this thing work?", which is backwards for
+    // anyone new: the payoff for creating an agent is running it. Adding
+    // nodes stays one click away on the agent's own page.
+    const flash = 'Created. Run it to see what it does.';
+    res.redirect(
+      303,
+      `/agents/${encodeURIComponent(values.id)}?flash=${encodeURIComponent(flash)}`,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentNew({ installedProviders: getInstalledProviders(),
