@@ -44,17 +44,26 @@ export function renderAgentNew(args: {
     ${errorBlock}
 
     <form method="POST" action="/agents/new" class="card" style="max-width: 680px;">
+      ${/* Name first: it is the thing people actually know, and the Id below
+            slugs itself from it. */ html``}
       <div class="form-field">
-        <strong>Id</strong>
-        <input type="text" name="id" required pattern="[a-z0-9][a-z0-9-]*"
-               value="${v.id ?? ''}" placeholder="my-agent"
-               class="form-field__input">
-        <span class="form-field__hint">Lowercase letters, digits, and hyphens. Must start with a letter or digit.</span>
+        <strong>Name</strong>
+        <input type="text" name="name" required value="${v.name ?? ''}"
+               placeholder="What do I wear"
+               data-slug-source class="form-field__input">
       </div>
 
       <div class="form-field">
-        <strong>Name</strong>
-        <input type="text" name="name" required value="${v.name ?? ''}" class="form-field__input">
+        <strong>Id</strong>
+        ${/* No pattern= here on purpose. It is client-side validation that
+              BLOCKS submit, so a capital letter never reached the server and
+              never got normalized — the browser just refused. The server
+              slugifies now, and agent-id-slug.js keeps the field tidy as you
+              type, so the attribute only got in the way. */ html``}
+        <input type="text" name="id" required
+               value="${v.id ?? ''}" placeholder="what-do-i-wear"
+               data-slug-target class="form-field__input">
+        <span class="form-field__hint">Fills in from the name. Lowercase letters, digits, and hyphens — anything else is tidied up for you.</span>
       </div>
 
       <div class="form-field">

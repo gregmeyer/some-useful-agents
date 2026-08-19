@@ -40,6 +40,7 @@ import { ALLOWED_SUB_AGENTS_PICKLIST_JS } from './allowed-sub-agents-picklist.js
 import { NODE_DISCOVERY_JS } from './node-discovery.js.js';
 import { APP_ASK_JS } from './app-ask.js.js';
 import { MINI_DAG_TIP_JS } from './mini-dag-tip.js.js';
+import { AGENT_ID_SLUG_JS } from './agent-id-slug.js.js';
 
 export const CLIENT_BUNDLE_JS: string =
   DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS
@@ -49,4 +50,4 @@ export const CLIENT_BUNDLE_JS: string =
   + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS
   + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + INBOX_BADGE_JS
   + INBOX_STREAM_JS + INBOX_LIST_JS + HOME_INBOX_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS
-  + NODE_DISCOVERY_JS + APP_ASK_JS + MINI_DAG_TIP_JS;
+  + NODE_DISCOVERY_JS + APP_ASK_JS + MINI_DAG_TIP_JS + AGENT_ID_SLUG_JS;
