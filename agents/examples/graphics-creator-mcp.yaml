@@ -21,6 +21,21 @@ description: |
   call generate_graphic, return a structured JSON pointer to the file.
 status: active
 source: examples
+tags:
+  - graphics
+  - hero
+  - illustration
+  - image
+  - artwork
+entryConditions:
+  - user wants a polished hero image or illustration for a post, deck, or launch
+  - user wants a generated graphic on a topic
+nonEntryConditions:
+  - user wants a data chart plotted from numbers (use chart-creator-mcp)
+sampleQuestions:
+  - Make a hero graphic for my launch announcement.
+  - Design artwork for this deck opener.
+  - I need an illustration about remote work.
 mcp: false
 
 inputs:

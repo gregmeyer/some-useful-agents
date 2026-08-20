@@ -11,6 +11,21 @@ description: >
   pattern; pairs with the ADR Browser.
 status: active
 source: examples
+tags:
+  - adr
+  - decisions
+  - architecture
+  - log
+  - record
+entryConditions:
+  - user wants to record an architectural decision with its context and consequences
+  - user wants to append a new ADR to the shared decision log
+nonEntryConditions:
+  - user wants to read or search decisions already recorded (use adr-browser)
+sampleQuestions:
+  - Record why we chose Postgres over MySQL.
+  - Write this tradeoff down so we remember it.
+  - Capture the call we just made on caching.
 mcp: false
 permissions:
   inboxRunnable: true

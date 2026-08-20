@@ -51,6 +51,21 @@ outputWidget:
       label: Notes
       type: text
 
+tags:
+  - churn
+  - customers
+  - cancellations
+  - retention
+  - subscriptions
+entryConditions:
+  - user asks which customers churned, cancelled, or downgraded recently
+  - user wants a roundup of cancellations from the local database
+nonEntryConditions:
+  - user wants acquisition or signup numbers rather than churn
+sampleQuestions:
+  - Who dropped their subscription lately?
+  - How bad was retention this month?
+  - Show me the accounts we lost.
 nodes:
   # 1. Pull the most-recent churn rows. The tool id encodes the
   #    integration slug + table + verb; sua synthesises it from the
