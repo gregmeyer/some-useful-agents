@@ -12,8 +12,7 @@
     "test": "vitest run",
     "outcome:fixture": "SUA_WRITE_OUTCOME_FIXTURE=1 vitest run packages/core/src/outcome/e2e.test.ts",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit",
-    "validate-agents": "node packages/core/dist/validate-agents.js"
+    "lint": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
