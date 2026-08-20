@@ -16,6 +16,21 @@ signal:
     headline: Good Morning
     body: result
   refresh: 24h
+tags:
+  - greeting
+  - scheduled
+  - morning
+  - hello
+  - routine
+entryConditions:
+  - user wants a friendly greeting delivered on a schedule each morning
+  - user wants a simple recurring good morning message
+nonEntryConditions:
+  - user wants an actual briefing with content in it (use daily-summary)
+sampleQuestions:
+  - Greet me when I start work every day.
+  - Send a good morning note on a schedule.
+  - Say hello to me each morning.
 nodes:
   - id: greet
     type: shell
