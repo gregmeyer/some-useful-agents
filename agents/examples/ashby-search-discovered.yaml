@@ -37,6 +37,21 @@ description: |
   across all companies into one structured ai-template widget.
 status: draft
 source: local
+tags:
+  - jobs
+  - discovery
+  - cross-company
+  - wide-search
+  - ashby
+entryConditions:
+  - user wants to discover who is hiring and then search all their boards in one pass
+  - user wants a wide cross-company job search without naming any companies
+nonEntryConditions:
+  - user already knows which companies to search (use ashby-jobs-multi)
+sampleQuestions:
+  - Find who is growing and pull the matching roles from all of them.
+  - Do a wide hunt across employers I have not named.
+  - Sweep every board you can turn up for design work.
 mcp: false
 inputs:
   JOB_QUERY:

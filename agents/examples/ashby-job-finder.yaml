@@ -27,6 +27,12 @@ description: |
   matching roles, returning structured JSON for the output widget.
 status: draft
 source: local
+tags:
+  - jobs
+  - roles
+  - hiring
+  - company
+  - ashby
 entryConditions:
   - user wants open job postings at a specific company on Ashby
   - user asks what roles a named company is hiring for
@@ -35,6 +41,7 @@ nonEntryConditions:
 sampleQuestions:
   - What engineering roles is Ramp hiring for?
   - Show me open jobs at Notion.
+  - Is Linear posting anything on their board?
 mcp: false
 version: 12
 pulseVisible: true

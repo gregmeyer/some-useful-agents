@@ -31,6 +31,22 @@ description: |
   filter step runs once over the combined haystack.
 status: draft
 source: local
+tags:
+  - jobs
+  - multi-company
+  - roles
+  - comparison
+  - ashby
+entryConditions:
+  - user wants one role searched across SEVERAL named companies at once
+  - user supplies a list of companies plus a single job query
+nonEntryConditions:
+  - user named exactly one company (use ashby-job-finder)
+  - user does not know which companies to check yet (use ashby-search-discovered)
+sampleQuestions:
+  - Look for product manager openings at Ramp, Notion, and Linear.
+  - Compare what these three boards have posted.
+  - Run one role past this list of employers.
 mcp: false
 version: 2
 inputs:
