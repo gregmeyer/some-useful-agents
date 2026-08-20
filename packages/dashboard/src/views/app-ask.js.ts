@@ -11,6 +11,10 @@
  *      restored on the next page, so navigating away doesn't lose what you
  *      typed. Cleared on a successful submit by the composer handler in
  *      inbox-modal.js.ts.
+ *   3. Ask chips — any `[data-ask]` button anywhere on the page fills the band
+ *      with its text. This is how `sampleQuestions` become clickable: an agent
+ *      card, the agent detail page, and the search empty state all render
+ *      chips, and none of them need a route or a navigation to work.
  *
  * Submit / Enter-to-send / auto-grow are NOT here — those are the shared
  * `data-home-ask` handlers in inbox-modal.js.ts, which already fire globally.
@@ -44,6 +48,41 @@ export const APP_ASK_JS = `
     var t = e.target;
     if (!t || !t.hasAttribute || !t.hasAttribute('data-home-ask-input')) return;
     try { localStorage.setItem(DRAFT_KEY, t.value || ''); } catch (er) {}
+  });
+
+  /**
+   * Ask chips. Delegated from the document so chips rendered by ANY view work
+   * without that view shipping its own script.
+   *
+   * Two deliberate behaviors:
+   *   - A chip OVERWRITES a non-empty draft. restoreDraft() guards on
+   *     \`!el.value\` because it fires unbidden on page load; a click is
+   *     explicit intent, so it wins.
+   *   - It never auto-submits. The text lands editable and focused, because a
+   *     newcomer needs to see what they are about to send before sending it.
+   *
+   * The text is read via getAttribute and assigned to .value — never through
+   * innerHTML — so an agent's sampleQuestion can't inject markup.
+   */
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var chip = t && t.closest ? t.closest('[data-ask]') : null;
+    if (!chip) return;
+    var text = chip.getAttribute('data-ask');
+    if (!text) return;
+    var el = band();
+    if (!el) return;
+    e.preventDefault();
+    el.value = text;
+    // Let the existing input listener persist the draft for free.
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    // Same auto-grow math restoreDraft() uses, so a long question doesn't
+    // land in a one-row box.
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, Math.floor(window.innerHeight * 0.4)) + 'px';
+    el.focus();
+    try { var len = el.value.length; el.setSelectionRange(len, len); } catch (er) {}
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (er) {}
   });
 
   function isEditable(el) {
