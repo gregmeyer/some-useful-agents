@@ -1422,3 +1422,98 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── Ask chips ────────────────────────────────────────────────────────────
+ * Clickable sampleQuestions. A chip fills the "sua ›" band with its text
+ * (delegated handler in app-ask.js.ts) — it never navigates and never submits,
+ * so it reads as an affordance for the band rather than as a link.
+ *
+ * Pill geometry matches .inbox-chip / .inbox-agent-chip so chips look like one
+ * family across surfaces. Teal only appears on hover: per DESIGN.md color is
+ * rare and meaningful, and a page of resting-teal chips would shout over the
+ * agent's own content.
+ */
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: background 80ms ease-out, color 80ms ease-out, border-color 80ms ease-out;
+}
+.ask-chip:hover {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.ask-chip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* On a card: one chip, one line. The full question stays in data-ask/title,
+ * so the band still receives the whole thing. */
+.ask-chip--card {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  width: fit-content;
+}
+
+/* Search empty state: the operator's own query, one click from the band. */
+.ask-chip--lead {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+.ask-chip__q { font-style: italic; }
+
+/* ── "What you can ask" panel on the agent detail page ────────────────── */
+.ask-panel {
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.ask-panel__title { margin: 0; font-size: var(--font-size-lg); }
+.ask-panel__hint { margin: var(--space-1) 0 var(--space-3); font-size: var(--font-size-xs); }
+.ask-panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.ask-panel__conditions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.ask-panel__subtitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.ask-panel__subtitle--muted { opacity: 0.8; }
+.ask-panel__list {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+.ask-panel__list--muted { color: var(--color-text-muted); }
