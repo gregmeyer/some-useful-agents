@@ -29,6 +29,21 @@ outputWidget:
       label: 7-Day Total
       type: stat
 
+tags:
+  - git
+  - commits
+  - repository
+  - activity
+  - trend
+entryConditions:
+  - user asks how many commits landed in the repo over the past week
+  - user wants a commit count trend or activity sparkline
+nonEntryConditions:
+  - user wants the contents of a specific commit or diff
+sampleQuestions:
+  - Has this repo been busy lately?
+  - Show the commit trend for the last seven days.
+  - Are we landing more or less than usual?
 nodes:
   - id: count
     type: shell

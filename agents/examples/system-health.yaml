@@ -37,6 +37,21 @@ outputWidget:
       label: Memory
       type: stat
 
+tags:
+  - disk
+  - memory
+  - cpu
+  - system
+  - storage
+entryConditions:
+  - user asks about free disk space, memory pressure, or CPU load on this machine
+  - user wants a quick health check of the local computer
+nonEntryConditions:
+  - user wants to check a remote URL or API (use api-monitor)
+sampleQuestions:
+  - Am I running low on storage?
+  - Is anything pegging the processor?
+  - Give me a quick readout on this laptop.
 nodes:
   - id: check
     type: shell

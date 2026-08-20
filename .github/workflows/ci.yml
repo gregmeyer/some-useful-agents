@@ -48,17 +48,35 @@ jobs:
       - name: Validate all agent YAML files
         run: |
           node -e "
-            import { loadAgents } from '@some-useful-agents/core';
-            import { join } from 'path';
+            import { loadAgents, parseAgent } from '@some-useful-agents/core';
+            import { readdirSync, readFileSync, existsSync } from 'fs';
+            import { join, extname } from 'path';
             const dirs = [join('agents', 'examples'), join('agents', 'community')];
+            const errors = [];
+            let checked = 0;
+            // v1 files. NOTE: loadAgents SILENTLY SKIPS every v2 file (id + nodes[]),
+            // so on its own it validated nothing and still printed a success line.
             const { agents, warnings } = loadAgents({ directories: dirs });
-            for (const w of warnings) {
-              console.error('ERROR: ' + w.file + ': ' + w.message);
+            for (const w of warnings) errors.push(w.file + ': ' + w.message);
+            checked += agents.size;
+            // v2 files, which is what we actually ship — parsed with the v2 parser.
+            for (const dir of dirs) {
+              if (!existsSync(dir)) continue;
+              for (const entry of readdirSync(dir)) {
+                if (extname(entry) !== '.yaml' && extname(entry) !== '.yml') continue;
+                const file = join(dir, entry);
+                const raw = readFileSync(file, 'utf-8');
+                if (!/^id:/m.test(raw) || !/^nodes:/m.test(raw)) continue;
+                try { parseAgent(raw); checked++; } catch (err) { errors.push(file + ': ' + err.message); }
+              }
             }
-            if (warnings.length > 0) {
+            for (const e of errors) console.error('ERROR: ' + e);
+            if (errors.length > 0) process.exit(1);
+            if (checked === 0) {
+              console.error('ERROR: validated 0 agents - the validator is not reading anything');
               process.exit(1);
             }
-            console.log(agents.size + ' agent(s) validated successfully');
+            console.log(checked + ' agent(s) validated successfully');
           "
 
   run-examples:

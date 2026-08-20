@@ -16,6 +16,22 @@ description: |
   Emits a `companies[]` array of {slug, job_count} ready to be looped over.
 status: draft
 source: local
+tags:
+  - hiring
+  - companies
+  - startups
+  - discovery
+  - ashby
+entryConditions:
+  - user wants to find WHICH companies are currently hiring, without naming one
+  - user asks which startups have open roles, optionally in a topic area
+nonEntryConditions:
+  - user already named the company they care about (use ashby-job-finder)
+  - user wants the actual listings, not just the company list (use ashby-search-discovered)
+sampleQuestions:
+  - Which startups are taking on people in fintech?
+  - Who is growing their team at the moment?
+  - Turn up companies with openings in AI.
 mcp: false
 pulseVisible: true
 inputs:

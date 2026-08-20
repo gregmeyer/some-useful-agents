@@ -14,6 +14,21 @@ name: Vimeo Staff Picks
 description: "Recent Vimeo Staff Picks rendered as embedded players. Tests ai-template + iframe + #each + replay."
 status: active
 source: local
+tags:
+  - video
+  - vimeo
+  - short-films
+  - curated
+  - watching
+entryConditions:
+  - user wants curated short films or interesting videos to watch
+  - user wants recent Vimeo Staff Picks embedded as playable videos
+nonEntryConditions:
+  - user specifically wants a cat video (use cat-video-finder)
+sampleQuestions:
+  - Show me something beautifully shot to watch.
+  - What is worth watching on Vimeo lately?
+  - Give me a few curated films to browse.
 mcp: false
 version: 2
 inputs:

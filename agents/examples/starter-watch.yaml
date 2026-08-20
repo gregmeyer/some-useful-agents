@@ -24,6 +24,12 @@ source: examples
 # 9:00 every morning.
 schedule: "0 9 * * *"
 
+tags:
+  - monitor
+  - watch
+  - webpage
+  - alert
+  - schedule
 entryConditions:
   - user wants to be told when a web page changes or meets a condition
   - user wants a recurring check on a site, price, status page, or listing

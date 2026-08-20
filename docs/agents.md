@@ -15,6 +15,9 @@ source: local                 # local | examples | community (default: local)
 version: 1                    # auto-managed by the store
 mcp: false                    # whether to expose via the MCP server (default: false)
 
+tags:                         # optional routing — domain nouns, scored like entryConditions
+  - weather
+  - forecast
 entryConditions:              # optional routing — when this agent SHOULD handle a request
   - user asks for today's weather
 nonEntryConditions:           # optional routing — when it should NOT (disambiguation)
@@ -301,15 +304,39 @@ Recommended sizing: pick something like 2–3× the agent's expected runtime. Th
 
 Whether this agent's `signal` tile appears on the home board (`/`) (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
 
-## Routing metadata — `entryConditions`, `nonEntryConditions`, `sampleQuestions`
+## Routing metadata — `tags`, `entryConditions`, `nonEntryConditions`, `sampleQuestions`
 
-Three optional lists of short natural-language strings that describe *when* an agent should be picked, so routers reach the right agent instead of guessing from the `description` alone:
+Optional lists of short natural-language strings that describe *when* an agent should be picked, so routers reach the right agent instead of guessing from the `description` alone:
 
+- **`tags`** — 3–6 lowercase domain nouns. Cheapest field to add and weighted the same as the others.
 - **`entryConditions`** — situations this agent is for. A request matching one is strong evidence this is the agent to run.
 - **`nonEntryConditions`** — look-alike situations it is explicitly *not* for. Used to disambiguate from sibling agents.
 - **`sampleQuestions`** — representative questions a user would ask that this agent answers.
 
-They are read by three routers: the **inbox triage** ranker + LLM (`entryConditions`/`sampleQuestions` boost relevance; `nonEntryConditions` is an LLM-applied veto, never a deterministic filter), the **build-from-goal surveyor** (to reuse an existing agent instead of drafting a duplicate), and the **MCP `list-agents`** payload (so external clients like Claude Desktop route on them). The build-from-goal drafter populates these automatically for new agents; edit them any time on the agent's YAML tab. All three are versioned with the rest of the agent definition.
+They are read by four routers: the **`/agents` search box** (relevance ranking), the **inbox triage** ranker + LLM, the **build-from-goal surveyor** (to reuse an existing agent instead of drafting a duplicate), and the **MCP `list-agents`** payload (so external clients like Claude Desktop route on them). The build-from-goal drafter populates these for new agents; edit them any time on the agent's YAML tab. All are versioned with the rest of the agent definition.
+
+### How they are scored
+
+The deterministic ranker (`catalogRelevance` in `@some-useful-agents/core`) tokenizes the request — dropping stopwords and anything under 3 characters — and then, per token:
+
+| Field | Weight |
+| --- | --- |
+| `id`, `name`, `tags`, `entryConditions`, `sampleQuestions` | **+3** |
+| `description` | **+1** |
+| `nonEntryConditions` | **0** (never scored) |
+
+Strong and weak do not stack, and each token scores at most once. `nonEntryConditions` is deliberately unscored: it is an LLM-applied veto, never a deterministic filter, so a matching "not for" phrase can't quietly drop an agent before the LLM sees it.
+
+### Writing them well
+
+Guidance below comes from measuring a labeled set of newcomer phrasings against the shipped catalog (`routing-eval-catalog.test.ts`); each rule is one that measurably moved top-1 accuracy:
+
+- **Avoid generic filler in scored fields.** Matching is *substring*, not word-boundary, so a throwaway "right now" in an `entryCondition` will win the token `right` against every unrelated request. Filler in a +3 field actively steals traffic from the agent that deserves it.
+- **Don't echo the `id` or `name` in a `sampleQuestion`.** Those already score +3; repeating them adds no signal and spends a question slot.
+- **Cross-reference siblings by id in `nonEntryConditions`** ("not for a persistent tile — use `weather-dashboard`"). Unscored, so it costs nothing deterministically and is what the triage LLM uses to break ties within a family.
+- **Put the vocabulary a whole family shares in `tags`, and the vocabulary that separates them in `entryConditions`/`sampleQuestions`.** This is what keeps the reuse-hint margin intact: clustered agents rise together on shared words, and only the discriminating words break the tie.
+
+Non-exempt agents under `agents/examples/` are held to a minimum by `agent-metadata-coverage.test.ts`, which also rejects duplicated sample questions and over-broad tags.
 
 ## `permissions`
 

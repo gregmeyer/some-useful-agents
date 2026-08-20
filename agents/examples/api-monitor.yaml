@@ -7,6 +7,22 @@ description: >
 status: active
 source: examples
 
+tags:
+  - uptime
+  - monitoring
+  - http
+  - endpoint
+  - availability
+entryConditions:
+  - user asks whether a website or API endpoint is up, down, or slow
+  - user wants the response time and status code for a URL
+nonEntryConditions:
+  - user wants local disk, memory, or CPU health (use system-health)
+  - user wants an alert when page CONTENT changes (use starter-watch)
+sampleQuestions:
+  - Did my endpoint go down again?
+  - How slow is the API responding today?
+  - Check that this URL is still serving traffic.
 inputs:
   TARGET_URL:
     type: string

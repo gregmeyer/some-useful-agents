@@ -22,6 +22,12 @@ description: >
 status: active
 source: examples
 
+tags:
+  - draft
+  - writing
+  - editing
+  - critique
+  - revision
 entryConditions:
   - user wants something written — a changelog entry, release note, email, summary, or post
   - user wants existing text rewritten in a different tone

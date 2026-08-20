@@ -4,6 +4,21 @@ description: Tells a groan-worthy dad joke, optionally on a specific topic.
 status: active
 source: examples
 
+tags:
+  - joke
+  - humor
+  - pun
+  - comedy
+  - on-demand
+entryConditions:
+  - user wants a joke made up on the spot, optionally about a topic like programming or coffee
+  - user wants a dad joke or pun about something specific
+nonEntryConditions:
+  - user wants a joke delivered automatically each morning (use daily-joke)
+sampleQuestions:
+  - Make up a pun about databases.
+  - Give me something groan-worthy about coffee.
+  - Say the corniest thing you can about cats.
 inputs:
   TOPIC:
     type: string

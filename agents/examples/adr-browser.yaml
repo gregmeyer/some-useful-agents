@@ -12,6 +12,21 @@ description: >
   render matching records as a table. The reader half of the SQLite-log pattern.
 status: active
 source: examples
+tags:
+  - adr
+  - decisions
+  - architecture
+  - search
+  - history
+entryConditions:
+  - user wants to look up or search past architectural decisions
+  - user wants to filter recorded decisions by status
+nonEntryConditions:
+  - user wants to record a NEW decision (use adr-logger)
+sampleQuestions:
+  - What have we already settled about caching?
+  - Show me every accepted record.
+  - Did we ever decide on an auth approach?
 mcp: false
 permissions:
   inboxRunnable: true

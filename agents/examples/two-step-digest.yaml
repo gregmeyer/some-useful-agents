@@ -11,6 +11,21 @@ source: examples
 # opt in — when the PREVIOUS run of this agent missed its outcome, sua fills it
 # with what went wrong and the evidence behind it. Undeclared inputs are dropped
 # by the executor, so agents that don't want this are unaffected.
+tags:
+  - news
+  - headlines
+  - digest
+  - roundup
+  - briefing
+entryConditions:
+  - user wants a roundup of the day's news headlines
+  - user wants local headlines read and summarized into a short briefing
+nonEntryConditions:
+  - user wants a researched multi-source report on one topic (use research-digest)
+sampleQuestions:
+  - Summarize today's top stories.
+  - What is going on in the world this morning?
+  - Catch me up on the headlines.
 inputs:
   OUTCOME_FEEDBACK:
     type: string

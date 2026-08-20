@@ -7,11 +7,21 @@ name: Daily joke
 description: Fetches a real joke from the internet using the http-get tool.
 status: active
 source: examples
+tags:
+  - joke
+  - humor
+  - scheduled
+  - morning
+  - daily
 entryConditions:
   - user wants a joke or something funny
+  - user wants the agent to send them a joke every morning on a schedule
+nonEntryConditions:
+  - user wants a joke invented about a specific topic (use llm-tells-a-joke)
 sampleQuestions:
-  - Tell me a joke.
-  - Make me laugh.
+  - Tell me a joke to start the day.
+  - Send over today's joke please.
+  - Give me my morning laugh.
 outputs:
   result:
     type: string

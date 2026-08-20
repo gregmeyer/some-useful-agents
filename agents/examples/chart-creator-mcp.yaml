@@ -29,6 +29,21 @@ description: >
 status: active
 source: examples
 
+tags:
+  - chart
+  - csv
+  - graph
+  - plotting
+  - series
+entryConditions:
+  - user wants data turned into a chart or graph
+  - user has a CSV or a JSON series and wants it plotted
+nonEntryConditions:
+  - user wants a decorative or illustrative image (use graphics-creator-mcp)
+sampleQuestions:
+  - Plot these numbers as a line graph.
+  - Visualize this spreadsheet export.
+  - Bar chart the monthly totals.
 inputs:
   LAYOUT:
     type: enum

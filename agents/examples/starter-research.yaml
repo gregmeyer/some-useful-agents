@@ -25,6 +25,12 @@ description: >
 status: active
 source: examples
 
+tags:
+  - research
+  - sources
+  - brief
+  - topic
+  - citations
 entryConditions:
   - user wants a researched summary or brief on a topic
   - user asks what the current state of something is and wants sources
