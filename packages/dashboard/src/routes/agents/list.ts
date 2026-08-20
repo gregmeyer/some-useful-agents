@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { catalogRelevance, catalogTokens } from '@some-useful-agents/core';
 import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
@@ -18,8 +19,21 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     user: 'local', examples: 'examples', community: 'community',
   };
   const qSource = tabToSource[qTab];
-  const qSearch = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim().toLowerCase() : undefined;
-  const qSort = typeof req.query.sort === 'string' ? req.query.sort : 'name';
+  // Keep the raw text for display + URLs, and a lowercased copy for matching.
+  // Previously only the lowercased form survived, so typing "Weather Forecast"
+  // echoed back "weather forecast" in the box.
+  const qRaw = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : undefined;
+  const qSearch = qRaw?.toLowerCase();
+  const searchTokens = qRaw ? catalogTokens(qRaw) : [];
+
+  // `sort` is now optional so "no preference" is distinguishable from an
+  // explicit ?sort=name — that's what lets relevance be the implicit default
+  // while a deliberate choice still wins.
+  const qSortRaw = typeof req.query.sort === 'string' && req.query.sort ? req.query.sort : undefined;
+  // Gate on TOKENS, not on qSearch: "pr" / "ci" / "what" tokenize to nothing,
+  // so ranking them would silently collapse to id order under a "best match"
+  // label. Fall back to name ordering and say so.
+  const qSort = qSortRaw ?? (searchTokens.length > 0 ? 'relevance' : 'name');
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
   const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
 
@@ -36,13 +50,18 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
   const allAgentsForCounts = ctx.agentStore
     .listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined)
     .filter((a) => a.dashboardVisible !== false);
+  // Relevance WIDENS and reorders; it never removes. Everything the old
+  // substring match found still matches — the ranker only adds agents whose
+  // tags / entryConditions / sampleQuestions hit, which is how
+  // "watch a website for changes" finds starter-watch at all.
   const matchesSearch = (a: Agent): boolean => {
     if (!qSearch) return true;
-    return (
+    if (
       a.id.toLowerCase().includes(qSearch) ||
       (a.description ?? '').toLowerCase().includes(qSearch) ||
       a.name.toLowerCase().includes(qSearch)
-    );
+    ) return true;
+    return catalogRelevance(a, searchTokens) > 0;
   };
   const tabCounts = {
     user: allAgentsForCounts.filter((a) => a.source === 'local' && matchesSearch(a)).length,
@@ -50,22 +69,24 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     community: allAgentsForCounts.filter((a) => a.source === 'community' && matchesSearch(a)).length,
   };
 
-  let v2Agents = allAgentsForCounts.filter((a) => a.source === qSource);
-
-  // Client-side search filter (id or description substring).
-  if (qSearch) {
-    v2Agents = v2Agents.filter((a) =>
-      a.id.toLowerCase().includes(qSearch) ||
-      (a.description ?? '').toLowerCase().includes(qSearch) ||
-      a.name.toLowerCase().includes(qSearch)
-    );
-  }
+  // One predicate, used for both the counts above and the list itself. These
+  // were two byte-identical copies; the tab counts and the list could silently
+  // disagree the moment one was edited.
+  let v2Agents = allAgentsForCounts.filter((a) => a.source === qSource && matchesSearch(a));
 
   // Unify for the list view. v2 agents take precedence when ids collide.
   const mergedV1: AgentDefinition[] = [];
   const v2Ids = new Set(v2Agents.map((a) => a.id));
   for (const [id, a] of v1Agents) {
-    if (!v2Ids.has(id)) mergedV1.push(a);
+    if (v2Ids.has(id)) continue;
+    // v1 agents used to ignore `q` entirely, so searching "weather" still
+    // listed every unrelated legacy agent. They carry no routing metadata, so
+    // substring is all there is to match on.
+    if (qSearch && !(
+      a.name.toLowerCase().includes(qSearch) ||
+      (a.description ?? '').toLowerCase().includes(qSearch)
+    )) continue;
+    mergedV1.push(a);
   }
   mergedV1.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -118,7 +139,14 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     if (!lastRunByAgent.has(r.agentName)) lastRunByAgent.set(r.agentName, r);
   }
 
-  if (qSort === 'status') {
+  if (qSort === 'relevance') {
+    // Score once per agent rather than inside the comparator — catalogRelevance
+    // builds a concatenated string each call, so scoring in the sort would run
+    // it O(n log n) times.
+    const scores = new Map(v2Agents.map((a) => [a.id, catalogRelevance(a, searchTokens)]));
+    v2Agents.sort((a, b) =>
+      (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) || a.id.localeCompare(b.id));
+  } else if (qSort === 'status') {
     v2Agents.sort((a, b) => a.status.localeCompare(b.status) || a.id.localeCompare(b.id));
   } else if (qSort === 'recent') {
     v2Agents.sort((a, b) => {
@@ -129,7 +157,9 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
   } else if (qSort === 'starred') {
     v2Agents.sort((a, b) => (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || a.id.localeCompare(b.id));
   } else {
-    v2Agents.sort((a, b) => a.id.localeCompare(b.id));
+    // The control is labeled "name" — sort by name. This sorted by id, so
+    // "Weather Forecast" (id: forecast-weather) landed under F.
+    v2Agents.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   }
 
   // Paginate v2 agents.
@@ -156,7 +186,10 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     recentRuns: recent.rows,
     stats,
     invokerCounts,
-    filter: { status: qStatus, q: qSearch, sort: qSort },
+    // `q` raw so the box echoes what was typed; `sort` raw (possibly
+    // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
+    // only drives which dropdown option shows as selected.
+    filter: { status: qStatus, q: qRaw, sort: qSortRaw, sortEffective: qSort },
     tab: qTab,
     tabCounts,
     limit,
