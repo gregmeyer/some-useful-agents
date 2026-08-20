@@ -7,13 +7,21 @@ name: Research digest
 description: Boss agent that invokes sub-agents and loops over results.
 status: active
 source: examples
+tags:
+  - digest
+  - research
+  - sources
+  - sub-agents
+  - compile
 entryConditions:
   - user wants a multi-source research digest compiled by sub-agents
+  - user wants several sources gathered and boiled down into one report
 nonEntryConditions:
   - user wants a single quick lookup (use the specific agent directly)
 sampleQuestions:
   - Put together a research digest on this topic.
   - Summarize the latest across my sources.
+  - Pull together what several sources say and boil it down.
 signal:
   title: Research
   icon: "\U0001F50D"
