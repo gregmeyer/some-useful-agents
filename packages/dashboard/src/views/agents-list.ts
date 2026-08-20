@@ -29,7 +29,11 @@ export interface AgentsListInput {
     status?: string;
     source?: string;
     q?: string;
+    /** Raw `?sort=` — undefined means "no preference". Drives URLs. */
     sort?: string;
+    /** What the list is actually sorted by, including the implicit
+     *  `relevance` used while searching. Drives the dropdown only. */
+    sortEffective?: string;
   };
   /** Active tab — filters the list by source. */
   tab?: 'user' | 'examples' | 'community';
@@ -60,6 +64,10 @@ export function renderAgentsList(input: AgentsListInput): string {
   }
 
   const empty = !hasV2 && !hasV1;
+  // "Nothing matched your search" and "you have no agents" are different
+  // situations with different next steps. Conflating them told a searching
+  // user to run `sua init`.
+  const emptySearch = empty && Boolean(input.filter?.q);
 
   const body = html`
     ${pageHeader({
@@ -75,10 +83,14 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${sectionTabs('agents')}
 
-    ${empty ? renderEmptyState() : renderStatStrip(input.stats)}
+    ${empty && !emptySearch ? renderEmptyState() : html``}
+    ${!empty ? renderStatStrip(input.stats) : html``}
 
-    ${!empty ? renderTabStrip(input) : html``}
-    ${!empty ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
+    ${/* On an empty SEARCH keep the tabs and the box on screen — hiding them
+          stranded you with no way to edit the query that found nothing. */ html``}
+    ${!empty || emptySearch ? renderTabStrip(input) : html``}
+    ${!empty || emptySearch ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
+    ${emptySearch ? renderNoMatches(input) : html``}
 
     ${hasV2 ? html`
       <div class="agent-grid">
@@ -128,7 +140,7 @@ function renderTabStrip(input: AgentsListInput): SafeHtml {
   `;
 }
 
-function renderFilterBar(filter: { status?: string; source?: string; q?: string; sort?: string } | undefined, tab: 'user' | 'examples' | 'community'): SafeHtml {
+function renderFilterBar(filter: { status?: string; source?: string; q?: string; sort?: string; sortEffective?: string } | undefined, tab: 'user' | 'examples' | 'community'): SafeHtml {
   const f = filter ?? {};
   const selIf = (val: string, current?: string) => val === current ? ' selected' : '';
   return html`
@@ -144,10 +156,13 @@ function renderFilterBar(filter: { status?: string; source?: string; q?: string;
         <option value="archived"${selIf('archived', f.status)}>archived</option>`}
       </select>
       <select name="sort" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
-        ${html`<option value="name"${selIf('name', f.sort)}>Sort: name</option>
-        <option value="status"${selIf('status', f.sort)}>Sort: status</option>
-        <option value="recent"${selIf('recent', f.sort)}>Sort: recently run</option>
-        <option value="starred"${selIf('starred', f.sort)}>Sort: starred first</option>`}
+        ${html`${f.sortEffective === 'relevance'
+          ? html`<option value="relevance" selected>Sort: best match</option>`
+          : html``}
+        <option value="name"${selIf('name', f.sortEffective ?? f.sort)}>Sort: name</option>
+        <option value="status"${selIf('status', f.sortEffective ?? f.sort)}>Sort: status</option>
+        <option value="recent"${selIf('recent', f.sortEffective ?? f.sort)}>Sort: recently run</option>
+        <option value="starred"${selIf('starred', f.sortEffective ?? f.sort)}>Sort: starred first</option>`}
       </select>
       <button type="submit" class="btn btn--sm">Filter</button>
       ${(f.q || f.status || f.sort) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
@@ -231,6 +246,44 @@ function renderStatStrip(s: HomeStats): SafeHtml {
         <span class="stat-tile__value" style="font-size: var(--font-size-md); font-weight: var(--weight-semibold);">Open the tutorial \u2192</span>
         <span class="stat-tile__hint">Progress tracked against your project state</span>
       </a>
+    </section>
+  `;
+}
+
+/**
+ * Shown when a search matched nothing in the active tab.
+ *
+ * The cross-tab counts are free — `tabCounts` is already computed over the
+ * whole store, so we can tell you "12 in Examples" without another query. That
+ * one line answers the most common cause of an empty result: right search,
+ * wrong tab.
+ */
+function renderNoMatches(input: AgentsListInput): SafeHtml {
+  const q = input.filter?.q ?? '';
+  const counts = input.tabCounts ?? { user: 0, examples: 0, community: 0 };
+  const active = input.tab ?? 'user';
+  const label: Record<'user' | 'examples' | 'community', string> = {
+    user: 'User', examples: 'Examples', community: 'Community',
+  };
+
+  const elsewhere = (['user', 'examples', 'community'] as const)
+    .filter((t) => t !== active && counts[t] > 0)
+    .map((t) => html`<a href="${agentBuildUrl(input.filter, input.limit, 0, t)}">${String(counts[t])} in ${label[t]}</a>`);
+
+  return html`
+    <section class="card" style="padding: var(--space-6); margin-bottom: var(--space-6);">
+      <p style="margin: 0 0 var(--space-2);">
+        No agents match <strong>${q}</strong> in ${label[active]}.
+      </p>
+      ${elsewhere.length > 0
+        ? html`<p class="dim" style="margin: 0 0 var(--space-3); font-size: var(--font-size-sm);">
+            Found ${elsewhere as unknown as SafeHtml[]} instead.
+          </p>`
+        : html``}
+      <p class="dim" style="margin: 0; font-size: var(--font-size-sm);">
+        Or describe what you want in the <span class="mono">sua ›</span> bar above —
+        it searches by intent rather than by keyword.
+      </p>
     </section>
   `;
 }
