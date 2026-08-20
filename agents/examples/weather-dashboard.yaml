@@ -20,6 +20,21 @@ description: >
 status: active
 source: examples
 
+tags:
+  - weather
+  - dashboard
+  - widget
+  - conditions
+  - city
+entryConditions:
+  - user wants live weather shown as a dashboard tile or widget
+  - user wants conditions for a city or zip rendered visually rather than as prose
+nonEntryConditions:
+  - user just wants a spoken answer about the forecast (use weather-forecast)
+sampleQuestions:
+  - Render current conditions as a widget for Seattle.
+  - Add a live weather panel for 94110.
+  - I want the forecast pinned somewhere I can glance at.
 inputs:
   LOCATION:
     type: string

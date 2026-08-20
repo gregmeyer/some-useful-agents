@@ -32,6 +32,21 @@ permissions:
   # Discoverable from the inbox "ask" band + triage: "what does exit 127 mean?"
   inboxRunnable: true
 
+tags:
+  - errors
+  - debugging
+  - failures
+  - troubleshooting
+  - diagnosis
+entryConditions:
+  - user wants to understand why an agent run failed
+  - user gives an exit code or error category and wants the cause and the fix
+nonEntryConditions:
+  - user wants an overall summary of today's runs (use daily-summary)
+sampleQuestions:
+  - What does exit code 137 mean and how do I fix it?
+  - This run died on a spawn failure, what now?
+  - Why did that node time out?
 inputs:
   CODE:
     type: string

@@ -34,6 +34,21 @@ outputWidget:
       label: Active Agents
       type: text
 
+tags:
+  - runs
+  - recap
+  - activity
+  - agents
+  - today
+entryConditions:
+  - user asks what their agents did today or how the runs went
+  - user wants a recap of which agents succeeded and which failed
+nonEntryConditions:
+  - user wants to debug ONE specific failure (use error-troubleshooter)
+sampleQuestions:
+  - Give me a recap of this morning's runs.
+  - Anything break while I was away?
+  - How did the overnight schedule go?
 nodes:
   - id: gather
     type: shell
