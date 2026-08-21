@@ -129,6 +129,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(p.entryConditions && { entryConditions: p.entryConditions }),
     ...(p.nonEntryConditions && { nonEntryConditions: p.nonEntryConditions }),
     ...(p.sampleQuestions && { sampleQuestions: p.sampleQuestions }),
+    ...(p.behaviors && { behaviors: p.behaviors }),
   };
 }
 
@@ -156,6 +157,7 @@ const AGENT_KEY_ORDER = [
   'outcome',
   'author', 'tags',
   'entryConditions', 'nonEntryConditions', 'sampleQuestions',
+  'behaviors',
 ] as const;
 
 const NODE_KEY_ORDER = [

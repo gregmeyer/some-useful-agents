@@ -163,6 +163,13 @@ export type SpawnNodeFn = (
     integrationsStore?: IntegrationsStore;
     variablesStore?: VariablesStore;
     experimentalApple?: boolean;
+    /**
+     * Pre-built Agent Behavior conditioning block, or undefined when the agent
+     * declares no `behaviors:`. Already resolved and scope-checked by
+     * behavior-conditioning/resolve.ts — by the time it reaches here it is
+     * project-scope text that the operator explicitly opted into.
+     */
+    behaviorPreamble?: string;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -639,6 +646,8 @@ export async function spawnNodeReal(
     integrationsStore?: IntegrationsStore;
     variablesStore?: VariablesStore;
     experimentalApple?: boolean;
+    /** See SpawnNodeFn.behaviorPreamble — resolved once per run by dag-executor. */
+    behaviorPreamble?: string;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -685,6 +694,22 @@ export async function spawnNodeReal(
   // configured). Falls through to empty string when unset.
   resolvedPrompt = resolveStateTemplate(resolvedPrompt, env.STATE_DIR);
   resolvedPrompt = substituteInputs(resolvedPrompt, env);
+
+  // Behavior conditioning. PREPENDED HERE, DELIBERATELY, AND NOWHERE ELSE.
+  //
+  // This is after every resolver above, which is the whole point: the injected
+  // text is third-party content from .agents/behaviors/, and prepending it
+  // post-substitution means a `{{inputs.API_KEY}}` or `{{state}}` written into
+  // a behavior body stays literal instead of interpolating a secret. Moving
+  // this line above `substituteInputs` would silently turn behavior files into
+  // a template-injection primitive. behavior-conditioning.test.ts pins it.
+  //
+  // Resolved once per run in dag-executor (where the Agent is in scope), not
+  // here — re-reading disk per node would be wasteful and could see a spec
+  // change mid-run.
+  if (_opts.behaviorPreamble) {
+    resolvedPrompt = `${_opts.behaviorPreamble}\n${resolvedPrompt}`;
+  }
 
   // Strip UPSTREAM_*_RESULT env vars before exec: claude-code consumed
   // them via {{upstream.X.field}} substitution above (lines 228-233), so

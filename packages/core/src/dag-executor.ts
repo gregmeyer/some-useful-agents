@@ -41,6 +41,8 @@ import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
 import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
 import { explainNodeFailure } from './failure-explain.js';
+import { loadBehaviors, defaultBehaviorScopes, type LoadBehaviorsResult } from './behaviors/index.js';
+import { resolveBehaviorsForRun } from './behavior-conditioning/index.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
@@ -201,6 +203,13 @@ export interface DagExecutorDeps {
    * "tool did not resolve" on the Temporal worker (#499).
    */
   experimentalApple?: boolean;
+  /**
+   * Agent Behavior discovery, injectable for tests. Defaults to the real
+   * project/user/org scan. Only PROJECT-scope specs may condition a run — that
+   * filter lives in `resolveBehaviorsForRun`, not here, so every caller of the
+   * executor inherits it rather than having to remember it.
+   */
+  loadBehaviors?: () => LoadBehaviorsResult;
 }
 
 export interface DagExecuteOptions {
@@ -355,6 +364,42 @@ export async function executeAgentDag(
       // node when spawns route through a Temporal activity.
       usedWorkflowProvider: 'local',
     });
+  }
+
+  // ── Agent Behavior conditioning ──────────────────────────────────────
+  // Resolved ONCE per run, here, because this is where the Agent is in scope
+  // and because re-reading disk per node could see a spec change mid-run.
+  //
+  // Failure is fatal and immediate: the operator declared `behaviors:` to be
+  // held to that conduct, so a run that quietly proceeds without it produces
+  // output nobody knows was un-steered. The run row is marked failed rather
+  // than throwing past it, so the miss is visible in the dashboard and inbox
+  // instead of only in a caller's stack trace.
+  let behaviorPreamble: string | undefined;
+  let appliedBehaviors: string[] = [];
+  if (agent.behaviors && agent.behaviors.length > 0) {
+    try {
+      const discovered = (deps.loadBehaviors ?? (() => loadBehaviors({ scopes: defaultBehaviorScopes() })))();
+      const resolved = resolveBehaviorsForRun({ names: agent.behaviors, discovered });
+      behaviorPreamble = resolved.text || undefined;
+      appliedBehaviors = resolved.applied;
+      // Record what steered this run. Without it a trace cannot be audited
+      // against the standards that were supposedly in force.
+      if (appliedBehaviors.length > 0) {
+        deps.runStore.updateRun(runId, { behaviors: appliedBehaviors });
+      }
+    } catch (err) {
+      const message = (err as Error).message;
+      const completedAt = new Date().toISOString();
+      deps.runStore.updateRun(runId, {
+        status: 'failed',
+        completedAt,
+        error: message,
+      });
+      const failed = deps.runStore.getRun(runId);
+      if (failed) return failed;
+      throw err;
+    }
   }
 
   const outputs = new Map<string, NodeOutput>();
@@ -1068,7 +1113,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1082,7 +1127,7 @@ export async function executeAgentDag(
           model: node.model ?? agent.model,
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,

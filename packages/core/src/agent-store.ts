@@ -389,6 +389,7 @@ export class AgentStore {
     if (agent.entryConditions) dag.entryConditions = agent.entryConditions;
     if (agent.nonEntryConditions) dag.nonEntryConditions = agent.nonEntryConditions;
     if (agent.sampleQuestions) dag.sampleQuestions = agent.sampleQuestions;
+    if (agent.behaviors) dag.behaviors = agent.behaviors;
     if (agent.permissions) dag.permissions = agent.permissions;
     // allowedSubAgents is preserved through any value the caller sets,
     // including an explicit empty array (= "text-only, no sub-agents
@@ -472,6 +473,7 @@ export class AgentStore {
       entryConditions: dag.entryConditions,
       nonEntryConditions: dag.nonEntryConditions,
       sampleQuestions: dag.sampleQuestions,
+      behaviors: dag.behaviors,
       permissions: dag.permissions,
       allowedSubAgents: dag.allowedSubAgents,
       runOn: dag.runOn,

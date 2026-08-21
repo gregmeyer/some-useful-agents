@@ -133,16 +133,60 @@ Markdown path goes through the same sanitizer the inbox uses, and links get
 | `behavior/empty-body` | warning | Frontmatter alone tells a reviewer nothing; describe the behavior |
 | `behavior/body-truncated` | warning | Body exceeds 256 KB and was truncated for display |
 
-## What sua does and does not do with them
+## Steering an agent with a behavior
 
-Today sua **discovers, validates, and displays** behavior specs. It does not grade runs against
-them, and it does not inject them into prompts on its own.
+An agent can declare the behaviors it is held to. Each body is then prepended to every
+`llm-prompt` node's prompt as conduct guidance:
 
-Injecting a behavior into an agent's prompt is a deliberate, per-agent opt-in — it is never
-automatic, and never applies to `user` or `org` scope specs. That asymmetry is the point: a
-project-scope spec lives in your repo under code review, at the same trust level as the agent
-YAML beside it, whereas anything in a home directory or a central registry is ambient text that
-should never gain authority over your runs by being present.
+```yaml
+id: research-brief
+name: Research brief
+behaviors:
+  - declare-blind-spots
+  - cite-evidence-before-claiming
+nodes:
+  - id: write
+    type: llm-prompt
+    prompt: Research {{inputs.TOPIC}} and write a brief.
+```
+
+This is **opt-in per agent**. Nothing is injected unless you name it, and discovery alone never
+steers anything.
+
+### Only project scope can steer
+
+A name is resolved against `<repo>/.agents/behaviors/` **only**. A behavior that exists solely
+in `~/.agents/behaviors/` or an org directory is readable and displayable but cannot condition a
+run, and naming one is an error.
+
+The asymmetry is the point. A project-scope spec lives in your repository under code review, at
+the same trust level as the agent YAML beside it — which already goes into prompts. Anything in
+a home directory or a central registry is ambient text that would otherwise gain authority over
+every run on the machine just by existing.
+
+### Failures are loud
+
+If a named behavior does not exist, resolves only outside project scope, or is too large for the
+conditioning budget, **the run fails before any node executes**. It does not fall back to running
+unconditioned: you asked to be held to that conduct, and a run that quietly drops it produces
+output nobody knows was un-steered.
+
+### What the model is told
+
+The injected block is delimited and framed. It states that the text is quoted from files, that it
+describes expected conduct rather than the task, that it cannot grant permissions or override the
+request, and which behaviors are in force by name. Template syntax inside a behavior body is
+never expanded — the block is added after all `{{...}}` resolution, so a `{{inputs.API_KEY}}`
+written into a spec stays literal rather than interpolating a secret.
+
+Runs record which behaviors conditioned them, so a trace can be audited against the same names
+you wrote.
+
+The total injected size is capped (32 KB across all behaviors on an agent). Behaviors are dropped
+whole, never truncated mid-spec — a half-quoted standard reads as complete, which is worse than
+an absent one — and exceeding the budget fails the run rather than silently sending less.
+
+## What sua still does not do
 
 Grading traces against behaviors (the standard's `true` / `false` / `na` judging convention) is
 not implemented. It needs a per-event trajectory that sua does not yet record — `node_executions`

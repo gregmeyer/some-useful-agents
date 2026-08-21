@@ -56,11 +56,30 @@ scope. `user` and `org` specs are readable and displayable, never authoritative.
 under code review is ordinary repo content; a spec in a home directory is ambient text that
 must not acquire power by merely existing.
 
-**Read-only in this change.** Discovery, validation, a CLI verb, and a dashboard page.
-Prompt injection is deliberately not part of it — the standard says clients SHOULD NOT
-inject specs into runtime prompts "unless intentionally building a behavior-conditioned
-agent", and that intent deserves its own change with its own review rather than arriving as
+**Reader first, conditioning second.** The initial change shipped discovery, validation, a
+CLI verb, and a dashboard page, with no prompt injection at all — the standard says clients
+SHOULD NOT inject specs into runtime prompts "unless intentionally building a
+behavior-conditioned agent", and that intent deserved its own change rather than arriving as
 a side effect of adding a reader.
+
+**Amendment (2026-08-21): opt-in conditioning.** An agent may now declare `behaviors: [name]`,
+and each named body is prepended to its `llm-prompt` nodes. This is the "intentionally
+behavior-conditioned agent" the standard contemplates, and it is bounded on four sides:
+
+1. **Opt-in per agent.** Discovery never steers anything; only a declared name does.
+2. **Project scope only**, per the trust table above. A name resolving solely to `user` or
+   `org` scope is an error, not a fallback.
+3. **Loud failure.** An unresolvable name, a wrong-scope name, or an over-budget body fails
+   the run *before any node executes*. Falling back to an unconditioned run would produce
+   output nobody knows was un-steered — undetectable after the fact, unlike a startup error.
+4. **Positional inertness.** The block is prepended AFTER every template resolver, so
+   `{{inputs.X}}` inside a behavior body stays literal instead of interpolating a secret.
+   This is a property of *where* the prepend sits in `node-spawner.ts`, so a test asserts the
+   ordering in the source — a refactor that moves it up would otherwise turn behavior files
+   into a template-injection primitive with nothing to notice.
+
+Conditioning lives in its own module (`behavior-conditioning/`) importing the reader, never
+the reverse, so `behaviors/` stays provably inert and its isolation test keeps passing.
 
 ## Rejected alternatives
 
@@ -74,8 +93,18 @@ would be unreadable by sua and vice versa. Rejected.
 
 **Auto-inject every discovered spec into agent prompts.** Contrary to the standard's
 guidance, and it turns any file dropped into `~/.agents/behaviors/` into a prompt-injection
-vector with ambient authority over every run on the machine. Rejected as a default —
-opt-in, project-scope-only conditioning is a separate decision.
+vector with ambient authority over every run on the machine. Rejected: conditioning is
+opt-in and project-scope-only (see the amendment above).
+
+**Inject a one-line summary instead of the body.** Closest to the standard's "concise
+summaries" wording and far cheaper in tokens, but a description cannot change conduct — the
+Intent/Evidence/Decision/Execution/Recovery structure *is* the steering content. Rejected;
+we inject full bodies of explicitly opted-in specs, which is a bounded set, not the corpus
+the guidance warns about.
+
+**Let conditioning fall back to running unconditioned when a name does not resolve.** More
+forgiving of a typo or a deleted spec, but it produces a normal-looking run that silently
+lacked its standards. Rejected in favor of failing before the first node.
 
 **Extend `loadAgents()` to also return behaviors.** Different file format, different scopes,
 different precedence. And that loader's silent-skip bug (see below) is a reason to keep new
