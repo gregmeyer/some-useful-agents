@@ -117,6 +117,12 @@ Two more places surface conditioning:
 - **Run detail** shows a **Conditioned by** row naming the behaviors that were in force for
   that run. This is what makes a trace auditable: you cannot check conduct against a standard
   if you cannot tell which standards applied.
+- **Inbox threads** show a compact `2 behaviors` chip beside a conditioned run, with the names
+  on hover. The thread stays a conversation; the names live one click away on the run page.
+
+If an automated edit (say `agent-analyzer`) rewrites an agent's YAML and omits the `behaviors:`
+block, sua carries it forward rather than letting the agent be silently un-conditioned — the
+same protection `outcome:` and `successCriteria:` already had.
 
 The body is the only field rendered as Markdown; everything else is escaped plain text. The
 Markdown path goes through the same sanitizer the inbox uses, and links get

@@ -104,6 +104,8 @@ describe('executeAgentEditor preserves acceptance criteria', () => {
     '  - kind: shellExitZero',
     '    nodeId: work',
     'maxLoopIterations: 3',
+    'behaviors:',
+    '  - declare-blind-spots',
     'nodes:', '  - id: work', '    type: shell', '    command: echo 1',
   ].join('\n');
 
@@ -132,6 +134,10 @@ describe('executeAgentEditor preserves acceptance criteria', () => {
     expect(after.outcome?.success).toHaveLength(1);
     expect(after.successCriteria).toEqual([{ kind: 'shellExitZero', nodeId: 'work' }]);
     expect(after.maxLoopIterations).toBe(3);
+    // …and did not quietly un-condition the agent. Dropping `behaviors:` leaves
+    // no trace at all: unlike a missing outcome block, which shows up as a
+    // suspiciously clean record, missing conduct standards look like nothing.
+    expect(after.behaviors).toEqual(['declare-blind-spots']);
   });
 
   it('says so in the summary — a silent preservation is barely better than a silent deletion', () => {

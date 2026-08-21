@@ -21,6 +21,7 @@ import {
   LocalProvider,
   MemorySecretsStore,
   RunStore,
+  InboxStore,
   buildLoopbackAllowlist,
   loadAgents,
   loadBehaviors,
@@ -40,6 +41,7 @@ let dir: string;
 let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
+let inboxStore: InboxStore;
 
 function writeSpec(root: string, name: string, scopeDir = '.agents/behaviors'): void {
   const d = join(root, scopeDir, name);
@@ -57,6 +59,7 @@ async function makeApp(opts: { userRoot?: string } = {}) {
   const secretsStore = new MemorySecretsStore();
   runStore = new RunStore(dbPath);
   agentStore = new AgentStore(dbPath);
+  inboxStore = new InboxStore(dbPath);
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
 
@@ -72,6 +75,7 @@ async function makeApp(opts: { userRoot?: string } = {}) {
     provider,
     runStore,
     agentStore,
+    inboxStore,
     loadAgents: () => loadAgents({ directories: [agentsDir] }),
     loadBehaviors: () => loadBehaviors({ scopes }),
     secretsStore,
@@ -117,6 +121,7 @@ afterEach(async () => {
   if (provider) await provider.shutdown();
   try { runStore?.close(); } catch { /* ignore */ }
   try { agentStore?.close(); } catch { /* ignore */ }
+  try { inboxStore?.close(); } catch { /* ignore */ }
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -174,6 +179,55 @@ describe('agent detail — "Held to"', () => {
     seedAgent(['fine']);
     const res = await get(app, '/agents/demo');
     expect(res.text).not.toContain('unusable');
+  });
+});
+
+describe('inbox thread — conditioning chip', () => {
+  const THREAD_RUN = '99999999-8888-7777-6666-555555555555';
+
+  /** Seed a thread whose action row points at `runId`. */
+  function seedThread(runId: string): string {
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'ask', body: 'do a thing' });
+    inboxStore.addResponse(m.id, 'action', 'ran demo', JSON.stringify({
+      kind: 'action', status: 'completed', agentId: 'demo', inputs: {}, runId,
+    }));
+    return m.id;
+  }
+
+  it('shows a count chip on a thread whose run was conditioned', async () => {
+    const app = await makeApp();
+    writeSpec(dir, 'declare-blind-spots');
+    seedAgent(['declare-blind-spots']);
+    seedRun(THREAD_RUN, ['declare-blind-spots', 'cite-evidence-before-claiming']);
+    const id = seedThread(THREAD_RUN);
+
+    const res = await get(app, `/inbox/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('2 behaviors');
+    // Names stay reachable on hover rather than cluttering the conversation.
+    expect(res.text).toContain('declare-blind-spots');
+  });
+
+  it('singularizes a single behavior', async () => {
+    const app = await makeApp();
+    seedAgent(['only-one']);
+    seedRun(THREAD_RUN, ['only-one']);
+    const id = seedThread(THREAD_RUN);
+
+    const res = await get(app, `/inbox/${id}`);
+    expect(res.text).toContain('1 behavior<');
+  });
+
+  it('adds no chip when the run was not conditioned', async () => {
+    // The overwhelming majority of threads. The chip must cost them nothing.
+    const app = await makeApp();
+    seedAgent();
+    seedRun(THREAD_RUN);
+    const id = seedThread(THREAD_RUN);
+
+    const res = await get(app, `/inbox/${id}`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toMatch(/\d+ behaviors?</);
   });
 });
 
