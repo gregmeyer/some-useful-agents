@@ -2,15 +2,18 @@
  * Structural guard: the behaviors module must never reach the LLM layer.
  *
  * Behavior specs are untrusted third-party Markdown that a user can drop into
- * `~/.agents/behaviors/` and have apply to every project on the machine. The
- * standard's own client guidance says clients SHOULD NOT inject behavior specs
- * into runtime prompts, and ADR-0031 makes that a hard rule for us rather than
- * a preference.
+ * `~/.agents/behaviors/` and have apply to every project on the machine.
  *
- * The risk is not today's code — it is the plausible future change where
- * someone "just passes the behavior text to the analyzer". A prose rule in an
- * ADR does not stop that; a failing test does. This asserts on imports rather
- * than on behavior because an import is the thing that has to appear first.
+ * This module is the READER: discovery, validation, display. It has no business
+ * touching the model layer, and the risk is not today's code but the plausible
+ * future change where someone "just passes the behavior text to the analyzer"
+ * from here. A prose rule in an ADR does not stop that; a failing test does.
+ *
+ * NOTE for whoever adds behavior-conditioned prompting: the answer is NOT to
+ * relax this test. Per ADR-0031, conditioning is opt-in per agent and restricted
+ * to `project` scope, because a spec in the repo is code-reviewed while one in a
+ * home directory is ambient text. That belongs in its own module with its own
+ * scope guard, so this reader stays provably inert.
  */
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
