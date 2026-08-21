@@ -37,6 +37,19 @@ export interface SuaConfig {
     logRotateBytes?: number;
   };
   /**
+   * Agent Behavior spec discovery (https://www.agentbehavior.dev/).
+   *
+   * NOTE the directory these settings point at is `.agents/behaviors` — DOTTED,
+   * and unrelated to `agentsDir` above, which holds this project's own agent
+   * YAML. They are one character apart; see docs/behaviors.md.
+   */
+  behaviors?: {
+    /** Extra org-wide behaviors root. Absolute, or relative to the config file. */
+    orgDir?: string;
+    /** Search `~/.agents/behaviors` too. Default true. */
+    userScope?: boolean;
+  };
+  /**
    * Opt-ins for capabilities that ship dormant in the package. Each flag is
    * bridged onto its `SUA_EXPERIMENTAL_*` env var by `loadConfig()` so core
    * can gate on a single runtime source of truth.

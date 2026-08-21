@@ -25,6 +25,8 @@ import {
   VariablesStore,
   EncryptedFileStore,
   loadAgents,
+  loadBehaviors,
+  defaultBehaviorScopes,
   readMcpToken,
   getMcpTokenPath,
   rotateMcpToken,
@@ -80,6 +82,7 @@ import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
 import { packsRouter } from './routes/packs.js';
+import { behaviorsRouter } from './routes/behaviors.js';
 import { startHereRouter } from './routes/start-here.js';
 import { scheduledRouter } from './routes/scheduled.js';
 import { dashboardsRouter } from './routes/dashboards.js';
@@ -289,6 +292,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(pulseLayoutPlanRouter);
   app.use(dashboardLayoutPlanRouter);
   app.use(packsRouter);
+  app.use(behaviorsRouter);
   app.use(startHereRouter);
   app.use(scheduledRouter);
   app.use(dashboardsEditRouter);
@@ -661,6 +665,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     runStore,
     agentStore,
     loadAgents: () => loadAgents({ directories: opts.agentDirs }),
+    // Behavior specs are re-read per request rather than cached: they are
+    // hand-edited files, and an author expects a refresh to show their edit.
+    loadBehaviors: () => loadBehaviors({ scopes: defaultBehaviorScopes() }),
     secretsStore,
     secretsSession,
     tokenPath,

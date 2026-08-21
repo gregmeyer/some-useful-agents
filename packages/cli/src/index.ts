@@ -35,6 +35,7 @@ import { varsCommand } from './commands/vars.js';
 import { plannerCommand } from './commands/planner.js';
 import { appleCommand } from './commands/apple.js';
 import { outcomeCommand } from './commands/outcome.js';
+import { behaviorsCommand } from './commands/behaviors.js';
 
 // Read version from our own package.json so `sua --version` always matches
 // the installed package version (no hardcoded drift).
@@ -107,5 +108,6 @@ program.addCommand(varsCommand);
 program.addCommand(plannerCommand);
 program.addCommand(appleCommand);
 program.addCommand(outcomeCommand);
+program.addCommand(behaviorsCommand);
 
 program.parse();

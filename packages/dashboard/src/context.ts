@@ -1,4 +1,4 @@
-import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore, OutcomeStore, OnRunCompleteInfo } from '@some-useful-agents/core';
+import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore, OutcomeStore, OnRunCompleteInfo, LoadBehaviorsResult } from '@some-useful-agents/core';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -69,6 +69,18 @@ export interface DashboardContext {
   agentStore: AgentStore;
   /** Loads v1 agents on each request (no cache; cheap from YAML). */
   loadAgents: () => { agents: Map<string, AgentDefinition>; warnings: Array<{ file: string; message: string }> };
+  /**
+   * Agent Behavior spec discovery (https://www.agentbehavior.dev/).
+   *
+   * OPTIONAL on purpose: every existing test fixture builds a context with
+   * `as unknown as DashboardContext`, and making this required would break all
+   * of them for a read-only page. Absent → /behaviors renders an explanatory
+   * empty state instead of a 500.
+   *
+   * NOTE this reads `.agents/behaviors` (dotted), which is unrelated to
+   * `loadAgents` above and to this project's own `agents/` directory.
+   */
+  loadBehaviors?: () => LoadBehaviorsResult;
   /** Secrets store for "declared + set / missing" badges. */
   secretsStore: SecretsStore;
   /**
