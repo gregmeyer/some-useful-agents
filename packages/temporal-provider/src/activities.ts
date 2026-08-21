@@ -145,6 +145,14 @@ export interface RunNodeActivityInput {
   secretsPath: string;
   /** Names of the node's declared secrets to re-inject from `secretsPath`. */
   declaredSecrets: string[];
+  /**
+   * Agent Behavior conditioning block, already resolved and scope-checked by
+   * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
+   * scratch, so anything not listed here is silently dropped — and a run that
+   * quietly loses its conduct standards is the exact failure the feature
+   * exists to prevent.
+   */
+  behaviorPreamble?: string;
 }
 
 /**
@@ -217,6 +225,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         // ever reaches a backend, so the worker needs no allowlist here.
         allowUntrustedShell: new Set<string>(),
         llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+        behaviorPreamble: input.behaviorPreamble,
       },
       onProgress,
       ctx?.cancellationSignal,

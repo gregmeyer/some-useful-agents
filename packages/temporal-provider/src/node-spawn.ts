@@ -93,6 +93,9 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
       llmProviders: spawnOpts.llmSettings?.providers,
       secretsPath: opts.secretsPath,
       declaredSecrets: node.secrets ?? [],
+      // Forwarded so behavior conditioning survives the activity boundary. The
+      // worker rebuilds spawn opts from this input alone.
+      behaviorPreamble: spawnOpts.behaviorPreamble,
     };
 
     const workflowId = `sua-node-${spawnOpts.agentId}-${node.id}-${randomUUID().slice(0, 8)}`;
