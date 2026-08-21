@@ -516,6 +516,14 @@ export interface Agent {
   nonEntryConditions?: string[];
   /** Representative questions this agent answers. */
   sampleQuestions?: string[];
+  /**
+   * Agent Behavior specs (agentbehavior.dev) this agent is held to, by name.
+   * Resolved against PROJECT-scope `.agents/behaviors/` only; each body is
+   * prepended to every llm-prompt node's prompt as conduct guidance. An
+   * unresolvable or non-project-scope name fails the run before it starts.
+   * See docs/behaviors.md and behavior-conditioning/resolve.ts.
+   */
+  behaviors?: string[];
 }
 
 /**
@@ -630,6 +638,8 @@ export interface AgentVersionDag {
   entryConditions?: string[];
   nonEntryConditions?: string[];
   sampleQuestions?: string[];
+  /** See Agent.behaviors. */
+  behaviors?: string[];
   /** CSP allowlist contributions + inbox execution capabilities — see Agent.permissions. */
   permissions?: { imgSrc?: string[]; inboxRunnable?: boolean };
   /** See Agent.allowedSubAgents. */

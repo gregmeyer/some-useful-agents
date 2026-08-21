@@ -40,6 +40,17 @@ function clampLimit(limit: number | undefined): number {
  * `ALTER TABLE` it in. `PRAGMA table_info` is the safe way to detect
  * presence without re-running CREATE statements.
  */
+/** Tolerant parse: a hand-edited or legacy row must not break run listing. */
+function parseBehaviorsJson(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function columnNames(db: DatabaseSync, table: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   return new Set(rows.map((r) => r.name.toLowerCase()));
@@ -192,6 +203,15 @@ export class RunStore {
     // Temporal workflow execution runId for durable per-run executions
     // (`sua-run-<id>`). Drives the precise "View in Temporal" deep link.
     // Nullable; NULL ↔ per-node or local runs.
+    // Agent Behavior specs that conditioned this run, as a JSON array of names.
+    // NULL means the agent declared none — distinct from `[]`, which would mean
+    // it declared some and they resolved to nothing (currently impossible: an
+    // unresolvable behavior fails the run). snake_case because `columnNames`
+    // lowercases every name it reads, so a camelCase column would never match
+    // its own probe and this ALTER would re-run and throw on every boot.
+    if (!runCols.has('behaviors_json')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN behaviors_json TEXT`);
+    }
     if (!runCols.has('temporal_run_id')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN temporal_run_id TEXT`);
     }
@@ -317,7 +337,7 @@ export class RunStore {
     return this.rowToRun(row);
   }
 
-  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId'>>): void {
+  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
 
@@ -328,6 +348,7 @@ export class RunStore {
     if (updates.error !== undefined) { fields.push('error = ?'); values.push(updates.error); }
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
     if (updates.temporalRunId !== undefined) { fields.push('temporal_run_id = ?'); values.push(updates.temporalRunId); }
+    if (updates.behaviors !== undefined) { fields.push('behaviors_json = ?'); values.push(JSON.stringify(updates.behaviors)); }
 
     if (fields.length === 0) return;
 
@@ -607,6 +628,7 @@ export class RunStore {
       attempt: typeof row.attempt === 'number' ? row.attempt : 1,
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
       temporalRunId: (row.temporal_run_id as string | null) ?? undefined,
+      behaviors: parseBehaviorsJson(row.behaviors_json as string | null),
     };
   }
 

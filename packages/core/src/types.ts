@@ -133,6 +133,12 @@ export interface Run {
    * Temporal runs (which have no single run-level workflow) and local runs.
    */
   temporalRunId?: string;
+  /**
+   * Agent Behavior specs that conditioned this run, by name. Undefined when the
+   * agent declared none. Recorded so a trace can be read against the same names
+   * the operator wrote — you cannot audit conduct you cannot tell was in force.
+   */
+  behaviors?: string[];
 }
 
 export interface RunRequest {

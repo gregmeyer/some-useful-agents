@@ -436,6 +436,23 @@ export const agentV2Schema = z.object({
   entryConditions: z.array(z.string()).optional(),
   nonEntryConditions: z.array(z.string()).optional(),
   sampleQuestions: z.array(z.string()).optional(),
+
+  /**
+   * Agent Behavior specs this agent is held to (agentbehavior.dev). Names refer
+   * to `.agents/behaviors/<name>/BEHAVIOR.md` in THIS project.
+   *
+   * Only the NAME SHAPE is validated here. Whether a name resolves to a real
+   * spec cannot be checked at parse time: superRefine is intra-document and has
+   * no filesystem access, and `parseAgent` must stay pure so it works on YAML
+   * from anywhere. Existence and scope are enforced before a run starts, where
+   * discovery results are available — see behavior-conditioning/resolve.ts.
+   */
+  behaviors: z.array(
+    z.string().regex(
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+      'Behavior names are lowercase letters, digits, and single hyphens (e.g. "declare-blind-spots").',
+    ),
+  ).optional(),
 }).superRefine((data, ctx) => {
   // Unique node ids
   const seen = new Map<string, number>();
