@@ -47,6 +47,16 @@ export interface InboxDetailOptions {
   /** Pre-rendered compact widgets for completed action rows, keyed by response id. */
   inlineActionWidgets?: Record<string, SafeHtml | undefined>;
   /**
+   * Agent Behavior specs that conditioned each run in this thread, keyed by
+   * runId. Computed by the route from the run store — the view keeps no
+   * runStore dependency, same as `currentTargetYaml`.
+   *
+   * Rendered as a count chip rather than names: "why did it answer that way" is
+   * worth surfacing in the thread, but the thread is a conversation and the
+   * names belong on the run page it links to.
+   */
+  runBehaviors?: Record<string, string[]>;
+  /**
    * Derived thread summary (goal / latest result / next step), computed by the
    * route via buildThreadSummary. Rendered as a compact summary block on longer
    * threads. Absent → no block.
@@ -174,7 +184,7 @@ function collectReferencedAgents(message: InboxMessage, responses: InboxResponse
 }
 
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust } = opts;
+  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust, runBehaviors } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
   const learningsBlock = (pendingLearnings ?? []).length > 0
@@ -329,7 +339,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     const prev = responses[i - 1];
     const grouped = !!prev && prev.role === r.role && r.role !== 'action';
     return html`
-      <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust, grouped)}</li>
+      <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust, grouped, runBehaviors)}</li>
     `;
   });
 
@@ -504,8 +514,9 @@ function renderConversationEntry(
   inlineActionWidgets?: Record<string, SafeHtml | undefined>,
   agentTrust?: Map<string, AgentTrustInfo>,
   grouped = false,
+  runBehaviors?: Record<string, string[]>,
 ): SafeHtml {
-  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust);
+  if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust, runBehaviors);
   const role = (ROLE_LABEL[r.role] ?? r.role);
   const sigil = ROLE_AVATAR[r.role] ?? r.role.slice(0, 3).toLowerCase();
   // Verification verdict notes (B1 + B3): B1 tags its verify-on-resolve system
@@ -646,7 +657,7 @@ function renderLearningCard(messageId: string, l: TriageLearning): SafeHtml {
 }
 
 /** Render an action-role row as a card whose body depends on status. */
-function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineWidget?: SafeHtml, agentTrust?: Map<string, AgentTrustInfo>): SafeHtml {
+function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineWidget?: SafeHtml, agentTrust?: Map<string, AgentTrustInfo>, runBehaviors?: Record<string, string[]>): SafeHtml {
   const meta = parseActionMeta(r);
   if (!meta) {
     // Malformed action row — fall back to plain rendering so the
@@ -731,6 +742,16 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   // (need controls or show live progress), and resolve/show-widget completions
   // (the confirmation or the live widget IS the payload). Skipped is already a
   // single sentence — no disclosure worth a click.
+  // Conditioning chip: a count, not names. "Why did it answer that way" is
+  // worth answering in the thread; the names live one click away on the run
+  // page. Absent entirely for the vast majority of runs, which declare none.
+  const conditionedNames = meta.runId ? runBehaviors?.[meta.runId] : undefined;
+  const conditionedChip = conditionedNames && conditionedNames.length > 0
+    ? html`<a href="/runs/${meta.runId}" class="inbox-action__summary-run"
+             onclick="event.stopPropagation()"
+             title="Conditioned by ${conditionedNames.join(', ')}">${String(conditionedNames.length)} behavior${conditionedNames.length === 1 ? '' : 's'}</a>`
+    : html``;
+
   const glyph = ACTION_SUMMARY_GLYPH[meta.status];
   const collapsible = !!glyph && isDispatched && meta.mode !== 'show-widget';
   if (collapsible) {
@@ -746,6 +767,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
               <span class="inbox-action__summary-status">${glyph.word}</span>
               ${dur ? html`<span class="inbox-action__summary-dur mono">${dur}</span>` : html``}
               ${meta.runId ? html`<a href="/runs/${meta.runId}" class="inbox-action__summary-run mono" onclick="event.stopPropagation()">run ${meta.runId.slice(0, 8)}</a>` : html``}
+              ${conditionedChip}
               ${provenance}
               <span class="inbox-action__summary-time">${formatAge(new Date(r.createdAt).toISOString())}</span>
             </summary>
@@ -768,6 +790,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="inbox-action__headline">
             ${headline}
             ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
+            ${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}
           </div>
           ${cardInner}
         </div>

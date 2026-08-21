@@ -228,6 +228,7 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
   const triagePending = isTriagePending(ctx, message, responses);
   const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
   const inlineActionWidgets = buildInlineActionWidgets(ctx, message.id, responses);
+  const runBehaviors = buildRunBehaviors(ctx, responses);
   res.type('html').send(renderInboxDetail({
     message,
     responses,
@@ -235,12 +236,39 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     triagePending,
     currentTargetYaml,
     inlineActionWidgets,
+    runBehaviors,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
     pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
     agentTrust: buildAgentTrustMap(ctx, responses),
   }));
 });
+
+/**
+ * Which Agent Behavior specs conditioned each run referenced by this thread.
+ *
+ * Keyed by runId so the view can render a chip without a runStore dependency.
+ * Runs that were not conditioned are simply absent from the map, so the chip
+ * costs nothing on the overwhelming majority of threads.
+ */
+function buildRunBehaviors(
+  ctx: ReturnType<typeof getContext>,
+  responses: InboxResponse[],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of responses) {
+    let runId: string | undefined;
+    try {
+      runId = (JSON.parse(r.metaJson ?? '{}') as { runId?: string }).runId;
+    } catch { runId = undefined; }
+    if (!runId || out[runId]) continue;
+    try {
+      const run = ctx.runStore.getRun(runId);
+      if (run?.behaviors && run.behaviors.length > 0) out[runId] = run.behaviors;
+    } catch { /* a missing run must never break a thread render */ }
+  }
+  return out;
+}
 
 /**
  * Build the per-agent trust map (B2) for the action cards in a thread: for each
@@ -281,12 +309,14 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const triagePending = isTriagePending(ctx, message, responses);
   const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
   const inlineActionWidgets = buildInlineActionWidgets(ctx, message.id, responses);
+  const runBehaviors = buildRunBehaviors(ctx, responses);
   res.type('html').send(render(renderInboxDetailFragment({
     message,
     responses,
     triagePending,
     currentTargetYaml,
     inlineActionWidgets,
+    runBehaviors,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
     forkableAgents: listForkableAgents(ctx),
     pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),

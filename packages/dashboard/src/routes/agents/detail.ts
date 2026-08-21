@@ -4,6 +4,41 @@ import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../../views/agent-detail-v2.js';
+
+/**
+ * Can each declared behavior actually condition a run?
+ *
+ * A declaration that will not resolve makes the agent UNRUNNABLE — conditioning
+ * fails the run before any node executes. Showing that here turns a runtime
+ * failure into a visible design-time problem, which is the whole point of
+ * putting it on the page rather than just listing names.
+ */
+function resolveBehaviorStatus(
+  ctx: ReturnType<typeof getContext>,
+  names: string[] | undefined,
+): Array<{ name: string; usable: boolean; reason?: string }> | undefined {
+  if (!names || names.length === 0) return undefined;
+  if (!ctx.loadBehaviors) return undefined;
+  let discovered;
+  try {
+    discovered = ctx.loadBehaviors();
+  } catch {
+    return undefined;
+  }
+  return names.map((name) => {
+    const hit = discovered.byName.get(name)
+      ?? discovered.shadowed.find((sh) => sh.name === name);
+    if (!hit) return { name, usable: false, reason: 'No spec with this name was found in this project.' };
+    if (hit.location.scope !== 'project') {
+      return {
+        name,
+        usable: false,
+        reason: `Found in ${hit.location.scope} scope, which cannot condition a run. Copy it into this project's .agents/behaviors/.`,
+      };
+    }
+    return { name, usable: true };
+  });
+}
 import { deriveBack } from '../../views/page-header.js';
 import {
   parseHiddenFieldsParam,
@@ -51,6 +86,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       back,
       from: fromParam,
       widgetControls,
+      behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
     });
     res.type('html').send(html);
     return;

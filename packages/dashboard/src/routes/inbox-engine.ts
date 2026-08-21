@@ -1138,6 +1138,16 @@ export function executeAgentEditor(
       }
       preserved.push('successCriteria');
     }
+    // Same reasoning for `behaviors:`. These are the conduct standards the
+    // agent is held to; an analyzer that drops the block silently un-conditions
+    // every future run, and the runs look completely normal afterwards. Worse
+    // than the outcome case in one way: a missing outcome block makes runs
+    // trivially pass, which is at least visible as a suspiciously clean record,
+    // whereas missing conduct standards leave no trace at all.
+    if (before.behaviors && !parsed.behaviors) {
+      parsed.behaviors = before.behaviors;
+      preserved.push('behaviors');
+    }
   }
   try {
     ctx.agentStore.upsertAgent(parsed, 'dashboard', 'Inbox triage applied YAML fix');

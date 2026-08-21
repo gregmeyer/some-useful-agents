@@ -28,6 +28,7 @@ export async function renderAgentDetailV2(args: {
   back?: PageHeaderBack;
   from?: string;
   widgetControls?: WidgetControlState;
+  behaviorStatus?: Array<{ name: string; usable: boolean; reason?: string }>;
 }): Promise<string> {
   return renderAgentOverview({ ...args, activeTab: 'overview' });
 }

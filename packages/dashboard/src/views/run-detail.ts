@@ -97,6 +97,21 @@ export function renderRunDetail(opts: RunDetailOptions): string {
     </div>
   `;
 
+  // Which behavior specs conditioned this run. Recorded on every run since
+
+  // the conditioning feature landed; rendering it is what makes a trace
+
+  // auditable against the standards that were actually in force. Absent for
+
+  // runs of agents that declare no `behaviors:`, and for runs predating it.
+
+  const conditionedBy = run.behaviors && run.behaviors.length > 0
+
+    ? html`<dt>Conditioned by</dt><dd>${run.behaviors.map((name, i) => html`${i > 0 ? ', ' : ''}<a href="/behaviors/${encodeURIComponent(name)}">${name}</a>`) as unknown as SafeHtml[]}</dd>`
+
+    : html``;
+
+
   const replayedFrom = run.replayedFromRunId ? html`
     <dt>Replayed from</dt>
     <dd class="mono">
@@ -206,6 +221,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
+          ${conditionedBy}
           ${replayedFrom}
           ${retryOf}
         </dl>

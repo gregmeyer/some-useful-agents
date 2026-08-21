@@ -21,6 +21,13 @@ export interface AgentDetailArgs {
   /** URL-driven state for the latest-run output-widget preview's controls. */
   widgetControls?: WidgetControlState;
   /**
+   * Resolution status for each name in `agent.behaviors`, so the page can show
+   * a broken declaration BEFORE the operator hits a failed run. Only
+   * project-scope specs can condition a run; anything else is `usable: false`
+   * with a reason. Absent when the host did not wire behavior discovery.
+   */
+  behaviorStatus?: Array<{ name: string; usable: boolean; reason?: string }>;
+  /**
    * Available integrations (from `/settings/integrations`) surfaced in the
    * Notify card's per-handler dropdowns. Empty when the route can't reach
    * the integrations store — the inline form keeps working.

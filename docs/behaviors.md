@@ -107,6 +107,23 @@ may contain instructions aimed at an agent, so it prints behind a banner marking
 malformed. Each detail page shows the frontmatter, provenance (scope, absolute path, sha256),
 and the rendered body.
 
+Two more places surface conditioning:
+
+- **Agent detail** shows a **Held to** row listing the behaviors that agent declares, each
+  linking to its spec. A declared behavior that will not resolve — missing, or found only in
+  `user`/`org` scope — is marked **unusable**, with a note that the agent will fail to run
+  until it does. That turns a runtime failure into something you can see while editing, rather
+  than something you discover from a failed run.
+- **Run detail** shows a **Conditioned by** row naming the behaviors that were in force for
+  that run. This is what makes a trace auditable: you cannot check conduct against a standard
+  if you cannot tell which standards applied.
+- **Inbox threads** show a compact `2 behaviors` chip beside a conditioned run, with the names
+  on hover. The thread stays a conversation; the names live one click away on the run page.
+
+If an automated edit (say `agent-analyzer`) rewrites an agent's YAML and omits the `behaviors:`
+block, sua carries it forward rather than letting the agent be silently un-conditioned — the
+same protection `outcome:` and `successCriteria:` already had.
+
 The body is the only field rendered as Markdown; everything else is escaped plain text. The
 Markdown path goes through the same sanitizer the inbox uses, and links get
 `rel="noreferrer nofollow"`.
