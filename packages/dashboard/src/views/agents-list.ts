@@ -280,10 +280,16 @@ function renderNoMatches(input: AgentsListInput): SafeHtml {
             Found ${elsewhere as unknown as SafeHtml[]} instead.
           </p>`
         : html``}
-      <p class="dim" style="margin: 0; font-size: var(--font-size-sm);">
-        Or describe what you want in the <span class="mono">sua ›</span> bar above —
-        it searches by intent rather than by keyword.
+      <p class="dim" style="margin: 0 0 var(--space-3); font-size: var(--font-size-sm);">
+        Or hand it to sua as a request — it routes by intent rather than by keyword,
+        so it can find an agent whose description never uses your words.
       </p>
+      ${/* One click puts the query the operator ALREADY typed into the ask band.
+           This is the most valuable chip on the site: they searched, got
+           nothing, and the ranker that would have found it is one click away. */
+        html`<button type="button" class="ask-chip ask-chip--lead" data-ask="${q}">
+          Ask sua: <span class="ask-chip__q">${q}</span>
+        </button>`}
     </section>
   `;
 }
@@ -307,6 +313,21 @@ function renderEmptyState(): SafeHtml {
   `;
 }
 
+/**
+ * Card chips sit on one line; a long question would either wrap the card or
+ * get clipped mid-word by CSS. Truncating in the template keeps the full text
+ * available in `data-ask` and `title`, so the chip still fills the band with
+ * the WHOLE question even though it displays an abbreviated one.
+ */
+const CARD_QUESTION_MAX = 52;
+function truncateQuestion(q: string): string {
+  const t = q.trim();
+  if (t.length <= CARD_QUESTION_MAX) return t;
+  const cut = t.slice(0, CARD_QUESTION_MAX);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).replace(/[),.;:!?-]+$/, '')}\u2026`;
+}
+
 function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
   const shape = dagShapeSvg(a);
   const runInfo = lastRun
@@ -314,6 +335,23 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
         Last run <span class="mono">${lastRun.status}</span> \u00b7 ${formatAge(lastRun.startedAt)}
       </span>`
     : html`<span class="agent-card__last-run dim">Never run</span>`;
+
+  /**
+   * ONE sample question, not all of them.
+   *
+   * `sampleQuestions` is already loaded by `listAgents`, so this costs no
+   * extra query. But 3-5 chips across 12 cards is a wall of text that buries
+   * the card's own content — the card's job is to say what the agent IS, and a
+   * single chip is enough to teach that questions are clickable. The detail
+   * page shows the full set.
+   */
+  const firstQuestion = (a.sampleQuestions ?? []).find((q) => q.trim().length > 0);
+  const askChip = firstQuestion
+    ? html`<button type="button" class="ask-chip ask-chip--card" data-ask="${firstQuestion}"
+             title="${firstQuestion}" onclick="event.stopPropagation();">
+        ${truncateQuestion(firstQuestion)}
+      </button>`
+    : html``;
 
   const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
   const usedByBadge = invokerCount > 0
@@ -353,6 +391,7 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
         ${usedByBadge}
       </div>
       <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
+      ${askChip}
       <div class="agent-card__meta">
         <span><strong>${String(a.nodes.length)}</strong> node${a.nodes.length === 1 ? '' : 's'}</span>
         ${a.schedule ? html`<span title="${a.schedule}">${cronToHuman(a.schedule)}</span>` : html``}

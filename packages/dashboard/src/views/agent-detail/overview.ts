@@ -42,6 +42,55 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     ? html`<a href="/tools/${id}" class="badge badge--muted" style="text-decoration: none;">${id}</a>`
     : html`<span class="badge badge--muted" title="Built into the LLM runtime; no /tools entry.">${id}</span>`);
 
+  /**
+   * "What you can ask" — the routing metadata, finally rendered.
+   *
+   * `sampleQuestions` / `entryConditions` / `nonEntryConditions` have been in
+   * the schema and read by every router for a while, but appeared in ZERO
+   * views, so the one audience who most needs them (someone deciding whether
+   * this is the right agent) could never see them. The questions are chips
+   * that fill the ask band; the conditions are plain prose, since they
+   * describe situations rather than things you'd type.
+   */
+  const sampleQuestions = (agent.sampleQuestions ?? []).filter((q) => q.trim().length > 0);
+  const useWhen = (agent.entryConditions ?? []).filter((c) => c.trim().length > 0);
+  const notFor = (agent.nonEntryConditions ?? []).filter((c) => c.trim().length > 0);
+  const hasRouting = sampleQuestions.length > 0 || useWhen.length > 0 || notFor.length > 0;
+
+  const routingSection = !hasRouting ? html`` : html`
+    <section class="ask-panel">
+      ${sampleQuestions.length > 0 ? html`
+        <h2 class="ask-panel__title">What you can ask</h2>
+        <p class="dim ask-panel__hint">Click one to drop it into the <span class="mono">sua &rsaquo;</span> bar. Nothing is sent until you hit Send.</p>
+        <div class="ask-panel__chips">
+          ${sampleQuestions.map((q) => html`
+            <button type="button" class="ask-chip" data-ask="${q}">${q}</button>
+          `) as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
+      ${useWhen.length > 0 || notFor.length > 0 ? html`
+        <div class="ask-panel__conditions">
+          ${useWhen.length > 0 ? html`
+            <div>
+              <h3 class="ask-panel__subtitle">Use when</h3>
+              <ul class="ask-panel__list">
+                ${useWhen.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}
+              </ul>
+            </div>
+          ` : html``}
+          ${notFor.length > 0 ? html`
+            <div>
+              <h3 class="ask-panel__subtitle ask-panel__subtitle--muted">Not for</h3>
+              <ul class="ask-panel__list ask-panel__list--muted">
+                ${notFor.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}
+              </ul>
+            </div>
+          ` : html``}
+        </div>
+      ` : html``}
+    </section>
+  `;
+
   const runRows = recentRuns.slice(0, 5).map((r) => html`
     <tr>
       <td><a href="/runs/${r.id}" class="mono">${r.id.slice(0, 8)}</a></td>
@@ -111,6 +160,8 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         ${toolBadges as unknown as SafeHtml[]}
       </div>
     </div>
+
+    ${routingSection}
 
     <!-- Recent runs -->
     <section>
