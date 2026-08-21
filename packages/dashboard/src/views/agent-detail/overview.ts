@@ -6,7 +6,7 @@ import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
-  const { agent, recentRuns, widgetControls } = args;
+  const { agent, recentRuns, widgetControls, behaviorStatus } = args;
   const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
   const latestRun = recentRuns[0];
   const latestRunInputsJson = (latestRun as { inputsJson?: string } | undefined)?.inputsJson;
@@ -100,6 +100,34 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     </tr>
   `);
 
+  /**
+   * "Held to" — the behavior specs conditioning this agent's llm-prompt nodes.
+   *
+   * A declared behavior that will not resolve makes the agent unrunnable, so an
+   * unusable one is called out here rather than left to surface as a failed run
+   * later. Omitted entirely when the agent declares none, which is most of them.
+   */
+  const declared = agent.behaviors ?? [];
+  const heldTo = declared.length === 0 ? html`` : html`
+    <dt>Held to</dt>
+    <dd>
+      ${declared.map((name) => {
+        const status = behaviorStatus?.find((b) => b.name === name);
+        const broken = status ? !status.usable : false;
+        return html`<span style="display: inline-block; margin-right: var(--space-2);">
+          <a href="/behaviors/${encodeURIComponent(name)}" class="mono">${name}</a>${broken
+            ? html` <span class="badge badge--err" title="${status?.reason ?? ''}">unusable</span>`
+            : html``}
+        </span>`;
+      }) as unknown as SafeHtml[]}
+      ${behaviorStatus?.some((b) => !b.usable)
+        ? html`<div class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-1);">
+            This agent will fail to run until every declared behavior resolves in this project.
+          </div>`
+        : html``}
+    </dd>
+  `;
+
   const content = html`
     <!-- DAG + Widget preview (side-by-side when widget exists) -->
     ${agent.outputWidget ? html`
@@ -155,6 +183,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         <dt>Schedule</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`<span class="dim">none</span>`}</dd>
         <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
         <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
+        ${heldTo}
       </dl>
       <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">
         ${toolBadges as unknown as SafeHtml[]}
