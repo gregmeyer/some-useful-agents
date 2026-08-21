@@ -1517,3 +1517,66 @@
   line-height: 1.6;
 }
 .ask-panel__list--muted { color: var(--color-text-muted); }
+
+/* ── Rendered Markdown body (.md-body) ────────────────────────────────────
+ * Generic sibling of the inbox's `.inbox-md`, for Markdown that is NOT chat:
+ * behavior specs today, anything document-shaped later. Kept in components.css
+ * rather than a new stylesheet because the ORDER array in routes/assets.ts is
+ * load-bearing and computed once at startup.
+ *
+ * Unlike .inbox-md this keeps real heading sizes — a behavior body is a
+ * document with structure worth seeing, not a bubble where headings should
+ * stay flat.
+ */
+.md-body {
+  white-space: normal;
+  word-wrap: break-word;
+  line-height: 1.65;
+}
+.md-body > :first-child { margin-top: 0; }
+.md-body > :last-child { margin-bottom: 0; }
+.md-body p { margin: 0 0 var(--space-3); }
+.md-body ul,
+.md-body ol { margin: 0 0 var(--space-3); padding-left: var(--space-4); }
+.md-body li { margin: 0 0 var(--space-2); }
+.md-body h1 { font-size: var(--font-size-lg); }
+.md-body h2 { font-size: var(--font-size-md); }
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 { font-size: var(--font-size-sm); }
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+.md-body a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+.md-body pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+.md-body pre code { background: none; padding: 0; }
+.md-body blockquote {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+}
