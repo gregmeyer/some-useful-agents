@@ -39,6 +39,7 @@ This directory captures the **why** behind architectural choices in
 | [0030](0030-outcome-detection.md) | Outcome detection as a post-run observer, not a node | Accepted |
 | [0031](0031-agent-behavior-specs.md) | Adopt the Agent Behavior spec, with scope as the trust boundary | Accepted |
 | [0032](0032-agent-is-the-user-facing-cli-verb.md) | `agent` is the user-facing CLI verb; `workflow` owns v2 internals | Accepted |
+| [0033](0033-idle-dashboard-session.md) | The dashboard session is an idle window, and expiry is recoverable | Accepted |
 
 ## Template
 

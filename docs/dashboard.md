@@ -4,6 +4,26 @@ Every page, what it's for, when to use it.
 
 Start the dashboard with `sua dashboard start`. The first startup prints a one-time sign-in URL with the bearer token in the fragment (e.g. `http://127.0.0.1:3000/auth#token=…`). Click it once; the dashboard stores an HttpOnly cookie and you bookmark `http://127.0.0.1:3000/`.
 
+### Staying signed in
+
+The session is an **idle** window — it renews on every page you load, so using
+the dashboard keeps you signed in. The default is 30 days of inactivity; set
+`SUA_DASHBOARD_SESSION_HOURS` to change it. Details and the security rationale
+are in [SECURITY.md § Dashboard session lifetime](SECURITY.md) and
+[ADR-0033](adr/0033-idle-dashboard-session.md).
+
+If a session does lapse, the page says so and the tab shows a "You have been
+signed out" banner rather than quietly failing. To sign in again you need a
+fresh link, because `sua dashboard start` prints one only at boot:
+
+```bash
+sua dashboard signin-url
+```
+
+Run it on the machine hosting the dashboard and open the link it prints. That
+link carries the bearer token, so treat it like a password — and note that
+`sua mcp rotate-token` invalidates every existing session immediately.
+
 Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESIGN.md](../DESIGN.md).
 
 The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`. See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
