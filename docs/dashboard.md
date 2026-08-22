@@ -198,7 +198,22 @@ The board is an information radiator with draggable signal tiles. Each agent wit
 
 Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon (the × toggles the agent's `pulseVisible` flag). System metric tiles (runs today, avg duration, failure rate, agent count) pin to the top.
 
-**Tiles run themselves.** Adding an agent to a dashboard runs it once automatically, so a freshly added tile is never blank. A tile's **Run again** button re-runs the agent and refreshes the tile in place — no navigation to the run detail page. If a widget references an external image host blocked by the dashboard's CSP, the tile shows a one-click **allow** modal that appends the host to the agent's `permissions.imgSrc` allowlist.
+**Every tile is runnable.** Each tile carries a **Run** button in its footer that
+re-runs the agent and refreshes the tile in place — no navigation to the run
+detail page. This includes tiles that have never run, which is the point: a tile
+you set up but never used is the most useful thing on the board to be able to
+start. Tiles whose body already offers a run control keep theirs instead — an
+interactive widget's mini-app, or a widget tile's **Run again** — so no tile has
+two. System metric tiles have none; there is no agent behind them.
+
+An agent with a *required* input and no default shows **Run…**, linking to the
+agent page where the full run form lives, rather than a one-click button that
+would fail every time.
+
+Without JavaScript the button still POSTs to `/agents/:id/run` and navigates to
+the run, as before.
+
+**Tiles run themselves.** Adding an agent to a dashboard runs it once automatically, so a freshly added tile is never blank. If a widget references an external image host blocked by the dashboard's CSP, the tile shows a one-click **allow** modal that appends the host to the agent's `permissions.imgSrc` allowlist.
 
 **Improve layout** — wizard button on the home board and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
 

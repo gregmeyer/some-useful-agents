@@ -13,6 +13,7 @@ import { formatAge } from './components.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
 import { renderTile } from './pulse-renderers.js';
+import { renderTileRunControl } from './output-widgets.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
 import { renderInstallPacksModal } from './install-packs-modal.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
@@ -165,16 +166,39 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
   `;
 }
 
+/**
+ * Does this tile's BODY already render a run control, so the footer must not
+ * add a second one?
+ *
+ * Mirrors the dispatch in `renderTile` (pulse-renderers.ts) exactly:
+ *   - an interactive widget is a mini-app and owns its own Run button;
+ *   - a `widget` tile with a widget AND a prior run gets a synthesized
+ *     "Run again" from `ensureReplayControl`.
+ * A `widget` tile with no widget or no prior run renders "No widget output
+ * yet." and no control — which is precisely a tile that needs ours.
+ */
+function tileRendersOwnRunControl(tile: PulseTile): boolean {
+  if (tile.agent.outputWidget?.interactive) return true;
+  const { template } = normalizeSignal(tile.signal);
+  return template === 'widget' && Boolean(tile.agent.outputWidget) && Boolean(tile.lastRun?.result);
+}
+
 function tileFooter(tile: PulseTile): SafeHtml {
   const agentLink = `/agents/${tile.agent.id}`;
   const runLink = tile.lastRun ? `/runs/${tile.lastRun.id}` : '';
   const age = tile.lastRun ? formatAge(tile.lastRun.completedAt ?? tile.lastRun.startedAt) : 'never';
+  // Pulse is a run console in practice; a tile you cannot run from is a
+  // dead rectangle. Skipped only when the body already offers one.
+  const runControl = tileRendersOwnRunControl(tile)
+    ? null
+    : renderTileRunControl(tile.agent.id, tile.agent.inputs);
   return html`
     <div class="pulse-tile__footer">
       <a href="${agentLink}" class="pulse-tile__agent">${tile.agent.id}</a>
       ${runLink
         ? html`<a href="${runLink}" class="pulse-tile__age">${age}</a>`
         : html`<span class="pulse-tile__age">${age}</span>`}
+      ${runControl ?? html``}
     </div>
   `;
 }
