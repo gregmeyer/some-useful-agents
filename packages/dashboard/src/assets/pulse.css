@@ -259,6 +259,56 @@
   color: var(--color-text-muted);
 }
 
+/* ── Tile run control ──────────────────────────────────────────────
+ * Pulse is a run console, so every tile carries a run affordance and it
+ * is the primary action of the page. A first attempt styled it as quiet
+ * grey chrome to avoid ~28 teal buttons at once; that was wrong — the
+ * button disappeared into a footer that already held two muted items,
+ * and a run control nobody notices is not a run control.
+ *
+ * So it keeps the standard `.wc-button--primary` fill from
+ * components.css. That is also what the same control looks like on the
+ * agent detail page and inside widget tiles, so a tile's Run now matches
+ * Run everywhere else instead of being a bespoke variant. Repeating one
+ * meaningful accent is not the decorative colour DESIGN.md warns off.
+ *
+ * The footer was a 2-item space-between row; `margin-right: auto` on the
+ * agent link keeps that exact appearance while letting age + run sit
+ * together on the right. */
+.pulse-tile__agent { margin-right: auto; }
+
+.pulse-tile__footer { gap: var(--space-2); }
+
+.pulse-tile__footer .wc-group--replay {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+/* Match the primary button so the two run affordances read as one
+   control, not two. This one is an <a> because the agent needs input
+   before it can run. */
+.pulse-tile__run-link {
+  padding: 4px var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pulse-tile__run-link:hover { filter: brightness(1.05); }
+
+/* The in-place handler disables the button and swaps its label to
+ * "Running…" while a run is in flight (widget-replay.js.ts). */
+.pulse-tile__footer .wc-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .pulse-table {
   width: 100%;
   font-family: var(--font-mono);

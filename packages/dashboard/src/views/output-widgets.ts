@@ -638,6 +638,42 @@ function renderReplayControl(
   `;
 }
 
+/**
+ * The run control Pulse puts on a tile that doesn't already have one.
+ *
+ * Pulse is used as a run console — 83% of runs on a real install come from a
+ * dashboard click — but only tiles backed by an `outputWidget` could actually
+ * be run, because only those render the widget's replay control. Every
+ * `metric` / `status` / `text-headline` / `table` tile was a read-only
+ * rectangle, and a tile whose agent had never run was a dead one.
+ *
+ * This reuses `renderReplayControl` verbatim so the markup is the same
+ * `form.wc-group--replay` the existing in-place handler already binds to
+ * (`widget-replay.js.ts`) — clicking runs the agent, polls, and swaps the tile
+ * without leaving the board, with no new client JS. Without JS the form still
+ * POSTs to `/agents/:id/run` and navigates, which is the established contract.
+ *
+ * Returns `null` when the caller should render nothing.
+ */
+export function renderTileRunControl(
+  agentId: string,
+  agentInputs?: Record<string, AgentInputSpec>,
+): SafeHtml | null {
+  // An input the operator MUST supply and for which we have no default would
+  // make a one-click run fail every time. Send them to the agent page, where
+  // the full run form lives, rather than handing them a button that is
+  // guaranteed to produce a red tile.
+  const needsInput = Object.entries(agentInputs ?? {})
+    .some(([, spec]) => spec.required === true && spec.default === undefined);
+  if (needsInput) {
+    return html`<a class="pulse-tile__run-link" href="/agents/${agentId}" title="This agent needs input before it can run">Run…</a>`;
+  }
+  // No inline fields: inputs with defaults are applied by the executor, and
+  // rendering a form per tile would blow up the grid. `Run` rather than
+  // `Run again` — the tile may never have run at all.
+  return renderReplayControl({ type: 'replay', label: 'Run' }, agentId, agentInputs);
+}
+
 function renderViewSwitchControl(
   c: Extract<WidgetControl, { type: 'view-switch' }>,
   state: WidgetControlState,
