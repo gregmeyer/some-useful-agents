@@ -4,6 +4,7 @@ import ora from 'ora';
 import { loadAgents } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs } from '../config.js';
 import { createProvider } from '../provider-factory.js';
+import { findV2Agent, runV2Agent, reportV2Run } from '../v2-runtime.js';
 import * as ui from '../ui.js';
 
 function collectName(value: string, previous: string[]): string[] {
@@ -20,6 +21,55 @@ function collectInput(value: string, previous: Record<string, string>): Record<s
   return { ...previous, [key]: val };
 }
 
+interface RunOptions {
+  provider?: string;
+  allowUntrustedShell: string[];
+  input: Record<string, string>;
+}
+
+/**
+ * Execute a v2 DAG agent reached through `sua agent run`. Mirrors the v1
+ * branch's strict `--input` pre-validation so a typo'd key is fatal here
+ * too, rather than being silently ignored by the executor.
+ */
+async function runV2FromAgentVerb(
+  name: string,
+  agent: { inputs?: Record<string, unknown> },
+  options: RunOptions,
+): Promise<void> {
+  // v2 execution has no provider abstraction — the CLI calls the DAG
+  // executor directly (same path the scheduler's fireV2Agent uses). Say so
+  // instead of accepting `--provider temporal` and quietly running locally.
+  if (options.provider && options.provider !== 'local') {
+    ui.fail(
+      `"${name}" is a v2 DAG agent and runs on the local executor; ` +
+        `--provider ${options.provider} is not supported for it.`,
+    );
+    console.error(ui.dim('Re-run without --provider, or use --provider local.'));
+    process.exit(1);
+  }
+
+  const declaredInputs = new Set(Object.keys(agent.inputs ?? {}));
+  for (const key of Object.keys(options.input)) {
+    if (!declaredInputs.has(key)) {
+      ui.fail(
+        `Input "${key}" is not declared by agent "${name}". ` +
+          `Declared: ${declaredInputs.size > 0 ? [...declaredInputs].join(', ') : '(none)'}.`,
+      );
+      console.error(ui.dim(`Run "sua workflow show ${name}" to see the agent's inputs block.`));
+      process.exit(1);
+    }
+  }
+
+  const spinner = ora(`Running ${ui.agent(name)}...`).start();
+  const { run, hasOutcomeRecord } = await runV2Agent(name, {
+    inputs: options.input,
+    allowUntrustedShell: options.allowUntrustedShell,
+  });
+  reportV2Run(spinner, name, run, hasOutcomeRecord);
+  if (run.status !== 'completed') process.exitCode = 1;
+}
+
 export const runCommand = new Command('run')
   .description('Run an agent')
   .argument('<name>', 'Agent name')
@@ -31,7 +81,7 @@ export const runCommand = new Command('run')
     [] as string[],
   )
   .option(
-    '--input <KEY=value>',
+    '-i, --input <KEY=value>',
     'Supply a value for a declared input (repeatable). KEY must be UPPERCASE_WITH_UNDERSCORES.',
     collectInput,
     {} as Record<string, string>,
@@ -57,11 +107,7 @@ Inputs:
   them as $X environment variables. See README "Templates" section.
 `,
   )
-  .action(async (name: string, options: {
-    provider?: string;
-    allowUntrustedShell: string[];
-    input: Record<string, string>;
-  }) => {
+  .action(async (name: string, options: RunOptions) => {
     const config = loadConfig();
     const dirs = getAgentDirs(config);
     // Include community catalog so community agents are runnable; the shell
@@ -69,7 +115,20 @@ Inputs:
     const { agents } = loadAgents({ directories: dirs.all });
 
     const agent = agents.get(name);
+
+    // v2 fall-through. `loadAgents` is the V1 loader and SILENTLY SKIPS
+    // every v2 file, so without this branch `sua agent run <v2-id>` reported
+    // "not found" for an agent `sua workflow run` executed happily — and then
+    // pointed the user at `sua agent list`, which could never list it.
+    // `agent` is the user-facing verb for both models; `workflow` keeps the
+    // v2-internals verbs (import / export / replay / logs). See ADR-0032.
     if (!agent) {
+      const v2 = findV2Agent(name);
+      if (v2) {
+        await runV2FromAgentVerb(name, v2, options);
+        return;
+      }
+
       ui.fail(`Agent "${name}" not found.`);
       console.error(ui.dim('Run "sua agent list" to see available agents.'));
       process.exit(1);

@@ -28,29 +28,9 @@ import {
 } from '@some-useful-agents/core';
 import { readFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { dirname, join, extname } from 'node:path';
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getDashboardBaseUrl, getLlmSettingsPath } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getDashboardBaseUrl } from '../config.js';
+import { openStores, loadLlmSettingsSnapshot, runV2Agent, reportV2Run, AgentNotFoundError } from '../v2-runtime.js';
 import * as ui from '../ui.js';
-
-/**
- * Load the operator's LLM settings (waterfall + custom OpenAI-compatible
- * providers) as an executor snapshot. Without this, CLI runs can't resolve a
- * `kind:'openai'` custom provider (e.g. a local model) and silently fall through
- * to the default `claude` spawner. Best-effort: absent settings ⇒ undefined.
- */
-function loadLlmSettingsSnapshot(config: ReturnType<typeof loadConfig>) {
-  try {
-    const store = new LlmSettingsStore(getLlmSettingsPath(config));
-    const current = store.get();
-    const disabled = new Set(current.disabledProviders ?? []);
-    return {
-      providers: current.providers.filter((p) => !disabled.has(p)),
-      disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
-      customProviders: current.customProviders ? [...current.customProviders] : undefined,
-    };
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * `sua workflow` is the v2 CLI surface. v0.13 ships a read-first-then-run
@@ -71,26 +51,6 @@ function loadLlmSettingsSnapshot(config: ReturnType<typeof loadConfig>) {
  */
 export const workflowCommand = new Command('workflow')
   .description('Manage and run DAG agents (v2 model)');
-
-function openStores(): { db: DatabaseSync; agents: AgentStore; runs: RunStore; close: () => void } {
-  const config = loadConfig();
-  const dbPath = getDbPath(config);
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const db = new DatabaseSync(dbPath);
-  const agents = AgentStore.fromHandle(db);
-  const runs = RunStore.fromHandle(db);
-  return {
-    db,
-    agents,
-    runs,
-    close: () => {
-      agents.close();
-      runs.close();
-      db.close();
-    },
-  };
-}
 
 function collectInput(value: string, previous: Record<string, string>): Record<string, string> {
   const eq = value.indexOf('=');
@@ -312,87 +272,23 @@ workflowCommand
   .command('run')
   .description('Execute a DAG agent once (synchronous)')
   .argument('<id>', 'Agent id')
-  .option('--input <KEY=value>', 'Supply an input (repeatable)', collectInput, {} as Record<string, string>)
+  .option('-i, --input <KEY=value>', 'Supply an input (repeatable)', collectInput, {} as Record<string, string>)
   .option('--allow-untrusted-shell <id>', 'Pre-allow a community shell agent to run', (v: string, prev: string[]) => [...prev, v], [] as string[])
   .action(async (id: string, options: { input: Record<string, string>; allowUntrustedShell: string[] }) => {
-    const config = loadConfig();
-    const stores = openStores();
-    const secretsStore = new EncryptedFileStore(getSecretsPath(config));
-    // Optional stores — mirror the daemon's schedule wiring so CLI runs
-    // can resolve csv/postgres/sqlite generated tools, vars, and user
-    // tools the same way scheduled fires can. Each open is best-effort:
-    // an absent store just means that feature doesn't resolve.
-    const variablesStore = (() => {
-      try { return new VariablesStore(join(config.dataDir, '.sua', 'variables.json')); }
-      catch { return undefined; }
-    })();
-    const integrationsStore = (() => {
-      try { return new IntegrationsStore(getDbPath(config)); }
-      catch { return undefined; }
-    })();
-    const toolStore = (() => {
-      try { return new ToolStore(getDbPath(config)); }
-      catch { return undefined; }
-    })();
-    // OutcomeDetection: a no-op for agents with no `outcome:` block, so
-    // this is safe to register unconditionally. Deterministic only — no
-    // LLM judge on the CLI path, so `sua workflow run` never silently
-    // spends tokens. See docs/outcome-detection.md.
-    const outcomeStore = (() => {
-      try { return new OutcomeStore(getDbPath(config)); }
-      catch { return undefined; }
-    })();
     const spinner = ora(`Running ${ui.agent(id)}...`).start();
     try {
-      const agent = stores.agents.getAgent(id);
-      if (!agent) {
+      const { run, hasOutcomeRecord } = await runV2Agent(id, {
+        inputs: options.input,
+        allowUntrustedShell: options.allowUntrustedShell,
+      });
+      reportV2Run(spinner, id, run, hasOutcomeRecord);
+    } catch (err) {
+      if (err instanceof AgentNotFoundError) {
         spinner.fail(`Agent "${id}" not found. Run \`sua workflow list\` to see options.`);
         process.exitCode = 1;
         return;
       }
-      const run = await executeAgentWithRetry(
-        agent,
-        {
-          triggeredBy: 'cli',
-          // Cross-run feedback: hand this run what the PREVIOUS run of the same
-          // agent failed to achieve. No-op unless the agent declares
-          // OUTCOME_FEEDBACK in its `inputs:` block.
-          inputs: withOutcomeFeedback(options.input, outcomeStore, id),
-        },
-        {
-          runStore: stores.runs,
-          secretsStore,
-          agentStore: stores.agents,
-          variablesStore,
-          integrationsStore,
-          toolStore,
-          allowUntrustedShell: new Set(options.allowUntrustedShell),
-          dashboardBaseUrl: getDashboardBaseUrl(config),
-          dataRoot: stores.agents.dataRoot,
-          llmSettings: loadLlmSettingsSnapshot(config),
-          ...(outcomeStore && { onRunComplete: outcomeDetectionHook({ outcomeStore }) }),
-        },
-      );
-      if (run.status === 'completed') {
-        spinner.succeed(`${ui.agent(id)} completed`);
-        if (run.result) {
-          console.log('');
-          ui.outputFrame(run.result);
-        }
-      } else {
-        spinner.fail(`${ui.agent(id)} ${run.status}`);
-        if (run.error) console.error(chalk.red(run.error));
-      }
-      console.log(ui.dim(`\nRun ID: ${run.id}`));
-      console.log(ui.dim(`Inspect per-node logs: sua workflow logs ${run.id}`));
-      // Only advertise the outcome record when one was actually written —
-      // agents without an `outcome:` block produce none.
-      if (outcomeStore?.get(run.id)) {
-        console.log(ui.dim(`Inspect the outcome record: sua outcome show ${run.id.slice(0, 8)}`));
-      }
-    } finally {
-      outcomeStore?.close();
-      stores.close();
+      throw err;
     }
   });
 
