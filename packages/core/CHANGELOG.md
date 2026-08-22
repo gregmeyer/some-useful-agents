@@ -1,5 +1,117 @@
 # @some-useful-agents/core
 
+## 0.28.0
+
+### Minor Changes
+
+- f7ddbce: Read Agent Behavior specs — the open standard for writing down expected agent conduct.
+  
+  sua now discovers, validates, and displays `.agents/behaviors/*/BEHAVIOR.md` files following the [Agent Behavior](https://www.agentbehavior.dev/) standard from Braintrust and Basis. A behavior spec records recurring conduct — how an agent gathers context, decides, acts, and recovers — as a written standard you can review traces against.
+  
+  New `sua behaviors list | validate | show`, and a `/behaviors` page in the dashboard grouped by scope. `validate` exits non-zero on any invalid spec, so it works as a CI gate.
+  
+  Specs are found in three scopes: your project, your home directory, and an optional configured org directory, resolved project-first. Two specs of our own ship under `.agents/behaviors/` as working examples.
+  
+  This is a reader: sua displays and validates these, and does not grade runs against them or feed them to a model on its own. Conformance is checked against the reference implementation — both validators agree on the same trees, including which ones they reject.
+  
+  Note the leading dot: `.agents/` is the shared standard directory and is unrelated to this project's own `agents/` folder. Putting specs in the undotted path produces a diagnostic naming both, rather than an empty list.
+- 441804a: `sua agent run` and `sua agent list` now reach v2 DAG agents.
+  
+  `sua agent run <id>` reported "not found" for any v2 agent — even one that
+  `sua workflow run <id>` executed happily — because the `agent` verbs went
+  through `loadAgents`, the V1 loader, which silently skips every v2 file. The
+  failure then pointed at `sua agent list`, which for the same reason could never
+  list the agent you were looking for.
+  
+  `agent run` now falls through to the v2 store and executes on the same path as
+  `workflow run`, and `agent list` shows v1 and v2 together with a `Model` column.
+  `sua workflow` is unchanged and keeps the verbs that have no `agent` equivalent
+  (import, export, replay, logs, show). Both verbs now share one execution path
+  instead of two copies of the store wiring. See ADR-0032.
+  
+  Also: `-i` now works as the short form of `--input` on both verbs. The docs had
+  been showing `-i NAME=value` for a while, but only `--input` was ever wired up.
+- 9192398: Make an agent's sample questions clickable.
+  
+  `sampleQuestions`, `entryConditions`, and `nonEntryConditions` have been in the schema and read by every router for a while, but they rendered in zero views — so the one person who most needs them, someone deciding whether this is the right agent, could never see them.
+  
+  An agent's detail page now shows a "What you can ask" panel: every sample question as a chip, plus a "Use when / Not for" block built from the entry conditions. Each agent card carries one chip, and a search that finds nothing offers your own query back as a chip.
+  
+  Clicking a chip drops the question into the `sua ›` bar, focused and editable. It never submits for you — you see exactly what you are about to send first.
+- a839e37: Backfill routing metadata across the shipped example agents so search and triage find the right one.
+  
+  Every non-exempt agent under `agents/examples/` now declares `tags`, `entryConditions`, `nonEntryConditions`, and `sampleQuestions`. Previously 8 of 43 had any routing metadata and none had `tags` — which meant the relevance ranker (used by the `/agents` search box, inbox triage, the build-from-goal surveyor, and the MCP `list-agents` payload) had almost nothing to match a newcomer's request against.
+  
+  Measured against a labeled set of newcomer phrasings run over the real shipped catalog, top-1 accuracy went from 15/27 to 27/27, and the triage reuse hint now fires on 22 of 27 requests instead of 6 — with no wrong hints and no spurious hints on deliberately ambiguous queries.
+  
+  Two gaps that let the coverage rot are closed as well. The routing eval was entirely synthetic, so it scored perfectly on invented agents while the real catalog went unmeasured; there is now a real-catalog eval alongside it. And CI's "validate all agent YAML files" step called the v1 loader, which silently skips every v2 agent, so it had been reporting `0 agent(s) validated successfully` in green — it now parses the v2 files and fails if it ever validates nothing. A new coverage gate keeps the metadata from thinning out again, and `docs/agents.md` documents `tags` and how the fields are scored.
+- 1c3e42d: Let an agent be steered by the behaviors it declares.
+  
+  An agent can now list `behaviors: [declare-blind-spots]` in its YAML. Each named spec's body is prepended to every `llm-prompt` node as conduct guidance, framed so the model reads it as standards for how to work rather than as the task itself.
+  
+  Opt-in only: discovering a behavior never steers anything, and only specs in this project's `.agents/behaviors/` can condition a run. One in your home directory or an org registry stays readable but cannot gain authority over your agents by being present.
+  
+  Failures are loud. A name that does not exist, resolves outside project scope, or exceeds the injection budget fails the run before any node executes rather than quietly running unconditioned — output that silently lacked its standards is not detectable afterwards.
+  
+  Template syntax inside a behavior body is never expanded, so a `{{inputs.API_KEY}}` written into a spec stays literal instead of interpolating a secret. Runs record which behaviors conditioned them, so a trace can be audited against the names you wrote.
+- be0172f: `/agents` search now ranks by relevance instead of substring matching.
+  
+  Searching "watch a website for changes" used to return nothing, because the box
+  only matched substrings of id, name and description. Inbox triage has always
+  ranked agents properly — scoring `tags`, `entryConditions` and `sampleQuestions`
+  alongside id/name — so the search box now uses that same ranker, lifted into
+  `@some-useful-agents/core` as `agent-relevance.ts`.
+  
+  Relevance widens and reorders; it never removes. Everything the substring match
+  found still matches. Best-match ordering is implicit while searching and any
+  explicit sort overrides it.
+  
+  Also in this change:
+  
+  - A search that matches nothing no longer hides the search box, so the query
+    stays editable. It says which tab the matches are in instead ("2 in Examples")
+    and points at the `sua ›` bar.
+  - The query echoes back as typed rather than lowercased.
+  - `Sort: name` sorts by name; it sorted by id.
+  - Legacy v1 agents now respect the search box instead of always listing.
+
+### Patch Changes
+
+- 9e158cc: The new-agent form tidies the Id instead of rejecting it.
+  
+  Typing `what-do-I-wear` used to fail with "Id must be lowercase letters,
+  digits, or hyphens" and make you retype it — a wall on the first field of the
+  first thing a newcomer creates. Capitals, spaces and punctuation are all
+  fixable, so the server now slugifies (`What Do I Wear?` -> `what-do-i-wear`)
+  and only errors when there's nothing left to build an id from.
+  
+  When the id changes, the arrival flash says so: *Created as "what-do-i-wear".
+  Run it to see what it does.*
+  
+  The form also fills the Id in from the Name as you type, stopping the moment
+  you edit the Id yourself. The `pattern` attribute is gone from the input — it
+  blocked submit client-side, so a capital letter never reached the server to be
+  normalized in the first place.
+- bd5dcac: Show behavior conditioning in the dashboard.
+  
+  Agent detail now has a **Held to** row listing the behaviors an agent declares, each linking to its spec. A declared behavior that cannot condition a run — missing, or found only in your home directory or an org registry — is marked **unusable**, with a note that the agent will fail to run until it resolves. Previously that only surfaced as a failed run.
+  
+  Run detail now has a **Conditioned by** row naming the behaviors that were in force. Runs have recorded this since conditioning shipped; nothing displayed it, so a trace could not be audited against the standards that supposedly applied.
+  
+  The inbox thread shows a compact `2 behaviors` chip next to a conditioned run's link, with the names on hover — so "why did it answer that way" is answerable without leaving the conversation.
+  
+  Also closes a silent gap in the agent-editor safety guard: it already carried `outcome:` and `successCriteria:` across a rewrite that omitted them, but not `behaviors:`. An analyzer tidying that block away would have silently un-conditioned the agent, and every later run would look completely normal.
+- 9e158cc: Creating an agent now lands you on the agent, not on "add another node".
+  
+  `POST /agents/new` redirected to `/agents/:id/add-node?fromCreate=1` — a screen
+  about chaining a *second* node, shown before you had ever run the first one.
+  That put DAG composition in front of "does this thing work?", which is
+  backwards for anyone new: the payoff for creating an agent is running it.
+  
+  It now redirects to the agent's own page, where **Run now** is, with a flash
+  reading "Created. Run it to see what it does." Adding nodes stays one click
+  away on the Nodes tab.
+
 ## 0.27.0
 
 ### Minor Changes
