@@ -37,6 +37,8 @@ This directory captures the **why** behind architectural choices in
 | [0028](0028-hardware-design-team-on-sua.md) | Hardware Design Team as a sua multi-agent system | Accepted |
 | [0029](0029-mcp-2026-07-28-sdk-v2.md) | MCP 2026-07-28 migration — stateless server + SDK v2 | Accepted |
 | [0030](0030-outcome-detection.md) | Outcome detection as a post-run observer, not a node | Accepted |
+| [0031](0031-agent-behavior-specs.md) | Adopt the Agent Behavior spec, with scope as the trust boundary | Accepted |
+| [0032](0032-agent-is-the-user-facing-cli-verb.md) | `agent` is the user-facing CLI verb; `workflow` owns v2 internals | Accepted |
 
 ## Template
 

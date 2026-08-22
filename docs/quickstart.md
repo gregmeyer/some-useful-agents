@@ -1,6 +1,6 @@
 # Quickstart
 
-30 minutes to your first running agent. If you want the 90-second summary: install, `sua init`, `sua workflow run hello`, `sua dashboard start`. Open `http://127.0.0.1:3000/`.
+30 minutes to your first running agent. If you want the 90-second summary: install, `sua init`, `sua agent run hello`, `sua dashboard start`. Open `http://127.0.0.1:3000/`.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ sua doctor                  # verify prerequisites + file perms
 `hello` is the simplest bundled agent — one shell node that echoes.
 
 ```bash
-sua workflow run hello
+sua agent run hello
 ```
 
 Output:
@@ -119,7 +119,7 @@ Import it:
 
 ```bash
 sua workflow import-yaml agents/local/hello-mine.yaml
-sua workflow run hello-mine -i TOPIC="world"
+sua agent run hello-mine -i TOPIC="world"
 ```
 
 See [Agent YAML reference](agents.md) for the full field list.
@@ -149,7 +149,7 @@ Import + run:
 
 ```bash
 sua workflow import-yaml agents/local/two-step.yaml
-sua workflow run two-step
+sua agent run two-step
 ```
 
 Same pattern with llm-prompt nodes uses `{{upstream.fetch.result}}`. See [Templating](templating.md) for the reference.
@@ -162,7 +162,7 @@ Same pattern with llm-prompt nodes uses `{{upstream.fetch.result}}`. See [Templa
 # See docs/mcp.md for the exact paste payload.
 
 # 2. Run the example agent
-sua workflow run graphics-creator-mcp \
+sua agent run graphics-creator-mcp \
   -i TOPIC="Q2 growth wins" \
   -i AUDIENCE="investors"
 ```

@@ -12,7 +12,7 @@ npm install -g @some-useful-agents/cli
 
 ```bash
 sua init                         # initialize a project
-sua workflow run hello           # run an agent
+sua agent run hello              # run an agent (v1 or v2)
 sua tool list                    # see available tools
 sua examples install             # install bundled examples
 sua dashboard start              # open the web dashboard
