@@ -108,6 +108,50 @@ nodes:
             that this agent answers, in natural phrasing.
         Keep each entry one short line. These feed the inbox router and the
         build surveyor, so make them specific and distinct from sibling agents.
+      - **OUTCOME BLOCK — always include one.** `outcome:` declares what the
+        agent is supposed to RESULT in, so a finished run can be judged instead
+        of merely reported as "completed". Without it, outcome detection has
+        nothing to detect.
+
+          outcome:
+            expected: >
+              One or two sentences stating the result a user wanted, in plain
+              prose. Describe the RESULT, not the steps.
+            assumptions:
+              - Things taken for granted and never verified (e.g. "the feed
+                URL stays reachable"). 0-3 lines. Omit the key if none.
+            evidence:
+              - kind: nodeStatus
+                nodeId: <a real node id from this agent>
+                label: Did the fetch succeed?
+              - kind: nodeResult
+                nodeId: <the node whose output IS the deliverable>
+                label: The digest text itself
+              - kind: runStatus
+            unobservable:
+              - Anything sua provably cannot see (e.g. "whether the human
+                actually read the digest"). Omit the key if none.
+
+        RULES — follow these exactly; a wrong block is worse than none:
+        - Every `nodeId` MUST be an id that exists in the `nodes:` list you
+          emit. A typo'd nodeId collects no evidence, silently.
+        - `evidence` selectors: `nodeStatus` (nodeId), `nodeResult` (nodeId),
+          `nodeOutputField` (nodeId + field, field must be a declared output),
+          `runStatus` (no nodeId), `file` (pathTemplate). Give each a short
+          `label` phrased as the question it answers.
+        - **`success` is OPTIONAL and defaults to OMITTED.** It is a
+          machine-checkable definition of done, and a wrong entry marks GOOD
+          runs failed. Only emit it when the check is genuinely reliable:
+            - kind: shellExitZero (nodeId)  — a shell node that must exit 0
+            - kind: fileExists (pathTemplate) — the agent writes a known path
+            - kind: regexMatch (nodeId, pattern) — output must always contain
+              a literal shape you control, e.g. a count line the node itself
+              formats. Never regex over free-form LLM prose.
+            - kind: jsonPathEquals (nodeId, path, equals)
+          If the deliverable is LLM prose with no guaranteed literal shape,
+          emit NO `success` key and let `evidence` carry the record.
+        - Prefer declaring an honest `unobservable` over an optimistic
+          `success`. A verdict of "can't tell" is a correct answer.
       - inputs: an object/map. Input names UPPERCASE_WITH_UNDERSCORES.
       - outputs: object. Names lowercase_snake_case (NOT camelCase). Each value
         is a type (string|number|boolean|object|array) OR an object {type, description}.
@@ -254,6 +298,8 @@ nodes:
       - `id` is required, matches the agent-id regex, does not collide with EXISTING_AGENT_IDS.
       - `purpose` is required, non-empty.
       - `yaml` is required, parses as a complete sua agent, and `parsed.id === plan.id`.
+      - `yaml` contains an `outcome:` block whose every `nodeId` names a node
+        that exists in the same YAML.
 
       Output ONLY the <plan>…</plan> block. No explanation before or after.
     maxTurns: 4

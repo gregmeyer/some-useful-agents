@@ -22,7 +22,12 @@ session and runs three specialist agents in sequence:
    agent's YAML. Every draft passes through a structural critic
    (`critiquePlan` in `packages/core/src/build-plan-critic.ts`); on a validation
    failure the drafter is re-fired with the critic's feedback, up to
-   `MAX_DRAFT_ATTEMPTS` (3) times.
+   `MAX_DRAFT_ATTEMPTS` (3) times. Every draft also carries routing metadata
+   (`entryConditions` / `nonEntryConditions` / `sampleQuestions`) and an
+   [`outcome:` block](outcome-detection.md) so a finished run can be judged
+   rather than merely reported as completed. The drafter is told to emit
+   `expected` + `evidence` always and `success` only when the check is
+   genuinely reliable — a wrong `success` marks good runs failed.
 3. **`dashboard-designer`** assembles the drafted agents into dashboard sections
    and tiles when the goal calls for more than a single agent.
 
@@ -127,3 +132,4 @@ curl -s localhost:3000/health | jq '{commit, builtAt}'   # vs git rev-parse --sh
 - [Dashboard tour](dashboard.md) — where the Build and Improve-layout buttons live
 - [Output widgets](output-widgets.md) — the widget types the drafter can target
 - [Agents reference](agents.md) — the YAML the drafter produces
+- [Outcome detection](outcome-detection.md) — the `outcome:` block every draft carries
