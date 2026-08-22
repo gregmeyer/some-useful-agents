@@ -45,6 +45,7 @@ import { getProviderReadiness, warmProviderReadiness } from './lib/provider-read
 import { buildDashboardErrorHandler } from './error-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
+import { sessionRouter } from './routes/session.js';
 import { agentsRouter } from './routes/agents.js';
 import { agentInstallRouter } from './routes/agent-install.js';
 import { agentNodesRouter } from './routes/agent-nodes.js';
@@ -207,6 +208,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
   // Everything below requires the session cookie.
   app.use(requireAuth);
+
+  // Session liveness probe for the client guard. First router behind the
+  // auth gate so the 401 it produces is the plain middleware response.
+  app.use(sessionRouter);
 
   // Output files: behind requireAuth (so auth works properly), but
   // removes X-Frame-Options so the preview iframe can embed content.

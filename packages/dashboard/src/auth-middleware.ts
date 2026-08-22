@@ -1,8 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { checkCookieToken, checkHost, checkOrigin } from '@some-useful-agents/core';
 import { getContext } from './context.js';
+import { SESSION_COOKIE, SEEN_COOKIE, buildSessionCookie, buildSeenCookie } from './session.js';
 
-export const SESSION_COOKIE = 'sua_dashboard_session';
+export { SESSION_COOKIE };
 
 /**
  * Parse a single cookie value out of the Cookie header. We keep this inline
@@ -54,17 +55,48 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   // Cookie check: the cookie value is the bearer token itself, hashed-
   // equivalent to the token file. If the file token rotates, existing
   // cookies stop working naturally.
-  const cookie = readCookie(pickFirst(req.headers.cookie), SESSION_COOKIE);
+  const cookieHeader = pickFirst(req.headers.cookie);
+  const cookie = readCookie(cookieHeader, SESSION_COOKIE);
   const cookieCheck = checkCookieToken(cookie, ctx.token);
   if (!cookieCheck.ok) {
+    // Has this browser ever been signed in? The session cookie is the token
+    // itself, so on expiry the browser deletes it and an expired operator is
+    // indistinguishable from a first-time visitor. The non-secret `seen`
+    // marker outlives it purely so we can tell the two apart and show copy
+    // the reader can actually act on. See session.ts.
+    const seen = readCookie(cookieHeader, SEEN_COOKIE) === '1';
+
     // For HTML routes, redirect to the auth hint page instead of JSON.
     // Programmatic callers (if any) get the JSON fallback via Accept.
     if ((req.headers.accept ?? '').includes('text/html')) {
-      res.redirect(302, '/auth');
+      res.redirect(302, seen ? '/auth?expired=1' : '/auth');
       return;
     }
-    res.status(cookieCheck.status).json({ error: cookieCheck.error });
+    // `signedOut` is the machine-readable signal the client session guard
+    // watches for. Without it every in-page fetch and SSE stream just failed
+    // silently and the tab looked broken rather than logged out.
+    res.status(cookieCheck.status).json({ error: cookieCheck.error, signedOut: true, expired: seen });
     return;
+  }
+
+  // Sliding renewal: re-issue the cookie on authenticated page loads so the
+  // window measures IDLE time, not total time. Without this the session was a
+  // hard 8h from sign-in and a daily user was logged out roughly once a day
+  // no matter how much they were using it.
+  //
+  // Only on HTML navigations — doing it on every asset, poll and SSE request
+  // adds a Set-Cookie to hundreds of responses for no benefit, and the badge
+  // poll alone would keep a session alive forever in an abandoned open tab.
+  // `append` rather than `setHeader` so a route that sets its own cookie
+  // later in the chain is not clobbered.
+  if (req.method === 'GET' && (req.headers.accept ?? '').includes('text/html')) {
+    res.append('Set-Cookie', buildSessionCookie(ctx.token));
+    // Backfill the marker for sessions that predate it, so an operator who was
+    // already signed in when this shipped still gets "expired" rather than
+    // "never signed in" the first time their session lapses.
+    if (readCookie(cookieHeader, SEEN_COOKIE) !== '1') {
+      res.append('Set-Cookie', buildSeenCookie());
+    }
   }
 
   next();

@@ -9,6 +9,7 @@ import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
+import { SEEN_COOKIE } from './session.js';
 import { buildLoopbackAllowlist } from '@some-useful-agents/core';
 import { MemorySecretsSession } from './secrets-session.js';
 
@@ -195,6 +196,120 @@ describe('Dashboard auth', () => {
     expect(res.text).toContain('spooky');
   });
 });
+
+/**
+ * Getting back in after a session ends.
+ *
+ * The session cookie IS the bearer token, so when it expires the browser drops
+ * it and an expired operator is byte-identical to a first-time visitor. Both
+ * used to get "find the URL your terminal printed" — unactionable after an
+ * expiry, because the daemon is still running and never reprints it. The
+ * non-secret `seen` marker is what makes the two distinguishable.
+ */
+describe('Session expiry is recoverable', () => {
+  const htmlGet = (app: unknown, path: string, cookie?: string) => {
+    const r = request(app as never).get(path)
+      .set('Accept', 'text/html')
+      .set('Host', `127.0.0.1:${PORT}`);
+    return cookie ? r.set('Cookie', cookie) : r;
+  };
+
+  it('sends a browser that has never signed in to the plain sign-in page', async () => {
+    const app = await makeApp();
+    const res = await htmlGet(app, '/agents');
+    expect(res.headers.location).toBe('/auth');
+  });
+
+  it('sends a browser whose session lapsed to the expired page instead', async () => {
+    const app = await makeApp();
+    const res = await htmlGet(app, '/agents', `${SEEN_COOKIE}=1`);
+    expect(res.headers.location).toBe('/auth?expired=1');
+  });
+
+  it('tells an expired operator they were signed out, not that they never signed in', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/auth?expired=1').set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Your session expired');
+    // The recovery instruction has to be one they can act on while the daemon
+    // is still up — the boot-time banner is gone by then.
+    expect(res.text).toContain('sua dashboard signin-url');
+    expect(res.text).not.toContain('Sign in required');
+  });
+
+  it('keeps the original copy for a genuine first visit', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/auth').set('Host', `127.0.0.1:${PORT}`);
+    expect(res.text).toContain('Sign in required');
+    expect(res.text).not.toContain('Your session expired');
+  });
+
+  it('tags the 401 so in-page fetches can tell a sign-out from a server error', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/session/ping')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(401);
+    expect(res.body.signedOut).toBe(true);
+  });
+
+  it('answers the liveness probe while the session is valid', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/session/ping')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('sets the seen marker alongside the session on sign-in', async () => {
+    const app = await makeApp();
+    const res = await request(app).post('/auth')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .send({ token: TOKEN });
+    const cookieStr = ([] as string[]).concat(res.headers['set-cookie'] as never).join('\n');
+    expect(cookieStr).toMatch(new RegExp(`${SEEN_COOKIE}=1`));
+  });
+});
+
+/**
+ * Sliding renewal. The window was previously absolute — 8h from sign-in, never
+ * extended — so a daily user was logged out roughly once a day regardless of
+ * how much they were using it. Renewing on navigation makes it idle time.
+ */
+describe('Session renewal', () => {
+  it('re-issues the session cookie on an authenticated page load', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/agents')
+      .set('Accept', 'text/html')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    const cookieStr = ([] as string[]).concat(res.headers['set-cookie'] as never).join('\n');
+    expect(cookieStr).toMatch(new RegExp(`${SESSION_COOKIE}=${TOKEN}`));
+    expect(cookieStr).toMatch(/Max-Age=\d+/);
+  });
+
+  it('backfills the seen marker for a session that predates it', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/agents')
+      .set('Accept', 'text/html')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const cookieStr = ([] as string[]).concat(res.headers['set-cookie'] as never).join('\n');
+    expect(cookieStr).toMatch(new RegExp(`${SEEN_COOKIE}=1`));
+  });
+
+  it('does not renew on polls and assets, only on navigations', async () => {
+    const app = await makeApp();
+    // A background poll must not keep an abandoned open tab alive forever.
+    const res = await request(app).get('/session/ping')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}; ${SEEN_COOKIE}=1`);
+    expect(res.status).toBe(200);
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+});
+
 
 describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
   const authed = (app: unknown, path: string) =>

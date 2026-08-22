@@ -5,7 +5,7 @@ import { startDashboardServer, getBuildInfo } from '@some-useful-agents/dashboar
 import { getMcpTokenPath, readMcpToken } from '@some-useful-agents/core';
 
 const execFileAsync = promisify(execFile);
-import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl, resolveProvider } from '../config.js';
+import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl, getDashboardPort, resolveProvider } from '../config.js';
 import { createProvider } from '../provider-factory.js';
 import * as ui from '../ui.js';
 
@@ -114,6 +114,45 @@ export const dashboardCommand = new Command('dashboard')
   .description('Read-only web UI for agents, runs, and run-now');
 
 dashboardCommand
+  .command('signin-url')
+  .description('Print a fresh sign-in link for an already-running dashboard')
+  .option('--port <port>', 'Port the dashboard is listening on (defaults to config)')
+  .option('--host <host>', 'Host to build the link for', '127.0.0.1')
+  .addHelpText(
+    'after',
+    `
+Use this when someone is signed out and the dashboard is already running.
+'sua dashboard start' prints a sign-in link once, at boot — a session that
+lapses later leaves the operator with no way back in, because the daemon is
+still up and will never reprint that line. This reprints it on demand.
+
+The link carries the bearer token in a URL fragment, so it is a credential:
+send it over something you would send a password over, and it stops working
+if you run 'sua mcp rotate-token'.
+`,
+  )
+  .action((options: { port?: string; host: string }) => {
+    const config = loadConfig();
+    const token = readMcpToken();
+    if (!token) {
+      ui.fail(`No MCP token at ${getMcpTokenPath()}.`);
+      console.error(ui.dim('Run "sua init" or "sua mcp rotate-token" first.'));
+      process.exit(1);
+    }
+
+    const port = options.port ? Number.parseInt(options.port, 10) : getDashboardPort(config);
+    if (!Number.isFinite(port) || port < 1 || port > 65535) {
+      ui.fail(`Invalid port "${options.port}".`);
+      process.exit(1);
+    }
+
+    const host = dialableHost(options.host);
+    console.log(`http://${host}:${port}/auth#token=${token}`);
+    console.log('');
+    console.log(ui.dim('Open that once to sign in. It is a credential — treat it like a password.'));
+  });
+
+dashboardCommand
   .command('start')
   .description('Start the dashboard HTTP server (foreground)')
   .option('--port <port>', 'Port to listen on', '3000')
@@ -144,10 +183,12 @@ On startup it prints a one-time URL like:
 
 Click that URL once to set the session cookie; after that, bookmark
 http://127.0.0.1:3000/. If you don't have a token yet, run 'sua init'
-or 'sua mcp rotate-token' first.
+or 'sua mcp rotate-token' first. To reprint the link later — for someone
+who got signed out while the dashboard kept running — use
+'sua dashboard signin-url'.
 
-The dashboard runs foreground; Ctrl-C stops it. Daemonization is out
-of scope for this release — wrap in launchd / systemd if you need it.
+This command runs in the foreground; Ctrl-C stops it. To run detached
+alongside the scheduler and MCP server, use 'sua daemon start'.
 `,
   )
   .action(async (options: { port: string; host: string; provider?: string; allowUntrustedShell: string[]; replace?: boolean }) => {

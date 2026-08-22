@@ -9,6 +9,7 @@
  * The concatenation ORDER is execution order — keep it identical to the former
  * inline order in layout.ts. Add new bundles here (not in the layout template).
  */
+import { SESSION_GUARD_JS } from './session-guard.js.js';
 import { DASHBOARD_JS } from './js.js';
 import { TEMPLATE_PALETTE_JS } from './template-palette.js.js';
 import { SUGGEST_IMPROVEMENTS_JS } from './suggest-improvements.js.js';
@@ -43,7 +44,9 @@ import { MINI_DAG_TIP_JS } from './mini-dag-tip.js.js';
 import { AGENT_ID_SLUG_JS } from './agent-id-slug.js.js';
 
 export const CLIENT_BUNDLE_JS: string =
-  DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS
+  // SESSION_GUARD_JS first: it wraps window.fetch, and installing the wrapper
+  // before anything else runs keeps the coverage total.
+  SESSION_GUARD_JS + DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS
   + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS
   + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS
   + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS

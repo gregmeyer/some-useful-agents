@@ -191,6 +191,36 @@ Templates (both hand-authored and AI-generated) are trusted at save time. Anyone
 
 The dashboard's auth model (cookie + Host + Origin allowlist) is what gates *who can save*.
 
+### Dashboard session lifetime
+
+The session cookie (`sua_dashboard_session`) holds the bearer token itself. It is
+`HttpOnly`, `SameSite=Strict`, `Path=/`, and not `Secure` — the dashboard binds
+127.0.0.1, so HTTPS is not in play.
+
+**The window is idle time, not total time.** It defaults to **30 days** of
+inactivity and is re-issued on each authenticated page navigation. Set
+`SUA_DASHBOARD_SESSION_HOURS` to change it — `SUA_DASHBOARD_SESSION_HOURS=8`
+restores the pre-v0.28 posture. A malformed or out-of-range value falls back to
+the default rather than producing a session that never expires.
+
+This is a deliberate relaxation. Before v0.28 the window was an **absolute 8
+hours** from sign-in with no renewal, which signed a daily user out roughly once
+a day — and, because recovery required the one-time URL that `sua dashboard
+start` prints only at boot, a non-technical operator could not get back in
+without someone at a terminal. We accepted a longer window because the cookie
+lifetime was never the control doing the work here: the loopback bind, the Host
+and Origin allowlists, `HttpOnly`, and `SameSite=Strict` are. Rationale and the
+alternatives considered are in [ADR-0033](adr/0033-idle-dashboard-session.md).
+
+A second cookie, `sua_dashboard_seen`, carries the literal value `1` and no
+secret. It exists only so the server can tell an expired session apart from a
+browser that has never signed in, and is never consulted for authorization.
+
+`sua mcp rotate-token` still invalidates every existing session immediately,
+since the cookie value is compared against the token the server loaded.
+`sua dashboard signin-url` reprints a sign-in link for an already-running
+dashboard; that link carries the token in its fragment, so it is a credential.
+
 ## What sua does NOT defend against
 
 Being explicit so you can evaluate whether sua is the right tool for your threat model:
