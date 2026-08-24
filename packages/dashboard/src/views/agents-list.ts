@@ -63,11 +63,22 @@ export function renderAgentsList(input: AgentsListInput): string {
     if (!lastRunByAgent.has(r.agentName)) lastRunByAgent.set(r.agentName, r);
   }
 
+  // `empty` is scoped to the ACTIVE TAB — v2/v1 are already filtered by
+  // source before they get here. That distinction is load-bearing: the page
+  // used to treat an empty tab as an empty install, so an operator whose
+  // agents are all `source: examples` landed on the default User tab, was
+  // told "No agents yet", and — worse — the tab strip that would have
+  // revealed them was suppressed too. A hundred agents, invisible.
   const empty = !hasV2 && !hasV1;
+  const counts = input.tabCounts ?? { user: 0, examples: 0, community: 0 };
+  const installEmpty = empty && counts.user + counts.examples + counts.community === 0;
   // "Nothing matched your search" and "you have no agents" are different
   // situations with different next steps. Conflating them told a searching
   // user to run `sua init`.
   const emptySearch = empty && Boolean(input.filter?.q);
+  // Empty tab, agents elsewhere. Same shape of problem as an empty search:
+  // the reader needs to be told where the agents actually are.
+  const emptyTab = empty && !emptySearch && !installEmpty;
 
   const body = html`
     ${pageHeader({
@@ -83,14 +94,17 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${sectionTabs('agents')}
 
-    ${empty && !emptySearch ? renderEmptyState() : html``}
+    ${installEmpty ? renderEmptyState() : html``}
     ${!empty ? renderStatStrip(input.stats) : html``}
 
-    ${/* On an empty SEARCH keep the tabs and the box on screen — hiding them
-          stranded you with no way to edit the query that found nothing. */ html``}
-    ${!empty || emptySearch ? renderTabStrip(input) : html``}
-    ${!empty || emptySearch ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
+    ${/* Keep the tabs and the filter box on screen unless the install is
+          genuinely empty. Hiding them on an empty SEARCH stranded you with no
+          way to edit the query; hiding them on an empty TAB was worse — it
+          removed the only route to the agents you actually have. */ html``}
+    ${!installEmpty ? renderTabStrip(input) : html``}
+    ${!installEmpty ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
     ${emptySearch ? renderNoMatches(input) : html``}
+    ${emptyTab ? renderEmptyTab(input) : html``}
 
     ${hasV2 ? html`
       <div class="agent-grid">
@@ -290,6 +304,38 @@ function renderNoMatches(input: AgentsListInput): SafeHtml {
         html`<button type="button" class="ask-chip ask-chip--lead" data-ask="${q}">
           Ask sua: <span class="ask-chip__q">${q}</span>
         </button>`}
+    </section>
+  `;
+}
+
+/**
+ * This tab has nothing, but the install does. Mirrors `renderNoMatches` — the
+ * reader's problem is identical (looking at an empty list) and so is the
+ * answer (here is where they actually are), so it should read the same.
+ */
+function renderEmptyTab(input: AgentsListInput): SafeHtml {
+  const counts = input.tabCounts ?? { user: 0, examples: 0, community: 0 };
+  const active = input.tab ?? 'user';
+  const label: Record<'user' | 'examples' | 'community', string> = {
+    user: 'User', examples: 'Examples', community: 'Community',
+  };
+  const elsewhere = (['user', 'examples', 'community'] as const)
+    .filter((t) => t !== active && counts[t] > 0)
+    .map((t) => html`<a href="${agentBuildUrl(input.filter, input.limit, 0, t)}">${String(counts[t])} in ${label[t]}</a>`);
+
+  return html`
+    <section class="card" style="padding: var(--space-6); margin-bottom: var(--space-6);">
+      <p style="margin: 0 0 var(--space-2);">
+        No agents in <strong>${label[active]}</strong>.
+      </p>
+      ${elsewhere.length > 0
+        ? html`<p class="dim" style="margin: 0 0 var(--space-3); font-size: var(--font-size-sm);">
+            You have ${elsewhere as unknown as SafeHtml[]}.
+          </p>`
+        : html``}
+      <p style="display: flex; gap: var(--space-2); margin: 0;">
+        <a class="btn btn--primary btn--sm" href="/agents/new">New agent</a>
+      </p>
     </section>
   `;
 }
