@@ -197,11 +197,11 @@ export function renderHelp(): string {
     <section class="card card--muted" style="margin-bottom: var(--space-6);">
       <p class="card__title">Start here</p>
       <p style="margin-bottom: var(--space-3); display: flex; gap: var(--space-3); flex-wrap: wrap;">
-        <a href="/start" class="btn btn--primary">Quick start \u2014 run an agent \u2192</a>
+        <a href="/start" class="btn btn--primary">Start here \u2014 run an agent \u2192</a>
         <a href="/help/tutorial" class="btn">Open the dashboard tutorial \u2192</a>
       </p>
       <p style="margin: 0 0 var(--space-3); line-height: 1.6;">
-        <strong>Quick start</strong> is three agents, one per pattern \u2014 research something,
+        <strong>Start here</strong> is three agents, one per pattern \u2014 research something,
         watch something, draft something. Run one and watch its DAG; each is a few steps
         wired together, and the YAML is a click away. Fastest way to see what this is.
       </p>

@@ -250,5 +250,8 @@ export function renderConnectModelPage(args: ConnectModelArgs): string {
     </div>
   `;
 
-  return render(layout({ title: 'Connect a model', activeNav: 'settings' }, body));
+  // No activeNav: this is a first-run setup screen that is not in the nav, and
+  // highlighting Settings told the reader they had navigated somewhere they
+  // hadn't. `activeNav` is optional, so nothing lights up.
+  return render(layout({ title: 'Connect a model' }, body));
 }

@@ -1292,6 +1292,14 @@
 .page-intro__text { flex: 1; line-height: 1.5; }
 .page-intro__link { color: var(--color-primary); white-space: nowrap; text-decoration: none; }
 .page-intro__link:hover { text-decoration: underline; }
+/* Next-step buttons in an intro. Wrap rather than squeeze on a narrow
+   viewport — the text has flex:1 and would otherwise crush them. */
+.page-intro__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
 .page-intro__dismiss {
   flex-shrink: 0;
   background: none;

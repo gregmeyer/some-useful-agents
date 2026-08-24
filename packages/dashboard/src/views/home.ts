@@ -18,6 +18,7 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 import { formatAge } from './components.js';
+import { pageIntro } from './page-intro.js';
 import { cleanSnippet, PREVIEW_ROLE_LABEL, type InboxRowPreviewPayload } from './inbox-list.js';
 import { formatNatureMeta, type HomeFeedData, type CadenceItem } from '../lib/home-feed.js';
 
@@ -157,9 +158,26 @@ export function renderHomePage(input: HomePageInput): string {
     return render(layout({ title: 'Home', activeNav: 'home', flash: input.flash }, body));
   }
 
-  // Home is now just the cadence feed. The `sua ›` ask prompt is global chrome
+  // Home is the cadence feed. The `sua ›` ask prompt is global chrome
   // (layout.ts); Signals live at /pulse; recent activity lives at /runs.
+  //
+  // Above it sits a dismissible orientation line, because this page is the
+  // only one a newcomer is guaranteed to see and it said nothing about what
+  // sua is or where to begin. The zero-agent branch above has that
+  // orientation, but it cannot render on a normal install — `sua init`
+  // installs ~40 agents — so in practice nobody ever saw it. `/start` and the
+  // tutorial were three clicks away via Help; now they are one, and both
+  // vanish for good once the reader dismisses the line.
   const body = html`
+    ${pageIntro({
+      key: 'home',
+      text: 'Your agents run here, on this machine — this page is what needs your attention.',
+      learnMore: { href: '/help', label: 'What is sua?' },
+      actions: [
+        { href: '/start', label: 'Start here', primary: true },
+        { href: '/help/tutorial', label: 'Tutorial' },
+      ],
+    })}
     ${renderHomeInboxFeed(input.feed)}
   `;
 

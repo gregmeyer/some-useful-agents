@@ -132,7 +132,9 @@ describe('GET /start', () => {
     const res = await request(app).get('/start').set(HDRS);
     // /agents, /packs et al render pageHeader() then sectionTabs(); without
     // the header this page reads as structurally different from its siblings.
-    expect(res.text).toContain('Quick start');
+    // Assert the H1 specifically: "Start here" also appears in the tab strip,
+    // so a bare substring would pass with no page header at all.
+    expect(res.text).toMatch(/<h1[^>]*>\s*Start here\s*<\/h1>/);
     expect(res.text).toContain('class="page-header"');
     expect(res.text).toContain('tab-strip');
     // Exactly one h1 — pageHeader owns it.
@@ -181,7 +183,7 @@ describe('GET /start', () => {
     const res = await request(app).get('/help').set(HDRS);
     expect(res.status).toBe(200);
     expect(res.text).toContain('href="/start"');
-    expect(res.text).toContain('Quick start');
+    expect(res.text).toContain('Start here \u2014 run an agent');
   });
 
   it('shows the flash handed over by the connect-a-model redirect', async () => {
