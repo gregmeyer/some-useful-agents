@@ -41,14 +41,21 @@ export function tileWrap(
   ctx: TileWrapContext = { kind: 'pulse' },
 ): SafeHtml {
   const isSystem = tile.agent.id.startsWith('_system-');
-  // Size + tileFit + height all flow through a 3-link fallback:
+  // Size + tileFit + height all flow through a fallback chain:
   //   layoutHint (from LayoutHintsStore, written by Improve-layout) →
-  //   signal/outputWidget (the agent's declared defaults) →
+  //   the agent's declared signal.size / outputWidget.tileFit →
+  //   the TEMPLATE's own default size →
   //   hard-coded default ('1x1' / 'grow' / no pinned height).
-  // PR 1 wires the lookup; later PRs teach the planner + commit endpoint
-  // to actually write hints. Today layoutHint is always undefined, so
-  // the visible behaviour matches pre-hints.
-  const sizeAttr = tile.layoutHint?.size ?? tile.signal.size ?? '1x1';
+  //
+  // The template step used to be missing: this read `signal.size ?? '1x1'`,
+  // so every template's `defaultSize` in TEMPLATE_REGISTRY was dead config —
+  // declared, shown to the build planner via discovery-catalog.ts, and never
+  // applied by the renderer. A `widget` or `table` tile whose author didn't
+  // spell out a size was squeezed into a 1x1 box the registry explicitly says
+  // should be 2x1.
+  const effectiveSize = tile.signal.size
+    ?? TEMPLATE_REGISTRY[normalizeSignal(tile.signal).template]?.defaultSize;
+  const sizeAttr = tile.layoutHint?.size ?? effectiveSize ?? '1x1';
   const autoPalette = resolveAutoPalette(tile);
   const paletteAttr = autoPalette && autoPalette !== 'default'
     ? ` data-auto-palette="${autoPalette}"`
@@ -130,7 +137,10 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
     mapping,
     title: tile.signal.title,
     icon: tile.signal.icon ?? '',
-    size: tile.signal.size ?? '1x1',
+    // Report the size the tile is ACTUALLY rendering at, not just what the
+    // agent spelled out — otherwise the configure modal shows 1x1 for a tile
+    // the template is sizing 2x1, and saving silently shrinks it.
+    size: tile.signal.size ?? TEMPLATE_REGISTRY[template]?.defaultSize ?? '1x1',
     accent: tile.signal.accent ?? '',
     refresh: tile.signal.refresh ?? '',
   });

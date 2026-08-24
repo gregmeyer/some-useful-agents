@@ -152,3 +152,51 @@ describe('tile run control', () => {
     expect(WIDGET_REPLAY_INPLACE_JS).toContain(".pulse-tile[data-agent-id]");
   });
 });
+
+/**
+ * Tile sizing honours the template's own default.
+ *
+ * `TEMPLATE_REGISTRY` declares a `defaultSize` per template and
+ * `discovery-catalog.ts` reports it to the build planner, but the renderer
+ * hardcoded `signal.size ?? '1x1'` — so the registry's sizes were dead config
+ * and a `widget` or `table` tile with no explicit size was squeezed into a box
+ * the registry says should be twice as wide.
+ */
+describe('tile sizing', () => {
+  const sized = (signal: Partial<AgentSignal>) =>
+    tileWrap(tile({ signal: { title: 'T', ...signal } as AgentSignal }), body).toString();
+
+  it('uses the template default when the agent declares no size', () => {
+    // widget/table/story/key-value/comparison/media/text-image are all 2x1.
+    expect(sized({ template: 'widget' })).toContain('data-tile-size="2x1"');
+    expect(sized({ template: 'table' })).toContain('data-tile-size="2x1"');
+    expect(sized({ template: 'image' })).toContain('data-tile-size="2x2"');
+    expect(sized({ template: 'funnel' })).toContain('data-tile-size="1x2"');
+  });
+
+  it('leaves genuinely small templates small', () => {
+    for (const t of ['metric', 'status', 'text-headline'] as const) {
+      expect(sized({ template: t })).toContain('data-tile-size="1x1"');
+    }
+  });
+
+  it('an explicit signal.size still wins over the template default', () => {
+    expect(sized({ template: 'widget', size: '1x1' })).toContain('data-tile-size="1x1"');
+  });
+
+  it('a layout hint still wins over everything', () => {
+    const t = tile({
+      signal: { title: 'T', template: 'metric' } as AgentSignal,
+      layoutHint: { agentId: 'demo', size: '2x2', updatedAt: 0 },
+    } as Partial<PulseTile>);
+    expect(tileWrap(t, body).toString()).toContain('data-tile-size="2x2"');
+  });
+
+  it('reports the effective size to the configure modal, not a stale 1x1', () => {
+    // The modal writes back whatever it shows; reporting 1x1 for a tile the
+    // template is sizing 2x1 would silently shrink it on the next save.
+    const out = sized({ template: 'widget' });
+    const cfg = /data-signal-config="([^"]*)"/.exec(out)![1].replace(/&quot;/g, '"');
+    expect(JSON.parse(cfg).size).toBe('2x1');
+  });
+});
