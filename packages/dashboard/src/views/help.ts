@@ -24,33 +24,37 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
     ],
   },
   {
-    title: 'Agents & workflows',
+    title: 'Agents',
     commands: [
-      { cmd: 'sua agent new', desc: 'Interactive scaffolder for a new YAML agent.' },
+      { cmd: 'sua agent new', desc: 'Interactive scaffolder for a new agent.' },
       {
-        cmd: 'sua workflow list',
-        desc: 'List DAG agents in the run DB.',
+        cmd: 'sua agent list',
+        desc: 'List every agent you have, with a column saying which are still on the older format.',
         inDashboard: { label: 'Agents page', href: '/agents' },
       },
       {
-        cmd: 'sua workflow run <id>',
-        desc: 'Execute a DAG agent once, synchronously.',
+        cmd: 'sua agent run <id>',
+        desc: 'Run an agent once and wait for the result.',
         inDashboard: { label: '"Run now" on agent detail', href: '/agents' },
       },
       {
         cmd: 'sua workflow show <id>',
-        desc: 'Print the DAG of an agent as text or YAML.',
-        inDashboard: { label: 'DAG viz on agent detail', href: '/agents' },
+        desc: 'Print an agent\u2019s nodes and how they connect, as text or YAML.',
+        inDashboard: { label: 'Diagram on agent detail', href: '/agents' },
       },
-      { cmd: 'sua workflow import agents/ --apply', desc: 'Migrate v1 YAML chains into merged v2 DAG agents.' },
+      { cmd: 'sua workflow import agents/ --apply', desc: 'Bring agents written in the older format up to date.' },
       { cmd: 'sua workflow export <id>', desc: 'Emit an agent\u2019s YAML to stdout (lossless round-trip).' },
-      { cmd: 'sua workflow status <id> <newStatus>', desc: 'Set active | paused | archived | draft. UI toggle lands in the next v0.15 PR.' },
+      { cmd: 'sua workflow status <id> <newStatus>', desc: 'Set active | paused | archived | draft. No dashboard equivalent yet.' },
       {
         cmd: 'sua workflow logs <runId>',
-        desc: 'Per-node execution records for a run.',
+        desc: 'Per-node records for a run.',
         inDashboard: { label: 'Run detail', href: '/runs' },
       },
-      { cmd: 'sua workflow replay <runId> --from <nodeId>', desc: 'Re-run a prior run from a specific node, reusing upstream outputs. UI arrives in v0.15.' },
+      {
+        cmd: 'sua workflow replay <runId> --from <nodeId>',
+        desc: 'Re-run a past run from one node onward, reusing the outputs above it.',
+        inDashboard: { label: 'Replay on run detail', href: '/runs' },
+      },
     ],
   },
   {
@@ -63,8 +67,16 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
   {
     title: 'Secrets',
     commands: [
-      { cmd: 'sua secrets set <NAME>', desc: 'Store an encrypted secret (value prompted, never echoed).' },
-      { cmd: 'sua secrets list', desc: 'List declared secret names. Values are never shown.' },
+      {
+        cmd: 'sua secrets set <NAME>',
+        desc: 'Store an encrypted secret (value prompted, never echoed).',
+        inDashboard: { label: 'Settings → Secrets', href: '/settings/secrets' },
+      },
+      {
+        cmd: 'sua secrets list',
+        desc: 'List declared secret names. Values are never shown.',
+        inDashboard: { label: 'Settings → Secrets', href: '/settings/secrets' },
+      },
       { cmd: 'sua secrets migrate', desc: 'Upgrade legacy v1 secrets file to v2 passphrase-protected form.' },
     ],
   },
@@ -72,7 +84,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
     title: 'MCP & dashboard',
     commands: [
       { cmd: 'sua mcp start', desc: 'Start the MCP server on 127.0.0.1:3003.' },
-      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token. UI button arrives in v0.15 General settings.' },
+      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token. No dashboard equivalent yet.' },
       { cmd: 'sua dashboard start', desc: 'Start this web UI.' },
     ],
   },
@@ -119,7 +131,7 @@ export function renderHelp(): string {
       <p class="card__title">What is sua?</p>
       <p style="margin-bottom: var(--space-3); line-height: 1.6;">
         A <strong>local-first agent playground</strong>. Your agents are YAML files that run on your
-        machine \u2014 shell commands, Claude/Codex prompts, and tools chained into DAGs. No cloud.
+        machine \u2014 shell commands, Claude/Codex prompts, and tools wired together step by step. No cloud.
         Runs, secrets, and imported MCP tools all live in <code>data/runs.db</code> beside the project.
       </p>
       <p class="dim" style="margin: 0; line-height: 1.6;">
@@ -202,12 +214,12 @@ export function renderHelp(): string {
       </p>
       <p style="margin: 0 0 var(--space-3); line-height: 1.6;">
         <strong>Start here</strong> is three agents, one per pattern \u2014 research something,
-        watch something, draft something. Run one and watch its DAG; each is a few steps
+        watch something, draft something. Run one and watch it move through its nodes; each is a few nodes
         wired together, and the YAML is a click away. Fastest way to see what this is.
       </p>
       <p class="dim" style="margin: 0; line-height: 1.6;">
         The <strong>tutorial</strong> is a progress-tracked walkthrough tied to your project's
-        state: registered agents, first run, per-node outputs, multi-node DAGs, secrets. Each
+        state: registered agents, first run, per-node outputs, multi-node agents, secrets. Each
         step links to the dashboard page where the action happens. For a terminal-first
         walkthrough instead, run <code>sua tutorial</code> from your project directory.
       </p>

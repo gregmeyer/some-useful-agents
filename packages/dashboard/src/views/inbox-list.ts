@@ -429,7 +429,8 @@ function renderSuggestBanner(suggestions: Array<{ label: string; count: number; 
         </div>
         <div class="inbox-suggest__items">
           <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
-            Nothing in your inbox. Click <strong>+ New conversation</strong> to start one with the triage agent.
+            Nothing in your inbox. Click <strong>+ New conversation</strong> to start one with sua — it can
+            answer questions about your agents and run them for you.
           </span>
         </div>
       </div>

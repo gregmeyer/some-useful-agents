@@ -83,6 +83,7 @@ export function renderAgentsList(input: AgentsListInput): string {
   const body = html`
     ${pageHeader({
       title: 'Agents',
+      description: 'Everything you have built or installed. Open one to see what it does, run it, or put it on a schedule.',
       cta: html`
         <span style="display: inline-flex; gap: var(--space-2);">
           <a class="btn btn--ghost btn--sm" href="/help/tutorial">Tutorial</a>
@@ -586,17 +587,19 @@ function renderV1Block(v1: AgentDefinition[], hasV2: boolean): SafeHtml {
   if (!hasV2) {
     return html`
       <p class="dim">
-        No DAG agents yet. These v1 YAML files will migrate on
-        <code>sua workflow import --apply</code>.
+        These agents are written in sua’s older format. They still run, and everything on this page
+        works with them. To bring them up to date, run <code>sua workflow import --apply</code> in
+        your project directory.
       </p>
       ${table}
     `;
   }
   return html`
     <details style="margin-top: var(--space-6);">
-      <summary>Show ${String(v1.length)} legacy v1 agent${v1.length === 1 ? '' : 's'}</summary>
+      <summary>Show ${String(v1.length)} agent${v1.length === 1 ? '' : 's'} in the older format</summary>
       <p class="dim" style="margin-top: var(--space-2);">
-        Not yet migrated. Run <code>sua workflow import --apply</code> to merge these into DAG agents.
+        These still run as they are. To bring them up to date, run
+        <code>sua workflow import --apply</code> in your project directory.
       </p>
       ${table}
     </details>

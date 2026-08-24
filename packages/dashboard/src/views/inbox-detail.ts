@@ -350,7 +350,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const timelineBlock = html`
     <section class="inbox-modal__timeline-section">
       ${responses.length === 0 && !triagePending
-        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Use the composer below — the triage agent will join automatically.</p>`
+        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Write below and sua will reply here.</p>`
         : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
       ${triagePending ? renderThinkingIndicator(message.id) : html``}
     </section>

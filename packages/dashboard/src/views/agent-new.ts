@@ -38,7 +38,7 @@ export function renderAgentNew(args: {
   const body = html`
     ${pageHeader({
       title: 'New agent',
-      description: 'Create a single-node v2 DAG agent. For multi-node DAGs, create each node as its own agent, then chain them via the tutorial or CLI.',
+      description: 'Create an agent with one node. You can add more nodes afterwards on the agent’s Nodes tab.',
     })}
 
     ${errorBlock}

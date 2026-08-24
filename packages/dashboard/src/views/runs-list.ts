@@ -107,7 +107,7 @@ export function renderRunsList(opts: RunsListOptions): string {
       : html`
         <div class="settings-empty mt-0">
           <h3 class="mt-0">No runs yet</h3>
-          <p class="dim">Trigger your first run from the <a href="/agents">Agents</a> page or <code>sua workflow run &lt;id&gt;</code>.</p>
+          <p class="dim">Trigger your first run from the <a href="/agents">Agents</a> page or <code>sua agent run &lt;id&gt;</code>.</p>
         </div>`
     : html`
       <table class="table">
@@ -144,7 +144,10 @@ export function renderRunsList(opts: RunsListOptions): string {
   ` : html``;
 
   const body = html`
-    ${pageHeader({ title: 'Runs' })}
+    ${pageHeader({
+      title: 'Runs',
+      description: 'Every time an agent has run, newest first. Open one to see what each node did, and replay from any point.',
+    })}
     ${sectionTabs('runs')}
     ${filterBar}
     ${table}

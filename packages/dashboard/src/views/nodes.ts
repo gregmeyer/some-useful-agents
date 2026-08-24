@@ -81,9 +81,9 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
     ${pageHeader({
       title: 'Nodes',
       description:
-        'Every first-class node type sua’s executor knows. Hand-authored contracts: what each ' +
-        'node takes in, what it emits, when to reach for it. The planner-fronted agent-builder reads ' +
-        'this same catalog via /api/nodes when designing new agents.',
+        'Every kind of node an agent can be built from. For each one: what it takes in, what it ' +
+        'gives back, and when to reach for it. Build from goal picks from this same list when it ' +
+        'designs an agent for you.',
     })}
 
     ${sectionTabs('nodes')}
