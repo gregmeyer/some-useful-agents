@@ -85,18 +85,31 @@ export function renderStartHerePage(args: StartHereArgs): string {
     `;
   });
 
+  // `packMissing` was computed by the route and typed here but never rendered,
+  // so a missing PACK and a missing AGENT produced the same sentence. They need
+  // different answers: one is "install this", the other is "these three
+  // specific agents are gone". Neither should lead with a CLI command on a page
+  // whose whole job is to be the non-technical starting point.
   const empty = html`
     <div class="card">
       <p class="mt-0">
-        The starter agents aren't installed yet. Run <code>sua examples install</code>,
-        or browse everything under <a href="/agents?tab=examples">Agents → Examples</a>.
+        ${args.packMissing
+          ? html`The starter agents aren't installed yet. Install them from
+              <a href="/packs">Packs</a>, or browse everything under
+              <a href="/agents?tab=examples">Agents → Examples</a>.`
+          : html`The three starter agents are missing from this install. Browse
+              everything under <a href="/agents?tab=examples">Agents → Examples</a>,
+              or reinstall them from <a href="/packs">Packs</a>.`}
+      </p>
+      <p class="dim mt-0" style="font-size: var(--font-size-xs);">
+        Prefer the terminal? <code>sua examples install</code>
       </p>
     </div>
   `;
 
   const body = html`
     ${pageHeader({
-      title: 'Quick start',
+      title: 'Start here',
       cta: html`<a class="btn btn--ghost btn--sm" href="/help">Help &amp; docs</a>`,
     })}
 
