@@ -174,7 +174,9 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const board = buildPulseBoardData(ctx);
   const flash = parsePulseFlash(req);
-  res.send(render(layout({ title: 'Pulse', activeNav: 'pulse', flash }, renderPulseBoard(board))));
+  const description = 'Your board of agents — each tile shows one agent’s latest result, '
+    + 'and you can run it right from the tile.';
+  res.send(render(layout({ title: 'Pulse', activeNav: 'pulse', flash }, renderPulseBoard(board, { description }))));
 });
 
 export function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {

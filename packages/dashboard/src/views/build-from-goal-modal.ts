@@ -91,10 +91,10 @@ export function buildFromGoalModal(opts: BuildFromGoalModalOptions = {}): SafeHt
             <strong style="font-size: var(--font-size-sm);">LLM provider <span class="dim" style="font-weight: var(--weight-regular);">(optional)</span></strong>
             <select id="build-provider" class="input"
               style="padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
-              <option value="" selected>Use system default (waterfall from /settings/llm)</option>
+              <option value="" selected>Use my default (set in Settings → LLM)</option>
               ${(opts.availableProviders ?? LLM_PROVIDERS).map((p) => html`<option value="${p}">${PROVIDER_LABEL[p] ?? p}</option>`) as unknown as SafeHtml[]}
             </select>
-            <span class="dim" style="font-size: var(--font-size-xs);">Pins this build's planner/drafter/designer to the chosen provider. On failure the global fallback chain still applies.</span>
+            <span class="dim" style="font-size: var(--font-size-xs);">Uses this provider for every part of the build. If it fails, sua falls back to your other configured providers.</span>
           </label>
           <div style="display: flex; gap: var(--space-2); justify-content: flex-end;">
             <button type="button" class="btn btn--ghost btn--sm" data-close-build="1">Cancel</button>

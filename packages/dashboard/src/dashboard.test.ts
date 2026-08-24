@@ -775,6 +775,25 @@ describe('Dashboard static assets', () => {
   });
 });
 
+describe('Top-level pages introduce themselves', () => {
+  // Agents, Pulse, Runs and Settings each rendered a bare title while Nodes,
+  // Packs, Behaviors and Help all carried an eyebrow description — so the four
+  // most-visited pages were the four that said least. Asserted as a set so a
+  // new top-level page can't quietly ship without one.
+  const PAGES = ['/agents', '/pulse', '/runs', '/settings/secrets', '/nodes'];
+
+  for (const path of PAGES) {
+    it(`GET ${path} renders an eyebrow description under its title`, async () => {
+      const app = await makeApp();
+      const res = await request(app).get(path)
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('page-header__description');
+    });
+  }
+});
+
 describe('Dashboard help + tutorial', () => {
   it('GET /help renders the CLI reference page', async () => {
     const app = await makeApp();
@@ -784,7 +803,28 @@ describe('Dashboard help + tutorial', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('Help &amp; tutorial');
     expect(res.text).toContain('Open the dashboard tutorial');
-    expect(res.text).toContain('sua workflow run');
+    // ADR-0032: `agent` is the user-facing verb, so help teaches `sua agent run`
+    // rather than `sua workflow run`. `workflow` still appears for the verbs it
+    // exclusively owns (export, replay, logs...).
+    expect(res.text).toContain('sua agent run');
+    expect(res.text).not.toContain('sua workflow run');
+    expect(res.text).toContain('sua workflow replay');
+  });
+
+  it('GET /help promises no unshipped version, and points shipped features at the UI', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Four "arrives in v0.15" promises survived to v0.27; two described features
+    // that had since shipped (replay UI, secrets CRUD) and two that had not.
+    expect(res.text).not.toContain('v0.15');
+    // The two that shipped now link to where they actually live.
+    expect(res.text).toContain('/settings/secrets');
+    expect(res.text).toContain('Replay on run detail');
+    // The two that did not ship say so honestly instead of naming a version.
+    expect(res.text).toContain('No dashboard equivalent yet');
   });
 
   it('GET /help/tutorial marks step 1 done when agents exist, step 2 not done with no runs', async () => {
@@ -799,6 +839,30 @@ describe('Dashboard help + tutorial', () => {
     // Step 2: "Run your first agent" — not done yet, should show to-do badge
     // The progress card should reflect: 1 of 5 complete
     expect(res.text).toContain('of 8 steps complete');
+  });
+
+  it('GET /help/tutorial numbers its steps 1..8 with no duplicate and no gap', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // The secret step returned n:5, so the page rendered two "Step 5"s and no
+    // "Step 7" while claiming "of 8 steps complete".
+    const numbers = [...res.text.matchAll(/>Step (\d+)</g)].map((m) => Number(m[1]));
+    expect(numbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('GET /help/tutorial gives the secrets step a dashboard path, not just a CLI command', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/help/tutorial')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // The page header promises "no terminal required"; the step used to offer
+    // only `sua secrets set` and claim dashboard CRUD was still unshipped.
+    expect(res.text).toContain('Settings → Secrets');
+    expect(res.text).not.toContain('v0.15');
   });
 
   it('GET /help/tutorial references the first agent by id for the Run CTA', async () => {

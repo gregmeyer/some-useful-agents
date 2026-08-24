@@ -21,7 +21,10 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
   `;
 
   const body = html`
-    ${pageHeader({ title: 'Settings' })}
+    ${pageHeader({
+      title: 'Settings',
+      description: 'Everything sua needs to reach the outside world — model providers, secrets, and connected services — plus how this dashboard looks.',
+    })}
     <nav class="tab-strip">
       ${tab('secrets', 'Secrets')}
       ${tab('variables', 'Variables')}
