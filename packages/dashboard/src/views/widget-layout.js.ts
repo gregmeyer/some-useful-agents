@@ -123,15 +123,35 @@ export function widgetLayoutJS(config: WidgetLayoutConfig): string {
       try { localStorage.setItem(PALETTE_KEY, JSON.stringify(p)); } catch {}
     }
 
+    // Groups the SERVER computed (Pulse orders by how recently each agent
+    // ran; see lib/pulse-groups.ts). Absent on surfaces that don't send them,
+    // in which case we fall back to the synthesized default below.
+    var serverGroups = tileData.groups || null;
+    var serverLayoutVersion = tileData.layoutVersion || 0;
+
     // Build default layout if none exists.
     var layout = getLayout();
+
+    // One-time reseed when the server bumps the layout version. The board's
+    // grouping changed shape, and a layout saved under the old scheme pins
+    // every tile into containers that no longer mean anything — so a stored
+    // layout would silently defeat the new ordering for everyone who had ever
+    // loaded the page. Palettes, sizes and collapsed state live under separate
+    // keys and are untouched; only the grouping resets.
+    if (layout && serverLayoutVersion && (layout.v || 0) < serverLayoutVersion) {
+      layout = null;
+    }
+
     if (!layout || !layout.containers) {
-      ${hasCustomDefault ? `layout = { containers: (${config.defaultContainers!.toString()})(allIds, systemIds) };` : `layout = {
+      if (serverGroups && serverGroups.length > 0) {
+        layout = { containers: JSON.parse(JSON.stringify(serverGroups)) };
+      } else ${hasCustomDefault ? `{ layout = { containers: (${config.defaultContainers!.toString()})(allIds, systemIds) }; }` : `{ layout = {
         containers: [
           { id: 'health', label: 'Health', tiles: systemIds.slice() },
           { id: 'agents', label: 'Agents', tiles: allIds.filter(function(id) { return systemIds.indexOf(id) === -1; }) }
         ]
-      };`}
+      }; }`}
+      layout.v = serverLayoutVersion;
       saveLayout(layout);
     }
 
