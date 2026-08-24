@@ -16,7 +16,7 @@
     "node-cron": "4.6.0",
     "pg": "8.23.0",
     "turndown": "7.2.4",
-    "uuid": "14.0.1",
+    "uuid": "14.0.2",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "@types/pg": "8.21.0",
+    "@types/pg": "8.23.1",
     "@types/turndown": "5.0.6",
     "@types/uuid": "11.0.0",
     "typescript": "7.0.2"
