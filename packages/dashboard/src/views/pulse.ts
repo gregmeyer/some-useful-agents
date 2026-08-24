@@ -18,6 +18,7 @@ import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dr
 import { renderInstallPacksModal } from './install-packs-modal.js';
 import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
 import { pageIntro } from './page-intro.js';
+import { computeTileGroups } from '../lib/pulse-groups.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 
@@ -213,6 +214,56 @@ function tileFooter(tile: PulseTile): SafeHtml {
   `;
 }
 
+/**
+ * Bumped whenever the board's grouping scheme changes shape. The client
+ * layout engine reseeds a stored localStorage layout once when it sees a
+ * newer version — without that, anyone who had already loaded Pulse would
+ * keep their old flat arrangement and never see the new grouping.
+ *   1 — implicit: one flat `_default` grid, or client-synthesized Health/Agents
+ *   2 — server-computed Recent / Idle / Never run
+ */
+export const PULSE_LAYOUT_VERSION = 2;
+
+/**
+ * What the board shows when it has no tiles.
+ *
+ * Previously it showed an empty grid and nothing else — no explanation of why
+ * the page was blank or what would put something on it. Grouping made that
+ * worse, because with no groups there is not even a grid left to render.
+ *
+ * The two reasons for an empty board need different answers: everything is
+ * hidden (recoverable right here) versus no agent declares a `signal:` block
+ * at all (a concept the reader has probably never met).
+ */
+function emptyBoard(hiddenCount: number): SafeHtml {
+  if (hiddenCount > 0) {
+    // The Show all control already lives in the hidden-count strip below, so
+    // point at it rather than rendering a second button that does the same.
+    return html`
+      <div class="pulse-empty">
+        <h2>Every tile is hidden</h2>
+        <p>All ${String(hiddenCount)} of your signals are hidden from Pulse. Restore
+        them with <strong>Show all</strong> just below, or bring back individual
+        ones from <a href="/agents">Agents</a>.</p>
+      </div>
+    `;
+  }
+  return html`
+    <div class="pulse-empty">
+      <h2>Nothing on the board yet</h2>
+      <p>A tile appears here when an agent declares a <code>signal:</code> block —
+      that is the agent saying "show my latest result on the board". You can add
+      one from any agent's <strong>Config</strong> tab.</p>
+      <p class="dim">Tiles are runnable: once an agent is here you can run it
+      from the board without opening it.</p>
+      <div class="pulse-empty__actions">
+        <a class="btn btn--primary btn--sm" href="/agents">Browse agents</a>
+        <a class="btn btn--ghost btn--sm" href="/start">Start here</a>
+      </div>
+    </div>
+  `;
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────
 
 /**
@@ -242,6 +293,33 @@ export function renderPulseBoard(
   const systemTileIds = systemTiles.map((t) => t.agent.id);
 
   const doRenderTile = (tile: PulseTile) => renderTile(tile, tileWrap);
+
+  // Group + order by how recently each agent ran. The board used to be one
+  // flat grid in store order, which told the reader nothing; on a run console
+  // the useful sort is what you used last. See lib/pulse-groups.ts.
+  //
+  // The client layout engine re-renders the grid from localStorage, so these
+  // groups are also published in `pulse-tile-data` for it to seed from. This
+  // server markup is what a no-JS reader (and the first paint) actually sees,
+  // so it has to be correctly grouped on its own.
+  const groups = computeTileGroups(tiles, systemTileIds);
+  const tileById = new Map<string, PulseTile>(
+    [...systemTiles, ...tiles].map((t) => [t.agent.id, t]),
+  );
+  const groupSections = groups.map((g) => html`
+    <section class="pulse-container" data-container-id="${g.id}">
+      <div class="pulse-container__header">
+        <span class="pulse-container__label">${g.label}</span>
+        <span class="pulse-container__count">${String(g.tiles.length)}</span>
+      </div>
+      <div class="pulse-grid" data-container-id="${g.id}">
+        ${g.tiles
+          .map((id) => tileById.get(id))
+          .filter((t): t is PulseTile => Boolean(t))
+          .map(doRenderTile) as unknown as SafeHtml[]}
+      </div>
+    </section>
+  `);
 
   const dropdownOptions = buildDashboardOptions(input.installedDashboards ?? []);
   // Only render the dropdown when there's more than just the Default
@@ -283,12 +361,9 @@ export function renderPulseBoard(
     }) : html``}
 
     <div id="pulse-containers">
-      <section class="pulse-container" data-container-id="_default">
-        <div class="pulse-grid" data-container-id="_default">
-          ${systemTiles.map(doRenderTile) as unknown as SafeHtml[]}
-          ${tiles.map(doRenderTile) as unknown as SafeHtml[]}
-        </div>
-      </section>
+      ${groupSections.length > 0
+        ? (groupSections as unknown as SafeHtml[])
+        : emptyBoard(hiddenCount)}
     </div>
 
     ${hiddenCount > 0 ? html`
@@ -305,7 +380,7 @@ export function renderPulseBoard(
 
     ${dropdownOptions.length > 1 ? renderInstallPacksModal(input.availablePacks ?? []) : html``}
 
-    ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds })}</script>`)}
+    ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds, groups, layoutVersion: PULSE_LAYOUT_VERSION })}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
 }

@@ -196,6 +196,12 @@ The board is an information radiator with draggable signal tiles. Each agent wit
 
 **`template: widget`** is special — mirrors the agent's own outputWidget. No mapping required.
 
+**Tiles are grouped by how recently you used them** — Health (system metrics),
+Recent (ran in the last 7 days, newest first), Idle, and Never run. Empty groups
+are omitted. The ordering is meant for a run console: what you used last is what
+you are most likely to run again, and agents you set up but never used are
+collected at the bottom rather than scattered through the board.
+
 Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon (the × toggles the agent's `pulseVisible` flag). System metric tiles (runs today, avg duration, failure rate, agent count) pin to the top.
 
 **Every tile is runnable.** Each tile carries a **Run** button in its footer that

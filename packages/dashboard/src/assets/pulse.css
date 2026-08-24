@@ -39,6 +39,15 @@
   min-height: 28px;
 }
 
+/* Tile count beside a group label. Tabular so Recent/Idle/Never run
+   read as a scannable column rather than jittering with digit width. */
+.pulse-container__count {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
 .pulse-container__label {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -1170,3 +1179,30 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   font-size: var(--font-size-xl);
 }
 
+
+/* ── Empty board ───────────────────────────────────────────────────
+   Shown when no agent declares a signal, or when everything is hidden.
+   Before this the page rendered an empty grid with no explanation of
+   why it was blank — and once tiles were grouped, not even a grid. */
+.pulse-empty {
+  max-width: 52ch;
+  padding: var(--space-8) 0;
+}
+
+.pulse-empty h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+
+.pulse-empty p {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.pulse-empty__actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
