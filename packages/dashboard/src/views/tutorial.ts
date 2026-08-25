@@ -194,10 +194,10 @@ function step4MultiNodeDag(s: TutorialState): Step {
   let action: SafeHtml | undefined;
 
   if (done) {
-    summary = html`<span class="dim">You've executed a multi-node agent. The DAG viz on each run shows node-level status.</span>`;
+    summary = html`<span class="dim">You've run a multi-node agent. The diagram on each run shows how far each node got.</span>`;
     action = html`<a class="btn btn--sm" href="/agents/demo-digest">View demo-digest \u2192</a>`;
   } else if (s.hasDemoDag) {
-    summary = html`<span class="dim">The <code>demo-digest</code> 2-node DAG is already scaffolded. <a href="/agents/demo-digest">View its DAG</a> or run it.</span>`;
+    summary = html`<span class="dim">The two-node <code>demo-digest</code> agent is ready. <a href="/agents/demo-digest">See its nodes</a> or run it.</span>`;
     action = html`
       <form method="POST" action="/agents/demo-digest/run" style="margin: 0; display: inline;">
         <input type="hidden" name="from" value="tutorial">
@@ -206,7 +206,7 @@ function step4MultiNodeDag(s: TutorialState): Step {
     `;
   } else {
     summary = html`
-      <div class="dim" style="margin-bottom: var(--space-3);">Multi-node agents run nodes in topological order, passing each node's stdout to its downstream as an env var. Here's what you'll create:</div>
+      <div class="dim" style="margin-bottom: var(--space-3);">A multi-node agent runs each node in order and hands its output to the nodes that depend on it. Here's what you'll create:</div>
       ${scaffoldPreview({
         kind: 'agent',
         id: 'demo-digest',
@@ -219,12 +219,12 @@ function step4MultiNodeDag(s: TutorialState): Step {
     `;
     action = html`
       <form method="POST" action="/help/tutorial/scaffold-demo-dag" style="margin: 0; display: inline;">
-        <button type="submit" class="btn btn--primary btn--sm">Scaffold demo DAG</button>
+        <button type="submit" class="btn btn--primary btn--sm">Create demo-digest</button>
       </form>
     `;
   }
 
-  return { n: 4, title: 'See a multi-node DAG in action', done, summary, action };
+  return { n: 4, title: 'See a multi-node agent in action', done, summary, action };
 }
 
 // ─── Step 5 ──────────────────────────────────────────────────────────
@@ -292,14 +292,16 @@ function step7WireUpSecret(s: TutorialState): Step {
     ? html`<span class="dim">At least one agent declares a secret. Verify it's set on the Settings page.</span>`
     : html`
         <span class="dim">
-          Declare <code>secrets: [SLACK_WEBHOOK]</code> on a node, then store the value with
-          <code>sua secrets set SLACK_WEBHOOK</code>. Dashboard CRUD for secrets lands in the next v0.15 PR.
+          Declare <code>secrets: [SLACK_WEBHOOK]</code> on a node, then add the value under
+          <a href="/settings/secrets">Settings \u2192 Secrets</a> \u2014 unlock the store, name the secret, paste the
+          value. Values are encrypted and never shown again. (From a terminal, the same thing is
+          <code>sua secrets set SLACK_WEBHOOK</code>.)
         </span>
       `;
 
   const action = html`<a class="btn btn--sm" href="/settings/secrets">Open Settings \u2192 Secrets</a>`;
 
-  return { n: 5, title: 'Wire up a secret', done, summary, action };
+  return { n: 7, title: 'Wire up a secret', done, summary, action };
 }
 
 // ─── Preview helper ──────────────────────────────────────────────────

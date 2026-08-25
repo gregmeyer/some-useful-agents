@@ -272,7 +272,10 @@ function emptyBoard(hiddenCount: number): SafeHtml {
  * `layout()` wrapper, so callers can compose it (e.g. the Mission Control home
  * stacks it between a "Needs you" strip and a recent-activity section).
  *
- * `opts.heading` replaces the default `<h1>Pulse</h1>`. `opts.editable`
+ * `opts.heading` replaces the default `<h1>Pulse</h1>`, and `opts.description`
+ * adds the eyebrow line every other top-level page has. Both are opt-in because
+ * the home embeds this board under its OWN heading — a "this is Pulse"
+ * description there would describe the wrong page. `opts.editable`
  * (default true) gates the board-level arrangement affordances — Hide all /
  * Improve layout / Edit layout / + Add group, the layout modal, and the Pulse
  * page-intro. On the home it's false so the board stays glanceable and
@@ -281,7 +284,7 @@ function emptyBoard(hiddenCount: number): SafeHtml {
  */
 export function renderPulseBoard(
   input: PulsePageInput,
-  opts: { heading?: SafeHtml; editable?: boolean } = {},
+  opts: { heading?: SafeHtml; description?: string; editable?: boolean } = {},
 ): SafeHtml {
   const editable = opts.editable !== false;
   const { systemTiles, tiles, hiddenTiles } = input;
@@ -329,7 +332,9 @@ export function renderPulseBoard(
     : html``;
 
   return html`
-    <div style="display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
+    ${/* flex-wrap so the description can sit on its own full-width row beneath
+          the title and controls, the way pageHeader lays it out. */ html``}
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
       ${opts.heading ?? html`<h1 style="margin: 0;">Pulse</h1>`}
       <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
         ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
@@ -352,11 +357,12 @@ export function renderPulseBoard(
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
         ` : html``}
       </div>
+      ${opts.description ? html`<p class="page-header__description">${opts.description}</p>` : html``}
     </div>
 
     ${editable ? pageIntro({
       key: 'pulse',
-      text: 'Pulse is your live information radiator — each tile shows an agent\'s latest output. Drag to reorder, or use Improve layout to curate what shows.',
+      text: 'Drag tiles to reorder them, or use Improve layout to pick what shows and how big it is.',
       learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
     }) : html``}
 

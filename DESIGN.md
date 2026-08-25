@@ -83,6 +83,58 @@ The existing dashboard uses cool Tailwind grays (#fafafa, #e5e7eb). Switching to
 - **Duration:** micro(50-100ms) — hover states. short(150-200ms) — modal open/close, tab switch.
 - **No bounce, no spring.** Fade + slide only. Keep transitions under 200ms.
 
+## Voice and Vocabulary
+
+Words are part of the design system. This section is authoritative for user-facing copy in
+the dashboard and CLI help, the same way the Color section is authoritative for hex values.
+
+### Voice
+- **Say what the thing does, not what it is architecturally.** "Run an agent once and wait for
+  the result" beats "Execute a DAG synchronously."
+- **Second person, present tense, active voice.** "Your agents run on your machine." Not "Agents
+  are executed locally."
+- **State value, then reversibility.** The model is `/connect-model`'s "Give sua something to
+  think with" — say why someone would want this, then make clear it can be undone.
+- **Never promise a version.** Copy that says a feature "arrives in v0.15" is wrong the moment
+  it ships and wrong forever after if it doesn't. Say "No dashboard equivalent yet" instead, and
+  delete the sentence when it stops being true.
+- **A CLI command is not a remedy for someone in a browser.** If the dashboard tells a user to
+  run a terminal command, either give them the dashboard path first, or say plainly that the
+  terminal is the only way today.
+- **Don't name internal machinery in primary UI.** Subtitles, empty states, buttons, and option
+  labels are read by people who have never seen the source.
+- **Every top-level page introduces itself.** One line under the title — the `description` on
+  `pageHeader` — saying what the page is for and what you can do from it. A bare title assumes the
+  reader already knows why they are there. This is a permanent line, not a dismissible tip: use
+  `pageIntro` for a *how-to* someone should be able to dismiss once learned, and the header
+  description for *what this is*, which never stops being true.
+
+### The words we use
+| Concept | Say | Not |
+|---|---|---|
+| A thing you run | agent | workflow, DAG agent, v2 agent |
+| One unit inside an agent | node | step, task, stage |
+| An agent with several nodes | multi-node agent | DAG, graph |
+| One execution | run | invocation, execution |
+| Re-running from part-way | replay | re-entrant execution |
+| The picture of an agent's nodes | diagram | DAG viz, graph viz |
+| sua answering in the inbox | sua | the triage agent, `inbox-triage` |
+| Older agent file format | the older format | v1, legacy v1 |
+| The board of tiles | Pulse | information radiator, dashboard |
+
+### Never ships to a user
+`DAG` · `v1` / `v2` · `slot` · `outputWidget` · `executor` · `waterfall` · `fallback chain` ·
+`topological order` · `planner` / `drafter` / `designer` · `contract` · `catalog via /api/...`
+
+These are all fine in code, comments, ADRs, and this file. They are not fine in a page header,
+a form subtitle, an empty state, a button, or an option label.
+
+### CLI verbs in user-facing copy
+Per [ADR-0032](docs/adr/0032-agent-is-the-user-facing-cli-verb.md), `sua agent` is the
+user-facing verb. Use `sua agent run` / `sua agent list` in help, empty states, and docs.
+`sua workflow` keeps `show`, `import`, `import-yaml`, `export`, `replay`, `logs`, `status`,
+`rm` — reference those by their real names, but reach for `agent` whenever both exist.
+
 ## Dark Mode Strategy
 - Dark mode is the **default**. Light mode is the fallback.
 - Implemented via `[data-theme="dark"]` and `[data-theme="light"]` on `:root` or `<html>`.
@@ -99,4 +151,6 @@ The existing dashboard uses cool Tailwind grays (#fafafa, #e5e7eb). Switching to
 | 2026-04-18 | Dark mode as default | Developer tools live in dark mode. Ship what users actually use. |
 | 2026-04-18 | Keep existing teal #0f766e | Distinctive vs. the blue/purple every competitor uses. Already established in the codebase. |
 | 2026-06-29 | "Needs you" top-bar badge restyle (bordered soft-amber pill, mono count, pulsing dot, right-anchored) + formalized the 2xl (28px) token | The toast read as a flat wash floating mid-bar; a crafted, right-hugged pill fits the utilitarian-with-editorial direction. Added `--font-size-2xl` (the scale already documented 28px; the token was missing) so hero stats stop drifting to 32px. Added `.section-label` / `.stat-value` utilities to unify section headings + big numbers. |
+| 2026-08-24 | Every top-level page carries an eyebrow description; `pageIntro` reserved for dismissible how-tos | Agents, Pulse, Runs and Settings rendered a bare title while Nodes, Packs, Behaviors, Scheduled and Help all had one — so the four most-visited pages were the four that said least. Pulse had been using a *dismissible* intro to say what it is, which meant the explanation disappeared permanently the first time anyone closed it. Split the two: permanent "what this is" in the header, dismissible "how to arrange it" in `pageIntro`. |
+| 2026-08-24 | Added a **Voice and Vocabulary** section; swept the jargon it retires out of primary UI | Colour, type and spacing were governed; words were not, so jargon regrew after every sweep. The audit that prompted this found `DAG`, `v1`/`v2`, `executor`, `waterfall` and `planner/drafter/designer` in page headers, form subtitles and option labels — plus in-product help still promising features "in v0.15" at v0.27. A table of preferred terms is the only thing that makes a sweep stick past the next feature. |
 | 2026-06-29 | Full token sweep: every hardcoded `font-size` + off-grid padding/margin in `*.css` and view templates remapped onto tokens | The dashboard read as "disjointed" — a 7-12px label soup and off-4px-grid spacing bypassed the otherwise-solid token layer. All raw sizes/spacing now consume `--font-size-*` / `--space-*`. Intentional exceptions: the 16px rem anchor, optical 1px nudges, relative `em` units. (Known remaining: a few hardcoded accent hexes in `.pulse-tile[data-accent]` duplicate `--color-*` — color, not sizing; deferred.) |
