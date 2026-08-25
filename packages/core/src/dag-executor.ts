@@ -1055,7 +1055,7 @@ export async function executeAgentDag(
           if (serverId) {
             const server = deps.toolStore.getMcpServer(serverId);
             if (server && !server.enabled) {
-              throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Settings \u2192 MCP Servers.`);
+              throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Tools \u2192 Servers.`);
             }
           }
 

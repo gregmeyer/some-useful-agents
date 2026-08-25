@@ -1145,7 +1145,7 @@ export function renderNotifyEditor(agent: Agent, opts: NotifyEditorOptions = {})
           integrationPickerHtml =
             '<label style="display: block; margin-bottom: var(--space-2); font-size: var(--font-size-xs);">' +
               'Integration <select data-field="integration" data-integration-picker style="' + FIELD + ' margin-left: var(--space-2);">' + opts + '</select>' +
-              ' <span class="dim" style="margin-left: var(--space-2);">(<a href="/settings/integrations" target="_blank">manage</a>)</span>' +
+              ' <span class="dim" style="margin-left: var(--space-2);">(<a href="/tools?tab=integrations" target="_blank">manage</a>)</span>' +
             '</label>';
         }
         var header = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">' +

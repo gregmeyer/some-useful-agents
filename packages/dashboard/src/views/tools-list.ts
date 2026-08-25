@@ -5,7 +5,17 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { sectionTabs } from './section-tabs.js';
 
-type Tab = 'user' | 'builtin';
+/**
+ * Tools is the one home for everything an agent can call (ADR-0034):
+ * `builtin` ships with the runtime, `user` was imported from an MCP server,
+ * `servers` is where those imports came from, and `connections` is the saved
+ * credentials/endpoints an agent references by id. The last two moved here
+ * from Settings, where they were three clicks and one wrong cross-link away
+ * from the tools they produce.
+ */
+type Tab = 'user' | 'builtin' | 'servers' | 'integrations';
+
+const CATALOG_TABS = new Set<Tab>(['user', 'builtin']);
 
 export function renderToolsList(args: {
   builtins: ToolDefinition[];
@@ -15,11 +25,21 @@ export function renderToolsList(args: {
   limit?: number;
   offset?: number;
   providerUsage?: ProviderUsageRow[];
+  /** Pre-rendered body for the non-catalog tabs (servers / connections). */
+  panel?: SafeHtml;
+  /** Counts for the non-catalog tabs, shown in the strip like the others. */
+  serverCount?: number;
+  integrationCount?: number;
+  /** Banner after a server toggle/delete or an integration add/delete. */
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }): string {
   const f = args.filter ?? {};
   const limit = args.limit ?? 12;
   const offset = args.offset ?? 0;
-  const tab: Tab = args.tab === 'builtin' ? 'builtin' : 'user';
+  const tab: Tab = args.tab === 'builtin' || args.tab === 'servers' || args.tab === 'integrations'
+    ? args.tab
+    : 'user';
+  const isCatalog = CATALOG_TABS.has(tab);
 
   // Apply search + type filters to both sets (for accurate tab counts).
   const applyFilters = (list: ToolDefinition[]): ToolDefinition[] => {
@@ -40,7 +60,9 @@ export function renderToolsList(args: {
 
   const tabLink = (t: Tab, label: string, count: number): SafeHtml => {
     const isActive = t === tab;
-    const url = toolBuildUrl(f, limit, 0, t);
+    // Search/type/paging belong to the catalog tabs; don't drag them onto
+    // Servers or Integrations, which have nothing to filter.
+    const url = CATALOG_TABS.has(t) ? toolBuildUrl(f, limit, 0, t) : `/tools?tab=${t}`;
     const style = isActive
       ? 'border-bottom: 2px solid var(--color-primary); color: var(--color-text); font-weight: var(--weight-bold);'
       : 'border-bottom: 2px solid transparent; color: var(--color-text-muted);';
@@ -49,8 +71,10 @@ export function renderToolsList(args: {
 
   const tabStrip = html`
     <nav style="display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); margin-bottom: var(--space-4);">
-      ${tabLink('user', 'User tools', filteredUserTools.length)}
+      ${tabLink('user', 'Imported', filteredUserTools.length)}
       ${tabLink('builtin', 'Built-in', filteredBuiltins.length)}
+      ${tabLink('servers', 'Servers', args.serverCount ?? 0)}
+      ${tabLink('integrations', 'Integrations', args.integrationCount ?? 0)}
     </nav>
   `;
 
@@ -88,17 +112,7 @@ export function renderToolsList(args: {
     </div>
   `;
 
-  const body = html`
-    ${pageHeader({
-      title: 'Tools',
-      cta: html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
-    })}
-
-    ${sectionTabs('tools')}
-
-    ${renderProvidersSection(args.providerUsage ?? [])}
-
-    ${tabStrip}
+  const catalogBody = html`
     ${filterBar}
 
     ${total === 0 ? emptyState : html`
@@ -107,12 +121,31 @@ export function renderToolsList(args: {
       </div>
       ${toolPager(f, tab, limit, offset, total)}
       <footer style="margin-top: var(--space-8); text-align: center;">
-        <p class="dim">${String(total)} ${tab === 'user' ? 'user' : 'built-in'} tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : 'available'}</p>
+        <p class="dim">${String(total)} ${tab === 'user' ? 'imported' : 'built-in'} tool${total === 1 ? '' : 's'} ${f.q || f.type ? 'matching' : 'available'}</p>
       </footer>
     `}
   `;
 
-  return render(layout({ title: 'Tools', activeNav: 'tools' }, body));
+  const body = html`
+    ${pageHeader({
+      title: 'Tools',
+      description: 'Everything your agents can call — the tools that ship with sua, the ones you imported, '
+        + 'where those imports came from, and your saved connections to outside systems.',
+      cta: html`<a href="/tools/mcp/import" class="btn btn--sm">Import from MCP server</a>`,
+    })}
+
+    ${sectionTabs('tools')}
+
+    ${/* The providers strip describes which LLM CLIs are on PATH — relevant to
+          the tool catalog, noise on the servers/connections tabs. */ html``}
+    ${isCatalog ? renderProvidersSection(args.providerUsage ?? []) : html``}
+
+    ${tabStrip}
+
+    ${isCatalog ? catalogBody : (args.panel ?? html``)}
+  `;
+
+  return render(layout({ title: 'Tools', activeNav: 'tools', flash: args.flash }, body));
 }
 
 function renderProvidersSection(rows: ProviderUsageRow[]): SafeHtml {

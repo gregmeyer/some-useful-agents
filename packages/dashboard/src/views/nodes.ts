@@ -79,14 +79,14 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
 
   const body = html`
     ${pageHeader({
-      title: 'Nodes',
+      title: 'Node reference',
+      back: { href: '/help', label: 'Help' },
       description:
-        'Every first-class node type sua’s executor knows. Hand-authored contracts: what each ' +
-        'node takes in, what it emits, when to reach for it. The planner-fronted agent-builder reads ' +
-        'this same catalog via /api/nodes when designing new agents.',
+        'Every kind of node an agent can be built from. For each one: what it takes in, what it ' +
+        'gives back, and when to reach for it. Build from goal picks from this same list when it ' +
+        'designs an agent for you.',
     })}
 
-    ${sectionTabs('nodes')}
 
     <div class="node-toolbar">
       <input type="search" id="node-filter" class="node-toolbar__search"
@@ -215,7 +215,9 @@ export function renderNodes(opts: { catalog: NodeContract[] }): string {
     </style>
   `;
 
-  return render(layout({ title: 'Nodes', activeNav: 'nodes' }, body));
+  // Reference documentation under Help since ADR-0034, not a managed resource
+  // with its own nav slot.
+  return render(layout({ title: 'Node reference', activeNav: 'help' }, body));
 }
 
 function renderContractCard(c: NodeContract): SafeHtml {

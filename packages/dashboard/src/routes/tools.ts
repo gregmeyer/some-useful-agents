@@ -8,6 +8,7 @@ import {
   type McpServerConfig,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { buildMcpServersPanel, buildIntegrationsPanel } from './settings.js';
 import { computeProviderUsage } from '../lib/provider-usage.js';
 import { renderToolsList } from '../views/tools-list.js';
 import { renderToolDetail } from '../views/tool-detail.js';
@@ -34,7 +35,9 @@ toolsRouter.get('/tools', (req: Request, res: Response) => {
   }
   const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : undefined;
   const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : undefined;
-  const tab = req.query.tab === 'builtin' ? 'builtin' : 'user';
+  const rawTab = typeof req.query.tab === 'string' ? req.query.tab : '';
+  const tab: 'user' | 'builtin' | 'servers' | 'integrations' =
+    rawTab === 'builtin' || rawTab === 'servers' || rawTab === 'integrations' ? rawTab : 'user';
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 12));
   const offset = Math.max(0, parseInt(String(req.query.offset), 10) || 0);
 
@@ -48,7 +51,36 @@ toolsRouter.get('/tools', (req: Request, res: Response) => {
     providerUsage = computeProviderUsage([]);
   }
 
-  res.type('html').send(renderToolsList({ builtins, userTools, filter: { q, type }, tab, limit, offset, providerUsage }));
+  // Servers and Integrations moved here from Settings (ADR-0034). Both panels
+  // are always costed for their tab counts — two direct SQLite scans we
+  // already do elsewhere — so the strip shows real numbers on every tab.
+  const setError = typeof req.query.setError === 'string' ? req.query.setError : undefined;
+  // Server toggle/delete and integration add/delete redirect back here with a
+  // banner; without this they would post and appear to do nothing.
+  const flashMsg = typeof req.query.flash === 'string' ? req.query.flash : undefined;
+  const errorMsg = typeof req.query.error === 'string' ? req.query.error : undefined;
+  const flash = errorMsg
+    ? { kind: 'error' as const, message: errorMsg }
+    : flashMsg
+      ? { kind: 'ok' as const, message: flashMsg }
+      : undefined;
+  const servers = buildMcpServersPanel(ctx, setError);
+  const connections = buildIntegrationsPanel(ctx, req);
+  const panel = tab === 'servers' ? servers.body : tab === 'integrations' ? connections.body : undefined;
+
+  res.type('html').send(renderToolsList({
+    builtins,
+    userTools,
+    filter: { q, type },
+    tab,
+    limit,
+    offset,
+    providerUsage,
+    panel,
+    serverCount: servers.count,
+    integrationCount: connections.count,
+    flash,
+  }));
 });
 
 toolsRouter.get('/tools/mcp/import', (_req: Request, res: Response) => {

@@ -1952,17 +1952,142 @@ describe('Dashboard /settings/general', () => {
   });
 });
 
+describe('Tools owns what agents can call (ADR-0034)', () => {
+  it('surfaces all four tabs with real counts', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/tools')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    for (const label of ['Imported', 'Built-in', 'Servers', 'Integrations']) {
+      expect(res.text).toContain(`>${label} <span class="dim">`);
+    }
+  });
+
+  it('drops Nodes from the Agents sub-nav and keeps the other seven', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/agents')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const strip = /aria-label="Agents section">([\s\S]*?)<\/nav>/.exec(res.text);
+    expect(strip).not.toBeNull();
+    const labels = [...strip![1].matchAll(/>([^<>]+)<\/a>/g)].map((m) => m[1].trim());
+    expect(labels).toEqual(['Start here', 'Agents', 'Behaviors', 'Tools', 'Runs', 'Packs', 'Scheduled']);
+  });
+
+  it('renames the Settings MCP tab and removes the two that moved', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/settings/secrets')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const strip = /class="tab-strip">([\s\S]*?)<\/nav>/.exec(res.text);
+    const labels = [...strip![1].matchAll(/>([^<>]+)<\/a>/g)].map((m) => m[1].trim());
+    // "MCP" sat next to "MCP Servers" and read as its pair while being the
+    // opposite direction: this one is sua exposed AS a tool.
+    expect(labels).toContain('Claude Desktop');
+    expect(labels).not.toContain('MCP');
+    expect(labels).not.toContain('MCP Servers');
+    expect(labels).not.toContain('Integrations');
+  });
+
+  it('redirects the moved URLs, preserving the query string', async () => {
+    const app = await makeApp();
+    const hit = (url: string) => request(app).get(url)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const servers = await hit('/settings/mcp-servers');
+    expect(servers.status).toBe(302);
+    expect(servers.headers.location).toBe('/tools?tab=servers');
+
+    const integrations = await hit('/settings/integrations');
+    expect(integrations.status).toBe(302);
+    expect(integrations.headers.location).toBe('/tools?tab=integrations');
+
+    // The old ?tab=<kind> becomes ?kind=<kind>, so deep links to a specific
+    // integration kind survive the move.
+    const apple = await hit('/settings/integrations?tab=apple');
+    expect(apple.status).toBe(302);
+    expect(apple.headers.location).toBe('/tools?tab=integrations&kind=apple');
+  });
+
+  it('lands a failed server mutation back on the Servers tab with its banner', async () => {
+    const app = await makeApp();
+    // The POSTs keep their /settings/... paths (form targets, not navigable
+    // URLs) but must redirect to where the panel now lives, or the user posts
+    // and appears to get nothing back.
+    const res = await request(app).post('/settings/mcp-servers/toggle')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form')
+      .send({ action: 'disable' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('/tools?tab=servers');
+    expect(res.headers.location).toContain('setError=');
+
+    const followed = await request(app).get(res.headers.location)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(followed.status).toBe(200);
+  });
+
+  it('renders the success banner the moved POSTs redirect back with', async () => {
+    const app = await makeApp();
+    // /tools had no flash support before the panels moved here, so a toggle
+    // would post, redirect, and silently show nothing.
+    const res = await request(app).get('/tools?tab=servers&flash=Enabled%20modern-graphics.')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Enabled modern-graphics.');
+    expect(res.text).toContain('flash--ok');
+  });
+
+  it('serves the node reference under Help, not as its own nav surface', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/nodes')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Node reference');
+    expect(res.text).toContain('data-active-nav="help"');
+
+    // Nothing linked to /nodes before this — that was the evidence it was
+    // reference material rather than a destination. Help links to it now.
+    const help = await request(app).get('/help')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(help.text).toContain('href="/nodes"');
+  });
+
+  it('points the mcp-tool empty state at the page that can actually add a server', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/tools?tab=integrations&kind=mcp-tool')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // Confirm we are actually on the Connections panel, not the catalog tab
+    // falling through — otherwise the assertions below pass for free.
+    expect(res.text).toContain('Add MCP tool integration');
+    // It used to say "Add one at Settings → MCP Servers", which cannot add a
+    // server and forwards you on to Tools → Import.
+    expect(res.text).not.toContain('/settings/mcp-servers');
+    expect(res.text).toContain('/tools/mcp/import');
+  });
+});
+
 describe('Dashboard /settings/integrations', () => {
   it('renders the integrations surface with kind tabs and empty state', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/settings/integrations')
+    const res = await request(app).get('/tools?tab=integrations')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Integrations');
-    // Tab strip is present and the All tab is active by default.
-    expect(res.text).toContain('?tab=slack');
-    expect(res.text).toContain('?tab=mcp-tool');
+    // Kind tabs live under the Tools "Connections" tab since ADR-0034, so the
+    // integration kind travels as ?kind= — ?tab= names the Tools tab now.
+    expect(res.text).toContain('/tools?tab=integrations&kind=slack');
+    expect(res.text).toContain('/tools?tab=integrations&kind=mcp-tool');
     // Empty state copy when no rows + All tab.
     expect(res.text).toContain('No integrations yet.');
     // No add forms on the All tab — they only render on per-kind tabs.
@@ -1971,7 +2096,7 @@ describe('Dashboard /settings/integrations', () => {
 
   it('shows the matching add form when a kind tab is active', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/settings/integrations?tab=slack')
+    const res = await request(app).get('/tools?tab=integrations&kind=slack')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
@@ -1983,7 +2108,7 @@ describe('Dashboard /settings/integrations', () => {
 
   it('MCP tool tab hints when no servers are connected', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/settings/integrations?tab=mcp-tool')
+    const res = await request(app).get('/tools?tab=integrations&kind=mcp-tool')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
@@ -2051,7 +2176,7 @@ describe('Dashboard /settings/integrations', () => {
     expect(add.status).toBe(303);
     expect(add.headers.location).toContain('Added%20csv%20integration');
 
-    const list = await request(app).get('/settings/integrations?tab=csv')
+    const list = await request(app).get('/tools?tab=integrations&kind=csv')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(list.text).toContain('user:customers');
     expect(list.text).toContain('3 cols');
@@ -2069,7 +2194,7 @@ describe('Dashboard /settings/integrations', () => {
 
   it('Postgres tab renders with a setup hint', async () => {
     const app = await makeApp();
-    const res = await request(app).get('/settings/integrations?tab=postgres')
+    const res = await request(app).get('/tools?tab=integrations&kind=postgres')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Add Postgres integration');
@@ -2093,7 +2218,7 @@ describe('Dashboard /settings/integrations', () => {
     expect(add.status).toBe(303);
     expect(add.headers.location).toContain('Added%20slack%20integration');
 
-    const list = await request(app).get('/settings/integrations')
+    const list = await request(app).get('/tools?tab=integrations')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(list.text).toContain('user:oncall');
     expect(list.text).toContain('SLACK_WEBHOOK');
@@ -2134,7 +2259,7 @@ describe('Dashboard /settings/integrations', () => {
     expect(del.status).toBe(303);
     expect(del.headers.location).toContain('Deleted%20integration');
 
-    const list = await request(app).get('/settings/integrations')
+    const list = await request(app).get('/tools?tab=integrations')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(list.text).not.toContain('user:log');
   });
@@ -2548,7 +2673,7 @@ describe('Dashboard /settings/mcp-servers', () => {
   it('GET lists imported servers with tool counts', async () => {
     const toolStore = withServer();
     const app = await makeApp({ toolStore });
-    const res = await request(app).get('/settings/mcp-servers')
+    const res = await request(app).get('/tools?tab=servers')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);

@@ -9,13 +9,17 @@ export interface SettingsMcpServersArgs {
 }
 
 /**
- * Render the `/settings/mcp-servers` body. Lists every MCP server that
- * has been imported and lets the user toggle it on/off (gates all its
+ * Render the Servers panel on `/tools?tab=servers`. Lists every MCP server
+ * that has been imported and lets the user toggle it on/off (gates all its
  * tools at execution time) or delete it (cascades to its tools).
  *
- * New servers are added via the Tools page import flow, not here —
- * `/tools/mcp/import`. This keeps discovery (which needs to connect and
- * list tools) out of the settings surface.
+ * Adding still happens on the import page (`/tools/mcp/import`) because
+ * discovery has to connect and list tools. Sitting beside the tools it
+ * produces is the point of ADR-0034 — this panel used to live in Settings,
+ * a nav away from them.
+ *
+ * The mutating POSTs keep their `/settings/mcp-servers/*` paths: they are
+ * form targets, not navigable URLs.
  */
 export function renderSettingsMcpServers(args: SettingsMcpServersArgs): SafeHtml {
   return html`

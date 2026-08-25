@@ -2,7 +2,8 @@ import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 
-export type SettingsTab = 'secrets' | 'variables' | 'mcp' | 'mcp-servers' | 'integrations' | 'llm' | 'temporal' | 'appearance' | 'general';
+/** `mcp-servers` and `integrations` left for the Tools page in ADR-0034. */
+export type SettingsTab = 'secrets' | 'variables' | 'mcp' | 'llm' | 'temporal' | 'appearance' | 'general';
 
 export interface SettingsShellArgs {
   active: SettingsTab;
@@ -25,9 +26,10 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
     <nav class="tab-strip">
       ${tab('secrets', 'Secrets')}
       ${tab('variables', 'Variables')}
-      ${tab('mcp', 'MCP')}
-      ${tab('mcp-servers', 'MCP Servers')}
-      ${tab('integrations', 'Integrations')}
+      ${/* "MCP" sat next to "MCP Servers" and read as its pair, but it is the
+            opposite direction: this is sua exposed AS a tool for other apps to
+            call. Named for what it does. ADR-0034. */ html``}
+      ${tab('mcp', 'Claude Desktop')}
       ${tab('llm', 'LLM')}
       ${tab('temporal', 'Temporal')}
       ${tab('appearance', 'Appearance')}

@@ -103,7 +103,7 @@ export async function executeResolvedTool(
     if (serverId) {
       const server = deps.toolStore.getMcpServer(serverId);
       if (server && !server.enabled) {
-        throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Settings → MCP Servers.`);
+        throw new Error(`MCP server "${serverId}" is disabled. Re-enable it under Tools → Servers.`);
       }
     }
     const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};

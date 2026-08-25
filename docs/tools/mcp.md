@@ -44,9 +44,9 @@ Failures at any step surface as a node error with `errorCategory: 'setup'` (serv
 
 ## Gated by server status
 
-If the tool's server is disabled in `/settings/mcp-servers`, the node fails immediately with:
+If the tool's server is disabled in `/tools?tab=servers`, the node fails immediately with:
 
-> `MCP server "<id>" is disabled. Re-enable it under Settings → MCP Servers.`
+> `MCP server "<id>" is disabled. Re-enable it under Tools → Servers.`
 
 No connection attempt, no stderr, just a clear setup error.
 

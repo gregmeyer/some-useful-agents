@@ -17,9 +17,13 @@ export interface SettingsMcpArgs {
 }
 
 /**
- * Render the `/settings/mcp` body — the outbound MCP server (the one
- * Claude Desktop talks to). Distinct from `/settings/mcp-servers`, which
- * lists *imported* MCP servers whose tools sua can call.
+ * Render the `/settings/mcp` body — sua exposed AS a tool, i.e. the outbound
+ * server Claude Desktop connects to.
+ *
+ * This tab was labelled "MCP" and sat beside "MCP Servers", so it read as its
+ * pair. It is the opposite direction: that panel (now Tools → Servers) is
+ * where sua CALLS other apps; this is where other apps call sua. The tab is
+ * named "Claude Desktop" for what it does. ADR-0034.
  */
 export function renderSettingsMcp(args: SettingsMcpArgs): SafeHtml {
   return html`
