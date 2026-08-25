@@ -90,13 +90,13 @@ Pooled clients are keyed by (transport, command+args) or URL — the same server
 
 ## Managing imported servers
 
-**Dashboard:** [/settings/mcp-servers](http://127.0.0.1:3000/settings/mcp-servers)
+**Dashboard:** [Tools → Servers](http://127.0.0.1:3000/tools?tab=servers)
 
 Table columns: **Id**, **Transport**, **Target** (command+args or URL), **Tools** (count), **Status**, **Actions**.
 
 | Action | Effect |
 |---|---|
-| **Disable** | Every tool from this server is gated. Runs that reach one of those tools fail with `errorCategory: setup` and a message: *`MCP server "<id>" is disabled. Re-enable it under Settings → MCP Servers.`* |
+| **Disable** | Every tool from this server is gated. Runs that reach one of those tools fail with `errorCategory: setup` and a message: *`MCP server "<id>" is disabled. Re-enable it under Tools → Servers.`* |
 | **Enable** | Removes the gate. |
 | **Delete** | Drops the server row AND cascade-deletes every tool imported from it. Agents that reference those tools will fail on their next run. |
 

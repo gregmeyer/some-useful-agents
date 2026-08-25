@@ -157,7 +157,7 @@ See [Tools](tools.md) for the full catalog.
 
 ## `/tools/:id` — Tool detail
 
-Read-only reference: inputs + outputs tables, implementation details (command, prompt, builtinName, or MCP transport+command+toolName). For MCP tools, links back to `/settings/mcp-servers` for the source server.
+Read-only reference: inputs + outputs tables, implementation details (command, prompt, builtinName, or MCP transport+command+toolName). For MCP tools, links back to `/tools?tab=servers` for the source server.
 
 ## `/tools/mcp/import` — MCP import
 

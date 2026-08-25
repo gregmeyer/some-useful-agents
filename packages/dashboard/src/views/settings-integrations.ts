@@ -68,7 +68,7 @@ function renderTabStrip(active: IntegrationsTab, integrations: Integration[], ap
   const tab = (id: IntegrationsTab, label: string) => {
     const count = id === 'all' ? integrations.length : (counts[id] ?? 0);
     const countBadge = count > 0 ? html` <span class="dim" style="font-size: var(--font-size-xs);">(${String(count)})</span>` : html``;
-    return html`<a href="/settings/integrations?tab=${id}" class="${active === id ? 'is-active' : ''}">${label}${countBadge}</a>`;
+    return html`<a href="/tools?tab=integrations&kind=${id}" class="${active === id ? 'is-active' : ''}">${label}${countBadge}</a>`;
   };
   return html`
     <nav class="tab-strip" style="margin-top: var(--space-3);">
@@ -277,16 +277,19 @@ function renderMcpToolForm(args: SettingsIntegrationsArgs): SafeHtml {
     <div class="card">
       <p class="card__title">Add MCP tool integration</p>
       <p class="dim">
-        Bind an MCP server tool you've already connected at
-        <a href="/settings/mcp-servers">Settings → MCP Servers</a> to a
+        Bind a tool from an MCP server you've already imported (see the
+        <a href="/tools?tab=servers">Servers</a> tab) to a
         friendly id. Notify handlers and other agents can then say
         <code>integration: user:&lt;id&gt;</code> instead of repeating the server
         + tool name. Auth lives with the MCP server — sua never sees the
         underlying credentials.
       </p>
       ${err ? html`<div class="flash flash--error mb-3">${err.message}</div>` : unsafeHtml('')}
+      ${/* Pointed at Settings → MCP Servers, which cannot add a server — it
+            sends you on to Tools → Import. Point at the page that does the
+            job. ADR-0034. */ ''}
       ${servers.length === 0
-        ? html`<div class="flash flash--info mb-3">No MCP servers connected. Add one at <a href="/settings/mcp-servers">Settings → MCP Servers</a> first.</div>`
+        ? html`<div class="flash flash--info mb-3">No MCP servers connected yet. <a href="/tools/mcp/import">Import one</a> first.</div>`
         : unsafeHtml('')}
       <form action="/settings/integrations/add" method="post" class="settings-form">
         <input type="hidden" name="kind" value="mcp-tool">

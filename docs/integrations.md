@@ -2,7 +2,7 @@
 
 An **integration** is a saved, reusable connection to an outside system — a Slack
 webhook, an HTTPS endpoint, a local file, a database, or a tool on an MCP server.
-Configure it once under **Settings → Integrations**, then reference it by id from
+Configure it once under **Tools → Integrations**, then reference it by id from
 agents instead of repeating connection details (and secrets) on every agent.
 
 Integrations come in two flavours:
@@ -13,7 +13,7 @@ Integrations come in two flavours:
   **auto-generates query tools** that any node can call like a built-in.
 
 This page is the user surface. Manage everything at
-[`/settings/integrations`](http://127.0.0.1:3000/settings/integrations).
+[`/tools?tab=integrations`](http://127.0.0.1:3000/tools?tab=integrations).
 
 ## Mental model
 
@@ -87,7 +87,7 @@ This triggers the **Reminders** permission prompt (EventKit) and the
 **Automation → Notes** prompt (AppleScript) so you can click Allow. The prompts
 attribute to whatever launched the process, not to "sua".
 
-**Add the integration** in Settings → Integrations → Apple. sua introspects your
+**Add the integration** in Tools → Integrations → Apple. sua introspects your
 authorized reminder lists and note folders and stores them as the snapshot.
 **Adding the integration is the authorization gesture** — it's what grants agents
 the ability to create/read your reminders and notes. No secret to manage; nothing
@@ -215,7 +215,7 @@ integration).
 ### Gmail and other MCP-backed services
 
 The `mcp-tool` kind doesn't hold its own credentials — it points at a tool on a
-server you've already connected under [Settings → MCP Servers](mcp.md). Gmail, for
+server you've already connected under [Tools → Servers](mcp.md). Gmail, for
 example, is set up by connecting its MCP server (which owns the OAuth), then
 creating an `mcp-tool` integration that selects the send tool and optional
 `default_inputs`. Templating available in `default_inputs` at fire time:
@@ -224,7 +224,7 @@ creating an `mcp-tool` integration that selects the send tool and optional
 
 ## Managing integrations
 
-At [`/settings/integrations`](http://127.0.0.1:3000/settings/integrations), a tab
+At [`/tools?tab=integrations`](http://127.0.0.1:3000/tools?tab=integrations), a tab
 strip (All / Slack / Webhook / File / MCP Tool / CSV / Postgres / SQLite) shows
 each kind with an inline add form. Creating or editing a data-source integration
 re-introspects and refreshes its schema snapshot (and its generated tools).

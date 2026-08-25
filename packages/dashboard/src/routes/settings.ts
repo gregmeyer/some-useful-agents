@@ -16,7 +16,7 @@ import {
 } from '@some-useful-agents/core';
 import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
-import { html } from '../views/html.js';
+import { html, type SafeHtml } from '../views/html.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -253,26 +253,43 @@ settingsRouter.post('/settings/variables/delete', (req: Request, res: Response) 
   }
 });
 
-settingsRouter.get('/settings/mcp-servers', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const { flash, setError } = readQueryBanners(req);
+/**
+ * The Servers panel, rendered into the Tools page (ADR-0034). It lives here
+ * next to the POST handlers that mutate it — those keep their `/settings/...`
+ * paths because they are form targets, not navigable URLs, and rewriting them
+ * would churn a dozen redirect strings for no user-visible gain.
+ */
+export function buildMcpServersPanel(
+  ctx: ReturnType<typeof getContext>,
+  setError?: string,
+): { body: SafeHtml; count: number } {
   if (!ctx.toolStore) {
-    const body = html`
-      <div class="settings-empty">
-        <h3 style="margin-top: 0;">Tool store unavailable</h3>
-        <p class="dim">MCP server management requires a tool store.</p>
-      </div>
-    `;
-    res.type('html').send(renderSettingsShell({ active: 'mcp-servers', body, flash }));
-    return;
+    return {
+      count: 0,
+      body: html`
+        <div class="settings-empty">
+          <h3 style="margin-top: 0;">Tool store unavailable</h3>
+          <p class="dim">Managing MCP servers requires a tool store.</p>
+        </div>
+      `,
+    };
   }
   const servers = ctx.toolStore.listMcpServers();
   const rows = servers.map((server) => ({
     server,
     toolCount: ctx.toolStore!.listToolsByServer(server.id).length,
   }));
-  const body = renderSettingsMcpServers({ rows, setError });
-  res.type('html').send(renderSettingsShell({ active: 'mcp-servers', body, flash }));
+  return { body: renderSettingsMcpServers({ rows, setError }), count: rows.length };
+}
+
+// Moved into Tools (ADR-0034). Kept as a redirect so old links, bookmarks and
+// the docs that name this URL still land somewhere correct.
+settingsRouter.get('/settings/mcp-servers', (req: Request, res: Response) => {
+  const params = new URLSearchParams({ tab: 'servers' });
+  for (const [k, v] of Object.entries(req.query)) {
+    if (typeof v === 'string' && k !== 'tab') params.set(k, v);
+  }
+  res.redirect(302, `/tools?${params.toString()}`);
 });
 
 settingsRouter.post('/settings/mcp-servers/toggle', (req: Request, res: Response) => {
@@ -281,20 +298,20 @@ settingsRouter.post('/settings/mcp-servers/toggle', (req: Request, res: Response
   const id = typeof body.id === 'string' ? body.id.trim() : '';
   const action = typeof body.action === 'string' ? body.action : '';
   if (!ctx.toolStore) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', 'Tool store not configured.');
+    redirectWith(res, '/tools?tab=servers', 'setError', 'Tool store not configured.');
     return;
   }
   if (!id) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', 'Missing server id.');
+    redirectWith(res, '/tools?tab=servers', 'setError', 'Missing server id.');
     return;
   }
   const enabled = action === 'enable';
   const ok = ctx.toolStore.setMcpServerEnabled(id, enabled);
   if (!ok) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', `Server "${id}" not found.`);
+    redirectWith(res, '/tools?tab=servers', 'setError', `Server "${id}" not found.`);
     return;
   }
-  redirectWith(res, '/settings/mcp-servers', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${id}.`);
+  redirectWith(res, '/tools?tab=servers', 'flash', `${enabled ? 'Enabled' : 'Disabled'} ${id}.`);
 });
 
 settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response) => {
@@ -302,19 +319,19 @@ settingsRouter.post('/settings/mcp-servers/delete', (req: Request, res: Response
   const body = (req.body ?? {}) as Record<string, unknown>;
   const id = typeof body.id === 'string' ? body.id.trim() : '';
   if (!ctx.toolStore) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', 'Tool store not configured.');
+    redirectWith(res, '/tools?tab=servers', 'setError', 'Tool store not configured.');
     return;
   }
   if (!id) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', 'Missing server id.');
+    redirectWith(res, '/tools?tab=servers', 'setError', 'Missing server id.');
     return;
   }
   const { serverDeleted, toolsDeleted } = ctx.toolStore.deleteMcpServer(id);
   if (!serverDeleted) {
-    redirectWith(res, '/settings/mcp-servers', 'setError', `Server "${id}" not found.`);
+    redirectWith(res, '/tools?tab=servers', 'setError', `Server "${id}" not found.`);
     return;
   }
-  redirectWith(res, '/settings/mcp-servers', 'flash', `Deleted ${id} and ${toolsDeleted} tool${toolsDeleted === 1 ? '' : 's'}.`);
+  redirectWith(res, '/tools?tab=servers', 'flash', `Deleted ${id} and ${toolsDeleted} tool${toolsDeleted === 1 ? '' : 's'}.`);
 });
 
 // ── Integrations ─────────────────────────────────────────────────────────
@@ -325,13 +342,16 @@ const INTEGRATION_SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 
 const INTEGRATION_TABS = new Set(['all', 'slack', 'webhook', 'file', 'mcp-tool', 'csv', 'postgres', 'sqlite', 'apple']);
 
-settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const { flash } = readQueryBanners(req);
+/** The Integrations panel, rendered into the Tools page (ADR-0034). */
+export function buildIntegrationsPanel(
+  ctx: ReturnType<typeof getContext>,
+  req: Request,
+): { body: SafeHtml; count: number } {
   if (!ctx.integrationsStore) {
-    const body = html`<p class="settings-empty">Integrations store unavailable on this dashboard.</p>`;
-    res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
-    return;
+    return {
+      count: 0,
+      body: html`<p class="settings-empty">Integrations store unavailable on this dashboard.</p>`,
+    };
   }
 
   // Inline error after a failed add is round-tripped via query string so the
@@ -341,9 +361,13 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
   const formValues = pickFormValuesFromQuery(req);
   const addError = errKind && errMsg ? { kind: errKind, message: errMsg, values: formValues } : undefined;
 
-  // Tab is bookmarkable. Default to the kind that just errored (so the
-  // user sees their preserved values on the right form) or to "all".
-  const rawTab = typeof req.query.tab === 'string' ? req.query.tab : undefined;
+  // The kind tab is bookmarkable. On /tools, `?tab=` names the Tools tab, so
+  // the integration kind travels as `?kind=` — `?tab=` is still read as a
+  // fallback so old bookmarks and the pre-move redirect keep working.
+  const rawKind = typeof req.query.kind === 'string' ? req.query.kind : undefined;
+  const rawTab = rawKind ?? (typeof req.query.tab === 'string' && req.query.tab !== 'integrations'
+    ? req.query.tab
+    : undefined);
   const activeTab = (rawTab && INTEGRATION_TABS.has(rawTab) ? rawTab : errKind && INTEGRATION_TABS.has(errKind) ? errKind : 'all') as
     'all' | 'slack' | 'webhook' | 'file' | 'mcp-tool' | 'csv' | 'postgres' | 'sqlite' | 'apple';
 
@@ -378,13 +402,25 @@ settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
     appleEnabled: isAppleIntegrationEnabled(),
     appleAccess,
   });
-  res.type('html').send(renderSettingsShell({ active: 'integrations', body, flash }));
+  return { body, count: integrations.length };
+}
+
+// Moved into Tools (ADR-0034). Preserves ?tab= so a deep link to a specific
+// integration kind, and the error round-trip the add form relies on, survive.
+settingsRouter.get('/settings/integrations', (req: Request, res: Response) => {
+  const params = new URLSearchParams({ tab: 'integrations' });
+  for (const [k, v] of Object.entries(req.query)) {
+    if (typeof v === 'string' && k !== 'tab') params.set(k, v);
+  }
+  const kind = typeof req.query.tab === 'string' ? req.query.tab : undefined;
+  if (kind) params.set('kind', kind);
+  res.redirect(302, `/tools?${params.toString()}`);
 });
 
 settingsRouter.post('/settings/integrations/add', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.integrationsStore) {
-    res.redirect(303, '/settings/integrations?error=Integrations+store+unavailable.');
+    res.redirect(303, '/tools?tab=integrations&error=Integrations+store+unavailable.');
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -397,7 +433,7 @@ settingsRouter.post('/settings/integrations/add', async (req: Request, res: Resp
     for (const [k, v] of Object.entries(body)) {
       if (typeof v === 'string' && k !== 'errKind' && k !== 'errMsg') qs.append(`f_${k}`, v);
     }
-    res.redirect(303, `/settings/integrations?${qs.toString()}`);
+    res.redirect(303, `/tools?tab=integrations&${qs.toString()}`);
   };
 
   if (!INTEGRATION_SLUG_RE.test(slug)) return fail('ID must be lowercase letters/digits/dashes/underscores, starting with a letter or digit.');
@@ -603,19 +639,19 @@ settingsRouter.post('/settings/integrations/add', async (req: Request, res: Resp
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));
   }
-  res.redirect(303, `/settings/integrations?tab=${kind}&flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
+  res.redirect(303, `/tools?tab=integrations&kind=${kind}&flash=${encodeURIComponent(`Added ${kind} integration "${id}".`)}`);
 });
 
 // Probe the two macOS TCC buckets (Reminders, Notes/Automation) via the runner
 // with zero-content reads, and report per-bucket status back on the Apple tab.
 settingsRouter.post('/settings/integrations/apple/check', async (req: Request, res: Response) => {
   if (!isAppleIntegrationEnabled()) {
-    res.redirect(303, '/settings/integrations?tab=apple');
+    res.redirect(303, '/tools?tab=integrations&kind=apple');
     return;
   }
   const handle = ensureAppleRunner();
   if (handle.status !== 'ready') {
-    res.redirect(303, '/settings/integrations?tab=apple&appleRem=unsupported&appleNotes=unsupported');
+    res.redirect(303, '/tools?tab=integrations&kind=apple&appleRem=unsupported&appleNotes=unsupported');
     return;
   }
   const probe = async (sub: string): Promise<string> => {
@@ -628,7 +664,7 @@ settingsRouter.post('/settings/integrations/apple/check', async (req: Request, r
   };
   const reminders = await probe('reminder-read');
   const notes = await probe('note-read');
-  res.redirect(303, `/settings/integrations?tab=apple&appleRem=${encodeURIComponent(reminders)}&appleNotes=${encodeURIComponent(notes)}`);
+  res.redirect(303, `/tools?tab=integrations&kind=apple&appleRem=${encodeURIComponent(reminders)}&appleNotes=${encodeURIComponent(notes)}`);
 });
 
 // Open a real Terminal window running `sua apple authorize` so the macOS
@@ -637,11 +673,11 @@ settingsRouter.post('/settings/integrations/apple/check', async (req: Request, r
 // to control Terminal the first time.
 settingsRouter.post('/settings/integrations/apple/open-terminal', (req: Request, res: Response) => {
   if (!isAppleIntegrationEnabled()) {
-    res.redirect(303, '/settings/integrations?tab=apple');
+    res.redirect(303, '/tools?tab=integrations&kind=apple');
     return;
   }
   if (process.platform !== 'darwin') {
-    res.redirect(303, `/settings/integrations?tab=apple&errKind=apple&errMsg=${encodeURIComponent('Opening Terminal is macOS-only.')}`);
+    res.redirect(303, `/tools?tab=integrations&kind=apple&errKind=apple&errMsg=${encodeURIComponent('Opening Terminal is macOS-only.')}`);
     return;
   }
   const repo = process.cwd().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -649,33 +685,33 @@ settingsRouter.post('/settings/integrations/apple/open-terminal', (req: Request,
   try {
     const child = spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' });
     child.unref();
-    res.redirect(303, `/settings/integrations?tab=apple&flash=${encodeURIComponent('Opened a Terminal running `sua apple authorize` — approve the macOS prompts there, then click “Check access”.')}`);
+    res.redirect(303, `/tools?tab=integrations&kind=apple&flash=${encodeURIComponent('Opened a Terminal running `sua apple authorize` — approve the macOS prompts there, then click “Check access”.')}`);
   } catch (err) {
-    res.redirect(303, `/settings/integrations?tab=apple&errKind=apple&errMsg=${encodeURIComponent(`Could not open Terminal: ${(err as Error).message}`)}`);
+    res.redirect(303, `/tools?tab=integrations&kind=apple&errKind=apple&errMsg=${encodeURIComponent(`Could not open Terminal: ${(err as Error).message}`)}`);
   }
 });
 
 settingsRouter.post('/settings/integrations/delete', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.integrationsStore) {
-    res.redirect(303, '/settings/integrations?error=Integrations+store+unavailable.');
+    res.redirect(303, '/tools?tab=integrations&error=Integrations+store+unavailable.');
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
   const id = typeof body.id === 'string' ? body.id.trim() : '';
   if (!id) {
-    res.redirect(303, '/settings/integrations?error=Missing+id.');
+    res.redirect(303, '/tools?tab=integrations&error=Missing+id.');
     return;
   }
   const existing = ctx.integrationsStore.getIntegration(id);
   if (existing?.packId) {
-    res.redirect(303, '/settings/integrations?error=Pack-owned+integrations+can%27t+be+deleted+directly.');
+    res.redirect(303, '/tools?tab=integrations&error=Pack-owned+integrations+can%27t+be+deleted+directly.');
     return;
   }
   const removed = ctx.integrationsStore.deleteIntegration(id);
   res.redirect(303, removed
-    ? `/settings/integrations?flash=${encodeURIComponent(`Deleted integration "${id}".`)}`
-    : '/settings/integrations?error=No+such+integration.');
+    ? `/tools?tab=integrations&flash=${encodeURIComponent(`Deleted integration "${id}".`)}`
+    : '/tools?tab=integrations&error=No+such+integration.');
 });
 
 function pickFormValuesFromQuery(req: Request): Record<string, string> {
@@ -965,7 +1001,10 @@ function redirectWith(
   const params = new URLSearchParams();
   params.set(kind, message);
   for (const [k, v] of Object.entries(extra)) params.set(k, v);
-  res.redirect(303, `${path}?${params.toString()}`);
+  // Targets may already carry a query (e.g. `/tools?tab=servers` since the
+  // panels moved out of Settings), so join with the right separator.
+  const sep = path.includes('?') ? '&' : '?';
+  res.redirect(303, `${path}${sep}${params.toString()}`);
 }
 
 function collectDeclaredSecrets(ctx: DashboardContext): Set<string> {

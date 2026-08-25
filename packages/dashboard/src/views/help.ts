@@ -211,6 +211,7 @@ export function renderHelp(): string {
       <p style="margin-bottom: var(--space-3); display: flex; gap: var(--space-3); flex-wrap: wrap;">
         <a href="/start" class="btn btn--primary">Start here \u2014 run an agent \u2192</a>
         <a href="/help/tutorial" class="btn">Open the dashboard tutorial \u2192</a>
+        <a href="/nodes" class="btn">Node reference \u2192</a>
       </p>
       <p style="margin: 0 0 var(--space-3); line-height: 1.6;">
         <strong>Start here</strong> is three agents, one per pattern \u2014 research something,
@@ -222,6 +223,11 @@ export function renderHelp(): string {
         state: registered agents, first run, per-node outputs, multi-node agents, secrets. Each
         step links to the dashboard page where the action happens. For a terminal-first
         walkthrough instead, run <code>sua tutorial</code> from your project directory.
+      </p>
+      <p class="dim" style="margin: var(--space-3) 0 0; line-height: 1.6;">
+        The <strong>node reference</strong> lists every kind of node an agent can be built from,
+        with what each takes in and gives back. It moved here from its own nav tab — it is
+        something to look up while building, not something you manage.
       </p>
     </section>
 
