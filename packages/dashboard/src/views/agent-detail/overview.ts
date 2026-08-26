@@ -137,6 +137,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
           ${renderDagView({
             agent,
             editBase: `/agents/${agent.id}/nodes`,
+            editable: true,
             replay: latestCompletedRun
               ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
               : undefined,
@@ -169,6 +170,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       ${renderDagView({
         agent,
         editBase: `/agents/${agent.id}/nodes`,
+        editable: true,
         replay: latestCompletedRun
           ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
           : undefined,

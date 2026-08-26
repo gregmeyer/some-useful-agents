@@ -35,8 +35,19 @@ export function renderDagView(args: {
    * inspect it" hint the inspector used to show.
    */
   editBase?: string;
+  /**
+   * Turns on wiring edit mode: drag one node onto another to make the
+   * second depend on the first, click an edge to remove it, then save the
+   * whole rewiring as ONE new agent version.
+   *
+   * Deliberately a separate flag rather than inferred from `editBase`.
+   * A run's DAG is a record of what happened and must never be editable,
+   * and tying "can edit the wiring" to "has a link to the node form" would
+   * make that a one-line change away from being wrong.
+   */
+  editable?: boolean;
 }): SafeHtml {
-  const { agent, nodeExecs, navBase, replay, editBase } = args;
+  const { agent, nodeExecs, navBase, replay, editBase, editable } = args;
   const execByNodeId = new Map<string, NodeExecutionRecord>();
   for (const e of nodeExecs ?? []) execByNodeId.set(e.nodeId, e);
 
@@ -52,9 +63,11 @@ export function renderDagView(args: {
   // when a deep run detail has scrolled past the structural view they
   // already saw on /agents/:id. The summary mirrors the other
   // collapsible-section styling (.run-node, .agent-card__nodes).
-  const hintText = replay || editBase
-    ? 'Click a node to see its actions \u2192'
-    : '';
+  const hintText = editable
+    ? 'Click a node to see its actions \u2014 or Edit wiring to rearrange \u2192'
+    : replay || editBase
+      ? 'Click a node to see its actions \u2192'
+      : '';
   const hint = hintText
     ? html`<span class="dag-disclosure__hint">${hintText}</span>`
     : unsafeHtml('');
@@ -76,6 +89,7 @@ export function renderDagView(args: {
             <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="fit" aria-label="Fit to view" title="Fit to view">⧇</button>
             <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="out" aria-label="Zoom out">−</button>
           </div>
+          ${editable ? editToolbar(agent.id) : unsafeHtml('')}
         </div>
         <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
 
@@ -103,8 +117,35 @@ export function renderDagView(args: {
 
         <script src="/assets/cytoscape.min.js"></script>
         <script src="/assets/graph-render.js"></script>
+        ${editable ? unsafeHtml('<script src="/assets/graph-edit.js"></script>') : unsafeHtml('')}
       </div>
     </details>
+  `;
+}
+
+/**
+ * Wiring-edit controls + the form that saves them. Rendered as a SIBLING of
+ * `#dag-canvas` for the same reason the zoom toolbar is: cytoscape replaces
+ * the canvas's innerHTML on boot, so anything inside it is wiped.
+ *
+ * The whole rewiring posts as one JSON blob in a hidden input rather than
+ * through a fetch API — it reuses the form + 303 + flash path every other
+ * mutation here uses, and keeps validation on the server where the schema's
+ * cycle detection already lives.
+ */
+function editToolbar(agentId: string): SafeHtml {
+  return html`
+    <div class="dag-edit-toolbar" data-dag-edit-toolbar aria-label="Wiring editor">
+      <button type="button" class="btn btn--sm" data-dag-edit="toggle" aria-pressed="false">Edit wiring</button>
+      <span class="dag-edit-toolbar__hint" data-dag-edit-hint hidden>
+        Drag one node onto another to connect them. Click an edge to remove it.
+      </span>
+      <form method="POST" action="/agents/${agentId}/graph" class="dag-edit-toolbar__form" data-dag-edit-form hidden>
+        <input type="hidden" name="wiring" data-dag-edit-wiring value="">
+        <button type="submit" class="btn btn--primary btn--sm" data-dag-edit="save" disabled>Save wiring</button>
+        <button type="button" class="btn btn--ghost btn--sm" data-dag-edit="cancel">Cancel</button>
+      </form>
+    </div>
   `;
 }
 

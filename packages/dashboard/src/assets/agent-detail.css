@@ -43,6 +43,45 @@
   height: 240px;
 }
 
+/* Wiring editor controls — top-left of the canvas, opposite the zoom stack
+ * so the two never collide. A sibling of #dag-canvas, not a child: cytoscape
+ * replaces the canvas's innerHTML on boot. */
+.dag-edit-toolbar {
+  position: absolute;
+  left: var(--space-2);
+  top: var(--space-2);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  max-width: calc(100% - var(--space-8));
+}
+
+.dag-edit-toolbar__form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.dag-edit-toolbar__hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+}
+
+/* Crosshair while wiring, so the canvas reads as a different mode than the
+ * default click-a-node-for-actions behaviour. */
+.dag-frame__canvas.is-editing-wiring {
+  cursor: crosshair;
+  outline: 1px dashed var(--color-primary);
+  outline-offset: -1px;
+}
+
 /* Zoom controls overlay — bottom-right of the canvas. Buttons are small,
  * touch-friendly, and stay out of the way of the graph. Wheel + drag also
  * work on the canvas itself (Cytoscape user-zoom/user-pan enabled). */

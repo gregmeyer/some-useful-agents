@@ -1132,6 +1132,231 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
   });
 });
 
+describe('Graph wiring editor', () => {
+  const post = (app: Awaited<ReturnType<typeof makeApp>>, id: string, wiring: unknown) =>
+    request(app).post(`/agents/${id}/graph`)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form')
+      .send({ wiring: JSON.stringify(wiring) });
+
+  function seed(id: string, nodes: unknown[]): void {
+    agentStore.createAgent({
+      id, name: id, status: 'active', source: 'local', mcp: false,
+      nodes: nodes as never,
+    }, 'cli');
+  }
+
+  it('saves a whole rewiring as exactly one new version', async () => {
+    const app = await makeApp();
+    seed('wire-ok', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b' },
+      { id: 'c', type: 'shell', command: 'echo c' },
+    ]);
+    const before = agentStore.getAgent('wire-ok')!.version;
+
+    const res = await post(app, 'wire-ok', { a: [], b: ['a'], c: ['b'] });
+    expect(res.status).toBe(303);
+
+    const after = agentStore.getAgent('wire-ok')!;
+    expect(after.nodes.find((n) => n.id === 'b')!.dependsOn).toEqual(['a']);
+    expect(after.nodes.find((n) => n.id === 'c')!.dependsOn).toEqual(['b']);
+    // Three nodes rewired, ONE version — the whole point of posting the
+    // complete map instead of a diff per node.
+    expect(after.version).toBe(before + 1);
+  });
+
+  it('omits dependsOn entirely when a node is disconnected, rather than storing []', async () => {
+    const app = await makeApp();
+    seed('wire-clear', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+    ]);
+
+    const res = await post(app, 'wire-clear', { a: [], b: [] });
+    expect(res.status).toBe(303);
+    const b = agentStore.getAgent('wire-clear')!.nodes.find((n) => n.id === 'b')!;
+    expect(b.dependsOn).toBeUndefined();
+  });
+
+  it('rejects an unknown upstream node', async () => {
+    const app = await makeApp();
+    seed('wire-unknown', [{ id: 'a', type: 'shell', command: 'echo a' }]);
+    const res = await post(app, 'wire-unknown', { a: ['ghost'] });
+    expect(res.headers.location).toContain('Unknown%20upstream%20node');
+    expect(agentStore.getAgent('wire-unknown')!.nodes[0].dependsOn).toBeUndefined();
+  });
+
+  it('rejects a self-dependency', async () => {
+    const app = await makeApp();
+    seed('wire-self', [{ id: 'a', type: 'shell', command: 'echo a' }]);
+    const res = await post(app, 'wire-self', { a: ['a'] });
+    expect(decodeURIComponent(res.headers.location)).toContain('cannot depend on itself');
+  });
+
+  it('rejects a cycle, surfacing the schema’s own message', async () => {
+    const app = await makeApp();
+    seed('wire-cycle', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+    ]);
+    // a depends on b while b depends on a.
+    const res = await post(app, 'wire-cycle', { a: ['b'], b: ['a'] });
+    expect(decodeURIComponent(res.headers.location)).toContain('Cycle detected in DAG');
+    // Nothing saved.
+    expect(agentStore.getAgent('wire-cycle')!.nodes.find((n) => n.id === 'a')!.dependsOn).toBeUndefined();
+  });
+
+  it('rejects malformed wiring without touching the agent', async () => {
+    const app = await makeApp();
+    seed('wire-junk', [{ id: 'a', type: 'shell', command: 'echo a' }]);
+    const res = await request(app).post('/agents/wire-junk/graph')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+      .type('form')
+      .send({ wiring: 'not json' });
+    expect(decodeURIComponent(res.headers.location)).toContain('Nothing was changed');
+  });
+
+  // Dangling references are STRINGS, not edges, so the schema cannot see them.
+  // Cutting an edge whose downstream still names it leaves a valid agent that
+  // quietly misbehaves — each reference form gets its own guard.
+  it('refuses to cut an edge a {{upstream.x.result}} template still needs', async () => {
+    const app = await makeApp();
+    seed('dangle-tpl', [
+      { id: 'fetch', type: 'shell', command: 'echo hi' },
+      { id: 'sum', type: 'llm-prompt', prompt: 'summarize {{upstream.fetch.result}}', dependsOn: ['fetch'] },
+    ]);
+    const res = await post(app, 'dangle-tpl', { fetch: [], sum: [] });
+    // This form is the one the schema DOES police, so it is a hard refusal
+    // rather than a warning — and the schema's message is better than ours.
+    const flash = decodeURIComponent(res.headers.location);
+    expect(flash).toContain('does not declare "fetch" in its dependsOn list');
+    expect(agentStore.getAgent('dangle-tpl')!.nodes.find((n) => n.id === 'sum')!.dependsOn).toEqual(['fetch']);
+  });
+
+  it('refuses to cut an edge a $UPSTREAM_X_RESULT command still reads', async () => {
+    const app = await makeApp();
+    seed('dangle-env', [
+      { id: 'my-fetch', type: 'shell', command: 'echo hi' },
+      { id: 'count', type: 'shell', command: 'echo "$UPSTREAM_MY_FETCH_RESULT" | wc -w', dependsOn: ['my-fetch'] },
+    ]);
+    const res = await post(app, 'dangle-env', { 'my-fetch': [], count: [] });
+    const flash = decodeURIComponent(res.headers.location);
+    // Also schema-policed, and a hard refusal — the variable would be unbound
+    // and the node would crash under `set -u`. Assert the refusal explicitly:
+    // the env var name alone appears in BOTH outcomes, so matching only that
+    // would pass whether or not the save was blocked.
+    expect(flash).toContain('Rewiring failed');
+    expect(flash).toContain('$UPSTREAM_MY_FETCH_RESULT');
+    // Hyphens become underscores in the env var name (node-env.ts:127).
+    expect(agentStore.getAgent('dangle-env')!.nodes.find((n) => n.id === 'count')!.dependsOn).toEqual(['my-fetch']);
+  });
+
+  it('warns when a cut edge leaves an onlyIf.upstream reference behind', async () => {
+    const app = await makeApp();
+    seed('dangle-onlyif', [
+      { id: 'gate', type: 'shell', command: 'echo yes' },
+      { id: 'after', type: 'shell', command: 'echo go', dependsOn: ['gate'], onlyIf: { upstream: 'gate', field: 'result', exists: true } },
+    ]);
+    const res = await post(app, 'dangle-onlyif', { gate: [], after: [] });
+    const flash = decodeURIComponent(res.headers.location);
+    // Nothing else checks this one — it saves clean and then silently changes
+    // which branch runs, so a warning is the only signal the user gets.
+    expect(flash).toContain('Wiring saved');
+    expect(flash).toContain('onlyIf.upstream');
+    expect(agentStore.getAgent('dangle-onlyif')!.nodes.find((n) => n.id === 'after')!.dependsOn).toBeUndefined();
+  });
+
+  it('says nothing when a rewiring breaks no references', async () => {
+    const app = await makeApp();
+    seed('dangle-none', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+    ]);
+    const res = await post(app, 'dangle-none', { a: [], b: [] });
+    const flash = decodeURIComponent(res.headers.location);
+    expect(flash).toContain('New version created');
+    expect(flash).not.toContain('still uses');
+  });
+
+  it('offers the editor on agent detail but never on a run', async () => {
+    const app = await makeApp();
+    seed('wire-ui', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+    ]);
+    const detail = await request(app).get('/agents/wire-ui')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(detail.status).toBe(200);
+    expect(detail.text).toContain('data-dag-edit-toolbar');
+    expect(detail.text).toContain('/agents/wire-ui/graph');
+    expect(detail.text).toContain('/assets/graph-edit.js');
+
+    runStore.createRun({
+      id: 'wire-run', agentName: 'wire-ui', status: 'completed',
+      startedAt: new Date().toISOString(), triggeredBy: 'cli',
+    });
+    const run = await request(app).get('/runs/wire-run')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(run.status).toBe(200);
+    // A run's DAG is a record of what happened. It must never be editable.
+    expect(run.text).not.toContain('data-dag-edit-toolbar');
+    expect(run.text).not.toContain('/assets/graph-edit.js');
+  });
+
+  it('still lets you rewire an agent that already fails the schema for unrelated reasons', async () => {
+    const app = await makeApp();
+    // A stale enum input — nothing to do with wiring, and not fixable from the
+    // DAG screen. 1 of 119 agents on a real install was in this state, and it
+    // was a tutorial agent, so this is not hypothetical.
+    agentStore.createAgent({
+      id: 'wire-prebroken', name: 'x', status: 'active', source: 'local', mcp: false,
+      inputs: [{ name: 'MODE', type: 'enum', values: [] }],
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo a' },
+        { id: 'b', type: 'shell', command: 'echo b' },
+      ],
+    } as never, 'cli');
+
+    const res = await post(app, 'wire-prebroken', { a: [], b: ['a'] });
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toContain('Wiring saved');
+    expect(agentStore.getAgent('wire-prebroken')!.nodes.find((n) => n.id === 'b')!.dependsOn).toEqual(['a']);
+  });
+
+  it('still blocks a cycle on an agent that was already failing the schema', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'wire-prebroken-cycle', name: 'x', status: 'active', source: 'local', mcp: false,
+      inputs: [{ name: 'MODE', type: 'enum', values: [] }],
+      nodes: [
+        { id: 'a', type: 'shell', command: 'echo a' },
+        { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+      ],
+    } as never, 'cli');
+
+    const res = await post(app, 'wire-prebroken-cycle', { a: ['b'], b: ['a'] });
+    const flash = decodeURIComponent(res.headers.location);
+    // The pre-existing enum complaint is filtered out; the cycle it just
+    // introduced is not.
+    expect(flash).toContain('Cycle detected in DAG');
+    expect(flash).not.toContain('Enum inputs');
+  });
+
+  it('serves the editor script', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/assets/graph-edit.js')
+      .set('Host', `127.0.0.1:${PORT}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('javascript');
+    expect(res.text).toContain('data-dag-edit-toolbar');
+  });
+});
+
 describe('Dashboard /agents/:id/add-node chain flow (PR 1.6)', () => {
   it('GET /agents/:id/add-node renders the form with current nodes listed', async () => {
     const app = await makeApp();
