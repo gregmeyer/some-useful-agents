@@ -357,6 +357,199 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/delete', (req: Request, res: 
   }
 });
 
+// ── Graph wiring editor ─────────────────────────────────────────────────
+
+/**
+ * A node can reference an upstream node by NAME rather than by edge, so
+ * cutting `a → b` while `b` still names `a` leaves the reference dangling.
+ * Three forms exist. Two are already policed by the schema, and it refuses
+ * the save with a better message than we would write:
+ *
+ *   1. `{{upstream.a.result}}` in a prompt — "Template references upstream
+ *      node "a" but "b" does not declare "a" in its dependsOn list."
+ *   2. `$UPSTREAM_A_RESULT` in a command  — "Shell command reads
+ *      $UPSTREAM_A_RESULT … otherwise the variable is unbound and the node
+ *      crashes under set -u."
+ *
+ * The third, `onlyIf: { upstream: 'a' }`, is checked by nothing. It saves
+ * clean and then silently changes which branch runs. That is the only gap
+ * this covers — hence a warning rather than a refusal, since unlike the other
+ * two it does not crash, it just quietly does the wrong thing.
+ */
+function danglingRefsFor(node: { onlyIf?: { upstream?: string } }, removedDep: string): string[] {
+  return node.onlyIf?.upstream === removedDep ? ['onlyIf.upstream'] : [];
+}
+
+/**
+ * Find a dependency cycle in a wiring map, returned as the path that closes
+ * the loop (e.g. `['a','b','a']`), or undefined.
+ *
+ * Checked here rather than left to the schema because the schema's cycle
+ * detection lives in a `superRefine`, and Zod skips that entirely when the
+ * base object parse fails. An agent that is already invalid for an unrelated
+ * reason would therefore get NO cycle check at all — and a cycle is the one
+ * corruption a rewiring can uniquely introduce. Same colour-marking algorithm
+ * as agent-v2-schema.ts, deliberately, so the two agree.
+ */
+function findCycle(wiring: Map<string, string[]>): string[] | undefined {
+  const colour = new Map<string, 'white' | 'grey' | 'black'>();
+  for (const id of wiring.keys()) colour.set(id, 'white');
+
+  const visit = (id: string, stack: string[]): string[] | undefined => {
+    const c = colour.get(id);
+    if (c === 'grey') return [...stack, id];
+    if (c === 'black') return undefined;
+    colour.set(id, 'grey');
+    for (const dep of wiring.get(id) ?? []) {
+      const found = visit(dep, [...stack, id]);
+      if (found) return found;
+    }
+    colour.set(id, 'black');
+    return undefined;
+  };
+
+  for (const id of wiring.keys()) {
+    if (colour.get(id) === 'white') {
+      const found = visit(id, []);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The schema complaints an agent currently has, as individual issue strings.
+ * Empty means it validates. Used to tell "this rewiring broke something" from
+ * "this agent was already broken".
+ */
+function schemaIssues(agent: Agent): string[] {
+  try {
+    parseAgent(exportAgent(agent));
+    return [];
+  } catch (err) {
+    const msg = err instanceof AgentYamlParseError ? err.message : (err as Error).message;
+    return msg
+      .replace(/^Agent schema validation failed:\s*/, '')
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+}
+
+/**
+ * Save a whole rewiring as ONE new version. The canvas posts the complete
+ * `dependsOn` map rather than a diff, so a restructure that touches five
+ * nodes is one version with one message instead of five.
+ */
+agentNodesRouter.post('/agents/:name/graph', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
+  const agent = ctx.agentStore.getAgent(name);
+  if (!agent) {
+    res.status(404).redirect(303, '/agents');
+    return;
+  }
+  const back = `/agents/${encodeURIComponent(agent.id)}`;
+  const fail = (msg: string): void => {
+    res.status(400).redirect(303, `${back}?flash=${encodeURIComponent(msg)}`);
+  };
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = typeof body.wiring === 'string' ? body.wiring : '';
+  let wiring: Record<string, string[]>;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+    wiring = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(v) || v.some((d) => typeof d !== 'string')) throw new Error(`bad deps for "${k}"`);
+      // De-dupe here rather than trusting the client; the canvas cannot
+      // produce duplicates but a hand-posted form could.
+      wiring[k] = [...new Set(v as string[])];
+    }
+  } catch {
+    fail('Could not read the wiring from the editor. Nothing was changed.');
+    return;
+  }
+
+  const ids = new Set(agent.nodes.map((n) => n.id));
+  for (const [nodeId, deps] of Object.entries(wiring)) {
+    if (!ids.has(nodeId)) { fail(`Unknown node: "${nodeId}".`); return; }
+    for (const dep of deps) {
+      if (!ids.has(dep)) { fail(`Unknown upstream node: "${dep}".`); return; }
+      if (dep === nodeId) { fail(`"${nodeId}" cannot depend on itself.`); return; }
+    }
+  }
+
+  // Cycles first, and always — see findCycle for why this cannot be delegated
+  // to the schema. Message shape matches the schema's so both read alike.
+  const asMap = new Map<string, string[]>();
+  for (const node of agent.nodes) asMap.set(node.id, wiring[node.id] ?? node.dependsOn ?? []);
+  const cycle = findCycle(asMap);
+  if (cycle) {
+    fail(`Rewiring failed: Cycle detected in DAG: ${cycle.join(' → ')}.`);
+    return;
+  }
+
+  // Collect dangling references BEFORE saving, comparing old deps to new.
+  const warnings: string[] = [];
+  const updatedNodes = agent.nodes.map((node) => {
+    const next = wiring[node.id];
+    if (!next) return node;
+    const before = node.dependsOn ?? [];
+    for (const removed of before.filter((d) => !next.includes(d))) {
+      for (const ref of danglingRefsFor(node, removed)) {
+        warnings.push(`"${node.id}" still uses ${ref}`);
+      }
+    }
+    const rest = { ...node };
+    delete (rest as { dependsOn?: string[] }).dependsOn;
+    // Omit the key entirely when empty — matches how nodes are written
+    // everywhere else, and keeps the YAML round-trip clean.
+    return next.length > 0 ? { ...rest, dependsOn: next } : rest;
+  });
+
+  // `createNewVersion` does NOT validate — it serializes the DAG and writes it
+  // (agent-store.ts). A rewiring is the one edit here that can introduce a
+  // cycle, so validate first, through the same export→parse round-trip the
+  // YAML editor trusts. That runs the full schema, cycle detection included,
+  // so the message is the schema's own.
+  //
+  // But validate the DIFFERENCE, not the agent. Some stored agents already
+  // fail the schema on grounds that have nothing to do with wiring (a stale
+  // enum input, say) — refusing their wiring edits would trap the user behind
+  // an unrelated error they did not cause and cannot fix from this screen.
+  // So: block only issues this rewiring INTRODUCES.
+  const candidate = { ...agent, nodes: updatedNodes as typeof agent.nodes };
+  const before = new Set(schemaIssues(agent));
+  const introduced = schemaIssues(candidate).filter((issue) => !before.has(issue));
+  if (introduced.length > 0) {
+    fail(`Rewiring failed: ${introduced.join('; ')}`);
+    return;
+  }
+
+  // Clean agents get saved in their normalized (parsed) form; already-broken
+  // ones are written through as-is so we neither fix nor worsen the unrelated
+  // defect behind the user's back.
+  let toSave: Agent = candidate;
+  try { toSave = parseAgent(exportAgent(candidate)); } catch { /* keep candidate */ }
+
+  try {
+    ctx.agentStore.createNewVersion(agent.id, toSave, 'dashboard', 'Rewired the graph via dashboard');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(`Rewiring failed: ${msg}`);
+    return;
+  }
+
+  // Warn but do not block: someone mid-restructure may be about to fix the
+  // reference, and refusing the save would trap them.
+  const flash = warnings.length > 0
+    ? `Wiring saved, but ${warnings.join('; ')} — that upstream is no longer connected.`
+    : 'Wiring saved. New version created.';
+  res.redirect(303, `${back}?flash=${encodeURIComponent(flash)}`);
+});
+
 // ── Raw YAML editor ─────────────────────────────────────────────────────
 
 agentNodesRouter.get('/agents/:name/yaml', (req: Request, res: Response) => {

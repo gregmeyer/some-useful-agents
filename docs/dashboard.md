@@ -105,6 +105,7 @@ Five tabs:
 
 ### Overview
 - **DAG visualization** — Cytoscape canvas with wheel-zoom + drag-pan. A floating toolbar in the bottom-right has **+** (zoom in), **⧇** (fit to view), and **−** (zoom out) buttons; clicks bind to `cy.zoom()` / `cy.fit()`. The canvas height adapts to graph size — 380px default, 240px compact for 1–2-node DAGs — so a small graph doesn't drown in an empty grid and a dense one stays readable without leaving the page. Click any node for the action dialog (Edit, Replay-from-here, Jump to details).
+- **Edit wiring** — toggles the canvas into a wiring editor. Drag one node onto another to make the second depend on the first, or click a source node then a target if you'd rather not drag. Click an edge to remove it. **Save wiring** writes every change as a *single* new version, so restructuring five nodes is one entry in history rather than five. Cycles are refused (with the path that closes the loop), and so is cutting an edge whose downstream still reads `{{upstream.x.result}}` or `$UPSTREAM_X_RESULT` — those would crash the node. Cutting one that an `onlyIf` predicate still names saves with a warning, because it does not crash, it just quietly changes which branch runs. Run detail's DAG is never editable: it's a record of what happened.
 - Latest run's output widget (if declared)
 - Stats strip: total runs, success rate, avg duration
 - Signal + output widget previews
