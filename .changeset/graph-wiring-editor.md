@@ -33,3 +33,7 @@ error they did not cause and cannot fix from that screen. Cycle detection runs i
 the schema for the same reason — the schema's own check lives in a `superRefine`, which is skipped
 entirely when the base parse fails, so an already-invalid agent would otherwise get no cycle check
 at all.
+
+Saving also preserves the existing order of dependencies it did not change. The canvas reports them
+sorted, so writing that straight through would reorder an untouched `dependsOn` list and show up as
+a diff in anyone's agent YAML for nothing.
