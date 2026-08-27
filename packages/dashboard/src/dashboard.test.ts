@@ -1180,6 +1180,32 @@ describe('Graph wiring editor', () => {
     expect(b.dependsOn).toBeUndefined();
   });
 
+  it('leaves an unchanged dependsOn list in its original order', async () => {
+    const app = await makeApp();
+    seed('wire-order', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b' },
+      { id: 'c', type: 'shell', command: 'echo c', dependsOn: ['b', 'a'] },
+    ]);
+    // The canvas reports deps sorted, so a naive write-through would reorder
+    // this to ['a','b'] and show up as a diff in the agent's YAML for nothing.
+    const res = await post(app, 'wire-order', { a: [], b: [], c: ['a', 'b'] });
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('wire-order')!.nodes.find((n) => n.id === 'c')!.dependsOn).toEqual(['b', 'a']);
+  });
+
+  it('appends genuinely new dependencies after the existing ones', async () => {
+    const app = await makeApp();
+    seed('wire-append', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b' },
+      { id: 'c', type: 'shell', command: 'echo c', dependsOn: ['b'] },
+    ]);
+    const res = await post(app, 'wire-append', { a: [], b: [], c: ['a', 'b'] });
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('wire-append')!.nodes.find((n) => n.id === 'c')!.dependsOn).toEqual(['b', 'a']);
+  });
+
   it('rejects an unknown upstream node', async () => {
     const app = await makeApp();
     seed('wire-unknown', [{ id: 'a', type: 'shell', command: 'echo a' }]);

@@ -502,11 +502,18 @@ agentNodesRouter.post('/agents/:name/graph', (req: Request, res: Response) => {
         warnings.push(`"${node.id}" still uses ${ref}`);
       }
     }
+    // Preserve the existing order of deps that survive, and append new ones.
+    // The canvas reports deps sorted, so writing `next` straight through would
+    // reorder an untouched list and show up as a diff in anyone's agent YAML
+    // for no reason. Order carries no meaning (execution is topological), so
+    // the only thing at stake is churn.
+    const ordered = [...before.filter((d) => next.includes(d)), ...next.filter((d) => !before.includes(d))];
+
     const rest = { ...node };
     delete (rest as { dependsOn?: string[] }).dependsOn;
     // Omit the key entirely when empty — matches how nodes are written
     // everywhere else, and keeps the YAML round-trip clean.
-    return next.length > 0 ? { ...rest, dependsOn: next } : rest;
+    return ordered.length > 0 ? { ...rest, dependsOn: ordered } : rest;
   });
 
   // `createNewVersion` does NOT validate — it serializes the DAG and writes it
