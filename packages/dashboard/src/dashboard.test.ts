@@ -348,6 +348,16 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     expect(res.text).toContain('pulse-grid');
   });
 
+  it('/pulse carries a scheduler health tile', async () => {
+    const app = await makeApp();
+    const res = await authed(app, '/pulse');
+    expect(res.status).toBe(200);
+    // With no heartbeat file in the test data dir the scheduler reads as
+    // stopped — the state the board was silent about for nine days.
+    expect(res.text).toContain('_system-scheduler');
+    expect(res.text).toContain('pulse-tile__status-dot');
+  });
+
   it('has no global subnav bar anywhere', async () => {
     const app = await makeApp();
     for (const path of ['/', '/settings/secrets', '/help', '/agents', '/tools']) {

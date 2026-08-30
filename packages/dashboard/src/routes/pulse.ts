@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { parseAgent, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
+import { parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
@@ -9,6 +9,7 @@ import { tileWrap, renderPulseBoard, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
 import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
+import { schedulerTileState } from '../lib/scheduler-tile.js';
 
 export const pulseRouter: Router = Router();
 
@@ -45,6 +46,7 @@ const SYSTEM_IDS = [
   '_system-failure-rate',
   '_system-avg-duration',
   '_system-agent-count',
+  '_system-scheduler',
 ] as const;
 
 function virtualAgent(id: string, name: string): Agent {
@@ -109,13 +111,32 @@ function buildSystemTiles(ctx: ReturnType<typeof getContext>): PulseTile[] {
       signal: { title: 'Agents', icon: '\uD83E\uDD16', template: 'metric', format: 'number' },
       slots: { value: agentCount, label: 'Agents' },
     },
+    schedulerTile(ctx),
   ];
+}
+
+/** Scheduler health as a board tile. Mapping lives in lib/scheduler-tile.ts. */
+function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
+  const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
+  // Match the daemon's own filter (schedule.ts): scheduled AND active.
+  const scheduled = ctx.agentStore.listAgents().filter((a) => a.schedule && a.status === 'active').length;
+  const { state, label, message } = schedulerTileState({
+    status,
+    registered: heartbeat?.agents.length ?? 0,
+    scheduled,
+  });
+
+  return {
+    agent: virtualAgent('_system-scheduler', 'Scheduler'),
+    signal: { title: 'Scheduler', icon: '\u23F0', template: 'status' },
+    slots: { status: state, label, message },
+  };
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────
 
 /**
- * Assemble the live Pulse board data: the 4 virtual system tiles + a tile per
+ * Assemble the live Pulse board data: the 5 virtual system tiles + a tile per
  * visible signal agent (two visibility gates) + the hidden count + dashboards
  * and available packs. Shared by GET /pulse and the Mission Control home (`/`)
  * so both render the identical board with zero divergence. Idempotent —

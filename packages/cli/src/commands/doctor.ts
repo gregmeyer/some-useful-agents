@@ -3,7 +3,8 @@ import { execSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { platform } from 'node:os';
 import chalk from 'chalk';
-import { loadConfig, getAgentDirs, getSecretsPath, getDbPath } from '../config.js';
+import { loadConfig, getAgentDirs, getSecretsPath, getDbPath, getDataRoot } from '../config.js';
+import { listV2Agents } from '../v2-runtime.js';
 import {
   loadAgents,
   EncryptedFileStore,
@@ -12,6 +13,7 @@ import {
   getMcpTokenPath,
   readMcpToken,
   inspectSecretsFile,
+  getSchedulerStatus,
 } from '@some-useful-agents/core';
 import * as ui from '../ui.js';
 
@@ -32,6 +34,28 @@ function checkMode600(path: string): { ok: boolean; message: string } {
     ok: mode === 0o600,
     message: mode === 0o600 ? `chmod 0600` : `chmod 0${mode.toString(8)} (want 0600)`,
   };
+}
+
+/**
+ * Agents the scheduler would actually register: v1 + v2, active only.
+ * Mirrors the filter in `schedule.ts` (`a.schedule && a.status === 'active'`)
+ * so doctor's count matches what the daemon really picks up rather than
+ * counting drafts and paused agents it will skip.
+ */
+function countScheduledAgents(config: ReturnType<typeof loadConfig>): number {
+  let n = 0;
+  try {
+    const { agents } = loadAgents({ directories: getAgentDirs(config).all });
+    // v1 has no `status` field — active/paused/draft is a v2 concept — so a
+    // scheduled v1 agent is always registered.
+    for (const a of agents.values()) {
+      if (a.schedule) n++;
+    }
+  } catch { /* v1 dir unreadable — v2 count below still stands */ }
+  for (const a of listV2Agents()) {
+    if (a.schedule && a.status === 'active') n++;
+  }
+  return n;
 }
 
 function buildSecurityChecks(config: ReturnType<typeof loadConfig>): Check[] {
@@ -240,7 +264,30 @@ export const doctorCommand = new Command('doctor')
         name: 'Scheduler',
         run: () => {
           const valid = LocalScheduler.isValid('* * * * *');
-          return { ok: valid, message: valid ? 'node-cron ready' : 'node-cron not functioning' };
+          if (!valid) return { ok: false, message: 'node-cron not functioning' };
+
+          // "node-cron is importable" was the whole check. It passed happily
+          // through nine days of the daemon being dead with 18 agents on cron
+          // — `doctor` printed "All checks passed" the entire time. Whether
+          // the library loads is not the question anyone is asking.
+          const { status } = getSchedulerStatus(getDataRoot(config));
+          const scheduled = countScheduledAgents(config);
+
+          if (status === 'running') {
+            return { ok: true, message: `daemon running, ${String(scheduled)} agent(s) scheduled` };
+          }
+          if (status === 'idle') {
+            return scheduled > 0
+              ? { ok: false, message: `daemon running but registered 0 agents while ${String(scheduled)} are scheduled — restart it: sua daemon start --service schedule` }
+              : { ok: true, message: 'daemon running, nothing scheduled' };
+          }
+          if (scheduled === 0) {
+            return { ok: true, message: `daemon ${status}, nothing scheduled` };
+          }
+          return {
+            ok: false,
+            message: `daemon ${status} — ${String(scheduled)} scheduled agent(s) will not run. Start it: sua daemon start --service schedule`,
+          };
         },
       },
       {
@@ -259,15 +306,25 @@ export const doctorCommand = new Command('doctor')
       {
         name: 'Scheduled agents',
         run: () => {
+          // `loadAgents` is the V1 loader and silently skips every v2 agent
+          // (ADR-0032). This check therefore reported "none" on an install
+          // where seven v2 agents were scheduled and firing.
           const dirs = getAgentDirs(config);
           const { agents } = loadAgents({ directories: dirs.all });
-          const scheduled = Array.from(agents.values()).filter(a => a.schedule);
+          const scheduled: Array<{ name: string; schedule: string }> = [];
+          for (const a of agents.values()) {
+            if (a.schedule) scheduled.push({ name: a.name, schedule: a.schedule });
+          }
+          for (const a of listV2Agents()) {
+            if (a.schedule) scheduled.push({ name: a.name, schedule: a.schedule });
+          }
+
           if (scheduled.length === 0) {
             return { ok: true, message: 'none' };
           }
-          const invalid = scheduled.filter(a => !LocalScheduler.isValid(a.schedule!));
+          const invalid = scheduled.filter((a) => !LocalScheduler.isValid(a.schedule));
           if (invalid.length > 0) {
-            return { ok: false, message: `${invalid.length} agent(s) with invalid cron: ${invalid.map(a => a.name).join(', ')}` };
+            return { ok: false, message: `${invalid.length} agent(s) with invalid cron: ${invalid.map((a) => a.name).join(', ')}` };
           }
           return { ok: true, message: `${scheduled.length} scheduled` };
         },
@@ -282,6 +339,14 @@ export const doctorCommand = new Command('doctor')
           const declaredSecrets = new Set<string>();
           for (const [, agent] of agents) {
             for (const s of agent.secrets ?? []) declaredSecrets.add(s);
+          }
+          // v2 agents declare secrets per node, not on the agent (ADR-0032:
+          // `loadAgents` skips them entirely, so this said "no agents declare
+          // secrets" no matter how many did).
+          for (const agent of listV2Agents()) {
+            for (const node of agent.nodes ?? []) {
+              for (const s of node.secrets ?? []) declaredSecrets.add(s);
+            }
           }
 
           if (declaredSecrets.size === 0) {

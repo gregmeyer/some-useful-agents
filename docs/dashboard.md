@@ -191,7 +191,7 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 > home. The `/pulse/*` sub-routes (tile fragments, hide/show-all, layout planner)
 > are unchanged. Below is the board reference — it all applies to the board on `/`.
 
-The board is an information radiator with draggable signal tiles. Each agent with a `signal:` block gets a tile.
+The board is your agents at a glance, with draggable signal tiles. Each agent with a `signal:` block gets a tile.
 
 **10 templates:** `metric`, `time-series`, `text-headline`, `text-image`, `image`, `table`, `status`, `media`, `widget`, `comparison`, `key-value`, `story`, `funnel`.
 
@@ -203,7 +203,16 @@ are omitted. The ordering is meant for a run console: what you used last is what
 you are most likely to run again, and agents you set up but never used are
 collected at the bottom rather than scattered through the board.
 
-Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon (the × toggles the agent's `pulseVisible` flag). System metric tiles (runs today, avg duration, failure rate, agent count) pin to the top.
+Configure tiles via the ⚙ gear on each one. Hide/unhide via the × or eye icon (the × toggles the agent's `pulseVisible` flag). System tiles (runs today, avg duration, failure rate, agent count, **scheduler**) pin to the top.
+
+**The scheduler tile** reports whether the schedule daemon is actually running,
+because a dead scheduler is otherwise invisible here: `/health` knows and
+`/scheduled` says so in its header, but that is the page you only open once you
+already suspect something. Red means agents are scheduled and nothing will fire
+them — the case that costs you runs. Amber covers the merely odd: the daemon off
+with nothing scheduled, or alive but registered nothing (which is worse than
+being visibly off — it reads as fine and never fires). `sua doctor` reports the
+same state and exits non-zero on the red case.
 
 **Every tile is runnable.** Each tile carries a **Run** button in its footer that
 re-runs the agent and refreshes the tile in place — no navigation to the run
