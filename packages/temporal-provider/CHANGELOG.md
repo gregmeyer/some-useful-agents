@@ -1,5 +1,399 @@
 # @some-useful-agents/temporal-provider
 
+## 0.28.0
+
+### Minor Changes
+
+- f7ddbce: Read Agent Behavior specs — the open standard for writing down expected agent conduct.
+  
+  sua now discovers, validates, and displays `.agents/behaviors/*/BEHAVIOR.md` files following the [Agent Behavior](https://www.agentbehavior.dev/) standard from Braintrust and Basis. A behavior spec records recurring conduct — how an agent gathers context, decides, acts, and recovers — as a written standard you can review traces against.
+  
+  New `sua behaviors list | validate | show`, and a `/behaviors` page in the dashboard grouped by scope. `validate` exits non-zero on any invalid spec, so it works as a CI gate.
+  
+  Specs are found in three scopes: your project, your home directory, and an optional configured org directory, resolved project-first. Two specs of our own ship under `.agents/behaviors/` as working examples.
+  
+  This is a reader: sua displays and validates these, and does not grade runs against them or feed them to a model on its own. Conformance is checked against the reference implementation — both validators agree on the same trees, including which ones they reject.
+  
+  Note the leading dot: `.agents/` is the shared standard directory and is unrelated to this project's own `agents/` folder. Putting specs in the undotted path produces a diagnostic naming both, rather than an empty list.
+- 441804a: `sua agent run` and `sua agent list` now reach v2 DAG agents.
+  
+  `sua agent run <id>` reported "not found" for any v2 agent — even one that
+  `sua workflow run <id>` executed happily — because the `agent` verbs went
+  through `loadAgents`, the V1 loader, which silently skips every v2 file. The
+  failure then pointed at `sua agent list`, which for the same reason could never
+  list the agent you were looking for.
+  
+  `agent run` now falls through to the v2 store and executes on the same path as
+  `workflow run`, and `agent list` shows v1 and v2 together with a `Model` column.
+  `sua workflow` is unchanged and keeps the verbs that have no `agent` equivalent
+  (import, export, replay, logs, show). Both verbs now share one execution path
+  instead of two copies of the store wiring. See ADR-0032.
+  
+  Also: `-i` now works as the short form of `--input` on both verbs. The docs had
+  been showing `-i NAME=value` for a while, but only `--input` was ever wired up.
+- 95adb5e: Make it visible that agents can run other agents.
+  
+  sua has composed agents since `agent-invoke` shipped, and people are using it: on a 120-agent
+  install, seven agents call others, one orchestrates three of them, and one picks its callee at run
+  time from an input. sua's own Build-from-goal is a multi-agent system — `goal-surveyor`, then one
+  `agent-drafter` per fragment in parallel each behind a critic, then `dashboard-designer`.
+  
+  None of that was visible. Every surface described composition as a *node type*: `agent-invoke` is
+  entry four of seven in the flow-control reference, and the only agent-to-agent affordance anywhere
+  in the UI was a "used by N" badge on the list. You had to already know the capability existed to
+  find it.
+  
+  **Agent detail gains an "Agent calls" section** — what this agent invokes and what invokes it, each
+  linked, with the node doing the calling. A target chosen at run time is shown as "chosen at run
+  time" instead of a dead link to a template string; one pointing at an agent that no longer exists is
+  badged `missing`. Agents that neither call nor are called get no section, so the page doesn't assert
+  a capability it isn't using.
+  
+  **The agents list gains a "calls N" badge** (the outbound half of "used by N") and a **Calls other
+  agents (N)** chip that narrows to exactly those agents. The count is scoped to the current tab and
+  search so the number predicts what clicking it returns.
+  
+  **Adding a node offers "Call another agent."** The quick-start patterns are where someone is shown
+  what nodes are *for*, and composition was missing from them — reachable only by scrolling the tool
+  dropdown far enough to notice agents were listed in it. The pattern is hidden when there is nobody
+  to call, so a fresh install is never shown a dead button.
+  
+  Under the hood this adds `lib/agent-graph.ts`, which builds the whole call graph in one pass. The
+  list previously called `getAgentInvokers` once per agent, and each of those rescanned every agent —
+  about 14,000 node visits per page load on a 120-agent store, to render some badges. The new helper
+  also answers the outbound direction, which the store method could not.
+- 9192398: Make an agent's sample questions clickable.
+  
+  `sampleQuestions`, `entryConditions`, and `nonEntryConditions` have been in the schema and read by every router for a while, but they rendered in zero views — so the one person who most needs them, someone deciding whether this is the right agent, could never see them.
+  
+  An agent's detail page now shows a "What you can ask" panel: every sample question as a chip, plus a "Use when / Not for" block built from the entry conditions. Each agent card carries one chip, and a search that finds nothing offers your own query back as a chip.
+  
+  Clicking a chip drops the question into the `sua ›` bar, focused and editable. It never submits for you — you see exactly what you are about to send first.
+- a839e37: Backfill routing metadata across the shipped example agents so search and triage find the right one.
+  
+  Every non-exempt agent under `agents/examples/` now declares `tags`, `entryConditions`, `nonEntryConditions`, and `sampleQuestions`. Previously 8 of 43 had any routing metadata and none had `tags` — which meant the relevance ranker (used by the `/agents` search box, inbox triage, the build-from-goal surveyor, and the MCP `list-agents` payload) had almost nothing to match a newcomer's request against.
+  
+  Measured against a labeled set of newcomer phrasings run over the real shipped catalog, top-1 accuracy went from 15/27 to 27/27, and the triage reuse hint now fires on 22 of 27 requests instead of 6 — with no wrong hints and no spurious hints on deliberately ambiguous queries.
+  
+  Two gaps that let the coverage rot are closed as well. The routing eval was entirely synthetic, so it scored perfectly on invented agents while the real catalog went unmeasured; there is now a real-catalog eval alongside it. And CI's "validate all agent YAML files" step called the v1 loader, which silently skips every v2 agent, so it had been reporting `0 agent(s) validated successfully` in green — it now parses the v2 files and fails if it ever validates nothing. A new coverage gate keeps the metadata from thinning out again, and `docs/agents.md` documents `tags` and how the fields are scored.
+- 1c3e42d: Let an agent be steered by the behaviors it declares.
+  
+  An agent can now list `behaviors: [declare-blind-spots]` in its YAML. Each named spec's body is prepended to every `llm-prompt` node as conduct guidance, framed so the model reads it as standards for how to work rather than as the task itself.
+  
+  Opt-in only: discovering a behavior never steers anything, and only specs in this project's `.agents/behaviors/` can condition a run. One in your home directory or an org registry stays readable but cannot gain authority over your agents by being present.
+  
+  Failures are loud. A name that does not exist, resolves outside project scope, or exceeds the injection budget fails the run before any node executes rather than quietly running unconditioned — output that silently lacked its standards is not detectable afterwards.
+  
+  Template syntax inside a behavior body is never expanded, so a `{{inputs.API_KEY}}` written into a spec stays literal instead of interpolating a secret. Runs record which behaviors conditioned them, so a trace can be audited against the names you wrote.
+- a4bb7ff: The dashboard's landing page now orients a newcomer.
+  
+  For any real install, `/` rendered only the inbox feed — no explanation of what
+  sua is, and no route to the starter agents or the tutorial anywhere in the body.
+  On a quiet day the whole page was one dim line. The zero-agent state does orient
+  the reader, but it cannot render on a normal install because `sua init` installs
+  around forty agents, so in practice nobody saw it: the shortest real path to
+  `/start` was `/` → Help → scroll → card.
+  
+  `/` now opens with a dismissible line saying where agents run and what the page
+  is for, a link to the fuller "What is sua?" explanation on `/help`, and buttons
+  for **Start here** and the **Tutorial**. It disappears for good once dismissed.
+  
+  Also in this pass:
+  
+  - The starter page called itself four different things — "Quick start" in its
+    header, "Start here" in the tab, the title and the pack. It is "Start here".
+  - `/connect-model` no longer highlights Settings in the nav; it is a first-run
+    setup screen that is not in the nav, so nothing lights up.
+  - `/start` now distinguishes "the starter pack is not installed" from "the three
+    starter agents are missing", and leads with the dashboard route to fixing
+    either rather than a CLI command.
+  - `pageIntro` accepts optional next-step buttons, and only opens a new tab for
+    genuinely off-site links.
+- 7ce2bcd: Rewire a multi-node agent on the DAG canvas instead of through checkboxes.
+  
+  Changing how nodes connect meant opening each node's edit form, ticking `dependsOn` boxes, and
+  holding the shape of the graph in your head — with every node you touched producing its own new
+  version. The agent-detail DAG now has an **Edit wiring** mode: drag one node onto another to make
+  the second depend on the first (or click source then target, which also works by keyboard and on
+  touch), and click an edge to remove it. **Save wiring** commits the whole rearrangement as a
+  single new version.
+  
+  Nothing else about the canvas changes, and run detail's DAG stays strictly read-only — it is a
+  record of what happened, not something to edit.
+  
+  Rewiring is the one edit that can introduce a dependency cycle, so cycles are refused with the
+  path that closes the loop. Cutting an edge whose downstream still reads `{{upstream.x.result}}`
+  or `$UPSTREAM_X_RESULT` is refused too — both would leave the node reading something that is no
+  longer connected. Cutting one that an `onlyIf` predicate still names saves with a warning
+  instead: unlike the other two it does not crash, it silently changes which branch runs, and
+  nothing else in the codebase checks it.
+  
+  Two things this turned up along the way. `createNewVersion` does not run schema validation, so
+  the wiring editor validates before saving rather than assuming the store will catch a bad graph.
+  And it validates the *difference*: an agent that already fails the schema for an unrelated reason
+  (a stale enum input, say) can still have its wiring edited, instead of trapping the user behind an
+  error they did not cause and cannot fix from that screen. Cycle detection runs independently of
+  the schema for the same reason — the schema's own check lives in a `superRefine`, which is skipped
+  entirely when the base parse fails, so an already-invalid agent would otherwise get no cycle check
+  at all.
+  
+  Saving also preserves the existing order of dependencies it did not change. The canvas reports them
+  sorted, so writing that straight through would reorder an untouched `dependsOn` list and show up as
+  a diff in anyone's agent YAML for nothing.
+- a88456b: The dashboard session no longer expires out from under you, and expiry is recoverable.
+  
+  The session was an absolute 8 hours from sign-in with no renewal, so anyone using
+  the dashboard daily was signed out roughly once a day no matter how active they
+  were. Getting back in required the one-time `/auth#token=…` URL that
+  `sua dashboard start` prints only at boot — with the daemon still running, that
+  line never comes again, which left non-technical operators unable to sign in
+  without someone at a terminal.
+  
+  - The window is now **idle** time, renewed on each page load, defaulting to 30
+    days. Set `SUA_DASHBOARD_SESSION_HOURS=8` for the previous posture.
+  - An expired session now says it expired, instead of showing the same
+    "find the URL your terminal printed" copy a first-time visitor gets.
+  - An already-open tab shows a "You have been signed out" banner instead of
+    silently going dead — previously every in-page fetch and the inbox SSE stream
+    just failed with an unhandled 401 and nothing on screen changed.
+  - New `sua dashboard signin-url` reprints a sign-in link for an already-running
+    dashboard.
+  
+  This relaxes a control listed in `docs/SECURITY.md`; the reasoning, and the
+  same-origin re-auth endpoint that was rejected, are recorded in ADR-0033.
+- d247858: Say it in plain words: a language sweep across the dashboard, plus written voice guidance.
+  
+  The dashboard described itself to newcomers in terms borrowed from its own source. The New agent
+  form opened with "Create a single-node v2 DAG agent"; Pulse called itself an "information
+  radiator"; Build from goal offered "Use system default (waterfall from /settings/llm)"; the Nodes
+  page led with "Every first-class node type sua's executor knows". The inbox referred to "the
+  triage agent" without ever saying what that was, and agents in the older file format were labelled
+  "legacy v1" with a CLI command as their only remedy. All of it now says what the thing does.
+  
+  In-product help had also drifted away from what shipped. Four notes promised features "in v0.15"
+  at version 0.27 — two of those features had since shipped (replay from a node, secrets management in
+  Settings), so help was pointing away from working UI; the other two had not, and now say so
+  instead of naming a version. Help taught `sua workflow run` throughout and never mentioned
+  `sua agent run`, contradicting ADR-0032. The tutorial numbered two different steps "Step 5" and
+  had no Step 7, and its secrets step taught a terminal command on a page that promises no terminal
+  is required.
+  
+  Agents, Pulse, Runs and Settings now introduce themselves. Each rendered a bare title, while Nodes,
+  Packs, Behaviors, Scheduled and Help all carried a one-line description — so the four most-visited
+  pages were the four that said least about what they were for. Pulse is the notable one: it had been
+  using a *dismissible* tip to explain what Pulse is, so the explanation vanished permanently the
+  first time anyone closed it. That line is now a permanent part of the header, and the dismissible
+  tip keeps only the how-to-arrange-it advice worth dismissing once learned.
+  
+  DESIGN.md gains a **Voice and Vocabulary** section — a table of the word to use for each concept,
+  a list of terms that must never reach a user, and the rule that copy never promises a version
+  number. Colour, type and spacing were already governed; words were not, which is why jargon grew
+  back after previous sweeps.
+- 0b31a2f: The Pulse board is grouped and ordered by how recently you used each agent.
+  
+  The board rendered every tile into one flat grid in `listAgents()` order, which
+  is effectively arbitrary. On a real install that meant 31 tiles where an agent
+  you had never run sat at identical visual weight, in no particular place, next
+  to one you ran sixteen minutes ago — the ordering carried no information at all.
+  
+  Tiles are now grouped into **Health** (system metrics), **Recent** (ran within
+  seven days, newest first), **Idle** (ran longer ago), and **Never run**. Empty
+  groups are omitted. Since Pulse is a run console, the useful sort is what you
+  used last; never-run tiles are collected rather than scattered, because on a
+  board where every tile is runnable they are one click from being useful.
+  
+  The board also explains itself when it has no tiles. Previously it rendered an
+  empty grid with no indication of why the page was blank or what would populate
+  it; there is now a real empty state, with a distinct message for the case where
+  every tile is merely hidden.
+  
+  **One-time layout reset.** The client re-renders the grid from `localStorage`, so
+  a stored layout would silently defeat the new grouping for anyone who had loaded
+  Pulse before. The board now publishes a layout version and the client reseeds
+  once when it changes. Tile palettes, sizes and collapsed state are stored under
+  separate keys and are unaffected; only manual tile *arrangement* resets.
+- 56a5ff1: Every Pulse tile can now be run from the board.
+  
+  Pulse is used as a run console — on a real install 83% of all runs came from a
+  dashboard click, against 15% from the scheduler — but only tiles backed by an
+  `outputWidget` had a run control, because only those embed the widget's replay
+  button. Every `metric` / `status` / `text-headline` / `table` tile was a
+  read-only rectangle, and a tile whose agent had never run was a dead one showing
+  "No data yet" with nothing to do about it. On a 31-tile board, 8 were runnable.
+  
+  Each tile now carries a **Run** button in its footer that re-runs the agent and
+  refreshes the tile in place. Tiles whose body already offers a run control keep
+  theirs, so nothing is doubled up; system metric tiles get none. An agent with a
+  required input and no default shows **Run…** linking to the agent page, rather
+  than a one-click button guaranteed to fail.
+  
+  This reuses the existing in-place run path end to end — same
+  `form.wc-group--replay` markup, same `widget-replay.js.ts` handler, same
+  `/agents/:id/widget-run` → poll → `/pulse/tile/:id` swap — so it adds no client
+  JavaScript, and keeps working without JS by POSTing to `/agents/:id/run`.
+- be0172f: `/agents` search now ranks by relevance instead of substring matching.
+  
+  Searching "watch a website for changes" used to return nothing, because the box
+  only matched substrings of id, name and description. Inbox triage has always
+  ranked agents properly — scoring `tags`, `entryConditions` and `sampleQuestions`
+  alongside id/name — so the search box now uses that same ranker, lifted into
+  `@some-useful-agents/core` as `agent-relevance.ts`.
+  
+  Relevance widens and reorders; it never removes. Everything the substring match
+  found still matches. Best-match ordering is implicit while searching and any
+  explicit sort overrides it.
+  
+  Also in this change:
+  
+  - A search that matches nothing no longer hides the search box, so the query
+    stays editable. It says which tab the matches are in instead ("2 in Examples")
+    and points at the `sua ›` bar.
+  - The query echoes back as typed rather than lowercased.
+  - `Sort: name` sorts by name; it sorted by id.
+  - Legacy v1 agents now respect the search box instead of always listing.
+- 5c5d82f: The scheduler now tells you when it is dead.
+  
+  On the install this was found on, the schedule daemon had been stopped for nine days behind a stale
+  pidfile. Eighteen agents had cron expressions and none of them fired. Nothing a person would
+  normally look at said so: `/health` knew, and `/scheduled` mentioned it in its page header, but that
+  is the page you only open once you already suspect something. Home and the board said nothing, and
+  `sua doctor` printed **"All checks passed"** the entire time.
+  
+  **Pulse gains a scheduler tile.** Red when agents are scheduled and nothing will fire them — the
+  case that actually costs you runs. Amber for the merely odd: the daemon off with nothing scheduled,
+  or alive but registered zero agents, which is worse than being visibly off because it reads as fine
+  and never fires. It uses the existing `status` template, so there is no new tile machinery.
+  
+  **`sua doctor` stops certifying a broken install.** Three checks were lying:
+  
+  - **Scheduler** only checked that `node-cron` could be imported — true throughout the outage. It now
+    reports whether the daemon is running, and fails with the command to start it when agents are
+    scheduled and it is not.
+  - **Scheduled agents** reported `none` while seven v2 agents were scheduled, because it used
+    `loadAgents`, the v1 loader that silently skips every v2 agent (ADR-0032). It now counts both.
+  - **Agent secrets** said "no agents declare secrets" for the same reason; v2 agents declare secrets
+    per node. It now counts those too.
+  
+  That is the fifth and sixth consumer bitten by the v1-loader trap ADR-0032 documented.
+  
+  Also removes `views/home-widgets.ts` — 414 lines with **zero importers**, orphaned when the home
+  became the cadence inbox feed. It contained a scheduler status widget with heartbeat staleness
+  detection that nobody could see, which is a large part of why the outage went unnoticed. The Pulse
+  tile replaces it on a surface that is actually rendered.
+- 6d80ee9: Tools is now the one home for everything an agent can call.
+  
+  Five nouns meant roughly "a thing an agent can call", split across two navigations: Tools and Nodes
+  under Agents, and Integrations, MCP and MCP Servers as three separate Settings tabs. Two of those
+  sat next to each other named "MCP" and "MCP Servers" while being opposite directions of the
+  protocol — one is sua exposed *as* a tool for Claude Desktop to call, the other is servers sua
+  imported tools *from*.
+  
+  `/tools` now has four tabs: **Built-in**, **Imported** (was "User tools"), **Servers** (moved from
+  Settings → MCP Servers) and **Integrations** (moved from Settings). The old URLs
+  302-redirect and preserve their query strings, so bookmarks and deep links to a specific
+  integration kind keep working. `/settings/mcp` is renamed **Claude Desktop**, named for what it
+  does now that its confusable neighbour has moved out.
+  
+  This also fixes a link that sent people in a circle. The Integrations page said "No MCP servers
+  connected. Add one at Settings → MCP Servers first" — but that page cannot add a server; it tells
+  you to use Tools → Import. The empty state now points at the import page directly.
+  
+  **Nodes becomes "Node reference" under Help**, at the same URL. It is hand-authored documentation
+  about how agents are built, with nothing to create or delete, and nothing in the product linked to
+  it — it was reachable only by clicking its own nav tab. Help now links to it.
+  
+  The runtime error for a disabled MCP server names the new location too.
+  
+  Recorded as ADR-0034, which sets three navigation rules the next surface can be placed by:
+  direction decides the section (what sua can call vs. what can call sua), reference documentation
+  does not get a nav slot, and a resource is managed beside the thing it produces. The nav had
+  flip-flopped four times with no ADR at any point.
+
+### Patch Changes
+
+- 9e158cc: The new-agent form tidies the Id instead of rejecting it.
+  
+  Typing `what-do-I-wear` used to fail with "Id must be lowercase letters,
+  digits, or hyphens" and make you retype it — a wall on the first field of the
+  first thing a newcomer creates. Capitals, spaces and punctuation are all
+  fixable, so the server now slugifies (`What Do I Wear?` -> `what-do-i-wear`)
+  and only errors when there's nothing left to build an id from.
+  
+  When the id changes, the arrival flash says so: *Created as "what-do-i-wear".
+  Run it to see what it does.*
+  
+  The form also fills the Id in from the Name as you type, stopping the moment
+  you edit the Id yourself. The `pattern` attribute is gone from the input — it
+  blocked submit client-side, so a capital letter never reached the server to be
+  normalized in the first place.
+- f9a083e: /agents no longer claims you have no agents while you have plenty.
+  
+  The page computed "empty" from the active tab's results, then treated that as
+  an empty install: it showed the "No agents yet — create one" card and, worse,
+  suppressed the tab strip. An operator whose agents are all `source: examples`
+  landed on the default User tab, was told they had none, and lost the only route
+  to the ones they had.
+  
+  An empty tab now says which tab the agents are actually in, with a link, and
+  keeps the tab strip and filter bar on screen. The genuine "no agents anywhere"
+  state is unchanged, as is the separate empty-search state.
+- bd5dcac: Show behavior conditioning in the dashboard.
+  
+  Agent detail now has a **Held to** row listing the behaviors an agent declares, each linking to its spec. A declared behavior that cannot condition a run — missing, or found only in your home directory or an org registry — is marked **unusable**, with a note that the agent will fail to run until it resolves. Previously that only surfaced as a failed run.
+  
+  Run detail now has a **Conditioned by** row naming the behaviors that were in force. Runs have recorded this since conditioning shipped; nothing displayed it, so a trace could not be audited against the standards that supposedly applied.
+  
+  The inbox thread shows a compact `2 behaviors` chip next to a conditioned run's link, with the names on hover — so "why did it answer that way" is answerable without leaving the conversation.
+  
+  Also closes a silent gap in the agent-editor safety guard: it already carried `outcome:` and `successCriteria:` across a rewrite that omitted them, but not `behaviors:`. An analyzer tidying that block away would have silently un-conditioned the agent, and every later run would look completely normal.
+- 9e158cc: Creating an agent now lands you on the agent, not on "add another node".
+  
+  `POST /agents/new` redirected to `/agents/:id/add-node?fromCreate=1` — a screen
+  about chaining a *second* node, shown before you had ever run the first one.
+  That put DAG composition in front of "does this thing work?", which is
+  backwards for anyone new: the payoff for creating an agent is running it.
+  
+  It now redirects to the agent's own page, where **Run now** is, with a flash
+  reading "Created. Run it to see what it does." Adding nodes stays one click
+  away on the Nodes tab.
+- b46177a: Pulse tiles honour their template's default size.
+  
+  `TEMPLATE_REGISTRY` declares a `defaultSize` for each of the 13 signal
+  templates, and `discovery-catalog.ts` reports those sizes to the build planner
+  so generated agents pick sensible tiles. The renderer never applied them: it
+  read `signal.size ?? '1x1'`, so the registry's sizes were dead config and any
+  `widget`, `table`, `story`, `key-value`, `comparison`, `media`, `text-image`,
+  `image` or `funnel` tile whose author didn't spell out a size was squeezed into
+  a 1x1 box the registry explicitly says should be larger.
+  
+  An explicit `signal.size` and an Improve-layout hint both still win, so this
+  only affects tiles that had no size of their own.
+  
+  The configure modal now reports the size a tile is actually rendering at rather
+  than a stale `1x1`, which previously meant opening and saving the modal on such
+  a tile silently shrank it.
+- Updated dependencies [f7ddbce]
+- Updated dependencies [9e158cc]
+- Updated dependencies [441804a]
+- Updated dependencies [f9a083e]
+- Updated dependencies [95adb5e]
+- Updated dependencies [9192398]
+- Updated dependencies [a839e37]
+- Updated dependencies [1c3e42d]
+- Updated dependencies [bd5dcac]
+- Updated dependencies [9e158cc]
+- Updated dependencies [a4bb7ff]
+- Updated dependencies [7ce2bcd]
+- Updated dependencies [a88456b]
+- Updated dependencies [d247858]
+- Updated dependencies [0b31a2f]
+- Updated dependencies [56a5ff1]
+- Updated dependencies [b46177a]
+- Updated dependencies [be0172f]
+- Updated dependencies [5c5d82f]
+- Updated dependencies [6d80ee9]
+  - @some-useful-agents/core@0.28.0
+
 ## 0.27.0
 
 ### Minor Changes
