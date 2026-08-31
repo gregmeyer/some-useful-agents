@@ -1142,6 +1142,98 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
   });
 });
 
+describe('Agents that call agents are visible', () => {
+  function seedPair(): void {
+    agentStore.createAgent({
+      id: 'worker-a', name: 'worker-a', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'go', type: 'shell', command: 'echo a' }],
+    } as never, 'cli');
+    agentStore.createAgent({
+      id: 'boss', name: 'boss', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'delegate', type: 'agent-invoke', agentInvokeConfig: { agentId: 'worker-a' } }],
+    } as never, 'cli');
+  }
+
+  it('shows what an agent invokes, and what invokes it', async () => {
+    const app = await makeApp();
+    seedPair();
+    const authed = (p: string) => request(app).get(p)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    // Composition has worked since agent-invoke shipped, but the only place it
+    // showed was a "used by N" badge on the list — nothing on the agent itself.
+    const caller = await authed('/agents/boss');
+    expect(caller.status).toBe(200);
+    expect(caller.text).toContain('Agent calls');
+    expect(caller.text).toContain('Invokes');
+    expect(caller.text).toContain('href="/agents/worker-a"');
+
+    const callee = await authed('/agents/worker-a');
+    expect(callee.text).toContain('Invoked by');
+    expect(callee.text).toContain('href="/agents/boss"');
+  });
+
+  it('says nothing on an agent that composes nothing', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'solo', name: 'solo', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'go', type: 'shell', command: 'echo hi' }],
+    } as never, 'cli');
+    const res = await request(app).get('/agents/solo')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    // No empty card asserting a capability this agent isn't using.
+    expect(res.text).not.toContain('Agent calls');
+  });
+
+  it('offers a one-click filter whose count matches what it returns', async () => {
+    const app = await makeApp();
+    seedPair();
+    const authed = (p: string) => request(app).get(p)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const list = await authed('/agents?tab=user');
+    expect(list.status).toBe(200);
+    expect(list.text).toContain('Calls other agents (1)');
+    expect(list.text).toContain('composed=1');
+
+    // The count is tab-scoped on purpose: a store-wide number would promise
+    // more results than clicking the chip actually returns.
+    const filtered = await authed('/agents?tab=user&composed=1');
+    expect(filtered.text).toContain('boss');
+    expect(filtered.text).not.toMatch(/agent-card[^]*?worker-a/);
+    expect(filtered.text).toContain('1 agent total');
+  });
+
+  it('badges the caller with how many agents it runs', async () => {
+    const app = await makeApp();
+    seedPair();
+    const res = await request(app).get('/agents?tab=user&composed=1')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.text).toContain('>calls 1<');
+  });
+
+  it('offers "Call another agent" when adding a node', async () => {
+    const app = await makeApp();
+    seedPair();
+    // The add-node patterns are where someone is shown what nodes are FOR.
+    // Composition was absent from that list, so it was discoverable only by
+    // scrolling the tool dropdown far enough to notice agents were in it.
+    const res = await request(app).get('/agents/boss/add-node')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Call another agent');
+    // Resolved client-side to the first agent option, since a curated pattern
+    // cannot know which agents an install has.
+    expect(res.text).toContain('data-pattern-tool="agent:*"');
+  });
+});
+
 describe('Graph wiring editor', () => {
   const post = (app: Awaited<ReturnType<typeof makeApp>>, id: string, wiring: unknown) =>
     request(app).post(`/agents/${id}/graph`)

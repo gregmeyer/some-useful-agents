@@ -20,7 +20,7 @@
 
 import type { Agent, ToolDefinition } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
-import { NODE_PATTERNS, type NodePattern } from './node-patterns.js';
+import { NODE_PATTERNS, AGENT_PATTERN_TOOL, type NodePattern } from './node-patterns.js';
 
 /** A unified card descriptor for the picklist. */
 export interface DiscoveryEntry {
@@ -85,7 +85,13 @@ function agentEntry(a: Agent): DiscoveryEntry {
 
 export function buildDiscoveryEntries(opts: NodeDiscoveryModalOptions): DiscoveryEntry[] {
   const out: DiscoveryEntry[] = [];
-  for (const p of NODE_PATTERNS) out.push(patternEntry(p));
+  for (const p of NODE_PATTERNS) {
+    // "Call another agent" resolves to the first invocable agent, so it is a
+    // dead button when the caller passed none. `opts.agents` is already
+    // filtered to active agents other than this one.
+    if (p.tool === AGENT_PATTERN_TOOL && opts.agents.length === 0) continue;
+    out.push(patternEntry(p));
+  }
   for (const t of opts.tools) out.push(toolEntry(t));
   for (const a of opts.agents) out.push(agentEntry(a));
   return out;

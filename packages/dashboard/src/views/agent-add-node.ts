@@ -5,7 +5,7 @@ import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 import { renderLlmOptions } from './llm-options.js';
-import { NODE_PATTERNS } from './node-patterns.js';
+import { NODE_PATTERNS, AGENT_PATTERN_TOOL } from './node-patterns.js';
 import { renderNodeDiscoveryButton, renderNodeDiscoveryModal } from './node-discovery-modal.js';
 
 function availableVariablesPanel(agent: Agent): SafeHtml {
@@ -107,6 +107,10 @@ export function renderAgentAddNode(args: {
     </label>
   `);
 
+  // Same rule the tool picker uses: you cannot invoke yourself, and only
+  // active agents are invocable.
+  const canInvokeAnother = allAgents.some((a) => a.id !== agent.id && a.status === 'active');
+
   const body = html`
     ${pageHeader({
       title: `Add node to ${agent.id}`,
@@ -126,9 +130,12 @@ export function renderAgentAddNode(args: {
         ${renderNodeDiscoveryButton()}
       </div>
       <div class="pattern-strip">
-        ${NODE_PATTERNS.map((p) => html`
+        ${/* Hide "Call another agent" when there is nothing to call — a fresh
+              install with one agent should not be offered a dead button.
+              `agent:*` is resolved to the first agent option by the handler. */ ''}
+        ${NODE_PATTERNS.filter((p) => p.tool !== AGENT_PATTERN_TOOL || canInvokeAnother).map((p) => html`
           <button type="button" class="btn btn--sm pattern-btn" data-pattern-tool="${p.tool}" data-pattern-defaults="${unsafeHtml(JSON.stringify(p.defaults).replace(/"/g, '&quot;'))}"
-            onclick="(function(btn){var sel=document.getElementById('node-tool-select');if(sel){sel.value=btn.getAttribute('data-pattern-tool');sel.dispatchEvent(new Event('change'));}})(this)">
+            onclick="(function(btn){var sel=document.getElementById('node-tool-select');if(!sel)return;var want=btn.getAttribute('data-pattern-tool');if(want==='${AGENT_PATTERN_TOOL}'){var first=null;for(var i=0;i&lt;sel.options.length;i++){if(sel.options[i].value.indexOf('agent:')===0){first=sel.options[i];break;}}if(!first)return;sel.value=first.value;}else{sel.value=want;}sel.dispatchEvent(new Event('change'));})(this)">
             <strong class="text-xs">${p.name}</strong>
             <span class="dim text-xs">${p.description}</span>
           </button>

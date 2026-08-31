@@ -4,6 +4,7 @@ import { renderDagView, renderDagFallback } from '../dag-view.js';
 import { renderInteractiveWidget } from '../interactive-widget.js';
 import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
+import type { AgentEdge } from '../../lib/agent-graph.js';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
   const { agent, recentRuns, widgetControls, behaviorStatus } = args;
@@ -192,6 +193,8 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       </div>
     </div>
 
+    ${agentCallsSection(args.invokes ?? [], args.invokedBy ?? [])}
+
     ${routingSection}
 
     <!-- Recent runs -->
@@ -239,4 +242,62 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   `;
 
   return agentPageShell({ ...args, activeTab: 'overview' }, content);
+}
+
+/**
+ * This agent's place in the agent-to-agent call graph.
+ *
+ * Rendered only when there is something to show. An agent that composes
+ * nothing gets no empty card — the capability is offered where you would act
+ * on it (the "Call another agent" pattern on Add node), not asserted on every
+ * page that isn't using it.
+ */
+function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHtml {
+  if (invokes.length === 0 && invokedBy.length === 0) return html``;
+
+  const target = (e: AgentEdge): SafeHtml => {
+    if (e.dynamic) {
+      // The callee is chosen at run time, so there is nothing to link to.
+      // Say that rather than rendering a dead link to a template string.
+      return html`<span class="dim">chosen at run time</span> <code class="text-xs">${e.to}</code>`;
+    }
+    if (!e.resolved) {
+      return html`<code>${e.to}</code> <span class="badge badge--err">missing</span>`;
+    }
+    return html`<a href="/agents/${e.to}" class="mono">${e.to}</a>`;
+  };
+
+  const row = (label: SafeHtml, e: AgentEdge): SafeHtml => html`
+    <li style="margin-bottom: var(--space-1);">
+      ${label}
+      <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : ''}</span>
+    </li>
+  `;
+
+  return html`
+    <section style="margin-top: var(--space-6);">
+      <h2>Agent calls</h2>
+      <p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">
+        Agents can run other agents, so a big job can be split across several small ones.
+      </p>
+      <div class="run-detail-grid">
+        ${invokes.length > 0 ? html`
+          <div>
+            <p class="card__title">Invokes</p>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              ${invokes.map((e) => row(target(e), e)) as unknown as SafeHtml[]}
+            </ul>
+          </div>
+        ` : html``}
+        ${invokedBy.length > 0 ? html`
+          <div>
+            <p class="card__title">Invoked by</p>
+            <ul style="list-style: none; padding: 0; margin: 0;">
+              ${invokedBy.map((e) => row(html`<a href="/agents/${e.from}" class="mono">${e.from}</a>`, e)) as unknown as SafeHtml[]}
+            </ul>
+          </div>
+        ` : html``}
+      </div>
+    </section>
+  `;
 }

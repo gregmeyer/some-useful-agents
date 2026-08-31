@@ -63,9 +63,11 @@ inbox.
 
 **Tabs:** User / Examples / Community (with per-tab counts). Community hidden unless you have community agents imported.
 
-Each card shows: status badge, source, optional `mcp` badge, "used by N" badge if other agents invoke this one, DAG shape (dot string), description, node count, schedule (humanized), last run status + age, **Run** button. Star toggle on each card.
+Each card shows: status badge, source, optional `mcp` badge, **"used by N"** if other agents invoke this one and **"calls N"** if it invokes others, DAG shape (dot string), description, node count, schedule (humanized), last run status + age, **Run** button. Star toggle on each card.
 
 **Filters** — search (id/name/description), status (active/paused/draft/archived), sort (name / status / recently run / starred first). Pagination with 12/24/48/100 page sizes.
+
+**Calls other agents (N)** — a chip beside the filters narrows the list to agents that run other agents as part of their job. The count is scoped to the current tab and search, so it predicts what clicking returns. Agents calling agents is the multi-agent story: sua ships `agent-invoke` and `loop`-over-agent node types, and its own Build-from-goal is one of these — `goal-surveyor` → parallel `agent-drafter`s → `dashboard-designer`.
 
 **Build from goal** — describe what you want in plain English; an orchestrator runs goal-surveyor → agent-drafter(s) → dashboard-designer to design the full YAML and tiles. Opens a modal. See [Build from a goal](build-from-goal.md).
 
@@ -106,6 +108,7 @@ Five tabs:
 ### Overview
 - **DAG visualization** — Cytoscape canvas with wheel-zoom + drag-pan. A floating toolbar in the bottom-right has **+** (zoom in), **⧇** (fit to view), and **−** (zoom out) buttons; clicks bind to `cy.zoom()` / `cy.fit()`. The canvas height adapts to graph size — 380px default, 240px compact for 1–2-node DAGs — so a small graph doesn't drown in an empty grid and a dense one stays readable without leaving the page. Click any node for the action dialog (Edit, Replay-from-here, Jump to details).
 - **Edit wiring** — toggles the canvas into a wiring editor. Drag one node onto another to make the second depend on the first, or click a source node then a target if you'd rather not drag. Click an edge to remove it. **Save wiring** writes every change as a *single* new version, so restructuring five nodes is one entry in history rather than five. Cycles are refused (with the path that closes the loop), and so is cutting an edge whose downstream still reads `{{upstream.x.result}}` or `$UPSTREAM_X_RESULT` — those would crash the node. Cutting one that an `onlyIf` predicate still names saves with a warning, because it does not crash, it just quietly changes which branch runs. Run detail's DAG is never editable: it's a record of what happened.
+- **Agent calls** — what this agent invokes and what invokes it, each linked, with the node that does the calling. A target chosen at run time (e.g. `{{inputs.LOGGER_AGENT_ID}}`) is shown as "chosen at run time" rather than a dead link; one naming an agent that no longer exists is badged `missing`. The section is omitted entirely for agents that neither call nor are called.
 - Latest run's output widget (if declared)
 - Stats strip: total runs, success rate, avg duration
 - Signal + output widget previews

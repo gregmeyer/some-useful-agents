@@ -4,6 +4,7 @@ import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
 import { renderAgentDetailV2 } from '../../views/agent-detail-v2.js';
+import { buildAgentGraph } from '../../lib/agent-graph.js';
 
 /**
  * Can each declared behavior actually condition a run?
@@ -78,6 +79,8 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       filter: parseFilterParamsFromQuery(req.query as Record<string, unknown>),
       page: parsePageParamsFromQuery(req.query as Record<string, unknown>),
     };
+    // One pass over the store gives both directions of the call graph.
+    const graph = buildAgentGraph(ctx.agentStore.listAgents());
     const html = await renderAgentDetailV2({
       agent: v2Agent,
       recentRuns: rows,
@@ -87,6 +90,8 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       from: fromParam,
       widgetControls,
       behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
+      invokes: graph.invokes.get(v2Agent.id) ?? [],
+      invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
     });
     res.type('html').send(html);
     return;
