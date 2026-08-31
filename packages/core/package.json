@@ -18,7 +18,7 @@
     "turndown": "7.2.4",
     "uuid": "14.0.2",
     "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "zod": "4.5.1"
   },
   "optionalDependencies": {
     "playwright": "1.62.1"
