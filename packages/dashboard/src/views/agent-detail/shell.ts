@@ -5,6 +5,7 @@ import { pageHeader, type PageHeaderBack } from '../page-header.js';
 import { sourceBadge } from '../components.js';
 import { renderRunInputsForm, statusOption } from '../agent-detail-helpers.js';
 import type { WidgetControlState } from '../output-widgets.js';
+import type { AgentEdge } from '../../lib/agent-graph.js';
 
 export type AgentTab = 'overview' | 'nodes' | 'config' | 'runs' | 'yaml';
 
@@ -47,6 +48,14 @@ export interface AgentDetailArgs {
    * store isn't wired.
    */
   installedAgents?: Array<{ id: string; name: string; description?: string }>;
+  /**
+   * This agent's place in the agent-to-agent call graph: what it invokes, and
+   * what invokes it. sua has been able to compose agents since `agent-invoke`
+   * shipped, but the only place that showed was a "used by N" badge on the
+   * list — so the capability was invisible from the agent you were looking at.
+   */
+  invokes?: AgentEdge[];
+  invokedBy?: AgentEdge[];
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

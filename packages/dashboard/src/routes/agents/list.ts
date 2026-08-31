@@ -3,6 +3,7 @@ import { catalogRelevance, catalogTokens } from '@some-useful-agents/core';
 import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
+import { buildAgentGraph, orchestrators } from '../../lib/agent-graph.js';
 
 export const agentListRouter: Router = Router();
 
@@ -69,10 +70,24 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     community: allAgentsForCounts.filter((a) => a.source === 'community' && matchesSearch(a)).length,
   };
 
+  // Built before filtering so the graph reflects the whole store — an agent's
+  // callers do not stop existing because you searched for something.
+  const agentGraph = buildAgentGraph(allAgentsForCounts);
+  const orchestratorIds = orchestrators(agentGraph);
+
   // One predicate, used for both the counts above and the list itself. These
   // were two byte-identical copies; the tab counts and the list could silently
   // disagree the moment one was edited.
   let v2Agents = allAgentsForCounts.filter((a) => a.source === qSource && matchesSearch(a));
+
+  // `?composed=1` narrows to agents that call other agents — the fastest way
+  // to see that sua composes agents at all, and to find the working examples.
+  // The count is scoped to THIS tab and search, so the number on the chip is
+  // the number of results you get by clicking it. A store-wide count would
+  // promise 8 and deliver 1 on a tab that holds one of them.
+  const composedCount = v2Agents.filter((a) => orchestratorIds.has(a.id)).length;
+  const qComposed = req.query.composed === '1';
+  if (qComposed) v2Agents = v2Agents.filter((a) => orchestratorIds.has(a.id));
 
   // Unify for the list view. v2 agents take precedence when ids collide.
   const mergedV1: AgentDefinition[] = [];
@@ -126,12 +141,14 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     latestRunAt: recent.rows[0]?.startedAt,
   };
 
-  // Compute cross-agent invoker counts for "used by" badges.
+  // Cross-agent call graph, for the "used by" / "calls" badges and the
+  // orchestrators filter. Built in one pass: this previously called
+  // `getAgentInvokers` once per agent, and each of those rescanned every
+  // agent — ~14k node visits for a 120-agent store, to render some badges.
   const invokerCounts = new Map<string, number>();
-  for (const a of v2Agents) {
-    const invokers = ctx.agentStore.getAgentInvokers(a.id);
-    if (invokers.length > 0) invokerCounts.set(a.id, invokers.length);
-  }
+  const calleeCounts = new Map<string, number>();
+  for (const [id, edges] of agentGraph.invokedBy) invokerCounts.set(id, edges.length);
+  for (const [id, edges] of agentGraph.invokes) calleeCounts.set(id, edges.length);
 
   // Apply sorting.
   const lastRunByAgent = new Map<string, Run>();
@@ -186,6 +203,9 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     recentRuns: recent.rows,
     stats,
     invokerCounts,
+    calleeCounts,
+    composedCount,
+    composedOnly: qComposed,
     // `q` raw so the box echoes what was typed; `sort` raw (possibly
     // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
     // only drives which dropdown option shows as selected.

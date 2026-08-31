@@ -14,21 +14,18 @@ export { renderAgentConfig } from './agent-detail/config.js';
 export { renderAgentRuns } from './agent-detail/runs.js';
 export { renderAgentYaml } from './agent-detail/yaml.js';
 
-import type { Agent, Run, SecretsStore } from '@some-useful-agents/core';
-import type { PageHeaderBack } from './page-header.js';
-import type { WidgetControlState } from './output-widgets.js';
 import { renderAgentOverview } from './agent-detail/overview.js';
+import type { AgentDetailArgs } from './agent-detail/shell.js';
 
-/** @deprecated Use renderAgentOverview directly */
-export async function renderAgentDetailV2(args: {
-  agent: Agent;
-  recentRuns: Run[];
-  secretsStore: SecretsStore;
-  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
-  back?: PageHeaderBack;
-  from?: string;
-  widgetControls?: WidgetControlState;
-  behaviorStatus?: Array<{ name: string; usable: boolean; reason?: string }>;
-}): Promise<string> {
+/**
+ * @deprecated Use renderAgentOverview directly.
+ *
+ * Derived from `AgentDetailArgs` rather than re-listing its fields: the
+ * hand-copied version silently omitted every option added to the real type
+ * since, so callers could not pass them through this wrapper at all.
+ */
+export async function renderAgentDetailV2(
+  args: Omit<AgentDetailArgs, 'activeTab'>,
+): Promise<string> {
   return renderAgentOverview({ ...args, activeTab: 'overview' });
 }

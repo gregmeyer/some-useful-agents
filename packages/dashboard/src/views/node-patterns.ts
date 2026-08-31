@@ -3,6 +3,13 @@
  * the form with sensible defaults for a common node shape. Extensible
  * later via user-defined patterns stored in the DB.
  */
+/**
+ * Wildcard tool id for the "call another agent" pattern. The click handler
+ * resolves it to the first `agent:<id>` option in the picker, since a curated
+ * pattern cannot know which agents a given install has.
+ */
+export const AGENT_PATTERN_TOOL = 'agent:*';
+
 export interface NodePattern {
   id: string;
   name: string;
@@ -48,5 +55,20 @@ export const NODE_PATTERNS: NodePattern[] = [
     description: 'Send JSON to an HTTP endpoint (Slack, Discord, API, etc.).',
     tool: 'http-post',
     defaults: { url: '', body: '{}', timeout: '30' },
+  },
+  {
+    id: 'call-agent',
+    // The one place a person is being shown what nodes are FOR, and agent
+    // composition was missing from it — so the fact that sua runs agents from
+    // inside agents was only discoverable by scrolling the tool dropdown far
+    // enough to notice agents were listed there.
+    //
+    // `agent:*` is a wildcard the click handler resolves to the first
+    // invocable agent, because a curated pattern cannot know which agents an
+    // install has. The pattern is hidden when there are none to call.
+    name: 'Call another agent',
+    description: 'Run one of your other agents as a step, and use its result here.',
+    tool: AGENT_PATTERN_TOOL,
+    defaults: {},
   },
 ];

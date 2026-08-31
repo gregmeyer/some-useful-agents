@@ -89,6 +89,19 @@ export const NODE_DISCOVERY_JS = `
     if (!toolId) return;
     var sel = document.getElementById('node-tool-select');
     if (!sel) { close(); return; }
+    // "Call another agent" ships as the wildcard agent:* because a curated
+    // pattern cannot know which agents an install has. Resolve it to the
+    // first agent option; without this the card hits the drift guard below
+    // and silently does nothing. (No backticks in this file — it is itself a
+    // template literal, and one would end the string.)
+    if (toolId === 'agent:*') {
+      var first = null;
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value.indexOf('agent:') === 0) { first = sel.options[i]; break; }
+      }
+      if (!first) { close(); return; }
+      toolId = first.value;
+    }
     sel.value = toolId;
     // Verify the option exists — if a card references a tool the
     // dropdown doesn't have (drift between modal payload and the

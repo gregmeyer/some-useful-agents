@@ -25,6 +25,12 @@ export interface AgentsListInput {
   recentRuns: Run[];
   stats: HomeStats;
   invokerCounts?: Map<string, number>;
+  /** How many other agents each agent calls — the "calls N" badge. */
+  calleeCounts?: Map<string, number>;
+  /** Total agents that call at least one other agent, across the whole store. */
+  composedCount?: number;
+  /** Whether the list is currently narrowed to those agents. */
+  composedOnly?: boolean;
   filter?: {
     status?: string;
     source?: string;
@@ -103,13 +109,13 @@ export function renderAgentsList(input: AgentsListInput): string {
           way to edit the query; hiding them on an empty TAB was worse — it
           removed the only route to the agents you actually have. */ html``}
     ${!installEmpty ? renderTabStrip(input) : html``}
-    ${!installEmpty ? renderFilterBar(input.filter, input.tab ?? 'user') : html``}
+    ${!installEmpty ? renderFilterBar(input) : html``}
     ${emptySearch ? renderNoMatches(input) : html``}
     ${emptyTab ? renderEmptyTab(input) : html``}
 
     ${hasV2 ? html`
       <div class="agent-grid">
-        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
+        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0, input.calleeCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
       </div>
     ` : html``}
 
@@ -155,8 +161,9 @@ function renderTabStrip(input: AgentsListInput): SafeHtml {
   `;
 }
 
-function renderFilterBar(filter: { status?: string; source?: string; q?: string; sort?: string; sortEffective?: string } | undefined, tab: 'user' | 'examples' | 'community'): SafeHtml {
-  const f = filter ?? {};
+function renderFilterBar(input: AgentsListInput): SafeHtml {
+  const f = input.filter ?? {};
+  const tab = input.tab ?? 'user';
   const selIf = (val: string, current?: string) => val === current ? ' selected' : '';
   return html`
     <form method="GET" action="/agents" class="filters" style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4);">
@@ -180,8 +187,34 @@ function renderFilterBar(filter: { status?: string; source?: string; q?: string;
         <option value="starred"${selIf('starred', f.sortEffective ?? f.sort)}>Sort: starred first</option>`}
       </select>
       <button type="submit" class="btn btn--sm">Filter</button>
-      ${(f.q || f.status || f.sort) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
+      ${composedChip(input)}
+      ${(f.q || f.status || f.sort || input.composedOnly) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
     </form>
+  `;
+}
+
+/**
+ * A one-click way to see the agents that call other agents.
+ *
+ * sua has been able to compose agents since `agent-invoke` shipped, but
+ * nothing in the product said so — you had to already know the node type
+ * existed and go read the flow-control docs. This makes the working examples
+ * one click from the list, and only appears when there are some.
+ */
+function composedChip(input: AgentsListInput): SafeHtml {
+  const n = input.composedCount ?? 0;
+  if (n === 0) return html``;
+  const tab = input.tab ?? 'user';
+  const on = input.composedOnly === true;
+  const href = on
+    ? agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab)
+    : `${agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab)}${agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab).includes('?') ? '&' : '?'}composed=1`;
+  return html`
+    <a href="${href}" class="badge ${on ? 'badge--info' : 'badge--muted'}"
+       style="text-decoration: none;"
+       title="Agents that run other agents as part of their job">
+      ${on ? '✓ ' : ''}Calls other agents (${String(n)})
+    </a>
   `;
 }
 
@@ -375,7 +408,7 @@ function truncateQuestion(q: string): string {
   return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).replace(/[),.;:!?-]+$/, '')}\u2026`;
 }
 
-function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
+function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0): SafeHtml {
   const shape = dagShapeSvg(a);
   const runInfo = lastRun
     ? html`<span class="agent-card__last-run">
@@ -401,6 +434,11 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
     : html``;
 
   const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
+  // "calls N" is the outbound half of the pair. Only "used by" existed, so
+  // an orchestrator looked like any other agent from the list.
+  const callsBadge = calleeCount > 0
+    ? html`<span class="badge badge--info" title="Runs ${String(calleeCount)} other agent${calleeCount === 1 ? '' : 's'}">calls ${String(calleeCount)}</span>`
+    : html``;
   const usedByBadge = invokerCount > 0
     ? html`<span class="badge badge--info">used by ${String(invokerCount)}</span>`
     : html``;
@@ -436,6 +474,7 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0): SafeHtml {
         ${sourceBadge(a.source)}
         ${mcpBadge}
         ${usedByBadge}
+        ${callsBadge}
       </div>
       <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
       ${askChip}
