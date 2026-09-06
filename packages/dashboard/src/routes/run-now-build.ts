@@ -1257,9 +1257,16 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
   const somethingLanded = agentsCreated.length > 0 || dashboardCreated !== null;
   if (plannerRunId && somethingLanded && ctx.plannerTelemetryStore) {
     try {
+      // `plannerRunId` is an orchestrator SESSION id (`build-<ts>-<rand>`),
+      // not a run id — sessions are in-memory and never hit the run store, so
+      // `getRun()` always missed and this never fired. Every commit since
+      // #326 went unrecorded, which is why the commit rate reads as zero
+      // rather than low. Fall back to the telemetry row's own start time.
       const plannerRun = ctx.runStore.getRun(plannerRunId);
-      if (plannerRun?.startedAt) {
-        const ms = Date.now() - new Date(plannerRun.startedAt).getTime();
+      const startedAt = plannerRun?.startedAt
+        ?? ctx.plannerTelemetryStore.get(plannerRunId)?.createdAt;
+      if (startedAt) {
+        const ms = Date.now() - new Date(startedAt).getTime();
         ctx.plannerTelemetryStore.recordCommit(plannerRunId, ms);
       }
     } catch { /* swallow */ }

@@ -376,10 +376,52 @@ export function getSession(sessionId: string): BuildSession | undefined {
 export async function advanceSession(ctx: Ctx, session: BuildSession): Promise<void> {
   if (session.phase === 'done' || session.phase === 'failed' || session.phase === 'nothing_to_build') return;
 
-  if (session.phase === 'survey') return advanceSurvey(ctx, session);
-  if (session.phase === 'drafting') return advanceDrafting(ctx, session);
-  if (session.phase === 'design') return advanceDesign(ctx, session);
-  if (session.phase === 'assembling') return advanceAssembling(session);
+  if (session.phase === 'survey') await advanceSurvey(ctx, session);
+  else if (session.phase === 'drafting') await advanceDrafting(ctx, session);
+  else if (session.phase === 'design') await advanceDesign(ctx, session);
+  else if (session.phase === 'assembling') advanceAssembling(session);
+
+  // Telemetry, recorded exactly once as the session reaches a terminal phase.
+  //
+  // `/build` moved onto this orchestrator in #326 and `recordStart` kept
+  // firing, but every LATER write lived on the PlannerLoopRunner path this
+  // route no longer reaches — so every row since 2026-05-20 sat at the
+  // `pending` schema default with no plan time and no outcome, and
+  // /metrics/planner has been reporting on a dataset that stopped growing.
+  //
+  // Hooked here rather than at each `fail()` call site: one place, and the
+  // guard above makes it impossible to record the same session twice.
+  recordTerminalTelemetry(ctx, session);
+}
+
+/** Map a finished session onto the planner_telemetry row `recordStart` opened. */
+function recordTerminalTelemetry(ctx: Ctx, session: BuildSession): void {
+  const store = ctx.plannerTelemetryStore;
+  if (!store) return;
+  const status = session.phase === 'done' ? 'ok'
+    : session.phase === 'failed' ? 'failed'
+    : session.phase === 'nothing_to_build' ? 'nothing-to-build'
+    : undefined;
+  if (!status) return;
+
+  // The closest analogue to the old single-planner "attempts": how many tries
+  // the worst fragment needed. 1 when nothing retried.
+  const attempts = session.drafterAttempts.size > 0
+    ? Math.max(...session.drafterAttempts.values())
+    : 1;
+
+  try {
+    store.recordExtract({
+      runId: session.id,
+      status,
+      autofixCount: 0,
+      timeToPlanMs: Date.now() - session.createdAt,
+      intent: session.plan?.intent ?? null,
+    });
+    // recordExtract writes attempts nowhere, and incrementAttempts is +1 per
+    // call, so replay the retries the drafters actually did.
+    for (let i = 1; i < attempts; i++) store.incrementAttempts(session.id);
+  } catch { /* telemetry is best-effort; never fail a build over it */ }
 }
 
 async function advanceSurvey(ctx: Ctx, session: BuildSession): Promise<void> {
