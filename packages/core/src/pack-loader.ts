@@ -13,10 +13,11 @@
  */
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { packManifestSchema, type PackManifestParsed } from './pack-schema.js';
+import { defaultBundledExamplesDir } from './example-loader.js';
 import type { PacksStore, PackManifest, PackAgentRef } from './packs-store.js';
 
 /**
@@ -84,13 +85,23 @@ export function loadBuiltinPacks(
  * Replace any `yamlPath` agent refs in the manifest with the file's
  * contents under `yaml`. Throws if a referenced file is missing —
  * a built-in pack with a dangling reference is a build/release bug.
+ *
+ * The bundled packs point at `../../../agents/examples/*.yaml`, which only
+ * exists in a repo checkout — from `node_modules/@some-useful-agents/core/packs`
+ * it walks up out of the package entirely. When the ref misses, retry the
+ * same basename against the bundled examples copy that ships in the package,
+ * so every built-in pack registers on an npm install too.
  */
 function inlineAgentYamlRefs(manifest: PackManifestParsed, baseDir: string): PackManifest {
   const agents: PackAgentRef[] | undefined = manifest.agents?.map((a) => {
     if (a.yamlPath) {
-      const abs = resolve(baseDir, a.yamlPath);
+      let abs = resolve(baseDir, a.yamlPath);
       if (!existsSync(abs)) {
-        throw new Error(`Agent ref "${a.id}" → yamlPath "${a.yamlPath}" not found at ${abs}`);
+        const bundled = join(defaultBundledExamplesDir(), basename(a.yamlPath));
+        if (!existsSync(bundled)) {
+          throw new Error(`Agent ref "${a.id}" → yamlPath "${a.yamlPath}" not found at ${abs}`);
+        }
+        abs = bundled;
       }
       const yaml = readFileSync(abs, 'utf-8');
       return { id: a.id, yaml };

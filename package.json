@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc --build && node packages/dashboard/scripts/copy-assets.mjs && node packages/dashboard/scripts/gen-build-info.mjs && chmod +x packages/cli/dist/index.js",
+    "build": "tsc --build && node packages/core/scripts/copy-examples.mjs && node packages/dashboard/scripts/copy-assets.mjs && node packages/dashboard/scripts/gen-build-info.mjs && chmod +x packages/cli/dist/index.js",
     "clean": "tsc --build --clean",
     "test": "vitest run",
     "outcome:fixture": "SUA_WRITE_OUTCOME_FIXTURE=1 vitest run packages/core/src/outcome/e2e.test.ts",

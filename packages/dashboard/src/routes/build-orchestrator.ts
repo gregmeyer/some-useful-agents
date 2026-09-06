@@ -17,9 +17,8 @@
  * no-designer fast path.
  */
 
-import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   executeAgentDag,
   extractPlanJson,
@@ -42,6 +41,7 @@ import {
   type LlmProvider,
   type Survey,
   type DashboardDesign,
+  readExampleYaml,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
@@ -122,8 +122,8 @@ function gcSessions(now: number = Date.now()): void {
  */
 function loadExampleAgent(ctx: Ctx, agentId: string): Agent | null {
   try {
-    const yamlPath = join(resolve('agents/examples'), `${agentId}.yaml`);
-    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const yamlText = readExampleYaml(agentId);
+    if (yamlText === null) throw new Error(`no bundled yaml for ${agentId}`);
     const parsed = parseAgent(yamlText);
     ctx.agentStore.upsertAgent(parsed, 'import', `Auto-imported for build orchestrator (${agentId})`);
   } catch { /* fall through — agent may already be installed */ }

@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   buildDiscoveryCatalog,
   catalogRelevance,
@@ -11,6 +10,7 @@ import {
   type Agent,
   type LlmProvider,
   type ToolDefinition,
+  readExampleYaml,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { formatToolCatalog } from './run-now-build.js';
@@ -62,8 +62,8 @@ export function ensureSystemAgentCurrent(
   context: string,
 ): boolean {
   try {
-    const yamlPath = join(resolve(ALLOWLIST_AUTOIMPORT_DIR), `${id}.yaml`);
-    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const yamlText = readExampleYaml(id, ALLOWLIST_AUTOIMPORT_DIR);
+    if (yamlText === null) return false;
     const parsed = parseAgent(yamlText);
     const installed = ctx.agentStore.getAgent(id);
     const needsImport = !installed;
