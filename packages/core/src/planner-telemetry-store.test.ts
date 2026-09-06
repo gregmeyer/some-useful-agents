@@ -198,3 +198,63 @@ describe('PlannerTelemetryStore', () => {
     }
   });
 });
+
+/**
+ * The orchestrator flow (`/build` since #326) keys every row on an in-memory
+ * SESSION id like `build-1785884426856-81t7ro`, which never reaches the run
+ * store. These cover the two ways that broke the metrics.
+ */
+describe('PlannerTelemetryStore — orchestrator sessions', () => {
+  const SESSION = 'build-1785884426856-81t7ro';
+
+  it('leaves a row at the pending default when nothing follows recordStart', () => {
+    // Exactly the dead state: 61 rows accumulated this way, and
+    // /metrics/planner reported on them as if they were outcomes.
+    store.recordStart(SESSION, 'fetch the top 3 HN stories');
+    const row = store.get(SESSION)!;
+    expect(row.planExtractStatus).toBe('pending');
+    expect(row.timeToPlanMs).toBeNull();
+    expect(row.committedAt).toBeNull();
+  });
+
+  it('records the orchestrator terminal states, not just extraction ones', () => {
+    for (const [id, status] of [
+      ['s-ok', 'ok'],
+      ['s-failed', 'failed'],
+      ['s-nothing', 'nothing-to-build'],
+    ] as const) {
+      store.recordStart(id, 'goal');
+      store.recordExtract({ runId: id, status, autofixCount: 0, timeToPlanMs: 1234 });
+      const row = store.get(id)!;
+      expect(row.planExtractStatus).toBe(status);
+      expect(row.timeToPlanMs).toBe(1234);
+    }
+    // The histogram is built from whatever is stored, so the new values show
+    // up on /metrics/planner without a schema change.
+    const hist = store.computeStats(3650).extractStatusHistogram;
+    expect(hist.failed).toBe(1);
+    expect(hist['nothing-to-build']).toBe(1);
+  });
+
+  it('commits against a session id that has no run record', () => {
+    // The route used to require `runStore.getRun(plannerRunId)?.startedAt`,
+    // which always missed for a session id — so no commit has been recorded
+    // since #326. The row's own createdAt is the fallback the fix uses.
+    store.recordStart(SESSION, 'goal');
+    expect(store.get(SESSION)!.createdAt).toBeTruthy();
+
+    store.recordCommit(SESSION, 4200);
+    const row = store.get(SESSION)!;
+    expect(row.committedAt).not.toBeNull();
+    expect(row.timeToCommitMs).toBe(4200);
+  });
+
+  it('replays drafter retries onto plan_attempts', () => {
+    // The orchestrator tracks attempts per fragment; the schema has one
+    // counter, so the worst fragment's attempt count is replayed onto it.
+    store.recordStart(SESSION, 'goal');
+    store.recordExtract({ runId: SESSION, status: 'ok', autofixCount: 0, timeToPlanMs: 10 });
+    for (let i = 1; i < 3; i++) store.incrementAttempts(SESSION);
+    expect(store.get(SESSION)!.planAttempts).toBe(3);
+  });
+});

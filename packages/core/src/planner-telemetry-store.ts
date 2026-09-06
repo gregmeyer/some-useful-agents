@@ -27,7 +27,14 @@ export interface PlannerTelemetryRow {
   /** How many times the planner was invoked for this goal. PR1 always 1; PR2's critic-loop will increment. */
   planAttempts: number;
   /** Outcome of the JSON-extract + schema-validate step. */
-  planExtractStatus: 'pending' | 'ok' | 'no-json' | 'schema-invalid';
+  /**
+   * `no-json` / `schema-invalid` come from the legacy single-planner path.
+   * `failed` and `nothing-to-build` are orchestrator outcomes: the build never
+   * reached a plan, or the goal turned out to be already covered. Both are
+   * terminal states worth measuring, and neither is an extraction problem —
+   * the column is overloaded rather than renamed to avoid a migration.
+   */
+  planExtractStatus: 'pending' | 'ok' | 'no-json' | 'schema-invalid' | 'failed' | 'nothing-to-build';
   /** Number of structural-validation errors flagged (from PR2's critiquePlan). 0 in PR1. */
   planValidationErrors: number;
   /** Number of autoFixYaml rescues applied across the plan's newAgents. */
@@ -174,7 +181,7 @@ export class PlannerTelemetryStore {
    */
   recordExtract(args: {
     runId: string;
-    status: 'ok' | 'no-json' | 'schema-invalid';
+    status: 'ok' | 'no-json' | 'schema-invalid' | 'failed' | 'nothing-to-build';
     autofixCount: number;
     validationErrors?: number;
     timeToPlanMs: number;
