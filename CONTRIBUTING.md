@@ -148,6 +148,13 @@ npm run build
 npm test
 ```
 
+**`npm run build` is the type-check.** This is an npm-workspaces monorepo wired with TypeScript
+project references, so the root `tsconfig.json` has `"files": []` and delegates to the packages.
+That means a plain `tsc --noEmit` visits **zero files** and passes on anything — `npm run lint` is
+therefore `tsc --build`, the same command, because composite references have to emit declarations
+for downstream projects to check against. If a change type-checks locally but you skipped the
+build, you have not type-checked it.
+
 ### Code style
 
 - TypeScript strict mode

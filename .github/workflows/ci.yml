@@ -27,8 +27,12 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      # `npm run build` IS the type-check: with project references, TypeScript
+      # has to emit declarations for downstream projects to check against, so
+      # `tsc --build` is the only form that checks anything. `npm run lint` is
+      # now that same command, which makes running it here a guaranteed no-op —
+      # a step that looks like a gate and can never fail on its own.
       - run: npm run build
-      - run: npm run lint
       - run: npm test
 
   validate-agents:

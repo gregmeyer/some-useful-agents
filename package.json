@@ -12,7 +12,7 @@
     "test": "vitest run",
     "outcome:fixture": "SUA_WRITE_OUTCOME_FIXTURE=1 vitest run packages/core/src/outcome/e2e.test.ts",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --build"
   },
   "repository": {
     "type": "git",
