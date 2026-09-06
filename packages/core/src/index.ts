@@ -232,6 +232,14 @@ export {
   type LoadBuiltinPacksResult,
 } from './pack-loader.js';
 export {
+  readExampleYaml,
+  resolveExamplePath,
+  listExampleYamls,
+  exampleSearchDirs,
+  defaultBundledExamplesDir,
+  REPO_EXAMPLES_DIR,
+} from './example-loader.js';
+export {
   installPack,
   uninstallPack,
   type PackInstallContext,

@@ -46,3 +46,6 @@ hn-digests/
 
 # Generated from ERROR_CATALOG at build/boot — not a committed source of truth
 agents/examples/data/error-reference.db
+
+# Build-time copy of agents/examples/ shipped in the core package
+packages/core/examples/

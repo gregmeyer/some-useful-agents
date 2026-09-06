@@ -13,8 +13,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   executeAgentDag,
   extractPlanJson,
@@ -23,6 +22,7 @@ import {
   type Agent,
   type LayoutPlan,
   type RunStatus,
+  readExampleYaml,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
@@ -159,8 +159,8 @@ async function kickoffLayoutPlannerRun(args: {
 
   let planner: ReturnType<typeof ctx.agentStore.getAgent> = null;
   try {
-    const yamlPath = join(resolve('agents/examples'), `${LAYOUT_PLANNER_AGENT_ID}.yaml`);
-    const yamlText = readFileSync(yamlPath, 'utf-8');
+    const yamlText = readExampleYaml(LAYOUT_PLANNER_AGENT_ID);
+    if (yamlText === null) throw new Error('no bundled layout-planner yaml');
     const parsed = parseAgent(yamlText);
     ctx.agentStore.upsertAgent(parsed, 'import', 'Auto-imported for layout planner');
     planner = ctx.agentStore.getAgent(LAYOUT_PLANNER_AGENT_ID);

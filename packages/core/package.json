@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist"
+    "build": "tsc && node scripts/copy-examples.mjs",
+    "clean": "rm -rf dist examples"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
@@ -39,6 +39,7 @@
   "files": [
     "dist",
     "packs",
+    "examples",
     "README.md",
     "LICENSE"
   ],

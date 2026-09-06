@@ -19,10 +19,14 @@
  * loader returns '' so triage still runs (degraded, not broken).
  */
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolveExamplePath } from '@some-useful-agents/core';
 
-/** Base dir for the triage prompt fragments, resolved from cwd (repo root). */
-const TRIAGE_PROMPT_DIR = 'agents/examples/inbox-triage';
+/**
+ * Fragment paths inside the examples tree. `resolveExamplePath` tries the
+ * repo copy first and the bundled package copy second, so triage keeps its
+ * prompt on an npm install where `agents/examples/` does not exist.
+ */
+const TRIAGE_PROMPT_DIR = 'inbox-triage';
 
 /** Message sources that have a dedicated playbook. Anything else → manual. */
 const PLAYBOOK_SOURCES = new Set(['run-failure', 'permission-request', 'cadence', 'manual']);
@@ -35,7 +39,9 @@ function stripLeadingComment(text: string): string {
 /** The shared triage kernel (voice, action mechanics, `<plan>` schema). */
 export function loadTriageKernel(): string {
   try {
-    return stripLeadingComment(readFileSync(join(resolve(TRIAGE_PROMPT_DIR), 'kernel.md'), 'utf-8')).trim();
+    const path = resolveExamplePath(`${TRIAGE_PROMPT_DIR}/kernel.md`);
+    if (path === null) return '';
+    return stripLeadingComment(readFileSync(path, 'utf-8')).trim();
   } catch {
     return '';
   }
@@ -48,7 +54,9 @@ export function loadTriageKernel(): string {
 export function loadTriagePlaybook(source: string | undefined): string {
   const key = source && PLAYBOOK_SOURCES.has(source) ? source : 'manual';
   try {
-    return readFileSync(join(resolve(TRIAGE_PROMPT_DIR), 'playbooks', `${key}.md`), 'utf-8').trim();
+    const path = resolveExamplePath(`${TRIAGE_PROMPT_DIR}/playbooks/${key}.md`);
+    if (path === null) return '';
+    return readFileSync(path, 'utf-8').trim();
   } catch {
     return '';
   }
