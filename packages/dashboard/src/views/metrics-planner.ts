@@ -87,6 +87,27 @@ export function renderPlannerMetrics(args: {
           <div style="font-size: var(--font-size-xl); font-variant-numeric: tabular-nums;">${formatMs(stats.p50PlanMs)}</div>
           <div class="dim" style="font-size: var(--font-size-xs);">p50 / p95 ${formatMs(stats.p95PlanMs)}</div>
         </div>
+        <div>
+          <div class="dim" style="font-size: var(--font-size-xs);">Agents checked</div>
+          <div style="font-size: var(--font-size-xl); font-variant-numeric: tabular-nums;">
+            ${stats.totalAttempted === 0 ? html`<span class="dim">—</span>` : formatPercent(stats.smokeCheckedRate)}
+          </div>
+          <div class="dim" style="font-size: var(--font-size-xs);">
+            ${stats.totalAttempted === 0
+              // An empty window must not read as a verdict. "0% — every build
+              // checked" is the kind of self-contradicting stat that made the
+              // old planner metrics untrustworthy.
+              ? html`no builds in this window`
+              : stats.smokeUnrecorded > 0
+                ? html`${String(stats.smokeUnrecorded)} build(s) never checked`
+                : html`every build checked against the tool catalog`}
+          </div>
+        </div>
+        <div>
+          <div class="dim" style="font-size: var(--font-size-xs);">Rejected by the check</div>
+          <div style="font-size: var(--font-size-xl); font-variant-numeric: tabular-nums;">${String(stats.smokeFailed)}</div>
+          <div class="dim" style="font-size: var(--font-size-xs);">bad tool ref or undeclared output</div>
+        </div>
       </div>
     </section>
 

@@ -49,6 +49,16 @@ export interface PlannerTelemetryRow {
   goal: string | null;
   /** Plan's classified intent (`agent` / `dashboard-existing` / etc.); null until extract succeeds. */
   intent: string | null;
+  /**
+   * Smoke-run outcome for this build. `recordSmoke` has written these two
+   * columns since the planner refactor, but nothing mapped them onto the row
+   * and no surface read them — a write-only gauge. Mapped here so
+   * `/metrics/planner` can report whether generated agents were checked
+   * against the live catalog at all. `null` = never written (every row from
+   * before the orchestrator regained its smoke pass).
+   */
+  smokeStatus: 'ok' | 'failed' | 'skipped' | null;
+  smokeErrors: number;
   /** ISO timestamp the row was first inserted. */
   createdAt: string;
 }
@@ -68,6 +78,19 @@ export interface PlannerTelemetryStats {
   p95PlanMs: number | null;
   /** Histogram of plan_extract_status values (excluding `pending`). */
   extractStatusHistogram: Record<string, number>;
+  /**
+   * How many builds in the window had their generated agents checked against
+   * the live tool catalog, and how many that check rejected.
+   *
+   * `smokeUnrecorded` is the one that matters most: it counts rows where the
+   * smoke column was never written at all. Every build between #326 and the
+   * gate's restoration lands there — agents that reached a user having never
+   * been checked. A number that stops falling means the gate has stopped
+   * running again.
+   */
+  smokeCheckedRate: number;
+  smokeFailed: number;
+  smokeUnrecorded: number;
 }
 
 export class PlannerTelemetryStore {
@@ -282,6 +305,12 @@ export class PlannerTelemetryStore {
       histogram[status] = (histogram[status] ?? 0) + 1;
     }
 
+    // 'skipped' counts as checked-in-principle (the build never reached a
+    // draft, so there was nothing to check); only a NULL column means the
+    // gate did not run.
+    const smokeRecorded = rows.filter((r) => r.smoke_run_status != null).length;
+    const smokeFailed = rows.filter((r) => r.smoke_run_status === 'failed').length;
+
     return {
       windowDays,
       totalAttempted: total,
@@ -294,6 +323,9 @@ export class PlannerTelemetryStore {
       p50PlanMs: p50,
       p95PlanMs: p95,
       extractStatusHistogram: histogram,
+      smokeCheckedRate: total > 0 ? smokeRecorded / total : 0,
+      smokeFailed,
+      smokeUnrecorded: total - smokeRecorded,
     };
   }
 
@@ -313,6 +345,10 @@ export class PlannerTelemetryStore {
       committedAt: r.committed_at == null ? null : String(r.committed_at),
       goal: r.goal == null ? null : String(r.goal),
       intent: r.intent == null ? null : String(r.intent),
+      smokeStatus: r.smoke_run_status == null
+        ? null
+        : String(r.smoke_run_status) as PlannerTelemetryRow['smokeStatus'],
+      smokeErrors: Number(r.smoke_run_errors ?? 0),
       createdAt: String(r.created_at),
     };
   }
