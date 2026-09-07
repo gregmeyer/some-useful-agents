@@ -31,6 +31,8 @@ import {
   buildPlanSchema,
   critiquePlan,
   formatCriticFeedback,
+  smokeRunNewAgents,
+  formatSmokeFeedback,
   extractImageUrls,
   findDeadImageUrls,
   defaultCheckImageUrl,
@@ -90,6 +92,16 @@ interface BuildSession {
   dashboard?: DashboardDesign;
   plan?: BuildPlan;
   error?: string;
+
+  /**
+   * Smoke-run tally across every draft this session evaluated, including
+   * drafts that were later retried and passed. Feeds `recordSmoke` at the
+   * terminal phase — `/metrics/planner` reports smoke coverage, and a
+   * session that smoked cleanly on the second try is still a session where
+   * smoke caught something.
+   */
+  smokeErrors: number;
+  smokeFailed: boolean;
 
   /** When true, this is a single-drafter /agents/draft-one session. Skip surveyor + designer. */
   draftOnly: boolean;
@@ -231,6 +243,24 @@ function existingAgentIds(ctx: Ctx): Set<string> {
 }
 
 /**
+ * Every tool id the dispatcher can resolve: the builtins plus whatever the
+ * tool store holds. Mirrors the `loadKnownToolIds` dep the legacy
+ * PlannerLoopRunner was given in run-now-build.ts.
+ *
+ * An EMPTY set makes the smoke run skip its tool check entirely, so a
+ * failure to read the store degrades to "don't flag tools" rather than
+ * "flag every tool" — never reject a good draft because the catalog was
+ * briefly unreadable.
+ */
+function knownToolIds(ctx: Ctx): Set<string> {
+  const ids = new Set(listBuiltinTools().map((t) => t.id));
+  try {
+    if (ctx.toolStore) for (const t of ctx.toolStore.listTools()) ids.add(t.id);
+  } catch { /* tool store unavailable — builtins alone still beat no check */ }
+  return ids;
+}
+
+/**
  * Look up the original fragment spec ({ purpose, suggestedName? }) for a
  * given fragmentKey. Reads from session.survey.fragments for build sessions
  * or session.draftOnlySpec for /agents/draft-one sessions. Used during
@@ -302,6 +332,8 @@ export async function startBuildSession(args: {
     drafterRunIds: new Map(),
     drafterAttempts: new Map(),
     drafts: new Map(),
+    smokeErrors: 0,
+    smokeFailed: false,
     draftOnly: false,
   });
   return sessionId;
@@ -359,6 +391,8 @@ export async function startDraftOneSession(args: {
     drafterRunIds,
     drafterAttempts,
     drafts: new Map(),
+    smokeErrors: 0,
+    smokeFailed: false,
     draftOnly: true,
     draftOnlySpec: { purpose, ...(suggestedName ? { suggestedName } : {}) },
   });
@@ -421,6 +455,17 @@ function recordTerminalTelemetry(ctx: Ctx, session: BuildSession): void {
     // recordExtract writes attempts nowhere, and incrementAttempts is +1 per
     // call, so replay the retries the drafters actually did.
     for (let i = 1; i < attempts; i++) store.incrementAttempts(session.id);
+    // Smoke coverage. 'skipped' is the honest status for a session that
+    // never reached a draft (surveyor failure, nothing-to-build) — recording
+    // those as 'ok' would inflate the pass rate with sessions that were
+    // never checked, which is exactly the artifact #654 had to unpick.
+    store.recordSmoke({
+      runId: session.id,
+      status: session.drafts.size === 0 && session.smokeErrors === 0
+        ? 'skipped'
+        : session.smokeFailed ? 'failed' : 'ok',
+      errors: session.smokeErrors,
+    });
   } catch { /* telemetry is best-effort; never fail a build over it */ }
 }
 
@@ -636,17 +681,35 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
     });
     if (synthetic.success) {
       const critique = critiquePlan(synthetic.data, { existingAgentIds: existingAgentIds(ctx) });
+      // Smoke pass. The structural critic works off the plan's own fields;
+      // this one re-parses the YAML and cross-references it against the live
+      // catalog — a shell node naming a tool the dispatcher can't resolve, a
+      // signal.mapping slot or widget field naming an output the agent never
+      // declares. Those parse, critique clean, and then fail (or render
+      // blank) the first time the agent is actually run.
+      //
+      // The legacy PlannerLoopRunner ran this on every plan; #326 moved
+      // `/build` onto this orchestrator and left it behind, so from then
+      // until now a generated agent reached the user having never been
+      // checked against the catalog it has to run against. Restored here
+      // rather than at assembly so a failure retries the ONE fragment that
+      // caused it, on the same budget as a critic failure.
+      const smoke = smokeRunNewAgents(synthetic.data, { knownToolIds: knownToolIds(ctx) });
+      const smokeErrors = smoke.perAgent.reduce((n, a) => n + a.errors.length, 0);
+      session.smokeErrors += smokeErrors;
+      if (!smoke.ok) session.smokeFailed = true;
       // Image-link check: HEAD every hardcoded image URL the drafter baked
       // into this agent. Dead links (404/410) sail past the structural critic
       // — the host is CSP-allowlisted — but render broken images at runtime,
       // so they retry on the same footing as structural errors. Inconclusive
       // results (network error / 403 / 429) are not flagged.
       const deadImages = await findDeadImageUrls(extractImageUrls(fixedYaml), { checkUrl: defaultCheckImageUrl });
-      if (!critique.ok || deadImages.length > 0) {
+      if (!critique.ok || !smoke.ok || deadImages.length > 0) {
         const attempts = session.drafterAttempts.get(key) ?? 1;
         if (attempts < MAX_DRAFT_ATTEMPTS) {
           const feedback = [
             critique.ok ? '' : formatCriticFeedback(critique.errors),
+            smoke.ok ? '' : formatSmokeFeedback(smoke),
             deadImages.length > 0 ? formatDeadImageFeedback(deadImages) : '',
           ].filter(Boolean).join('\n\n');
           retries.push({ key, feedback });
@@ -655,6 +718,7 @@ async function advanceDrafting(ctx: Ctx, session: BuildSession): Promise<void> {
         // Exhausted budget — surface whatever rejected the draft.
         const reasons = [
           ...(critique.ok ? [] : critique.errors.map((e) => e.message)),
+          ...smoke.perAgent.flatMap((a) => a.errors.map((e) => `smoke ${e.path}: ${e.message}`)),
           ...deadImages.map((d) => `dead image ${d.url} (HTTP ${d.status})`),
         ];
         failedFragments.push(`${key}: critic (after ${attempts} attempts) — ${reasons.join(' | ')}`);
