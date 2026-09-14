@@ -17,11 +17,11 @@
     "pg": "8.23.0",
     "turndown": "7.2.4",
     "uuid": "14.0.2",
-    "yaml": "2.9.0",
-    "zod": "4.5.1"
+    "yaml": "2.9.1",
+    "zod": "4.6.2"
   },
   "optionalDependencies": {
-    "playwright": "1.62.1"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "2.0.0",
