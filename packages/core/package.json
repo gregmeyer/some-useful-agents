@@ -11,17 +11,17 @@
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@mozilla/readability": "0.6.0",
-    "cron-parser": "5.10.0",
+    "cron-parser": "5.10.1",
     "linkedom": "0.18.13",
     "node-cron": "4.6.0",
     "pg": "8.23.0",
     "turndown": "7.2.4",
     "uuid": "14.0.2",
-    "yaml": "2.9.0",
-    "zod": "4.5.1"
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
   },
   "optionalDependencies": {
-    "playwright": "1.62.1"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "2.0.0",
