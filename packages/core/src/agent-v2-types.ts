@@ -93,6 +93,12 @@ export type NodeErrorCategory =
    */
   | 'invalid_output'
   /**
+   * The node declares `tools:` that no provider it reached could call (a CLI
+   * provider with no native equivalent is skipped rather than run tool-less).
+   * Fallback-worthy; terminal only when every provider was skipped.
+   */
+  | 'tool_unavailable'
+  /**
    * Tool-policy denied this node. Set when a future enforcement engine
    * (PR C of the tool-policies feature) refuses a tool call against a
    * resource the project policy blocks. Lives in the enum from PR B

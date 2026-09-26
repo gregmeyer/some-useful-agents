@@ -110,6 +110,7 @@ const SOURCE_LABEL: Record<InboxSource, string> = {
   'permission-request': 'Permission',
   'cadence': 'Cadence',
   'manual': 'Manual',
+  'system-health': 'System health',
 };
 
 const PRIORITY_LABEL: Record<InboxPriority, string> = {

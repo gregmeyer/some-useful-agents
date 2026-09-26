@@ -177,6 +177,19 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
       'Loosen the contract if the requirement is stricter than necessary.',
     ],
   },
+  tool_unavailable: {
+    key: 'tool_unavailable',
+    meaning: 'An llm-prompt node declares tools (in `tools:`) that none of the providers it tried could call, so it did not run rather than answer without them.',
+    commonCauses: [
+      'Only CLI providers are enabled (codex, Apple Foundation Models) and they have no equivalent for the declared tool.',
+      'The declared tool has no Claude equivalent (Claude covers web-fetch and web-scrape via WebFetch).',
+    ],
+    troubleshooting: [
+      'Add or enable an OpenAI-compatible provider in Settings → LLM; it can call any sua tool.',
+      'Enable Claude if the node only needs web-fetch or web-scrape.',
+      'Or remove the tool from the node if it does not actually need it.',
+    ],
+  },
   policy_denied: {
     key: 'policy_denied',
     meaning: 'A tool policy blocked this node from acting on a resource the project policy forbids. A deliberate guardrail, not a transient error.',
