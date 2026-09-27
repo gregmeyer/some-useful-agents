@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -236,11 +236,12 @@ describe('model service (external command)', () => {
     expect(spawned.logPath).toBe(daemonPaths(dataDir).logPath('model'));
     const status = await waitForServiceSettle(dataDir, 'model', 300);
     expect(status.state).toBe('running');
-    expect(readFileSync(spawned.logPath, 'utf-8')).toContain('model up');
+    // A fresh node process can take well over 300ms to print under a full
+    // parallel test run; wait for the line rather than for a fixed time.
+    await vi.waitFor(() => expect(readFileSync(spawned.logPath, 'utf-8')).toContain('model up'), { timeout: 10_000, interval: 50 });
 
     expect(stopService(dataDir, 'model').signalled).toBe(true);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(isProcessAlive(spawned.pid)).toBe(false);
+    await vi.waitFor(() => expect(isProcessAlive(spawned.pid)).toBe(false), { timeout: 5_000, interval: 50 });
   });
 
   it('refuses to start without a configured command', () => {

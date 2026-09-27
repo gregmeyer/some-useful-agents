@@ -80,7 +80,7 @@ on direction.
 
 ## Next (3–6 months)
 
-- **Outcome-driven flows (v0.20+)** — instead of hand-authoring a static DAG, the user declares what they want (goal + success criteria + constraints) and a built-in planner generates the flow at run time. After the run, an evaluator checks the criteria; failures trigger a re-plan. Bridges "I know what I want" and "I know the exact steps." Depends on tool policies + a shared Claude API integration. Plan: [`~/.claude/plans/outcome-driven-flows.md`](.) (local). ~3 weeks of focused work after dependencies. Already noted in-repo via #156, #158.
+- **~~Outcome-driven flows~~ → goal agents (shipped).** Superseded: rather than a planner that generates and re-plans DAGs, a [`goal` step](docs/goal-agents.md) gives the model a goal, tools and a budget and lets it loop until it has an answer, and [agents can call other agents as tools](docs/agents-as-tools.md). Build-from-goal drafts goal agents for open-ended asks. Follow-ups: cost budgets (needs token/cost capture), an LLM judge for success, sessions + memory.
 - **Variables editor refactor** — Output Widget editor moved to its own page with sub-tabs in #180; the matching Variables editor refactor is the leftover. Plan: [`~/.claude/plans/agent-config-editors-followup.md`](.).
 - **First-Run Tour CTA** — onboarding polish; surface a guided first-run tour after install. Plan: [`~/.claude/plans/mellow-splashing-squirrel.md`](.).
 - **Agents-as-packages** — npm-style mini-packages with manifest + assets + versioning. Big shape change; promote when a concrete trigger lands (e.g., a real package someone wants to publish). Plan: [`~/.claude/plans/agents-as-packages.md`](.).

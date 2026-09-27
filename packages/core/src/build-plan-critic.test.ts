@@ -97,6 +97,20 @@ describe('critiquePlan', () => {
     expect(result.errors.some((e) => /loopConfig.agentId/.test(e.path) && /missing-target/.test(e.message))).toBe(true);
   });
 
+  it('checks agent:<id> tools on a goal node: unknown and self are flagged, installed ones pass', () => {
+    const goalYaml = (tools: string) =>
+      `id: scout\nname: scout\nnodes:\n  - id: research\n    type: goal\n    goal: find things\n    tools: [${tools}]\n`;
+    const run = (tools: string) => critiquePlan(
+      planFor({ newAgents: [{ id: 'scout', purpose: 'p', yaml: goalYaml(tools) }] }),
+      { existingAgentIds: new Set(['weather-forecast']) },
+    );
+    const missing = run('web-fetch, agent:no-such-agent');
+    expect(missing.errors.some((e) => /tools\[1\]/.test(e.path) && /agent:no-such-agent/.test(e.message))).toBe(true);
+    const self = run('agent:scout');
+    expect(self.errors.some((e) => /can't call itself/.test(e.message))).toBe(true);
+    expect(run('web-fetch, agent:weather-forecast').ok).toBe(true);
+  });
+
   it('accepts loopConfig.agentId that points at another newAgent in the same plan', () => {
     const orchestratorYaml = `id: orchestrator\nname: orch\nnodes:\n  - id: loop1\n    type: loop\n    loopConfig:\n      over: \"items\"\n      agentId: worker\n`;
     const result = critiquePlan(

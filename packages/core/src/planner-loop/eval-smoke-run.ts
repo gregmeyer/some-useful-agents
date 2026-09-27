@@ -66,6 +66,17 @@ export function validateOnly(agent: Agent, ctx: SmokeRunContext = {}): SmokeRunE
           message: `Shell node "${node.id}" references tool "${node.tool}" which isn't in the tools catalog.`,
         });
       }
+      // Tools a model may call (goal / llm steps). A made-up id here means a
+      // goal step that can't do its job. agent:<id> is checked by the critic;
+      // dotted ids (csv.*, postgres.*, …) are integration tools not in this
+      // catalog, so they're left alone.
+      (node.tools ?? []).forEach((t, tIdx) => {
+        if (t.startsWith('agent:') || t.includes('.') || ctx.knownToolIds!.has(t)) return;
+        errors.push({
+          path: `nodes.${i}.tools.${tIdx}`,
+          message: `Node "${node.id}" lists tool "${t}" which isn't in the tools catalog (AVAILABLE TOOLS).`,
+        });
+      });
     }
   }
 

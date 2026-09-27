@@ -244,6 +244,33 @@ nodes:
       - If FOCUS mentions "daily" / "every morning" / cron-style timing, add a
         `schedule:` field (cron format).
 
+      OPEN-ENDED ASKS → ONE GOAL STEP. First ask: is PURPOSE open-ended —
+      find, compare, research, figure out — where the steps depend on what
+      the model discovers (which pages to read, how many sources)? If YES,
+      do NOT guess a chain of fetch/summarise nodes. Draft ONE `goal` node:
+
+        outputs:
+          answer:  { type: string, description: The answer, 2-4 sentences. }
+          sources: { type: array,  description: URLs actually read. }
+        nodes:
+          - id: research
+            type: goal
+            goal: |
+              «the ask, in plain language, using «inputs.X» for parameters»
+            tools: [web-fetch, web-scrape]    # only ids from AVAILABLE TOOLS
+            budget:
+              maxTurns: 15
+              timeoutSec: 600
+
+      - tools: only ids from AVAILABLE TOOLS, plus existing agents from the
+        DISCOVERY CATALOG as `agent:<id>` when one already does part of the
+        job (e.g. `agent:weather-forecast`). Never invent a tool id.
+      - Always declare `outputs:` — the model returns them as JSON, which
+        feeds the widget/signal. Point the `outcome:` evidence at the goal
+        node (nodeResult / nodeOutputField on `research`).
+      - Keep a flow of nodes (below) for fixed, repeatable pipelines: same
+        source every run, deterministic shaping, scheduled digests, watches.
+
       COMPOSE OVER EXISTING AGENTS (the `loop + agent-invoke` pattern).
       Before drafting a brand-new monolithic agent, ask: is this purpose a
       list × primitive? (e.g. "jobs across companies", "weather in 5 cities").
@@ -278,7 +305,8 @@ nodes:
             prompt: |
               Summarise per-company results in «upstream.search.result».
 
-      Skip composition (just draft a normal multi-node agent) when:
+      Skip composition (just draft a normal multi-node agent, or a goal
+      step for an open-ended ask) when:
       - The purpose is one-off, not list-shaped.
       - No matching primitive exists yet.
       - The per-item operation is trivial (one curl + jq) — inline it.

@@ -39,6 +39,9 @@ inputs:
 Goal steps and flows mix: a goal step is one step in a flow, so it can take
 `{{upstream.X.result}}` from earlier steps and feed later ones.
 
+Try it: the **Work something out** starter (`starter-goal`, on `/start`) is a one-step
+goal agent that answers a specific question from pages it chooses to read.
+
 ## Fields
 
 | Field | Required | Meaning |

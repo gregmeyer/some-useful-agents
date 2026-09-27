@@ -28,6 +28,15 @@ session and runs three specialist agents in sequence:
    rather than merely reported as completed. The drafter is told to emit
    `expected` + `evidence` always and `success` only when the check is
    genuinely reliable — a wrong `success` marks good runs failed.
+
+   **Open-ended asks become goal agents.** When a fragment is open-ended (find,
+   compare, research, figure out), the drafter writes one
+   [`goal` step](goal-agents.md) with tools and a budget instead of guessing a
+   chain of fetch-and-summarise steps. The model then works out the steps at run
+   time. It can list existing agents as tools (`agent:<id>`,
+   [agents-as-tools.md](agents-as-tools.md)). Fixed, repeatable pipelines still
+   get a flow. The critic checks that every `agent:<id>` names a real agent, and
+   the smoke check flags a tool id that isn't in the catalog.
 3. **`dashboard-designer`** assembles the drafted agents into dashboard sections
    and tiles when the goal calls for more than a single agent.
 

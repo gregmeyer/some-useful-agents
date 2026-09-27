@@ -44,6 +44,8 @@ afterEach(() => {
   dir = undefined;
 });
 
+const GOAL_STARTER = 'starter-goal';
+
 describe('shipped builtin packs', () => {
   it('every packs/*.yaml loads with nothing skipped', () => {
     const { packsStore: store } = freshStores();
@@ -57,7 +59,7 @@ describe('shipped builtin packs', () => {
     expect(onDisk.length).toBeGreaterThan(0);
   });
 
-  it('ships the playground-starters pack with its three agents inlined', () => {
+  it('ships the playground-starters pack with its four agents inlined', () => {
     const { packsStore: store } = freshStores();
     loadBuiltinPacks(store, PACKS_DIR);
 
@@ -67,7 +69,7 @@ describe('shipped builtin packs', () => {
     expect(pack!.source).toBe('builtin');
 
     const refs = pack!.manifest.agents ?? [];
-    expect(refs.map((a) => a.id)).toEqual(['starter-research', 'starter-watch', 'starter-draft']);
+    expect(refs.map((a) => a.id)).toEqual(['starter-research', 'starter-watch', 'starter-draft', 'starter-goal']);
     // yamlPath refs are inlined at load time; a missing file would have
     // thrown into `skipped` above, but assert the payload really arrived.
     for (const ref of refs) expect(ref.yaml, `${ref.id} has no inlined yaml`).toBeTruthy();
@@ -92,7 +94,9 @@ describe('shipped builtin packs', () => {
     loadBuiltinPacks(store, PACKS_DIR);
     const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
 
-    for (const ref of refs) {
+    // The goal starter is deliberately one step; its lesson is the tool-call
+    // list, not the graph. It has its own test below.
+    for (const ref of refs.filter((r) => r.id !== GOAL_STARTER)) {
       const agent = parseAgent(ref.yaml!);
       expect(agent.id).toBe(ref.id);
       expect(agent.status).toBe('active');
@@ -111,7 +115,9 @@ describe('shipped builtin packs', () => {
     loadBuiltinPacks(store, PACKS_DIR);
     const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
 
-    for (const ref of refs) {
+    // The goal starter is deliberately one step; its lesson is the tool-call
+    // list, not the graph. It has its own test below.
+    for (const ref of refs.filter((r) => r.id !== GOAL_STARTER)) {
       const agent = parseAgent(ref.yaml!);
       // A one-node "DAG" renders as a dot, which makes "watch the graph"
       // and "click a node" hollow on the very first run someone does.
@@ -150,6 +156,24 @@ describe('shipped builtin packs', () => {
     expect(merge, 'nothing merges the two gather branches').toBeDefined();
   });
 
+  it('starter-goal is one goal step with tools, a budget, and structured outputs', () => {
+    const { packsStore: store } = freshStores();
+    loadBuiltinPacks(store, PACKS_DIR);
+    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
+    const agent = parseAgent(refs.find((r) => r.id === GOAL_STARTER)!.yaml!);
+
+    expect(agent.status).toBe('active');
+    expect(agent.source).toBe('examples');
+    expect(agent.nodes).toHaveLength(1);
+    const [node] = agent.nodes;
+    expect(node.type).toBe('goal');
+    expect(node.tools?.length ?? 0).toBeGreaterThan(0);
+    expect(node.budget?.maxTurns).toBeGreaterThan(0);
+    // The goal step returns the declared outputs as JSON inside <final>, and
+    // the widget reads them — so the outputs the widget needs must exist.
+    expect(Object.keys(agent.outputs ?? {})).toEqual(expect.arrayContaining(['answer', 'findings']));
+  });
+
   it('starter-watch guards its alert with onlyIf so a NO run visibly skips', () => {
     const { packsStore: store } = freshStores();
     loadBuiltinPacks(store, PACKS_DIR);
@@ -166,7 +190,9 @@ describe('shipped builtin packs', () => {
     loadBuiltinPacks(store, PACKS_DIR);
     const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
 
-    for (const ref of refs) {
+    // The goal starter is deliberately one step; its lesson is the tool-call
+    // list, not the graph. It has its own test below.
+    for (const ref of refs.filter((r) => r.id !== GOAL_STARTER)) {
       const agent = parseAgent(ref.yaml!);
       const depended = new Set(agent.nodes.flatMap((n) => n.dependsOn ?? []));
       const terminals = agent.nodes.filter((n) => !depended.has(n.id));
