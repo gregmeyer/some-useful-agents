@@ -65,6 +65,12 @@ export interface V2SchedulerDeps {
   outcomeStore?: OutcomeFeedbackSource;
   /** Post-run observer. See DagExecutorDeps.onRunComplete. */
   onRunComplete?: DagExecutorDeps['onRunComplete'];
+  /**
+   * The LLM provider chain + custom providers, read at each fire so an edit
+   * in Settings → LLM applies without restarting the daemon. Without it a
+   * scheduled run ignored the operator's chain entirely and used claude alone.
+   */
+  llmSettings?: () => DagExecutorDeps['llmSettings'];
 }
 
 export interface LocalSchedulerOptions {
@@ -340,6 +346,7 @@ export class LocalScheduler {
         dashboardBaseUrl: this.v2Deps.dashboardBaseUrl,
         dataRoot: this.v2Deps.dataRoot,
         onRunComplete: this.v2Deps.onRunComplete,
+        llmSettings: this.v2Deps.llmSettings?.(),
       },
       { memoryStore: this.v2Deps.agentMemoryStore },
     ).then(

@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { EncryptedFileStore, RunStore } from '@some-useful-agents/core';
+import { EncryptedFileStore, RunStore, LlmSettingsStore } from '@some-useful-agents/core';
 import type { AgentDefinition, Agent } from '@some-useful-agents/core';
 import type { AgentNode } from '@some-useful-agents/core';
-import { runAgentActivity, runNodeActivity, runDagActivity } from './activities.js';
+import { runAgentActivity, runNodeActivity, runDagActivity, workerLlmSettings } from './activities.js';
 
 const TEST_DIR = join(import.meta.dirname, '__test-activities__');
 const SECRETS_PATH = join(TEST_DIR, 'secrets.enc');
@@ -204,5 +204,59 @@ describe('runDagActivity', () => {
     const agent = dagAgent([{ id: 'boom', type: 'shell', command: 'exit 7' }]);
     const res = await runDagActivity({ agent, runId: 'r2', triggeredBy: 'dashboard', dbPath: DB, secretsPath: SECRETS_PATH });
     expect(res.status).toBe('failed');
+  });
+});
+
+// Parity with a local run: the per-node path used to receive provider NAMES
+// only, so a custom provider (e.g. a local model) fell through getSpawner's
+// claude default and ran claude under the local model's name.
+describe('worker LLM settings', () => {
+  const settingsPath = () => join(TEST_DIR, 'llm-settings.json');
+  const writeSettings = () => {
+    const store = new LlmSettingsStore(settingsPath());
+    store.addCustomProvider({ name: 'local-x', kind: 'openai', apiBase: 'http://127.0.0.1:1/v1', model: 'm', apiKey: 'sk-local' });
+    store.setProviders(['codex', 'local-x', 'claude']);
+    store.setProviderEnabled('codex', false);
+  };
+
+  it('keeps the caller\'s order and adds custom providers + the disabled list from the worker file', () => {
+    writeSettings();
+    const s = workerLlmSettings(['local-x', 'claude'], settingsPath());
+    expect(s?.providers).toEqual(['local-x', 'claude']);
+    expect(s?.customProviders?.map((c) => c.name)).toEqual(['local-x']);
+    expect(s?.disabledProviders).toEqual(['codex']);
+  });
+
+  it('falls back to the worker file\'s chain minus disabled providers when no order was sent', () => {
+    writeSettings();
+    expect(workerLlmSettings(undefined, settingsPath())?.providers).toEqual(['local-x', 'claude']);
+  });
+
+  it('returns names-only when there is no settings file', () => {
+    expect(workerLlmSettings(['claude'], undefined)).toEqual({ providers: ['claude'], customProviders: undefined, disabledProviders: undefined });
+    expect(workerLlmSettings(undefined, undefined)).toBeUndefined();
+  });
+
+  const llmNode: AgentNode = { id: 'ask', type: 'llm-prompt', prompt: 'hi', timeout: 5 };
+
+  it('dispatches a custom provider over HTTP on the worker instead of spawning claude', async () => {
+    writeSettings();
+    const res = await runNodeActivity({
+      node: llmNode, env: {}, agentId: 'demo', agentSource: 'local',
+      llmProviders: ['local-x'], secretsPath: SECRETS_PATH, declaredSecrets: [],
+      llmSettingsPath: settingsPath(),
+    });
+    expect(res.attemptedProviders).toEqual(['local-x']);
+    expect(res.error).toMatch(/Could not reach http:\/\/127\.0\.0\.1:1/);
+  });
+
+  it('fails an unknown provider loudly rather than running claude under its name', async () => {
+    const res = await runNodeActivity({
+      node: llmNode, env: {}, agentId: 'demo', agentSource: 'local',
+      llmProviders: ['local-x'], secretsPath: SECRETS_PATH, declaredSecrets: [],
+    });
+    expect(res.exitCode).not.toBe(0);
+    expect(res.error).toContain('Provider "local-x" is not configured');
+    expect(res.providerFailures?.[0]?.category).toBe('binary_missing');
   });
 });
