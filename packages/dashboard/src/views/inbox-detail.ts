@@ -119,6 +119,7 @@ const SOURCE_LABEL: Record<string, string> = {
   'permission-request': 'Permission',
   'cadence': 'Cadence',
   'manual': 'Manual',
+  'system-health': 'System health',
 };
 
 const ROLE_LABEL: Record<InboxResponseRole, string> = {
