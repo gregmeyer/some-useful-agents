@@ -176,6 +176,16 @@ The `ai-template` output widget type stores LLM-generated HTML and re-renders it
 
 **Values from run output are always HTML-escaped** before substitution, so even without the sanitizer a hostile run could not inject tags through `{{outputs.X}}`. The sanitizer is the second layer.
 
+### Tool policies (v0.28)
+
+`<dataDir>/.sua/policies.json` holds allow/deny rules checked before every sua tool call:
+tool nodes, and every tool a model calls on any provider (sua's HTTP tool loop and claude's
+per-attempt tool endpoint share one executor, so one check covers both). Rules match the
+tool id, the resolved resource (URL, absolute path, command) and the agent's source tier;
+the last matching rule wins. An invalid file fails closed (every tool call denied). Not
+covered: plain `shell` nodes (the community-shell gate still applies) and a CLI provider's
+own built-in tools (governed by `allowedTools`). See [tool-policies.md](tool-policies.md).
+
 ### MCP server trust
 
 sua opens an MCP client against every server imported at `/tools/mcp/import`. Threats + mitigations:
@@ -295,3 +305,4 @@ We respond within a week. There is no bug bounty.
 - **v0.17.0** — SSRF protection on `http-get` / `http-post` (DNS-resolved IP validation blocks private, loopback, link-local, cloud metadata). Auth token moved from URL query to fragment (never sent to server, never logged, never leaked via Referer). CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy on every dashboard response.
 - **v0.18.0** — HTML allowlist sanitizer for `ai-template` output widgets (see above). MCP server trust surface called out explicitly: stdio = ambient authority, HTTP = no pinning. Disabled-server gate for imported MCP tools. Executor aborts Claude template generation on client cancel.
 - **v0.21.0** — Orphan process reaper closes the dashboard-restart token-burn gap: on-boot scan of non-terminal runs (`runs.status IN ('running','pending')`) transitions to `failed` with new `errorCategory='abandoned'`; persisted `childPid` + `childStartedAtMs` on `node_executions` plus a `ps -p <pid> -o etime=` cross-check let the reaper SIGKILL the orphan while defending against PID reuse. Cancel path mirrors the timeout path: SIGTERM, then SIGKILL after 5s. Agent-level `timeoutSec:` adds a wall-clock ceiling above per-node `timeout:` for runs that legitimately span many nodes.
+- **v0.28.0** — Tool policies enforced (`.sua/policies.json`, `sua policy show|check|validate`): last-match-wins allow/deny by tool, resource glob and source tier, checked on resolved inputs for tool nodes and for every model tool call on every provider, including the Temporal worker. Invalid policy file fails closed. The tool-node seam previously matched unresolved `{{…}}` templates, and a deny thrown there would have escaped the node's error handling; both fixed. CLI and scheduler runs also ran without a data root (so without the policy and without per-agent state dirs) because `AgentStore.fromHandle` never set it; fixed.

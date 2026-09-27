@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,6 +10,10 @@ import {
   PolicyLoadError,
   PolicyDeniedError,
   DEFAULT_POLICY_DOCUMENT,
+  globToRegExp,
+  policyResource,
+  resolvePolicyDocument,
+  type EnforcedPolicy,
 } from './policy-store.js';
 
 let dir: string;
@@ -104,33 +108,103 @@ describe('policyDocumentSchema', () => {
   });
 });
 
-describe('evaluatePolicy (PR B stub)', () => {
-  it('always returns allow against the default document', () => {
-    const decision = evaluatePolicy(DEFAULT_POLICY_DOCUMENT, {
-      toolId: 'http-get',
-      resource: 'https://example.com/',
-      agentSource: 'local',
-      agentId: 'a1',
-    });
-    expect(decision.effect).toBe('allow');
-    expect(decision.matchedRuleIndex).toBe(-1);
+const req = (toolId: string, resource = '', agentSource: 'examples' | 'local' | 'community' = 'local') =>
+  ({ toolId, resource, agentSource, agentId: 'a1' });
+const doc = (rules: Array<Record<string, unknown>>, defaultAction: 'allow' | 'deny' = 'allow'): EnforcedPolicy =>
+  policyDocumentSchema.parse({ version: 1, defaultAction, rules });
+
+describe('evaluatePolicy', () => {
+  it('allows everything under the default document', () => {
+    expect(evaluatePolicy(DEFAULT_POLICY_DOCUMENT, req('http-post', 'https://x'))).toEqual({ effect: 'allow', matchedRuleIndex: -1, reason: undefined });
   });
 
-  it('always returns allow even against a doc with deny rules (stub)', () => {
-    // Sanity: the stub ignores rules. PR C flips this and adds tests
-    // that exercise the real eval logic; for now we just lock in that
-    // PR B does not accidentally start denying anything.
-    const decision = evaluatePolicy({
-      version: 1,
-      defaultAction: 'allow',
-      rules: [{ tool: '*', action: 'execute', resources: ['*'], effect: 'deny' }],
-    }, {
-      toolId: 'http-post',
-      resource: '*',
-      agentSource: 'community',
-      agentId: 'a1',
-    });
-    expect(decision.effect).toBe('allow');
+  it('lets the LAST matching rule decide (narrow allow after a broad deny, and the reverse)', () => {
+    const p = doc([
+      { tool: 'http-*', effect: 'deny', reason: 'no outbound http' },
+      { tool: 'http-get', resources: ['https://api.github.com/*'], effect: 'allow' },
+    ]);
+    expect(evaluatePolicy(p, req('http-get', 'https://api.github.com/repos/x'))).toMatchObject({ effect: 'allow', matchedRuleIndex: 1 });
+    expect(evaluatePolicy(p, req('http-get', 'https://evil.example/x'))).toMatchObject({ effect: 'deny', matchedRuleIndex: 0, reason: 'no outbound http' });
+    expect(evaluatePolicy(p, req('http-post', 'https://api.github.com/x'))).toMatchObject({ effect: 'deny', matchedRuleIndex: 0 });
+  });
+
+  it('falls back to defaultAction, with a reason when that is deny', () => {
+    const p = doc([{ tool: 'json-parse', effect: 'allow' }], 'deny');
+    expect(evaluatePolicy(p, req('json-parse')).effect).toBe('allow');
+    const denied = evaluatePolicy(p, req('web-fetch', 'https://x'));
+    expect(denied).toMatchObject({ effect: 'deny', matchedRuleIndex: -1 });
+    expect(denied.reason).toContain('No policy rule allows "web-fetch" on "https://x"');
+  });
+
+  it('matches an unknown (empty) resource only with `*`', () => {
+    const scoped = doc([{ tool: '*', resources: ['https://ok/*'], effect: 'allow' }], 'deny');
+    expect(evaluatePolicy(scoped, req('notion.search')).effect).toBe('deny');
+    const star = doc([{ tool: '*', resources: ['*'], effect: 'allow' }], 'deny');
+    expect(evaluatePolicy(star, req('notion.search')).effect).toBe('allow');
+  });
+
+  it('honours conditions.source', () => {
+    const p = doc([{ tool: 'shell-exec', effect: 'deny', conditions: { source: ['community'] } }]);
+    expect(evaluatePolicy(p, req('shell-exec', 'ls', 'community')).effect).toBe('deny');
+    expect(evaluatePolicy(p, req('shell-exec', 'ls', 'local')).effect).toBe('allow');
+  });
+
+  it('writes a default reason for a deny rule without one', () => {
+    const d = evaluatePolicy(doc([{ tool: 'file-write', effect: 'deny' }]), req('file-write', '/etc/hosts'));
+    expect(d.reason).toBe('Policy rule #0 denies "file-write" on "/etc/hosts".');
+  });
+
+  it('denies everything, with the load error as the reason, on a fail-closed document', () => {
+    const d = evaluatePolicy({ ...DEFAULT_POLICY_DOCUMENT, invalidReason: 'broken' }, req('json-parse'));
+    expect(d).toEqual({ effect: 'deny', reason: 'broken', matchedRuleIndex: -1 });
+  });
+});
+
+describe('globToRegExp', () => {
+  it('treats * as any run (including /), ? as one char, the rest literally', () => {
+    expect(globToRegExp('https://api.github.com/*').test('https://api.github.com/a/b?c=1')).toBe(true);
+    expect(globToRegExp('https://api.github.com/*').test('https://api.github.com.evil/x')).toBe(false);
+    expect(globToRegExp('file-?rite').test('file-write')).toBe(true);
+    expect(globToRegExp('csv.*').test('csvXread')).toBe(false); // the dot is literal
+    expect(globToRegExp('a+b(c)').test('a+b(c)')).toBe(true);
+  });
+});
+
+describe('policyResource', () => {
+  it('picks the primary resource per tool', () => {
+    expect(policyResource('web-fetch', { url: 'https://x' })).toBe('https://x');
+    expect(policyResource('http-post', { endpoint: 'https://y' })).toBe('https://y');
+    expect(policyResource('shell-exec', { command: 'ls -la' })).toBe('ls -la');
+    expect(policyResource('json-parse', { text: '{}' })).toBe('');
+  });
+
+  it('resolves file paths to absolute, against the working directory', () => {
+    expect(policyResource('file-write', { path: 'out/a.txt' }, '/proj')).toBe('/proj/out/a.txt');
+    expect(policyResource('file-read', { path: '/etc/hosts' }, '/proj')).toBe('/etc/hosts');
+    expect(policyResource('file-read', { path: '../secret' }, '/proj/sub')).toBe('/proj/secret');
+  });
+});
+
+describe('resolvePolicyDocument', () => {
+  it('returns the allow-all default when there is no file', () => {
+    expect(resolvePolicyDocument(dir)).toBe(DEFAULT_POLICY_DOCUMENT);
+  });
+
+  it('fails CLOSED on an invalid file, naming the problem', () => {
+    writeDoc('{ not json');
+    const p = resolvePolicyDocument(dir);
+    expect(p.invalidReason).toMatch(/Invalid JSON/);
+    expect(p.invalidReason).toContain('every tool call is blocked');
+    expect(evaluatePolicy(p, req('json-parse')).effect).toBe('deny');
+  });
+
+  it('picks up edits without a restart (mtime-keyed cache)', () => {
+    writeDoc(JSON.stringify({ version: 1, rules: [] }));
+    expect(evaluatePolicy(resolvePolicyDocument(dir), req('web-fetch', 'https://x')).effect).toBe('allow');
+    writeDoc(JSON.stringify({ version: 1, rules: [{ tool: 'web-fetch', effect: 'deny' }] }));
+    const later = new Date(Date.now() + 5_000);
+    utimesSync(policyFilePath(dir), later, later);
+    expect(evaluatePolicy(resolvePolicyDocument(dir), req('web-fetch', 'https://x')).effect).toBe('deny');
   });
 });
 

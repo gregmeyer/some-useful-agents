@@ -62,12 +62,11 @@ describe('buildBuiltinToolExecutor', () => {
     expect(r.content).toMatch(/invalid json/i);
   });
 
-  it('honors a deny policy and blocks the call', async () => {
+  it('honors a deny policy: the model gets a readable "Blocked by policy" error', async () => {
     const denyDoc: PolicyDocument = { version: 1, defaultAction: 'deny', rules: [] };
-    // Note: evaluatePolicy is a stub that currently always allows, so this test
-    // documents the seam wiring; assert it does not throw and returns a result.
     const exec = buildBuiltinToolExecutor({ ...baseOpts, policyDocument: denyDoc });
     const r = await exec('json-parse', '{"text":"{}"}');
-    expect(r).toHaveProperty('content');
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/^Blocked by policy: No policy rule allows "json-parse"/);
   });
 });

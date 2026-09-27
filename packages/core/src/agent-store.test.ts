@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -413,5 +413,20 @@ describe('AgentStore permissions.imgSrc backfill', () => {
     store.upsertAgent(seedWithTemplate(tpl), 'cli');
     const v2 = store.getAgent('with-img');
     expect(v2?.version).toBe(1);
+  });
+});
+
+describe('AgentStore.fromHandle — dataRoot', () => {
+  // Regression: fromHandle never set dataRoot, so CLI + scheduler runs (which
+  // share one handle) ran with no state dir and no tool policy.
+  it('derives dataRoot from the shared connection\'s database file', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'sua-fromhandle-'));
+    const db = new DatabaseSync(join(tmp, 'runs.db'));
+    try {
+      expect(realpathSync(AgentStore.fromHandle(db).dataRoot)).toBe(realpathSync(tmp));
+    } finally {
+      db.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

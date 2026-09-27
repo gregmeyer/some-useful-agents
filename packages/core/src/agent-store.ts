@@ -58,6 +58,14 @@ export class AgentStore {
     const store = Object.create(AgentStore.prototype) as AgentStore;
     (store as unknown as { db: DatabaseSync }).db = db;
     (store as unknown as { ownsConnection: boolean }).ownsConnection = false;
+    // Derive dataRoot from the connection's own file, like the constructor does
+    // from its path. It used to be left unset here, so every CLI and scheduler
+    // run (both open stores this way) executed with no data root: no per-agent
+    // state dir and no tool policy. In-memory databases have no file and keep
+    // no dataRoot, as before.
+    const main = (db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>)
+      .find((r) => r.name === 'main');
+    if (main?.file) (store as unknown as { dataRoot: string }).dataRoot = dirname(main.file);
     store.ensureSchema();
     return store;
   }

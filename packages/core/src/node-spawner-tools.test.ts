@@ -95,6 +95,16 @@ emit({ type: 'result', subtype: 'success', is_error: false, result: 'ARGS: ' + a
     expect(res.toolCalls).toEqual([expect.objectContaining({ provider: 'claude', source: 'sua', toolId: 'json-parse', isError: false })]);
   });
 
+  it('applies the tool policy on the MCP path: claude gets a readable deny, and the trace records it', async () => {
+    const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
+    const res = await spawnNodeReal(node, env(), {
+      ...opts(['claude']),
+      policyDocument: { version: 1, defaultAction: 'allow', rules: [{ tool: 'json-parse', action: 'execute', resources: [], effect: 'deny', reason: 'parsing is off today' }] },
+    });
+    expect(res.result).toContain('got=Blocked by policy: parsing is off today');
+    expect(res.toolCalls).toEqual([expect.objectContaining({ source: 'sua', toolId: 'json-parse', isError: true, resultPreview: 'Blocked by policy: parsing is off today' })]);
+  });
+
   it('removes the config file (it holds the bearer token) once the attempt ends', async () => {
     const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'x', tools: ['json-parse'] };
     const res = await spawnNodeReal(node, env(), opts(['claude']));
