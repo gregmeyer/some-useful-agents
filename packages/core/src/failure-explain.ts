@@ -73,6 +73,7 @@ const ERROR_CATEGORY_LABELS: Record<string, string> = {
   flow_ended: 'Flow ended',
   invalid_output: 'Output failed the task contract',
   policy_denied: 'Blocked by tool policy',
+  budget_exhausted: 'Ran out of budget',
 };
 
 export { ERROR_CATEGORY_LABELS };

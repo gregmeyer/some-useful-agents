@@ -200,6 +200,20 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
       'Either adjust the policy to permit it, or change the node to stay within policy.',
     ],
   },
+  budget_exhausted: {
+    key: 'budget_exhausted',
+    meaning: 'A goal node ran out of budget before it produced a final answer (its turn limit or time limit), or the model stopped without one.',
+    commonCauses: [
+      'The goal needs more steps than budget.maxTurns allows (default 15).',
+      'Tool calls were slow and the node hit budget.timeoutSec (default 600).',
+      'The goal is too broad to finish in one run.',
+    ],
+    troubleshooting: [
+      'Open the node\'s tool-call list on the run page to see where the turns went.',
+      'Raise budget.maxTurns or budget.timeoutSec on the goal node.',
+      'Or narrow the goal, or split it into smaller goal nodes.',
+    ],
+  },
 };
 
 /** Troubleshooting content per common shell exit code. */

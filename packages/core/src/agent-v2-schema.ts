@@ -103,6 +103,7 @@ export const agentNodeSchema = z.object({
   type: z.enum([
     'shell', 'claude-code', 'llm-prompt', 'file-write',
     'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
+    'goal',
   ]),
 
   tool: z.string().optional(),
@@ -120,6 +121,15 @@ export const agentNodeSchema = z.object({
   // also honored for back-compat.
   tools: z.array(z.string()).optional(),
   provider: providerEnumSchema.optional(),
+
+  // goal node: what to achieve (the model loops think → tool → observe until
+  // it's done or out of budget) and the limits it works within. See
+  // docs/goal-agents.md.
+  goal: z.string().optional(),
+  budget: z.object({
+    maxTurns: z.number().int().min(1).max(50).optional(),
+    timeoutSec: z.number().int().positive().optional(),
+  }).optional(),
 
   // file-write node fields (top-level for ergonomics; desugar to toolInputs at dispatch).
   path: z.string().optional(),
@@ -164,9 +174,15 @@ export const agentNodeSchema = z.object({
     if (data.type === 'claude-code' || data.type === 'llm-prompt') return !!data.prompt;
     // file-write needs path + content (or toolInputs if author preferred that form).
     if (data.type === 'file-write') return !!data.path && !!data.content;
+    if (data.type === 'goal') return !!data.goal?.trim();
     return false;
   },
-  { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), or path+content (file-write)' },
+  { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), path+content (file-write), or goal (goal)' },
+).refine(
+  // A goal node works by calling tools; without any it is just a prompt, and
+  // an llm-prompt node says that more honestly.
+  (data) => data.type !== 'goal' || (data.tools?.length ?? 0) > 0,
+  { message: 'goal nodes need at least one entry in tools: (a goal with no tools is an llm-prompt)' },
 ).refine(
   // An `agent-invoke` node invokes another agent, so it MUST name one via
   // agentInvokeConfig.agentId — else it fails only at runtime with
@@ -736,6 +752,9 @@ export const agentV2Schema = z.object({
 
     if (node.type === 'claude-code' || node.type === 'llm-prompt') {
       checkText(node.prompt, ['prompt']);
+    }
+    if (node.type === 'goal') {
+      checkText(node.goal, ['goal']);
     }
 
     if (node.type === 'file-write') {

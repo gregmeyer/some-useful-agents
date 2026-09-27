@@ -48,6 +48,7 @@ export {
 export type { ToolResolutionDeps, ResolvedToolExposure, ToolExecutorOptions } from './llm-tool-dispatch.js';
 export * from './agent-capabilities.js';
 export * from './node-catalog.js';
+export * from './goal-node.js';
 export * from './agent-state.js';
 export * from './output-widget-types.js';
 export { outputWidgetSchema, widgetControlSchema, widgetViewSchema } from './output-widget-schema.js';

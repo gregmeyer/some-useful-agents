@@ -405,6 +405,7 @@ export class AgentStore {
     // platform default" signal.
     if (agent.allowedSubAgents !== undefined) dag.allowedSubAgents = agent.allowedSubAgents;
     if (agent.runOn !== undefined) dag.runOn = agent.runOn;
+    if (agent.timeoutSec !== undefined) dag.timeoutSec = agent.timeoutSec;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -485,6 +486,7 @@ export class AgentStore {
       permissions: dag.permissions,
       allowedSubAgents: dag.allowedSubAgents,
       runOn: dag.runOn,
+      timeoutSec: dag.timeoutSec,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

@@ -1832,6 +1832,23 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
     }, 'cli');
   }
 
+  it('sends goal nodes to the YAML editor instead of the shell/llm form (which would rewrite them)', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'goal-edit', name: 'Goal', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'g', type: 'goal', goal: 'Find things', tools: ['web-fetch'] }],
+    }, 'cli');
+    for (const req of [
+      request(app).get('/agents/goal-edit/nodes/g/edit'),
+      request(app).post('/agents/goal-edit/nodes/g/edit').type('form').send({ type: 'shell', command: 'echo x' }),
+    ]) {
+      const res = await req.set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(res.status).toBe(303);
+      expect(res.headers.location).toMatch(/^\/agents\/goal-edit\/yaml\?flash=/);
+    }
+    expect(agentStore.getAgent('goal-edit')!.nodes[0]).toMatchObject({ type: 'goal', goal: 'Find things' });
+  });
+
   it('GET /agents/:id/nodes/:nodeId/edit pre-fills the form with node state', async () => {
     const app = await makeApp();
     await seedChainAgent();

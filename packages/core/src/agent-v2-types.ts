@@ -38,7 +38,8 @@ export type NodeType =
   | 'agent-invoke'
   | 'branch'
   | 'end'
-  | 'break';
+  | 'break'
+  | 'goal';
 
 /**
  * True when the node runs an LLM prompt. Accepts both the canonical
@@ -47,6 +48,16 @@ export type NodeType =
  */
 export function isLlmPromptType(type: string | undefined | null): boolean {
   return type === 'llm-prompt' || type === 'claude-code';
+}
+
+/**
+ * True for a goal node: an LLM that loops over tools toward `goal` within
+ * `budget`. It runs through the same spawner as an llm-prompt node (the
+ * executor converts it just before spawning — see goal-node.ts), but it is
+ * NOT an llm-prompt node for editing/display: it has no `prompt`.
+ */
+export function isGoalType(type: string | undefined | null): boolean {
+  return type === 'goal';
 }
 
 export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
@@ -105,7 +116,13 @@ export type NodeErrorCategory =
    * onward so calling code, retry-policy filters, and dashboard
    * categorisation can reason about it before the engine ships.
    */
-  | 'policy_denied';
+  | 'policy_denied'
+  /**
+   * A goal node ended without a `<final>` answer: it used all its turns, hit
+   * its time budget, or the model stopped early. Not fallback-worthy (another
+   * provider has the same budget) and not retried by default.
+   */
+  | 'budget_exhausted';
 
 // Re-export so consumers of v2 types can import from one place without
 // reaching back into the v1 loader module.
@@ -240,6 +257,12 @@ export interface AgentNode {
   allowedTools?: string[];
   /** Builtin tool ids the model may call mid-generation (OpenAI-compatible tool loop). */
   tools?: string[];
+
+  // goal (type: 'goal') — see goal-node.ts / docs/goal-agents.md
+  /** What the node should achieve. Templates ({{inputs.X}}, {{upstream.X.field}}) resolve like a prompt's. */
+  goal?: string;
+  /** Limits the goal loop works within. Defaults: 15 turns, 600 s. */
+  budget?: { maxTurns?: number; timeoutSec?: number };
 
   // file-write (first-class node type — desugars to tool: 'file-write')
   /** Path to write (relative to working directory). Required when type is file-write. */
@@ -652,6 +675,8 @@ export interface AgentVersionDag {
   allowedSubAgents?: string[];
   /** See Agent.runOn. */
   runOn?: 'local' | 'temporal';
+  /** See Agent.timeoutSec. Versioned with the topology: it bounds the whole run. */
+  timeoutSec?: number;
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions

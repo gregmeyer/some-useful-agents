@@ -19,8 +19,10 @@
  * `--allow-untrusted-shell <agent-id>` stays the right granularity.
  */
 
+import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, NodeExecutionRecord } from './agent-v2-types.js';
+import { isGoalType } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
@@ -314,6 +316,15 @@ function seedOutputFromExec(
     source,
     outputs: structured,
   });
+}
+
+/** `{...obj, result}` when the whole text is one JSON object (a goal's <final>); else undefined. */
+function parseWholeJsonOutput(text: string): ToolOutput | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { ...(parsed as Record<string, unknown>), result: text } as ToolOutput;
+  } catch { /* not whole-JSON: fall back to the framed-last-line rule */ }
+  return undefined;
 }
 
 /**
@@ -1147,19 +1158,26 @@ export async function executeAgentDag(
       } else {
         // v0.15 legacy path: no tool field, dispatch by type directly.
         // Merge agent-level provider/model defaults (node overrides take precedence).
-        const nodeWithDefaults: AgentNode = {
+        const withAgentDefaults: AgentNode = {
           ...node,
           provider: node.provider ?? agent.provider,
           model: node.model ?? agent.model,
         };
+        // A goal node runs as the llm-prompt node it frames (goal-node.ts), so
+        // every backend — including a Temporal worker — sees a plain llm node.
+        const goal = isGoalType(node.type);
+        const nodeWithDefaults: AgentNode = goal ? toGoalPromptNode(withAgentDefaults, agent) : withAgentDefaults;
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
-        result = spawnResult;
+        // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
+        result = goal ? finishGoalResult(node, spawnResult) : spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get
-        // structured outputs without changing the node YAML.
-        structuredOutput = buildToolOutput(spawnResult.result);
+        // structured outputs without changing the node YAML. A goal's
+        // <final> is often a whole (multi-line) JSON object, so try that first.
+        structuredOutput = (goal && result.exitCode === 0 ? parseWholeJsonOutput(result.result) : undefined)
+          ?? buildToolOutput(result.result);
       }
     } catch (err) {
       const message = (err as Error).message;

@@ -75,6 +75,9 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(n.allowedTools && { allowedTools: n.allowedTools }),
     ...(n.tools && { tools: n.tools }),
     ...(n.provider !== undefined && { provider: n.provider }),
+    // goal node
+    ...(n.goal !== undefined && { goal: n.goal }),
+    ...(n.budget && { budget: n.budget }),
     // file-write fields
     ...(n.path !== undefined && { path: n.path }),
     ...(n.content !== undefined && { content: n.content }),
@@ -110,6 +113,9 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(p.pulseVisible !== undefined && { pulseVisible: p.pulseVisible }),
     ...(p.dashboardVisible !== undefined && { dashboardVisible: p.dashboardVisible }),
     ...(p.stateMaxBytes !== undefined && { stateMaxBytes: p.stateMaxBytes }),
+    // Both used to be dropped here: they validated, then never reached a run.
+    ...(p.timeoutSec !== undefined && { timeoutSec: p.timeoutSec }),
+    ...(p.runOn !== undefined && { runOn: p.runOn as Agent['runOn'] }),
     ...(p.permissions && { permissions: p.permissions }),
     ...(p.provider !== undefined && { provider: p.provider }),
     ...(p.model !== undefined && { model: p.model }),
@@ -143,6 +149,7 @@ const AGENT_KEY_ORDER = [
   'status', 'schedule', 'allowHighFrequency',
   'source', 'mcp', 'version',
   'pulseVisible', 'dashboardVisible', 'stateMaxBytes',
+  'timeoutSec', 'runOn',
   'permissions',
   'provider', 'model',
   'allowedSubAgents',
@@ -165,7 +172,7 @@ const NODE_KEY_ORDER = [
   // tool-driven nodes
   'tool', 'action', 'toolInputs',
   // execution
-  'command', 'prompt', 'model', 'maxTurns', 'allowedTools', 'tools', 'provider',
+  'command', 'prompt', 'goal', 'model', 'maxTurns', 'budget', 'allowedTools', 'tools', 'provider',
   // file-write
   'path', 'content', 'append',
   'timeout', 'env', 'envAllowlist', 'secrets', 'redactSecrets', 'workingDirectory',
