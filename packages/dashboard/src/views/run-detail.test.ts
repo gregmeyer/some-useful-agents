@@ -61,12 +61,22 @@ describe('renderRunDetail — LLM waterfall chip', () => {
     expect(html).not.toContain('codex (');
   });
 
-  it('renders no waterfall chip when only one provider was tried', () => {
+  it('names the provider when only one was tried, with no failure trail', () => {
     const html = renderRunDetail({
       run: baseRun,
       agent,
       nodeExecutions: [nodeExec({ usedLLMProvider: 'codex', attemptedProviders: 'codex' })],
     });
+    expect(html).toContain('ran on <span class="mono">codex</span>');
     expect(html).not.toContain('failed</span>');
+  });
+
+  it('renders no provider chip on non-llm nodes', () => {
+    const html = renderRunDetail({
+      run: baseRun,
+      agent,
+      nodeExecutions: [nodeExec({ usedLLMProvider: undefined, attemptedProviders: undefined })],
+    });
+    expect(html).not.toContain('ran on');
   });
 });

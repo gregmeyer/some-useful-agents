@@ -129,6 +129,12 @@ export interface LlmSettingsSnapshot {
  *   short backoff is usually better than switching
  * - `auth_required` — operator login expired; switching won't fix it,
  *   bubble up
+ * - `tool_unavailable` — the node declares `tools:` this provider can't
+ *   call (e.g. codex's read-only sandbox has no web access); skipped
+ *   before spawning so the waterfall reaches a provider that can
+ * - `model_unavailable` — the provider rejected the configured model
+ *   (retired, or not on this account's plan); a config problem on this
+ *   provider that another provider doesn't share
  * - `other` — unknown / probably a real prompt or runtime bug; don't
  *   mask by switching providers
  */
@@ -140,6 +146,8 @@ export type LlmFailureCategory =
   | 'rate_limited'
   | 'auth_required'
   | 'invalid_output'
+  | 'tool_unavailable'
+  | 'model_unavailable'
   | 'other';
 
 /**
@@ -281,6 +289,84 @@ export interface LlmSpawner {
    * BEFORE the generic `classifyLlmFailure` text matcher.
    */
   classifyResult?: (result: SpawnResult, rawStdout: string) => LlmFailureCategory | null;
+  /**
+   * sua tool id → this CLI's own tool name, for the `tools:` a node declares.
+   * The CLI can't call sua's tools (only the OpenAI-compatible HTTP loop
+   * can), so a declared tool either maps to a native equivalent that gets
+   * added to `--allowedTools`, or the provider is skipped as
+   * `tool_unavailable`. Undefined ⇒ the provider honours no declared tools.
+   */
+  nativeToolEquivalents?: Readonly<Record<string, string>>;
+  /**
+   * Tool calls the CLI refused during the run (raw stdout in). A refused
+   * call still exits 0 with a "success" result, so without this the node
+   * reads as a clean answer built on data the model never got.
+   */
+  detectDeniedTools?: (rawStdout: string) => string[];
+  /**
+   * The provider's own error message from a failed run (raw stdout in), for
+   * CLIs that report failures as JSON events. Replaces stderr as the node
+   * error when present: stderr carries unrelated noise (e.g. codex logging
+   * its MCP servers' auth errors) that otherwise decides the category.
+   */
+  extractError?: (rawStdout: string) => string | undefined;
+}
+
+/**
+ * Message from codex's `turn.failed` (or `error`) event. The message is often
+ * itself a JSON API error; unwrap it to "<status> <type>: <message>".
+ */
+export function codexFailureMessage(rawStdout: string): string | undefined {
+  const lines = rawStdout.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('{')) continue;
+    let event: { type?: string; message?: unknown; error?: { message?: unknown } };
+    try { event = JSON.parse(line); } catch { continue; }
+    const raw = event.type === 'turn.failed' ? event.error?.message
+      : event.type === 'error' ? event.message
+      : undefined;
+    if (typeof raw !== 'string' || raw.length === 0) continue;
+    try {
+      const inner = JSON.parse(raw) as { status?: number; error?: { type?: string; message?: string } };
+      if (inner.error?.message) {
+        const prefix = [inner.status, inner.error.type].filter(Boolean).join(' ');
+        return prefix ? `${prefix}: ${inner.error.message}` : inner.error.message;
+      }
+    } catch { /* plain-text message */ }
+    return raw;
+  }
+  return undefined;
+}
+
+/**
+ * Claude Code equivalents for sua's page-reading tools. Deliberately small:
+ * only tools whose behaviour WebFetch actually matches (fetch a URL, return
+ * readable content). `http-get` stays unmapped: WebFetch summarises bodies,
+ * which would silently change what a JSON-API node receives.
+ */
+export const CLAUDE_NATIVE_TOOL_EQUIVALENTS: Readonly<Record<string, string>> = {
+  'web-fetch': 'WebFetch',
+  'web-scrape': 'WebFetch',
+};
+
+/** Tool names from the `permission_denials` of claude's stream-json `result` event. */
+export function claudeDeniedTools(rawStdout: string): string[] {
+  const lines = rawStdout.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('{')) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event.type !== 'result') continue;
+      const denials = Array.isArray(event.permission_denials) ? event.permission_denials : [];
+      const names = denials
+        .map((d: { tool_name?: unknown }) => (typeof d?.tool_name === 'string' ? d.tool_name : ''))
+        .filter((n: string) => n.length > 0);
+      return [...new Set<string>(names)];
+    } catch { continue; }
+  }
+  return [];
 }
 
 // ── Claude spawner ─────────────────────────────────────────────────────
@@ -385,6 +471,9 @@ export const claudeSpawner: LlmSpawner = {
     // Fallback: if no result event found, return raw stdout (shouldn't happen).
     return stdout;
   },
+
+  nativeToolEquivalents: CLAUDE_NATIVE_TOOL_EQUIVALENTS,
+  detectDeniedTools: claudeDeniedTools,
 };
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
@@ -408,6 +497,7 @@ export const claudeTextSpawner: LlmSpawner = {
 
   parseProgress(): SpawnProgress | null { return null; },
   extractResult(stdout: string): string { return stdout; },
+  nativeToolEquivalents: CLAUDE_NATIVE_TOOL_EQUIVALENTS,
 };
 
 // ── Codex spawner ──────────────────────────────────────────────────────
@@ -509,6 +599,8 @@ export const codexSpawner: LlmSpawner = {
     }
     return stdout;
   },
+
+  extractError: codexFailureMessage,
 };
 
 // ── Apple Foundation Models spawner ────────────────────────────────────
@@ -805,11 +897,22 @@ export async function spawnNodeReal(
     });
   }
 
+  // Every provider was skipped for tools: say what would fix it, rather than
+  // leaving the last provider's "can't call X" as the whole story.
+  const allToolSkips = providerFailures.length > 0
+    && providerFailures.every((f) => f.category === 'tool_unavailable');
+  const toolsError = allToolSkips
+    ? `No enabled provider can use this node's tools (${(node.tools ?? []).join(', ')}). ` +
+      `Claude covers ${Object.keys(CLAUDE_NATIVE_TOOL_EQUIVALENTS).join(' and ')}; an OpenAI-compatible ` +
+      'provider (Settings → LLM) can call any sua tool.'
+    : undefined;
+
   // All attempts failed (or the chain ended on a non-fallback
   // category). Return the most recent failure with the trail so the
   // operator can see what was tried.
   return {
     ...(lastResult ?? { result: '', exitCode: 1 }),
+    ...(toolsError ? { error: toolsError } : {}),
     usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
     attemptedProviders,
     providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
@@ -890,11 +993,32 @@ async function runLlmAttempt(
     });
   }
   const spawner = getSpawner(provider);
+
+  // CLI providers can't call sua's tools. Each declared tool must map to the
+  // CLI's own equivalent, or this provider is skipped so the waterfall moves
+  // on — running anyway is how starter-watch "completed" a watch that never
+  // read the page (the model answered without the tool it was promised).
+  let allowedTools = node.allowedTools;
+  const declaredTools = node.tools ?? [];
+  if (declaredTools.length > 0) {
+    const native = spawner.nativeToolEquivalents ?? {};
+    const unsupported = declaredTools.filter((id) => !native[id]);
+    if (unsupported.length > 0) {
+      return {
+        result: '',
+        exitCode: 1,
+        category: 'tool_unavailable',
+        error: `${provider} can't call ${unsupported.join(', ')}, which this node declares in tools:.`,
+      };
+    }
+    allowedTools = [...new Set([...(node.allowedTools ?? []), ...declaredTools.map((id) => native[id])])];
+  }
+
   const spawnOpts: LlmSpawnOptions = {
     prompt: resolvedPrompt,
     model: node.model,
     maxTurns: node.maxTurns,
-    allowedTools: node.allowedTools,
+    allowedTools,
   };
   const args = spawner.buildArgs(spawnOpts);
 
@@ -928,7 +1052,10 @@ async function runLlmAttempt(
   // the runner doesn't sit waiting for EOF.
   const stdinInput = spawner.promptEnvVar ? undefined : resolvedPrompt;
 
-  const result = await spawnProcess(binaryPath, args, {
+  // Keep the raw stdout: inline-failure checks (classifyResult,
+  // detectDeniedTools) read the provider's JSON, not the extracted prose.
+  let rawStdout = '';
+  let result = await spawnProcess(binaryPath, args, {
     cwd: node.workingDirectory,
     env: mergedEnv,
     stdinInput,
@@ -937,7 +1064,10 @@ async function runLlmAttempt(
       const event = spawner.parseProgress(line);
       if (event) onProgress(event);
     } : undefined,
-    extractResult: (stdout) => spawner.extractResult(stdout),
+    extractResult: (stdout) => {
+      rawStdout = stdout;
+      return spawner.extractResult(stdout);
+    },
     signal,
     onSpawn,
   });
@@ -946,8 +1076,16 @@ async function runLlmAttempt(
   // `status: "unavailable"` on a successful exit). When the spawner
   // reports a fallback-worthy category, override the result so the
   // waterfall's classifyLlmFailure picks it up.
+  // Prefer the provider's own error over stderr for a failed run. codex logs
+  // its MCP servers' auth failures to stderr, which used to classify a
+  // "model not supported" failure as auth_required.
+  if (spawner.extractError && result.category === 'exit_nonzero') {
+    const providerError = spawner.extractError(rawStdout);
+    if (providerError) result = { ...result, error: providerError };
+  }
+
   if (spawner.classifyResult && result.exitCode === 0) {
-    const overrideCategory = spawner.classifyResult(result, result.result ?? '');
+    const overrideCategory = spawner.classifyResult(result, rawStdout);
     if (overrideCategory === 'binary_missing' || overrideCategory === 'other') {
       return {
         ...result,
@@ -956,6 +1094,19 @@ async function runLlmAttempt(
         category: overrideCategory === 'binary_missing' ? 'spawn_failure' : result.category,
         error: result.error ?? 'Provider reported an inline failure status.',
       };
+    }
+  }
+
+  // A refused tool call doesn't fail the node — the model often recovers
+  // with a tool it was given — but it must not read as a clean answer
+  // either. The warning rides on `error`, which the run page shows on
+  // completed nodes too.
+  if (spawner.detectDeniedTools && result.exitCode === 0) {
+    const denied = spawner.detectDeniedTools(rawStdout);
+    if (denied.length > 0) {
+      const warning = `${provider} was blocked from using ${denied.join(', ')} (not permitted for this node). ` +
+        'The answer may be missing whatever that tool would have returned.';
+      return { ...result, error: result.error ? `${result.error}\n${warning}` : warning };
     }
   }
 
@@ -1054,6 +1205,7 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   if (result.exitCode === 0) return 'other';
   // Output-contract violations are pre-classified by the waterfall.
   if (result.category === 'invalid_output') return 'invalid_output';
+  if (result.category === 'tool_unavailable') return 'tool_unavailable';
   const haystack = `${result.error ?? ''}\n${result.result ?? ''}`.toLowerCase();
   if (result.category === 'spawn_failure'
     || haystack.includes('command not found')
@@ -1088,6 +1240,12 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
     || haystack.includes('unauthorized')) {
     return 'auth_required';
   }
+  if (haystack.includes('model is not supported')
+    || haystack.includes('model_not_found')
+    || haystack.includes('unsupported model')
+    || /model [`'"]?[\w.:-]+[`'"]? (does not exist|is not supported|not found)/.test(haystack)) {
+    return 'model_unavailable';
+  }
   return 'other';
 }
 
@@ -1103,6 +1261,9 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
  *   - rate_limited    — this provider's 429; the next provider in the
  *                       chain has its own quota and is the whole point
  *                       of wiring a waterfall
+ *   - tool_unavailable — this provider can't call the node's declared
+ *                       tools; one later in the chain may
+ *   - model_unavailable — this provider rejected its configured model
  *
  * 'other' stays excluded — silent fallback on unclassified errors masks
  * real bugs that the operator should see (and that switching providers
@@ -1117,7 +1278,9 @@ export function shouldFallback(category: LlmFailureCategory): boolean {
     || category === 'timeout'
     || category === 'auth_required'
     || category === 'rate_limited'
-    || category === 'invalid_output';
+    || category === 'invalid_output'
+    || category === 'tool_unavailable'
+    || category === 'model_unavailable';
 }
 
 /**

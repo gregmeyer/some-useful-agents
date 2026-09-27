@@ -57,10 +57,18 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
   default.
 - On a **recognized** failure the runtime falls through to the next provider:
   binary missing / endpoint unreachable, timeout, quota or credit exhausted,
-  auth required (401), or rate limited (429). Unclassified errors stay on the
+  auth required (401), rate limited (429), or the provider rejecting its
+  configured model (retired, or not on your plan — `model_unavailable`). Unclassified errors stay on the
   same provider so real bugs surface instead of being masked.
+- For codex, the reason comes from its own `turn.failed` event rather than
+  stderr, which also carries log noise (e.g. an MCP server's expired token)
+  that used to misclassify failures as `auth_required`.
 - A custom endpoint participates identically — a down endpoint classifies as
   unreachable and falls through; a 401/429 maps to auth/rate-limited.
+- A node that declares `tools:` skips any provider that can't call them
+  (`tool_unavailable`) instead of running without them — see
+  [Tool-calling](#tool-calling-openai-compatible-providers). If every provider
+  is skipped, the node fails with what to enable.
 
 ## Add a custom endpoint
 
@@ -125,7 +133,8 @@ settings today; manage them from **Settings → LLM**.
 When a hop fires, `/settings/llm` records the last fallback (`from → to`,
 reason, agent/node). Each run's node execution also stores `usedProvider` (which
 provider actually produced the output) and the full `attemptedProviders` trail,
-visible on the run-detail page.
+visible on the run-detail page: every llm node shows which provider it ran on,
+plus the failed hops when the waterfall fell through.
 
 ## Tool-calling (OpenAI-compatible providers)
 
@@ -160,10 +169,26 @@ policy), feeds the results back, and loops until the model returns a final answe
 server-enable gate as MCP tool *nodes*; a disabled server surfaces as an in-loop error
 the model can read, not a crash.
 
-**Provider support:** this works on the **OpenAI-compatible HTTP path only** — any
-`kind:'openai'` custom provider (local llama.cpp/Ollama, or a hosted OpenAI-compatible
-API). The `claude` and `codex` CLIs run their own tool loops with their own tools;
-the `tools` field does not apply to them. Apple Foundation Models has no tool support.
+**Provider support:** sua's own tool loop runs on the **OpenAI-compatible HTTP path
+only** — any `kind:'openai'` custom provider (local llama.cpp/Ollama, or a hosted
+OpenAI-compatible API). The CLI providers can't call sua tools, so for them a declared
+tool either maps to the CLI's native equivalent or the provider is skipped:
+
+| Provider | Declared `tools:` it honours |
+|---|---|
+| OpenAI-compatible | every sua tool (builtin, generated, MCP) |
+| `claude` | `web-fetch`, `web-scrape` → added to `--allowedTools` as `WebFetch` |
+| `codex` | none (runs `exec -s read-only`) — skipped |
+| Apple Foundation Models | none — skipped |
+
+A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
+never "succeeds" without the tools it declared. `http-get` has no claude mapping on
+purpose: WebFetch summarises what it fetches, which would change what a JSON-API node
+receives.
+
+Separately, when claude refuses a tool call mid-run (it still exits 0), the node keeps
+its answer but shows a warning naming the refused tool, so an answer built without data
+the model tried to fetch doesn't read as clean.
 
 **Not yet exposed:** shell / claude-code *user* tools (they are spawn-based), and
 per-action schemas for multi-action tools (the tool is exposed with its shared input

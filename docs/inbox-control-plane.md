@@ -59,6 +59,18 @@ sweeper (`packages/dashboard/src/lib/daily-digest.ts`), default-on with
 `SUA_DAILY_DIGEST=0` to opt out. The `permission-request` producer remains
 unbuilt (enum + playbook exist, no emitter yet — see Open questions).
 
+A `system-health` source covers sua itself being down, which fails nothing and
+so never opens a `run-failure` thread. Its first producer is the **scheduler-down
+watcher** (`packages/dashboard/src/lib/scheduler-health-inbox.ts`): every minute
+it reads the scheduler heartbeat and posts one high-priority thread when the
+scheduler crashed — heartbeat file left behind, silent for 5+ minutes, pid dead,
+and at least one agent scheduled — naming the agents that aren't firing and the
+restart command. A clean `sua schedule stop` (heartbeat removed) and a sleeping
+laptop (pid alive) stay quiet. One thread per crashed scheduler instance
+(`dedupeKey: system-health:scheduler-down:<startedAt>`); it resolves itself with
+a system note once a scheduler heartbeats again. `system-health` threads are never
+auto-triaged — the message already says what to do.
+
 - **Routing on agent metadata**: triage picks which agent to dispatch using each
   agent's routing metadata (see [Agents → Routing metadata](agents.md#routing-metadata--entryconditions-nonentryconditions-samplequestions)).
   `entryConditions` and `sampleQuestions` boost an agent's relevance in the ranked

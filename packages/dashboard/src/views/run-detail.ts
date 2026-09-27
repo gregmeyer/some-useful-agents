@@ -550,13 +550,17 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     // Parse progress events for turn indicator.
     const progressIndicator = renderProgressIndicator(e);
 
-    // Show a fallback chip on the node row when the LLM waterfall fell
-    // through. Silent when only one provider was tried (the common
-    // case) or when the node is shell (both fields unset).
+    // Provider chip on every llm node: which provider answered, plus the
+    // failed hops when the waterfall fell through. Absent only on non-llm
+    // nodes (both fields unset). Without it, "which model wrote this?"
+    // had no answer unless a fallback happened to fire.
     let waterfallChip: SafeHtml = html``;
     if (e.attemptedProviders) {
       const trail = e.attemptedProviders.split(',').filter(Boolean);
-      if (trail.length > 1 && e.usedLLMProvider) {
+      if (trail.length === 1 && e.usedLLMProvider) {
+        const verdict = e.status === 'completed' ? 'ran on' : 'ended on';
+        waterfallChip = html`<span class="badge badge--muted" title="LLM provider for this node">${verdict} <span class="mono">${e.usedLLMProvider}</span></span>`;
+      } else if (trail.length > 1 && e.usedLLMProvider) {
         // Per-attempt failure reasons (why each skipped provider was skipped),
         // so the chip reads "codex (timeout) failed" instead of "codex failed".
         let failures: Array<{ provider: string; category: string; error?: string }> = [];

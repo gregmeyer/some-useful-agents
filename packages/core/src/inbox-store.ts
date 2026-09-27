@@ -41,8 +41,11 @@ export type InboxStatus = typeof INBOX_STATUSES[number];
  * `outcome` is the silent-failure source: the run COMPLETED, so `run-failure`
  * never fires, but the agent missed the outcome it declared. See
  * docs/outcome-detection.md.
+ *
+ * `system-health` is sua itself being down (e.g. the scheduler crashed), so
+ * nothing runs and nothing fails. Deterministic, so never auto-triaged.
  */
-export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual'] as const;
+export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual', 'system-health'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
 /**
@@ -783,7 +786,7 @@ export class InboxStore {
         ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
       FROM inbox_messages
       WHERE status = 'open'
-        AND source != 'manual'
+        AND source NOT IN ('manual', 'system-health')
         AND paused = 0
         AND created_at <= ?
         AND NOT EXISTS (
