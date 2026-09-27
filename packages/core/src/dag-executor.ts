@@ -949,6 +949,21 @@ export async function executeAgentDag(
       });
     };
 
+    // The counterpart: drop the pid once the child is gone. A node can outlive
+    // its child — most importantly in the LLM waterfall, where a CLI provider
+    // (which spawns) can fail over to an `openai`-kind provider (which is a
+    // plain HTTP call and spawns nothing). Leaving the dead CLI pid behind made
+    // the stuck-run watchdog conclude every child of the run was dead and reap
+    // a node that was mid-request, so successful runs came back carrying a
+    // "reaped by the stuck-run watchdog" error. With the pid cleared the
+    // watchdog has no false liveness signal and falls back to its age ceiling.
+    const onChildExit = () => {
+      deps.runStore.updateNodeExecution(runId, node.id, {
+        childPid: null,
+        childStartedAtMs: null,
+      });
+    };
+
     // v0.16 tool dispatch: if the node references a tool, resolve it and
     // call its execute() function. Built-in tools run in-process; user
     // tools that use shell/claude-code implementation types go through the
@@ -1114,7 +1129,7 @@ export async function executeAgentDag(
             model: node.model ?? agent.model,
           };
           const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
-          const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
+          const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
         }
@@ -1128,7 +1143,7 @@ export async function executeAgentDag(
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
         const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
-        const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn);
+        const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get

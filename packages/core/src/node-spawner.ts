@@ -182,6 +182,7 @@ export type SpawnNodeFn = (
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
+  onChildExit?: () => void,
 ) => Promise<SpawnResult>;
 
 /**
@@ -744,6 +745,7 @@ export async function spawnNodeReal(
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
+  onChildExit?: () => void,
 ): Promise<SpawnResult> {
   if (node.type === 'shell') {
     if (!node.command) {
@@ -767,6 +769,7 @@ export async function spawnNodeReal(
       timeoutSec: node.timeout ?? 300,
       signal,
       onSpawn,
+      onChildExit,
     });
   }
 
@@ -827,7 +830,7 @@ export async function spawnNodeReal(
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     attemptedProviders.push(provider);
-    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, _opts.llmSettings?.customProviders, {
+    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
       secretsStore: _opts.secretsStore,
@@ -932,6 +935,7 @@ async function runLlmAttempt(
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
   onSpawn?: (pid: number, startedAtMs: number) => void,
+  onChildExit?: () => void,
   customProviders?: readonly CustomLlmProvider[],
   toolCtx?: {
     agentId: string;
@@ -1070,6 +1074,7 @@ async function runLlmAttempt(
     },
     signal,
     onSpawn,
+    onChildExit,
   });
 
   // Inline-failure classification (e.g. apple-foundation-models writes
@@ -1342,6 +1347,19 @@ export interface SpawnProcessOptions {
    * defend against PID reuse on long-uptime machines.
    */
   onSpawn?: (pid: number, startedAtMs: number) => void;
+  /**
+   * The counterpart to `onSpawn`: fires once the child is definitively gone.
+   * The executor clears the persisted pid, because a pid that has exited is
+   * not a kill handle any more — it is a false liveness signal.
+   *
+   * This matters most inside the LLM provider waterfall. A CLI provider
+   * (codex, claude) spawns a child and records its pid; an `openai`-kind
+   * provider is a plain HTTP call and never spawns anything. When the chain
+   * falls from the former to the latter, the node row kept pointing at the
+   * dead CLI child, and the stuck-run watchdog read that as "every child of
+   * this run is dead" and reaped a node that was actively mid-request.
+   */
+  onChildExit?: () => void;
 }
 
 /**
@@ -1446,6 +1464,16 @@ export async function spawnProcess(
     if (opts.onSpawn && typeof child.pid === 'number') {
       try { opts.onSpawn(child.pid, Date.now()); } catch { /* never let onSpawn break spawning */ }
     }
+    // Idempotent: `close` and `error` can both fire for one child, and the
+    // pid only needs clearing once.
+    let childGoneReported = false;
+    const reportChildGone = () => {
+      if (childGoneReported) return;
+      childGoneReported = true;
+      if (!opts.onChildExit) return;
+      try { opts.onChildExit(); } catch { /* never let the callback break teardown */ }
+    };
+
     if (opts.stdinInput !== undefined && child.stdin) {
       child.stdin.on('error', () => { /* child may close before we finish writing — swallow EPIPE */ });
       child.stdin.end(opts.stdinInput);
@@ -1502,6 +1530,7 @@ export async function spawnProcess(
 
     child.on('close', (code: number | null) => {
       clearTimeout(timer);
+      reportChildGone();
 
       // Flush any remaining buffered stdout line.
       if (opts.onProgress && stdoutBuffer.trim()) {
@@ -1526,6 +1555,7 @@ export async function spawnProcess(
 
     child.on('error', (err: Error) => {
       clearTimeout(timer);
+      reportChildGone();
       resolve({ result: '', exitCode: 127, error: err.message, category: 'spawn_failure' });
     });
   });
