@@ -75,6 +75,7 @@ import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { raiseOutcomeInbox } from './lib/outcome-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startDailyDigest } from './lib/daily-digest.js';
+import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { buildHomeFeedData } from './lib/home-feed.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
@@ -738,6 +739,15 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     excludeAgent: (name) => SYSTEM_AGENT_IDS.has(name),
   });
 
+  // Scheduler-down watcher: a crashed scheduler fails nothing, so no
+  // run-failure thread ever opens. Posts one `system-health` thread per
+  // crash and resolves it when the scheduler heartbeats again.
+  const stopSchedulerHealth = ctx.inboxStore
+    ? startSchedulerHealthInbox(ctx.inboxStore, ctx.dataDir, {
+        onChanged: (m) => publishInboxChanged(ctx, m.id, m.status),
+      })
+    : () => {};
+
   const app = buildDashboardApp(ctx);
 
   // Pay the detectLlms() spawn cost (and any Apple-runner compile) off the
@@ -762,6 +772,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       clearInterval(stuckWatchdog);
       stopInboxSweeper();
       stopDailyDigest();
+      stopSchedulerHealth();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —
