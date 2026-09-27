@@ -89,6 +89,7 @@ describe('agents as tools through the executor', () => {
   let apiBase: string;
   let lastToolMessage = '';
   let requestedTool = 'agent_child';
+  let finalText = 'The child said its piece.';
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-agent-tools-'));
@@ -103,7 +104,7 @@ describe('agents as tools through the executor', () => {
         if (tool) lastToolMessage = tool.content;
         const message = turn === 1
           ? { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: requestedTool, arguments: '{"TOPIC":"otters"}' } }] }
-          : { role: 'assistant', content: 'The child said its piece.' };
+          : { role: 'assistant', content: finalText };
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ choices: [{ message, finish_reason: turn === 1 ? 'tool_calls' : 'stop' }] }));
       });
@@ -148,6 +149,20 @@ describe('agents as tools through the executor', () => {
 
     const trace = runStore.listToolCalls(run.id).get('ask');
     expect(trace?.[0]).toMatchObject({ toolId: 'agent:child', isError: false });
+  });
+
+  it('works from a goal step: the goal delegates to the agent and finishes with <final>', async () => {
+    requestedTool = 'agent_child';
+    finalText = 'Asked the child.\n<final>otters: facts gathered</final>';
+    const { runStore, deps } = setup('goal');
+    const goalParent = agent('parent', {
+      nodes: [{ id: 'research', type: 'goal', goal: 'Learn about otters.', tools: ['agent:child'] }],
+    });
+    const run = await executeAgentDag(goalParent, { triggeredBy: 'cli' }, deps);
+    finalText = 'The child said its piece.';
+    expect(run.status).toBe('completed');
+    expect(run.result).toBe('otters: facts gathered');
+    expect(runStore.listChildRuns(run.id)).toEqual([expect.objectContaining({ agentName: 'child', parentNodeId: 'research', status: 'completed' })]);
   });
 
   it('applies tool policy to agent calls (agent:* rules)', async () => {

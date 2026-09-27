@@ -44,7 +44,7 @@ Goal steps and flows mix: a goal step is one step in a flow, so it can take
 | Field | Required | Meaning |
 |---|---|---|
 | `goal` | yes | What to achieve, in plain language. Templates (`{{inputs.X}}`, `{{upstream.X.field}}`) resolve like a prompt's. |
-| `tools` | yes (≥1) | What it may call: builtins (`web-fetch`, `web-scrape`, `http-get`, …), integration tools, imported MCP tools. A goal with no tools is just a prompt; use `llm-prompt` for that. |
+| `tools` | yes (≥1) | What it may call: builtins (`web-fetch`, `web-scrape`, `http-get`, …), integration tools, imported MCP tools, and other agents as `agent:<id>` ([agents-as-tools.md](agents-as-tools.md)). A goal with no tools is just a prompt; use `llm-prompt` for that. |
 | `budget.maxTurns` | no | How many model turns it may take (1–50, default 15). |
 | `budget.timeoutSec` | no | Wall-clock limit for the step (default 600). |
 | `provider`, `model` | no | As for `llm-prompt`. It needs a provider that can call tools: claude or an OpenAI-compatible model (e.g. a local Qwen). Others are skipped. |
