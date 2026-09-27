@@ -35,6 +35,11 @@ export interface DashboardContext {
    */
   temporal?: { address: string; namespace: string; taskQueue: string };
   /**
+   * The local model server (`daemon.model` in sua.config.json), started and
+   * stopped from /settings/llm. Set by the CLI; undefined when not configured.
+   */
+  modelService?: { command: string; args?: string[]; healthUrl?: string };
+  /**
    * Run-failure hook passed into every executeAgentDag call. Raises an inbox
    * conversation when a Temporal run fails so the triage agent sees it (B1c).
    * Undefined when there's no inbox store.

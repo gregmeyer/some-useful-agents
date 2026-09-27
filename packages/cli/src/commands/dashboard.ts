@@ -240,6 +240,7 @@ alongside the scheduler and MCP server, use 'sua daemon start'.
         namespace: config.temporalNamespace ?? 'default',
         taskQueue: config.temporalTaskQueue ?? 'sua-agents',
       },
+      modelService: config.daemon?.model,
     };
 
     const urlHost = dialableHost(options.host);

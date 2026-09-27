@@ -32,9 +32,20 @@ export interface SuaConfig {
    */
   daemon?: {
     /** Services started by `sua daemon start` (with no --service flag). */
-    services?: ('schedule' | 'dashboard' | 'mcp' | 'worker')[];
+    services?: ('schedule' | 'dashboard' | 'mcp' | 'worker' | 'model')[];
     /** Rotate log when it exceeds this many bytes (rotate-on-start). */
     logRotateBytes?: number;
+    /**
+     * The `model` service: a local model server run as a daemon service, so a
+     * local provider (e.g. llama-server behind a custom OpenAI-compatible
+     * endpoint) starts with everything else. Runs `command args…` as-is.
+     */
+    model?: {
+      command: string;
+      args?: string[];
+      /** Probed by `sua daemon status` (llama-server: `http://127.0.0.1:<port>/health`). */
+      healthUrl?: string;
+    };
   };
   /**
    * Agent Behavior spec discovery (https://www.agentbehavior.dev/).
@@ -185,7 +196,7 @@ export function getRetentionDays(config: SuaConfig): number {
   return config.runRetentionDays ?? 30;
 }
 
-export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' | 'mcp' | 'worker')[] {
+export function getDaemonServices(config: SuaConfig): ('schedule' | 'dashboard' | 'mcp' | 'worker' | 'model')[] {
   return config.daemon?.services ?? ['schedule', 'dashboard'];
 }
 
