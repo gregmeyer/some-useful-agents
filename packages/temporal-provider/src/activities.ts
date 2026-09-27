@@ -14,7 +14,9 @@ import {
   IntegrationsStore,
   VariablesStore,
   LlmSettingsStore,
+  resolvePolicyDocument,
 } from '@some-useful-agents/core';
+import { dirname } from 'node:path';
 import { Context } from '@temporalio/activity';
 
 function quiet<T>(make: () => T): T | undefined {
@@ -266,6 +268,10 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         integrationsStore: input.dbPath ? quiet(() => new IntegrationsStore(input.dbPath as string)) : undefined,
         variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
         experimentalApple: input.experimentalApple,
+        // Tool policy from the same data dir the local run would use, so a
+        // model's tool calls on the worker are gated too (fails closed on an
+        // invalid file, like everywhere else).
+        policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
       },
       onProgress,
       ctx?.cancellationSignal,

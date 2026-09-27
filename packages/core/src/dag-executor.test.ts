@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
@@ -143,6 +143,52 @@ describe('executeAgentDag — tool-call trace', () => {
     const trace = runStore.listToolCalls(run.id);
     expect(trace.get('fetch')?.map((c) => c.toolId)).toEqual(['web-fetch']);
     expect(trace.get('judge')?.map((c) => [c.toolId, c.isError])).toEqual([['json-parse', true]]);
+  });
+});
+
+describe('executeAgentDag — tool policy', () => {
+  const writePolicy = (doc: unknown) => {
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(join(dir, '.sua', 'policies.json'), JSON.stringify(doc));
+  };
+  const fetchAgent = (url: string): Agent => ({
+    id: 'fetcher', name: 'Fetcher', status: 'active', source: 'local', mcp: false, version: 1,
+    inputs: { URL: { type: 'string', default: url } },
+    nodes: [{ id: 'get', type: 'shell', tool: 'http-get', toolInputs: { url: '{{inputs.URL}}' } }],
+  });
+
+  it('judges the RESOLVED input: a templated URL cannot slip past a URL rule', async () => {
+    // Before: the resource was read pre-substitution ("{{inputs.URL}}"), so a
+    // URL-scoped deny never matched a templated URL.
+    writePolicy({ version: 1, rules: [{ tool: 'http-get', resources: ['https://blocked.example/*'], effect: 'deny', reason: 'not that host' }] });
+    const run = await executeAgentDag(fetchAgent('https://blocked.example/secret'), { triggeredBy: 'cli' }, { runStore, dataRoot: dir });
+    expect(run.status).toBe('failed');
+    const node = runStore.listNodeExecutions(run.id).find((n) => n.nodeId === 'get');
+    expect(node?.errorCategory).toBe('policy_denied');
+    expect(node?.error).toBe('not that host');
+  });
+
+  it('loads the policy from dataRoot with nothing passed in, and allows what it allows', async () => {
+    writePolicy({ version: 1, defaultAction: 'deny', rules: [{ tool: 'json-parse', effect: 'allow' }] });
+    const agent: Agent = {
+      id: 'parser', name: 'Parser', status: 'active', source: 'local', mcp: false, version: 1,
+      nodes: [{ id: 'parse', type: 'shell', tool: 'json-parse', toolInputs: { text: '{"ok":true}' } }],
+    };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, { runStore, dataRoot: dir });
+    expect(run.status).toBe('completed');
+  });
+
+  it('fails closed on an invalid policy file', async () => {
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(join(dir, '.sua', 'policies.json'), '{ nope');
+    const agent: Agent = {
+      id: 'parser2', name: 'Parser', status: 'active', source: 'local', mcp: false, version: 1,
+      nodes: [{ id: 'parse', type: 'shell', tool: 'json-parse', toolInputs: { text: '{}' } }],
+    };
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, { runStore, dataRoot: dir });
+    const node = runStore.listNodeExecutions(run.id)[0];
+    expect(node.errorCategory).toBe('policy_denied');
+    expect(node.error).toMatch(/Invalid JSON.*every tool call is blocked/);
   });
 });
 

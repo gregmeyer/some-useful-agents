@@ -15,7 +15,7 @@ import { getBuiltinTool } from './builtin-tools.js';
 import { getGeneratedTool } from './integrations/generated-tools.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveVarsTemplate } from './node-templates.js';
-import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, type PolicyDocument } from './policy-store.js';
+import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, policyResource, type PolicyDocument } from './policy-store.js';
 import type { ToolDefinition, ToolOutput, BuiltinToolContext } from './tool-types.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
@@ -176,20 +176,6 @@ export function resolveExposedToolDefs(
   return { tools, idByFunctionName, exposedToolIds };
 }
 
-/** Runtime sibling of dag-executor's extractPrimaryResource, over model args. */
-function resourceFromArgs(toolId: string, args: Record<string, unknown>): string {
-  if (toolId === 'http-get' || toolId === 'http-post' || toolId === 'web-fetch' || toolId === 'web-scrape') {
-    const v = args.url ?? args.endpoint;
-    return typeof v === 'string' ? v : '';
-  }
-  if (toolId === 'file-read' || toolId === 'file-write') {
-    return typeof args.path === 'string' ? args.path : '';
-  }
-  if (toolId === 'shell-exec') {
-    return typeof args.command === 'string' ? args.command : '';
-  }
-  return '';
-}
 
 export interface ToolExecutorOptions {
   /** Real tool ids the model is allowed to call (already validated to exist). */
@@ -258,14 +244,14 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
     try {
       const decision = evaluatePolicy(opts.policyDocument ?? DEFAULT_POLICY_DOCUMENT, {
         toolId,
-        resource: resourceFromArgs(toolId, args),
+        resource: policyResource(toolId, args, opts.workingDirectory),
         agentSource: opts.agentSource as 'examples' | 'local' | 'community',
         agentId: opts.agentId,
       });
       if (decision.effect === 'deny') {
         throw new PolicyDeniedError(
           decision.reason ?? `Policy denied tool "${toolId}".`,
-          toolId, resourceFromArgs(toolId, args), decision.matchedRuleIndex,
+          toolId, policyResource(toolId, args, opts.workingDirectory), decision.matchedRuleIndex,
         );
       }
     } catch (err) {

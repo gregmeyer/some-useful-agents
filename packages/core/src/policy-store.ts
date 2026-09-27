@@ -1,11 +1,13 @@
 /**
- * Tool policies — schema, loader, and a stub enforcement function.
+ * Tool policies — schema, loader, and enforcement.
  *
- * PR B of the tool-policies feature ships the file shape + the call seam
- * the executor uses to ask "is this tool call allowed?". The actual
- * allow/deny logic (glob matching, conditions, agent-level overrides)
- * lands in PR C. Today the stub always returns `{effect: 'allow'}` so
- * existing projects keep running without a `.sua/policies.json` file.
+ * Every sua tool call asks `evaluatePolicy` first: DAG tool nodes (the
+ * executor seam) and every tool a model calls, on any provider (the shared
+ * `buildToolExecutor`, which the HTTP tool loop and claude's MCP endpoint
+ * both use). Rules live in `<dataDir>/.sua/policies.json`; the last matching
+ * rule decides, else `defaultAction`. A missing file allows everything; an
+ * invalid one blocks every tool call until it's fixed (fail closed). See
+ * docs/tool-policies.md.
  *
  * Why a Zod-validated file rather than a TypeScript module? The policy
  * is operator config, not code. Operators edit it directly or via the
@@ -15,8 +17,8 @@
  * editor will reuse.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 
 /**
@@ -183,21 +185,124 @@ export interface PolicyDecision {
 }
 
 /**
- * Evaluate a tool-execute request against the project policy.
- *
- * **PR B stub**: always returns `{effect: 'allow', matchedRuleIndex: -1}`.
- * Wired into the executor seam so PR C can implement real glob matching
- * + condition eval here without touching every dispatch point.
- *
- * **Why a stub instead of skipping the call entirely**: every PR-B-shipped
- * deployment runs through `evaluatePolicy` exactly the way PR C will, so
- * we get telemetry on the call rate, ensure the seam compiles cleanly
- * across providers, and lock in the request/decision shape against
- * existing tests before the engine's behaviour changes.
+ * A policy document as enforced. `invalidReason` is set only on the
+ * fail-closed stand-in `resolvePolicyDocument` returns for a broken file:
+ * every request is denied with that reason.
+ */
+export type EnforcedPolicy = PolicyDocument & { invalidReason?: string };
+
+/**
+ * Glob → anchored RegExp. `*` matches any run of characters INCLUDING `/`
+ * (so URL and path patterns read naturally: `https://api.github.com/*`,
+ * `/Users/me/project/out/*`), `?` matches one character, everything else is literal.
+ * Case-sensitive.
+ */
+export function globToRegExp(glob: string): RegExp {
+  let re = '';
+  for (const ch of glob) {
+    if (ch === '*') re += '.*';
+    else if (ch === '?') re += '.';
+    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`, 's');
+}
+
+function ruleMatches(rule: PolicyRule, req: PolicyEvaluationRequest): boolean {
+  if (rule.tool !== '*' && !globToRegExp(rule.tool).test(req.toolId)) return false;
+  if (rule.resources.length > 0) {
+    // An unknown resource only matches `*`: a URL-scoped allow must not be
+    // satisfied by a call that has no URL to check.
+    const hit = rule.resources.some((g) => (req.resource === '' ? g === '*' : globToRegExp(g).test(req.resource)));
+    if (!hit) return false;
+  }
+  if (rule.conditions?.source && !rule.conditions.source.includes(req.agentSource)) return false;
+  return true;
+}
+
+/**
+ * Evaluate a tool-execute request against the project policy. Rules are
+ * read in order and the LAST one that matches decides (a later rule
+ * overrides an earlier one, so a broad deny can be followed by narrow
+ * allows, or the reverse). No match ⇒ `defaultAction`.
  */
 export function evaluatePolicy(
-  _doc: PolicyDocument,
-  _request: PolicyEvaluationRequest,
+  doc: EnforcedPolicy,
+  request: PolicyEvaluationRequest,
 ): PolicyDecision {
-  return { effect: 'allow', matchedRuleIndex: -1 };
+  if (doc.invalidReason) return { effect: 'deny', reason: doc.invalidReason, matchedRuleIndex: -1 };
+
+  let decidingIndex = -1;
+  doc.rules.forEach((rule, i) => { if (ruleMatches(rule, request)) decidingIndex = i; });
+
+  const on = request.resource ? ` on "${request.resource}"` : '';
+  if (decidingIndex >= 0) {
+    const rule = doc.rules[decidingIndex];
+    return {
+      effect: rule.effect,
+      matchedRuleIndex: decidingIndex,
+      reason: rule.reason ?? (rule.effect === 'deny' ? `Policy rule #${decidingIndex} denies "${request.toolId}"${on}.` : undefined),
+    };
+  }
+  return {
+    effect: doc.defaultAction,
+    matchedRuleIndex: -1,
+    reason: doc.defaultAction === 'deny' ? `No policy rule allows "${request.toolId}"${on}, and the default action is deny.` : undefined,
+  };
+}
+
+/**
+ * The resource a tool call touches, from its RESOLVED arguments: the URL for
+ * web/http tools, the absolute path for file tools (resolved the way the
+ * tools themselves resolve it), the command for shell-exec. Empty when the
+ * tool has no primary resource. The one extractor every call site uses.
+ */
+export function policyResource(toolId: string, args: Record<string, unknown>, workingDirectory?: string): string {
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  switch (toolId) {
+    case 'http-get':
+    case 'http-post':
+    case 'web-fetch':
+    case 'web-scrape':
+      return str(args.url) || str(args.endpoint);
+    case 'file-read':
+    case 'file-write': {
+      const p = str(args.path);
+      if (!p) return '';
+      return isAbsolute(p) ? p : resolve(workingDirectory ?? process.cwd(), p);
+    }
+    case 'shell-exec':
+      return str(args.command);
+    default:
+      return '';
+  }
+}
+
+const policyCache = new Map<string, { mtimeMs: number; doc: EnforcedPolicy }>();
+
+/**
+ * The policy to enforce for a data dir. Re-reads only when the file changes
+ * (mtime), so an edit applies to the next tool call without a restart.
+ * Missing file ⇒ the allow-all default. Invalid file ⇒ fail CLOSED: a
+ * document that denies every call with the load error as the reason — a
+ * typo in a deny rule must never quietly become allow-all.
+ */
+export function resolvePolicyDocument(dataDir: string): EnforcedPolicy {
+  const path = policyFilePath(dataDir);
+  let mtimeMs: number;
+  try { mtimeMs = statSync(path).mtimeMs; } catch { policyCache.delete(path); return DEFAULT_POLICY_DOCUMENT; }
+  const cached = policyCache.get(path);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.doc;
+  let doc: EnforcedPolicy;
+  try {
+    doc = loadPolicyDocument(dataDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    doc = {
+      ...DEFAULT_POLICY_DOCUMENT,
+      defaultAction: 'deny',
+      invalidReason: `${message} — every tool call is blocked until the policy file is fixed (sua policy validate).`,
+    };
+  }
+  policyCache.set(path, { mtimeMs, doc });
+  return doc;
 }

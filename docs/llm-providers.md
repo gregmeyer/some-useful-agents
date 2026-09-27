@@ -232,5 +232,7 @@ the model tried to fetch doesn't read as clean.
 
 **Not yet exposed:** shell / claude-code *user* tools (they are spawn-based), and
 per-action schemas for multi-action tools (the tool is exposed with its shared input
-schema). Resource-scoped policy enforcement for generated/MCP tools is pending — the
-policy gate is wired but currently evaluates to allow.
+schema).
+
+Every tool call, on every provider, is checked against your tool policy first; see
+[tool-policies.md](tool-policies.md).

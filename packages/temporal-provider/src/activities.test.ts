@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { EncryptedFileStore, RunStore, LlmSettingsStore } from '@some-useful-agents/core';
 import type { AgentDefinition, Agent } from '@some-useful-agents/core';
@@ -258,5 +260,53 @@ describe('worker LLM settings', () => {
     expect(res.exitCode).not.toBe(0);
     expect(res.error).toContain('Provider "local-x" is not configured');
     expect(res.providerFailures?.[0]?.category).toBe('binary_missing');
+  });
+});
+
+// A4: the worker enforces the same tool policy a local run does, loaded from
+// the data dir next to the shared db (dirname(dbPath)).
+describe('tool policy on the worker', () => {
+  it('blocks a model tool call the policy denies, and the model sees why', async () => {
+    let turn = 0;
+    let secondTurnToolMessage = '';
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        turn += 1;
+        if (turn === 2) {
+          const msgs = JSON.parse(body).messages as Array<{ role: string; content: string }>;
+          secondTurnToolMessage = msgs.find((m) => m.role === 'tool')?.content ?? '';
+        }
+        const message = turn === 1
+          ? { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'json-parse', arguments: '{"text":"[1]"}' } }] }
+          : { role: 'assistant', content: 'done' };
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message, finish_reason: turn === 1 ? 'tool_calls' : 'stop' }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const apiBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+      const settingsPath = join(TEST_DIR, 'llm-settings.json');
+      const store = new LlmSettingsStore(settingsPath);
+      store.addCustomProvider({ name: 'fake-local', kind: 'openai', apiBase, model: 'm' });
+      mkdirSync(join(TEST_DIR, '.sua'), { recursive: true });
+      writeFileSync(join(TEST_DIR, '.sua', 'policies.json'), JSON.stringify({
+        version: 1, rules: [{ tool: 'json-parse', effect: 'deny', reason: 'no parsing on the worker' }],
+      }));
+
+      const res = await runNodeActivity({
+        node: { id: 'ask', type: 'llm-prompt', prompt: 'parse', tools: ['json-parse'], timeout: 10 },
+        env: {}, agentId: 'demo', agentSource: 'local',
+        llmProviders: ['fake-local'], secretsPath: SECRETS_PATH, declaredSecrets: [],
+        llmSettingsPath: settingsPath, dbPath: join(TEST_DIR, 'runs.db'),
+      });
+      expect(res.exitCode).toBe(0);
+      expect(secondTurnToolMessage).toBe('Blocked by policy: no parsing on the worker');
+      expect(res.toolCalls?.[0]).toMatchObject({ toolId: 'json-parse', isError: true });
+    } finally {
+      server.close();
+    }
   });
 });

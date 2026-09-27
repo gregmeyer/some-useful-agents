@@ -31,7 +31,7 @@ import type { IntegrationsStore } from './integrations-store.js';
 import type { ToolOutput, BuiltinToolContext } from './tool-types.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { getGeneratedTool } from './integrations/generated-tools.js';
-import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, type PolicyDocument, type PolicyEvaluationRequest } from './policy-store.js';
+import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, policyResource, resolvePolicyDocument, type PolicyDocument, type PolicyEvaluationRequest } from './policy-store.js';
 import { buildToolOutput } from './output-framing.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
@@ -375,6 +375,11 @@ export async function executeAgentDag(
   // output nobody knows was un-steered. The run row is marked failed rather
   // than throwing past it, so the miss is visible in the dashboard and inbox
   // instead of only in a caller's stack trace.
+  // Tool policy for this run: an explicit document wins (tests, embedders);
+  // otherwise the project's `<dataRoot>/.sua/policies.json`, re-read only
+  // when it changes. Invalid file ⇒ fail closed (every tool call denied).
+  const policyDocument = deps.policyDocument ?? (deps.dataRoot ? resolvePolicyDocument(deps.dataRoot) : undefined);
+
   let behaviorPreamble: string | undefined;
   let appliedBehaviors: string[] = [];
   if (agent.behaviors && agent.behaviors.length > 0) {
@@ -983,56 +988,62 @@ export async function executeAgentDag(
           : undefined))
       : undefined;
 
-    // PR B (tool policies): single seam that every tool-execute path
-    // crosses. The stub always allows; PR C wires real allow/deny logic
-    // here without touching downstream dispatch. The throw is caught by
-    // the existing tool-dispatch catch (~30 lines below) and re-mapped
-    // to errorCategory='policy_denied' via the instanceof check.
-    if (toolId) {
-      const policyRequest: PolicyEvaluationRequest = {
-        toolId,
-        resource: extractPrimaryResource(node, toolId),
-        agentSource: agent.source,
-        agentId: agent.id,
-      };
-      const decision = evaluatePolicy(deps.policyDocument ?? DEFAULT_POLICY_DOCUMENT, policyRequest);
-      if (decision.effect === 'deny') {
-        throw new PolicyDeniedError(
-          decision.reason ?? `Policy denied tool "${toolId}" on resource "${policyRequest.resource}".`,
-          toolId,
-          policyRequest.resource,
-          decision.matchedRuleIndex,
-        );
-      }
-    }
-
     let result: SpawnResult;
     let structuredOutput: ToolOutput | undefined;
 
     try {
+      // Resolve {{upstream.X.field}}, {{vars.X}}, {{state}}, and {{inputs.X}}
+      // in string-typed tool inputs — for dispatch below AND for the policy
+      // check, which must judge the values the tool will really receive (a
+      // URL rule matched against a literal `{{inputs.URL}}` was a bypass).
+      const vars = toolId ? (deps.variablesStore ? deps.variablesStore.getAll() : {}) : {};
+      // Apply agent-level input defaults (and required-input validation) the
+      // same way shell/llm nodes do via node-env — so `{{inputs.X}}` in a
+      // tool node's toolInputs resolves declared defaults, not just the
+      // caller's --input pairs.
+      const resolvedInputs = toolId ? mergedInputs(agent, options.inputs ?? {}) : {};
+      const stateDir = deps.dataRoot ? stateDirFor(agent.id, deps.dataRoot) : undefined;
+      const resolveStr = (s: string): string =>
+        substituteInputs(
+          resolveStateTemplate(
+            resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
+            stateDir,
+          ),
+          resolvedInputs,
+        );
+
+      // Tool policy: one seam every tool node crosses, judged on resolved
+      // inputs. A deny throws PolicyDeniedError, which the catch below maps
+      // to errorCategory 'policy_denied' (not retried: it's a stable signal).
+      if (toolId) {
+        const policyArgs: Record<string, unknown> = {};
+        const rawPolicyArgs: Record<string, unknown> = {
+          ...(node.path !== undefined ? { path: node.path } : {}),
+          ...(node.command !== undefined ? { command: node.command } : {}),
+          ...resolveToolInputs(node, upstreamSnapshot),
+        };
+        for (const [k, v] of Object.entries(rawPolicyArgs)) policyArgs[k] = typeof v === 'string' ? resolveStr(v) : v;
+        const policyRequest: PolicyEvaluationRequest = {
+          toolId,
+          resource: policyResource(toolId, policyArgs, node.workingDirectory),
+          agentSource: agent.source,
+          agentId: agent.id,
+        };
+        const decision = evaluatePolicy(policyDocument ?? DEFAULT_POLICY_DOCUMENT, policyRequest);
+        if (decision.effect === 'deny') {
+          throw new PolicyDeniedError(
+            decision.reason ?? `Policy denied tool "${toolId}" on resource "${policyRequest.resource}".`,
+            toolId,
+            policyRequest.resource,
+            decision.matchedRuleIndex,
+          );
+        }
+      }
+
       if (builtinEntry) {
         // Built-in tool: call execute() directly, no child process.
         // Merge tool-level config (project defaults) with per-invocation
         // inputs so the user doesn't repeat common values every node.
-        // Resolve {{upstream.X.field}}, {{vars.X}}, {{state}}, and
-        // {{inputs.X}} in string-typed inputs so first-class node types
-        // like file-write can template path/content from upstream
-        // output, inputs, and the per-agent state directory.
-        const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
-        // Apply agent-level input defaults (and required-input validation) the
-        // same way shell/llm nodes do via node-env — so `{{inputs.X}}` in a
-        // tool node's toolInputs resolves declared defaults, not just the
-        // caller's --input pairs.
-        const resolvedInputs = mergedInputs(agent, options.inputs ?? {});
-        const stateDir = deps.dataRoot ? stateDirFor(agent.id, deps.dataRoot) : undefined;
-        const resolveStr = (s: string): string =>
-          substituteInputs(
-            resolveStateTemplate(
-              resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
-              stateDir,
-            ),
-            resolvedInputs,
-          );
         const rawInputs = {
           ...(builtinEntry.definition.config ?? {}),
           ...resolveToolInputs(node, upstreamSnapshot),
@@ -1128,7 +1139,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1142,7 +1153,7 @@ export async function executeAgentDag(
           model: node.model ?? agent.model,
         };
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument: deps.policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
         result = spawnResult;
         // Try to extract framed output from stdout even for legacy nodes,
@@ -1374,42 +1385,6 @@ export async function fireRunComplete(
  * passes an Agent constructed outside the schema, throw rather than
  * silently dropping nodes from the output.
  */
-/**
- * Extract the "primary resource" from a node for policy evaluation —
- * the URL for http tools, the path for file tools, the command for
- * shell-exec, etc. Returns empty string when no obvious resource is
- * present (templated values that haven't been resolved yet, MCP tools
- * with no canonical primary input). PR C's matcher treats `''` as
- * "unknown resource" and uses `'*'` resource patterns to match it.
- *
- * Templated values (`{{inputs.X}}`, `{{upstream.Y.z}}`) are returned
- * as-is — the eval seam runs *before* substitution so authors can write
- * deny rules against the literal template strings if they want.
- */
-function extractPrimaryResource(node: AgentNode, toolId: string): string {
-  // Tools whose primary resource is a URL.
-  if (toolId === 'http-get' || toolId === 'http-post') {
-    const ti = node.toolInputs ?? {};
-    const url = ti.url ?? ti.endpoint;
-    if (typeof url === 'string') return url;
-    return '';
-  }
-  // Tools whose primary resource is a filesystem path.
-  if (toolId === 'file-read' || toolId === 'file-write') {
-    const ti = node.toolInputs ?? {};
-    const path = (typeof ti.path === 'string' ? ti.path : undefined) ?? node.path;
-    if (typeof path === 'string') return path;
-    return '';
-  }
-  // shell-exec: the command itself is the resource. Same for un-tooled
-  // shell nodes that desugar to shell-exec.
-  if (toolId === 'shell-exec') {
-    return node.command ?? '';
-  }
-  // claude-code: prompt isn't really a resource; PR C may grow this to
-  // inspect node.allowedTools instead. For now, return empty.
-  return '';
-}
 
 export function topologicalSort(nodes: AgentNode[]): AgentNode[] {
   const byId = new Map<string, AgentNode>();
