@@ -1,9 +1,12 @@
 /**
  * Daemon supervisor: spawn/stop/status for `sua daemon`-managed services.
  *
- * Each service (schedule, dashboard, mcp) is invoked by re-executing the
- * current `sua` binary with the corresponding subcommand as a detached
- * subprocess. PIDs and rotated logs live under `<dataDir>/daemon/`.
+ * Each sua service (schedule, dashboard, mcp, worker) is invoked by
+ * re-executing the current `sua` binary with the corresponding subcommand as
+ * a detached subprocess. `model` is the exception: it runs an external
+ * command from config (a local model server such as llama-server), so a local
+ * provider starts and stops with everything else. PIDs and rotated logs live
+ * under `<dataDir>/daemon/`.
  */
 
 import {
@@ -19,9 +22,15 @@ import {
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 
-export type ServiceName = 'schedule' | 'dashboard' | 'mcp' | 'worker';
+export type ServiceName = 'schedule' | 'dashboard' | 'mcp' | 'worker' | 'model';
 
-export const ALL_SERVICES: readonly ServiceName[] = ['schedule', 'dashboard', 'mcp', 'worker'] as const;
+export const ALL_SERVICES: readonly ServiceName[] = ['schedule', 'dashboard', 'mcp', 'worker', 'model'] as const;
+
+/** An external command a service runs instead of re-executing `sua`. */
+export interface ServiceCommand {
+  command: string;
+  args?: string[];
+}
 
 export interface SpawnedService {
   name: ServiceName;
@@ -125,9 +134,14 @@ export interface SpawnOptions {
   logRotateBytes?: number;
   /** Per-service extra args. */
   extraArgs?: Partial<Record<ServiceName, string[]>>;
+  /**
+   * Per-service external command. Required for `model` (it has no sua
+   * subcommand); ignored for the others, which always re-exec `sua`.
+   */
+  commands?: Partial<Record<ServiceName, ServiceCommand>>;
 }
 
-const SERVICE_ARGV: Record<ServiceName, string[]> = {
+const SERVICE_ARGV: Record<Exclude<ServiceName, 'model'>, string[]> = {
   schedule: ['schedule', 'start'],
   // --replace: the daemon owns this port, so a leftover/orphaned dashboard
   // (e.g. one started by hand with `sua dashboard start` and never stopped)
@@ -159,22 +173,38 @@ export function spawnService(
   // Stale PID — clear it.
   if (existingPid !== null) clearPid(paths.pidPath(name));
 
+  const external = name === 'model' ? options.commands?.model : undefined;
+  if (name === 'model' && !external?.command) {
+    throw new Error(
+      'No command configured for the "model" service. Set `daemon.model.command` (and `args`) in sua.config.json.',
+    );
+  }
+
   const logPath = paths.logPath(name);
   rotateLog(logPath, options.logRotateBytes ?? DEFAULT_LOG_ROTATE_BYTES);
   // Open log in append mode so subsequent writes accumulate across restarts.
   const logFd = openSync(logPath, 'a');
 
-  const args = [options.suaBin, ...SERVICE_ARGV[name], ...(options.extraArgs?.[name] ?? [])];
-  const child = spawn(process.execPath, args, {
+  const [bin, args] = external
+    ? [external.command, [...(external.args ?? []), ...(options.extraArgs?.[name] ?? [])]]
+    : [process.execPath, [options.suaBin, ...SERVICE_ARGV[name as Exclude<ServiceName, 'model'>], ...(options.extraArgs?.[name] ?? [])]];
+  const child = spawn(bin, args, {
     cwd: options.cwd,
     env: options.env,
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
+  // A missing external binary surfaces as an async 'error' event (ENOENT);
+  // unhandled, it would crash the CLI. The missing pid below reports it.
+  child.on('error', () => {});
   child.unref();
 
   if (typeof child.pid !== 'number') {
-    throw new Error(`Failed to spawn service "${name}" — no PID assigned.`);
+    throw new Error(
+      external
+        ? `Failed to spawn service "${name}" — could not run \`${external.command}\`. Is it installed and on PATH?`
+        : `Failed to spawn service "${name}" — no PID assigned.`,
+    );
   }
   writePid(paths.pidPath(name), child.pid);
   return { name, pid: child.pid, logPath };

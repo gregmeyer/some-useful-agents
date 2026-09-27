@@ -116,6 +116,8 @@ export interface StartDashboardOptions {
   retentionDays?: number;
   /** Temporal connection config, shown read-only on /settings/temporal. */
   temporal?: { address: string; namespace: string; taskQueue: string };
+  /** Local model server command (`daemon.model`), controlled from /settings/llm. */
+  modelService?: { command: string; args?: string[]; healthUrl?: string };
   /**
    * Public base URL the dashboard is reachable at. Used to build clickable
    * run links inside notify handler payloads (Slack, etc). Falls back to
@@ -664,6 +666,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     provider,
     workflowSpawnNode,
     temporal: opts.temporal,
+    modelService: opts.modelService,
     onRunFailure,
     onRunComplete,
     onRunCompleteQuiet,

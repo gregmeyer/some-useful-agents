@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from './html.js';
-import { renderSettingsLlm } from './settings-llm.js';
+import { renderSettingsLlm, renderModelServer } from './settings-llm.js';
 import { LLM_PROVIDERS, type LlmSettings } from '@some-useful-agents/core';
 
 const base = {
@@ -90,5 +90,46 @@ describe('renderSettingsLlm — enable/disable switch', () => {
     const out = render(renderSettingsLlm({ ...base, settings }));
     // The lone enabled provider cannot be disabled → button carries `disabled`.
     expect(out).toMatch(/Keep at least one provider enabled/);
+  });
+});
+
+describe('local model server card', () => {
+  const status = (state: 'running' | 'stopped') => ({
+    name: 'model' as const,
+    state,
+    pid: state === 'running' ? 56180 : undefined,
+    logPath: '/data/daemon/logs/model.log',
+  });
+
+  it('explains where to set it up when no server is configured', () => {
+    const out = render(renderModelServer({ configured: false }));
+    expect(out).toContain('Local model server');
+    expect(out).toContain('daemon.model');
+    expect(out).not.toContain('/settings/llm/model/start');
+  });
+
+  it('offers Start when stopped, showing the command it will run', () => {
+    const out = render(renderModelServer({
+      configured: true,
+      command: 'llama-server -hf unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL --port 8181',
+      status: status('stopped'),
+    }));
+    expect(out).toContain('action="/settings/llm/model/start"');
+    expect(out).toContain('llama-server -hf unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL --port 8181');
+    expect(out).not.toContain('/settings/llm/model/stop');
+  });
+
+  it('offers a confirmed Stop when running, with pid and readiness', () => {
+    const out = render(renderModelServer({ configured: true, command: 'llama-server', status: status('running'), health: 'loading' }));
+    expect(out).toContain('action="/settings/llm/model/stop"');
+    expect(out).toContain('data-confirm=');
+    expect(out).toContain('PID 56180');
+    expect(out).toContain('loading the model');
+  });
+
+  it('keeps internal words out of the copy', () => {
+    const out = render(renderModelServer({ configured: true, command: 'llama-server', status: status('running'), health: 'ready' }));
+    // The log path is a real file path (…/daemon/logs/…); only the prose is checked.
+    expect(out.replace('/data/daemon/logs/model.log', '')).not.toMatch(/daemon|waterfall|fallback chain/i);
   });
 });

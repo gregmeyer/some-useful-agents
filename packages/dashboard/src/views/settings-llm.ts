@@ -1,5 +1,15 @@
 import { html, type SafeHtml } from './html.js';
-import type { LlmProvider, LlmSettings } from '@some-useful-agents/core';
+import type { LlmProvider, LlmSettings, ServiceStatus } from '@some-useful-agents/core';
+
+/** State of the local model server (the `model` daemon service). */
+export interface ModelServerView {
+  configured: boolean;
+  /** Full command line, shown so the operator can see what runs. */
+  command?: string;
+  status?: ServiceStatus;
+  /** Only probed while running and a healthUrl is configured. */
+  health?: 'ready' | 'loading' | 'not-answering';
+}
 
 export interface SettingsLlmArgs {
   /** Current persisted settings, or undefined when the store isn't wired. */
@@ -12,6 +22,56 @@ export interface SettingsLlmArgs {
   probe?: Record<string, { ok: boolean; message: string }>;
   /** Pretty timestamp helper (last fallback "3 minutes ago"). */
   formatAge: (isoOrMs: number | string) => string;
+  /** Local model server card. Omitted in tests / when not wired. */
+  modelServer?: ModelServerView;
+}
+
+const HEALTH_LABEL: Record<NonNullable<ModelServerView['health']>, { text: string; badge: string }> = {
+  ready: { text: 'ready', badge: 'badge--ok' },
+  loading: { text: 'loading the model', badge: 'badge--warn' },
+  'not-answering': { text: 'not answering yet', badge: 'badge--warn' },
+};
+
+export function renderModelServer(m: ModelServerView | undefined): SafeHtml {
+  if (!m) return html``;
+  if (!m.configured) {
+    return html`
+      <section class="settings-section">
+        <h2 class="mt-0">Local model server</h2>
+        <p class="dim">
+          Start and stop the server your local model runs on, from here. No server is set up yet:
+          today that's done in <code>sua.config.json</code> under <code>daemon.model</code>
+          (the command that starts it, e.g. <code>llama-server</code>). See the LLM providers doc.
+        </p>
+      </section>`;
+  }
+  const running = m.status?.state === 'running';
+  const health = running && m.health ? HEALTH_LABEL[m.health] : undefined;
+  return html`
+    <section class="settings-section">
+      <h2 class="mt-0">Local model server</h2>
+      <p class="dim">
+        Runs your local model in the background so agents can use it. It keeps running after you
+        close this page; stop it to free the memory, and start it again any time.
+      </p>
+      <p>
+        <span class="badge ${running ? 'badge--ok' : 'badge--muted'}">${running ? 'running' : 'stopped'}</span>
+        ${running && m.status?.pid ? html`<span class="dim mono">PID ${String(m.status.pid)}</span>` : html``}
+        ${health ? html`<span class="badge ${health.badge}">${health.text}</span>` : html``}
+      </p>
+      <p class="dim mono" style="word-break: break-all;">${m.command ?? ''}</p>
+      <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
+        ${running
+          ? html`<form action="/settings/llm/model/stop" method="post" style="margin: 0;"
+              data-confirm="Stop the model server? Agents that use it will switch to your other providers until you start it again.">
+              <button type="submit" class="btn btn--warn">Stop model server</button>
+            </form>`
+          : html`<form action="/settings/llm/model/start" method="post" style="margin: 0;">
+              <button type="submit" class="btn btn--primary">Start model server</button>
+            </form>`}
+      </div>
+      ${m.status ? html`<p class="dim" style="margin-top: var(--space-2);">Output goes to <code>${m.status.logPath}</code>.</p>` : html``}
+    </section>`;
 }
 
 // Keyed by string (not LlmProvider) because the waterfall can now hold custom
@@ -243,5 +303,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     </section>
 
     ${customBlock}
+
+    ${renderModelServer(args.modelServer)}
   `;
 }

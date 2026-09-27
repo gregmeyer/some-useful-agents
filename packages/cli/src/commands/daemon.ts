@@ -20,7 +20,7 @@ import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPor
 import * as ui from '../ui.js';
 
 export const daemonCommand = new Command('daemon')
-  .description('Run sua services (schedule, dashboard, mcp) as detached background processes');
+  .description('Run sua services (schedule, dashboard, mcp, worker, model) as detached background processes');
 
 daemonCommand
   .command('start')
@@ -44,6 +44,7 @@ daemonCommand
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
           extraArgs: portArgsForServices(config),
+          commands: commandsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -156,6 +157,7 @@ daemonCommand
           env: process.env,
           logRotateBytes: getDaemonLogRotateBytes(config),
           extraArgs: portArgsForServices(config),
+          commands: commandsForServices(config),
         });
         spawned.push(result);
       } catch (err) {
@@ -185,7 +187,7 @@ daemonCommand
 daemonCommand
   .command('status')
   .description('Show pid + heartbeat health for each managed service')
-  .action(() => {
+  .action(async () => {
     const config = loadConfig();
     const dataDir = resolve(config.dataDir);
 
@@ -213,6 +215,16 @@ daemonCommand
           detail = chalk.yellow('heartbeat stale');
         } else {
           detail = chalk.yellow('no heartbeat yet');
+        }
+      }
+
+      if (name === 'model') {
+        if (!config.daemon?.model?.command) {
+          detail = chalk.dim('not configured');
+        } else if (status.state === 'running' && config.daemon.model.healthUrl) {
+          detail = await probeModelHealth(config.daemon.model.healthUrl);
+        } else {
+          detail = chalk.dim(config.daemon.model.command.split('/').pop() ?? '');
         }
       }
 
@@ -266,6 +278,28 @@ function countWorkerProcesses(): number {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────
+
+/** External commands for services that don't re-exec sua (the `model` service). */
+function commandsForServices(config: SuaConfig): Partial<Record<ServiceName, { command: string; args?: string[] }>> {
+  const model = config.daemon?.model;
+  return model?.command ? { model: { command: model.command, args: model.args } } : {};
+}
+
+/**
+ * One-line health for the model server. llama-server answers /health with
+ * 200 when ready and 503 while it's still loading (or downloading) the model,
+ * which can take minutes on first start — worth telling apart from "down".
+ */
+async function probeModelHealth(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    if (res.ok) return chalk.green('healthy');
+    if (res.status === 503) return chalk.yellow('loading model');
+    return chalk.yellow(`health ${res.status}`);
+  } catch {
+    return chalk.yellow('not answering yet');
+  }
+}
 
 /**
  * Per-service `--port <n>` extras passed through `spawnService` so the
@@ -338,7 +372,7 @@ function hyperlink(url: string, text: string): string {
 daemonCommand
   .command('logs')
   .description('Print the tail of a service log')
-  .argument('<service>', 'schedule | dashboard | mcp')
+  .argument('<service>', 'schedule | dashboard | mcp | worker | model')
   .option('-n, --lines <count>', 'Number of trailing lines to show', '50')
   .action((service: string, opts: { lines: string }) => {
     if (!ALL_SERVICES.includes(service as ServiceName)) {
