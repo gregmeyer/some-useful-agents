@@ -89,3 +89,11 @@ describe('codex failure through the waterfall', () => {
     expect(codexFailure.error).not.toContain('rmcp');
   });
 });
+
+describe('auth_required — claude CLI wording', () => {
+  it('classifies claude\'s "Not logged in" as auth_required (fallback-worthy), not other', () => {
+    const category = classifyLlmFailure({ result: 'Not logged in · Please run /login', exitCode: 1, error: 'Process exited with code 1' });
+    expect(category).toBe('auth_required');
+    expect(shouldFallback(category)).toBe(true);
+  });
+});

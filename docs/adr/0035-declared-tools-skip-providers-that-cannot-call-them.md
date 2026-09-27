@@ -1,6 +1,6 @@
 # ADR-0035: A node's declared tools skip providers that can't call them
 
-- Status: accepted
+- Status: Superseded by ADR-0036 (the claude native-tool mapping; the skip rule stands)
 - Date: 2026-09-26
 - Deciders: Greg Meyer
 

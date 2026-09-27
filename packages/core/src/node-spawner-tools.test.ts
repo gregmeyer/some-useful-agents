@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claudeDeniedTools, classifyLlmFailure, shouldFallback, spawnNodeReal } from './node-spawner.js';
 import type { AgentNode } from './agent-v2-types.js';
 
-// Declared `tools:` on CLI providers. Regression for starter-watch: its
-// `fetch` node declared tools: [web-fetch], ran on claude without any web
+// Declared `tools:` on CLI providers (ADR-0036). Regression for starter-watch:
+// its `fetch` node declared tools: [web-fetch], ran on claude without any web
 // tool, and "completed" with "WebFetch ... permission has not been granted".
+// Claude now gets the node's sua tools from a per-attempt MCP endpoint.
 
 const opts = (providers: string[]) => ({
   agentId: 'starter-watch',
@@ -22,61 +25,100 @@ const fetchNode: AgentNode = {
   tools: ['web-fetch'],
 };
 
+// Where the MCP client lives, so the fake claude below can be a real client.
+const MCP_CLIENT = pathToFileURL(
+  createRequire(import.meta.url).resolve('@modelcontextprotocol/client').replace(/index\.cjs$/, 'index.mjs'),
+).href;
+
 describe('declared tools on CLI providers', () => {
   let binDir: string;
+  const env = () => ({ PATH: `${binDir}:${process.env.PATH ?? ''}` });
 
   beforeAll(() => {
-    // Fake claude: echoes its argv into the result, and reports one refused
-    // tool call the way the real CLI does (exit 0, subtype success).
+    // Fake claude, as a real MCP client: reads the --mcp-config it was given,
+    // connects to sua's endpoint with the bearer token, calls json-parse, and
+    // reports like the real CLI (including its own copy of the MCP tool_use,
+    // which sua must not double-count) plus one refused tool call.
     binDir = mkdtempSync(join(tmpdir(), 'sua-fake-claude-'));
-    const script = [
-      '#!/bin/sh',
-      'cat >/dev/null',
-      'printf \'{"type":"result","subtype":"success","is_error":false,"result":"ARGS: %s","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{}}]}\\n\' "$*"',
-    ].join('\n');
+    const script = `#!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+process.stdin.resume(); process.stdin.on('data', () => {});
+const i = args.indexOf('--mcp-config');
+let toolText = '(no tools)';
+if (i >= 0) {
+  const cfg = JSON.parse(readFileSync(args[i + 1], 'utf8')).mcpServers.sua;
+  const { Client, StreamableHTTPClientTransport } = await import(${JSON.stringify(MCP_CLIENT)});
+  const client = new Client({ name: 'fake-claude', version: '0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+  const listed = (await client.listTools()).tools.map((t) => t.name);
+  const res = await client.callTool({ name: 'json-parse', arguments: { text: '[1,2]' } });
+  toolText = 'listed=' + listed.join(',') + ' got=' + res.content[0].text;
+  await client.close();
+}
+const emit = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'm1', name: 'mcp__sua__json-parse', input: { text: '[1,2]' } }] } });
+emit({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'm1', content: '[1,2]' }] } });
+emit({ type: 'result', subtype: 'success', is_error: false, result: 'ARGS: ' + args.join(' ') + ' | ' + toolText,
+  permission_denials: [{ tool_name: 'Bash', tool_use_id: 't1', tool_input: {} }] });
+`;
     writeFileSync(join(binDir, 'claude'), script);
     chmodSync(join(binDir, 'claude'), 0o755);
   });
 
   afterAll(() => rmSync(binDir, { recursive: true, force: true }));
 
-  it('skips providers with no equivalent instead of running tool-less, and says what would fix it', async () => {
+  it('skips CLIs that cannot load sua tools instead of running tool-less, and says what would fix it', async () => {
     const res = await spawnNodeReal(fetchNode, {}, opts(['codex', 'apple-foundation-models']));
     expect(res.exitCode).not.toBe(0);
     expect(res.category).toBe('tool_unavailable');
     expect(res.attemptedProviders).toEqual(['codex', 'apple-foundation-models']);
     expect(res.providerFailures?.map((f) => f.category)).toEqual(['tool_unavailable', 'tool_unavailable']);
     expect(res.error).toContain("No enabled provider can use this node's tools (web-fetch)");
-    expect(res.error).toContain('OpenAI-compatible');
+    expect(res.error).toContain('Enable Claude or an OpenAI-compatible provider');
   });
 
-  it('falls through a skipped provider to claude, which gets WebFetch in --allowedTools', async () => {
-    const env = { PATH: `${binDir}:${process.env.PATH ?? ''}` };
-    const res = await spawnNodeReal(fetchNode, env, opts(['codex', 'claude']));
+  it('serves the node\'s sua tools to claude over MCP: it lists and calls them for real', async () => {
+    const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
+    const res = await spawnNodeReal(node, env(), opts(['codex', 'claude']));
     expect(res.exitCode).toBe(0);
     expect(res.usedLLMProvider).toBe('claude');
-    expect(res.attemptedProviders).toEqual(['codex', 'claude']);
-    expect(res.result).toContain('--allowedTools WebFetch');
+    expect(res.result).toContain('listed=json-parse');
+    expect(res.result).toMatch(/got=\[\s*1,\s*2\s*\]/);
+    expect(res.result).toContain('--strict-mcp-config');
+    expect(res.result).toContain('--allowedTools mcp__sua');
   });
 
-  it('keeps node allowedTools alongside the mapped ones', async () => {
-    const env = { PATH: `${binDir}:${process.env.PATH ?? ''}` };
-    const res = await spawnNodeReal({ ...fetchNode, allowedTools: ['Read'] }, env, opts(['claude']));
-    expect(res.result).toContain('--allowedTools Read,WebFetch');
+  it('records the call once, as the sua tool — not again as claude\'s mcp__sua__ copy', async () => {
+    const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
+    const res = await spawnNodeReal(node, env(), opts(['claude']));
+    expect(res.toolCalls).toEqual([expect.objectContaining({ provider: 'claude', source: 'sua', toolId: 'json-parse', isError: false })]);
+  });
+
+  it('removes the config file (it holds the bearer token) once the attempt ends', async () => {
+    const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'x', tools: ['json-parse'] };
+    const res = await spawnNodeReal(node, env(), opts(['claude']));
+    const configPath = /--mcp-config (\S+)/.exec(res.result)?.[1];
+    expect(configPath).toBeTruthy();
+    expect(existsSync(configPath!)).toBe(false);
+  });
+
+  it('keeps node allowedTools (claude\'s own tools) alongside sua\'s endpoint', async () => {
+    const res = await spawnNodeReal({ id: 'p', type: 'llm-prompt', prompt: 'x', tools: ['json-parse'], allowedTools: ['Read'] }, env(), opts(['claude']));
+    expect(res.result).toContain('--allowedTools Read,mcp__sua');
   });
 
   it('surfaces a refused tool call as a warning on an otherwise successful node', async () => {
-    const env = { PATH: `${binDir}:${process.env.PATH ?? ''}` };
-    const res = await spawnNodeReal(fetchNode, env, opts(['claude']));
+    const res = await spawnNodeReal({ id: 'p', type: 'llm-prompt', prompt: 'x', tools: ['json-parse'] }, env(), opts(['claude']));
     expect(res.exitCode).toBe(0);
     expect(res.error).toContain('claude was blocked from using Bash');
   });
 
-  it('leaves nodes without tools: alone (no skip, no --allowedTools)', async () => {
-    const env = { PATH: `${binDir}:${process.env.PATH ?? ''}` };
-    const res = await spawnNodeReal({ id: 'plain', type: 'llm-prompt', prompt: 'hi' }, env, opts(['claude']));
+  it('leaves nodes without tools: alone (no endpoint, no --allowedTools)', async () => {
+    const res = await spawnNodeReal({ id: 'plain', type: 'llm-prompt', prompt: 'hi' }, env(), opts(['claude']));
     expect(res.exitCode).toBe(0);
     expect(res.result).not.toContain('--allowedTools');
+    expect(res.result).not.toContain('--mcp-config');
   });
 });
 
