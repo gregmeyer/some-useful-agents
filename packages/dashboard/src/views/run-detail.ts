@@ -1,4 +1,4 @@
-import type { Agent, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run } from '@some-useful-agents/core';
+import type { Agent, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
 import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -28,6 +28,8 @@ export interface RunDetailOptions {
    * only for runs that executed on Temporal (workflow id `sua-run-<runId>`).
    */
   temporalLink?: string;
+  /** Recorded tool calls by node id (the `tool_calls` table). Older runs have none. */
+  toolCalls?: Map<string, ToolCallRecord[]>;
   /**
    * Evidence-backed record of what RESULTED from this run, when the agent
    * declared an `outcome:` block. Rendered above the raw result: "did this
@@ -39,7 +41,7 @@ export interface RunDetailOptions {
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -152,7 +154,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   const nodeCards = isDagRun ? html`
     <section>
       <h2>Per-node execution</h2>
-      ${renderNodeCards(nodeExecutions!)}
+      ${renderNodeCards(nodeExecutions!, undefined, undefined, toolCalls)}
     </section>
   ` : html``;
 
@@ -286,7 +288,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
               <option value="skipped">Skipped</option>
             </select>
           </div>
-          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay)}</div>
+          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls)}</div>
         </section>
       ` : html`
         ${outcome ? html`
@@ -479,13 +481,52 @@ function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
 }
 
 /**
+ * The recorded trace for a node: one expandable row per tool call, whichever
+ * provider made it. The summary line is enough to scan (tool, where it came
+ * from, arguments, outcome, time); opening it shows the full captured args and
+ * result preview. `native` marks the provider's own tool (e.g. claude's
+ * WebFetch) as opposed to a sua tool.
+ */
+export function renderRecordedToolCalls(calls: ToolCallRecord[]): SafeHtml {
+  const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n)}…` : t);
+  const rows = calls.map((c) => {
+    const cls = c.isError ? 'run-tool-call run-tool-call--err' : 'run-tool-call';
+    const timing = c.durationMs !== undefined
+      ? html` <span class="dim mono">${c.durationMs < 1000 ? `${c.durationMs}ms` : `${(c.durationMs / 1000).toFixed(1)}s`}</span>`
+      : html``;
+    return html`
+      <li class="${cls}">
+        <details class="run-tool-call__details">
+          <summary>
+            <span class="run-tool-call__arrow">${c.isError ? '✗' : '→'}</span>
+            <span class="mono">${c.toolId}</span>
+            ${c.source === 'native' ? html`<span class="badge badge--muted" title="The provider's own tool, not a sua tool">native</span>` : html``}
+            <span class="dim">${clip(c.argsJson, 120)}</span>${timing}
+          </summary>
+          <div class="run-tool-call__body">
+            <div class="dim">arguments</div>
+            <pre class="mono">${c.argsJson}</pre>
+            <div class="dim">${c.isError ? 'error' : 'result'}${c.resultChars > c.resultPreview.length ? ` (first part of ${c.resultChars} chars)` : ''}</div>
+            <pre class="mono">${c.resultPreview}</pre>
+          </div>
+        </details>
+      </li>`;
+  });
+  const errors = calls.filter((c) => c.isError).length;
+  return html`
+    <h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">tool calls (${String(calls.length)}${errors ? `, ${errors} failed` : ''})</h4>
+    <ul class="run-tool-calls">${rows as unknown as SafeHtml[]}</ul>`;
+}
+
+/**
  * Render the model-driven tool calls from a node's progressJson as a compact
  * timeline: each `→` is a call the model made, each `←` the tool's result (or
  * error). This is what distinguishes a real tool round-trip from a plain
  * completion — if the model ignored the exposed tools, this block is absent and
  * the node just shows stdout, making the "no tool calls" case obvious at a glance.
  */
-function renderToolActivity(e: NodeExecutionRecord): SafeHtml | null {
+function renderToolActivity(e: NodeExecutionRecord, calls?: ToolCallRecord[]): SafeHtml | null {
+  if (calls && calls.length > 0) return renderRecordedToolCalls(calls);
   if (!e.progressJson) return null;
   let events: Array<{ type: string; toolStatus?: string; toolName?: string; preview?: string; isError?: boolean }>;
   try { events = JSON.parse(e.progressJson); } catch { return null; }
@@ -519,7 +560,12 @@ function renderDuration(startedAt: string, completedAt?: string): SafeHtml {
  * open by default so the user doesn't have to hunt for failures; others
  * are collapsed to reduce scroll.
  */
-function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay?: boolean): SafeHtml {
+function renderNodeCards(
+  execs: NodeExecutionRecord[],
+  runId?: string,
+  canReplay?: boolean,
+  toolCalls?: Map<string, ToolCallRecord[]>,
+): SafeHtml {
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'completed' || e.status === 'failed' || e.error !== undefined;
     const openAttr = shouldOpen ? unsafeHtml(' open') : unsafeHtml('');
@@ -588,7 +634,7 @@ function renderNodeCards(execs: NodeExecutionRecord[], runId?: string, canReplay
     if (varsPanel) bodyBlocks.push(varsPanel);
 
     if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
-    const toolActivity = renderToolActivity(e);
+    const toolActivity = renderToolActivity(e, toolCalls?.get(e.nodeId));
     if (toolActivity) bodyBlocks.push(toolActivity);
     if (e.result && e.result.length > 0) {
       bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">stdout</h4>`);

@@ -124,6 +124,28 @@ describe('resolveUpstreamTemplate', () => {
   });
 });
 
+describe('executeAgentDag — tool-call trace', () => {
+  it('persists the tool calls a node returns, for completed and failed nodes alike', async () => {
+    const call = (toolId: string, isError = false) => ({ source: 'sua' as const, toolId, argsJson: '{}', resultPreview: 'r', resultChars: 1, isError, seq: 0 });
+    const agent = makeAgent({ nodes: [
+      { id: 'fetch', type: 'llm-prompt', prompt: 'x' },
+      { id: 'judge', type: 'llm-prompt', prompt: 'y', dependsOn: ['fetch'] },
+    ] });
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli' }, {
+      runStore,
+      // Stands in for spawnNodeReal locally or a Temporal worker's activity
+      // result: either way the trace arrives on the SpawnResult.
+      spawnNode: async (node) => node.id === 'fetch'
+        ? { result: 'page', exitCode: 0, toolCalls: [call('web-fetch')] }
+        : { result: '', exitCode: 1, error: 'bad', toolCalls: [call('json-parse', true)] },
+    });
+    expect(run.status).toBe('failed');
+    const trace = runStore.listToolCalls(run.id);
+    expect(trace.get('fetch')?.map((c) => c.toolId)).toEqual(['web-fetch']);
+    expect(trace.get('judge')?.map((c) => [c.toolId, c.isError])).toEqual([['json-parse', true]]);
+  });
+});
+
 describe('executeAgentDag — single node', () => {
   it('executes a single-node shell agent and writes one node_execution row', async () => {
     const agent = makeAgent();

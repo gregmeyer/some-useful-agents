@@ -80,3 +80,29 @@ describe('renderRunDetail — LLM waterfall chip', () => {
     expect(html).not.toContain('ran on');
   });
 });
+
+describe('run detail — recorded tool calls', () => {
+  const calls = new Map([['triage', [
+    { seq: 0, provider: 'claude', source: 'native' as const, toolId: 'WebFetch', argsJson: '{"url":"https://example.com"}', resultPreview: 'Example Domain', resultChars: 14, isError: false },
+    { seq: 1, provider: 'local-qwen-8b', source: 'sua' as const, toolId: 'json-parse', argsJson: '{"text":"<b>"}', resultPreview: 'Invalid JSON', resultChars: 12, isError: true, durationMs: 1500 },
+  ]]]);
+
+  it('lists every recorded call with source, args, result and timing', () => {
+    const html = renderRunDetail({ run: baseRun, agent, nodeExecutions: [nodeExec({})], toolCalls: calls });
+    expect(html).toContain('tool calls (2, 1 failed)');
+    expect(html).toContain('WebFetch');
+    expect(html).toContain('>native<');
+    expect(html).toContain('Example Domain');
+    expect(html).toContain('1.5s');
+    // escaped, not injected
+    expect(html).toContain('&lt;b&gt;');
+    expect(html).not.toContain('"<b>"');
+  });
+
+  it('falls back to progress events for runs recorded before the trace existed', () => {
+    const progressJson = JSON.stringify([{ type: 'tool_use', toolStatus: 'call', toolName: 'web_fetch', preview: '{}' }]);
+    const html = renderRunDetail({ run: baseRun, agent, nodeExecutions: [nodeExec({ progressJson })] });
+    expect(html).toContain('tool calls (1)');
+    expect(html).toContain('web_fetch');
+  });
+});

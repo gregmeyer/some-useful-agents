@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { ToolCallRecord } from './tool-call-record.js';
 import { openStoreDb } from './sqlite-open.js';
 
 type SqlValue = string | number | null | bigint | Uint8Array;
@@ -278,6 +279,71 @@ export class RunStore {
     if (!execCols.has('usedworkflowprovider')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
     }
+
+    // Every tool call a model made during a node (see tool-call-record.ts).
+    // Child of node_executions by (runId, nodeId). RunStore does not enable
+    // foreign_keys, so retention deletes these explicitly (sweepExpired).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tool_calls (
+        runId TEXT NOT NULL,
+        nodeId TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        provider TEXT,
+        source TEXT NOT NULL,
+        toolId TEXT NOT NULL,
+        argsJson TEXT NOT NULL,
+        resultPreview TEXT NOT NULL,
+        resultChars INTEGER NOT NULL,
+        isError INTEGER NOT NULL,
+        startedAt TEXT,
+        durationMs INTEGER,
+        PRIMARY KEY (runId, nodeId, seq)
+      )
+    `);
+  }
+
+  /**
+   * Replace a node's recorded tool calls. Replace, not append: a resumed or
+   * replayed node re-executes, and only its latest execution's calls are true.
+   */
+  replaceToolCalls(runId: string, nodeId: string, calls: readonly ToolCallRecord[]): void {
+    this.db.prepare(`DELETE FROM tool_calls WHERE runId = ? AND nodeId = ?`).run(runId, nodeId);
+    const insert = this.db.prepare(`
+      INSERT INTO tool_calls (runId, nodeId, seq, provider, source, toolId, argsJson, resultPreview, resultChars, isError, startedAt, durationMs)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    calls.forEach((c, i) => {
+      insert.run(
+        runId, nodeId, c.seq ?? i, c.provider ?? null, c.source, c.toolId, c.argsJson, c.resultPreview,
+        c.resultChars, c.isError ? 1 : 0, c.startedAt ?? null, c.durationMs ?? null,
+      );
+    });
+  }
+
+  /** A run's tool calls, grouped by node id, each list in call order. */
+  listToolCalls(runId: string): Map<string, ToolCallRecord[]> {
+    const rows = this.db.prepare(
+      `SELECT * FROM tool_calls WHERE runId = ? ORDER BY nodeId, seq`,
+    ).all(runId) as Array<Record<string, unknown>>;
+    const byNode = new Map<string, ToolCallRecord[]>();
+    for (const r of rows) {
+      const nodeId = String(r.nodeId);
+      const list = byNode.get(nodeId) ?? [];
+      list.push({
+        seq: Number(r.seq),
+        provider: (r.provider as string | null) ?? undefined,
+        source: r.source === 'native' ? 'native' : 'sua',
+        toolId: String(r.toolId),
+        argsJson: String(r.argsJson),
+        resultPreview: String(r.resultPreview),
+        resultChars: Number(r.resultChars),
+        isError: Number(r.isError) === 1,
+        startedAt: (r.startedAt as string | null) ?? undefined,
+        durationMs: r.durationMs == null ? undefined : Number(r.durationMs),
+      });
+      byNode.set(nodeId, list);
+    }
+    return byNode;
   }
 
   /**
@@ -286,10 +352,16 @@ export class RunStore {
    */
   sweepExpired(retentionDays: number): number {
     if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+    const cutoff = `-${Math.floor(retentionDays)} days`;
+    // Children first, explicitly: foreign_keys is off on this connection, so
+    // no cascade would clear them.
+    this.db.prepare(
+      `DELETE FROM tool_calls WHERE runId IN (SELECT id FROM runs WHERE startedAt < datetime('now', ?))`,
+    ).run(cutoff);
     const stmt = this.db.prepare(
       `DELETE FROM runs WHERE startedAt < datetime('now', ?)`,
     );
-    const result = stmt.run(`-${Math.floor(retentionDays)} days`);
+    const result = stmt.run(cutoff);
     return Number(result.changes ?? 0);
   }
 
