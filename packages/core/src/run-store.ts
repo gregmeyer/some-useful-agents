@@ -517,8 +517,16 @@ export class RunStore {
     runId: string,
     nodeId: string,
     updates: Partial<Pick<NodeExecutionRecord,
-      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'childPid' | 'childStartedAtMs' | 'usedLLMProvider' | 'attemptedProviders' | 'providerFailures' | 'usedWorkflowProvider'
-    >>,
+      'status' | 'errorCategory' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'inputsJson' | 'upstreamInputsJson' | 'outputsJson' | 'progressJson' | 'stateBytesBefore' | 'stateBytesAfter' | 'usedLLMProvider' | 'attemptedProviders' | 'providerFailures' | 'usedWorkflowProvider'
+    >> & {
+      /**
+       * `null` clears the column. An exited child's pid is not a kill handle,
+       * it is a false liveness signal for the stuck-run watchdog — see
+       * `SpawnProcessOptions.onChildExit`.
+       */
+      childPid?: number | null;
+      childStartedAtMs?: number | null;
+    },
   ): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
