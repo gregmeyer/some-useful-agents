@@ -145,7 +145,8 @@ const PATTERNS = `
 3. Conditional Router: shell(classify) → conditional(check predicate) → shell(path-a, onlyIf: matched) + shell(path-b, onlyIf: !matched) → branch(merge).
 4. Loop + Invoke: shell(read-source) → loop(over: "items", agentId: "processor-agent") → shell(compile-results).
 5. Self-Correcting: claude-code(generate) → shell(validate) → claude-code(fix, onlyIf: validation failed).
-6. Scheduled Digest: shell(gather-data) → claude-code(summarize). schedule: "0 8 * * *". Use story or text-headline template.`.trim();
+6. Scheduled Digest: shell(gather-data) → claude-code(summarize). schedule: "0 8 * * *". Use story or text-headline template.
+7. Goal Agent: ONE goal node (goal + tools + budget) for open-ended asks (find / compare / research) whose steps depend on what's found. tools: web tools + existing agents as agent:<id>. Declare outputs:. Not for fixed pipelines (1–6).`.trim();
 
 const WIDGET_GUIDANCE = `
 ## WIDGET & SIGNAL DESIGN
@@ -210,7 +211,7 @@ function buildAgentsSection(agents: Agent[]): string {
     .slice(0, 30); // cap to keep catalog lean
 
   if (eligible.length === 0) {
-    return '## AVAILABLE AGENTS (for agent-invoke / loop nodes)\nNo agents available yet.';
+    return '## AVAILABLE AGENTS (for agent-invoke / loop nodes, or as agent:<id> tools)\nNo agents available yet.';
   }
 
   const lines = eligible.map((a) => {
@@ -236,10 +237,10 @@ function buildAgentsSection(agents: Agent[]): string {
     return parts.join('\n');
   });
 
-  return `## AVAILABLE AGENTS (for agent-invoke / loop nodes)
+  return `## AVAILABLE AGENTS (for agent-invoke / loop nodes, or as agent:<id> tools)
 Each agent's outputs are what its final-node JSON produces — use these field names when referencing the result via {{upstream.<id>.<field>}} or "$upstream.<id>.<field>" in inputMapping. Agents tagged "(draft)" are user work-in-progress — prefer reusing one over creating a near-duplicate with a fresh id.
 
-ANY AGENT HERE IS LOOP-INVOKABLE. To run agent X per item in a list, use a \`loop\` node with \`agentId: X\` and \`inputMapping\` that references per-iteration fields with \`$item.<field>\`. To call agent X once as a sub-workflow, use \`agent-invoke\` with the same \`agentId\` + \`inputMapping\`. When a goal is "do <existing-agent's job> across <list>", DO NOT re-implement the existing agent — wrap it in a loop.
+ANY AGENT HERE IS LOOP-INVOKABLE. To run agent X per item in a list, use a \`loop\` node with \`agentId: X\` and \`inputMapping\` that references per-iteration fields with \`$item.<field>\`. To call agent X once as a sub-workflow, use \`agent-invoke\` with the same \`agentId\` + \`inputMapping\`. When a goal is "do <existing-agent's job> across <list>", DO NOT re-implement the existing agent — wrap it in a loop. Or list it in a goal/llm node's tools: as \`agent:<id>\` so the model decides when to call it.
 ${lines.join('\n')}`;
 }
 
@@ -247,7 +248,7 @@ ${lines.join('\n')}`;
 
 const DESIGN_DISCIPLINE = `
 ## DESIGN DISCIPLINE
-1. DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. Don't pack everything into one giant shell or claude-code prompt. The dashboard's value is per-stage inspection and replay; collapsing into one node throws that away.
+1. DECOMPOSE. If the goal has 3+ logical stages (fetch / transform / write), emit 3+ nodes — one per stage. Don't pack everything into one giant shell or claude-code prompt. The dashboard's value is per-stage inspection and replay; collapsing into one node throws that away. EXCEPTION: if the stages aren't known in advance (open-ended asks), use ONE goal node (pattern 7) instead of guessing a chain.
 2. DECLARE OUTPUTS. If your final node emits structured JSON (anything beyond a single string), add a top-level outputs: block declaring the shape. Documentation for the planner, not enforcement. Each entry is keyed by the JSON field name and gives its TYPE (not a free-text description in the value slot). Valid types: string, number, boolean, object, array. Names must be lowercase_snake_case — no camelCase, no UPPERCASE. Two accepted forms:
 \`\`\`yaml
 outputs:

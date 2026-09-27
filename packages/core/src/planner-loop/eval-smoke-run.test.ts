@@ -65,6 +65,22 @@ nodes:
     expect(errs[0].message).toContain('nonexistent-tool');
   });
 
+  it('flags made-up model-callable tools on a goal node, leaving agent: and dotted integration ids alone', () => {
+    const agent = parseAgent(`
+id: scout
+name: scout
+nodes:
+  - id: research
+    type: goal
+    goal: find things
+    tools: [web-fetch, web_search, agent:weather-forecast, csv.read.sales]
+`);
+    const errs = validateOnly(agent, { knownToolIds: new Set(['web-fetch', 'http-get']) });
+    expect(errs).toHaveLength(1);
+    expect(errs[0].path).toBe('nodes.0.tools.1');
+    expect(errs[0].message).toContain('"web_search"');
+  });
+
   it('skips tool-id checks when knownToolIds is empty (test-harness escape hatch)', () => {
     const agent = parseAgent(`
 id: tooluser

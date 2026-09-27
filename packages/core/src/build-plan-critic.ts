@@ -133,6 +133,22 @@ export function critiquePlan(plan: BuildPlan, ctx: PlanCriticContext): PlanCriti
           });
         }
       }
+      // Agents as tools: `agent:<id>` in tools: must name a real agent too.
+      (n.tools ?? []).forEach((t, tIdx) => {
+        if (!t.startsWith('agent:')) return;
+        const id = t.slice('agent:'.length);
+        if (id === a.id) {
+          errors.push({
+            path: `newAgents[${i}].yaml.nodes[${nIdx}].tools[${tIdx}]`,
+            message: `Node "${n.id}" in newAgent "${a.id}" lists itself (${t}) as a tool; an agent can't call itself.`,
+          });
+        } else if (!allIds.has(id)) {
+          errors.push({
+            path: `newAgents[${i}].yaml.nodes[${nIdx}].tools[${tIdx}]`,
+            message: `Node "${n.id}" in newAgent "${a.id}" lists ${t} as a tool, but no installed agent or newAgent has id "${id}".`,
+          });
+        }
+      });
     });
 
     // ai-template path check: the placeholder substituter ONLY supports

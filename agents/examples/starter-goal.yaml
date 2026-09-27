@@ -1,0 +1,132 @@
+# STARTER 4 of 4 — "Work something out"
+#
+# One node. No flow to design:
+#
+#   research  (type: goal)
+#
+# The other starters are flows: you decide the steps, the model fills them
+# in. This one inverts that. You give it a goal, some tools, and a budget,
+# and the model decides the steps itself — which page to open, whether it
+# needs another, when it knows enough — looping until it can answer.
+#
+# Open the run page while it works: every page it reads is in the node's
+# "tool calls" list, in order. That list IS the plan it made up as it went.
+#
+# If it runs out of budget before it has an answer, the node fails as
+# "Ran out of budget" instead of handing on a half-finished guess. Raise
+# budget.maxTurns, or ask a narrower question.
+#
+# It can also hand parts of the job to other agents: add one to tools: as
+# agent:<id> (e.g. agent:starter-research) and the model decides when to call it.
+#
+# Run: sua agent run starter-goal --input QUESTION="Which is lighter, a Kindle Paperwhite or a Kobo Clara BW?"
+id: starter-goal
+name: Work something out
+description: >
+  Give it a question and it works the answer out itself: it decides which
+  pages to read, reads them, and stops when it knows enough — then answers
+  with the sources it actually used.
+status: active
+source: examples
+
+tags:
+  - goal
+  - research
+  - compare
+  - answer
+  - sources
+entryConditions:
+  - user asks a specific question that needs looking things up to answer
+  - user wants two or more things compared on facts found online
+nonEntryConditions:
+  - user wants a broad brief on a topic with both sides (use starter-research)
+  - user wants a page checked on a schedule (use starter-watch)
+sampleQuestions:
+  - Which is lighter, a Kindle Paperwhite or a Kobo Clara BW?
+  - Does the Framework Laptop 13 support a 2.8K display, and since when?
+  - What changed between Python 3.12 and 3.13 for the GIL?
+
+inputs:
+  QUESTION:
+    type: string
+    default: Which is lighter, a Kindle Paperwhite or a Kobo Clara BW?
+    required: true
+    description: A specific question. Name the things you want compared.
+
+outputs:
+  answer:
+    type: string
+    description: The answer in 1-3 sentences.
+  findings:
+    type: array
+    description: What the answer rests on, each {point, source_title, source_url}. Flat strings only — the template's #each supports single-level item.FIELD.
+  gaps:
+    type: string
+    description: What it couldn't confirm, or empty if nothing.
+
+outputWidget:
+  type: ai-template
+  interactive: true
+  template: |
+    <div style="font-family:system-ui,sans-serif;max-width:760px;">
+      <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:#0f766e;">
+        Worked out
+      </div>
+      <h2 style="margin:8px 0 16px;font-size:1.25rem;line-height:1.35;">{{outputs.answer}}</h2>
+
+      {{#each outputs.findings as item}}
+      <div style="padding:12px 0;border-top:1px solid rgba(128,128,128,.25);">
+        <div style="margin-bottom:4px;">{{item.point}}</div>
+        {{#if item.source_url}}
+        <a href="{{item.source_url}}" target="_blank" rel="noopener"
+           style="font-size:.8125rem;color:#0f766e;text-decoration:none;">
+          {{item.source_title}} ↗
+        </a>
+        {{/if}}
+      </div>
+      {{/each}}
+
+      {{#if outputs.gaps}}
+      <div style="margin-top:16px;padding:12px 14px;border-left:3px solid #b45309;background:rgba(180,83,9,.08);">
+        <div style="font:600 11px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;opacity:.75;margin-bottom:6px;">
+          Couldn't confirm
+        </div>
+        <div style="font-size:.9375rem;">{{outputs.gaps}}</div>
+      </div>
+      {{/if}}
+    </div>
+  controls:
+    - type: replay
+      label: Ask something else
+      inputs:
+        - QUESTION
+
+nodes:
+  - id: research
+    type: goal
+    goal: |
+      Answer this question, using what you read rather than what you remember:
+        {{inputs.QUESTION}}
+
+      Find the specific facts the answer depends on (numbers, dates, specs)
+      on pages you actually open, prefer the maker's or an authoritative
+      page over a forum, and stop as soon as you can answer with confidence.
+      If two sources disagree, say which you trust and why.
+    tools: [web-fetch, web-scrape]
+    budget:
+      maxTurns: 12
+      timeoutSec: 480
+
+outcome:
+  expected: A direct answer to the question, backed by pages the agent actually read.
+  evidence:
+    - kind: nodeOutputField
+      nodeId: research
+      field: answer
+    - kind: nodeOutputField
+      nodeId: research
+      field: findings
+  success:
+    - kind: regexMatch
+      nodeId: research
+      pattern: '"answer"\s*:\s*"[^"]{10,}'

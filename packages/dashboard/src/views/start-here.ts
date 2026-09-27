@@ -43,6 +43,11 @@ const PATTERN: Record<string, { ord: string; label: string; teaches: string }> =
     label: 'Produce',
     teaches: 'The output is the deliverable, not a summary of one.',
   },
+  'starter-goal': {
+    ord: '04',
+    label: 'Work it out',
+    teaches: 'No steps to wire. It decides what to read and stops when it knows enough.',
+  },
 };
 
 export function renderStartHerePage(args: StartHereArgs): string {
@@ -97,7 +102,7 @@ export function renderStartHerePage(args: StartHereArgs): string {
           ? html`The starter agents aren't installed yet. Install them from
               <a href="/packs">Packs</a>, or browse everything under
               <a href="/agents?tab=examples">Agents → Examples</a>.`
-          : html`The three starter agents are missing from this install. Browse
+          : html`The starter agents are missing from this install. Browse
               everything under <a href="/agents?tab=examples">Agents → Examples</a>,
               or reinstall them from <a href="/packs">Packs</a>.`}
       </p>
@@ -119,12 +124,14 @@ export function renderStartHerePage(args: StartHereArgs): string {
       ${/* pageHeader owns the page's only top-level heading, so this one is a
             level down. The old "START HERE" kicker is gone — it just repeated
             the tab label. */ html``}
-      <h2 class="starters__title">Three agents, three patterns</h2>
+      <h2 class="starters__title">Four agents, four patterns</h2>
       <p class="starters__lede">
-        Each one is a handful of steps wired together, and every step is just
-        an instruction plus a tool or two. Run one and watch the graph — nodes
-        light up as they go, some run side by side, some get skipped. Then open
-        the YAML and you'll see there was no magic in it.
+        The first three are a handful of steps wired together, and every step is
+        just an instruction plus a tool or two. Run one and watch the graph —
+        nodes light up as they go, some run side by side, some get skipped. The
+        fourth has no steps to wire: give it a goal and it decides them, and the
+        run page shows each one. Open the YAML of any of them and you'll see
+        there was no magic in it.
       </p>
 
       ${args.starters.length > 0

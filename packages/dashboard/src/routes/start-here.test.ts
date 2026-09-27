@@ -95,20 +95,21 @@ afterEach(async () => {
 });
 
 describe('GET /start', () => {
-  it('renders the three curated starters with their patterns and tools', async () => {
+  it('renders the four curated starters with their patterns and tools', async () => {
     const app = await makeApp({ installStarters: true });
     const res = await request(app).get('/start').set(HDRS);
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Three agents, three patterns');
+    expect(res.text).toContain('Four agents, four patterns');
 
-    for (const id of ['starter-research', 'starter-watch', 'starter-draft']) {
+    for (const id of ['starter-research', 'starter-watch', 'starter-draft', 'starter-goal']) {
       expect(res.text, `${id} missing`).toContain(`/agents/${id}`);
     }
     // The pattern labels are the lesson, not the agent names.
     expect(res.text).toContain('Ask');
     expect(res.text).toContain('Watch');
     expect(res.text).toContain('Produce');
+    expect(res.text).toContain('Work it out');
     // Tools are surfaced before you run anything.
     expect(res.text).toContain('web-fetch');
   });
@@ -119,6 +120,7 @@ describe('GET /start', () => {
     const pos = (id: string) => res.text.indexOf(`/agents/${id}`);
     expect(pos('starter-research')).toBeLessThan(pos('starter-watch'));
     expect(pos('starter-watch')).toBeLessThan(pos('starter-draft'));
+    expect(pos('starter-draft')).toBeLessThan(pos('starter-goal'));
   });
 
   it('marks the scheduled starter as scheduled', async () => {
