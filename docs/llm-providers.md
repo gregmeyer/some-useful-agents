@@ -57,8 +57,12 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
   default.
 - On a **recognized** failure the runtime falls through to the next provider:
   binary missing / endpoint unreachable, timeout, quota or credit exhausted,
-  auth required (401), or rate limited (429). Unclassified errors stay on the
+  auth required (401), rate limited (429), or the provider rejecting its
+  configured model (retired, or not on your plan — `model_unavailable`). Unclassified errors stay on the
   same provider so real bugs surface instead of being masked.
+- For codex, the reason comes from its own `turn.failed` event rather than
+  stderr, which also carries log noise (e.g. an MCP server's expired token)
+  that used to misclassify failures as `auth_required`.
 - A custom endpoint participates identically — a down endpoint classifies as
   unreachable and falls through; a 401/429 maps to auth/rate-limited.
 - A node that declares `tools:` skips any provider that can't call them
