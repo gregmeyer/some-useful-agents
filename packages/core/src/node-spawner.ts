@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import type { Agent, AgentNode, NodeErrorCategory, OutputContract } from './agent-v2-types.js';
@@ -66,6 +67,12 @@ export type SpawnResult = ExecutionResult & {
    * Distinct from `usedLLMProvider` (the LLM provider). Undefined ↔ local.
    */
   usedWorkflowProvider?: string;
+  /**
+   * Every tool call the model made during this node, across all providers the
+   * waterfall tried, in order. Returned (not written) so a Temporal worker and
+   * the in-process executor behave the same; the executor persists them.
+   */
+  toolCalls?: ToolCallRecord[];
 };
 
 /**
@@ -311,6 +318,8 @@ export interface LlmSpawner {
    * its MCP servers' auth errors) that otherwise decides the category.
    */
   extractError?: (rawStdout: string) => string | undefined;
+  /** The CLI's own tool calls, read back from its event stream (raw stdout in). */
+  extractToolCalls?: (rawStdout: string) => ToolCallRecord[];
 }
 
 /**
@@ -350,6 +359,55 @@ export const CLAUDE_NATIVE_TOOL_EQUIVALENTS: Readonly<Record<string, string>> = 
   'web-fetch': 'WebFetch',
   'web-scrape': 'WebFetch',
 };
+
+/**
+ * claude's own tool calls from its stream-json output: `tool_use` items in
+ * `assistant` events, paired by id with `tool_result` items in `user` events.
+ * A call with no result (run killed mid-call) is still recorded, as an error.
+ * The stream carries no per-event timestamps, so timing is left unset.
+ */
+export function claudeToolCalls(rawStdout: string): ToolCallRecord[] {
+  const calls: ToolCallRecord[] = [];
+  const byId = new Map<string, ToolCallRecord>();
+  for (const line of rawStdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let event: { type?: string; message?: { content?: unknown } };
+    try { event = JSON.parse(trimmed); } catch { continue; }
+    const content = Array.isArray(event.message?.content) ? event.message!.content as Array<Record<string, unknown>> : [];
+    if (event.type === 'assistant') {
+      for (const c of content) {
+        if (c?.type !== 'tool_use' || typeof c.name !== 'string') continue;
+        const record: ToolCallRecord = {
+          source: 'native',
+          toolId: c.name,
+          argsJson: capToolText(JSON.stringify(c.input ?? {}), TOOL_CALL_ARGS_CAP),
+          resultPreview: '(no result: the run ended before this call returned)',
+          resultChars: 0,
+          isError: true,
+        };
+        calls.push(record);
+        if (typeof c.id === 'string') byId.set(c.id, record);
+      }
+    } else if (event.type === 'user') {
+      for (const c of content) {
+        if (c?.type !== 'tool_result' || typeof c.tool_use_id !== 'string') continue;
+        const record = byId.get(c.tool_use_id);
+        if (!record) continue;
+        const text = typeof c.content === 'string'
+          ? c.content
+          : Array.isArray(c.content)
+            ? (c.content as Array<{ type?: string; text?: unknown }>)
+                .map((b) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('\n')
+            : JSON.stringify(c.content ?? '');
+        record.resultPreview = capToolText(text, TOOL_CALL_RESULT_PREVIEW_CAP);
+        record.resultChars = text.length;
+        record.isError = c.is_error === true;
+      }
+    }
+  }
+  return calls;
+}
 
 /** Tool names from the `permission_denials` of claude's stream-json `result` event. */
 export function claudeDeniedTools(rawStdout: string): string[] {
@@ -419,11 +477,15 @@ export const claudeSpawner: LlmSpawner = {
           // Tool-use without text: surface that explicitly so the
           // dashboard's witty-label loop can flip to the action-running
           // phase rather than show the triage thinking phase.
-          if (content.some((c: { type?: string }) => c && c.type === 'tool_use')) {
+          const toolUse = content.find((c: { type?: string }) => c && c.type === 'tool_use') as
+            { name?: unknown; input?: unknown } | undefined;
+          if (toolUse) {
+            const toolName = typeof toolUse.name === 'string' ? toolUse.name : undefined;
             return {
               timestamp: new Date().toISOString(),
               type: 'tool_use',
-              message: 'Using a tool...',
+              message: toolName ? `Calling ${toolName}` : 'Using a tool...',
+              ...(toolName ? { toolName, toolStatus: 'call' as const, preview: JSON.stringify(toolUse.input ?? {}).slice(0, 200) } : {}),
             };
           }
         }
@@ -475,6 +537,7 @@ export const claudeSpawner: LlmSpawner = {
 
   nativeToolEquivalents: CLAUDE_NATIVE_TOOL_EQUIVALENTS,
   detectDeniedTools: claudeDeniedTools,
+  extractToolCalls: claudeToolCalls,
 };
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
@@ -831,11 +894,17 @@ export async function spawnNodeReal(
   const providerFailures: ProviderFailure[] = [];
   let lastResult: SpawnResult | undefined;
   let lastCategory: LlmFailureCategory = 'other';
+  // Across every attempt: a provider that called tools and then failed still
+  // did those things (fetched, wrote, ran), so its calls stay in the trace.
+  const toolCalls: ToolCallRecord[] = [];
+  const collectedToolCalls = (): ToolCallRecord[] | undefined =>
+    toolCalls.length > 0 ? toolCalls.map((c, seq) => ({ ...c, seq })) : undefined;
 
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     attemptedProviders.push(provider);
     let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
+      onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
       secretsStore: _opts.secretsStore,
@@ -858,6 +927,7 @@ export async function spawnNodeReal(
         // breadcrumb.
         return {
           ...result,
+          toolCalls: collectedToolCalls(),
           usedLLMProvider: provider,
           attemptedProviders,
           providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
@@ -921,6 +991,7 @@ export async function spawnNodeReal(
   return {
     ...(lastResult ?? { result: '', exitCode: 1 }),
     ...(toolsError ? { error: toolsError } : {}),
+    toolCalls: collectedToolCalls(),
     usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
     attemptedProviders,
     providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
@@ -943,6 +1014,8 @@ async function runLlmAttempt(
   onChildExit?: () => void,
   customProviders?: readonly CustomLlmProvider[],
   toolCtx?: {
+    /** Receives each tool call made during this attempt (provider not yet stamped). */
+    onToolCall?: (record: ToolCallRecord) => void;
     agentId: string;
     agentSource: Agent['source'];
     secretsStore?: SecretsStore;
@@ -987,6 +1060,7 @@ async function runLlmAttempt(
           variablesStore: toolCtx.variablesStore,
           experimentalApple: toolCtx.experimentalApple,
           signal,
+          onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
         })
       : undefined;
     return invokeOpenAiChat({
@@ -1100,6 +1174,12 @@ async function runLlmAttempt(
   // `status: "unavailable"` on a successful exit). When the spawner
   // reports a fallback-worthy category, override the result so the
   // waterfall's classifyLlmFailure picks it up.
+  // Read back the CLI's own tool calls before any early return below: a
+  // failed or refused run's calls are exactly the ones worth seeing.
+  if (spawner.extractToolCalls && toolCtx?.onToolCall) {
+    for (const r of spawner.extractToolCalls(rawStdout)) toolCtx.onToolCall({ ...r, provider });
+  }
+
   // Prefer the provider's own error over stderr for a failed run. codex logs
   // its MCP servers' auth failures to stderr, which used to classify a
   // "model not supported" failure as auth_required.

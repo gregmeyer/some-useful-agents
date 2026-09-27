@@ -10,6 +10,7 @@
  * are intentionally NOT callable from the model loop — only builtin, generated
  * integration, and MCP tools are.
  */
+import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { getGeneratedTool } from './integrations/generated-tools.js';
 import { callMcpTool } from './mcp-client.js';
@@ -211,6 +212,12 @@ export interface ToolExecutorOptions {
   signal?: AbortSignal;
   /** Cap on a single result fed back to the model. Default DEFAULT_MAX_OUTPUT_CHARS. */
   maxOutputChars?: number;
+  /**
+   * Called once per call with what happened — including calls refused before
+   * dispatch (unknown tool, bad JSON, policy deny). Feeds the `tool_calls`
+   * trace. Must not throw; a recording failure never affects the call.
+   */
+  onCall?: (record: ToolCallRecord) => void;
 }
 
 /**
@@ -231,7 +238,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
     experimentalApple: opts.experimentalApple,
   };
 
-  return async (name, argsJson) => {
+  const dispatch: ToolCallExecutor = async (name, argsJson) => {
     // Translate the model's function name back to the real tool id (identity if
     // no map — builtin ids are already valid function names).
     const toolId = map?.get(name) ?? name;
@@ -281,6 +288,34 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
       return { content, isError: out.isError === true };
     } catch (err) {
       return { content: `Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+    }
+  };
+
+  if (!opts.onCall) return dispatch;
+  const onCall = opts.onCall;
+  return async (name, argsJson) => {
+    const startedAt = new Date();
+    const record = (content: string, isError: boolean): void => {
+      try {
+        onCall({
+          source: 'sua',
+          toolId: map?.get(name) ?? name,
+          argsJson: capToolText(argsJson ?? '', TOOL_CALL_ARGS_CAP),
+          resultPreview: capToolText(content, TOOL_CALL_RESULT_PREVIEW_CAP),
+          resultChars: content.length,
+          isError,
+          startedAt: startedAt.toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+        });
+      } catch { /* recording never affects the call */ }
+    };
+    try {
+      const res = await dispatch(name, argsJson);
+      record(res.content, res.isError === true);
+      return res;
+    } catch (err) {
+      record(err instanceof Error ? err.message : String(err), true);
+      throw err;
     }
   };
 }

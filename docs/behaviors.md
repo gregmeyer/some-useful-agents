@@ -206,8 +206,10 @@ an absent one — and exceeding the budget fails the run rather than silently se
 ## What sua still does not do
 
 Grading traces against behaviors (the standard's `true` / `false` / `na` judging convention) is
-not implemented. It needs a per-event trajectory that sua does not yet record — `node_executions`
-gives per-node granularity, not the individual tool calls a process judge needs to cite.
+not implemented yet. The trajectory it needs is now recorded: every tool call a model makes lands
+in the `tool_calls` table (tool, arguments, result preview, error, timing, and which provider made
+it — including a CLI provider's own tools such as claude's WebFetch), so a process judge has the
+individual calls to cite. The judge itself is still to come.
 
 ## Known ambiguities in the standard
 

@@ -1176,6 +1176,16 @@ export async function executeAgentDag(
 
     if (result.usedWorkflowProvider === 'temporal') ranOnTemporal = true;
 
+    // The node's tool-call trace, success or failure alike. Best-effort: a
+    // recording problem must never change the run's outcome.
+    if (result.toolCalls?.length) {
+      try {
+        deps.runStore.replaceToolCalls(runId, node.id, result.toolCalls);
+      } catch (err) {
+        console.warn(`[tool-calls] could not record ${runId}/${node.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     if (result.exitCode === 0) {
       outputs.set(node.id, {
         result: result.result,
