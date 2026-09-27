@@ -187,6 +187,7 @@ Every agent has at least one node. Each node declares:
 |---|---|---|
 | `shell` | Run a shell command | `command`, `tool`, `toolInputs` |
 | `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `allowedTools`, `provider` |
+| `goal` | Let the model work toward a goal with tools, looping until it can answer ([goal-agents.md](goal-agents.md)) | `goal`, `tools`, `budget` |
 | `conditional` | Branch based on a predicate | `conditionalConfig` |
 | `switch` | Multi-way branch | `switchConfig` |
 | `loop` | Iterate over a list or sub-agent invocations | `loopConfig` |
@@ -293,6 +294,10 @@ Two layers protect a run from burning unbounded time / tokens:
 |---|---|---|---|---|
 | Per-node | `nodes[*].timeout:` | 300s | each node | Soft cap for a single node. If the child process is still running at the deadline, `spawnProcess` sends SIGTERM, then SIGKILL after 5s if the child hasn't exited. The node ends with `exitCode=124` and `errorCategory='timeout'`; downstream nodes still run. |
 | Agent-level | `timeoutSec:` (top level) | unset | this file | Hard wall-clock ceiling for the entire DAG run. Catches the "10-node DAG legitimately runs 10 minutes" case that no single per-node `timeout:` can see. |
+
+A `goal` step has its own time limit (`budget.timeoutSec`, default 600s) on top of these; see [goal-agents.md](goal-agents.md).
+
+> `timeoutSec` (and `runOn`) were silently dropped when an agent was loaded from YAML or saved, before v0.29, so the cap never applied. It does now.
 
 When `timeoutSec` trips, the executor's internal `AbortController` fires, the in-flight node's spawn receives the same SIGTERM-then-SIGKILL escalation as per-node timeout, every remaining not-yet-started node is written as `cancelled` (category `cancelled`, not `timeout`), and the run's `error` field names the cap directly: `Agent wall-clock timeout (60s) exceeded.` Set `timeoutSec: 0` (or omit) to disable.
 

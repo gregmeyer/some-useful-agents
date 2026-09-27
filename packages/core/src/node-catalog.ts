@@ -112,6 +112,37 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
   timeout: 60`,
   },
 
+  goal: {
+    type: 'goal',
+    description: 'Give an LLM a goal, tools, and a budget; it loops (think → call a tool → look at the result) until it has an answer or runs out of budget. For open-ended asks where the steps are not known in advance.',
+    inputs: [
+      { name: 'goal', type: 'string', required: true, description: 'What to achieve, in plain language. References inputs via {{inputs.X}} and upstreams via {{upstream.<id>.result}}.' },
+      { name: 'tools', type: 'string[]', required: true, description: 'Tool ids the model may call while working (e.g. web-fetch, web-scrape, http-get, integration and MCP tool ids). At least one.' },
+      { name: 'budget', type: '{ maxTurns?: number; timeoutSec?: number }', description: 'Limits the loop works within. Defaults: 15 turns, 600 seconds. Running out without an answer fails the node as budget_exhausted.' },
+      { name: 'provider', type: 'string', description: 'Pin a provider. Needs one that can call tools (claude, or an OpenAI-compatible provider); others are skipped.' },
+      { name: 'model', type: 'string', description: 'Override the default model for this node only.' },
+      { name: 'dependsOn', type: 'string[]', description: 'Upstream node ids this node waits on.' },
+      { name: 'onlyIf', type: 'OnlyIfCondition', description: 'Per-edge predicate.' },
+    ],
+    outputs: [
+      { name: 'result', type: 'string', description: "The model's final answer. When the agent declares outputs:, a JSON object with those fields (so {{upstream.<id>.<field>}} and widgets work)." },
+    ],
+    use_when: [
+      'The ask is open-ended (find, compare, research, figure out) and the steps depend on what the model discovers.',
+      'A fixed chain of llm-prompt nodes would have to guess how many fetches or which sources are needed.',
+      "Don't use it for fixed, repeatable pipelines — a flow of llm-prompt / shell nodes is cheaper, faster, and predictable.",
+    ],
+    example: `- id: research
+  type: goal
+  goal: |
+    Find the 3 best-reviewed trail running shoes under $150
+    and say why each made the list, citing sources.
+  tools: [web-fetch, web-scrape]
+  budget:
+    maxTurns: 15
+    timeoutSec: 600`,
+  },
+
   'claude-code': {
     type: 'claude-code',
     description: 'Run an LLM (Claude, Codex, or Apple Foundation Models) with a prompt. Optional tool access via allowedTools.',

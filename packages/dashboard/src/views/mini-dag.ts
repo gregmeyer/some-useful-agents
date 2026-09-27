@@ -58,6 +58,7 @@ const TYPE_PLAIN: Record<string, string> = {
   switch: 'Picks which way the run goes next',
   loop: 'Repeats a step for each item in a list',
   'agent-invoke': 'Hands the work to another agent',
+  goal: 'Lets the AI work toward a goal with tools',
   end: 'Ends the run here',
   break: 'Stops the loop early',
 };

@@ -173,6 +173,18 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
 
 // ── Edit node ───────────────────────────────────────────────────────────
 
+/**
+ * The node form only knows shell and llm-prompt, and rebuilds the node as one
+ * of those on save — a goal node edited there would silently become a shell
+ * node. Until the form learns goal nodes, send them to the YAML editor.
+ */
+function redirectGoalToYaml(res: Response, agentId: string, node: { type: string }): boolean {
+  if (node.type !== 'goal') return false;
+  const flash = 'Goal nodes are edited in YAML for now — change goal, tools, or budget here.';
+  res.redirect(303, `/agents/${encodeURIComponent(agentId)}/yaml?flash=${encodeURIComponent(flash)}`);
+  return true;
+}
+
 agentNodesRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const name = Array.isArray(req.params.name) ? req.params.name[0] : req.params.name;
@@ -187,6 +199,7 @@ agentNodesRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Res
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Node "${nodeId}" not found.`)}`);
     return;
   }
+  if (redirectGoalToYaml(res, agent.id, node)) return;
   res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore }));
 });
 
@@ -204,6 +217,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}`);
     return;
   }
+  if (redirectGoalToYaml(res, agent.id, node)) return;
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const rawDeps = body.dependsOn;

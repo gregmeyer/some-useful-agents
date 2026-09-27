@@ -6,7 +6,7 @@ export async function renderAgentNodes(args: AgentDetailArgs): Promise<string> {
   const { agent, secretsStore } = args;
 
   const nodeRows = agent.nodes.map((n) => {
-    const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
+    const body = n.type === 'shell' ? oneLine(n.command ?? '') : n.type === 'goal' ? oneLine(n.goal ?? '') : oneLine(n.prompt ?? '');
     const deps = n.dependsOn?.length ? n.dependsOn.join(', ') : html`<span class="dim">—</span>`;
     const secrets = n.secrets?.length ? n.secrets.join(', ') : html`<span class="dim">—</span>`;
     return html`
