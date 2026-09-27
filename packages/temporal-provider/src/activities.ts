@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps } from '@some-useful-agents/core';
+import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps, LlmSettingsSnapshot } from '@some-useful-agents/core';
 import {
   buildAgentEnv,
   getTrustLevel,
@@ -13,11 +13,35 @@ import {
   ToolStore,
   IntegrationsStore,
   VariablesStore,
+  LlmSettingsStore,
 } from '@some-useful-agents/core';
 import { Context } from '@temporalio/activity';
 
 function quiet<T>(make: () => T): T | undefined {
   try { return make(); } catch { return undefined; }
+}
+
+/**
+ * The waterfall the worker runs with. The caller's provider ORDER travels in
+ * the input (names only); custom provider definitions and the disabled list
+ * come from the worker's own settings file, because they carry API keys that
+ * must not land in workflow history. Without them a custom provider name
+ * (e.g. a local model) fell through `getSpawner` to claude and ran under the
+ * wrong name.
+ */
+export function workerLlmSettings(
+  providers: string[] | undefined,
+  llmSettingsPath: string | undefined,
+): LlmSettingsSnapshot | undefined {
+  const local = llmSettingsPath ? quiet(() => new LlmSettingsStore(llmSettingsPath).get()) : undefined;
+  if (!providers && !local) return undefined;
+  const disabled = new Set(local?.disabledProviders ?? []);
+  return {
+    // The snapshot contract: the runtime chain already excludes disabled ones.
+    providers: providers ?? (local?.providers ?? []).filter((p) => !disabled.has(p)),
+    customProviders: local?.customProviders,
+    disabledProviders: local?.disabledProviders,
+  };
 }
 
 export interface RunAgentActivityInput {
@@ -146,6 +170,15 @@ export interface RunNodeActivityInput {
   /** Names of the node's declared secrets to re-inject from `secretsPath`. */
   declaredSecrets: string[];
   /**
+   * Same-host paths opened on the worker so the node gets the tool,
+   * integration and variables stores and the full LLM settings it would get
+   * locally (see `workerLlmSettings`). Optional for older submitters.
+   */
+  dbPath?: string;
+  variablesPath?: string;
+  llmSettingsPath?: string;
+  experimentalApple?: boolean;
+  /**
    * Agent Behavior conditioning block, already resolved and scope-checked by
    * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
    * scratch, so anything not listed here is silently dropped — and a run that
@@ -224,8 +257,15 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         // Community-shell trust is enforced by executeAgentDag before the node
         // ever reaches a backend, so the worker needs no allowlist here.
         allowUntrustedShell: new Set<string>(),
-        llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+        llmSettings: workerLlmSettings(input.llmProviders, input.llmSettingsPath),
         behaviorPreamble: input.behaviorPreamble,
+        // Tool resolution parity with a local run: without these only builtin
+        // tools resolved on the worker (no MCP / integration tools, no vars).
+        secretsStore: new EncryptedFileStore(input.secretsPath),
+        toolStore: input.dbPath ? quiet(() => new ToolStore(input.dbPath as string)) : undefined,
+        integrationsStore: input.dbPath ? quiet(() => new IntegrationsStore(input.dbPath as string)) : undefined,
+        variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
+        experimentalApple: input.experimentalApple,
       },
       onProgress,
       ctx?.cancellationSignal,
@@ -257,6 +297,8 @@ export interface RunDagActivityInput {
   dataRoot?: string;
   /** LLM provider waterfall (names only). */
   llmProviders?: string[];
+  /** Worker-local LLM settings file; supplies custom providers (see `workerLlmSettings`). */
+  llmSettingsPath?: string;
   /** Community shell agents pre-allowed by the operator. */
   allowUntrustedShell?: string[];
   /**
@@ -299,7 +341,7 @@ export async function runDagActivity(input: RunDagActivityInput): Promise<RunDag
     variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
     allowUntrustedShell: new Set(input.allowUntrustedShell ?? []),
     experimentalApple: input.experimentalApple,
-    llmSettings: input.llmProviders ? { providers: input.llmProviders } : undefined,
+    llmSettings: workerLlmSettings(input.llmProviders, input.llmSettingsPath),
     dataRoot: input.dataRoot,
     // spawnNode omitted → spawnNodeReal (local execution on this worker).
   };

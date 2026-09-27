@@ -39,6 +39,14 @@ run a worker, and monitor it.
 > few non-declared sensitive env values are dropped before crossing to the worker
 > rather than risk landing in workflow history; a payload-encryption codec to
 > lift that limitation is a planned follow-up.
+>
+> The same goes for LLM providers and tools. The payload carries only the
+> provider *order*; the worker reads custom providers (which can hold API keys)
+> and the disabled list from its own `llm-settings.json`, and opens the tool,
+> integration and variables stores from the same-host paths. A node on the worker
+> can call the same tools and use the same local models as it would in-process.
+> A provider name the worker can't resolve fails that provider (and the chain
+> moves on) rather than running something else under its name.
 
 ## Architecture: server in Docker, worker on the host
 

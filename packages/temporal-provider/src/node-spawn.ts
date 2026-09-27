@@ -18,6 +18,15 @@ export interface CreateTemporalSpawnNodeOptions {
    * and re-emits new events through `onProgress`. Set 0 to disable polling.
    */
   progressPollMs?: number;
+  /**
+   * Same-host paths the worker opens itself, so a node gets the tool,
+   * integration and variables stores and the full LLM settings (custom
+   * providers, disabled list) it would get locally. Paths, not contents:
+   * custom providers carry API keys and inputs land in workflow history.
+   */
+  dbPath?: string;
+  variablesPath?: string;
+  llmSettingsPath?: string;
 }
 
 /**
@@ -96,6 +105,10 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
       // Forwarded so behavior conditioning survives the activity boundary. The
       // worker rebuilds spawn opts from this input alone.
       behaviorPreamble: spawnOpts.behaviorPreamble,
+      dbPath: opts.dbPath,
+      variablesPath: opts.variablesPath,
+      llmSettingsPath: opts.llmSettingsPath,
+      experimentalApple: spawnOpts.experimentalApple,
     };
 
     const workflowId = `sua-node-${spawnOpts.agentId}-${node.id}-${randomUUID().slice(0, 8)}`;

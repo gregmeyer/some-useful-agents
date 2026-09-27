@@ -21,6 +21,13 @@ export interface TemporalProviderOptions {
   allowUntrustedShell?: ReadonlySet<string>;
   /** Retention window for the local run-store mirror, in days. Default 30. */
   retentionDays?: number;
+  /**
+   * Global variables + LLM settings files, read ON THE WORKER (same-host
+   * paths, like `secretsPath`). Custom providers carry API keys, so the worker
+   * loads them from disk instead of receiving them in workflow history.
+   */
+  variablesPath?: string;
+  llmSettingsPath?: string;
 }
 
 export class TemporalProvider implements Provider {
@@ -29,11 +36,15 @@ export class TemporalProvider implements Provider {
   private store: RunStore;
   private client!: Client;
   private connection!: Connection;
-  private readonly options: Required<Omit<TemporalProviderOptions, 'allowUntrustedShell' | 'retentionDays'>>;
+  private readonly options: Required<Omit<TemporalProviderOptions, 'allowUntrustedShell' | 'retentionDays' | 'variablesPath' | 'llmSettingsPath'>>;
+  private readonly variablesPath?: string;
+  private readonly llmSettingsPath?: string;
   private readonly allowUntrustedShell: ReadonlySet<string>;
 
   constructor(options: TemporalProviderOptions) {
     this.store = new RunStore(options.dbPath, { retentionDays: options.retentionDays });
+    this.variablesPath = options.variablesPath;
+    this.llmSettingsPath = options.llmSettingsPath;
     this.options = {
       dbPath: options.dbPath,
       secretsPath: options.secretsPath,
@@ -66,6 +77,9 @@ export class TemporalProvider implements Provider {
       client: this.client,
       secretsPath: this.options.secretsPath,
       taskQueue: this.options.taskQueue,
+      dbPath: this.options.dbPath,
+      variablesPath: this.variablesPath,
+      llmSettingsPath: this.llmSettingsPath,
     });
   }
 
@@ -131,7 +145,8 @@ export class TemporalProvider implements Provider {
       triggeredBy: opts.triggeredBy,
       dbPath: this.options.dbPath,
       secretsPath: this.options.secretsPath,
-      variablesPath: opts.variablesPath,
+      variablesPath: opts.variablesPath ?? this.variablesPath,
+      llmSettingsPath: this.llmSettingsPath,
       dataRoot: opts.dataRoot ?? dirname(this.options.dbPath),
       llmProviders: opts.llmProviders,
       allowUntrustedShell: opts.allowUntrustedShell ?? [...this.allowUntrustedShell],

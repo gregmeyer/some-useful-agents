@@ -145,6 +145,27 @@ describe('createTemporalSpawnNode', () => {
   });
 });
 
+describe('createTemporalSpawnNode — worker parity inputs', () => {
+  it('sends same-host paths (never custom provider definitions or keys) so the worker loads them itself', async () => {
+    let args: unknown[] = [];
+    const client = fakeClient({ onStart: ({ options }) => { args = options.args; } });
+    const spawn = createTemporalSpawnNode({
+      client, secretsPath: '/d/secrets.enc', dbPath: '/d/sua.db', variablesPath: '/d/variables.json', llmSettingsPath: '/d/llm-settings.json',
+    });
+    await spawn(node({ type: 'llm-prompt', prompt: 'hi' }), {}, {
+      ...spawnOpts,
+      experimentalApple: true,
+      llmSettings: { providers: ['local-x', 'claude'], customProviders: [{ name: 'local-x', kind: 'openai', apiBase: 'http://h/v1', model: 'm', apiKey: 'sk-must-not-leak' }] },
+    });
+    const input = args[0] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      dbPath: '/d/sua.db', variablesPath: '/d/variables.json', llmSettingsPath: '/d/llm-settings.json',
+      experimentalApple: true, llmProviders: ['local-x', 'claude'],
+    });
+    expect(JSON.stringify(input)).not.toContain('sk-must-not-leak');
+  });
+});
+
 describe('extractHeartbeatProgress', () => {
   const trail: SpawnProgress[] = [{ timestamp: 't1', type: 'turn_start', turn: 1 }];
 
