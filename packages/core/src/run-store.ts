@@ -409,6 +409,15 @@ export class RunStore {
     return this.rowToRun(row);
   }
 
+  /**
+   * Runs started by this run (agent-invoke / loop nodes, and agents called as
+   * tools), oldest first. Lets the run page show the calls a parent made.
+   */
+  listChildRuns(parentRunId: string): Run[] {
+    const rows = this.db.prepare('SELECT * FROM runs WHERE parent_run_id = ? ORDER BY startedAt ASC').all(parentRunId) as Record<string, unknown>[];
+    return rows.map((r) => this.rowToRun(r));
+  }
+
   updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];

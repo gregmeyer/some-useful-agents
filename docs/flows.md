@@ -121,6 +121,8 @@ The sub-agent runs once per item; the loop's `result` is a JSON array of the sub
 
 ## `agent-invoke`
 
+> To let the **model** decide when to call another agent, list it as a tool instead: `tools: [agent:<id>]`. See [agents-as-tools.md](agents-as-tools.md).
+
 Calls another agent as a single sub-workflow (one run, not a loop). Useful for composing reusable pipelines.
 
 ```yaml

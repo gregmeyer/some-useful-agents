@@ -164,6 +164,15 @@ describe('createTemporalSpawnNode — worker parity inputs', () => {
     });
     expect(JSON.stringify(input)).not.toContain('sk-must-not-leak');
   });
+
+  it('forwards the agent call chain (plain data) so the worker can run agent tools', async () => {
+    let args: unknown[] = [];
+    const client = fakeClient({ onStart: ({ options }) => { args = options.args; } });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/d/s.enc', dbPath: '/d/sua.db' });
+    const info = { runId: 'run-1', nodeId: 'ask', depth: 1, stack: ['root', 'mid'], triggeredBy: 'dashboard' };
+    await spawn(node({ type: 'llm-prompt', prompt: 'hi', tools: ['agent:x'] }), {}, { ...spawnOpts, agentCallInfo: info });
+    expect((args[0] as Record<string, unknown>).agentCallInfo).toEqual(info);
+  });
 });
 
 describe('extractHeartbeatProgress', () => {

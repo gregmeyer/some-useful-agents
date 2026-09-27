@@ -10,6 +10,7 @@
  * are intentionally NOT callable from the model loop — only builtin, generated
  * integration, and MCP tools are.
  */
+import { AGENT_TOOL_PREFIX, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { getGeneratedTool } from './integrations/generated-tools.js';
@@ -35,6 +36,12 @@ export interface ToolResolutionDeps {
   secretsStore?: SecretsStore;
   variablesStore?: VariablesStore;
   experimentalApple?: boolean;
+  /**
+   * Agents as tools (`agent:<id>`): describes which agents this node may call
+   * and runs them as sub-runs. Injected by the executor; absent ⇒ agent tools
+   * don't resolve (e.g. contexts with no agent store).
+   */
+  agentCalls?: AgentCallContext;
 }
 
 /** Default cap on a single tool result fed back to the model (context/cost guard). */
@@ -47,6 +54,16 @@ export const DEFAULT_MAX_OUTPUT_CHARS = 24_000;
  * dispatch so exposure and execution can't disagree (e.g. apple.* gating).
  */
 function resolveToolDefinition(id: string, deps: ToolResolutionDeps): ToolDefinition | undefined {
+  if (isAgentToolId(id)) {
+    const agentId = id.slice(AGENT_TOOL_PREFIX.length);
+    const def = deps.agentCalls?.describe(agentId);
+    if (!def && deps.agentCalls) {
+      // Dropped from the model's toolbox; say why in the log so a missing
+      // agent tool isn't a mystery (cycle, depth, inactive, allowedSubAgents).
+      console.warn(`[agent-tools] ${id} not offered: ${deps.agentCalls.refusal(agentId)}`);
+    }
+    return def;
+  }
   const builtin = getBuiltinTool(id);
   if (builtin) return builtin.definition;
   if (deps.integrationsStore) {
@@ -77,6 +94,17 @@ export async function executeResolvedTool(
   deps: ToolResolutionDeps,
   signal?: AbortSignal,
 ): Promise<ToolOutput> {
+  if (isAgentToolId(toolId)) {
+    if (!deps.agentCalls) throw new Error(`Agent tools aren't available here (${toolId}).`);
+    const agentId = toolId.slice(AGENT_TOOL_PREFIX.length);
+    const r = await deps.agentCalls.call(agentId, inputs, signal);
+    const header = `Agent "${agentId}" run ${r.runId}: ${r.status}.`;
+    return {
+      result: r.status === 'completed' ? `${header}\n\n${r.result}` : `${header}${r.error ? ` ${r.error}` : ''}`,
+      isError: r.status !== 'completed',
+      runId: r.runId,
+    };
+  }
   const builtin = getBuiltinTool(toolId);
   if (builtin) return builtin.execute(inputs, ctx);
 
@@ -204,6 +232,8 @@ export interface ToolExecutorOptions {
    * trace. Must not throw; a recording failure never affects the call.
    */
   onCall?: (record: ToolCallRecord) => void;
+  /** Agents as tools — see ToolResolutionDeps.agentCalls. */
+  agentCalls?: AgentCallContext;
 }
 
 /**
@@ -222,6 +252,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
     secretsStore: opts.secretsStore,
     variablesStore: opts.variablesStore,
     experimentalApple: opts.experimentalApple,
+    agentCalls: opts.agentCalls,
   };
 
   const dispatch: ToolCallExecutor = async (name, argsJson) => {

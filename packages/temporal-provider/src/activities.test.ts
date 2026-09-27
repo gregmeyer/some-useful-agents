@@ -3,10 +3,10 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { EncryptedFileStore, RunStore, LlmSettingsStore } from '@some-useful-agents/core';
+import { EncryptedFileStore, RunStore, LlmSettingsStore, AgentStore } from '@some-useful-agents/core';
 import type { AgentDefinition, Agent } from '@some-useful-agents/core';
 import type { AgentNode } from '@some-useful-agents/core';
-import { runAgentActivity, runNodeActivity, runDagActivity, workerLlmSettings } from './activities.js';
+import { runAgentActivity, runNodeActivity, runDagActivity, workerLlmSettings, workerAgentCalls } from './activities.js';
 
 const TEST_DIR = join(import.meta.dirname, '__test-activities__');
 const SECRETS_PATH = join(TEST_DIR, 'secrets.enc');
@@ -308,5 +308,44 @@ describe('tool policy on the worker', () => {
     } finally {
       server.close();
     }
+  });
+});
+
+// C2: an agent called as a tool from a node on the worker runs as a sub-run
+// on the worker, rebuilt from agentCallInfo + the shared db path.
+describe('agents as tools on the worker', () => {
+  it('rebuilds the call context and records the sub-run under the node\'s run', async () => {
+    const dbPath = join(TEST_DIR, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent({
+      id: 'child', name: 'Child', status: 'active', source: 'local', mcp: false,
+      inputs: { TOPIC: { type: 'string', required: true } },
+      nodes: [{ id: 'say', type: 'shell', command: 'echo "worker says $TOPIC"' }],
+    }, 'cli');
+    agents.createAgent({
+      id: 'parent', name: 'Parent', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'ask', type: 'llm-prompt', prompt: 'x', tools: ['agent:child'] }],
+    }, 'cli');
+
+    const ctx = workerAgentCalls({
+      node: { id: 'ask', type: 'llm-prompt', prompt: 'x', tools: ['agent:child'] },
+      env: {}, agentId: 'parent', agentSource: 'local',
+      secretsPath: SECRETS_PATH, declaredSecrets: [], dbPath,
+      agentCallInfo: { runId: 'parent-run-1', nodeId: 'ask', depth: 0, stack: ['parent'], triggeredBy: 'dashboard' },
+    });
+    expect(ctx?.describe('child')?.id).toBe('agent:child');
+    expect(ctx?.refusal('parent')).toContain('already running');
+
+    const r = await ctx!.call('child', { TOPIC: 'hello' });
+    expect(r.status).toBe('completed');
+    expect(r.result).toContain('worker says hello');
+    const sub = new RunStore(dbPath).getRun(r.runId)!;
+    expect(sub).toMatchObject({ parentRunId: 'parent-run-1', parentNodeId: 'ask', triggeredBy: 'dashboard' });
+  });
+
+  it('is off when the node calls no agents or there is no db path', () => {
+    const base = { node: { id: 'a', type: 'llm-prompt' as const, prompt: 'x' }, env: {}, agentId: 'p', agentSource: 'local' as const, secretsPath: SECRETS_PATH, declaredSecrets: [] };
+    expect(workerAgentCalls(base)).toBeUndefined();
+    expect(workerAgentCalls({ ...base, agentCallInfo: { runId: 'r', nodeId: 'a', depth: 0, stack: ['p'], triggeredBy: 'cli' } })).toBeUndefined();
   });
 });

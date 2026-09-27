@@ -138,7 +138,9 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   }
   let toolCalls;
   try { toolCalls = ctx.runStore.listToolCalls(run.id); } catch { toolCalls = undefined; }
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls }));
+  let childRuns;
+  try { childRuns = ctx.runStore.listChildRuns(run.id); } catch { childRuns = undefined; }
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
