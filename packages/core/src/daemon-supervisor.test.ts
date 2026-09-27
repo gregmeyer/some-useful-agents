@@ -36,7 +36,7 @@ describe('daemonPaths', () => {
   });
 
   it('exposes the canonical service list', () => {
-    expect(ALL_SERVICES).toEqual(['schedule', 'dashboard', 'mcp', 'worker']);
+    expect(ALL_SERVICES).toEqual(['schedule', 'dashboard', 'mcp', 'worker', 'model']);
   });
 });
 
@@ -222,5 +222,47 @@ describe('spawnService + stopService', () => {
     // (or be absent if spawn failed). Either way, it must not be 99999999.
     const newPid = readServicePid(dataDir, 'schedule');
     expect(newPid).not.toBe(99999999);
+  });
+});
+
+describe('model service (external command)', () => {
+  const base = () => ({ suaBin: '/nonexistent/sua', cwd: process.cwd(), env: process.env });
+
+  it('runs the configured command, logs to model.log, and stops cleanly', async () => {
+    const spawned = spawnService(dataDir, 'model', {
+      ...base(),
+      commands: { model: { command: process.execPath, args: ['-e', 'console.log("model up"); setTimeout(() => {}, 60000)'] } },
+    });
+    expect(spawned.logPath).toBe(daemonPaths(dataDir).logPath('model'));
+    const status = await waitForServiceSettle(dataDir, 'model', 300);
+    expect(status.state).toBe('running');
+    expect(readFileSync(spawned.logPath, 'utf-8')).toContain('model up');
+
+    expect(stopService(dataDir, 'model').signalled).toBe(true);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(isProcessAlive(spawned.pid)).toBe(false);
+  });
+
+  it('refuses to start without a configured command', () => {
+    expect(() => spawnService(dataDir, 'model', base())).toThrow(/daemon\.model\.command/);
+  });
+
+  it('reports a missing binary instead of crashing', () => {
+    expect(() => spawnService(dataDir, 'model', {
+      ...base(),
+      commands: { model: { command: '/nonexistent/llama-server' } },
+    })).toThrow(/could not run `\/nonexistent\/llama-server`/);
+    expect(readServicePid(dataDir, 'model')).toBeNull();
+  });
+
+  it('ignores `commands` for sua services', () => {
+    // schedule still re-execs sua (here a bogus path, so node exits) — the
+    // model command must not be picked up for it.
+    const spawned = spawnService(dataDir, 'schedule', {
+      ...base(),
+      commands: { model: { command: '/nonexistent/llama-server' } },
+    });
+    expect(typeof spawned.pid).toBe('number');
+    stopService(dataDir, 'schedule');
   });
 });

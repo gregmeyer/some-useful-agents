@@ -13,6 +13,9 @@ import {
   LLM_PROVIDERS,
   isProvider,
   type LlmProvider,
+  getServiceStatus,
+  spawnService,
+  stopService,
 } from '@some-useful-agents/core';
 import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
@@ -24,7 +27,7 @@ import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { renderSettingsAppearance } from '../views/settings-appearance.js';
 import { renderSettingsIntegrations } from '../views/settings-integrations.js';
-import { renderSettingsLlm } from '../views/settings-llm.js';
+import { renderSettingsLlm, type ModelServerView } from '../views/settings-llm.js';
 import { getContext, type DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import {
@@ -728,7 +731,7 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
-settingsRouter.get('/settings/llm', (req: Request, res: Response) => {
+settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
   const settings = ctx.llmSettingsStore?.get();
@@ -738,8 +741,59 @@ settingsRouter.get('/settings/llm', (req: Request, res: Response) => {
     providers: LLM_PROVIDERS,
     error,
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
+    modelServer: await readModelServer(ctx),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
+});
+
+/**
+ * The local model server card: configured command, process state, and — when
+ * running — whether it answers yet. llama-server's /health is 503 while it
+ * loads (or downloads) the model, which can take minutes on a first start.
+ */
+async function readModelServer(ctx: DashboardContext): Promise<ModelServerView> {
+  const svc = ctx.modelService;
+  if (!svc?.command) return { configured: false };
+  const status = getServiceStatus(ctx.dataDir, 'model');
+  let health: ModelServerView['health'];
+  if (status.state === 'running' && svc.healthUrl) {
+    try {
+      const r = await fetch(svc.healthUrl, { signal: AbortSignal.timeout(1000) });
+      health = r.ok ? 'ready' : r.status === 503 ? 'loading' : 'not-answering';
+    } catch {
+      health = 'not-answering';
+    }
+  }
+  return { configured: true, command: [svc.command, ...(svc.args ?? [])].join(' '), status, health };
+}
+
+settingsRouter.post('/settings/llm/model/start', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.modelService?.command) {
+    redirectWith(res, '/settings/llm', 'error', 'No local model server is set up yet.');
+    return;
+  }
+  try {
+    const result = spawnService(ctx.dataDir, 'model', {
+      suaBin: process.argv[1] ?? '',
+      cwd: process.cwd(),
+      env: process.env,
+      commands: { model: ctx.modelService },
+    });
+    redirectWith(res, '/settings/llm', 'flash', `Model server starting (PID ${result.pid}). It can take a minute or two to load.`);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', `Start failed: ${(err as Error).message}`);
+  }
+});
+
+settingsRouter.post('/settings/llm/model/stop', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const result = stopService(ctx.dataDir, 'model');
+  if (!result.signalled) {
+    redirectWith(res, '/settings/llm', 'flash', 'Model server was not running.');
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', `Stopped the model server (PID ${result.pid}).`);
 });
 
 /**

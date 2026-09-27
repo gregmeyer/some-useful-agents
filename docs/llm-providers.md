@@ -90,6 +90,42 @@ chain flow could leave a defined endpoint sitting outside the waterfall.
 The endpoint is stored in your local LLM settings; the API key is masked in the
 UI and never re-rendered into a form field.
 
+## Run the local model as a daemon service
+
+A custom endpoint only works while its server is up. To start it with the rest
+of sua, configure the `model` daemon service in `sua.config.json`; it runs your
+command as-is, detached, with its log at `data/daemon/logs/model.log`:
+
+```json
+{
+  "daemon": {
+    "services": ["schedule", "dashboard", "model"],
+    "model": {
+      "command": "llama-server",
+      "args": ["-hf", "unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL", "--host", "127.0.0.1", "--port", "8181", "--jinja"],
+      "healthUrl": "http://127.0.0.1:8181/health"
+    }
+  }
+}
+```
+
+```sh
+sua daemon start --service model   # or just `sua daemon start` once it's in services
+sua daemon status                  # model: healthy / loading model / not answering yet
+sua daemon logs model
+sua daemon stop --service model
+```
+
+Or from the dashboard: **Settings → LLM → Local model server** shows whether it's
+running and ready, with Start / Stop buttons. It keeps running after you close the
+page; stopping it frees the memory, and agents use your other providers meanwhile.
+
+Any server works (`ollama serve`, `vllm serve …`, LM Studio's `lms server start`).
+`--jinja` matters for llama-server: it applies the model's chat template, which
+tool calling (`tools:` on a node) relies on. The first start with `-hf` downloads
+the model, so status reads `loading model` for a while; the provider falls
+through the waterfall as unreachable until it's ready.
+
 ## Enable / disable a provider
 
 Each waterfall row has a **Disable** switch. Disabling keeps the provider in the
