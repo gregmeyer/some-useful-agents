@@ -18,6 +18,11 @@ import { ensureAppleRunner } from './apple-foundationmodels-runner.js';
 import { invokeOpenAiChat } from './openai-http-invoker.js';
 import type { CustomLlmProvider } from './llm-settings-store.js';
 import { resolveExposedToolDefs, buildToolExecutor } from './llm-tool-dispatch.js';
+import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
+import { startToolEndpoint, TOOL_ENDPOINT_SERVER_NAME, type ToolEndpoint } from './tool-mcp-endpoint.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ToolStore } from './tool-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
 import type { VariablesStore } from './variables-store.js';
@@ -224,6 +229,11 @@ export interface LlmSpawnOptions {
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
+  /**
+   * `--mcp-config` file for sua's per-attempt tool endpoint (see
+   * tool-mcp-endpoint.ts). Only for spawners with `supportsMcpTools`.
+   */
+  mcpConfigPath?: string;
 }
 
 /**
@@ -298,13 +308,12 @@ export interface LlmSpawner {
    */
   classifyResult?: (result: SpawnResult, rawStdout: string) => LlmFailureCategory | null;
   /**
-   * sua tool id → this CLI's own tool name, for the `tools:` a node declares.
-   * The CLI can't call sua's tools (only the OpenAI-compatible HTTP loop
-   * can), so a declared tool either maps to a native equivalent that gets
-   * added to `--allowedTools`, or the provider is skipped as
-   * `tool_unavailable`. Undefined ⇒ the provider honours no declared tools.
+   * The CLI can load an MCP server config, so a node's declared `tools:` are
+   * served to it from sua's per-attempt tool endpoint (ADR-0036). A CLI
+   * without this is skipped as `tool_unavailable` for nodes that declare
+   * tools, rather than run without them.
    */
-  nativeToolEquivalents?: Readonly<Record<string, string>>;
+  supportsMcpTools?: boolean;
   /**
    * Tool calls the CLI refused during the run (raw stdout in). A refused
    * call still exits 0 with a "success" result, so without this the node
@@ -348,17 +357,6 @@ export function codexFailureMessage(rawStdout: string): string | undefined {
   }
   return undefined;
 }
-
-/**
- * Claude Code equivalents for sua's page-reading tools. Deliberately small:
- * only tools whose behaviour WebFetch actually matches (fetch a URL, return
- * readable content). `http-get` stays unmapped: WebFetch summarises bodies,
- * which would silently change what a JSON-API node receives.
- */
-export const CLAUDE_NATIVE_TOOL_EQUIVALENTS: Readonly<Record<string, string>> = {
-  'web-fetch': 'WebFetch',
-  'web-scrape': 'WebFetch',
-};
 
 /**
  * claude's own tool calls from its stream-json output: `tool_use` items in
@@ -447,6 +445,9 @@ export const claudeSpawner: LlmSpawner = {
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
     if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
+    // must not leak into an agent run.
+    if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
     return args;
   },
 
@@ -535,7 +536,7 @@ export const claudeSpawner: LlmSpawner = {
     return stdout;
   },
 
-  nativeToolEquivalents: CLAUDE_NATIVE_TOOL_EQUIVALENTS,
+  supportsMcpTools: true,
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
 };
@@ -556,12 +557,15 @@ export const claudeTextSpawner: LlmSpawner = {
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
     if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
+    // must not leak into an agent run.
+    if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
     return args;
   },
 
   parseProgress(): SpawnProgress | null { return null; },
   extractResult(stdout: string): string { return stdout; },
-  nativeToolEquivalents: CLAUDE_NATIVE_TOOL_EQUIVALENTS,
+  supportsMcpTools: true,
 };
 
 // ── Codex spawner ──────────────────────────────────────────────────────
@@ -981,8 +985,7 @@ export async function spawnNodeReal(
     && providerFailures.every((f) => f.category === 'tool_unavailable');
   const toolsError = allToolSkips
     ? `No enabled provider can use this node's tools (${(node.tools ?? []).join(', ')}). ` +
-      `Claude covers ${Object.keys(CLAUDE_NATIVE_TOOL_EQUIVALENTS).join(' and ')}; an OpenAI-compatible ` +
-      'provider (Settings → LLM) can call any sua tool.'
+      'Enable Claude or an OpenAI-compatible provider (Settings → LLM); both can call any sua tool.'
     : undefined;
 
   // All attempts failed (or the chain ended on a non-fallback
@@ -998,12 +1001,120 @@ export async function spawnNodeReal(
   };
 }
 
+/** Context for a node attempt's tools (stores, identity, recording). */
+type AttemptToolCtx = NonNullable<Parameters<typeof runLlmAttemptInner>[9]>;
+
+/**
+ * The tools a node attempt may call: schemas to advertise plus the executor
+ * that runs them. One construction for every provider — the OpenAI-compatible
+ * HTTP loop calls the executor directly, a CLI reaches it through the MCP
+ * endpoint — so the allowlist, policy seam, output cap and `tool_calls`
+ * recording are the same whichever provider answers. Undefined when none of
+ * the candidate ids resolve.
+ */
+function buildAttemptToolSurface(
+  candidateIds: readonly string[],
+  node: AgentNode,
+  childEnv: Record<string, string>,
+  provider: string,
+  toolCtx: AttemptToolCtx | undefined,
+  signal: AbortSignal | undefined,
+): { tools: OpenAiTool[]; execute: ToolCallExecutor } | undefined {
+  if (!toolCtx || candidateIds.length === 0) return undefined;
+  const { tools, idByFunctionName, exposedToolIds } = resolveExposedToolDefs(candidateIds, {
+    toolStore: toolCtx.toolStore,
+    integrationsStore: toolCtx.integrationsStore,
+    secretsStore: toolCtx.secretsStore,
+    variablesStore: toolCtx.variablesStore,
+    experimentalApple: toolCtx.experimentalApple,
+  });
+  if (exposedToolIds.length === 0) return undefined;
+  const execute = buildToolExecutor({
+    exposedToolIds,
+    idByFunctionName,
+    agentId: toolCtx.agentId,
+    agentSource: toolCtx.agentSource,
+    policyDocument: toolCtx.policyDocument,
+    env: childEnv,
+    workingDirectory: node.workingDirectory,
+    timeoutSec: node.timeout ?? 300,
+    secretsStore: toolCtx.secretsStore,
+    toolStore: toolCtx.toolStore,
+    integrationsStore: toolCtx.integrationsStore,
+    variablesStore: toolCtx.variablesStore,
+    experimentalApple: toolCtx.experimentalApple,
+    signal,
+    onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
+  });
+  return { tools, execute };
+}
+
+/**
+ * One provider attempt. For a CLI that can load MCP servers (claude) and a
+ * node that declares `tools:`, this stands up sua's per-attempt tool endpoint
+ * first, points the CLI at it, and always tears it down — however the attempt
+ * ends. See ADR-0036.
+ */
+async function runLlmAttempt(
+  provider: string,
+  node: AgentNode,
+  resolvedPrompt: string,
+  childEnv: Record<string, string>,
+  onProgress?: (event: SpawnProgress) => void,
+  signal?: AbortSignal,
+  onSpawn?: (pid: number, startedAtMs: number) => void,
+  onChildExit?: () => void,
+  customProviders?: readonly CustomLlmProvider[],
+  toolCtx?: AttemptToolCtx,
+): Promise<SpawnResult> {
+  const isCustom = customProviders?.some((c) => c.name === provider) ?? false;
+  const declaredTools = node.tools ?? [];
+  const wantsEndpoint = !isCustom && isCliProvider(provider)
+    && getSpawner(provider).supportsMcpTools === true && declaredTools.length > 0;
+  if (!wantsEndpoint) {
+    return runLlmAttemptInner(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, customProviders, toolCtx);
+  }
+
+  // Only the node's `tools:` — on a CLI, `allowedTools` names the CLI's own
+  // tools (Read, Bash…), not sua ids.
+  const surface = buildAttemptToolSurface(declaredTools, node, childEnv, provider, toolCtx, signal);
+  if (!surface) {
+    return runLlmAttemptInner(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, customProviders, toolCtx);
+  }
+
+  let endpoint: ToolEndpoint | undefined;
+  let configDir: string | undefined;
+  try {
+    endpoint = await startToolEndpoint({ tools: surface.tools, execute: surface.execute });
+    configDir = mkdtempSync(join(tmpdir(), 'sua-mcp-'));
+    const configPath = join(configDir, 'mcp.json');
+    // A file (mode 0600), not an argv string: the bearer token must not show
+    // up in `ps` output.
+    writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        [TOOL_ENDPOINT_SERVER_NAME]: { type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${endpoint.token}` } },
+      },
+    }), { mode: 0o600 });
+    return await runLlmAttemptInner(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, customProviders, toolCtx, configPath);
+  } catch (err) {
+    return {
+      result: '',
+      exitCode: 1,
+      category: 'tool_unavailable',
+      error: `Could not start sua's tool endpoint for ${provider}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    await endpoint?.close().catch(() => { /* already closed */ });
+    if (configDir) rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * One LLM CLI invocation under a chosen provider. Extracted so the
  * fallback path can retry under a different provider with the same
  * resolved prompt + env.
  */
-async function runLlmAttempt(
+async function runLlmAttemptInner(
   provider: string,
   node: AgentNode,
   resolvedPrompt: string,
@@ -1025,6 +1136,8 @@ async function runLlmAttempt(
     variablesStore?: VariablesStore;
     experimentalApple?: boolean;
   },
+  /** Set by `runLlmAttempt` when sua's tool endpoint is up for this attempt. */
+  mcpConfigPath?: string,
 ): Promise<SpawnResult> {
   // Custom OpenAI-compatible provider ⇒ HTTP transport, not a CLI spawn. This
   // is the ONLY divergence from the CLI path; the returned SpawnResult flows
@@ -1036,33 +1149,9 @@ async function runLlmAttempt(
     // integration, and MCP tools are exposed (schemas + a function-name→id map);
     // non-callable ids are dropped. Empty ⇒ plain completion (no tool loop).
     const candidateIds = [...(node.tools ?? []), ...(node.allowedTools ?? [])];
-    const resolutionDeps = {
-      toolStore: toolCtx?.toolStore,
-      integrationsStore: toolCtx?.integrationsStore,
-      secretsStore: toolCtx?.secretsStore,
-      variablesStore: toolCtx?.variablesStore,
-      experimentalApple: toolCtx?.experimentalApple,
-    };
-    const { tools, idByFunctionName, exposedToolIds } = resolveExposedToolDefs(candidateIds, resolutionDeps);
-    const onToolCall = exposedToolIds.length > 0 && toolCtx
-      ? buildToolExecutor({
-          exposedToolIds,
-          idByFunctionName,
-          agentId: toolCtx.agentId,
-          agentSource: toolCtx.agentSource,
-          policyDocument: toolCtx.policyDocument,
-          env: childEnv,
-          workingDirectory: node.workingDirectory,
-          timeoutSec: node.timeout ?? 300,
-          secretsStore: toolCtx.secretsStore,
-          toolStore: toolCtx.toolStore,
-          integrationsStore: toolCtx.integrationsStore,
-          variablesStore: toolCtx.variablesStore,
-          experimentalApple: toolCtx.experimentalApple,
-          signal,
-          onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
-        })
-      : undefined;
+    const surface = buildAttemptToolSurface(candidateIds, node, childEnv, provider, toolCtx, signal);
+    const tools = surface?.tools;
+    const onToolCall = surface?.execute;
     return invokeOpenAiChat({
       apiBase: custom.apiBase,
       apiKey: custom.apiKey,
@@ -1091,24 +1180,21 @@ async function runLlmAttempt(
 
   const spawner = getSpawner(provider);
 
-  // CLI providers can't call sua's tools. Each declared tool must map to the
-  // CLI's own equivalent, or this provider is skipped so the waterfall moves
-  // on — running anyway is how starter-watch "completed" a watch that never
-  // read the page (the model answered without the tool it was promised).
+  // A CLI that can't load sua's tool endpoint is skipped for a node that
+  // declares tools, so the waterfall moves on — running anyway is how
+  // starter-watch "completed" a watch that never read the page.
   let allowedTools = node.allowedTools;
   const declaredTools = node.tools ?? [];
-  if (declaredTools.length > 0) {
-    const native = spawner.nativeToolEquivalents ?? {};
-    const unsupported = declaredTools.filter((id) => !native[id]);
-    if (unsupported.length > 0) {
-      return {
-        result: '',
-        exitCode: 1,
-        category: 'tool_unavailable',
-        error: `${provider} can't call ${unsupported.join(', ')}, which this node declares in tools:.`,
-      };
-    }
-    allowedTools = [...new Set([...(node.allowedTools ?? []), ...declaredTools.map((id) => native[id])])];
+  if (declaredTools.length > 0 && !spawner.supportsMcpTools) {
+    return {
+      result: '',
+      exitCode: 1,
+      category: 'tool_unavailable',
+      error: `${provider} can't call sua tools (${declaredTools.join(', ')}), which this node declares in tools:.`,
+    };
+  }
+  if (mcpConfigPath) {
+    allowedTools = [...new Set([...(node.allowedTools ?? []), `mcp__${TOOL_ENDPOINT_SERVER_NAME}`])];
   }
 
   const spawnOpts: LlmSpawnOptions = {
@@ -1116,6 +1202,7 @@ async function runLlmAttempt(
     model: node.model,
     maxTurns: node.maxTurns,
     allowedTools,
+    mcpConfigPath,
   };
   const args = spawner.buildArgs(spawnOpts);
 
@@ -1177,7 +1264,12 @@ async function runLlmAttempt(
   // Read back the CLI's own tool calls before any early return below: a
   // failed or refused run's calls are exactly the ones worth seeing.
   if (spawner.extractToolCalls && toolCtx?.onToolCall) {
-    for (const r of spawner.extractToolCalls(rawStdout)) toolCtx.onToolCall({ ...r, provider });
+    for (const r of spawner.extractToolCalls(rawStdout)) {
+      // A call to sua's own endpoint was already recorded by the executor
+      // (source 'sua', real tool id); claude's copy would double-count it.
+      if (r.toolId.startsWith(`mcp__${TOOL_ENDPOINT_SERVER_NAME}__`)) continue;
+      toolCtx.onToolCall({ ...r, provider });
+    }
   }
 
   // Prefer the provider's own error over stderr for a failed run. codex logs
@@ -1340,6 +1432,9 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   if (haystack.includes('not authenticated')
     || haystack.includes('login required')
     || haystack.includes('please log in')
+    // claude CLI: "Not logged in · Please run /login"
+    || haystack.includes('not logged in')
+    || haystack.includes('run /login')
     || haystack.includes('401')
     || haystack.includes('unauthorized')) {
     return 'auth_required';

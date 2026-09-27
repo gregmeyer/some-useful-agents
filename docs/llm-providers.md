@@ -205,22 +205,26 @@ policy), feeds the results back, and loops until the model returns a final answe
 server-enable gate as MCP tool *nodes*; a disabled server surfaces as an in-loop error
 the model can read, not a crash.
 
-**Provider support:** sua's own tool loop runs on the **OpenAI-compatible HTTP path
-only** — any `kind:'openai'` custom provider (local llama.cpp/Ollama, or a hosted
-OpenAI-compatible API). The CLI providers can't call sua tools, so for them a declared
-tool either maps to the CLI's native equivalent or the provider is skipped:
+**Provider support:** the same tools reach every provider that can take them, through
+one executor, so the allowlist, the policy check, the output cap and the recorded
+tool-call trace are identical whichever provider answers:
 
-| Provider | Declared `tools:` it honours |
-|---|---|
-| OpenAI-compatible | every sua tool (builtin, generated, MCP) |
-| `claude` | `web-fetch`, `web-scrape` → added to `--allowedTools` as `WebFetch` |
-| `codex` | none (runs `exec -s read-only`) — skipped |
-| Apple Foundation Models | none — skipped |
+| Provider | Declared `tools:` it honours | How |
+|---|---|---|
+| OpenAI-compatible | every sua tool (builtin, generated, MCP) | sua's HTTP tool loop |
+| `claude` | every sua tool (builtin, generated, MCP) | a per-attempt MCP endpoint (below) |
+| `codex` | none — skipped | runs `exec -s read-only` |
+| Apple Foundation Models | none — skipped | no tool support |
+
+For claude, sua starts a short-lived MCP server for the attempt: bound to `127.0.0.1` on
+a random port, protected by a random bearer token plus loopback Host/Origin checks, and
+serving exactly the node's `tools:`. claude gets it via `--mcp-config` (a mode-0600 temp
+file, so the token never appears in `ps`) with `--strict-mcp-config`, so your own claude
+MCP servers don't leak into agent runs, and `--allowedTools mcp__sua`. The endpoint and
+file are removed when the attempt ends. See [ADR-0036](adr/0036-serve-sua-tools-to-claude-over-mcp.md).
 
 A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
-never "succeeds" without the tools it declared. `http-get` has no claude mapping on
-purpose: WebFetch summarises what it fetches, which would change what a JSON-API node
-receives.
+never "succeeds" without the tools it declared.
 
 Separately, when claude refuses a tool call mid-run (it still exits 0), the node keeps
 its answer but shows a warning naming the refused tool, so an answer built without data
