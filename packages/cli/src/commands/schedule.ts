@@ -11,6 +11,7 @@ import {
   AgentStore,
   VariablesStore,
   IntegrationsStore,
+  ToolStore,
   AgentMemoryStore,
   OutcomeStore,
   outcomeDetectionHook,
@@ -22,6 +23,7 @@ import {
 } from '@some-useful-agents/core';
 import { loadConfig, getAgentDirs, getSecretsPath, getDbPath, getDashboardBaseUrl } from '../config.js';
 import { createProvider } from '../provider-factory.js';
+import { loadLlmSettingsSnapshot } from '../v2-runtime.js';
 import * as ui from '../ui.js';
 
 export const scheduleCommand = new Command('schedule')
@@ -253,6 +255,11 @@ scheduleCommand
       try { return new IntegrationsStore(getDbPath(config)); }
       catch { return undefined; }
     })();
+    // Without it, scheduled runs resolved builtin tools only (no MCP / user tools).
+    const toolStore = (() => {
+      try { return new ToolStore(getDbPath(config)); }
+      catch { return undefined; }
+    })();
     const agentMemoryStore = (() => {
       try { return new AgentMemoryStore(getDbPath(config)); }
       catch { return undefined; }
@@ -282,8 +289,10 @@ scheduleCommand
         secretsStore,
         variablesStore,
         integrationsStore,
+        toolStore,
         agentStore,
         agentMemoryStore,
+        llmSettings: () => loadLlmSettingsSnapshot(config),
         allowUntrustedShell: new Set(options.allowUntrustedShell),
         dashboardBaseUrl: getDashboardBaseUrl(config),
         dataRoot: agentStore.dataRoot,

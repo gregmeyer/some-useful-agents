@@ -719,6 +719,11 @@ export function getSpawner(provider?: string): LlmSpawner {
   return claudeSpawner;
 }
 
+/** True for providers `runLlmAttempt` can spawn as a CLI (vs. a custom HTTP one). */
+export function isCliProvider(provider: string): boolean {
+  return provider in SPAWNERS;
+}
+
 // ── Node spawner ───────────────────────────────────────────────────────
 
 /**
@@ -996,6 +1001,20 @@ async function runLlmAttempt(
       ...(onToolCall ? { tools, onToolCall, maxTurns: node.maxTurns ?? 5, onProgress } : {}),
     });
   }
+  // A name that is neither a custom provider known to this process nor a CLI
+  // provider must not fall through `getSpawner`'s claude default: on a worker
+  // missing the custom-provider definitions, `local-qwen-8b` silently ran
+  // claude under Qwen's name. Fail it (fallback-worthy) so the chain moves on
+  // and the trail says why.
+  if (!isCliProvider(provider)) {
+    return {
+      result: '',
+      exitCode: 127,
+      error: `Provider "${provider}" is not configured in this process (no custom provider with that name). Check Settings → LLM.`,
+      category: 'spawn_failure',
+    };
+  }
+
   const spawner = getSpawner(provider);
 
   // CLI providers can't call sua's tools. Each declared tool must map to the

@@ -1,7 +1,7 @@
 import type { Provider } from '@some-useful-agents/core';
 import { LocalProvider, EncryptedFileStore } from '@some-useful-agents/core';
 import type { SuaConfig } from './config.js';
-import { getDbPath, getSecretsPath, getRetentionDays, resolveProvider } from './config.js';
+import { getDbPath, getSecretsPath, getRetentionDays, getVariablesPath, getLlmSettingsPath, resolveProvider } from './config.js';
 
 export interface CreateProviderOptions {
   /** Override which provider to use; normally resolved from config / env. */
@@ -48,6 +48,8 @@ export async function createProvider(
     taskQueue: config.temporalTaskQueue,
     allowUntrustedShell,
     retentionDays,
+    variablesPath: getVariablesPath(config),
+    llmSettingsPath: getLlmSettingsPath(config),
   });
   await provider.initialize();
   return provider;
