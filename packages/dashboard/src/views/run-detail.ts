@@ -30,6 +30,8 @@ export interface RunDetailOptions {
   temporalLink?: string;
   /** Recorded tool calls by node id (the `tool_calls` table). Older runs have none. */
   toolCalls?: Map<string, ToolCallRecord[]>;
+  /** Runs this run started (agent-invoke / loop nodes, agents called as tools). */
+  childRuns?: Run[];
   /**
    * Evidence-backed record of what RESULTED from this run, when the agent
    * declared an `outcome:` block. Rendered above the raw result: "did this
@@ -41,7 +43,7 @@ export interface RunDetailOptions {
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -222,6 +224,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Duration</dt><dd>${renderDuration(run.startedAt, run.completedAt)}</dd>
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
+          ${run.parentRunId ? html`<dt>Called by</dt><dd><a class="mono" href="/runs/${run.parentRunId}">${run.parentRunId.slice(0, 8)}</a>${run.parentNodeId ? html` <span class="dim">(step ${run.parentNodeId})</span>` : html``}</dd>` : html``}
           <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
           ${conditionedBy}
           ${replayedFrom}
@@ -289,6 +292,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             </select>
           </div>
           <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls)}</div>
+          ${renderChildRuns(childRuns)}
         </section>
       ` : html`
         ${outcome ? html`
@@ -480,6 +484,29 @@ function renderProgressIndicator(e: NodeExecutionRecord): SafeHtml {
   return runningFallback;
 }
 
+/** For an `agent:<id>` call, a link to the sub-run it started (its id leads the result). */
+function subRunLink(c: ToolCallRecord): SafeHtml {
+  if (!c.toolId.startsWith('agent:')) return html``;
+  const m = /run ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(c.resultPreview);
+  return m ? html`<a href="/runs/${m[1]}">Open the sub-run →</a>` : html``;
+}
+
+/** Runs this run started: agents called as tools, agent-invoke and loop sub-runs. */
+export function renderChildRuns(children: Run[] | undefined): SafeHtml {
+  if (!children || children.length === 0) return html``;
+  const rows = children.map((c) => html`
+    <li class="run-tool-call">
+      ${statusBadge(c.status)}
+      <a class="mono" href="/runs/${c.id}">${c.id.slice(0, 8)}</a>
+      <span>${c.agentName}</span>
+      ${c.parentNodeId ? html`<span class="dim">from step ${c.parentNodeId}</span>` : html``}
+      <span class="dim mono">${renderDuration(c.startedAt, c.completedAt)}</span>
+    </li>`);
+  return html`
+    <h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">sub-runs (${String(children.length)})</h4>
+    <ul class="run-tool-calls">${rows as unknown as SafeHtml[]}</ul>`;
+}
+
 /**
  * The recorded trace for a node: one expandable row per tool call, whichever
  * provider made it. The summary line is enough to scan (tool, where it came
@@ -508,6 +535,7 @@ export function renderRecordedToolCalls(calls: ToolCallRecord[]): SafeHtml {
             <pre class="mono">${c.argsJson}</pre>
             <div class="dim">${c.isError ? 'error' : 'result'}${c.resultChars > c.resultPreview.length ? ` (first part of ${c.resultChars} chars)` : ''}</div>
             <pre class="mono">${c.resultPreview}</pre>
+            ${subRunLink(c)}
           </div>
         </details>
       </li>`;

@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps, LlmSettingsSnapshot } from '@some-useful-agents/core';
+import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps, LlmSettingsSnapshot, AgentCallInfo, AgentCallContext } from '@some-useful-agents/core';
 import {
   buildAgentEnv,
   getTrustLevel,
@@ -14,6 +14,7 @@ import {
   IntegrationsStore,
   VariablesStore,
   LlmSettingsStore,
+  createAgentCallContext,
   resolvePolicyDocument,
 } from '@some-useful-agents/core';
 import { dirname } from 'node:path';
@@ -181,6 +182,12 @@ export interface RunNodeActivityInput {
   llmSettingsPath?: string;
   experimentalApple?: boolean;
   /**
+   * Agents as tools: this node's place in the agent call chain. The live call
+   * context can't cross the activity boundary, so the worker rebuilds it (see
+   * `workerAgentCalls`) and runs any `agent:<id>` tool call as a sub-run here.
+   */
+  agentCallInfo?: AgentCallInfo;
+  /**
    * Agent Behavior conditioning block, already resolved and scope-checked by
    * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
    * scratch, so anything not listed here is silently dropped — and a run that
@@ -188,6 +195,49 @@ export interface RunNodeActivityInput {
    * exists to prevent.
    */
   behaviorPreamble?: string;
+}
+
+/**
+ * Rebuild a node's agent-call context on the worker from `agentCallInfo`:
+ * sub-agents run here with the local executor and stores opened from the same
+ * same-host paths, recorded as sub-runs of the node's run. Undefined when the
+ * node calls no agents or the worker lacks the shared db path.
+ */
+export function workerAgentCalls(input: RunNodeActivityInput): AgentCallContext | undefined {
+  const info = input.agentCallInfo;
+  if (!info || !input.dbPath) return undefined;
+  const dbPath = input.dbPath;
+  const agentStore = quiet(() => new AgentStore(dbPath));
+  if (!agentStore) return undefined;
+  const caller = agentStore.getAgent(input.agentId) ?? { id: input.agentId };
+  return createAgentCallContext({
+    caller,
+    getAgent: (id) => agentStore.getAgent(id),
+    stack: info.stack,
+    depth: info.depth,
+    run: async (callee, inputs, callCtx) => {
+      const sub = await executeAgentDag(callee, {
+        triggeredBy: info.triggeredBy as Run['triggeredBy'],
+        inputs,
+        parentRunId: info.runId,
+        parentNodeId: info.nodeId,
+        signal: callCtx.signal,
+        agentCallDepth: callCtx.depth,
+        agentCallStack: callCtx.stack,
+      }, {
+        runStore: new RunStore(dbPath),
+        agentStore,
+        secretsStore: new EncryptedFileStore(input.secretsPath),
+        toolStore: quiet(() => new ToolStore(dbPath)),
+        integrationsStore: quiet(() => new IntegrationsStore(dbPath)),
+        variablesStore: input.variablesPath ? quiet(() => new VariablesStore(input.variablesPath as string)) : undefined,
+        llmSettings: workerLlmSettings(input.llmProviders, input.llmSettingsPath),
+        experimentalApple: input.experimentalApple,
+        dataRoot: dirname(dbPath),
+      });
+      return { runId: sub.id, status: sub.status, result: sub.result ?? '', error: sub.error };
+    },
+  });
 }
 
 /**
@@ -272,6 +322,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         // model's tool calls on the worker are gated too (fails closed on an
         // invalid file, like everywhere else).
         policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
+        agentCalls: workerAgentCalls(input),
       },
       onProgress,
       ctx?.cancellationSignal,

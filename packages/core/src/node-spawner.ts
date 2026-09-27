@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
@@ -190,6 +191,13 @@ export type SpawnNodeFn = (
      * project-scope text that the operator explicitly opted into.
      */
     behaviorPreamble?: string;
+    /** Agents as tools (`agent:<id>`): the live call context, in-process only. */
+    agentCalls?: AgentCallContext;
+    /**
+     * The same call chain as plain data, so a backend that can't carry the
+     * live context (a Temporal worker) can rebuild it next to its own stores.
+     */
+    agentCallInfo?: AgentCallInfo;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -813,6 +821,9 @@ export async function spawnNodeReal(
     experimentalApple?: boolean;
     /** See SpawnNodeFn.behaviorPreamble — resolved once per run by dag-executor. */
     behaviorPreamble?: string;
+    /** See SpawnNodeFn.agentCalls. */
+    agentCalls?: AgentCallContext;
+    agentCallInfo?: AgentCallInfo;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -917,6 +928,7 @@ export async function spawnNodeReal(
       integrationsStore: _opts.integrationsStore,
       variablesStore: _opts.variablesStore,
       experimentalApple: _opts.experimentalApple,
+      agentCalls: _opts.agentCalls,
     });
 
     // A 0-exit result still has to satisfy the node's output contract. A weak
@@ -1027,6 +1039,7 @@ function buildAttemptToolSurface(
     secretsStore: toolCtx.secretsStore,
     variablesStore: toolCtx.variablesStore,
     experimentalApple: toolCtx.experimentalApple,
+    agentCalls: toolCtx.agentCalls,
   });
   if (exposedToolIds.length === 0) return undefined;
   const execute = buildToolExecutor({
@@ -1045,6 +1058,7 @@ function buildAttemptToolSurface(
     experimentalApple: toolCtx.experimentalApple,
     signal,
     onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
+    agentCalls: toolCtx.agentCalls,
   });
   return { tools, execute };
 }
@@ -1135,6 +1149,7 @@ async function runLlmAttemptInner(
     integrationsStore?: IntegrationsStore;
     variablesStore?: VariablesStore;
     experimentalApple?: boolean;
+    agentCalls?: AgentCallContext;
   },
   /** Set by `runLlmAttempt` when sua's tool endpoint is up for this attempt. */
   mcpConfigPath?: string,

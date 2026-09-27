@@ -106,3 +106,26 @@ describe('run detail — recorded tool calls', () => {
     expect(html).toContain('web_fetch');
   });
 });
+
+describe('run detail — agents as tools', () => {
+  const childId = '11111111-2222-3333-4444-555555555555';
+
+  it('lists sub-runs and links an agent: call to the run it started', () => {
+    const html = renderRunDetail({
+      run: baseRun, agent, nodeExecutions: [nodeExec({})],
+      childRuns: [{ id: childId, agentName: 'weather', status: 'completed', startedAt: new Date().toISOString(), triggeredBy: 'cli', parentRunId: baseRun.id, parentNodeId: 'triage' } as Run],
+      toolCalls: new Map([['triage', [{ seq: 0, source: 'sua' as const, toolId: 'agent:weather', argsJson: '{"CITY":"Paris"}', resultPreview: `Agent "weather" run ${childId}: completed.\n\nSunny`, resultChars: 60, isError: false }]]]),
+    });
+    expect(html).toContain('sub-runs (1)');
+    expect(html).toContain('from step triage');
+    expect(html.match(new RegExp(`href="/runs/${childId}"`, 'g'))?.length).toBe(2);
+    expect(html).toContain('Open the sub-run →');
+  });
+
+  it('shows "Called by" on a sub-run', () => {
+    const html = renderRunDetail({ run: { ...baseRun, parentRunId: 'aaaaaaaa-0000-0000-0000-000000000000', parentNodeId: 'ask' }, agent, nodeExecutions: [nodeExec({})] });
+    expect(html).toContain('<dt>Called by</dt>');
+    expect(html).toContain('href="/runs/aaaaaaaa-0000-0000-0000-000000000000"');
+    expect(html).toContain('(step ask)');
+  });
+});

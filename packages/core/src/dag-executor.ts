@@ -20,6 +20,7 @@
  */
 
 import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
+import { createAgentCallContext, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, NodeExecutionRecord } from './agent-v2-types.js';
 import { isGoalType } from './agent-v2-types.js';
@@ -255,6 +256,13 @@ export interface DagExecuteOptions {
   parentRunId?: string;
   parentNodeId?: string;
   /**
+   * Agents as tools: where this run sits in an agent call chain. Set on the
+   * sub-run an `agent:<id>` tool call starts; top-level runs leave them unset
+   * (depth 0, stack = [this agent]). See agent-tool.ts.
+   */
+  agentCallDepth?: number;
+  agentCallStack?: string[];
+  /**
    * Retry chain metadata. Set when this execution is a manual retry of a
    * prior failed run. `originalRunId` always points at the head of the
    * chain (never an intermediate retry); `attempt` is 1-indexed and
@@ -462,6 +470,43 @@ export async function executeAgentDag(
     if (options.signal) options.signal.removeEventListener('abort', forwardCallerAbort);
   };
   const effectiveSignal = internalAbort.signal;
+
+  // Agents as tools: a node whose tools name `agent:<id>` can run that agent
+  // as a sub-run of this one (depth/cycle/allowedSubAgents guarded in
+  // agent-tool.ts). Sub-runs share this run's deps and cancel with it.
+  const agentCallDepth = options.agentCallDepth ?? 0;
+  const agentCallStack = options.agentCallStack ?? [agent.id];
+  const agentCallsFor = (nodeId: string): AgentCallContext | undefined => {
+    const agentStore = deps.agentStore;
+    if (!agentStore) return undefined;
+    return createAgentCallContext({
+      caller: agent,
+      getAgent: (id) => agentStore.getAgent(id),
+      stack: agentCallStack,
+      depth: agentCallDepth,
+      run: async (callee, inputs, ctx) => {
+        const sub = await executeAgentDag(callee, {
+          triggeredBy: options.triggeredBy,
+          inputs,
+          parentRunId: runId,
+          parentNodeId: nodeId,
+          signal: ctx.signal ?? effectiveSignal,
+          agentCallDepth: ctx.depth,
+          agentCallStack: ctx.stack,
+        }, deps);
+        return { runId: sub.id, status: sub.status, result: sub.result ?? '', error: sub.error };
+      },
+    });
+  };
+  const usesAgentTools = (node: AgentNode): boolean =>
+    [...(node.tools ?? []), ...(node.allowedTools ?? [])].some(isAgentToolId);
+  const agentCallSpawnOpts = (node: AgentNode): Pick<Parameters<SpawnNodeFn>[2], 'agentCalls' | 'agentCallInfo'> =>
+    usesAgentTools(node)
+      ? {
+          agentCalls: agentCallsFor(node.id),
+          agentCallInfo: { runId, nodeId: node.id, depth: agentCallDepth, stack: agentCallStack, triggeredBy: options.triggeredBy },
+        }
+      : {};
 
   // Replay pre-load: copy prior node_executions for nodes before the pivot.
   // Their stored `result` feeds downstream outputs so re-execution starts
@@ -1150,7 +1195,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node) };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1168,7 +1213,7 @@ export async function executeAgentDag(
         const goal = isGoalType(node.type);
         const nodeWithDefaults: AgentNode = goal ? toGoalPromptNode(withAgentDefaults, agent) : withAgentDefaults;
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node) };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
         // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
         result = goal ? finishGoalResult(node, spawnResult) : spawnResult;
