@@ -132,6 +132,9 @@ export interface LlmSettingsSnapshot {
  * - `tool_unavailable` — the node declares `tools:` this provider can't
  *   call (e.g. codex's read-only sandbox has no web access); skipped
  *   before spawning so the waterfall reaches a provider that can
+ * - `model_unavailable` — the provider rejected the configured model
+ *   (retired, or not on this account's plan); a config problem on this
+ *   provider that another provider doesn't share
  * - `other` — unknown / probably a real prompt or runtime bug; don't
  *   mask by switching providers
  */
@@ -144,6 +147,7 @@ export type LlmFailureCategory =
   | 'auth_required'
   | 'invalid_output'
   | 'tool_unavailable'
+  | 'model_unavailable'
   | 'other';
 
 /**
@@ -299,6 +303,40 @@ export interface LlmSpawner {
    * reads as a clean answer built on data the model never got.
    */
   detectDeniedTools?: (rawStdout: string) => string[];
+  /**
+   * The provider's own error message from a failed run (raw stdout in), for
+   * CLIs that report failures as JSON events. Replaces stderr as the node
+   * error when present: stderr carries unrelated noise (e.g. codex logging
+   * its MCP servers' auth errors) that otherwise decides the category.
+   */
+  extractError?: (rawStdout: string) => string | undefined;
+}
+
+/**
+ * Message from codex's `turn.failed` (or `error`) event. The message is often
+ * itself a JSON API error; unwrap it to "<status> <type>: <message>".
+ */
+export function codexFailureMessage(rawStdout: string): string | undefined {
+  const lines = rawStdout.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('{')) continue;
+    let event: { type?: string; message?: unknown; error?: { message?: unknown } };
+    try { event = JSON.parse(line); } catch { continue; }
+    const raw = event.type === 'turn.failed' ? event.error?.message
+      : event.type === 'error' ? event.message
+      : undefined;
+    if (typeof raw !== 'string' || raw.length === 0) continue;
+    try {
+      const inner = JSON.parse(raw) as { status?: number; error?: { type?: string; message?: string } };
+      if (inner.error?.message) {
+        const prefix = [inner.status, inner.error.type].filter(Boolean).join(' ');
+        return prefix ? `${prefix}: ${inner.error.message}` : inner.error.message;
+      }
+    } catch { /* plain-text message */ }
+    return raw;
+  }
+  return undefined;
 }
 
 /**
@@ -561,6 +599,8 @@ export const codexSpawner: LlmSpawner = {
     }
     return stdout;
   },
+
+  extractError: codexFailureMessage,
 };
 
 // ── Apple Foundation Models spawner ────────────────────────────────────
@@ -1015,7 +1055,7 @@ async function runLlmAttempt(
   // Keep the raw stdout: inline-failure checks (classifyResult,
   // detectDeniedTools) read the provider's JSON, not the extracted prose.
   let rawStdout = '';
-  const result = await spawnProcess(binaryPath, args, {
+  let result = await spawnProcess(binaryPath, args, {
     cwd: node.workingDirectory,
     env: mergedEnv,
     stdinInput,
@@ -1036,6 +1076,14 @@ async function runLlmAttempt(
   // `status: "unavailable"` on a successful exit). When the spawner
   // reports a fallback-worthy category, override the result so the
   // waterfall's classifyLlmFailure picks it up.
+  // Prefer the provider's own error over stderr for a failed run. codex logs
+  // its MCP servers' auth failures to stderr, which used to classify a
+  // "model not supported" failure as auth_required.
+  if (spawner.extractError && result.category === 'exit_nonzero') {
+    const providerError = spawner.extractError(rawStdout);
+    if (providerError) result = { ...result, error: providerError };
+  }
+
   if (spawner.classifyResult && result.exitCode === 0) {
     const overrideCategory = spawner.classifyResult(result, rawStdout);
     if (overrideCategory === 'binary_missing' || overrideCategory === 'other') {
@@ -1192,6 +1240,12 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
     || haystack.includes('unauthorized')) {
     return 'auth_required';
   }
+  if (haystack.includes('model is not supported')
+    || haystack.includes('model_not_found')
+    || haystack.includes('unsupported model')
+    || /model [`'"]?[\w.:-]+[`'"]? (does not exist|is not supported|not found)/.test(haystack)) {
+    return 'model_unavailable';
+  }
   return 'other';
 }
 
@@ -1209,6 +1263,7 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
  *                       of wiring a waterfall
  *   - tool_unavailable — this provider can't call the node's declared
  *                       tools; one later in the chain may
+ *   - model_unavailable — this provider rejected its configured model
  *
  * 'other' stays excluded — silent fallback on unclassified errors masks
  * real bugs that the operator should see (and that switching providers
@@ -1224,7 +1279,8 @@ export function shouldFallback(category: LlmFailureCategory): boolean {
     || category === 'auth_required'
     || category === 'rate_limited'
     || category === 'invalid_output'
-    || category === 'tool_unavailable';
+    || category === 'tool_unavailable'
+    || category === 'model_unavailable';
 }
 
 /**
