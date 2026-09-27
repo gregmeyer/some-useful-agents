@@ -4,14 +4,19 @@
  * Extracted from dag-executor.ts.
  */
 
+import { extractFramedOutput } from './output-framing.js';
+
 /**
  * Substitute upstream templates in a text blob. Supports:
  *   - {{upstream.<id>.result}} — full raw output (original behavior)
  *   - {{upstream.<id>.<field>}} — dot-path extraction from JSON output
  *
- * When a field path (not "result") is used, the resolver tries to parse the
- * upstream output as JSON and extract the field. Falls back to empty string
- * if the output isn't JSON or the field doesn't exist.
+ * When a field path (not "result") is used, the resolver reads the upstream
+ * output as JSON: the whole output, or else its framed last line (the same
+ * protocol the executor uses for a node's structured outputs, so a field that
+ * `onlyIf` can see is one a prompt can see too). An llm node that reasons in
+ * prose and ends with a JSON object — what the starters ask for — resolves.
+ * Falls back to empty string if neither parses or the field doesn't exist.
  */
 export function resolveUpstreamTemplate(text: string, snapshot: Record<string, string>): string {
   if (!text.includes('{{upstream.')) return text;
@@ -26,16 +31,15 @@ export function resolveUpstreamTemplate(text: string, snapshot: Record<string, s
     // {{upstream.X.result}} — return full output (backward compat).
     if (fieldPath === 'result') return safe(raw);
 
-    // Try JSON dot-path extraction.
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === 'object' && parsed !== null) {
-        const value = dotGet(parsed, fieldPath);
-        if (value !== undefined) {
-          return safe(typeof value === 'string' ? value : JSON.stringify(value));
-        }
+    // Try JSON dot-path extraction: whole output first, then the framed last line.
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { parsed = extractFramedOutput(raw); }
+    if (typeof parsed === 'object' && parsed !== null) {
+      const value = dotGet(parsed, fieldPath);
+      if (value !== undefined) {
+        return safe(typeof value === 'string' ? value : JSON.stringify(value));
       }
-    } catch { /* not JSON, fall through */ }
+    }
 
     // Fallback: return empty string (field not found).
     return '';
