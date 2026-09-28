@@ -78,6 +78,13 @@ emit({ type: 'result', subtype: 'success', is_error: false, result: 'ARGS: ' + a
     expect(res.error).toContain('Enable Claude or an OpenAI-compatible provider');
   });
 
+  it('does not skip a CLI for the memory tools alone (they are extras, not requirements)', async () => {
+    const node: AgentNode = { ...fetchNode, tools: ['memory-save', 'memory-search', 'memory-forget'] };
+    const res = await spawnNodeReal(node, { PATH: binDir }, opts(['codex']));
+    expect(res.category).not.toBe('tool_unavailable');
+    expect(res.providerFailures?.map((f) => f.category) ?? []).not.toContain('tool_unavailable');
+  });
+
   it('serves the node\'s sua tools to claude over MCP: it lists and calls them for real', async () => {
     const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
     const res = await spawnNodeReal(node, env(), opts(['codex', 'claude']));

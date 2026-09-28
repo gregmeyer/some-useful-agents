@@ -1,4 +1,4 @@
-import type { Agent, BlockedImgHost, Run, SecretsStore } from '@some-useful-agents/core';
+import type { Agent, BlockedImgHost, Memory, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
@@ -56,6 +56,11 @@ export interface AgentDetailArgs {
    */
   invokes?: AgentEdge[];
   invokedBy?: AgentEdge[];
+  /**
+   * What this agent remembers between runs, when it has `memory:` on.
+   * Undefined when memory is off, so the Overview shows no section.
+   */
+  memories?: Memory[];
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

@@ -210,6 +210,9 @@ export class RunStore {
     // unresolvable behavior fails the run). snake_case because `columnNames`
     // lowercases every name it reads, so a camelCase column would never match
     // its own probe and this ALTER would re-run and throw on every boot.
+    if (!runCols.has('recalled_memories_json')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN recalled_memories_json TEXT`);
+    }
     if (!runCols.has('behaviors_json')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN behaviors_json TEXT`);
     }
@@ -402,6 +405,14 @@ export class RunStore {
     return rows.map((r) => this.rowToRun(r));
   }
 
+  /**
+   * The shared database connection, for stores that live in the same file as
+   * runs and must be reachable wherever a run executes (e.g. agent memory).
+   */
+  databaseHandle(): DatabaseSync {
+    return this.db;
+  }
+
   getRun(id: string): Run | null {
     const stmt = this.db.prepare('SELECT * FROM runs WHERE id = ?');
     const row = stmt.get(id) as Record<string, unknown> | undefined;
@@ -418,7 +429,7 @@ export class RunStore {
     return rows.map((r) => this.rowToRun(r));
   }
 
-  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors'>>): void {
+  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors' | 'recalledMemories'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
 
@@ -430,6 +441,7 @@ export class RunStore {
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
     if (updates.temporalRunId !== undefined) { fields.push('temporal_run_id = ?'); values.push(updates.temporalRunId); }
     if (updates.behaviors !== undefined) { fields.push('behaviors_json = ?'); values.push(JSON.stringify(updates.behaviors)); }
+    if (updates.recalledMemories !== undefined) { fields.push('recalled_memories_json = ?'); values.push(JSON.stringify(updates.recalledMemories)); }
 
     if (fields.length === 0) return;
 
@@ -718,6 +730,7 @@ export class RunStore {
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
       temporalRunId: (row.temporal_run_id as string | null) ?? undefined,
       behaviors: parseBehaviorsJson(row.behaviors_json as string | null),
+      ...(row.recalled_memories_json ? { recalledMemories: JSON.parse(String(row.recalled_memories_json)) as string[] } : {}),
     };
   }
 

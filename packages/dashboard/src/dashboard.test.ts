@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -4746,5 +4746,60 @@ describe('Settings → Temporal (/settings/temporal)', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(303);
     expect(res.headers.location).toMatch(/^\/settings\/temporal/);
+  });
+});
+
+describe('Agent memory on the Overview', () => {
+  const authedGet = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const authedPost = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+    .type('form');
+
+  function seed(memory: boolean): void {
+    agentStore.createAgent({
+      id: 'rememberer', name: 'rememberer', status: 'active', source: 'local', mcp: false,
+      ...(memory ? { memory: true } : {}),
+      nodes: [{ id: 'go', type: 'llm-prompt', prompt: 'hi' }],
+    } as never, 'cli');
+  }
+
+  it('lists what the agent remembers, and forgets and pins from the page', async () => {
+    const app = await makeApp();
+    seed(true);
+    const memories = new MemoryStore(dbPath);
+    const a = memories.save({ agentId: 'rememberer', text: 'Office is in Lisbon' });
+    const other = memories.save({ agentId: 'someone-else', text: 'Not mine' });
+
+    const page = await authedGet(app, '/agents/rememberer');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('<h2>Memory</h2>');
+    expect(page.text).toContain('Office is in Lisbon');
+    expect(page.text).not.toContain('Not mine');
+
+    const pin = await authedPost(app, `/agents/rememberer/memory/${a.id}/pin`).send('pinned=true');
+    expect(pin.status).toBe(303);
+    expect(memories.get('rememberer', a.id)!.pinned).toBe(true);
+    expect((await authedGet(app, '/agents/rememberer')).text).toContain('Unpin');
+
+    // A memory id is only looked up under the agent in the URL.
+    await authedPost(app, `/agents/rememberer/memory/${other.id}/forget`);
+    expect(memories.get('someone-else', other.id)).toBeDefined();
+
+    const forget = await authedPost(app, `/agents/rememberer/memory/${a.id}/forget`);
+    expect(decodeURIComponent(forget.headers.location)).toContain(`Forgot ${a.id}.`);
+    expect(memories.list('rememberer')).toEqual([]);
+    expect((await authedGet(app, '/agents/rememberer')).text).toContain('Nothing remembered yet');
+    memories.close();
+  });
+
+  it('shows no Memory section when memory is off', async () => {
+    const app = await makeApp();
+    seed(false);
+    const page = await authedGet(app, '/agents/rememberer');
+    expect(page.status).toBe(200);
+    expect(page.text).not.toContain('<h2>Memory</h2>');
   });
 });

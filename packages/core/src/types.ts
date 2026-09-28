@@ -139,6 +139,8 @@ export interface Run {
    * the operator wrote — you cannot audit conduct you cannot tell was in force.
    */
   behaviors?: string[];
+  /** Memory ids the run started with (auto-recall). See memory-store.ts. */
+  recalledMemories?: string[];
 }
 
 export interface RunRequest {

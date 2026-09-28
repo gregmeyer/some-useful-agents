@@ -391,6 +391,8 @@ export interface Agent {
    * (e.g. layout-planner normally runs ~20s → set 60 as the safety net).
    */
   timeoutSec?: number;
+  /** Per-agent memory: `true` or `{ recall: N }`. See memory-store.ts / docs/memory.md. */
+  memory?: boolean | { recall?: number };
 
   /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
@@ -677,6 +679,8 @@ export interface AgentVersionDag {
   runOn?: 'local' | 'temporal';
   /** See Agent.timeoutSec. Versioned with the topology: it bounds the whole run. */
   timeoutSec?: number;
+  /** Per-agent memory: `true` or `{ recall: N }`. See memory-store.ts / docs/memory.md. */
+  memory?: boolean | { recall?: number };
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions

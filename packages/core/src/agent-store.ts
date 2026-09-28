@@ -365,6 +365,11 @@ export class AgentStore {
       // and removeStateDir's regex check would also reject it. Swallow any
       // residual failure here so a successful delete doesn't roll back.
     }
+    // Cascade: the agent's memories (memory-store.ts) live in this database.
+    // The table only exists once memory has been used, hence the guard.
+    try {
+      this.db.prepare(`DELETE FROM memories WHERE agent_id = ?`).run(id);
+    } catch { /* no memories table yet */ }
   }
 
   close(): void {
@@ -406,6 +411,7 @@ export class AgentStore {
     if (agent.allowedSubAgents !== undefined) dag.allowedSubAgents = agent.allowedSubAgents;
     if (agent.runOn !== undefined) dag.runOn = agent.runOn;
     if (agent.timeoutSec !== undefined) dag.timeoutSec = agent.timeoutSec;
+    if (agent.memory !== undefined) dag.memory = agent.memory;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -487,6 +493,7 @@ export class AgentStore {
       allowedSubAgents: dag.allowedSubAgents,
       runOn: dag.runOn,
       timeoutSec: dag.timeoutSec,
+      memory: dag.memory,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

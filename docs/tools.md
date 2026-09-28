@@ -24,7 +24,7 @@ This page is the index. Each builtin, plus the MCP tool type, has its own page b
 
 ## Built-in tools
 
-Ten tools ship with the runtime. Each is trusted (source: `builtin`) and bypasses the community-shell gate. To run an LLM prompt, use `type: llm-prompt` on the node (not a `tool:` reference) — see [agents.md](agents.md#node-types).
+The tools below ship with the runtime. Each is trusted (source: `builtin`) and bypasses the community-shell gate. To run an LLM prompt, use `type: llm-prompt` on the node (not a `tool:` reference) — see [agents.md](agents.md#node-types).
 
 | Tool | Purpose |
 |---|---|
@@ -38,6 +38,7 @@ Ten tools ship with the runtime. Each is trusted (source: `builtin`) and bypasse
 | [`template`](tools/template.md) | Interpolate `{{inputs.X}}` into a template string |
 | [`csv-to-chart-json`](tools/csv-to-chart-json.md) | Convert CSV into the JSON shape modern-graphics expects |
 | [`oauth-loopback`](tools/oauth-loopback.md) | One-time OAuth2 authorization-code loopback; saves a refresh token to the vault |
+| `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools
 

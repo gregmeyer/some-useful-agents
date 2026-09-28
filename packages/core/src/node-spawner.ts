@@ -7,6 +7,8 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { MEMORY_TOOL_IDS } from './memory-store.js';
+import type { BuiltinToolContext } from './tool-types.js';
 import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import type { ChildProcess } from 'node:child_process';
@@ -37,6 +39,9 @@ import type { SecretsStore } from './secrets-store.js';
  * classified failure category (timeout / credit_exhausted / binary_missing /
  * …), and a short error snippet for diagnosis.
  */
+/** Tools a node can run without: a provider that can't call them isn't skipped for them. */
+const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set<string>(MEMORY_TOOL_IDS);
+
 export interface ProviderFailure {
   provider: string;
   category: string;
@@ -198,6 +203,10 @@ export type SpawnNodeFn = (
      * live context (a Temporal worker) can rebuild it next to its own stores.
      */
     agentCallInfo?: AgentCallInfo;
+    /** Agent memory for the memory tools (in-process only). See memory-store.ts. */
+    memory?: BuiltinToolContext['memory'];
+    /** Set when the agent has memory on, so a backend that can't carry `memory` (Temporal) rebuilds it. */
+    memoryRunId?: string;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -824,6 +833,8 @@ export async function spawnNodeReal(
     /** See SpawnNodeFn.agentCalls. */
     agentCalls?: AgentCallContext;
     agentCallInfo?: AgentCallInfo;
+    memory?: BuiltinToolContext['memory'];
+    memoryRunId?: string;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -929,6 +940,7 @@ export async function spawnNodeReal(
       variablesStore: _opts.variablesStore,
       experimentalApple: _opts.experimentalApple,
       agentCalls: _opts.agentCalls,
+      memory: _opts.memory,
     });
 
     // A 0-exit result still has to satisfy the node's output contract. A weak
@@ -1059,6 +1071,7 @@ function buildAttemptToolSurface(
     signal,
     onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
     agentCalls: toolCtx.agentCalls,
+    memory: toolCtx.memory,
   });
   return { tools, execute };
 }
@@ -1150,6 +1163,7 @@ async function runLlmAttemptInner(
     variablesStore?: VariablesStore;
     experimentalApple?: boolean;
     agentCalls?: AgentCallContext;
+    memory?: BuiltinToolContext['memory'];
   },
   /** Set by `runLlmAttempt` when sua's tool endpoint is up for this attempt. */
   mcpConfigPath?: string,
@@ -1200,12 +1214,16 @@ async function runLlmAttemptInner(
   // starter-watch "completed" a watch that never read the page.
   let allowedTools = node.allowedTools;
   const declaredTools = node.tools ?? [];
-  if (declaredTools.length > 0 && !spawner.supportsMcpTools) {
+  // Optional tools (the memory tools the executor adds for agents with memory
+  // on) never make a provider skip the node: without tool support it runs
+  // without them, still starting from the recalled memories.
+  const requiredTools = declaredTools.filter((id) => !OPTIONAL_TOOL_IDS.has(id));
+  if (requiredTools.length > 0 && !spawner.supportsMcpTools) {
     return {
       result: '',
       exitCode: 1,
       category: 'tool_unavailable',
-      error: `${provider} can't call sua tools (${declaredTools.join(', ')}), which this node declares in tools:.`,
+      error: `${provider} can't call sua tools (${requiredTools.join(', ')}), which this node declares in tools:.`,
     };
   }
   if (mcpConfigPath) {

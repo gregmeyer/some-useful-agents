@@ -15,6 +15,7 @@ import {
   VariablesStore,
   LlmSettingsStore,
   createAgentCallContext,
+  MemoryStore,
   resolvePolicyDocument,
 } from '@some-useful-agents/core';
 import { dirname } from 'node:path';
@@ -188,6 +189,12 @@ export interface RunNodeActivityInput {
    */
   agentCallInfo?: AgentCallInfo;
   /**
+   * Set when the node's agent has memory on: the worker opens the memory
+   * store next to the shared db and gives the memory tools their context.
+   * (Recall itself already arrived inside `behaviorPreamble`.)
+   */
+  memoryRunId?: string;
+  /**
    * Agent Behavior conditioning block, already resolved and scope-checked by
    * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
    * scratch, so anything not listed here is silently dropped — and a run that
@@ -299,6 +306,8 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
       }, 10_000)
     : undefined;
 
+  // The worker's own handle on the shared db for the memory tools; closed below.
+  const memoryStore = input.memoryRunId && input.dbPath ? new MemoryStore(input.dbPath) : undefined;
   try {
     const result = await spawnNodeReal(
       input.node,
@@ -323,6 +332,14 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         // invalid file, like everywhere else).
         policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
         agentCalls: workerAgentCalls(input),
+        memory: memoryStore
+          ? {
+              agentId: input.agentId,
+              store: memoryStore,
+              runId: input.memoryRunId,
+              secretValues: input.declaredSecrets.map((k) => env[k]).filter(Boolean),
+            }
+          : undefined,
       },
       onProgress,
       ctx?.cancellationSignal,
@@ -331,6 +348,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
     return { ...result, usedWorkflowProvider: 'temporal' };
   } finally {
     if (keepalive) clearInterval(keepalive);
+    memoryStore?.close();
   }
 }
 

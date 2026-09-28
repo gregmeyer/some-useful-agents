@@ -53,7 +53,7 @@ export function findSimilarCommittedPlans(
 }
 
 /** Set Jaccard: |A ∩ B| / |A ∪ B|. Returns 0 when both sets are empty. */
-function jaccard(a: Set<string>, b: Set<string>): number {
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
   let intersection = 0;
   for (const t of a) if (b.has(t)) intersection++;

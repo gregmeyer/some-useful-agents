@@ -115,6 +115,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(p.stateMaxBytes !== undefined && { stateMaxBytes: p.stateMaxBytes }),
     // Both used to be dropped here: they validated, then never reached a run.
     ...(p.timeoutSec !== undefined && { timeoutSec: p.timeoutSec }),
+    ...(p.memory !== undefined && { memory: p.memory }),
     ...(p.runOn !== undefined && { runOn: p.runOn as Agent['runOn'] }),
     ...(p.permissions && { permissions: p.permissions }),
     ...(p.provider !== undefined && { provider: p.provider }),
@@ -149,7 +150,7 @@ const AGENT_KEY_ORDER = [
   'status', 'schedule', 'allowHighFrequency',
   'source', 'mcp', 'version',
   'pulseVisible', 'dashboardVisible', 'stateMaxBytes',
-  'timeoutSec', 'runOn',
+  'timeoutSec', 'runOn', 'memory',
   'permissions',
   'provider', 'model',
   'allowedSubAgents',

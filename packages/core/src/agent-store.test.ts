@@ -430,3 +430,24 @@ describe('AgentStore.fromHandle — dataRoot', () => {
     }
   });
 });
+
+describe('agent memory', () => {
+  it('round-trips memory: through versions', () => {
+    store.createAgent(seed({ memory: { recall: 3 } }), 'cli');
+    expect(store.getAgent('hello')!.memory).toEqual({ recall: 3 });
+    store.createNewVersion('hello', seed({ memory: true }), 'cli');
+    expect(store.getAgent('hello')!.memory).toBe(true);
+  });
+
+  it("deleting an agent forgets its memories, and only its own", async () => {
+    const { MemoryStore } = await import('./memory-store.js');
+    const memories = new MemoryStore(dbPath);
+    memories.save({ agentId: 'hello', text: 'remember me' });
+    memories.save({ agentId: 'other', text: 'keep me' });
+    store.createAgent(seed({ memory: true }), 'cli');
+    store.deleteAgent('hello');
+    expect(memories.list('hello')).toEqual([]);
+    expect(memories.list('other')).toHaveLength(1);
+    memories.close();
+  });
+});

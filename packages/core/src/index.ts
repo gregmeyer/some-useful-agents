@@ -8,6 +8,7 @@ export * from './agent-loader.js';
 export * from './run-store.js';
 export * from './tool-call-record.js';
 export * from './agent-tool.js';
+export * from './memory-store.js';
 export * from './run-orphan-reaper.js';
 export * from './agent-executor.js';
 export * from './local-provider.js';

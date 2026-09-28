@@ -219,6 +219,71 @@ function def(
   };
 }
 
+const memoryOff = (): ToolOutput => ({
+  result: 'Memory is off for this agent (set memory: true on the agent to use it).',
+  isError: true,
+});
+
+/** memory-save / memory-search / memory-forget — per agent; see memory-store.ts. */
+const MEMORY_TOOLS: BuiltinToolEntry[] = [
+  def(
+    'memory-save',
+    'Save to memory',
+    'Remember something for future runs of this agent: a fact you found, a user preference, a result worth reusing. One idea per memory, stated so it makes sense on its own later. Pin what should always be recalled.',
+    {
+      text: { type: 'string', required: true, description: 'What to remember, as a self-contained sentence or two.' },
+      tags: { type: 'string', description: 'Optional comma-separated tags.' },
+      pinned: { type: 'boolean', description: 'Always recall this at the start of a run.' },
+    },
+    { id: { type: 'string', description: 'The memory id.' } },
+    async (inputs, ctx) => {
+      if (!ctx.memory) return memoryOff();
+      const m = ctx.memory.store.save({
+        agentId: ctx.memory.agentId,
+        text: String(inputs.text ?? ''),
+        tags: typeof inputs.tags === 'string' ? inputs.tags.split(',') : Array.isArray(inputs.tags) ? inputs.tags.map(String) : [],
+        pinned: inputs.pinned === true || inputs.pinned === 'true',
+        sourceRunId: ctx.memory.runId,
+        secretValues: ctx.memory.secretValues,
+      });
+      return { id: m.id, result: `Saved memory ${m.id}${m.pinned ? ' (pinned)' : ''}.` };
+    },
+  ),
+  def(
+    'memory-search',
+    'Search memory',
+    "Look through this agent's memories from earlier runs for anything relevant to a query.",
+    {
+      query: { type: 'string', required: true, description: 'What you are looking for.' },
+      limit: { type: 'number', description: 'Most results to return (default 5, max 20).' },
+    },
+    { memories: { type: 'array', description: 'Matching memories: {id, text, pinned, updatedAt}.' } },
+    async (inputs, ctx) => {
+      if (!ctx.memory) return memoryOff();
+      const limit = Math.max(1, Math.min(20, Number(inputs.limit) || 5));
+      const found = ctx.memory.store.search(ctx.memory.agentId, String(inputs.query ?? ''), limit);
+      const memories = found.map((m) => ({ id: m.id, text: m.text, pinned: m.pinned, updatedAt: m.updatedAt }));
+      return {
+        memories,
+        result: memories.length ? memories.map((m) => `[${m.id}] ${m.text}`).join('\n') : 'No matching memories.',
+      };
+    },
+  ),
+  def(
+    'memory-forget',
+    'Forget a memory',
+    'Delete one of this agent\'s memories by id — use it when a memory is wrong or out of date (save the corrected version too).',
+    { id: { type: 'string', required: true, description: 'The memory id, e.g. from the recall list or memory-search.' } },
+    { forgotten: { type: 'boolean', description: 'True when a memory was deleted.' } },
+    async (inputs, ctx) => {
+      if (!ctx.memory) return memoryOff();
+      const id = String(inputs.id ?? '').replace(/^\[|\]$/g, '');
+      const ok = ctx.memory.store.forget(ctx.memory.agentId, id);
+      return { forgotten: ok, result: ok ? `Forgot memory ${id}.` : `No memory ${id} for this agent.`, isError: !ok };
+    },
+  ),
+];
+
 const BUILTINS: BuiltinToolEntry[] = [
   def(
     'shell-exec',
@@ -842,6 +907,7 @@ function parseCsvLine(line: string): string[] {
 }
 
 const REGISTRY = new Map<string, BuiltinToolEntry>();
+BUILTINS.push(...MEMORY_TOOLS);
 for (const entry of BUILTINS) {
   REGISTRY.set(entry.definition.id, entry);
 }

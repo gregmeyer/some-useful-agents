@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import type { RunStatus } from '@some-useful-agents/core';
+import { MemoryStore, memorySettings, type Memory, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
@@ -39,6 +39,18 @@ function resolveBehaviorStatus(
     }
     return { name, usable: true };
   });
+}
+/** An agent's memories for the Overview, or undefined when memory is off. */
+function loadMemories(
+  ctx: ReturnType<typeof getContext>,
+  agent: Parameters<typeof memorySettings>[0] & { id: string },
+): Memory[] | undefined {
+  if (!memorySettings(agent).enabled) return undefined;
+  try {
+    return MemoryStore.fromHandle(ctx.runStore.databaseHandle()).list(agent.id, 50);
+  } catch {
+    return [];
+  }
 }
 import { deriveBack } from '../../views/page-header.js';
 import {
@@ -92,6 +104,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
       invokes: graph.invokes.get(v2Agent.id) ?? [],
       invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
+      memories: loadMemories(ctx, v2Agent),
     });
     res.type('html').send(html);
     return;

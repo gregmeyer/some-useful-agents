@@ -8,6 +8,7 @@
  * at load time for backwards compatibility.
  */
 
+import type { MemoryStore } from './memory-store.js';
 import type { SecretsStore } from './secrets-store.js';
 
 export type ToolSource = 'local' | 'examples' | 'community' | 'builtin';
@@ -173,4 +174,16 @@ export interface BuiltinToolContext {
    * (tests, some CLI paths) still satisfy the type.
    */
   secretsStore?: SecretsStore;
+  /**
+   * Agent memory (memory-save / memory-search / memory-forget). Set by the
+   * executor only for agents with `memory:` on; the tools act on `agentId`'s
+   * memories and nothing else. `secretValues` (the node's declared secrets)
+   * are redacted from anything saved.
+   */
+  memory?: {
+    agentId: string;
+    store: MemoryStore;
+    runId?: string;
+    secretValues?: readonly string[];
+  };
 }

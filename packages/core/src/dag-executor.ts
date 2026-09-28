@@ -19,11 +19,12 @@
  * `--allow-untrusted-shell <agent-id>` stays the right granularity.
  */
 
+import { MemoryStore, memorySettings, formatRecallBlock, MEMORY_TOOL_IDS } from './memory-store.js';
 import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
 import { createAgentCallContext, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, NodeExecutionRecord } from './agent-v2-types.js';
-import { isGoalType } from './agent-v2-types.js';
+import { isGoalType, isLlmPromptType } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
@@ -87,6 +88,8 @@ export interface DagExecutorDeps {
    * — if absent, only built-in tools are available.
    */
   toolStore?: ToolStore;
+  /** Agent memory store; defaults to one on the run store's database (see memory-store.ts). */
+  memoryStore?: MemoryStore;
   /**
    * v0.16+: agent store for resolving sub-agents in `agent-invoke` nodes.
    * Required iff any node has `type: 'agent-invoke'`.
@@ -425,6 +428,37 @@ export async function executeAgentDag(
       throw err;
     }
   }
+
+  // Agent memory (docs/memory.md): per agent, opt-in via `memory:`. The run
+  // starts with the pinned + most relevant memories in a capped block, added
+  // to the preamble so it's prepended after template substitution (memory
+  // text is never expanded), and llm / goal nodes get the memory tools. The
+  // store shares the run database, so this works in every process that runs
+  // agents without extra wiring.
+  const memory = memorySettings(agent);
+  let memoryStore: MemoryStore | undefined;
+  if (memory.enabled) {
+    try { memoryStore = deps.memoryStore ?? MemoryStore.fromHandle(deps.runStore.databaseHandle()); } catch { memoryStore = undefined; }
+    if (memoryStore && memory.recall > 0) {
+      const query = [
+        ...Object.values(options.inputs ?? {}),
+        ...agent.nodes.map((n) => n.goal ?? n.prompt ?? ''),
+      ].join(' ');
+      const { text, ids } = formatRecallBlock(memoryStore.recall(agent.id, query, memory.recall));
+      if (text) {
+        behaviorPreamble = behaviorPreamble ? `${behaviorPreamble}\n${text}` : text;
+        deps.runStore.updateRun(runId, { recalledMemories: ids });
+      }
+    }
+  }
+  const memoryToolCtx = (node: AgentNode, env: Record<string, string>): BuiltinToolContext['memory'] =>
+    memoryStore
+      ? { agentId: agent.id, store: memoryStore, runId, secretValues: (node.secrets ?? []).map((k) => env[k]).filter(Boolean) }
+      : undefined;
+  const withMemoryTools = (node: AgentNode): AgentNode =>
+    memoryStore && (isLlmPromptType(node.type) || isGoalType(node.type))
+      ? { ...node, tools: [...new Set([...(node.tools ?? []), ...MEMORY_TOOL_IDS])] }
+      : node;
 
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
@@ -1116,6 +1150,7 @@ export async function executeAgentDag(
           // Threaded so secret-writing built-ins (oauth-loopback) can persist
           // a minted token. Already in scope — used for generated tools at ~L878.
           secretsStore: deps.secretsStore,
+          memory: memoryToolCtx(node, env),
         };
         structuredOutput = await builtinEntry.execute(toolInputs, ctx);
         const stdout = structuredOutput.result ?? '';
@@ -1195,7 +1230,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node) };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1203,17 +1238,17 @@ export async function executeAgentDag(
       } else {
         // v0.15 legacy path: no tool field, dispatch by type directly.
         // Merge agent-level provider/model defaults (node overrides take precedence).
-        const withAgentDefaults: AgentNode = {
+        const withAgentDefaults: AgentNode = withMemoryTools({
           ...node,
           provider: node.provider ?? agent.provider,
           model: node.model ?? agent.model,
-        };
+        });
         // A goal node runs as the llm-prompt node it frames (goal-node.ts), so
         // every backend — including a Temporal worker — sees a plain llm node.
         const goal = isGoalType(node.type);
         const nodeWithDefaults: AgentNode = goal ? toGoalPromptNode(withAgentDefaults, agent) : withAgentDefaults;
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node) };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
         // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
         result = goal ? finishGoalResult(node, spawnResult) : spawnResult;
