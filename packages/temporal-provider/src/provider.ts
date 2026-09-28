@@ -151,6 +151,7 @@ export class TemporalProvider implements Provider {
       llmProviders: opts.llmProviders,
       allowUntrustedShell: opts.allowUntrustedShell ?? [...this.allowUntrustedShell],
       experimentalApple: opts.experimentalApple,
+      conversationPreamble: opts.conversationPreamble,
     };
 
     const handle = await this.client.workflow.start('runDagWorkflow', {

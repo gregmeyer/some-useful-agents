@@ -176,3 +176,36 @@
   display: block;
 }
 
+
+/* ---------- Agent Chat tab (views/agent-detail/chat.ts) ---------- */
+/* Conversation list on the left, transcript + chat bar on the right. The
+   transcript and composer reuse the inbox thread's .inbox-msg / .inbox-chatbar. */
+.agent-chat {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+.agent-chat__main { min-width: 0; }
+.agent-chat__session-list { list-style: none; padding: 0; margin: var(--space-3) 0 0; }
+.agent-chat__session-list a {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.agent-chat__session-list a:hover { background: var(--color-surface); }
+.agent-chat__session-list a.is-active { background: var(--color-surface); box-shadow: inset 2px 0 0 var(--color-primary); }
+.agent-chat__session-title {
+  display: block;
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat__session-meta { display: block; font-size: var(--font-size-xs); }
+.agent-chat__transcript { list-style: none; padding: 0; margin: 0 0 var(--space-4); }
+@media (max-width: 720px) {
+  .agent-chat { grid-template-columns: 1fr; }
+}

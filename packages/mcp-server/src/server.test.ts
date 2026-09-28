@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
+import { AgentStore, SessionStore, parseAgent } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
@@ -323,6 +324,53 @@ describe('MCP run-agent with inputs', () => {
       const payload = JSON.parse((res.content as Array<{ text: string }>)[0].text);
       expect(payload.status).toBe('completed');
       expect(payload.result).toBe('Q2 wins');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('run-agent holds a conversation with a v2 agent via message + sessionId', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const store = new AgentStore(dbPath);
+    store.upsertAgent(parseAgent(`id: chatty
+name: Chatty
+status: active
+source: local
+mcp: true
+version: 1
+inputs:
+  MESSAGE: { type: string, required: true }
+nodes:
+  - id: say
+    type: shell
+    command: echo "heard $MESSAGE"
+`), 'import', 'seed');
+    store.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [agentDir], dbPath, secretsPath, tokenPath });
+    port = serverHandle.port;
+
+    const client = await connectClient();
+    try {
+      const call = async (args: Record<string, unknown>) => {
+        const res = await client.callTool({ name: 'run-agent', arguments: { name: 'chatty', ...args } });
+        return { res, payload: (() => { try { return JSON.parse((res.content as Array<{ text: string }>)[0].text); } catch { return (res.content as Array<{ text: string }>)[0].text; } })() };
+      };
+      const first = await call({ message: 'one' });
+      expect(first.res.isError).toBeFalsy();
+      expect(first.payload.reply).toBe('heard one');
+      expect(first.payload.sessionId).toBeTruthy();
+
+      const second = await call({ message: 'two', sessionId: first.payload.sessionId });
+      expect(second.payload.sessionId).toBe(first.payload.sessionId);
+      const sessions = new SessionStore(dbPath);
+      expect(sessions.turns(first.payload.sessionId).map((t) => t.text)).toEqual(['one', 'heard one', 'two', 'heard two']);
+      sessions.close();
+
+      const orphan = await call({ sessionId: first.payload.sessionId });
+      expect(orphan.res.isError).toBe(true);
+      const wrong = await call({ message: 'x', sessionId: 'nope' });
+      expect(wrong.res.isError).toBe(true);
+      expect(String(wrong.payload)).toContain('No conversation nope');
     } finally {
       await client.close();
     }

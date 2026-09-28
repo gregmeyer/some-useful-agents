@@ -393,6 +393,8 @@ export interface Agent {
   timeoutSec?: number;
   /** Per-agent memory: `true` or `{ recall: N }`. See memory-store.ts / docs/memory.md. */
   memory?: boolean | { recall?: number };
+  /** Conversations: the input a chat message fills. See sessions.ts / docs/conversations.md. */
+  chat?: { input: string };
 
   /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
@@ -681,6 +683,8 @@ export interface AgentVersionDag {
   timeoutSec?: number;
   /** Per-agent memory: `true` or `{ recall: N }`. See memory-store.ts / docs/memory.md. */
   memory?: boolean | { recall?: number };
+  /** Conversations: the input a chat message fills. See sessions.ts / docs/conversations.md. */
+  chat?: { input: string };
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions

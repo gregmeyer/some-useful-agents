@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -4801,5 +4801,86 @@ describe('Agent memory on the Overview', () => {
     const page = await authedGet(app, '/agents/rememberer');
     expect(page.status).toBe(200);
     expect(page.text).not.toContain('<h2>Memory</h2>');
+  });
+});
+
+describe('Agent Chat tab', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+    .type('form');
+
+  function seedEcho(): void {
+    agentStore.createAgent({
+      id: 'echo-chat', name: 'Echo chat', status: 'active', source: 'local', mcp: false,
+      inputs: { MESSAGE: { type: 'string', required: true } },
+      nodes: [{ id: 'say', type: 'shell', command: 'echo "you said $MESSAGE"' }],
+    } as never, 'cli');
+  }
+
+  async function waitForReply(sessionId: string, count: number): Promise<void> {
+    const sessions = SessionStore.fromHandle(runStore.databaseHandle());
+    const start = Date.now();
+    while (sessions.turns(sessionId).length < count && Date.now() - start < 5000) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  it('sends a message, shows the reply with its run, and continues the conversation', async () => {
+    const app = await makeApp();
+    seedEcho();
+
+    const empty = await get(app, '/agents/echo-chat/chat');
+    expect(empty.status).toBe(200);
+    expect(empty.text).toContain('class="tab-strip"');
+    expect(empty.text).toContain('>Chat</a>');
+    expect(empty.text).toContain('No conversations yet.');
+    expect(empty.text).toContain('<code>MESSAGE</code>');
+
+    const sent = await post(app, '/agents/echo-chat/chat').send('message=hello%20there');
+    expect(sent.status).toBe(303);
+    const sessionId = new URL(sent.headers.location, 'http://x').searchParams.get('session')!;
+    expect(sessionId).toBeTruthy();
+    await waitForReply(sessionId, 2);
+
+    const page = await get(app, `/agents/echo-chat/chat?session=${sessionId}`);
+    expect(page.text).toContain('hello there');
+    expect(page.text).toContain('you said hello there');
+    expect(page.text).toMatch(/href="\/runs\/[0-9a-f-]+"/);
+    expect(page.text).toContain(`name="session" value="${sessionId}"`);
+
+    const again = await post(app, '/agents/echo-chat/chat').send(`message=more&session=${sessionId}`);
+    expect(new URL(again.headers.location, 'http://x').searchParams.get('session')).toBe(sessionId);
+    await waitForReply(sessionId, 4);
+    expect((await get(app, `/agents/echo-chat/chat?session=${sessionId}`)).text).toContain('you said more');
+  });
+
+  it('explains why an agent without a message input can\'t chat', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'mute', name: 'mute', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'go', type: 'shell', command: 'echo hi' }],
+    } as never, 'cli');
+    const page = await get(app, '/agents/mute/chat');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('has no string input for the message');
+    expect(page.text).not.toContain('id="agent-chat-form"');
+    const sent = await post(app, '/agents/mute/chat').send('message=hi');
+    expect(decodeURIComponent(sent.headers.location)).toContain('error=');
+  });
+
+  it('deletes a conversation, and never another agent\'s', async () => {
+    const app = await makeApp();
+    seedEcho();
+    const sessions = SessionStore.fromHandle(runStore.databaseHandle());
+    const mine = sessions.create('echo-chat', 'mine');
+    const theirs = sessions.create('someone-else', 'theirs');
+    await post(app, `/agents/echo-chat/chat/${theirs.id}/delete`);
+    expect(sessions.get(theirs.id)).toBeDefined();
+    await post(app, `/agents/echo-chat/chat/${mine.id}/delete`);
+    expect(sessions.get(mine.id)).toBeUndefined();
   });
 });

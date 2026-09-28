@@ -195,4 +195,6 @@ export interface SubmitDagRunOptions {
    * worker process's env (the cause of intermittent "tool did not resolve").
    */
   experimentalApple?: boolean;
+  /** A chat turn's "conversation so far" block (sessions.ts); forwarded to the executor. */
+  conversationPreamble?: string;
 }

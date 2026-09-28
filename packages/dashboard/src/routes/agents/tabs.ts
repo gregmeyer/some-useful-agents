@@ -7,7 +7,7 @@ import { deriveBack } from '../../views/page-header.js';
 export const agentTabsRouter: Router = Router();
 
 /** Shared helper: build the common args for all agent detail tabs. */
-async function buildTabArgs(req: Request, ctx: ReturnType<typeof getContext>, name: string) {
+export async function buildTabArgs(req: Request, ctx: ReturnType<typeof getContext>, name: string) {
   const agent = ctx.agentStore.getAgent(name);
   if (!agent) return null;
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;

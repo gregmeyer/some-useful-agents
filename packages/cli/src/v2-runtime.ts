@@ -31,6 +31,7 @@ import {
   outcomeDetectionHook,
   withOutcomeFeedback,
   type Agent,
+  type DagExecutorDeps,
   type Run,
 } from '@some-useful-agents/core';
 import chalk from 'chalk';
@@ -145,11 +146,44 @@ export interface RunV2Result {
 export async function runV2Agent(id: string, options: RunV2Options): Promise<RunV2Result> {
   const config = loadConfig();
   const stores = openStores();
+  const { deps, outcomeStore, close } = openV2Deps(config, stores, options.allowUntrustedShell);
+
+  try {
+    const agent = stores.agents.getAgent(id);
+    if (!agent) throw new AgentNotFoundError(id);
+
+    const run = await executeAgentWithRetry(
+      agent,
+      {
+        triggeredBy: 'cli',
+        // Cross-run feedback: hand this run what the PREVIOUS run of the same
+        // agent failed to achieve. No-op unless the agent declares
+        // OUTCOME_FEEDBACK in its `inputs:` block.
+        inputs: withOutcomeFeedback(options.inputs, outcomeStore, id),
+      },
+      deps,
+    );
+
+    return { run, hasOutcomeRecord: Boolean(outcomeStore?.get(run.id)) };
+  } finally {
+    close();
+    stores.close();
+  }
+}
+
+/**
+ * Executor deps for a CLI run of a v2 agent. Optional stores mirror the
+ * daemon's schedule wiring so CLI runs can resolve csv/postgres/sqlite
+ * generated tools, vars, and user tools the same way scheduled fires can.
+ * Each open is best-effort: an absent store just means that feature doesn't
+ * resolve. `close` closes what this opened (not `stores`).
+ */
+export function openV2Deps(
+  config: ReturnType<typeof loadConfig>,
+  stores: OpenedStores,
+  allowUntrustedShell: string[] = [],
+): { deps: DagExecutorDeps; outcomeStore?: OutcomeStore; close: () => void } {
   const secretsStore = new EncryptedFileStore(getSecretsPath(config));
-  // Optional stores — mirror the daemon's schedule wiring so CLI runs
-  // can resolve csv/postgres/sqlite generated tools, vars, and user
-  // tools the same way scheduled fires can. Each open is best-effort:
-  // an absent store just means that feature doesn't resolve.
   const variablesStore = (() => {
     try { return new VariablesStore(join(config.dataDir, '.sua', 'variables.json')); }
     catch { return undefined; }
@@ -170,40 +204,20 @@ export async function runV2Agent(id: string, options: RunV2Options): Promise<Run
     try { return new OutcomeStore(getDbPath(config)); }
     catch { return undefined; }
   })();
-
-  try {
-    const agent = stores.agents.getAgent(id);
-    if (!agent) throw new AgentNotFoundError(id);
-
-    const run = await executeAgentWithRetry(
-      agent,
-      {
-        triggeredBy: 'cli',
-        // Cross-run feedback: hand this run what the PREVIOUS run of the same
-        // agent failed to achieve. No-op unless the agent declares
-        // OUTCOME_FEEDBACK in its `inputs:` block.
-        inputs: withOutcomeFeedback(options.inputs, outcomeStore, id),
-      },
-      {
-        runStore: stores.runs,
-        secretsStore,
-        agentStore: stores.agents,
-        variablesStore,
-        integrationsStore,
-        toolStore,
-        allowUntrustedShell: new Set(options.allowUntrustedShell),
-        dashboardBaseUrl: getDashboardBaseUrl(config),
-        dataRoot: stores.agents.dataRoot,
-        llmSettings: loadLlmSettingsSnapshot(config),
-        ...(outcomeStore && { onRunComplete: outcomeDetectionHook({ outcomeStore }) }),
-      },
-    );
-
-    return { run, hasOutcomeRecord: Boolean(outcomeStore?.get(run.id)) };
-  } finally {
-    outcomeStore?.close();
-    stores.close();
-  }
+  const deps: DagExecutorDeps = {
+    runStore: stores.runs,
+    secretsStore,
+    agentStore: stores.agents,
+    variablesStore,
+    integrationsStore,
+    toolStore,
+    allowUntrustedShell: new Set(allowUntrustedShell),
+    dashboardBaseUrl: getDashboardBaseUrl(config),
+    dataRoot: stores.agents.dataRoot,
+    llmSettings: loadLlmSettingsSnapshot(config),
+    ...(outcomeStore && { onRunComplete: outcomeDetectionHook({ outcomeStore }) }),
+  };
+  return { deps, outcomeStore, close: () => outcomeStore?.close() };
 }
 
 /**

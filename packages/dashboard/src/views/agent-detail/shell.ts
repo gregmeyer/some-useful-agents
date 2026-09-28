@@ -7,7 +7,7 @@ import { renderRunInputsForm, statusOption } from '../agent-detail-helpers.js';
 import type { WidgetControlState } from '../output-widgets.js';
 import type { AgentEdge } from '../../lib/agent-graph.js';
 
-export type AgentTab = 'overview' | 'nodes' | 'config' | 'runs' | 'yaml';
+export type AgentTab = 'overview' | 'chat' | 'nodes' | 'config' | 'runs' | 'yaml';
 
 export interface AgentDetailArgs {
   agent: Agent;
@@ -66,6 +66,7 @@ export interface AgentDetailArgs {
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {
   const tabs: Array<{ id: AgentTab; label: string; href: string }> = [
     { id: 'overview', label: 'Overview', href: `/agents/${agentId}` },
+    { id: 'chat', label: 'Chat', href: `/agents/${agentId}/chat` },
     { id: 'nodes', label: 'Nodes', href: `/agents/${agentId}/nodes` },
     { id: 'config', label: 'Config', href: `/agents/${agentId}/config` },
     { id: 'runs', label: 'Runs', href: `/agents/${agentId}/runs` },

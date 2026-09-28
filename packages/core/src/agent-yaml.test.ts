@@ -534,3 +534,11 @@ describe('memory: field', () => {
     expect(() => parseAgent(`${MINIMAL_YAML}memory:\n  recall: 50\n`)).toThrow(AgentYamlParseError);
   });
 });
+
+describe('chat: field', () => {
+  it('parses and exports chat: { input }', () => {
+    const a = parseAgent(`${MINIMAL_YAML}inputs:\n  Q: { type: string, required: true }\nchat:\n  input: Q\n`);
+    expect(a.chat).toEqual({ input: 'Q' });
+    expect(parseAgent(exportAgent(a)).chat).toEqual({ input: 'Q' });
+  });
+});

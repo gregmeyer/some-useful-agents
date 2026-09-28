@@ -202,6 +202,37 @@ describe('runDagActivity', () => {
     expect(res.status).toBe('completed');
   });
 
+  it('gives llm nodes a chat turn\'s conversation block on the worker', async () => {
+    let prompt = '';
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        prompt = (JSON.parse(body).messages as Array<{ content: string }>).map((m) => m.content).join('\n');
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'the bus' }, finish_reason: 'stop' }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const settingsPath = join(TEST_DIR, 'llm-settings.json');
+      new LlmSettingsStore(settingsPath).addCustomProvider({
+        name: 'fake-local', kind: 'openai', apiBase: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, model: 'm',
+      });
+      const agent = dagAgent([{ id: 'answer', type: 'llm-prompt', prompt: 'Which is cheaper?' }]);
+      const res = await runDagActivity({
+        agent, runId: 'r-chat', triggeredBy: 'dashboard', dbPath: DB, secretsPath: SECRETS_PATH,
+        llmProviders: ['fake-local'], llmSettingsPath: settingsPath,
+        conversationPreamble: 'CONVERSATION SO FAR\nUser: rail or bus?\nYou: rail 40, bus 25\n',
+      });
+      expect(res.status).toBe('completed');
+      expect(prompt).toContain('User: rail or bus?');
+      expect(prompt.indexOf('rail 40, bus 25')).toBeLessThan(prompt.indexOf('Which is cheaper?'));
+    } finally {
+      server.close();
+    }
+  });
+
   it('returns failed (does NOT throw) when a node fails — a failed agent must not retry', async () => {
     const agent = dagAgent([{ id: 'boom', type: 'shell', command: 'exit 7' }]);
     const res = await runDagActivity({ agent, runId: 'r2', triggeredBy: 'dashboard', dbPath: DB, secretsPath: SECRETS_PATH });

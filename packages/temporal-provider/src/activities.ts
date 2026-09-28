@@ -382,6 +382,8 @@ export interface RunDagActivityInput {
    * intermittent "tool did not resolve" on the Temporal worker.
    */
   experimentalApple?: boolean;
+  /** A chat turn's "conversation so far" block (core sessions.ts). */
+  conversationPreamble?: string;
 }
 
 export interface RunDagActivityResult {
@@ -434,6 +436,7 @@ export async function runDagActivity(input: RunDagActivityInput): Promise<RunDag
         triggeredBy: input.triggeredBy,
         resume: true,
         signal: ctx?.cancellationSignal,
+        conversationPreamble: input.conversationPreamble,
       },
       deps,
     );

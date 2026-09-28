@@ -14,6 +14,11 @@ import type {
 } from '@some-useful-agents/core';
 import {
   executeAgentDag,
+  runAgentTurn,
+  SessionStore,
+  NotConversationalError,
+  SessionNotFoundError,
+  ChatMessageError,
   loadAgents,
   MissingInputError,
   InvalidInputTypeError,
@@ -207,15 +212,21 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     'run-agent',
     {
       description:
-        "Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent's schema",
+        "Start an agent run (only agents with `mcp: true` are runnable). Pass declared inputs via the `inputs` map; call `list-agents` to see each agent's schema. To hold a conversation, pass `message` (it fills the agent's chat input) and, from the second turn on, the `sessionId` the previous call returned: the agent then sees the conversation so far.",
       inputSchema: {
         name: z.string().describe('Agent name to run'),
         inputs: z.record(z.string(), z.string()).optional().describe(
           'Map of input name → string value. Required inputs without a default must be supplied; undeclared keys are rejected. Values are capped at 8 KB each (64 KB total).',
         ),
+        message: z.string().optional().describe(
+          'A chat message for the agent (fills its chat input). Starts a conversation, or continues one with sessionId. The result includes sessionId.',
+        ),
+        sessionId: z.string().optional().describe(
+          'Continue an earlier conversation: the sessionId returned by a previous run-agent call with a message.',
+        ),
       },
     },
-    async ({ name, inputs }) => {
+    async ({ name, inputs, message, sessionId }) => {
       const agents = loadMcpExposedAgents(loadOpts);
       const entry = agents.get(name);
       if (!entry) {
@@ -225,6 +236,59 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
       const provided = inputs ?? {};
       const capError = checkInputCaps(provided);
       if (capError) return errorResult(capError);
+
+      // Conversation turn (docs/conversations.md): v2 agents only.
+      if (message !== undefined || sessionId !== undefined) {
+        if (message === undefined) return errorResult('sessionId needs a message to send.');
+        if (entry.kind !== 'v2' || !opts.runStore) {
+          return errorResult(`Agent "${name}" can't hold a conversation over MCP (only DB-managed agents can).`);
+        }
+        try {
+          const turn = await runAgentTurn({
+            agent: entry.agent,
+            sessions: SessionStore.fromHandle(opts.runStore.databaseHandle()),
+            message,
+            sessionId,
+            inputs: provided,
+            triggeredBy: 'mcp',
+            deps: {
+              runStore: opts.runStore,
+              secretsStore: opts.secretsStore,
+              agentStore: opts.agentStore,
+              variablesStore: opts.variablesStore,
+              toolStore: opts.toolStore,
+              integrationsStore: opts.integrationsStore,
+              dataRoot: opts.dataRoot,
+            },
+          });
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                sessionId: turn.sessionId,
+                id: turn.run.id,
+                status: turn.run.status,
+                reply: turn.reply.text,
+                error: turn.run.error,
+              }, null, 2),
+            }],
+            isError: turn.run.status === 'failed',
+          };
+        } catch (err) {
+          if (
+            err instanceof NotConversationalError ||
+            err instanceof SessionNotFoundError ||
+            err instanceof MissingInputError ||
+            err instanceof InvalidInputTypeError ||
+            err instanceof UndeclaredInputError ||
+            err instanceof SensitiveInputNameError ||
+            err instanceof ChatMessageError
+          ) {
+            return errorResult(err.message);
+          }
+          throw err;
+        }
+      }
 
       // v2 dispatch path — executeAgentDag. Requires runStore at minimum;
       // missing deps make the run fail with category=setup, surfaced as
