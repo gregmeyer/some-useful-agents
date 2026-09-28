@@ -34,3 +34,11 @@ describe('formatLearnings', () => {
     expect(out.startsWith('1. ')).toBe(true);
   });
 });
+
+describe('formatLearnings — byte budget', () => {
+  it('measures bytes, not characters, so non-ASCII lessons stay within budget', async () => {
+    const { LEARNINGS_PROMPT_BUDGET } = await import('./inbox-shared.js');
+    const out = formatLearnings(Array.from({ length: 30 }, () => learning({ lesson: 'é'.repeat(100) })));
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(LEARNINGS_PROMPT_BUDGET);
+  });
+});
