@@ -46,7 +46,7 @@ const PATTERN: Record<string, { ord: string; label: string; teaches: string }> =
   'starter-goal': {
     ord: '04',
     label: 'Work it out',
-    teaches: 'No steps to wire. It decides what to read and stops when it knows enough.',
+    teaches: 'Nothing to wire. It decides what to read and stops when it knows enough.',
   },
 };
 
@@ -129,8 +129,8 @@ export function renderStartHerePage(args: StartHereArgs): string {
         The first three are a handful of steps wired together, and every step is
         just an instruction plus a tool or two. Run one and watch the graph —
         nodes light up as they go, some run side by side, some get skipped. The
-        fourth has no steps to wire: give it a goal and it decides them, and the
-        run page shows each one. Open the YAML of any of them and you'll see
+        fourth is a single node with no wiring at all: give it a goal and it
+        works out what to do, and the run page lists every tool call it made. Open the YAML of any of them and you'll see
         there was no magic in it.
       </p>
 
