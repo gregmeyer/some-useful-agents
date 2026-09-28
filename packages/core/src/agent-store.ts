@@ -370,6 +370,11 @@ export class AgentStore {
     try {
       this.db.prepare(`DELETE FROM memories WHERE agent_id = ?`).run(id);
     } catch { /* no memories table yet */ }
+    // And its conversations (sessions.ts).
+    try {
+      this.db.prepare(`DELETE FROM session_turns WHERE session_id IN (SELECT id FROM sessions WHERE agent_id = ?)`).run(id);
+      this.db.prepare(`DELETE FROM sessions WHERE agent_id = ?`).run(id);
+    } catch { /* no sessions table yet */ }
   }
 
   close(): void {
@@ -412,6 +417,7 @@ export class AgentStore {
     if (agent.runOn !== undefined) dag.runOn = agent.runOn;
     if (agent.timeoutSec !== undefined) dag.timeoutSec = agent.timeoutSec;
     if (agent.memory !== undefined) dag.memory = agent.memory;
+    if (agent.chat !== undefined) dag.chat = agent.chat;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -494,6 +500,7 @@ export class AgentStore {
       runOn: dag.runOn,
       timeoutSec: dag.timeoutSec,
       memory: dag.memory,
+      chat: dag.chat,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

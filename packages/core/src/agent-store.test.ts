@@ -451,3 +451,20 @@ describe('agent memory', () => {
     memories.close();
   });
 });
+
+describe('agent conversations', () => {
+  it('round-trips chat: and deletes the agent\'s conversations with it', async () => {
+    const { SessionStore } = await import('./sessions.js');
+    store.createAgent(seed({ inputs: { Q: { type: 'string', required: true } }, chat: { input: 'Q' } }), 'cli');
+    expect(store.getAgent('hello')!.chat).toEqual({ input: 'Q' });
+    const sessions = new SessionStore(dbPath);
+    const mine = sessions.create('hello', 'mine');
+    sessions.appendTurn({ sessionId: mine.id, role: 'user', text: 'hi' });
+    const theirs = sessions.create('other', 'theirs');
+    store.deleteAgent('hello');
+    expect(sessions.get(mine.id)).toBeUndefined();
+    expect(sessions.turns(mine.id)).toEqual([]);
+    expect(sessions.get(theirs.id)).toBeDefined();
+    sessions.close();
+  });
+});

@@ -103,7 +103,7 @@ Every row also has an **Edit** link to `/agents/:id/config` for cron changes or 
 
 ## `/agents/:id` — Agent detail
 
-Five tabs:
+Six tabs:
 
 ### Overview
 - **DAG visualization** — Cytoscape canvas with wheel-zoom + drag-pan. A floating toolbar in the bottom-right has **+** (zoom in), **⧇** (fit to view), and **−** (zoom out) buttons; clicks bind to `cy.zoom()` / `cy.fit()`. The canvas height adapts to graph size — 380px default, 240px compact for 1–2-node DAGs — so a small graph doesn't drown in an empty grid and a dense one stays readable without leaving the page. Click any node for the action dialog (Edit, Replay-from-here, Jump to details).
@@ -112,6 +112,9 @@ Five tabs:
 - Latest run's output widget (if declared)
 - Stats strip: total runs, success rate, avg duration
 - Signal + output widget previews
+
+### Chat
+Talk to the agent. Each message is a run (linked under the reply), and the agent sees the conversation so far. Conversations are listed on the left; open one to continue it, or delete it (its runs are kept). An agent without a text input for the message says so and points at the YAML tab. See [conversations.md](conversations.md).
 
 ### Nodes
 Edit / delete / add nodes inline. Template palette autocomplete for upstream fields + inputs + vars. Per-node timeout, env, secrets, onlyIf predicates.

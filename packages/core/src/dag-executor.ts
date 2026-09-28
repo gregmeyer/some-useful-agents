@@ -294,6 +294,12 @@ export interface DagExecuteOptions {
    */
   runId?: string;
   /**
+   * The "conversation so far" block for a chat turn (sessions.ts). Prepended
+   * to llm / goal prompts after template substitution, after behaviors and
+   * memory, so earlier messages are never template-expanded.
+   */
+  conversationPreamble?: string;
+  /**
    * Resume an interrupted run in place. Requires `runId` to point at an
    * existing run. The executor does NOT create a new run row; instead it skips
    * nodes already `completed` in that run (reloading their stored outputs),
@@ -450,6 +456,9 @@ export async function executeAgentDag(
         deps.runStore.updateRun(runId, { recalledMemories: ids });
       }
     }
+  }
+  if (options.conversationPreamble) {
+    behaviorPreamble = behaviorPreamble ? `${behaviorPreamble}\n${options.conversationPreamble}` : options.conversationPreamble;
   }
   const memoryToolCtx = (node: AgentNode, env: Record<string, string>): BuiltinToolContext['memory'] =>
     memoryStore

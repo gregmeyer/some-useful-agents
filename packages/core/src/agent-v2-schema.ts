@@ -237,6 +237,8 @@ export const agentV2Schema = z.object({
     z.boolean(),
     z.object({ recall: z.number().int().min(0).max(20).optional() }),
   ]).optional(),
+  // Conversations (docs/conversations.md): which input a chat message fills.
+  chat: z.object({ input: z.string().min(1) }).optional(),
 
   /**
    * CSP allowlist contributions. Currently only `imgSrc` is honored —

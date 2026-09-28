@@ -37,6 +37,7 @@ import { appleCommand } from './commands/apple.js';
 import { outcomeCommand } from './commands/outcome.js';
 import { behaviorsCommand } from './commands/behaviors.js';
 import { policyCommand } from './commands/policy.js';
+import { chatCommand } from './commands/chat.js';
 import { memoryCommand } from './commands/memory.js';
 
 // Read version from our own package.json so `sua --version` always matches
@@ -92,6 +93,7 @@ agent.addCommand(disableCommand);
 agent.addCommand(enableCommand);
 agent.addCommand(installCommand);
 agent.addCommand(reimportCommand);
+agent.addCommand(chatCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);

@@ -473,7 +473,7 @@ function pretty(raw: string): string {
  * boundary), so it's safe to inline via `unsafeHtml`. Pre-passes humanize bare
  * ISO timestamps and linkify `/runs|/agents` refs before Markdown rendering.
  */
-function mdBody(text: string): SafeHtml {
+export function mdBody(text: string): SafeHtml {
   // Wrap in `.inbox-md` so markdown block elements get scoped styling
   // (reset margins, list/code/link rules, white-space: normal) without
   // disturbing the plain-text `pre-wrap` path used by the optimistic

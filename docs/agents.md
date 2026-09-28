@@ -35,6 +35,7 @@ schedule: "0 9 * * *"         # optional cron — daily at 9am
 allowHighFrequency: false     # optional — permit sub-minute cron cadences (default: false)
 timeoutSec: 60                # optional — wall-clock ceiling for the entire DAG run
 memory: true                  # optional — remember notes across runs (or { recall: 8 }); see memory.md
+chat: { input: QUESTION }     # optional — which input a chat message fills; see conversations.md
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
@@ -82,6 +83,10 @@ inputs:
 Names must match `[A-Z_][A-Z0-9_]*` (uppercase letters, digits, underscores). The dashboard renders inputs in its Run modal: text fields for string/number, toggles for boolean, dropdowns for enum.
 
 > **Defaults are literal, not references.** An input `default:` is a plain string — it is **not** re-resolved against secrets or variables. Writing `default: $API_KEY` injects the literal seven characters `$API_KEY` (a bogus credential) and, because input values out-rank secrets/variables in [env precedence](#secrets-and-envallowlist), it silently shadows a real `API_KEY`. The schema **rejects** any default matching `^$NAME$`. To use a secret, declare it with [`secrets:`](#secrets-and-envallowlist) and reference `$NAME` in the command (or `{{secrets.NAME}}` in a prompt); for a non-secret, set a [global variable](templating.md#global-variables) and reference `$NAME` / `{{vars.NAME}}` — in both cases with **no input default**.
+
+## `chat`
+
+You can talk to any agent that takes a text input: the Chat tab on its page, `sua agent chat <id>`, or MCP `run-agent` with `message`. Each message is a run, and the agent's llm and goal nodes see the conversation so far. The message fills `chat.input` when set; otherwise the agent's only required string input (or only string input). Set `chat: { input: NAME }` when the agent has several. See [conversations.md](conversations.md).
 
 ## `memory`
 
@@ -388,6 +393,8 @@ The `run-agent` tool accepts an optional `inputs` map for agents that declare an
 ```
 
 Values are validated against each input's declared `type`, `required`, default, and (for enums) `values`. Undeclared keys are rejected. Per-value payloads are capped at 8 KB (64 KB total across all inputs) — the cap applies only to the MCP boundary, not to dashboard or CLI runs. Call `list-agents` to introspect each agent's `inputs` schema.
+
+To hold a conversation, pass `message` instead of (or alongside) `inputs`; the result includes a `sessionId`, and passing it back with the next `message` continues the conversation. See [conversations.md](conversations.md#mcp).
 
 > **Trust:** MCP callers carry the same authority as the bearer-token holder. A shell agent that interpolates raw inputs into its command string with `{{inputs.X}}` (or env-var expansion without quoting) is exposing a code-execution path to anyone with the token. Quote inputs at substitution time, prefer `llm-prompt` agents over `shell` for free-form text inputs, and rotate the token under [Settings → General](http://127.0.0.1:3000/settings/general) if you suspect compromise.
 
