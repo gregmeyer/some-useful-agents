@@ -34,6 +34,7 @@ inputs:                       # optional — runtime values users can supply
 schedule: "0 9 * * *"         # optional cron — daily at 9am
 allowHighFrequency: false     # optional — permit sub-minute cron cadences (default: false)
 timeoutSec: 60                # optional — wall-clock ceiling for the entire DAG run
+memory: true                  # optional — remember notes across runs (or { recall: 8 }); see memory.md
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
@@ -82,7 +83,13 @@ Names must match `[A-Z_][A-Z0-9_]*` (uppercase letters, digits, underscores). Th
 
 > **Defaults are literal, not references.** An input `default:` is a plain string — it is **not** re-resolved against secrets or variables. Writing `default: $API_KEY` injects the literal seven characters `$API_KEY` (a bogus credential) and, because input values out-rank secrets/variables in [env precedence](#secrets-and-envallowlist), it silently shadows a real `API_KEY`. The schema **rejects** any default matching `^$NAME$`. To use a secret, declare it with [`secrets:`](#secrets-and-envallowlist) and reference `$NAME` in the command (or `{{secrets.NAME}}` in a prompt); for a non-secret, set a [global variable](templating.md#global-variables) and reference `$NAME` / `{{vars.NAME}}` — in both cases with **no input default**.
 
+## `memory`
+
+`memory: true` lets the agent keep notes between runs: each run starts with the pinned notes plus the ones most relevant to its inputs, and its llm and goal nodes get `memory-save` / `memory-search` / `memory-forget`. `memory: { recall: 8 }` changes how many relevant notes are recalled (default 5, max 20; 0 recalls only pinned ones). Memory belongs to one agent. See [memory.md](memory.md).
+
 ## Persistent state — `$STATE_DIR` and `{{state}}`
+
+For notes a model should read and write, use [`memory`](#memory) instead; the state directory is for files your nodes manage themselves.
 
 Agents that need to persist data across runs (diff-over-time, caches, last-fired markers) get a per-agent directory at `data/agent-state/<agent-id>/`. Created lazily on first use, chmod 0o700, removed automatically when the agent is deleted.
 

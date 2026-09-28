@@ -231,6 +231,12 @@ export const agentV2Schema = z.object({
    * no ceiling.
    */
   timeoutSec: z.number().int().nonnegative().optional(),
+  // Per-agent memory (docs/memory.md): `true`, or `{ recall: N }` for how many
+  // relevant memories a run starts with (pinned ones always come too).
+  memory: z.union([
+    z.boolean(),
+    z.object({ recall: z.number().int().min(0).max(20).optional() }),
+  ]).optional(),
 
   /**
    * CSP allowlist contributions. Currently only `imgSrc` is honored —

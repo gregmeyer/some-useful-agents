@@ -37,6 +37,7 @@ import { appleCommand } from './commands/apple.js';
 import { outcomeCommand } from './commands/outcome.js';
 import { behaviorsCommand } from './commands/behaviors.js';
 import { policyCommand } from './commands/policy.js';
+import { memoryCommand } from './commands/memory.js';
 
 // Read version from our own package.json so `sua --version` always matches
 // the installed package version (no hardcoded drift).
@@ -111,5 +112,6 @@ program.addCommand(appleCommand);
 program.addCommand(outcomeCommand);
 program.addCommand(behaviorsCommand);
 program.addCommand(policyCommand);
+program.addCommand(memoryCommand);
 
 program.parse();

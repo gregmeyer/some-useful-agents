@@ -234,6 +234,8 @@ export interface ToolExecutorOptions {
   onCall?: (record: ToolCallRecord) => void;
   /** Agents as tools — see ToolResolutionDeps.agentCalls. */
   agentCalls?: AgentCallContext;
+  /** Agent memory for memory-save / memory-search / memory-forget. */
+  memory?: BuiltinToolContext['memory'];
 }
 
 /**
@@ -295,6 +297,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
       env: opts.env,
       timeout: opts.timeoutSec,
       secretsStore: opts.secretsStore,
+      memory: opts.memory,
     };
     try {
       const out = await executeResolvedTool(toolId, args, ctx, deps, opts.signal);

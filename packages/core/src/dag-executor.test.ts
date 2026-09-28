@@ -2456,3 +2456,60 @@ describe('executeAgentDag resume in place (B2)', () => {
     expect(run.status).toBe('completed');
   });
 });
+
+describe('agent memory (memory: on)', () => {
+  const llmAgent = (overrides: Partial<Agent> = {}): Agent => makeAgent({
+    nodes: [
+      { id: 'ask', type: 'llm-prompt', prompt: 'What is the museum ticket price in {{inputs.CITY}}?' },
+      { id: 'sh', type: 'shell', command: 'echo hi', dependsOn: ['ask'] },
+    ],
+    inputs: { CITY: { type: 'string', default: 'Paris' } },
+    ...overrides,
+  });
+
+  type Seen = { node: AgentNode; opts?: { behaviorPreamble?: string; memory?: { agentId: string }; memoryRunId?: string } };
+  const recording = (seen: Seen[]): DagExecutorDeps['spawnNode'] => async (node, _env, opts) => {
+    seen.push({ node, opts: opts as Seen['opts'] });
+    return { result: 'ok', exitCode: 0 };
+  };
+
+  it('recalls relevant + pinned memories into the preamble and records their ids on the run', async () => {
+    const { MemoryStore } = await import('./memory-store.js');
+    const memories = MemoryStore.fromHandle(runStore.databaseHandle());
+    const pin = memories.save({ agentId: 'test-agent', text: 'Answer in one sentence', pinned: true });
+    const hit = memories.save({ agentId: 'test-agent', text: 'Paris museum tickets cost 17 euros' });
+    memories.save({ agentId: 'test-agent', text: 'Gardening: water ferns weekly' });
+    memories.save({ agentId: 'other-agent', text: 'Paris museum tickets are free for agents' });
+
+    const seen: Seen[] = [];
+    const run = await executeAgentDag(llmAgent({ memory: { recall: 1 } }), { triggeredBy: 'cli' }, { runStore, spawnNode: recording(seen) });
+
+    const ask = seen.find((s) => s.node.id === 'ask')!;
+    expect(ask.opts?.behaviorPreamble).toContain(`[${pin.id}] (pinned) Answer in one sentence`);
+    expect(ask.opts?.behaviorPreamble).toContain(`[${hit.id}] Paris museum tickets cost 17 euros`);
+    expect(ask.opts?.behaviorPreamble).not.toContain('ferns');
+    expect(ask.opts?.behaviorPreamble).not.toContain('free for agents');
+    expect(ask.opts?.memory?.agentId).toBe('test-agent');
+    expect(ask.opts?.memoryRunId).toBe(run.id);
+    expect(runStore.getRun(run.id)?.recalledMemories).toEqual([pin.id, hit.id]);
+  });
+
+  it('offers the memory tools to llm nodes only', async () => {
+    const seen: Seen[] = [];
+    await executeAgentDag(llmAgent({ memory: true }), { triggeredBy: 'cli' }, { runStore, spawnNode: recording(seen) });
+    expect(seen.find((s) => s.node.id === 'ask')!.node.tools).toEqual(['memory-save', 'memory-search', 'memory-forget']);
+    expect(seen.find((s) => s.node.id === 'sh')!.node.tools).toBeUndefined();
+  });
+
+  it('does nothing when memory is off: no tools, no recall, no memory context', async () => {
+    const { MemoryStore } = await import('./memory-store.js');
+    MemoryStore.fromHandle(runStore.databaseHandle()).save({ agentId: 'test-agent', text: 'Paris museum', pinned: true });
+    const seen: Seen[] = [];
+    const run = await executeAgentDag(llmAgent(), { triggeredBy: 'cli' }, { runStore, spawnNode: recording(seen) });
+    const ask = seen.find((s) => s.node.id === 'ask')!;
+    expect(ask.node.tools).toBeUndefined();
+    expect(ask.opts?.behaviorPreamble).toBeUndefined();
+    expect(ask.opts?.memory).toBeUndefined();
+    expect(runStore.getRun(run.id)?.recalledMemories).toBeUndefined();
+  });
+});

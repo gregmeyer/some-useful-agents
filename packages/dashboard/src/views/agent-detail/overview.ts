@@ -5,6 +5,7 @@ import { renderInteractiveWidget } from '../interactive-widget.js';
 import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import type { AgentEdge } from '../../lib/agent-graph.js';
+import type { Memory } from '@some-useful-agents/core';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
   const { agent, recentRuns, widgetControls, behaviorStatus } = args;
@@ -197,6 +198,8 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
 
     ${routingSection}
 
+    ${memorySection(agent.id, args.memories)}
+
     <!-- Recent runs -->
     <section>
       <h2>Recent runs</h2>
@@ -242,6 +245,44 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   `;
 
   return agentPageShell({ ...args, activeTab: 'overview' }, content);
+}
+
+/**
+ * What the agent remembers between runs (agents with `memory:` on).
+ *
+ * Pinned notes are given to every run; the rest are recalled when they match
+ * the run's inputs. Forgetting is immediate and can't be undone.
+ */
+function memorySection(agentId: string, memories: Memory[] | undefined): SafeHtml {
+  if (memories === undefined) return html``;
+  const base = `/agents/${encodeURIComponent(agentId)}/memory`;
+  const rows = memories.map((m) => html`
+    <li class="memory-item" style="display: flex; gap: var(--space-3); align-items: baseline; padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border);">
+      <span class="mono dim" style="font-size: var(--font-size-xs); flex: none;">${m.id}</span>
+      <span style="flex: 1; min-width: 0; overflow-wrap: anywhere;">
+        ${m.pinned ? html`<span class="badge" style="margin-right: var(--space-1);">pinned</span>` : html``}${m.text}
+        ${m.tags.length ? html`<span class="dim" style="font-size: var(--font-size-xs);"> · ${m.tags.join(', ')}</span>` : html``}
+        <span class="dim" style="font-size: var(--font-size-xs); display: block;">${formatAge(m.updatedAt)}${m.sourceRunId ? html` · <a href="/runs/${m.sourceRunId}">from run ${m.sourceRunId.slice(0, 8)}</a>` : html``}</span>
+      </span>
+      <form method="POST" action="${base}/${encodeURIComponent(m.id)}/pin" style="flex: none;">
+        <input type="hidden" name="pinned" value="${m.pinned ? 'false' : 'true'}" />
+        <button type="submit" class="btn btn--sm btn--ghost">${m.pinned ? 'Unpin' : 'Pin'}</button>
+      </form>
+      <form method="POST" action="${base}/${encodeURIComponent(m.id)}/forget" style="flex: none;">
+        <button type="submit" class="btn btn--sm btn--ghost" style="color: var(--color-err);">Forget</button>
+      </form>
+    </li>`);
+  return html`
+    <section>
+      <h2>Memory</h2>
+      <p class="dim" style="font-size: var(--font-size-xs); margin-top: 0;">
+        Notes this agent saved for itself. Pinned notes are given to every run; the rest are given when they match the run's inputs. Forget removes a note for good.
+      </p>
+      ${memories.length === 0
+        ? html`<p class="dim">Nothing remembered yet. The agent saves notes as it runs.</p>`
+        : html`<ul style="list-style: none; padding: 0; margin: 0;">${rows as unknown as SafeHtml[]}</ul>`}
+    </section>
+  `;
 }
 
 /**

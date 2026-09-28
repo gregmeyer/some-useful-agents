@@ -518,3 +518,19 @@ describe('agents/examples/agent-analyzer.yaml — preflight guard + widget', () 
     expect(a.signal?.template).toBe('text-headline');
   });
 });
+
+describe('memory: field', () => {
+  it('parses and exports memory: true and memory: { recall }', () => {
+    const on = parseAgent(`${MINIMAL_YAML}memory: true\n`);
+    expect(on.memory).toBe(true);
+    expect(parseAgent(exportAgent(on)).memory).toBe(true);
+
+    const tuned = parseAgent(`${MINIMAL_YAML}memory:\n  recall: 8\n`);
+    expect(tuned.memory).toEqual({ recall: 8 });
+    expect(parseAgent(exportAgent(tuned)).memory).toEqual({ recall: 8 });
+  });
+
+  it('rejects a recall count above 20', () => {
+    expect(() => parseAgent(`${MINIMAL_YAML}memory:\n  recall: 50\n`)).toThrow(AgentYamlParseError);
+  });
+});
