@@ -37,6 +37,14 @@ The autonomy loop (the "control plane" half) now runs by default:
   stranded `running` by a restart against run-store truth, re-attaches
   waiters to in-flight Temporal runs, and re-fires triage once per thread
   whose turn died with the old process.
+- **Bounded thread replay**: each triage turn (and the learning extractor)
+  sees the thread as `[role] body` lines, most recent kept within 16 KB,
+  with a note like "(49 earlier entries left out for length)" when a long
+  thread is trimmed. The original ask stays in the prompt as the message
+  body, and the operator's latest ask as the current request. Approved
+  learnings are capped at 1.5 KB. Both use the same budget rule as agent
+  conversations and memory recall (`core/src/transcript.ts`; see
+  [conversations.md](conversations.md)).
 - **A real Stop**: the operator Stop persists across restarts (`paused`
   column) and cancels in-flight sub-agent action runs, not just the next
   turn (Temporal cancels are best-effort — the worker may finish

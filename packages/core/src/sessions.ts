@@ -16,6 +16,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
+import { budgetTranscript, droppedNote } from './transcript.js';
 import { executeAgentDag, type DagExecuteOptions, type DagExecutorDeps } from './dag-executor.js';
 import type { Agent } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
@@ -217,23 +218,19 @@ export function formatConversationBlock(turns: readonly SessionTurn[]): string {
   if (turns.length === 0) return '';
   const header = 'CONVERSATION SO FAR (your earlier turns with this user, oldest first; the new message is below — answer it in light of these):';
   const footer = 'END OF CONVERSATION SO FAR';
-  let bytes = Buffer.byteLength(header) + Buffer.byteLength(footer) + 2;
-  const kept: string[] = [];
-  let dropped = 0;
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const t = turns[i];
-    let text = t.text.trim();
-    if (t.role === 'agent' && t.failed) text = `(no reply: that run failed — ${text.slice(0, 200)})`;
-    if (text.length > CONVERSATION_TURN_MAX_CHARS) text = `${text.slice(0, CONVERSATION_TURN_MAX_CHARS)} …(cut)`;
-    const line = `${t.role === 'user' ? 'User' : 'You'}: ${text}`;
-    const size = Buffer.byteLength(line) + 1;
-    if (bytes + size > CONVERSATION_BLOCK_MAX_BYTES) { dropped = i + 1; break; }
-    kept.unshift(line);
-    bytes += size;
-  }
-  if (kept.length === 0) return '';
-  const note = dropped > 0 ? `(${dropped} earlier turn${dropped === 1 ? '' : 's'} left out for length)\n` : '';
-  return `${header}\n${note}${kept.join('\n')}\n${footer}\n`;
+  const { lines, dropped } = budgetTranscript(
+    turns.map((t) => {
+      const text = t.role === 'agent' && t.failed ? `(no reply: that run failed — ${t.text.trim().slice(0, 200)})` : t.text.trim();
+      return `${t.role === 'user' ? 'User' : 'You'}: ${text}`;
+    }),
+    {
+      maxBytes: CONVERSATION_BLOCK_MAX_BYTES - Buffer.byteLength(header) - Buffer.byteLength(footer) - 2,
+      lineMaxChars: CONVERSATION_TURN_MAX_CHARS,
+    },
+  );
+  if (lines.length === 0) return '';
+  const note = dropped > 0 ? `${droppedNote(dropped)}\n` : '';
+  return `${header}\n${note}${lines.join('\n')}\n${footer}\n`;
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(['completed', 'failed', 'cancelled']);

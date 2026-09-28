@@ -4,6 +4,9 @@ import {
   type InboxResponse,
   type InboxStore,
   type TriageLearning,
+  budgetTranscript,
+  droppedNote,
+  takeWithinBudget,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
@@ -317,33 +320,53 @@ export const TRIAGE_REJECTION_RECOVERY_NOTE =
 export const LEARNINGS_PROMPT_BUDGET = 1500;
 
 /**
+ * Byte budget for the thread replayed into triage (CONVERSATION). The thread
+ * used to be replayed whole; a long one crowded the rest of the prompt. The
+ * most recent turns are kept, and a note says how many earlier ones were
+ * left out (the original ask is always in MESSAGE_BODY, and the latest one
+ * in CURRENT_REQUEST). Same budget rule as agent conversations (core
+ * transcript.ts).
+ */
+export const CONVERSATION_PROMPT_BUDGET = 16 * 1024;
+/** Per-entry cap inside the replay, so one huge entry can't take the budget. */
+export const CONVERSATION_ENTRY_MAX_CHARS = 4000;
+
+/**
  * Render retrieved lessons as a numbered plain-text block for the triage
  * prompt: `N. [category] lesson`. Already top-K capped by the store query;
  * this trims to a byte budget so a burst of lessons can't bloat the prompt.
  * Returns '' for an empty list (the kernel section then no-ops).
  */
 export function formatLearnings(learnings: readonly TriageLearning[]): string {
-  const lines: string[] = [];
-  let bytes = 0;
-  for (let i = 0; i < learnings.length; i += 1) {
-    const l = learnings[i];
-    const line = `${lines.length + 1}. ${l.category ? `[${l.category}] ` : ''}${l.lesson}`;
-    bytes += line.length + 1;
-    if (bytes > LEARNINGS_PROMPT_BUDGET) break;
-    lines.push(line);
-  }
-  return lines.join('\n');
+  return takeWithinBudget(
+    learnings.map((l, i) => `${i + 1}. ${l.category ? `[${l.category}] ` : ''}${l.lesson}`),
+    LEARNINGS_PROMPT_BUDGET,
+  ).join('\n');
 }
 
-export function formatConversationSnapshot(responses: readonly InboxResponse[]): string {
-  return responses
-    .map((r) => {
-      if (r.role === 'action') {
-        const m = parseActionMeta(r);
-        const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
-        return `[action] ${r.body}${suffix}`;
-      }
-      return `[${r.role}] ${r.body}`;
-    })
-    .join('\n');
+/**
+ * The thread as `[role] body` lines, oldest first, for triage and the
+ * learning extractor. Action rows carry their structured status so the model
+ * sees what already ran rather than just the rationale. Budgeted: see
+ * CONVERSATION_PROMPT_BUDGET.
+ */
+export function formatConversationSnapshot(
+  responses: readonly InboxResponse[],
+  maxBytes: number = CONVERSATION_PROMPT_BUDGET,
+): string {
+  const entries = responses.map((r) => {
+    if (r.role === 'action') {
+      const m = parseActionMeta(r);
+      const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
+      return `[action] ${r.body}${suffix}`;
+    }
+    return `[${r.role}] ${r.body}`;
+  });
+  const note = (n: number) => droppedNote(n, 'entry', 'entries');
+  // Reserve room for the note so adding it can't push the block past budget.
+  const { lines, dropped } = budgetTranscript(entries, {
+    maxBytes: maxBytes - Buffer.byteLength(note(entries.length)) - 1,
+    lineMaxChars: CONVERSATION_ENTRY_MAX_CHARS,
+  });
+  return dropped > 0 ? [note(dropped), ...lines].join('\n') : lines.join('\n');
 }

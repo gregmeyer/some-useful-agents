@@ -19,6 +19,7 @@ import { openStoreDb } from './sqlite-open.js';
 import { tokeniseGoal } from './planner-loop/memory-store.js';
 import { jaccard } from './planner-loop/memory-retrieval.js';
 import { redactKnownSecrets } from './secret-redactor.js';
+import { takeWithinBudget } from './transcript.js';
 
 export const MEMORY_TEXT_MAX_CHARS = 2000;
 export const MEMORY_MAX_PER_AGENT = 500;
@@ -175,18 +176,12 @@ function toMemory(r: Record<string, unknown>): Memory {
 export function formatRecallBlock(memories: readonly Memory[]): { text: string; ids: string[] } {
   if (memories.length === 0) return { text: '', ids: [] };
   const header = 'WHAT YOU REMEMBER (from earlier runs of this agent — use it, and keep it current with memory-save / memory-forget):';
-  const lines: string[] = [];
-  const ids: string[] = [];
-  let bytes = Buffer.byteLength(header);
-  for (const m of memories) {
-    const line = `- [${m.id}]${m.pinned ? ' (pinned)' : ''} ${m.text.replace(/\s+/g, ' ')}`;
-    const size = Buffer.byteLength(line) + 1;
-    if (bytes + size > MEMORY_RECALL_BLOCK_MAX_BYTES) break;
-    lines.push(line);
-    ids.push(m.id);
-    bytes += size;
-  }
-  return lines.length ? { text: `${header}\n${lines.join('\n')}\n`, ids } : { text: '', ids: [] };
+  const lines = takeWithinBudget(
+    memories.map((m) => `- [${m.id}]${m.pinned ? ' (pinned)' : ''} ${m.text.replace(/\s+/g, ' ')}`),
+    MEMORY_RECALL_BLOCK_MAX_BYTES - Buffer.byteLength(header),
+  );
+  if (lines.length === 0) return { text: '', ids: [] };
+  return { text: `${header}\n${lines.join('\n')}\n`, ids: memories.slice(0, lines.length).map((m) => m.id) };
 }
 
 /** An agent's memory setting, normalised: off, or on with a recall count. */
