@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## Docs map
-- **User-facing docs**: [docs/](docs/) — quickstart, agents, flows, llm-providers, tools, mcp, integrations, output-widgets, templating, dashboard, build-from-goal, inbox-control-plane, outcome-detection, behaviors, temporal, tool-policies, goal-agents, agents-as-tools, memory, conversations, cost, security
+- **User-facing docs**: [docs/](docs/) — quickstart, agents, flows, llm-providers, tools, mcp, integrations, output-widgets, templating, dashboard, build-from-goal, inbox-control-plane, outcome-detection, behaviors, temporal, tool-policies, goal-agents, agents-as-tools, memory, conversations, cost, ask-a-person, security
 - **Architecture decisions**: [docs/adr/](docs/adr/) — MADR-lite records for load-bearing choices
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md) (produced by `changeset version` at release time)
 - **Roadmap**: [ROADMAP.md](ROADMAP.md)

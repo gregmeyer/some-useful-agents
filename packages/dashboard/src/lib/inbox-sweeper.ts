@@ -67,6 +67,8 @@ export function maybeAutoFirstTouch(ctx: Ctx, messageId: string, runTriage: Tria
   if (!message) return false;
   if (message.status !== 'open') return false;
   if (message.source === 'manual') return false;
+  // A run's question waits for a person; triage has nothing to add.
+  if (message.source === 'question') return false;
   if (message.paused) return false;
   if (ctx.inboxTriageStopped?.has(messageId)) return false;
   if (ctx.inboxTriageAbortControllers.has(messageId)) return false;

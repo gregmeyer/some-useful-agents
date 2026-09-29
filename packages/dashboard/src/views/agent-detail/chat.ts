@@ -1,4 +1,4 @@
-import type { Session, SessionTurn } from '@some-useful-agents/core';
+import type { HumanQuestion, Session, SessionTurn } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import { formatAge } from '../components.js';
 import { mdBody } from '../inbox-detail.js';
@@ -11,6 +11,8 @@ export interface AgentChatArgs extends AgentDetailArgs {
     turns: SessionTurn[];
     /** The latest message is still being answered. */
     pending: boolean;
+    /** The run behind the pending message is waiting on this question. */
+    waitingQuestion?: HumanQuestion;
     /** The input a message fills, or why the agent can't take one. */
     chatInput?: string;
     notConversational?: string;
@@ -73,7 +75,10 @@ export function renderAgentChat(args: AgentChatArgs): string {
         ${chat.pending ? html`
           <li class="inbox-msg">
             <span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span>
-            <div class="inbox-msg__body"><span class="inbox-msg__writing">Working…</span>
+            <div class="inbox-msg__body">${chat.waitingQuestion
+              ? html`<span class="inbox-msg__writing">Waiting for an answer:</span> ${chat.waitingQuestion.question}
+                  ${chat.waitingQuestion.inboxMessageId ? html` <a href="/inbox/${encodeURIComponent(chat.waitingQuestion.inboxMessageId)}">Answer in the inbox</a>` : html``}`
+              : html`<span class="inbox-msg__writing">Working…</span>`}
               ${lastUser?.runId ? html` <a href="/runs/${encodeURIComponent(lastUser.runId)}" class="mono dim" style="font-size: var(--font-size-xs);">watch run ${lastUser.runId.slice(0, 8)}</a>` : html``}
             </div>
           </li>` : html``}
@@ -121,7 +126,7 @@ export function renderAgentChat(args: AgentChatArgs): string {
       }
     });
   }
-  ${chat.pending ? "setTimeout(() => location.reload(), 3000);" : ''}
+  ${chat.pending && !chat.waitingQuestion ? "setTimeout(() => location.reload(), 3000);" : ''}
   const t = document.querySelector('.agent-chat__transcript');
   if (t) t.lastElementChild && t.lastElementChild.scrollIntoView({ block: 'end' });
 })();

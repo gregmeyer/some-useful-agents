@@ -905,11 +905,16 @@ export async function spawnNodeReal(
   }
   let resolvedPrompt = node.prompt;
   const upstreamMap: Record<string, string> = {};
+  const upstreamOutputs: Record<string, Record<string, unknown>> = {};
   for (const [k, v] of Object.entries(env)) {
     const m = k.match(/^UPSTREAM_(.+)_RESULT$/);
     if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = v;
+    const o = k.match(/^UPSTREAM_(.+)_OUTPUTS$/);
+    if (o) {
+      try { upstreamOutputs[o[1].toLowerCase().replace(/_/g, '-')] = JSON.parse(v) as Record<string, unknown>; } catch { /* not JSON */ }
+    }
   }
-  resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, upstreamMap);
+  resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, upstreamMap, upstreamOutputs);
   resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
   // {{state}} resolves to $STATE_DIR (set by node-env when dataRoot is
   // configured). Falls through to empty string when unset.
@@ -940,7 +945,7 @@ export async function spawnNodeReal(
   // consumer (`$UPSTREAM_<ID>_RESULT` references in the command).
   const childEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
-    if (!/^UPSTREAM_[A-Z0-9_]+_RESULT$/.test(k)) childEnv[k] = v;
+    if (!/^UPSTREAM_[A-Z0-9_]+_(RESULT|OUTPUTS)$/.test(k)) childEnv[k] = v;
   }
 
   const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);

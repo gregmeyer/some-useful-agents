@@ -18,7 +18,12 @@ import { extractFramedOutput } from './output-framing.js';
  * prose and ends with a JSON object — what the starters ask for — resolves.
  * Falls back to empty string if neither parses or the field doesn't exist.
  */
-export function resolveUpstreamTemplate(text: string, snapshot: Record<string, string>): string {
+export function resolveUpstreamTemplate(
+  text: string,
+  snapshot: Record<string, string>,
+  /** Upstream nodes' structured outputs (see node-env buildUpstreamOutputs), checked first for a field. */
+  structured: Record<string, Record<string, unknown>> = {},
+): string {
   if (!text.includes('{{upstream.')) return text;
 
   // Match all {{upstream.nodeId.path}} references.
@@ -30,6 +35,12 @@ export function resolveUpstreamTemplate(text: string, snapshot: Record<string, s
 
     // {{upstream.X.result}} — return full output (backward compat).
     if (fieldPath === 'result') return safe(raw);
+
+    // A structured output field (tool / ask / goal nodes), when there is one.
+    const fromOutputs = structured[nodeId] ? dotGet(structured[nodeId], fieldPath) : undefined;
+    if (fromOutputs !== undefined && fromOutputs !== null) {
+      return safe(typeof fromOutputs === 'string' ? fromOutputs : JSON.stringify(fromOutputs));
+    }
 
     // Try JSON dot-path extraction: whole output first, then the framed last line.
     let parsed: unknown;

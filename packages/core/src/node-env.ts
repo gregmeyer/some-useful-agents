@@ -55,6 +55,7 @@ export async function buildNodeEnv(
   upstreamSnapshot: Record<string, string>,
   deps: DagExecutorDeps,
   runId?: string,
+  upstreamOutputs: Record<string, Record<string, unknown>> = {},
 ): Promise<Record<string, string>> {
   const trustLevel = agent.source === 'community' ? 'community' : 'local';
   const baseAllowlist = trustLevel === 'community' ? MINIMAL_ALLOWLIST : LOCAL_ALLOWLIST;
@@ -123,6 +124,13 @@ export async function buildNodeEnv(
   // Falls back to inline-only when stateDir + runId aren't available
   // (test paths, one-shot CLI runs without a dataRoot).
   const stateDir = deps.dataRoot ? ensureStateDir(agent.id, deps.dataRoot) : undefined;
+  // Structured outputs ride next to the result as UPSTREAM_<NODEID>_OUTPUTS
+  // (JSON), for `{{upstream.<id>.<field>}}` in prompts. Skipped when too big
+  // to pass in the environment.
+  for (const [upstreamId, value] of Object.entries(upstreamOutputs)) {
+    const json = JSON.stringify(value);
+    if (json.length <= UPSTREAM_INLINE_THRESHOLD) env[`UPSTREAM_${upstreamId.toUpperCase().replace(/-/g, '_')}_OUTPUTS`] = json;
+  }
   for (const [upstreamId, value] of Object.entries(upstreamSnapshot)) {
     const key = `UPSTREAM_${upstreamId.toUpperCase().replace(/-/g, '_')}_RESULT`;
     if (value.length <= UPSTREAM_INLINE_THRESHOLD || !stateDir || !runId) {
@@ -174,6 +182,20 @@ export function mergedInputs(agent: Agent, callerInputs: Record<string, string>)
     if (!(k in out)) out[k] = v;
   }
 
+  return out;
+}
+
+/**
+ * Structured outputs of the upstream nodes that have them (tool nodes, ask
+ * nodes, goal nodes with declared outputs), so `{{upstream.<id>.<field>}}`
+ * can reach a field that isn't in the node's result text.
+ */
+export function buildUpstreamOutputs(node: AgentNode, outputs: Map<string, NodeOutput>): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const dep of node.dependsOn ?? []) {
+    const o = outputs.get(dep)?.outputs;
+    if (o && typeof o === 'object') out[dep] = o as Record<string, unknown>;
+  }
   return out;
 }
 

@@ -143,6 +143,38 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
     timeoutSec: 600`,
   },
 
+  ask: {
+    type: 'ask',
+    description: 'Ask a person; the run waits for their inbox answer, which becomes the result.',
+    inputs: [
+      { name: 'question', type: 'string', required: true, description: 'What to ask. References inputs via {{inputs.X}} and upstreams via {{upstream.<id>.result}}.' },
+      { name: 'choices', type: 'string[]', description: 'Answers to offer as buttons (up to 10). The person can still write their own.' },
+      { name: 'timeoutHours', type: 'number', description: 'How long to wait before the run fails (default 72, max 720).' },
+      { name: 'dependsOn', type: 'string[]', description: 'Upstream node ids this node waits on.' },
+      { name: 'onlyIf', type: 'OnlyIfCondition', description: 'Per-edge predicate (e.g. only ask when an upstream flagged something).' },
+    ],
+    outputs: [
+      { name: 'result', type: 'string', description: 'The answer, as written or chosen (also as `answer`).' },
+      { name: 'choice', type: 'string', description: 'The choice picked, when the answer is one of `choices`; empty otherwise.' },
+    ],
+    use_when: [
+      'A person must approve before something irreversible (send, publish, pay, delete), or supply a fact only they have.',
+      "Not inside an agent another agent calls (not supported yet).",
+    ],
+    example: `- id: approve
+  type: ask
+  question: |
+    Send this summary to the team?
+    {{upstream.draft.result}}
+  choices: [Send, Don't send]
+  dependsOn: [draft]
+- id: send
+  type: shell
+  command: ./send.sh
+  dependsOn: [approve]
+  onlyIf: { upstream: approve, field: choice, equals: Send }`,
+  },
+
   'claude-code': {
     type: 'claude-code',
     description: 'Run an LLM (Claude, Codex, or Apple Foundation Models) with a prompt. Optional tool access via allowedTools.',

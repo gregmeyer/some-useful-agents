@@ -244,12 +244,17 @@ function replyFor(run: Pick<Run, 'status' | 'result' | 'error'>): { text: string
   return { text: (run.error ?? `Run ${run.status}.`).slice(0, REPLY_STORE_MAX_CHARS), failed: true };
 }
 
-/** Record the agent's reply for a finished run. Idempotent per run. */
+/**
+ * Record the agent's reply for a finished run. Idempotent per run. A run
+ * that hasn't finished (e.g. `waiting` on a person's answer) gets no reply
+ * yet: reconcileSession adds it once the run ends.
+ */
 export function completeAgentTurn(
   sessions: SessionStore,
   sessionId: string,
   run: Pick<Run, 'id' | 'status' | 'result' | 'error'>,
-): SessionTurn {
+): SessionTurn | undefined {
+  if (!TERMINAL.has(run.status)) return undefined;
   const existing = sessions.turns(sessionId).find((t) => t.role === 'agent' && t.runId === run.id);
   if (existing) return existing;
   const { text, failed } = replyFor(run);
@@ -330,7 +335,8 @@ export function prepareAgentTurn(args: {
 export interface AgentTurnResult {
   sessionId: string;
   run: Run;
-  reply: SessionTurn;
+  /** Undefined while the run is still going (e.g. waiting on a person's answer). */
+  reply?: SessionTurn;
 }
 
 /**

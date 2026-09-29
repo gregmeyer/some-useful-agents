@@ -1,4 +1,4 @@
-import type { Agent, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
+import type { Agent, HumanQuestion, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
 import { formatUsd, unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -40,10 +40,12 @@ export interface RunDetailOptions {
    */
   outcome?: OutcomeRecord;
   outcomeHistory?: OutcomeHistory | null;
+  /** The question a waiting run is stopped on (ask node). */
+  question?: HumanQuestion;
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns, question } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -220,7 +222,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <dl class="kv">
           <dt>Agent</dt><dd><a href="/agents/${run.agentName}">${run.agentName}</a>${run.workflowVersion ? html` <span class="dim">v${String(run.workflowVersion)}</span>` : html``}</dd>
           <dt>Started</dt><dd class="mono">${run.startedAt}</dd>
-          <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">in progress</span>`}</dd>
+          <dt>Completed</dt><dd class="mono">${run.completedAt ?? html`<span class="dim">${run.status === 'waiting' ? 'waiting for an answer' : 'in progress'}</span>`}</dd>
           <dt>Duration</dt><dd>${renderDuration(run.startedAt, run.completedAt)}</dd>
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
@@ -232,6 +234,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           ${retryOf}
         </dl>
       </div>
+
+      ${run.status === 'waiting' ? renderWaitingBanner(run.id, question) : html``}
 
       <div data-poll-region="error">${bannerError ? html`
         <h2>Error</h2>
@@ -706,4 +710,24 @@ function renderNodeCards(
     `;
   });
   return cards as unknown as SafeHtml;
+}
+
+/** A run stopped at an ask node: what it asked, where to answer, and a way out. */
+function renderWaitingBanner(runId: string, q: HumanQuestion | undefined): SafeHtml {
+  return html`
+    <div class="flash flash--warn" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
+      <div>
+        <strong>Waiting for your answer.</strong>
+        ${q ? html`<span> Node <span class="mono">${q.nodeId}</span> asked: ${q.question}</span>` : html``}
+        <div class="dim" style="font-size: var(--font-size-xs); margin-top: var(--space-1);">
+          The run holds no process while it waits. ${q ? html`It stops if nobody answers by ${new Date(q.expiresAt).toLocaleString()}.` : html``}
+        </div>
+      </div>
+      <span style="display: inline-flex; gap: var(--space-2); flex-shrink: 0;">
+        ${q?.inboxMessageId ? html`<a class="btn btn--sm btn--primary" href="/inbox/${encodeURIComponent(q.inboxMessageId)}">Answer</a>` : html``}
+        <form method="POST" action="/runs/${encodeURIComponent(runId)}/cancel" style="margin: 0;">
+          <button type="submit" class="btn btn--sm btn--ghost">Cancel run</button>
+        </form>
+      </span>
+    </div>`;
 }

@@ -57,10 +57,15 @@ async function oneTurn(
 ): Promise<{ sessionId: string; ok: boolean }> {
   const spinner = ora({ text: `${agent.id} is working…`, stream: process.stderr }).start();
   try {
-    const { sessionId: sid, reply } = await runAgentTurn({
+    const { sessionId: sid, reply, run } = await runAgentTurn({
       agent, sessions, message, sessionId, inputs, triggeredBy: 'cli', deps,
     });
     spinner.stop();
+    if (!reply) {
+      // Stopped at an ask node: the reply comes once someone answers in the inbox.
+      console.log(`${chalk.magenta('agent')} ${ui.dim(`is waiting for an answer in the inbox (run ${run.id.slice(0, 8)}). The reply is added to this conversation when the run finishes.`)}`);
+      return { sessionId: sid, ok: true };
+    }
     printTurn(reply);
     return { sessionId: sid, ok: !reply.failed };
   } catch (err) {

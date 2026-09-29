@@ -20,12 +20,13 @@
  */
 
 import { MemoryStore, memorySettings, formatRecallBlock, MEMORY_TOOL_IDS } from './memory-store.js';
+import { HumanQuestionStore, DEFAULT_ASK_TIMEOUT_HOURS, matchChoice, raiseQuestionInInbox, type HumanQuestion } from './human-questions.js';
 import { effectiveSpendLimits, startOfLocalDay, dailyLimitMessage, perRunLimitMessage } from './spend-limits.js';
 import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
 import { createAgentCallContext, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { randomUUID } from 'node:crypto';
 import type { Agent, AgentNode, NodeErrorCategory, NodeOutput, NodeStructuredOutput, NodeExecutionRecord } from './agent-v2-types.js';
-import { isGoalType, isLlmPromptType } from './agent-v2-types.js';
+import { isAskType, isGoalType, isLlmPromptType } from './agent-v2-types.js';
 import type { Run, RunStatus } from './types.js';
 import type { RunStore } from './run-store.js';
 import type { AgentStore } from './agent-store.js';
@@ -43,7 +44,7 @@ import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } fr
 import { substituteInputs } from './input-resolver.js';
 import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
-import { buildNodeEnv, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
+import { buildNodeEnv, buildUpstreamOutputs, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
 import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
 import { explainNodeFailure } from './failure-explain.js';
 import { loadBehaviors, defaultBehaviorScopes, type LoadBehaviorsResult } from './behaviors/index.js';
@@ -372,6 +373,15 @@ export async function executeAgentDag(
     // and drop any incomplete node rows so they re-run without a PK conflict.
     deps.runStore.updateRun(runId, { status: 'running' });
     deps.runStore.clearIncompleteNodeExecutions(runId);
+    // A resume that wasn't handed the inputs (e.g. after an answer to an ask
+    // node) starts from what the run started with.
+    if (options.inputs === undefined && resumingRun.resumeContext) {
+      options = {
+        ...options,
+        inputs: resumingRun.resumeContext.inputs,
+        conversationPreamble: options.conversationPreamble ?? resumingRun.resumeContext.conversationPreamble,
+      };
+    }
   } else {
     // Parent run row created up-front in 'running' state. Lets anyone polling
     // the DB see the run exists + links to per-node rows as they land.
@@ -393,6 +403,11 @@ export async function executeAgentDag(
       // node when spawns route through a Temporal activity.
       usedWorkflowProvider: 'local',
     });
+  }
+  // Keep what a later resume needs (a durable Temporal run arrives here as a
+  // "resume" of its pre-created row on its first attempt, so check the row).
+  if (agent.nodes.some((n) => isAskType(n.type)) && !resumingRun?.resumeContext) {
+    deps.runStore.updateRun(runId, { resumeContext: { inputs: options.inputs, conversationPreamble: options.conversationPreamble } });
   }
 
   // ── Agent Behavior conditioning ──────────────────────────────────────
@@ -492,6 +507,7 @@ export async function executeAgentDag(
   const outputs = new Map<string, NodeOutput>();
   const order = topologicalSort(agent.nodes);
   let firstFailure: { nodeId: string; category: NodeErrorCategory; exitCode?: number | null; error?: string } | undefined;
+  let waitingOn: HumanQuestion | undefined;
   // Roll-up of the per-node execution backend: if any node ran on Temporal,
   // the run-level usedWorkflowProvider is promoted from its created 'local'.
   let ranOnTemporal = false;
@@ -984,9 +1000,11 @@ export async function executeAgentDag(
 
     let env: Record<string, string>;
     let upstreamSnapshot: Record<string, string>;
+    let upstreamOutputs: Record<string, Record<string, unknown>> = {};
     try {
       upstreamSnapshot = buildUpstreamSnapshot(node, outputs);
-      env = await buildNodeEnv(agent, node, options.inputs ?? {}, upstreamSnapshot, deps, runId);
+      upstreamOutputs = buildUpstreamOutputs(node, outputs);
+      env = await buildNodeEnv(agent, node, options.inputs ?? {}, upstreamSnapshot, deps, runId, upstreamOutputs);
     } catch (err) {
       const message = (err as Error).message;
       deps.runStore.createNodeExecution({
@@ -1001,6 +1019,63 @@ export async function executeAgentDag(
       });
       firstFailure = { nodeId: node.id, category: 'setup' };
       continue;
+    }
+
+    // Ask node (human-questions.ts): the first time through, record the
+    // question, raise it in the inbox and stop the run in `waiting`. When the
+    // run is resumed after an answer, complete with the answer.
+    if (isAskType(node.type)) {
+      const questions = HumanQuestionStore.fromHandle(deps.runStore.databaseHandle());
+      const asked = questions.forNode(runId, node.id);
+      const failAsk = (message: string, category: NodeErrorCategory) => {
+        deps.runStore.createNodeExecution({
+          runId, nodeId: node.id, workflowVersion: agent.version, status: 'failed', errorCategory: category,
+          startedAt: nodeStartedAt, completedAt: new Date().toISOString(), error: message,
+        });
+        firstFailure = { nodeId: node.id, category, error: message };
+      };
+      if (asked?.status === 'answered') {
+        const answer = asked.answer ?? '';
+        const structured = { answer, choice: matchChoice(answer, asked.choices) };
+        deps.runStore.createNodeExecution({
+          runId, nodeId: node.id, workflowVersion: agent.version, status: 'completed',
+          startedAt: nodeStartedAt, completedAt: new Date().toISOString(),
+          result: answer, exitCode: 0, outputsJson: JSON.stringify(structured),
+        });
+        outputs.set(node.id, { result: answer, exitCode: 0, source: agent.source, outputs: structured as NodeStructuredOutput });
+        continue;
+      }
+      if (asked?.status === 'expired') {
+        failAsk(`Nobody answered "${asked.question.slice(0, 120)}" within ${node.timeoutHours ?? DEFAULT_ASK_TIMEOUT_HOURS} hours.`, 'timeout');
+        continue;
+      }
+      if (asked?.status === 'cancelled') {
+        failAsk('The question was cancelled before anyone answered.', 'cancelled');
+        continue;
+      }
+      if (options.parentRunId) {
+        failAsk('An ask node can\'t wait for a person inside an agent that another agent called (not supported yet).', 'setup');
+        continue;
+      }
+      const question = asked ?? questions.ask({
+        runId,
+        nodeId: node.id,
+        agentId: agent.id,
+        question: substituteInputs(resolveUpstreamTemplate(node.question ?? '', upstreamSnapshot, upstreamOutputs), env).trim(),
+        choices: node.choices,
+        timeoutHours: node.timeoutHours,
+      });
+      deps.runStore.createNodeExecution({
+        runId, nodeId: node.id, workflowVersion: agent.version, status: 'waiting',
+        startedAt: nodeStartedAt, result: question.question,
+      });
+      try {
+        raiseQuestionInInbox(deps.runStore.databaseHandle(), question, agent.name ?? agent.id);
+      } catch (err) {
+        console.warn(`[ask] could not raise question ${question.id} in the inbox: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      waitingOn = question;
+      break;
     }
 
     // PR D.1: pre-node state-dir size cap. Refuses to run when the agent's
@@ -1148,7 +1223,7 @@ export async function executeAgentDag(
       const resolveStr = (s: string): string =>
         substituteInputs(
           resolveStateTemplate(
-            resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars),
+            resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot, upstreamOutputs), vars),
             stateDir,
           ),
           resolvedInputs,
@@ -1233,7 +1308,7 @@ export async function executeAgentDag(
           // structuredContent (if any) with text blocks joined into `result`.
           const vars = deps.variablesStore ? deps.variablesStore.getAll() : {};
           const resolveStr = (s: string | undefined): string | undefined =>
-            s === undefined ? undefined : resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot), vars);
+            s === undefined ? undefined : resolveVarsTemplate(resolveUpstreamTemplate(s, upstreamSnapshot, upstreamOutputs), vars);
           const resolveValue = (v: unknown): unknown => {
             if (typeof v === 'string') return resolveStr(v);
             if (Array.isArray(v)) return v.map(resolveValue);
@@ -1390,6 +1465,17 @@ export async function executeAgentDag(
       });
       firstFailure = { nodeId: node.id, category, exitCode: result.exitCode, error: result.error };
     }
+  }
+
+  // Stopped at an ask node: the run waits, holding no process, until the
+  // answer resumes it. Its spend so far is totalled now so per-day limits see it.
+  if (waitingOn) {
+    cleanupAgentTimeout();
+    deps.runStore.updateRun(runId, { status: 'waiting' });
+    deps.runStore.rollupRunUsage(runId);
+    const waiting = deps.runStore.getRun(runId);
+    if (!waiting) throw new Error(`Run ${runId} vanished from store after write`);
+    return waiting;
   }
 
   let finalStatus: RunStatus = firstFailure ? 'failed' : 'completed';

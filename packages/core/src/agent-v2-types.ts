@@ -40,7 +40,8 @@ export type NodeType =
   | 'branch'
   | 'end'
   | 'break'
-  | 'goal';
+  | 'goal'
+  | 'ask';
 
 /**
  * True when the node runs an LLM prompt. Accepts both the canonical
@@ -61,7 +62,16 @@ export function isGoalType(type: string | undefined | null): boolean {
   return type === 'goal';
 }
 
-export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
+/**
+ * True for an ask node: the run stops and waits for a person to answer
+ * `question` in the inbox, then resumes with the answer as the node's
+ * result. See human-questions.ts / docs/ask-a-person.md.
+ */
+export function isAskType(type: string | undefined | null): boolean {
+  return type === 'ask';
+}
+
+export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped' | 'waiting';
 
 /**
  * Why a node ended in its final state. Lets users filter run logs by failure
@@ -264,6 +274,14 @@ export interface AgentNode {
   goal?: string;
   /** Limits the goal loop works within. Defaults: 15 turns, 600 s. */
   budget?: { maxTurns?: number; timeoutSec?: number };
+
+  // ask (type: 'ask') — see human-questions.ts / docs/ask-a-person.md
+  /** What to ask the person. Templates resolve like a prompt's. */
+  question?: string;
+  /** Answers to offer as buttons. The person can still write their own. */
+  choices?: string[];
+  /** How long to wait before the run fails (default 72). */
+  timeoutHours?: number;
 
   // file-write (first-class node type — desugars to tool: 'file-write')
   /** Path to write (relative to working directory). Required when type is file-write. */

@@ -103,7 +103,7 @@ export const agentNodeSchema = z.object({
   type: z.enum([
     'shell', 'claude-code', 'llm-prompt', 'file-write',
     'conditional', 'switch', 'loop', 'agent-invoke', 'branch', 'end', 'break',
-    'goal',
+    'goal', 'ask',
   ]),
 
   tool: z.string().optional(),
@@ -130,6 +130,12 @@ export const agentNodeSchema = z.object({
     maxTurns: z.number().int().min(1).max(50).optional(),
     timeoutSec: z.number().int().positive().optional(),
   }).optional(),
+
+  // ask node: the run waits for a person's answer in the inbox. See
+  // docs/ask-a-person.md.
+  question: z.string().optional(),
+  choices: z.array(z.string().min(1).max(80)).min(1).max(10).optional(),
+  timeoutHours: z.number().positive().max(720).optional(),
 
   // file-write node fields (top-level for ergonomics; desugar to toolInputs at dispatch).
   path: z.string().optional(),
@@ -175,9 +181,10 @@ export const agentNodeSchema = z.object({
     // file-write needs path + content (or toolInputs if author preferred that form).
     if (data.type === 'file-write') return !!data.path && !!data.content;
     if (data.type === 'goal') return !!data.goal?.trim();
+    if (data.type === 'ask') return !!data.question?.trim();
     return false;
   },
-  { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), path+content (file-write), or goal (goal)' },
+  { message: 'Execution nodes without a tool require command (shell), prompt (claude-code), path+content (file-write), goal (goal), or question (ask)' },
 ).refine(
   // A goal node works by calling tools; without any it is just a prompt, and
   // an llm-prompt node says that more honestly.
@@ -769,6 +776,9 @@ export const agentV2Schema = z.object({
     }
     if (node.type === 'goal') {
       checkText(node.goal, ['goal']);
+    }
+    if (node.type === 'ask') {
+      checkText(node.question, ['question']);
     }
 
     if (node.type === 'file-write') {

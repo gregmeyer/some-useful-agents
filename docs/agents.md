@@ -201,6 +201,7 @@ Every agent has at least one node. Each node declares:
 | `shell` | Run a shell command | `command`, `tool`, `toolInputs` |
 | `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `allowedTools`, `provider` |
 | `goal` | Let the model work toward a goal with tools, looping until it can answer ([goal-agents.md](goal-agents.md)) | `goal`, `tools`, `budget` |
+| `ask` | Stop and ask a person; the run waits for their answer in the inbox ([ask-a-person.md](ask-a-person.md)) | `question`, `choices`, `timeoutHours` |
 | `conditional` | Branch based on a predicate | `conditionalConfig` |
 | `switch` | Multi-way branch | `switchConfig` |
 | `loop` | Iterate over a list or sub-agent invocations | `loopConfig` |

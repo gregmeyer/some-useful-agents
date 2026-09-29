@@ -13,6 +13,7 @@ export * from './sessions.js';
 export * from './transcript.js';
 export * from './usage.js';
 export * from './spend-limits.js';
+export * from './human-questions.js';
 export * from './run-orphan-reaper.js';
 export * from './agent-executor.js';
 export * from './local-provider.js';

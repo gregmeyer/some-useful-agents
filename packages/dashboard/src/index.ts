@@ -74,6 +74,7 @@ import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
 import { raiseOutcomeInbox } from './lib/outcome-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
+import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { buildHomeFeedData } from './lib/home-feed.js';
@@ -732,6 +733,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // while SUA_INBOX_AUTO_TRIAGE is off. Same lifecycle shape as the
   // stuck-run watchdog: unref'd, stopped on close().
   const stopInboxSweeper = startInboxSweeper(ctx, runTriageAgent);
+  // Questions from ask nodes: expire unanswered ones, raise any missing inbox item.
+  const stopQuestionSweeper = startQuestionSweeper(ctx);
 
   // Daily run digest — the first `cadence` producer. Posts one low-priority
   // inbox thread each morning summarizing the previous day's runs (skipped
@@ -774,6 +777,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     async close() {
       clearInterval(stuckWatchdog);
       stopInboxSweeper();
+      stopQuestionSweeper();
       stopDailyDigest();
       stopSchedulerHealth();
       // `server.close()` only stops accepting NEW connections; it resolves its
