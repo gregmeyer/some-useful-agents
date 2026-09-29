@@ -542,3 +542,12 @@ describe('chat: field', () => {
     expect(parseAgent(exportAgent(a)).chat).toEqual({ input: 'Q' });
   });
 });
+
+describe('spendLimit: field', () => {
+  it('parses, exports and validates spendLimit', () => {
+    const a = parseAgent(`${MINIMAL_YAML}spendLimit:\n  perRunUsd: 0.5\n  perDayUsd: 5\n`);
+    expect(a.spendLimit).toEqual({ perRunUsd: 0.5, perDayUsd: 5 });
+    expect(parseAgent(exportAgent(a)).spendLimit).toEqual({ perRunUsd: 0.5, perDayUsd: 5 });
+    expect(() => parseAgent(`${MINIMAL_YAML}spendLimit:\n  perRunUsd: -1\n`)).toThrow(AgentYamlParseError);
+  });
+});

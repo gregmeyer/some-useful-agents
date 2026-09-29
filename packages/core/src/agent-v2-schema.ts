@@ -239,6 +239,12 @@ export const agentV2Schema = z.object({
   ]).optional(),
   // Conversations (docs/conversations.md): which input a chat message fills.
   chat: z.object({ input: z.string().min(1) }).optional(),
+  // Spend limits in USD at list price (docs/cost.md). Unset fields fall back
+  // to the defaults in Settings → Usage.
+  spendLimit: z.object({
+    perRunUsd: z.number().positive().optional(),
+    perDayUsd: z.number().positive().optional(),
+  }).optional(),
 
   /**
    * CSP allowlist contributions. Currently only `imgSrc` is honored —

@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
 import { html, type SafeHtml } from '../views/html.js';
 import { renderSettingsUsage } from '../views/settings-usage.js';
+import { unenforceableProviders } from '@some-useful-agents/core';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -738,7 +739,40 @@ settingsRouter.get('/settings/usage', (req: Request, res: Response) => {
   const requested = Number(req.query.days);
   const days = [1, 7, 30].includes(requested) ? requested : 7;
   const summary = ctx.runStore.usageSummary(new Date(Date.now() - days * 86_400_000).toISOString());
-  res.type('html').send(renderSettingsShell({ active: 'usage', body: renderSettingsUsage({ summary, days }), flash }));
+  const settings = ctx.llmSettingsStore?.get();
+  const error = typeof req.query.error === 'string' ? req.query.error : undefined;
+  res.type('html').send(renderSettingsShell({
+    active: 'usage',
+    body: renderSettingsUsage({
+      summary,
+      days,
+      limits: settings ? (settings.spendLimits ?? {}) : undefined,
+      unenforceable: settings ? unenforceableProviders(settings) : [],
+    }),
+    flash: error ? { kind: 'error', message: error } : flash,
+  }));
+});
+
+/** Save the default spend limits (USD) for agents without their own. */
+settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/usage', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const read = (v: unknown): number | undefined => {
+    if (typeof v !== 'string' || v.trim() === '') return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) throw new Error('A limit must be a positive number of USD, or empty for no limit.');
+    return n;
+  };
+  try {
+    ctx.llmSettingsStore.setSpendLimits({ perRunUsd: read(body.perRunUsd), perDayUsd: read(body.perDayUsd) });
+    redirectWith(res, '/settings/usage#limits', 'flash', 'Saved the spend limits. They apply to runs that start from now on.');
+  } catch (err) {
+    redirectWith(res, '/settings/usage#limits', 'error', (err as Error).message);
+  }
 });
 
 settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {

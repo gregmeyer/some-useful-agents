@@ -80,7 +80,7 @@ on direction.
 
 ## Next (3–6 months)
 
-- **~~Outcome-driven flows~~ → goal agents (shipped).** Superseded: rather than a planner that generates and re-plans DAGs, a [`goal` step](docs/goal-agents.md) gives the model a goal, tools and a budget and lets it loop until it has an answer, and [agents can call other agents as tools](docs/agents-as-tools.md). Build-from-goal drafts goal agents for open-ended asks. Follow-ups: cost budgets (token/cost capture shipped; limits next), an LLM judge for success, sessions + memory.
+- **~~Outcome-driven flows~~ → goal agents (shipped).** Superseded: rather than a planner that generates and re-plans DAGs, a [`goal` step](docs/goal-agents.md) gives the model a goal, tools and a budget and lets it loop until it has an answer, and [agents can call other agents as tools](docs/agents-as-tools.md). Build-from-goal drafts goal agents for open-ended asks. Follow-ups: cost budgets (shipped: capture + per-run / per-day limits), an LLM judge for success, sessions + memory.
 - **Variables editor refactor** — Output Widget editor moved to its own page with sub-tabs in #180; the matching Variables editor refactor is the leftover. Plan: [`~/.claude/plans/agent-config-editors-followup.md`](.).
 - **First-Run Tour CTA** — onboarding polish; surface a guided first-run tour after install. Plan: [`~/.claude/plans/mellow-splashing-squirrel.md`](.).
 - **Agents-as-packages** — npm-style mini-packages with manifest + assets + versioning. Big shape change; promote when a concrete trigger lands (e.g., a real package someone wants to publish). Plan: [`~/.claude/plans/agents-as-packages.md`](.).

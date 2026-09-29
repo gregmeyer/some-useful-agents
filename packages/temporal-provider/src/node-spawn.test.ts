@@ -74,6 +74,14 @@ describe('createTemporalSpawnNode', () => {
     expect(input.memory).toBeUndefined();
   });
 
+  it('forwards what is left of the run\'s spend limit', async () => {
+    let started: { options: { args: unknown[] } } | undefined;
+    const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc' });
+    await spawn(node(), { PATH: '/usr/bin' }, { ...spawnOpts, spendBudgetUsd: 0.42 });
+    expect((started!.options.args[0] as Record<string, unknown>).spendBudgetUsd).toBe(0.42);
+  });
+
   it('strips declared secrets from the activity input env', async () => {
     let started: { options: { args: unknown[] } } | undefined;
     const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });

@@ -202,16 +202,18 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
   },
   budget_exhausted: {
     key: 'budget_exhausted',
-    meaning: 'A goal node ran out of budget before it produced a final answer (its turn limit or time limit), or the model stopped without one.',
+    meaning: 'The node ran out of budget: a goal node hit its turn or time limit without a final answer, or the run reached its spend limit (per run or per day, USD at list price).',
     commonCauses: [
       'The goal needs more steps than budget.maxTurns allows (default 15).',
       'Tool calls were slow and the node hit budget.timeoutSec (default 600).',
       'The goal is too broad to finish in one run.',
+      'The run, or the agent\'s runs today, reached the spend limit (spendLimit on the agent, or the defaults in Settings → Usage).',
     ],
     troubleshooting: [
       'Open the node\'s tool-call list on the run page to see where the turns went.',
       'Raise budget.maxTurns or budget.timeoutSec on the goal node.',
       'Or narrow the goal, or split it into smaller goal nodes.',
+      'For a spend limit: check the run\'s cost on the run page, then raise spendLimit.perRunUsd / perDayUsd on the agent or the defaults in Settings → Usage.',
     ],
   },
 };

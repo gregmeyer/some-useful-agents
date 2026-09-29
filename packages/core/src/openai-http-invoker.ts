@@ -13,7 +13,7 @@
 
 import type { SpawnResult, SpawnProgress } from './node-spawner.js';
 import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
-import { openAiUsageAccumulator } from './usage.js';
+import { formatUsd, openAiUsageAccumulator, type LlmUsage } from './usage.js';
 
 export interface OpenAiInvokeArgs {
   /** Base URL including the version segment, e.g. http://127.0.0.1:8181/v1 */
@@ -23,6 +23,12 @@ export interface OpenAiInvokeArgs {
   model: string;
   /** The provider's name in sua (for usage records); defaults to "openai". */
   providerName?: string;
+  /**
+   * Spend cap for this attempt, USD. Checked after each response of the tool
+   * loop (with `costOf`); the loop stops instead of calling the model again.
+   */
+  maxCostUsd?: number;
+  costOf?: (usage: LlmUsage) => number | undefined;
   prompt: string;
   /** Wall-clock cap; aborts the request and reports a `timeout` category. */
   timeoutSec: number;
@@ -132,7 +138,20 @@ async function invokeOpenAiChatInner(
       const toolCalls = message?.tool_calls ?? [];
       if (typeof message?.content === 'string') lastContent = message.content;
 
-      // Model wants to call tools → execute each, feed results back, loop.
+      // Model wants to call tools → execute each, feed results back, loop —
+      // unless that would take the node past its spend limit.
+      if (useTools && toolCalls.length > 0 && args.maxCostUsd !== undefined && args.costOf) {
+        const soFar = usage.result();
+        const spent = soFar ? args.costOf(soFar) : undefined;
+        if (spent !== undefined && spent >= args.maxCostUsd) {
+          return {
+            result: lastContent,
+            exitCode: 1,
+            category: 'budget_exhausted',
+            error: `Stopped at the spend limit after ${turn + 1} turn${turn === 0 ? '' : 's'}: ${formatUsd(spent)} of the ${formatUsd(args.maxCostUsd)} this node had left.`,
+          };
+        }
+      }
       if (useTools && toolCalls.length > 0) {
         messages.push({ role: 'assistant', content: message?.content ?? '', tool_calls: toolCalls });
         for (const call of toolCalls) {

@@ -1,4 +1,5 @@
 import type { ModelPrice, PriceTable } from './usage.js';
+import type { SpendLimits } from './spend-limits.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PROVIDER_IDS, type LlmProvider } from './llm-providers.js';
@@ -106,6 +107,8 @@ export interface LlmSettings {
    * See usage.ts / docs/cost.md.
    */
   pricing?: PriceTable;
+  /** Default spend limits for agents that don't set their own (spend-limits.ts). */
+  spendLimits?: SpendLimits;
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
 }
@@ -296,6 +299,23 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
+  /**
+   * Set the default spend limits (USD at list price) for agents without their
+   * own. An omitted or zero field means no default for it.
+   */
+  setSpendLimits(limits: SpendLimits): void {
+    const clean: SpendLimits = {};
+    for (const key of ['perRunUsd', 'perDayUsd'] as const) {
+      const v = limits[key];
+      if (v === undefined || v === 0) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(`${key} must be a positive number of USD.`);
+      clean[key] = v;
+    }
+    const data = this.read();
+    data.settings.spendLimits = Object.keys(clean).length > 0 ? clean : undefined;
+    this.write(data);
+  }
+
   /** Record a fallback event for the settings page's status line. */
   recordFallback(event: LlmFallbackEvent): void {
     const data = this.read();
@@ -352,7 +372,8 @@ export class LlmSettingsStore {
       let disabledProviders = deduped.filter((p) => disabledIn.includes(p));
       if (disabledProviders.length === deduped.length) disabledProviders = disabledProviders.slice(1);
       const pricing = sanitizePricing((settings as LlmSettings).pricing);
-      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), lastFallback: settings.lastFallback } };
+      const spendLimits = sanitizeSpendLimits((settings as LlmSettings).spendLimits);
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
@@ -362,6 +383,18 @@ export class LlmSettingsStore {
   private write(data: LlmSettingsFileV3): void {
     writeFileSync(this.path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   }
+}
+
+/** Keep only positive, finite limits from a hand-edited file. */
+function sanitizeSpendLimits(raw: unknown): SpendLimits | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const out: SpendLimits = {
+    ...(ok(r.perRunUsd) ? { perRunUsd: r.perRunUsd } : {}),
+    ...(ok(r.perDayUsd) ? { perDayUsd: r.perDayUsd } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Keep only well-formed prices (finite, non-negative) from a hand-edited file. */

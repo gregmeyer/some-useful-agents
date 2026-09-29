@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { MemoryStore, memorySettings, type Memory, type RunStatus } from '@some-useful-agents/core';
+import { MemoryStore, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
@@ -40,6 +40,18 @@ function resolveBehaviorStatus(
     return { name, usable: true };
   });
 }
+/** The spend limits in force for an agent (its own, else the defaults), or undefined when none. */
+function loadSpendLimits(ctx: ReturnType<typeof getContext>, agent: Parameters<typeof effectiveSpendLimits>[0] & { id: string }) {
+  const settings = ctx.llmSettingsStore?.get();
+  const limits = effectiveSpendLimits(agent, settings?.spendLimits);
+  if (limits.perRunUsd === undefined && limits.perDayUsd === undefined) return undefined;
+  return {
+    limits,
+    spentToday: ctx.runStore.agentSpendSince(agent.id, startOfLocalDay()),
+    unenforceable: settings ? unenforceableProviders(settings) : [],
+  };
+}
+
 /** An agent's memories for the Overview, or undefined when memory is off. */
 function loadMemories(
   ctx: ReturnType<typeof getContext>,
@@ -106,6 +118,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
       memories: loadMemories(ctx, v2Agent),
       spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],
+      spendLimits: loadSpendLimits(ctx, v2Agent),
     });
     res.type('html').send(html);
     return;

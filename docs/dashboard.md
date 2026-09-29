@@ -267,7 +267,7 @@ Tabbed UI for saved connections. Notify destinations (Slack / webhook / file) th
 Prices (USD per million tokens) for providers that report tokens but not cost (codex, OpenAI-compatible endpoints), per provider or per `provider/model`. See [cost.md](cost.md).
 
 ### Usage
-What runs cost over the last 1 / 7 / 30 days, by agent and by provider/model, with a note when some tokens had no price. See [cost.md](cost.md).
+What runs cost over the last 1 / 7 / 30 days, by agent and by provider/model, with a note when some tokens had no price, and the default **spend limits** (per run, per agent per day) for agents without their own. See [cost.md](cost.md).
 
 ### General
 MCP token rotation, data paths, retention, scheduler heartbeat.

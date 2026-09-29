@@ -418,6 +418,7 @@ export class AgentStore {
     if (agent.timeoutSec !== undefined) dag.timeoutSec = agent.timeoutSec;
     if (agent.memory !== undefined) dag.memory = agent.memory;
     if (agent.chat !== undefined) dag.chat = agent.chat;
+    if (agent.spendLimit !== undefined) dag.spendLimit = agent.spendLimit;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -501,6 +502,7 @@ export class AgentStore {
       timeoutSec: dag.timeoutSec,
       memory: dag.memory,
       chat: dag.chat,
+      spendLimit: dag.spendLimit,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

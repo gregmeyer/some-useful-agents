@@ -111,6 +111,7 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
       experimentalApple: spawnOpts.experimentalApple,
       agentCallInfo: spawnOpts.agentCallInfo,
       memoryRunId: spawnOpts.memoryRunId,
+      spendBudgetUsd: spawnOpts.spendBudgetUsd,
     };
 
     const workflowId = `sua-node-${spawnOpts.agentId}-${node.id}-${randomUUID().slice(0, 8)}`;
