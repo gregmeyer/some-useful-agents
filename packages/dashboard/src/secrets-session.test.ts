@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EncryptedFileSecretsSession, MemorySecretsSession } from './secrets-session.js';
 
+// Smallest scrypt cost a store accepts; see core secrets-store.test.ts.
+const FAST_KDF = { kdfParams: { N: 16384 } };
+
 let dir: string;
 let secretsPath: string;
 
@@ -18,19 +21,19 @@ afterEach(() => {
 
 describe('EncryptedFileSecretsSession', () => {
   it('treats an absent store as not requiring a passphrase', () => {
-    const s = new EncryptedFileSecretsSession(secretsPath);
+    const s = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
     expect(s.inspect().mode).toBe('absent');
     expect(s.requiresPassphrase()).toBe(false);
     expect(s.isUnlocked()).toBe(true);
   });
 
   it('round-trips a secret through a hostname-obfuscated store', async () => {
-    const s = new EncryptedFileSecretsSession(secretsPath);
+    const s = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
     await s.setSecret('MY_KEY', 'abc');
     expect(await s.listNames()).toEqual(['MY_KEY']);
     expect(s.inspect().exists).toBe(true);
 
-    const reopened = new EncryptedFileSecretsSession(secretsPath);
+    const reopened = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
     expect(await reopened.listNames()).toEqual(['MY_KEY']);
   });
 
@@ -41,13 +44,13 @@ describe('EncryptedFileSecretsSession', () => {
     const prev = process.env.SUA_SECRETS_PASSPHRASE;
     try {
       process.env.SUA_SECRETS_PASSPHRASE = 'correct';
-      const writer = new EncryptedFileSecretsSession(secretsPath);
+      const writer = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
       await writer.setSecret('API_KEY', 'sk-1');
     } finally {
       process.env.SUA_SECRETS_PASSPHRASE = prev;
     }
 
-    const s = new EncryptedFileSecretsSession(secretsPath);
+    const s = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
     expect(s.requiresPassphrase()).toBe(true);
     expect(s.isUnlocked()).toBe(false);
     expect(await s.listNames()).toEqual([]);
@@ -68,13 +71,13 @@ describe('EncryptedFileSecretsSession', () => {
     const prev = process.env.SUA_SECRETS_PASSPHRASE;
     try {
       process.env.SUA_SECRETS_PASSPHRASE = 'pp';
-      const writer = new EncryptedFileSecretsSession(secretsPath);
+      const writer = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
       await writer.setSecret('SEED', 'v');
     } finally {
       process.env.SUA_SECRETS_PASSPHRASE = prev;
     }
 
-    const s = new EncryptedFileSecretsSession(secretsPath);
+    const s = new EncryptedFileSecretsSession(secretsPath, FAST_KDF);
     await expect(s.setSecret('OTHER', 'v')).rejects.toThrow(/locked/i);
   });
 });
