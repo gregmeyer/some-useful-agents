@@ -28,6 +28,7 @@ import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
+import { drainInFlight } from '../test-drain.js';
 import { getSubAgentAllowlist } from './inbox-catalog.js';
 
 const TOKEN = 'a'.repeat(64);
@@ -76,10 +77,15 @@ async function makeApp() {
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
+  currentCtx = ctx;
   return buildDashboardApp(ctx);
 }
 
+let currentCtx: DashboardContext | undefined;
+
 afterEach(async () => {
+  await drainInFlight(currentCtx);
+  currentCtx = undefined;
   if (provider) {
     const start = Date.now();
     while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {

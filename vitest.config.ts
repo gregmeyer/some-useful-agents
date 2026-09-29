@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     globals: true,
     include: ['packages/*/src/**/*.test.ts'],
+    // No HTTP keep-alive: see vitest.setup.ts (requests reached an earlier test's app).
+    setupFiles: ['./vitest.setup.ts'],
     // Several integration tests spin up real Express/MCP HTTP servers + sqlite.
     // On 2-core CI runners the suite oversubscribes the CPU (≈140s of test work
     // in ≈62s wall-clock), starving those tests so they tip past the default 5s
