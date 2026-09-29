@@ -53,7 +53,7 @@ describe('runAgentActivity', () => {
   });
 
   it('injects secrets from store', async () => {
-    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true, kdfParams: { N: 16384 } });
     await store.set('MY_SECRET_VAR', 'injected-value');
 
     const result = await runAgentActivity({
@@ -145,7 +145,7 @@ describe('runNodeActivity', () => {
   });
 
   it('re-injects declared secrets from the worker-local store', async () => {
-    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(SECRETS_PATH, { allowLegacyFallback: true, kdfParams: { N: 16384 } });
     await store.set('NODE_SECRET', 'node-injected');
 
     const result = await runNodeActivity({

@@ -1,5 +1,6 @@
 import {
   EncryptedFileStore,
+  type EncryptedFileStoreOptions,
   inspectSecretsFile,
   MemorySecretsStore,
   type SecretsStore,
@@ -43,7 +44,11 @@ export interface SecretsSession {
 export class EncryptedFileSecretsSession implements SecretsSession {
   private passphrase: string | undefined;
 
-  constructor(private readonly secretsPath: string) {}
+  constructor(
+    private readonly secretsPath: string,
+    /** Options for the stores this session opens (tests pass a low scrypt cost). */
+    private readonly storeOptions: Pick<EncryptedFileStoreOptions, 'kdfParams'> = {},
+  ) {}
 
   inspect(): SecretsStoreStatus {
     return inspectSecretsFile(this.secretsPath);
@@ -61,7 +66,7 @@ export class EncryptedFileSecretsSession implements SecretsSession {
   async unlock(pass: string): Promise<boolean> {
     if (pass.length === 0) return false;
     try {
-      const probe = new EncryptedFileStore(this.secretsPath, { passphrase: pass });
+      const probe = new EncryptedFileStore(this.secretsPath, { ...this.storeOptions, passphrase: pass });
       await probe.list();
       this.passphrase = pass;
       return true;
@@ -93,10 +98,10 @@ export class EncryptedFileSecretsSession implements SecretsSession {
     if (!status.exists) return undefined;
     if (status.mode === 'passphrase') {
       if (!this.passphrase) return undefined;
-      return new EncryptedFileStore(this.secretsPath, { passphrase: this.passphrase });
+      return new EncryptedFileStore(this.secretsPath, { ...this.storeOptions, passphrase: this.passphrase });
     }
     // hostname-obfuscated: readable with no passphrase
-    return new EncryptedFileStore(this.secretsPath, { onWarn: () => {} });
+    return new EncryptedFileStore(this.secretsPath, { ...this.storeOptions, onWarn: () => {} });
   }
 
   private writeStore(): EncryptedFileStore {
@@ -105,12 +110,13 @@ export class EncryptedFileSecretsSession implements SecretsSession {
       if (!this.passphrase) {
         throw new Error('Secrets store is locked. Unlock it before writing.');
       }
-      return new EncryptedFileStore(this.secretsPath, { passphrase: this.passphrase });
+      return new EncryptedFileStore(this.secretsPath, { ...this.storeOptions, passphrase: this.passphrase });
     }
     // Absent or hostname-obfuscated: allow legacy-fallback writes so a
     // fresh install without a passphrase can still store a secret. The
     // underlying store emits its own warning on first write.
     return new EncryptedFileStore(this.secretsPath, {
+      ...this.storeOptions,
       allowLegacyFallback: true,
       onWarn: () => {},
     });

@@ -127,6 +127,13 @@ export interface EncryptedFileStoreOptions {
   allowLegacyFallback?: boolean;
   /** Warning sink. Defaults to console.error. Override for tests. */
   onWarn?: (message: string) => void;
+  /**
+   * scrypt cost for a store this instance creates (existing stores keep the
+   * params in their payload). Defaults to the OWASP minimum below; tests pass
+   * the smallest allowed N so a parallel test run doesn't starve on memory.
+   * Must stay within the same bounds a payload is held to.
+   */
+  kdfParams?: { N?: number; r?: number; p?: number };
 }
 
 export class EncryptedFileStore implements SecretsStore {
@@ -134,6 +141,7 @@ export class EncryptedFileStore implements SecretsStore {
   private readonly passphrase: string | undefined;
   private readonly allowLegacyFallback: boolean;
   private readonly onWarn: (message: string) => void;
+  private readonly newStoreKdf: KdfParams;
   private warnedObfuscated = false;
   private warnedV1 = false;
   // Instance-level cache of the last scrypt result. Keyed by the tuple of
@@ -147,6 +155,8 @@ export class EncryptedFileStore implements SecretsStore {
     this.passphrase = resolvePassphrase(options.passphrase);
     this.allowLegacyFallback = options.allowLegacyFallback === true;
     this.onWarn = options.onWarn ?? ((m) => console.error(m));
+    this.newStoreKdf = { ...DEFAULT_KDF_PARAMS, ...options.kdfParams };
+    validateKdfParams(this.newStoreKdf, `${filePath} (kdfParams option)`);
 
     const dir = dirname(filePath);
     if (!existsSync(dir)) {
@@ -319,7 +329,7 @@ export class EncryptedFileStore implements SecretsStore {
         );
       }
       salt = randomBytes(SALT_LENGTH);
-      kdfParams = { ...DEFAULT_KDF_PARAMS };
+      kdfParams = { ...this.newStoreKdf };
       obfuscatedFallback = !this.hasUsablePassphrase();
     }
 

@@ -9,6 +9,12 @@ import {
   inspectSecretsFile,
 } from './secrets-store.js';
 
+// The smallest scrypt cost a store accepts. Production stores use N=2^17
+// (about 128 MB per derivation); running many of those in parallel test
+// workers starved the machine and timed tests out. The test that checks the
+// production default below doesn't use this.
+const FAST_KDF = { kdfParams: { N: 16384 } };
+
 const TEST_DIR = join(import.meta.dirname, '__test-secrets__');
 const TEST_PATH = join(TEST_DIR, 'secrets.enc');
 
@@ -44,21 +50,21 @@ function writeLegacyV1(path: string, data: Record<string, string>): void {
 
 describe('EncryptedFileStore (v2 passphrase)', () => {
   it('creates data directory if missing', () => {
-    new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     expect(existsSync(TEST_DIR)).toBe(true);
   });
 
   it('round-trips a secret with a passphrase', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await store.set('MY_KEY', 'secret-value');
     expect(await store.get('MY_KEY')).toBe('secret-value');
   });
 
   it('persists across instances with the same passphrase', async () => {
-    const a = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const a = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await a.set('KEY_A', 'value-a');
 
-    const b = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const b = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     expect(await b.get('KEY_A')).toBe('value-a');
   });
 
@@ -81,23 +87,23 @@ describe('EncryptedFileStore (v2 passphrase)', () => {
   });
 
   it('fails with a clear error on wrong passphrase', async () => {
-    const writer = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await writer.set('K', 'v');
 
-    const reader = new EncryptedFileStore(TEST_PATH, { passphrase: 'wrong' });
+    const reader = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'wrong' });
     await expect(reader.get('K')).rejects.toThrow(/wrong passphrase/);
   });
 
   it('requires a passphrase on read when none is supplied', async () => {
-    const writer = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await writer.set('K', 'v');
 
-    const reader = new EncryptedFileStore(TEST_PATH);
+    const reader = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     await expect(reader.get('K')).rejects.toThrow(/passphrase-protected/);
   });
 
   it('reuses existing salt + kdfParams on subsequent writes', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await store.set('K1', 'v1');
     const first = JSON.parse(readFileSync(TEST_PATH, 'utf-8'));
 
@@ -131,21 +137,21 @@ describe('EncryptedFileStore (v2 passphrase)', () => {
       kdfParams,
     }), 'utf-8');
 
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase });
     expect(await store.get('X')).toBe('1');
   });
 
   it('reads passphrase from SUA_SECRETS_PASSPHRASE env var', async () => {
-    const writer = new EncryptedFileStore(TEST_PATH, { passphrase: 'env-pass' });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'env-pass' });
     await writer.set('K', 'v');
 
     process.env.SUA_SECRETS_PASSPHRASE = 'env-pass';
-    const reader = new EncryptedFileStore(TEST_PATH);
+    const reader = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     expect(await reader.get('K')).toBe('v');
   });
 
   it('lists, deletes, has, getAll with passphrase', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await store.set('B_KEY', 'b');
     await store.set('A_KEY', 'a');
     expect(await store.list()).toEqual(['A_KEY', 'B_KEY']);
@@ -157,7 +163,7 @@ describe('EncryptedFileStore (v2 passphrase)', () => {
 
   it('writes file with 0o600 perms (Unix only)', async () => {
     if (process.platform === 'win32') return;
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await store.set('K', 'v');
     const mode = statSync(TEST_PATH).mode & 0o777;
     expect(mode).toBe(0o600);
@@ -167,7 +173,7 @@ describe('EncryptedFileStore (v2 passphrase)', () => {
 describe('EncryptedFileStore (empty-passphrase / obfuscated fallback)', () => {
   it('writes obfuscatedFallback=true when allowLegacyFallback is set and no passphrase given', async () => {
     const warnings: string[] = [];
-    const store = new EncryptedFileStore(TEST_PATH, {
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF,
       allowLegacyFallback: true,
       onWarn: (m) => warnings.push(m),
     });
@@ -180,21 +186,21 @@ describe('EncryptedFileStore (empty-passphrase / obfuscated fallback)', () => {
   });
 
   it('reads obfuscatedFallback v2 without a passphrase (and warns)', async () => {
-    const writer = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await writer.set('K', 'v');
 
     const warnings: string[] = [];
-    const reader = new EncryptedFileStore(TEST_PATH, { onWarn: (m) => warnings.push(m) });
+    const reader = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, onWarn: (m) => warnings.push(m) });
     expect(await reader.get('K')).toBe('v');
     expect(warnings.some((m) => m.includes('obfuscation'))).toBe(true);
   });
 
   it('warns only once per instance on repeated reads', async () => {
-    const writer = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await writer.set('K', 'v');
 
     const warnings: string[] = [];
-    const reader = new EncryptedFileStore(TEST_PATH, { onWarn: (m) => warnings.push(m) });
+    const reader = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, onWarn: (m) => warnings.push(m) });
     await reader.get('K');
     await reader.get('K');
     await reader.list();
@@ -203,7 +209,7 @@ describe('EncryptedFileStore (empty-passphrase / obfuscated fallback)', () => {
   });
 
   it('preserves obfuscatedFallback mode across writes', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await store.set('K1', 'v1');
     await store.set('K2', 'v2');
 
@@ -212,7 +218,7 @@ describe('EncryptedFileStore (empty-passphrase / obfuscated fallback)', () => {
   });
 
   it('rejects cold-store writes without passphrase or fallback', async () => {
-    const store = new EncryptedFileStore(TEST_PATH);
+    const store = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     await expect(store.set('K', 'v')).rejects.toThrow(/No passphrase provided/);
   });
 });
@@ -222,7 +228,7 @@ describe('EncryptedFileStore (v1 backward-compat + migration)', () => {
     writeLegacyV1(TEST_PATH, { LEGACY_KEY: 'legacy-value' });
 
     const warnings: string[] = [];
-    const reader = new EncryptedFileStore(TEST_PATH, { onWarn: (m) => warnings.push(m) });
+    const reader = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, onWarn: (m) => warnings.push(m) });
     expect(await reader.get('LEGACY_KEY')).toBe('legacy-value');
     expect(warnings.some((m) => m.includes('legacy v1'))).toBe(true);
   });
@@ -230,7 +236,7 @@ describe('EncryptedFileStore (v1 backward-compat + migration)', () => {
   it('migrates v1 → v2 on first write (auto-migration)', async () => {
     writeLegacyV1(TEST_PATH, { OLD_KEY: 'old-value' });
 
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'new-pass' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'new-pass' });
     await store.set('NEW_KEY', 'new-value');
 
     const parsed = JSON.parse(readFileSync(TEST_PATH, 'utf-8'));
@@ -238,7 +244,7 @@ describe('EncryptedFileStore (v1 backward-compat + migration)', () => {
     expect(parsed.obfuscatedFallback).toBeUndefined();
 
     // Both old and new values survive the migration.
-    const reader = new EncryptedFileStore(TEST_PATH, { passphrase: 'new-pass' });
+    const reader = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'new-pass' });
     expect(await reader.get('OLD_KEY')).toBe('old-value');
     expect(await reader.get('NEW_KEY')).toBe('new-value');
   });
@@ -246,14 +252,14 @@ describe('EncryptedFileStore (v1 backward-compat + migration)', () => {
   it('migrates v1 → v2 obfuscatedFallback when user picks empty passphrase', async () => {
     writeLegacyV1(TEST_PATH, { OLD_KEY: 'old-value' });
 
-    const store = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await store.set('NEW_KEY', 'new-value');
 
     const parsed = JSON.parse(readFileSync(TEST_PATH, 'utf-8'));
     expect(parsed.version).toBe(2);
     expect(parsed.obfuscatedFallback).toBe(true);
 
-    const reader = new EncryptedFileStore(TEST_PATH);
+    const reader = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     expect(await reader.get('OLD_KEY')).toBe('old-value');
     expect(await reader.get('NEW_KEY')).toBe('new-value');
   });
@@ -274,25 +280,25 @@ describe('EncryptedFileStore (kdfParams validation)', () => {
 
   it('rejects pathological N (too high → OOM defense)', async () => {
     seedV2({ algorithm: 'scrypt', N: 1 << 25, r: 8, p: 1, keyLength: 32 });
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await expect(store.get('K')).rejects.toThrow(/Invalid kdfParams\.N/);
   });
 
   it('rejects non-power-of-two N', async () => {
     seedV2({ algorithm: 'scrypt', N: 100000, r: 8, p: 1, keyLength: 32 });
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await expect(store.get('K')).rejects.toThrow(/Invalid kdfParams\.N/);
   });
 
   it('rejects unsupported KDF algorithm', async () => {
     seedV2({ algorithm: 'argon2id', N: 131072, r: 8, p: 1, keyLength: 32 });
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await expect(store.get('K')).rejects.toThrow(/Unsupported KDF algorithm/);
   });
 
   it('rejects wrong keyLength', async () => {
     seedV2({ algorithm: 'scrypt', N: 131072, r: 8, p: 1, keyLength: 64 });
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await expect(store.get('K')).rejects.toThrow(/kdfParams\.keyLength/);
   });
 });
@@ -303,7 +309,7 @@ describe('EncryptedFileStore (derived-key cache)', () => {
     // read() then write() — without the cache that's 2 derivations; with
     // it, just 1. Measure the set() time against a rough threshold that
     // comfortably exceeds one derivation but is under two.
-    const writer = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const writer = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await writer.set('SEED', 'seed-value'); // prime the file (1 derivation)
 
     const t0 = Date.now();
@@ -335,7 +341,7 @@ describe('inspectSecretsFile', () => {
   });
 
   it('detects v2 passphrase-protected stores', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2' });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, passphrase: 'hunter2' });
     await store.set('K', 'v');
     const status = inspectSecretsFile(TEST_PATH);
     expect(status.version).toBe(2);
@@ -344,7 +350,7 @@ describe('inspectSecretsFile', () => {
   });
 
   it('detects v2 obfuscatedFallback stores', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await store.set('K', 'v');
     const status = inspectSecretsFile(TEST_PATH);
     expect(status.version).toBe(2);
@@ -385,7 +391,7 @@ function writeObfuscatedV2(path: string, seed: string, data: Record<string, stri
 
 describe('EncryptedFileStore (stable machine key fallback)', () => {
   it('writes the obfuscated vault under a stable machine key file (0600), readable by a fresh store', async () => {
-    const store = new EncryptedFileStore(TEST_PATH, { allowLegacyFallback: true });
+    const store = new EncryptedFileStore(TEST_PATH, { ...FAST_KDF, allowLegacyFallback: true });
     await store.set('K', 'v');
     // The machine key is persisted next to the vault, not derived from hostname.
     const keyPath = join(TEST_DIR, '.secrets-machine-key');
@@ -394,7 +400,7 @@ describe('EncryptedFileStore (stable machine key fallback)', () => {
       expect(statSync(keyPath).mode & 0o777).toBe(0o600);
     }
     // A brand-new instance (same dir) reads it back via the machine key.
-    expect(await new EncryptedFileStore(TEST_PATH).getAll()).toEqual({ K: 'v' });
+    expect(await new EncryptedFileStore(TEST_PATH, FAST_KDF).getAll()).toEqual({ K: 'v' });
   });
 
   it('reads a legacy hostname-keyed vault and self-heals it to the machine key', async () => {
@@ -402,19 +408,32 @@ describe('EncryptedFileStore (stable machine key fallback)', () => {
     writeObfuscatedV2(TEST_PATH, `${hostname()}:${userInfo().username}`, { LEGACY: 'x' });
     expect(existsSync(join(TEST_DIR, '.secrets-machine-key'))).toBe(false);
 
-    const store = new EncryptedFileStore(TEST_PATH);
+    const store = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     expect(await store.getAll()).toEqual({ LEGACY: 'x' }); // decrypts via legacy fallback
 
     // Self-heal: a machine key now exists, and the vault re-keyed to it — so it
     // no longer depends on hostname. A fresh instance reads it via the machine key.
     expect(existsSync(join(TEST_DIR, '.secrets-machine-key'))).toBe(true);
-    expect(await new EncryptedFileStore(TEST_PATH).getAll()).toEqual({ LEGACY: 'x' });
+    expect(await new EncryptedFileStore(TEST_PATH, FAST_KDF).getAll()).toEqual({ LEGACY: 'x' });
   });
 
   it('throws an actionable error (not a raw crypto failure) when no key can decrypt it', async () => {
     writeObfuscatedV2(TEST_PATH, 'some-other-machines-identity', { X: 'y' });
-    const store = new EncryptedFileStore(TEST_PATH);
+    const store = new EncryptedFileStore(TEST_PATH, FAST_KDF);
     await expect(store.getAll()).rejects.toThrow(/Could not decrypt the secrets vault/);
     await expect(store.getAll()).rejects.toThrow(/sua secrets migrate/);
+  });
+});
+
+describe('EncryptedFileStore (kdfParams option)', () => {
+  it('uses the given cost for a new store, keeps an existing store\'s, and holds the option to the same bounds', async () => {
+    const store = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2', kdfParams: { N: 16384 } });
+    await store.set('K', 'v');
+    expect(JSON.parse(readFileSync(TEST_PATH, 'utf-8')).kdfParams.N).toBe(16384);
+    const other = new EncryptedFileStore(TEST_PATH, { passphrase: 'hunter2', kdfParams: { N: 32768 } });
+    await other.set('K2', 'v2');
+    expect(JSON.parse(readFileSync(TEST_PATH, 'utf-8')).kdfParams.N).toBe(16384);
+    expect(() => new EncryptedFileStore(TEST_PATH, { kdfParams: { N: 1024 } })).toThrow(/Invalid kdfParams\.N/);
+    expect(() => new EncryptedFileStore(TEST_PATH, { kdfParams: { N: 100000 } })).toThrow(/Invalid kdfParams\.N/);
   });
 });

@@ -12,6 +12,7 @@ import { SESSION_COOKIE } from './auth-middleware.js';
 import { SEEN_COOKIE } from './session.js';
 import { buildLoopbackAllowlist } from '@some-useful-agents/core';
 import { MemorySecretsSession } from './secrets-session.js';
+import { drainInFlight } from './test-drain.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3999;
@@ -99,8 +100,11 @@ command: echo from-the-internet
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
 
+  currentCtx = ctx;
   return { app: buildDashboardApp(ctx), ctx };
 }
+
+let currentCtx: DashboardContext | undefined;
 
 async function makeApp(overrides: AppOverrides = {}) {
   const { app } = await makeAppWithCtx(overrides);
@@ -112,6 +116,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Stop work the routes started without awaiting (see test-drain.ts).
+  await drainInFlight(currentCtx);
+  currentCtx = undefined;
   // Drain in-flight runs so the provider's async updateRun calls don't race
   // against store.close() and emit "database is not open" unhandled errors.
   if (provider) {
