@@ -36,6 +36,13 @@ export const NODE_PATTERNS: NodePattern[] = [
     defaults: { prompt: 'Analyze this data and summarize the key findings:\n{{upstream.CHANGE_ME.result}}', maxTurns: '1' },
   },
   {
+    id: 'work-toward-goal',
+    name: 'Work toward a goal',
+    description: 'Give a model a goal and tools; it works out the steps itself.',
+    tool: 'goal',
+    defaults: {},
+  },
+  {
     id: 'shell-transform',
     name: 'Shell transform',
     description: 'Process data with jq, awk, sed, or other CLI tools.',
@@ -67,7 +74,7 @@ export const NODE_PATTERNS: NodePattern[] = [
     // invocable agent, because a curated pattern cannot know which agents an
     // install has. The pattern is hidden when there are none to call.
     name: 'Call another agent',
-    description: 'Run one of your other agents as a step, and use its result here.',
+    description: 'Run one of your other agents as a node, and use its result here.',
     tool: AGENT_PATTERN_TOOL,
     defaults: {},
   },

@@ -188,6 +188,7 @@ window.renderDagViz = function () {
     pending:   { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
     cancelled: { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
     skipped:   { fill: '#f3f4f6', border: '#9ca3af', text: '#6b7280' },
+    waiting:   { fill: '#fef9c3', border: '#a16207', text: '#854d0e' },
   };
   // Type tints — agent-detail nodes (no status) use these. Both shell
   // and claude-code stay in the project's accent palette so the DAG
@@ -203,6 +204,8 @@ window.renderDagViz = function () {
     'branch':        { fill: '#f0fdf4', border: '#16a34a', text: '#166534' },
     'end':           { fill: '#fee2e2', border: '#dc2626', text: '#991b1b' },
     'break':         { fill: '#fff7ed', border: '#ea580c', text: '#9a3412' },
+    'goal':          { fill: '#ccfbf1', border: '#0f766e', text: '#115e59' },
+    'ask':           { fill: '#fef9c3', border: '#a16207', text: '#854d0e' },
   };
   var defaultStyle = { fill: '#f9fafb', border: '#d1d5db', text: '#374151' };
 
@@ -216,6 +219,8 @@ window.renderDagViz = function () {
     'branch':      'round-pentagon',
     'end':         'octagon',
     'break':       'octagon',
+    'goal':        'round-hexagon',
+    'ask':         'round-tag',
   };
 
   function pick(n, key) {

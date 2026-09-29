@@ -5,6 +5,8 @@ import { pageHeader } from './page-header.js';
 import { computePaletteSuggestions, renderPalettePayload } from './template-palette.js';
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 import { renderLlmOptions } from './llm-options.js';
+import { renderGoalFields, type GoalFieldValues, type ToolsPickerContext } from './goal-node-fields.js';
+import { renderToolsMultipicker, parseToolsField } from './tools-multipicker.js';
 import { NODE_PATTERNS, AGENT_PATTERN_TOOL } from './node-patterns.js';
 import { renderNodeDiscoveryButton, renderNodeDiscoveryModal } from './node-discovery-modal.js';
 
@@ -55,7 +57,9 @@ function availableVariablesPanel(agent: Agent): SafeHtml {
 
 export interface AddNodeFormValues {
   id?: string;
-  type?: 'shell' | 'llm-prompt' | 'claude-code';
+  type?: 'shell' | 'llm-prompt' | 'claude-code' | 'goal';
+  /** Goal node fields (type: goal). */
+  goal?: GoalFieldValues;
   command?: string;
   prompt?: string;
   dependsOn?: string[];
@@ -75,11 +79,13 @@ export function renderAgentAddNode(args: {
   toolStore?: ToolStore;
   agentStore?: AgentStore;
   variablesStore?: VariablesStore;
+  /** Tools a goal / llm node may call, with the tool policy (see goal-node-fields.ts). */
+  picker?: ToolsPickerContext;
 }): string {
-  const { agent, values: v = {}, error, flash, fromCreate, toolStore, agentStore, variablesStore } = args;
+  const { agent, values: v = {}, error, flash, fromCreate, toolStore, agentStore, variablesStore, picker } = args;
   const allTools = getAvailableTools(toolStore);
   const allAgents = agentStore ? agentStore.listAgents() : [];
-  const selectedTool = (v.type === 'llm-prompt' || v.type === 'claude-code') ? 'llm-prompt' : 'shell-exec';
+  const selectedTool = v.type === 'goal' ? 'goal' : (v.type === 'llm-prompt' || v.type === 'claude-code') ? 'llm-prompt' : 'shell-exec';
   const selectedDeps = new Set(v.dependsOn ?? []);
   const suggestedId = v.id ?? suggestNextNodeId(agent);
 
@@ -147,7 +153,7 @@ export function renderAgentAddNode(args: {
       <div class="form-field">
         <strong>Node id</strong>
         <input type="text" name="id" required pattern="[a-z0-9][a-z0-9_-]*"
-               value="${suggestedId}" placeholder="next-step"
+               value="${suggestedId}" placeholder="next-node"
                class="form-field__input">
         <span class="form-field__hint">Lowercase, hyphens or underscores. Must be unique within this agent.</span>
       </div>
@@ -192,8 +198,9 @@ export function renderAgentAddNode(args: {
             maxTurns: v.maxTurns,
             allowedTools: v.allowedTools,
             tools: v.tools,
-          })}
+          }, picker ? renderToolsMultipicker({ name: 'tools', tools: picker.tools, selected: parseToolsField(v.tools), policy: picker.policy, agent: picker.agent, idPrefix: 'llm' }) : undefined)}
         </div>
+        ${picker ? renderGoalFields({ values: v.goal ?? {}, picker, paletteSource: 'palette-add-node' }) : html``}
       </fieldset>
 
       ${renderPalettePayload('palette-add-node', computePaletteSuggestions(agent, { variablesStore }))}
@@ -217,6 +224,6 @@ export function renderAgentAddNode(args: {
 function suggestNextNodeId(agent: Agent): string {
   const existing = new Set(agent.nodes.map((n) => n.id));
   let n = agent.nodes.length + 1;
-  while (existing.has(`step-${n}`)) n++;
-  return `step-${n}`;
+  while (existing.has(`node-${n}`)) n++;
+  return `node-${n}`;
 }

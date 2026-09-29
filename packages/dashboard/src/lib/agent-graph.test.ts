@@ -100,3 +100,17 @@ describe('buildAgentGraph', () => {
     expect(reads).toBe(50);
   });
 });
+
+describe('agents called as tools', () => {
+  it('adds an edge for each agent:<id> tool on a node', () => {
+    const g = buildAgentGraph([
+      { id: 'boss', name: 'b', status: 'active', source: 'local', mcp: false, version: 1, nodes: [{ id: 'g', type: 'goal', goal: 'x', tools: ['web-fetch', 'agent:worker', 'agent:ghost'] }] },
+      { id: 'worker', name: 'w', status: 'active', source: 'local', mcp: false, version: 1, nodes: [{ id: 's', type: 'shell', command: 'echo' }] },
+    ] as never);
+    expect(g.invokes.get('boss')).toEqual([
+      expect.objectContaining({ to: 'worker', via: 'tool', resolved: true, nodeId: 'g' }),
+      expect.objectContaining({ to: 'ghost', via: 'tool', resolved: false }),
+    ]);
+    expect(g.invokedBy.get('worker')?.map((e) => e.from)).toEqual(['boss']);
+  });
+});

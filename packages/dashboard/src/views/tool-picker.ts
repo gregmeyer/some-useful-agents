@@ -18,6 +18,20 @@ const LLM_PROMPT_PICKER_ENTRY: ToolDefinition = {
 };
 
 /**
+ * Synthetic entry for goal nodes (like LLM_PROMPT_PICKER_ENTRY): selecting it
+ * sets the hidden type to `goal` and shows the goal fields. See goal-node-fields.ts.
+ */
+const GOAL_PICKER_ENTRY: ToolDefinition = {
+  id: 'goal',
+  name: 'Work toward a goal',
+  description: 'Give a model a goal, tools, and a budget; it works it out itself, calling tools until it has an answer. For open-ended asks where the steps aren\'t known in advance.',
+  source: 'builtin',
+  inputs: {},
+  outputs: { result: { type: 'string', description: 'The final answer.' } },
+  implementation: { type: 'goal' as ToolDefinition['implementation']['type'] },
+};
+
+/**
  * All available tools for the node-form dropdown. Built-ins first (with
  * the synthetic `llm-prompt` entry pinned alongside shell-exec), then
  * user tools.
@@ -28,7 +42,7 @@ export function getAvailableTools(toolStore?: ToolStore): ToolDefinition[] {
   try {
     if (toolStore) userTools = toolStore.listTools();
   } catch { /* store not available */ }
-  return [...builtins, LLM_PROMPT_PICKER_ENTRY, ...userTools];
+  return [...builtins, LLM_PROMPT_PICKER_ENTRY, GOAL_PICKER_ENTRY, ...userTools];
 }
 
 /**
@@ -52,7 +66,8 @@ export function renderToolPicker(args: {
   // has no explicit `tool:`, default to its implicit tool. Legacy
   // `claude-code` node type maps to the synthetic `llm-prompt` entry.
   const effective = selectedTool
-    ?? ((currentType === 'claude-code' || currentType === 'llm-prompt') ? 'llm-prompt'
+    ?? (currentType === 'goal' ? 'goal'
+      : (currentType === 'claude-code' || currentType === 'llm-prompt') ? 'llm-prompt'
       : currentType === 'shell' ? 'shell-exec'
       : currentType === 'agent-invoke' && selectedTool ? selectedTool : 'shell-exec');
 
@@ -60,6 +75,7 @@ export function renderToolPicker(args: {
     const selected = t.id === effective ? ' selected' : '';
     const label = t.id === 'shell-exec' ? 'Shell (shell-exec)'
       : t.id === 'llm-prompt' ? 'LLM Prompt (llm-prompt)'
+      : t.id === 'goal' ? 'Work toward a goal (goal)'
       : `${t.id} — ${t.name}`;
     return html`<option value="${t.id}"${unsafeHtml(selected)}>${label}</option>`;
   });
@@ -105,6 +121,7 @@ export function renderToolPicker(args: {
   const schemasPayload = JSON.stringify(schemas).replace(/<\/script/gi, '<\\/script');
 
   const hiddenType = effective.startsWith('agent:') ? 'agent-invoke'
+    : effective === 'goal' ? 'goal'
     : (effective === 'llm-prompt' || effective === 'claude-code') ? 'llm-prompt'
     : 'shell';
 
@@ -138,7 +155,7 @@ export function renderToolInputsSection(
   existingInputs?: Record<string, unknown>,
 ): SafeHtml {
   // shell-exec, llm-prompt (and legacy claude-code) use the inline command/prompt fields.
-  if (selectedTool === 'shell-exec' || selectedTool === 'llm-prompt' || selectedTool === 'claude-code') {
+  if (selectedTool === 'shell-exec' || selectedTool === 'llm-prompt' || selectedTool === 'claude-code' || selectedTool === 'goal') {
     return html`<div id="tool-inputs-section"></div>`;
   }
 
