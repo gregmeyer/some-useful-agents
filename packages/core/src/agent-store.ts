@@ -382,6 +382,8 @@ export class AgentStore {
     try {
       this.db.prepare(`DELETE FROM memories WHERE agent_id = ?`).run(id);
     } catch { /* no memories table yet */ }
+    // Its webhook secret (webhooks.ts).
+    try { this.db.prepare(`DELETE FROM webhooks WHERE agent_id = ?`).run(id); } catch { /* no webhooks table yet */ }
     // And its conversations (sessions.ts).
     try {
       this.db.prepare(`DELETE FROM session_turns WHERE session_id IN (SELECT id FROM sessions WHERE agent_id = ?)`).run(id);
@@ -431,6 +433,7 @@ export class AgentStore {
     if (agent.memory !== undefined) dag.memory = agent.memory;
     if (agent.chat !== undefined) dag.chat = agent.chat;
     if (agent.spendLimit !== undefined) dag.spendLimit = agent.spendLimit;
+    if (agent.webhook !== undefined) dag.webhook = agent.webhook;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -515,6 +518,7 @@ export class AgentStore {
       memory: dag.memory,
       chat: dag.chat,
       spendLimit: dag.spendLimit,
+      webhook: dag.webhook,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

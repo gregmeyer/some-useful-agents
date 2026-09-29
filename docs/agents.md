@@ -37,6 +37,7 @@ timeoutSec: 60                # optional — wall-clock ceiling for the entire D
 memory: true                  # optional — remember notes across runs (or { recall: 8 }); see memory.md
 chat: { input: QUESTION }     # optional — which input a chat message fills; see conversations.md
 spendLimit: { perRunUsd: 0.5, perDayUsd: 5 }  # optional — USD at list price; see cost.md
+webhook: { inputs: { TITLE: $.issue.title } }  # optional — how a webhook delivery maps to inputs; see webhooks.md
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs

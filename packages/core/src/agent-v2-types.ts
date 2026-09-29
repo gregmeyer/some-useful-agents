@@ -18,6 +18,7 @@ import type { AgentSource } from './agent-loader.js';
 import type { LlmProvider } from './llm-providers.js';
 import type { NodeUsage } from './usage.js';
 import type { SpendLimits } from './spend-limits.js';
+import type { WebhookConfig } from './webhooks.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 
@@ -416,6 +417,8 @@ export interface Agent {
   chat?: { input: string };
   /** Spend limits, USD at list price. See spend-limits.ts / docs/cost.md. */
   spendLimit?: SpendLimits;
+  /** Inbound webhook mapping + filter (webhooks.ts / docs/webhooks.md). */
+  webhook?: WebhookConfig;
 
   /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
@@ -708,6 +711,8 @@ export interface AgentVersionDag {
   chat?: { input: string };
   /** Spend limits, USD at list price. See spend-limits.ts / docs/cost.md. */
   spendLimit?: SpendLimits;
+  /** Inbound webhook mapping + filter (webhooks.ts / docs/webhooks.md). */
+  webhook?: WebhookConfig;
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions

@@ -1,4 +1,4 @@
-import type { Agent, BlockedImgHost, EffectiveSpendLimits, Memory, Run, SecretsStore } from '@some-useful-agents/core';
+import type { Agent, BlockedImgHost, EffectiveSpendLimits, Memory, Run, SecretsStore, Webhook } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
@@ -65,6 +65,8 @@ export interface AgentDetailArgs {
   spend7d?: { costUsd: number; costComplete: boolean; runs: number };
   /** Spend limits in force for this agent, today's spend, and providers that can't be held to them. */
   spendLimits?: { limits: EffectiveSpendLimits; spentToday: number; unenforceable: string[] };
+  /** The agent's inbound webhook (Config tab), and the URL base it's reached at. */
+  webhook?: { hook?: Webhook; baseUrl: string };
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

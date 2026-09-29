@@ -38,6 +38,7 @@ import { outcomeCommand } from './commands/outcome.js';
 import { behaviorsCommand } from './commands/behaviors.js';
 import { policyCommand } from './commands/policy.js';
 import { chatCommand } from './commands/chat.js';
+import { webhookCommand } from './commands/webhook.js';
 import { usageCommand } from './commands/usage.js';
 import { memoryCommand } from './commands/memory.js';
 
@@ -95,6 +96,7 @@ agent.addCommand(enableCommand);
 agent.addCommand(installCommand);
 agent.addCommand(reimportCommand);
 agent.addCommand(chatCommand);
+agent.addCommand(webhookCommand);
 
 program.addCommand(initCommand);
 program.addCommand(doctorCommand);
