@@ -188,6 +188,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
         <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
         ${args.spend7d ? html`<dt>Spend, 7 days</dt><dd><span class="mono" title="USD at list price, incl. agents it called">${formatUsd(args.spend7d.costUsd, args.spend7d.costComplete)}</span> <span class="dim">over ${String(args.spend7d.runs)} run${args.spend7d.runs === 1 ? '' : 's'}</span> <a href="/settings/usage" class="dim" style="font-size: var(--font-size-xs);">usage</a></dd>` : html``}
+        ${spendLimitsRow(args.spendLimits)}
         ${heldTo}
       </dl>
       <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">
@@ -342,4 +343,28 @@ function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHt
       </div>
     </section>
   `;
+}
+
+/** "Limits: $2.00 a day ($0.40 spent today) · $0.50 a run", with where they come from. */
+function spendLimitsRow(s: AgentDetailArgs['spendLimits']): SafeHtml {
+  if (!s) return html``;
+  const { limits, spentToday, unenforceable } = s;
+  const from = (src: 'agent' | 'default' | undefined) => src === 'default'
+    ? html` <a href="/settings/usage#limits" class="dim" style="font-size: var(--font-size-xs);">default</a>`
+    : html``;
+  const parts: SafeHtml[] = [];
+  if (limits.perDayUsd !== undefined) {
+    const reached = spentToday >= limits.perDayUsd;
+    parts.push(html`<span class="mono">${formatUsd(limits.perDayUsd)}</span> a day${from(limits.source.perDayUsd)}
+      <span class="${reached ? '' : 'dim'}" style="${reached ? 'color: var(--color-err);' : ''}">(${formatUsd(spentToday)} spent today${reached ? ' — new runs are refused until midnight' : ''})</span>`);
+  }
+  if (limits.perRunUsd !== undefined) {
+    parts.push(html`<span class="mono">${formatUsd(limits.perRunUsd)}</span> a run${from(limits.source.perRunUsd)}`);
+  }
+  return html`<dt>Spend limits</dt><dd>
+    ${parts.map((p, i) => html`${i > 0 ? html` · ` : html``}${p}`) as unknown as SafeHtml[]}
+    ${unenforceable.length > 0
+      ? html`<br><span style="color: var(--color-warn); font-size: var(--font-size-xs);">${unenforceable.join(', ')} ${unenforceable.length === 1 ? 'has' : 'have'} no price, so runs on ${unenforceable.length === 1 ? 'it don\'t' : 'them don\'t'} count. <a href="/settings/llm#pricing">Set a price</a>.</span>`
+      : html``}
+  </dd>`;
 }

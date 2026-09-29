@@ -1,11 +1,18 @@
-import { formatTokens, formatUsd, type UsageSummary } from '@some-useful-agents/core';
+import { formatTokens, formatUsd, type SpendLimits, type UsageSummary } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
 
 /**
  * Settings → Usage: what runs cost over the last N days, by agent and by
  * provider/model. USD at list price (docs/cost.md).
  */
-export function renderSettingsUsage(args: { summary: UsageSummary; days: number }): SafeHtml {
+export function renderSettingsUsage(args: {
+  summary: UsageSummary;
+  days: number;
+  /** Default limits; undefined when the settings store isn't wired. */
+  limits?: SpendLimits;
+  /** Enabled providers with no price, whose runs don't count toward a limit. */
+  unenforceable?: string[];
+}): SafeHtml {
   const { summary, days } = args;
   const range = (d: number) => html`<a href="/settings/usage?days=${String(d)}" class="${d === days ? 'is-active' : ''}">${String(d)} days</a>`;
   const unpriced = summary.byProvider.filter((p) => p.unpricedTokens > 0);
@@ -49,6 +56,8 @@ export function renderSettingsUsage(args: { summary: UsageSummary; days: number 
           <a href="/settings/llm#pricing">Set a price</a> to estimate them.
         </div>` : html``}
 
+      ${args.limits !== undefined ? renderLimitsForm(args.limits, args.unenforceable ?? []) : html``}
+
       <h3>By agent</h3>
       ${summary.byAgent.length === 0
         ? html`<p class="dim">No runs with recorded usage in this period.</p>`
@@ -67,4 +76,35 @@ export function renderSettingsUsage(args: { summary: UsageSummary; days: number 
           <p class="dim" style="font-size: var(--font-size-xs);">A call is one provider attempt; a node that fell back from one provider to another counts on both.</p>`}
     </section>
   `;
+}
+
+/** Default spend limits for agents without their own `spendLimit:`. */
+function renderLimitsForm(limits: SpendLimits, unenforceable: string[]): SafeHtml {
+  const field = (name: 'perRunUsd' | 'perDayUsd', label: string, hint: string) => html`
+    <label class="settings-pricing__field">
+      <span class="dim">${label}</span>
+      <input type="number" name="${name}" min="0" step="any" inputmode="decimal" placeholder="no limit"
+        value="${limits[name] === undefined ? '' : String(limits[name])}" style="width: 8rem;" aria-describedby="${name}-hint">
+      <span class="dim" id="${name}-hint">${hint}</span>
+    </label>`;
+  return html`
+    <section style="margin: var(--space-4) 0 var(--space-6);" id="limits">
+      <h3 class="mt-0">Spend limits</h3>
+      <p class="dim">
+        Defaults for every agent that doesn't set its own <code>spendLimit:</code>. A run that reaches
+        its per-run limit stops (the model finishes the turn it's on, so it can go slightly over), and
+        once an agent reaches its daily limit its new runs fail straight away until midnight, with one
+        inbox item saying so. Leave a field empty for no limit.
+      </p>
+      <form method="POST" action="/settings/usage/limits" class="settings-pricing__form">
+        ${field('perRunUsd', 'Per run (USD)', 'each run, incl. agents it calls')}
+        ${field('perDayUsd', 'Per agent, per day (USD)', 'resets at midnight')}
+        <button type="submit" class="btn btn--sm btn--primary">Save limits</button>
+      </form>
+      ${unenforceable.length > 0 ? html`
+        <p class="flash flash--warn" style="margin-top: var(--space-3);">
+          ${unenforceable.join(', ')} ${unenforceable.length === 1 ? 'has' : 'have'} no price, so ${unenforceable.length === 1 ? 'its' : 'their'} runs don't count toward these limits.
+          <a href="/settings/llm#pricing">Set a price</a>.
+        </p>` : html``}
+    </section>`;
 }

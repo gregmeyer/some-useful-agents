@@ -4962,3 +4962,44 @@ describe('Cost and usage', () => {
     rmSync(settingsDir, { recursive: true, force: true });
   });
 });
+
+describe('Spend limits', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+    .type('form');
+
+  it('sets default limits in Settings → Usage and shows them on an agent, with unpriced providers called out', async () => {
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    llmSettingsStore.setProviders(['claude', 'codex']);
+    const app = await makeApp({ llmSettingsStore });
+    agentStore.createAgent({
+      id: 'capped', name: 'capped', status: 'active', source: 'local', mcp: false,
+      spendLimit: { perRunUsd: 0.25 },
+      nodes: [{ id: 'go', type: 'llm-prompt', prompt: 'hi' }],
+    } as never, 'cli');
+
+    const page = await get(app, '/settings/usage');
+    expect(page.text).toContain('id="limits"');
+    expect(page.text).toContain('codex has no price');
+
+    const saved = await post(app, '/settings/usage/limits').send('perRunUsd=&perDayUsd=3');
+    expect(saved.status).toBe(303);
+    expect(saved.headers.location).toMatch(/#limits$/);
+    expect(llmSettingsStore.get().spendLimits).toEqual({ perDayUsd: 3 });
+    const bad = await post(app, '/settings/usage/limits').send('perRunUsd=-2');
+    expect(new URL(bad.headers.location, 'http://x').searchParams.get('error')).toContain('positive number');
+
+    const overview = await get(app, '/agents/capped');
+    expect(overview.text).toContain('<dt>Spend limits</dt>');
+    expect(overview.text).toMatch(/\$3\.00<\/span> a day/);
+    expect(overview.text).toContain('href="/settings/usage#limits"'); // the daily limit is the default
+    expect(overview.text).toMatch(/\$0\.25<\/span> a run/);
+    expect(overview.text).toContain('codex has no price');
+    rmSync(settingsDir, { recursive: true, force: true });
+  });
+});

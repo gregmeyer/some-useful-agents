@@ -1,4 +1,4 @@
-import type { Agent, BlockedImgHost, Memory, Run, SecretsStore } from '@some-useful-agents/core';
+import type { Agent, BlockedImgHost, EffectiveSpendLimits, Memory, Run, SecretsStore } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
@@ -63,6 +63,8 @@ export interface AgentDetailArgs {
   memories?: Memory[];
   /** This agent's spend over the last 7 days (top-level runs; includes agents it called). */
   spend7d?: { costUsd: number; costComplete: boolean; runs: number };
+  /** Spend limits in force for this agent, today's spend, and providers that can't be held to them. */
+  spendLimits?: { limits: EffectiveSpendLimits; spentToday: number; unenforceable: string[] };
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

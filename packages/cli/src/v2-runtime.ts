@@ -88,6 +88,7 @@ export function loadLlmSettingsSnapshot(config: ReturnType<typeof loadConfig>) {
       disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
       customProviders: current.customProviders ? [...current.customProviders] : undefined,
       pricing: current.pricing,
+      spendLimits: current.spendLimits,
     };
   } catch {
     return undefined;

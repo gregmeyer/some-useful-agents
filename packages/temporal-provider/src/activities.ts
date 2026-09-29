@@ -46,6 +46,7 @@ export function workerLlmSettings(
     customProviders: local?.customProviders,
     disabledProviders: local?.disabledProviders,
     pricing: local?.pricing,
+    spendLimits: local?.spendLimits,
   };
 }
 
@@ -195,6 +196,8 @@ export interface RunNodeActivityInput {
    * (Recall itself already arrived inside `behaviorPreamble`.)
    */
   memoryRunId?: string;
+  /** What's left of the run's spend limit, USD (core spend-limits.ts). */
+  spendBudgetUsd?: number;
   /**
    * Agent Behavior conditioning block, already resolved and scope-checked by
    * the executor. MUST be forwarded: the worker rebuilds the spawn opts from
@@ -333,6 +336,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         // invalid file, like everywhere else).
         policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
         agentCalls: workerAgentCalls(input),
+        spendBudgetUsd: input.spendBudgetUsd,
         memory: memoryStore
           ? {
               agentId: input.agentId,

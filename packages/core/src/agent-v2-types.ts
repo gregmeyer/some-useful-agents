@@ -17,6 +17,7 @@ import type { AgentCapabilities } from './agent-capabilities.js';
 import type { AgentSource } from './agent-loader.js';
 import type { LlmProvider } from './llm-providers.js';
 import type { NodeUsage } from './usage.js';
+import type { SpendLimits } from './spend-limits.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 
@@ -395,6 +396,8 @@ export interface Agent {
   memory?: boolean | { recall?: number };
   /** Conversations: the input a chat message fills. See sessions.ts / docs/conversations.md. */
   chat?: { input: string };
+  /** Spend limits, USD at list price. See spend-limits.ts / docs/cost.md. */
+  spendLimit?: SpendLimits;
 
   /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
@@ -685,6 +688,8 @@ export interface AgentVersionDag {
   memory?: boolean | { recall?: number };
   /** Conversations: the input a chat message fills. See sessions.ts / docs/conversations.md. */
   chat?: { input: string };
+  /** Spend limits, USD at list price. See spend-limits.ts / docs/cost.md. */
+  spendLimit?: SpendLimits;
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions

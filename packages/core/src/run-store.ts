@@ -497,6 +497,27 @@ export class RunStore {
   }
 
   /**
+   * What an agent's runs have cost since `sinceIso` (all its runs, including
+   * ones another agent called). For the per-day spend limit.
+   */
+  agentSpendSince(agentName: string, sinceIso: string): number {
+    const row = this.db.prepare(
+      'SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM runs WHERE agentName = ? AND startedAt >= ? AND cost_usd IS NOT NULL',
+    ).get(agentName, sinceIso) as { cost: number };
+    return Number(row.cost);
+  }
+
+  /**
+   * What a run has cost so far: its finished nodes plus the child runs that
+   * have ended. For the per-run spend limit, checked while the run goes.
+   */
+  runSpendSoFar(runId: string): number {
+    const nodes = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM node_executions WHERE runId = ?').get(runId) as { cost: number };
+    const children = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM runs WHERE parent_run_id = ?').get(runId) as { cost: number };
+    return Number(nodes.cost) + Number(children.cost);
+  }
+
+  /**
    * Spend since `sinceIso`: by agent (top-level runs only — a run's total
    * already includes the agents it called), and by provider/model (from each
    * node attempt, so a fallback's failed attempt counts against its provider).

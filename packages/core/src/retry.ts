@@ -32,9 +32,10 @@ export const DEFAULT_RETRY_CATEGORIES: NodeErrorCategory[] = ['timeout', 'spawn_
  * declared `retry.categories`. These are deterministic (`setup`,
  * `input_resolution`) or user-driven (`cancelled`) or already-skipped
  * states (`condition_not_met`, `flow_ended`) — retrying changes nothing.
+ * `budget_exhausted` too: a retry would only spend past the limit again.
  */
 const NEVER_RETRY: ReadonlySet<NodeErrorCategory> = new Set([
-  'setup', 'input_resolution', 'cancelled', 'condition_not_met', 'flow_ended',
+  'setup', 'input_resolution', 'cancelled', 'condition_not_met', 'flow_ended', 'budget_exhausted',
 ]);
 
 /** Cap a single backoff sleep to 1 hour. Above that, stop trying. */

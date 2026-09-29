@@ -426,6 +426,12 @@
   color: var(--color-info);
 }
 
+.flash--warn {
+  background: var(--color-warn-soft);
+  border-color: var(--color-warn);
+  color: var(--color-warn);
+}
+
 .flash--ok {
   background: var(--color-ok-soft);
   border-color: #bbf7d0;

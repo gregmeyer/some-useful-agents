@@ -20,6 +20,7 @@
  */
 
 import { MemoryStore, memorySettings, formatRecallBlock, MEMORY_TOOL_IDS } from './memory-store.js';
+import { effectiveSpendLimits, startOfLocalDay, dailyLimitMessage, perRunLimitMessage } from './spend-limits.js';
 import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
 import { createAgentCallContext, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { randomUUID } from 'node:crypto';
@@ -407,6 +408,25 @@ export async function executeAgentDag(
   // otherwise the project's `<dataRoot>/.sua/policies.json`, re-read only
   // when it changes. Invalid file ⇒ fail closed (every tool call denied).
   const policyDocument = deps.policyDocument ?? (deps.dataRoot ? resolvePolicyDocument(deps.dataRoot) : undefined);
+
+  // Spend limits (spend-limits.ts): the agent's own, else the defaults from
+  // Settings → Usage. Per day: a run that starts over the daily limit fails
+  // before any node runs, and raises the usual run-failure inbox item (one per
+  // agent, coalesced). A resumed run was already allowed to start.
+  const spendLimits = effectiveSpendLimits(agent, deps.llmSettings?.spendLimits);
+  if (spendLimits.perDayUsd !== undefined && !resumingRun) {
+    const spentToday = deps.runStore.agentSpendSince(agent.id, startOfLocalDay());
+    if (spentToday >= spendLimits.perDayUsd) {
+      const message = dailyLimitMessage(agent.id, spentToday, spendLimits);
+      deps.runStore.updateRun(runId, { status: 'failed', completedAt: new Date().toISOString(), error: message });
+      const refused = deps.runStore.getRun(runId);
+      if (!refused) throw new Error(`Run ${runId} vanished from store after write`);
+      if (deps.onRunFailure && !options.suppressNotify) {
+        try { deps.onRunFailure({ run: refused, errorCategory: 'budget_exhausted', error: message }); } catch { /* non-fatal */ }
+      }
+      return refused;
+    }
+  }
 
   let behaviorPreamble: string | undefined;
   let appliedBehaviors: string[] = [];
@@ -939,6 +959,29 @@ export async function executeAgentDag(
     // Resolve inputs + upstream snapshot before spawning. Input-resolution
     // failures (e.g. secrets store locked, missing required input) count
     // as 'setup' category, not 'exit_nonzero'.
+    // Per-run spend limit: stop before a node once the run has spent its
+    // limit (a node that crossed it finished; this one doesn't start).
+    let nodeSpendBudget: number | undefined;
+    if (spendLimits.perRunUsd !== undefined) {
+      const spent = deps.runStore.runSpendSoFar(runId);
+      if (spent >= spendLimits.perRunUsd) {
+        const message = perRunLimitMessage(spent, spendLimits);
+        deps.runStore.createNodeExecution({
+          runId,
+          nodeId: node.id,
+          workflowVersion: agent.version,
+          status: 'failed',
+          errorCategory: 'budget_exhausted',
+          startedAt: nodeStartedAt,
+          completedAt: new Date().toISOString(),
+          error: message,
+        });
+        firstFailure = { nodeId: node.id, category: 'budget_exhausted', error: message };
+        continue;
+      }
+      nodeSpendBudget = spendLimits.perRunUsd - spent;
+    }
+
     let env: Record<string, string>;
     let upstreamSnapshot: Record<string, string>;
     try {
@@ -1239,7 +1282,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1257,7 +1300,7 @@ export async function executeAgentDag(
         const goal = isGoalType(node.type);
         const nodeWithDefaults: AgentNode = goal ? toGoalPromptNode(withAgentDefaults, agent) : withAgentDefaults;
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined };
+        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
         const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
         // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
         result = goal ? finishGoalResult(node, spawnResult) : spawnResult;

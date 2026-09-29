@@ -7,8 +7,9 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
-import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
+import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
+import type { SpendLimits } from './spend-limits.js';
 import type { BuiltinToolContext } from './tool-types.js';
 import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
@@ -120,6 +121,8 @@ export interface LlmSettingsSnapshot {
   customProviders?: CustomLlmProvider[];
   /** USD-per-million-token prices for providers that report only tokens (usage.ts). */
   pricing?: PriceTable;
+  /** Default spend limits for agents without their own (spend-limits.ts). */
+  spendLimits?: SpendLimits;
   /**
    * Providers the operator toggled OFF globally. Already excluded from
    * `providers` (the runtime chain), but passed through so a node that PINS a
@@ -176,6 +179,8 @@ export type LlmFailureCategory =
   | 'invalid_output'
   | 'tool_unavailable'
   | 'model_unavailable'
+  /** Hit the run's spend limit. Never falls back: another provider would spend more. */
+  | 'budget_exhausted'
   | 'other';
 
 /**
@@ -217,6 +222,8 @@ export type SpawnNodeFn = (
     memory?: BuiltinToolContext['memory'];
     /** Set when the agent has memory on, so a backend that can't carry `memory` (Temporal) rebuilds it. */
     memoryRunId?: string;
+    /** What's left of the run's spend limit, USD (spend-limits.ts). Unset ⇒ no limit. */
+    spendBudgetUsd?: number;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -261,6 +268,8 @@ export interface LlmSpawnOptions {
    * tool-mcp-endpoint.ts). Only for spawners with `supportsMcpTools`.
    */
   mcpConfigPath?: string;
+  /** Spend cap for this attempt, USD (claude `--max-budget-usd`). */
+  maxBudgetUsd?: number;
 }
 
 /**
@@ -356,6 +365,8 @@ export interface LlmSpawner {
   extractError?: (rawStdout: string) => string | undefined;
   /** The CLI's own tool calls, read back from its event stream (raw stdout in). */
   extractToolCalls?: (rawStdout: string) => ToolCallRecord[];
+  /** True when the CLI stopped because it hit `maxBudgetUsd` (raw stdout in). */
+  stoppedAtBudget?: (rawStdout: string) => boolean;
   /** Tokens (and cost, if the CLI reports it) for the attempt, from its event stream. */
   extractUsage?: (rawStdout: string, opts: LlmSpawnOptions) => LlmUsage | undefined;
 }
@@ -477,6 +488,8 @@ export const claudeSpawner: LlmSpawner = {
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
+    // Checked by the CLI after each turn, so the run can end one turn over.
+    if (opts.maxBudgetUsd !== undefined) args.push('--max-budget-usd', Math.max(0.0001, opts.maxBudgetUsd).toFixed(4));
     return args;
   },
 
@@ -569,6 +582,7 @@ export const claudeSpawner: LlmSpawner = {
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
   extractUsage: (stdout) => claudeUsage(stdout),
+  stoppedAtBudget: (stdout) => /"subtype"\s*:\s*"error_max_budget_usd"/.test(stdout),
 };
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
@@ -852,6 +866,7 @@ export async function spawnNodeReal(
     agentCallInfo?: AgentCallInfo;
     memory?: BuiltinToolContext['memory'];
     memoryRunId?: string;
+    spendBudgetUsd?: number;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -949,8 +964,24 @@ export async function spawnNodeReal(
   const collectedUsage = (): NodeUsage | undefined =>
     usageAttempts.length > 0 ? { total: totalUsage(usageAttempts), attempts: usageAttempts } : undefined;
 
+  const costOf = (u: LlmUsage): number | undefined => priceUsage(u, { pricing: _opts.llmSettings?.pricing, localProviders }).costUsd;
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
+    // Per-run spend limit: what's left after this node's earlier attempts.
+    let attemptBudgetUsd: number | undefined;
+    if (_opts.spendBudgetUsd !== undefined) {
+      attemptBudgetUsd = _opts.spendBudgetUsd - usageAttempts.reduce((s, a) => s + (a.costUsd ?? 0), 0);
+      if (attemptBudgetUsd <= 0) {
+        lastResult = {
+          result: '',
+          exitCode: 1,
+          category: 'budget_exhausted',
+          error: `Stopped at the spend limit before trying ${provider}: this node used what was left of the run's limit.`,
+        };
+        lastCategory = 'budget_exhausted';
+        break;
+      }
+    }
     attemptedProviders.push(provider);
     let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
@@ -964,6 +995,8 @@ export async function spawnNodeReal(
       experimentalApple: _opts.experimentalApple,
       agentCalls: _opts.agentCalls,
       memory: _opts.memory,
+      attemptBudgetUsd,
+      costOf,
     });
     if (result.attemptUsage) {
       usageAttempts.push(priceUsage(result.attemptUsage, { pricing: _opts.llmSettings?.pricing, localProviders }));
@@ -1197,6 +1230,10 @@ async function runLlmAttemptInner(
     experimentalApple?: boolean;
     agentCalls?: AgentCallContext;
     memory?: BuiltinToolContext['memory'];
+    /** What this attempt may still spend, USD. Unset ⇒ no limit. */
+    attemptBudgetUsd?: number;
+    /** USD cost of a usage record (the waterfall's pricing), for budget checks inside a tool loop. */
+    costOf?: (usage: LlmUsage) => number | undefined;
   },
   /** Set by `runLlmAttempt` when sua's tool endpoint is up for this attempt. */
   mcpConfigPath?: string,
@@ -1221,6 +1258,8 @@ async function runLlmAttemptInner(
       // provider's configured model.
       model: node.model ?? custom.model,
       providerName: provider,
+      maxCostUsd: toolCtx?.attemptBudgetUsd,
+      costOf: toolCtx?.costOf,
       prompt: resolvedPrompt,
       timeoutSec: node.timeout ?? 300,
       signal,
@@ -1270,6 +1309,7 @@ async function runLlmAttemptInner(
     maxTurns: node.maxTurns,
     allowedTools,
     mcpConfigPath,
+    maxBudgetUsd: toolCtx?.attemptBudgetUsd,
   };
   const args = spawner.buildArgs(spawnOpts);
 
@@ -1326,6 +1366,15 @@ async function runLlmAttemptInner(
 
   const attemptUsage = spawner.extractUsage?.(rawStdout, spawnOpts);
   if (attemptUsage) result = { ...result, attemptUsage };
+  if (toolCtx?.attemptBudgetUsd !== undefined && spawner.stoppedAtBudget?.(rawStdout)) {
+    return {
+      ...result,
+      result: '',
+      exitCode: 1,
+      category: 'budget_exhausted',
+      error: `Stopped at the spend limit: ${provider} reached the ${formatUsd(toolCtx.attemptBudgetUsd)} this node had left of the run's limit.`,
+    };
+  }
 
   // Inline-failure classification (e.g. apple-foundation-models writes
   // `status: "unavailable"` on a successful exit). When the spawner
@@ -1472,6 +1521,7 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   // Output-contract violations are pre-classified by the waterfall.
   if (result.category === 'invalid_output') return 'invalid_output';
   if (result.category === 'tool_unavailable') return 'tool_unavailable';
+  if (result.category === 'budget_exhausted') return 'budget_exhausted';
   const haystack = `${result.error ?? ''}\n${result.result ?? ''}`.toLowerCase();
   if (result.category === 'spawn_failure'
     || haystack.includes('command not found')

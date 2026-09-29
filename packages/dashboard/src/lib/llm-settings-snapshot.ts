@@ -33,6 +33,7 @@ export function buildLlmSettingsSnapshot(
     disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
     customProviders: current.customProviders ? [...current.customProviders] : undefined,
     pricing: current.pricing,
+    spendLimits: current.spendLimits,
     onFallback: (event) => {
       try {
         store.recordFallback({
