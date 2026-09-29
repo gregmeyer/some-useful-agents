@@ -1,3 +1,4 @@
+import type { ModelPrice, PriceTable } from './usage.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PROVIDER_IDS, type LlmProvider } from './llm-providers.js';
@@ -99,6 +100,12 @@ export interface LlmSettings {
    * these; the store guarantees at least one provider stays enabled.
    */
   disabledProviders?: ProviderRef[];
+  /**
+   * USD per million tokens for providers that report tokens but not cost
+   * (codex, OpenAI-compatible endpoints), keyed `provider/model` or `provider`.
+   * See usage.ts / docs/cost.md.
+   */
+  pricing?: PriceTable;
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
 }
@@ -266,6 +273,29 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
+  /**
+   * Set (or with `null`, clear) the price for `provider` or `provider/model`,
+   * in USD per million tokens. Prices must be finite and non-negative.
+   */
+  setPrice(key: string, price: ModelPrice | null): void {
+    const k = key.trim();
+    if (!k) throw new Error('A price needs a provider (or provider/model).');
+    const data = this.read();
+    const pricing = { ...(data.settings.pricing ?? {}) };
+    if (price === null) {
+      delete pricing[k];
+    } else {
+      for (const [field, v] of Object.entries(price)) {
+        if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < 0)) {
+          throw new Error(`${field} must be a non-negative number of USD per million tokens.`);
+        }
+      }
+      pricing[k] = price;
+    }
+    data.settings.pricing = Object.keys(pricing).length > 0 ? pricing : undefined;
+    this.write(data);
+  }
+
   /** Record a fallback event for the settings page's status line. */
   recordFallback(event: LlmFallbackEvent): void {
     const data = this.read();
@@ -321,7 +351,8 @@ export class LlmSettingsStore {
       const disabledIn = (settings as LlmSettings).disabledProviders ?? [];
       let disabledProviders = deduped.filter((p) => disabledIn.includes(p));
       if (disabledProviders.length === deduped.length) disabledProviders = disabledProviders.slice(1);
-      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, lastFallback: settings.lastFallback } };
+      const pricing = sanitizePricing((settings as LlmSettings).pricing);
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
@@ -331,6 +362,24 @@ export class LlmSettingsStore {
   private write(data: LlmSettingsFileV3): void {
     writeFileSync(this.path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   }
+}
+
+/** Keep only well-formed prices (finite, non-negative) from a hand-edited file. */
+function sanitizePricing(raw: unknown): PriceTable | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const ok = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  const out: PriceTable = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const p = value as Record<string, unknown> | null;
+    if (!key.trim() || !p || !ok(p.inputPerMTok) || !ok(p.outputPerMTok)) continue;
+    out[key] = {
+      inputPerMTok: p.inputPerMTok as number,
+      outputPerMTok: p.outputPerMTok as number,
+      ...(ok(p.cacheReadPerMTok) ? { cacheReadPerMTok: p.cacheReadPerMTok as number } : {}),
+      ...(ok(p.cacheWritePerMTok) ? { cacheWritePerMTok: p.cacheWritePerMTok as number } : {}),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Drop malformed custom-provider entries from a hand-edited file. */

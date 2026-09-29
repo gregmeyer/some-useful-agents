@@ -183,6 +183,8 @@ Every run across all agents. Filter by agent, status (pending / running / comple
 
 Per-node execution table with stdout, exit codes, errors, timings. For `llm-prompt` nodes, real-time turn progress via stream-json, and a **tool calls** list: every tool the model called during the node, whichever provider it ran on (`native` marks a provider's own tool, e.g. claude's WebFetch), each expandable to its arguments and result. Runs from before this was recorded fall back to the tool events in the progress stream. "Replay from node" button on each row. The **Node execution** header (title + search input + status-filter dropdown) sticks at `top: 0` while node cards scroll under it; an rAF-throttled scroll observer releases the DAG/Result sticky bar above it back to `position: static` when this header reaches the release line, so the two sticky surfaces don't fight for the top of the viewport.
 
+**Cost.** The run's cost (USD at list price, including agents it called) and tokens appear in the header, and each llm node carries a cost chip whose hover lists every provider attempt. See [cost.md](cost.md).
+
 Resolved variables panel shows what values the run actually saw (inputs after defaults, vars after substitution).
 
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
@@ -260,6 +262,12 @@ List of imported MCP servers with tool counts, **Enable/Disable** toggle (gates 
 
 ### Integrations
 Tabbed UI for saved connections. Notify destinations (Slack / webhook / file) that `notify` handlers reference by id, plus data-source and service *kinds* — CSV / Postgres / SQLite (which auto-generate find/count tools) and Gmail (OAuth). See [Integrations](integrations.md).
+
+### LLM → Pricing
+Prices (USD per million tokens) for providers that report tokens but not cost (codex, OpenAI-compatible endpoints), per provider or per `provider/model`. See [cost.md](cost.md).
+
+### Usage
+What runs cost over the last 1 / 7 / 30 days, by agent and by provider/model, with a note when some tokens had no price. See [cost.md](cost.md).
 
 ### General
 MCP token rotation, data paths, retention, scheduler heartbeat.

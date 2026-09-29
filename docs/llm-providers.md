@@ -164,6 +164,10 @@ providers, the waterfall order, and the disabled set all persist there and take
 effect on the next run — no daemon restart needed. There's no CLI for LLM
 settings today; manage them from **Settings → LLM**.
 
+## Cost
+
+Every LLM call records its tokens and cost (USD at list price). Claude reports its cost; codex and OpenAI-compatible endpoints report tokens only, so set their prices in **Settings → LLM → Pricing** (endpoints on this machine are free unless priced). See [cost.md](cost.md).
+
 ## Fallback telemetry
 
 When a hop fires, `/settings/llm` records the last fallback (`from → to`,

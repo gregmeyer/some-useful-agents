@@ -32,6 +32,7 @@ export function buildLlmSettingsSnapshot(
     // enabled provider instead of forcing the disabled one to run.
     disabledProviders: current.disabledProviders ? [...current.disabledProviders] : undefined,
     customProviders: current.customProviders ? [...current.customProviders] : undefined,
+    pricing: current.pricing,
     onFallback: (event) => {
       try {
         store.recordFallback({

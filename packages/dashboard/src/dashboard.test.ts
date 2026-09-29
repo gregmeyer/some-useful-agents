@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { LlmSettingsStore, LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -29,6 +29,7 @@ interface AppOverrides {
   rotateToken?: () => string;
   retentionDays?: number;
   toolStore?: ToolStore;
+  llmSettingsStore?: LlmSettingsStore;
 }
 
 async function makeAppWithCtx(overrides: AppOverrides = {}) {
@@ -83,6 +84,7 @@ command: echo from-the-internet
     }),
     secretsStore,
     toolStore: overrides.toolStore,
+    llmSettingsStore: overrides.llmSettingsStore,
     secretsSession,
     tokenPath: join(dir, 'mcp-token'),
     retentionDays: overrides.retentionDays ?? 30,
@@ -4882,5 +4884,81 @@ describe('Agent Chat tab', () => {
     expect(sessions.get(theirs.id)).toBeDefined();
     await post(app, `/agents/echo-chat/chat/${mine.id}/delete`);
     expect(sessions.get(mine.id)).toBeUndefined();
+  });
+});
+
+describe('Cost and usage', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+    .type('form');
+
+  function seedCostedRun(): string {
+    agentStore.createAgent({
+      id: 'spender', name: 'spender', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'think', type: 'llm-prompt', prompt: 'hi' }],
+    } as never, 'cli');
+    const now = new Date().toISOString();
+    runStore.createRun({ id: 'run-cost-1', agentName: 'spender', status: 'running', startedAt: now, triggeredBy: 'dashboard', workflowId: 'spender', workflowVersion: 1 } as never);
+    runStore.createNodeExecution({ runId: 'run-cost-1', nodeId: 'think', workflowVersion: 1, status: 'running', startedAt: now });
+    runStore.updateNodeExecution('run-cost-1', 'think', {
+      status: 'completed', completedAt: now, result: 'ok', exitCode: 0, usedLLMProvider: 'codex', attemptedProviders: 'codex',
+      usage: {
+        total: { inputTokens: 12_000, outputTokens: 300, cacheReadTokens: 4000, cacheWriteTokens: 0, costUsd: 0, costComplete: false },
+        attempts: [{ provider: 'codex', model: 'gpt-5.5', inputTokens: 12_000, outputTokens: 300, cacheReadTokens: 4000, cacheWriteTokens: 0, costSource: 'unpriced' }],
+      },
+    });
+    runStore.updateRun('run-cost-1', { status: 'completed', completedAt: now });
+    return 'run-cost-1';
+  }
+
+  it('shows cost on the run page, the runs list, the agent overview and Settings → Usage', async () => {
+    const app = await makeApp();
+    const runId = seedCostedRun();
+
+    const run = await get(app, `/runs/${runId}`);
+    expect(run.status).toBe(200);
+    expect(run.text).toContain('<dt>Cost</dt>');
+    expect(run.text).toContain('≥ $0');
+    expect(run.text).toContain('some tokens have no price');
+    expect(run.text).toContain('codex/gpt-5.5: no price');
+
+    const list = await get(app, '/runs');
+    expect(list.text).toContain('>Cost</th>');
+
+    const overview = await get(app, '/agents/spender');
+    expect(overview.text).toContain('Spend, 7 days');
+
+    const usage = await get(app, '/settings/usage?days=30');
+    expect(usage.status).toBe(200);
+    expect(usage.text).toContain('href="/agents/spender"');
+    expect(usage.text).toContain('codex');
+    expect(usage.text).toContain('with no price, so the totals are a lower bound');
+    expect(usage.text).toContain('class="is-active">30 days');
+  });
+
+  it('saves, validates and clears a price from Settings → LLM', async () => {
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    const app = await makeApp({ llmSettingsStore });
+
+    const page = await get(app, '/settings/llm');
+    expect(page.text).toContain('id="pricing"');
+    expect(page.text).toContain('<span class="mono settings-pricing__key">codex</span>');
+
+    const saved = await post(app, '/settings/llm/price').send('key=codex&input=1.25&output=10&cacheRead=');
+    expect(saved.status).toBe(303);
+    expect(saved.headers.location).toMatch(/^\/settings\/llm\?flash=.*#pricing$/);
+    expect(llmSettingsStore.get().pricing).toEqual({ codex: { inputPerMTok: 1.25, outputPerMTok: 10 } });
+
+    const bad = await post(app, '/settings/llm/price').send('key=codex&input=-3&output=10');
+    expect(decodeURIComponent(bad.headers.location)).toContain('non-negative');
+
+    await post(app, '/settings/llm/price').send('key=codex&clear=1');
+    expect(llmSettingsStore.get().pricing).toBeUndefined();
+    rmSync(settingsDir, { recursive: true, force: true });
   });
 });

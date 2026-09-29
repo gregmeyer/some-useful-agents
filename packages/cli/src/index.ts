@@ -38,6 +38,7 @@ import { outcomeCommand } from './commands/outcome.js';
 import { behaviorsCommand } from './commands/behaviors.js';
 import { policyCommand } from './commands/policy.js';
 import { chatCommand } from './commands/chat.js';
+import { usageCommand } from './commands/usage.js';
 import { memoryCommand } from './commands/memory.js';
 
 // Read version from our own package.json so `sua --version` always matches
@@ -115,5 +116,6 @@ program.addCommand(outcomeCommand);
 program.addCommand(behaviorsCommand);
 program.addCommand(policyCommand);
 program.addCommand(memoryCommand);
+program.addCommand(usageCommand);
 
 program.parse();

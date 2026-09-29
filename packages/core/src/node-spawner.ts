@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { BuiltinToolContext } from './tool-types.js';
 import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
@@ -84,6 +85,13 @@ export type SpawnResult = ExecutionResult & {
    * the in-process executor behave the same; the executor persists them.
    */
   toolCalls?: ToolCallRecord[];
+  /**
+   * Tokens and cost (USD at list price) across every provider attempt — a
+   * failed attempt still spent money. Set by the LLM waterfall; see usage.ts.
+   */
+  usage?: NodeUsage;
+  /** One attempt's usage, set by the attempt functions; the waterfall folds these into `usage`. */
+  attemptUsage?: LlmUsage;
 };
 
 /**
@@ -110,6 +118,8 @@ export interface LlmSettingsSnapshot {
    * spawning a CLI. Absent ⇒ only builtin CLI providers are available.
    */
   customProviders?: CustomLlmProvider[];
+  /** USD-per-million-token prices for providers that report only tokens (usage.ts). */
+  pricing?: PriceTable;
   /**
    * Providers the operator toggled OFF globally. Already excluded from
    * `providers` (the runtime chain), but passed through so a node that PINS a
@@ -346,6 +356,8 @@ export interface LlmSpawner {
   extractError?: (rawStdout: string) => string | undefined;
   /** The CLI's own tool calls, read back from its event stream (raw stdout in). */
   extractToolCalls?: (rawStdout: string) => ToolCallRecord[];
+  /** Tokens (and cost, if the CLI reports it) for the attempt, from its event stream. */
+  extractUsage?: (rawStdout: string, opts: LlmSpawnOptions) => LlmUsage | undefined;
 }
 
 /**
@@ -556,6 +568,7 @@ export const claudeSpawner: LlmSpawner = {
   supportsMcpTools: true,
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
+  extractUsage: (stdout) => claudeUsage(stdout),
 };
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
@@ -686,6 +699,10 @@ export const codexSpawner: LlmSpawner = {
   },
 
   extractError: codexFailureMessage,
+  extractUsage: (stdout, opts) => {
+    const usage = codexUsage(stdout);
+    return usage ? { ...usage, model: opts.model ?? codexDefaultModel() } : undefined;
+  },
 };
 
 // ── Apple Foundation Models spawner ────────────────────────────────────
@@ -925,6 +942,12 @@ export async function spawnNodeReal(
   const toolCalls: ToolCallRecord[] = [];
   const collectedToolCalls = (): ToolCallRecord[] | undefined =>
     toolCalls.length > 0 ? toolCalls.map((c, seq) => ({ ...c, seq })) : undefined;
+  // Every attempt's tokens and cost: a provider that failed after working
+  // still spent them. Priced here, where the operator's price table is known.
+  const usageAttempts: LlmUsage[] = [];
+  const localProviders = localProviderNames(_opts.llmSettings?.customProviders);
+  const collectedUsage = (): NodeUsage | undefined =>
+    usageAttempts.length > 0 ? { total: totalUsage(usageAttempts), attempts: usageAttempts } : undefined;
 
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
@@ -942,6 +965,14 @@ export async function spawnNodeReal(
       agentCalls: _opts.agentCalls,
       memory: _opts.memory,
     });
+    if (result.attemptUsage) {
+      usageAttempts.push(priceUsage(result.attemptUsage, { pricing: _opts.llmSettings?.pricing, localProviders }));
+    } else if (provider === 'apple-foundation-models' && result.exitCode === 0) {
+      usageAttempts.push({ provider, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, costSource: 'free' });
+    }
+    const { attemptUsage: _attemptUsage, ...attemptResult } = result;
+    void _attemptUsage;
+    result = attemptResult;
 
     // A 0-exit result still has to satisfy the node's output contract. A weak
     // fallback model that ignores the required format (e.g. no <plan> block)
@@ -956,6 +987,7 @@ export async function spawnNodeReal(
         return {
           ...result,
           toolCalls: collectedToolCalls(),
+          usage: collectedUsage(),
           usedLLMProvider: provider,
           attemptedProviders,
           providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
@@ -1019,6 +1051,7 @@ export async function spawnNodeReal(
     ...(lastResult ?? { result: '', exitCode: 1 }),
     ...(toolsError ? { error: toolsError } : {}),
     toolCalls: collectedToolCalls(),
+    usage: collectedUsage(),
     usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
     attemptedProviders,
     providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
@@ -1187,6 +1220,7 @@ async function runLlmAttemptInner(
       // A node may pin a different model on the same endpoint; else use the
       // provider's configured model.
       model: node.model ?? custom.model,
+      providerName: provider,
       prompt: resolvedPrompt,
       timeoutSec: node.timeout ?? 300,
       signal,
@@ -1289,6 +1323,9 @@ async function runLlmAttemptInner(
     onSpawn,
     onChildExit,
   });
+
+  const attemptUsage = spawner.extractUsage?.(rawStdout, spawnOpts);
+  if (attemptUsage) result = { ...result, attemptUsage };
 
   // Inline-failure classification (e.g. apple-foundation-models writes
   // `status: "unavailable"` on a successful exit). When the spawner

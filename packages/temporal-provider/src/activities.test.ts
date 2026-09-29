@@ -283,6 +283,28 @@ describe('worker LLM settings', () => {
     expect(res.error).toMatch(/Could not reach http:\/\/127\.0\.0\.1:1/);
   });
 
+  it('returns the node\'s usage, priced from the worker\'s settings file', async () => {
+    const server = createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'hi' } }], usage: { prompt_tokens: 1_000_000, completion_tokens: 0 } }));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const store = new LlmSettingsStore(settingsPath());
+      store.addCustomProvider({ name: 'priced', kind: 'openai', apiBase: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, model: 'm' });
+      store.setPrice('priced', { inputPerMTok: 3, outputPerMTok: 15 });
+      const res = await runNodeActivity({
+        node: llmNode, env: {}, agentId: 'demo', agentSource: 'local',
+        llmProviders: ['priced'], secretsPath: SECRETS_PATH, declaredSecrets: [], llmSettingsPath: settingsPath(),
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.usage?.total).toMatchObject({ inputTokens: 1_000_000, costUsd: 3, costComplete: true });
+      expect(res.usage?.attempts[0].costSource).toBe('estimated');
+    } finally {
+      server.close();
+    }
+  });
+
   it('fails an unknown provider loudly rather than running claude under its name', async () => {
     const res = await runNodeActivity({
       node: llmNode, env: {}, agentId: 'demo', agentSource: 'local',

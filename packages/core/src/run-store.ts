@@ -1,3 +1,4 @@
+import type { LlmUsage, NodeUsage, UsageTotal } from './usage.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { ToolCallRecord } from './tool-call-record.js';
 import { openStoreDb } from './sqlite-open.js';
@@ -213,6 +214,12 @@ export class RunStore {
     if (!runCols.has('recalled_memories_json')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN recalled_memories_json TEXT`);
     }
+    // Tokens and cost (USD at list price), rolled up from the run's nodes and
+    // its child runs when the run ends (rollupRunUsage). NULL ↔ no LLM usage
+    // recorded (shell-only runs, or runs from before usage capture).
+    for (const [col, type] of [['cost_usd', 'REAL'], ['cost_complete', 'INTEGER'], ['input_tokens', 'INTEGER'], ['output_tokens', 'INTEGER'], ['cache_read_tokens', 'INTEGER'], ['cache_write_tokens', 'INTEGER']] as const) {
+      if (!runCols.has(col)) this.db.exec(`ALTER TABLE runs ADD COLUMN ${col} ${type}`);
+    }
     if (!runCols.has('behaviors_json')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN behaviors_json TEXT`);
     }
@@ -281,6 +288,12 @@ export class RunStore {
     // work actually ran. Nullable; NULL ↔ legacy/local.
     if (!execCols.has('usedworkflowprovider')) {
       this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
+    }
+
+    // A node's LLM usage (usage.ts): totals as columns for aggregation, and
+    // the per-attempt breakdown (provider, model, cost source) as JSON.
+    for (const [col, type] of [['cost_usd', 'REAL'], ['cost_complete', 'INTEGER'], ['input_tokens', 'INTEGER'], ['output_tokens', 'INTEGER'], ['cache_read_tokens', 'INTEGER'], ['cache_write_tokens', 'INTEGER'], ['usage_json', 'TEXT']] as const) {
+      if (!execCols.has(col)) this.db.exec(`ALTER TABLE node_executions ADD COLUMN ${col} ${type}`);
     }
 
     // Every tool call a model made during a node (see tool-call-record.ts).
@@ -448,6 +461,87 @@ export class RunStore {
     values.push(id);
     const stmt = this.db.prepare(`UPDATE runs SET ${fields.join(', ')} WHERE id = ?`);
     stmt.run(...values);
+    // A run that just ended gets its usage totals, whichever path ended it.
+    if (updates.completedAt !== undefined) this.rollupRunUsage(id);
+  }
+
+  /**
+   * Total a run's tokens and cost from its nodes and its child runs (agents
+   * it called as tools), and store them on the run. Children end before the
+   * node that called them, so their totals are already in place. Leaves the
+   * run's usage NULL when nothing used an LLM.
+   */
+  rollupRunUsage(id: string): UsageTotal | undefined {
+    const agg = (table: 'node_executions' | 'runs', where: string) => this.db.prepare(`
+      SELECT COUNT(cost_usd) AS n, COALESCE(SUM(cost_usd), 0) AS cost, MIN(COALESCE(cost_complete, 1)) AS complete,
+             COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output,
+             COALESCE(SUM(cache_read_tokens), 0) AS cread, COALESCE(SUM(cache_write_tokens), 0) AS cwrite
+      FROM ${table} WHERE ${where} = ? AND cost_usd IS NOT NULL
+    `).get(id) as { n: number; cost: number; complete: number | null; input: number; output: number; cread: number; cwrite: number };
+    const nodes = agg('node_executions', 'runId');
+    const children = agg('runs', 'parent_run_id');
+    if (Number(nodes.n) + Number(children.n) === 0) return undefined;
+    const total: UsageTotal = {
+      costUsd: Number(nodes.cost) + Number(children.cost),
+      costComplete: (nodes.complete ?? 1) === 1 && (children.complete ?? 1) === 1,
+      inputTokens: Number(nodes.input) + Number(children.input),
+      outputTokens: Number(nodes.output) + Number(children.output),
+      cacheReadTokens: Number(nodes.cread) + Number(children.cread),
+      cacheWriteTokens: Number(nodes.cwrite) + Number(children.cwrite),
+    };
+    this.db.prepare(`
+      UPDATE runs SET cost_usd = ?, cost_complete = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?
+      WHERE id = ?
+    `).run(total.costUsd, total.costComplete ? 1 : 0, total.inputTokens, total.outputTokens, total.cacheReadTokens, total.cacheWriteTokens, id);
+    return total;
+  }
+
+  /**
+   * Spend since `sinceIso`: by agent (top-level runs only — a run's total
+   * already includes the agents it called), and by provider/model (from each
+   * node attempt, so a fallback's failed attempt counts against its provider).
+   */
+  usageSummary(sinceIso: string, filter: { agentName?: string } = {}): UsageSummary {
+    const agentWhere = filter.agentName ? ' AND agentName = ?' : '';
+    const args: SqlValue[] = filter.agentName ? [sinceIso, filter.agentName] : [sinceIso];
+    const byAgent = (this.db.prepare(`
+      SELECT agentName AS agent, COUNT(*) AS runs, COALESCE(SUM(cost_usd), 0) AS cost, MIN(COALESCE(cost_complete, 1)) AS complete,
+             COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0) AS input,
+             COALESCE(SUM(output_tokens), 0) AS output
+      FROM runs WHERE startedAt >= ? AND parent_run_id IS NULL AND cost_usd IS NOT NULL${agentWhere}
+      GROUP BY agentName ORDER BY cost DESC, runs DESC
+    `).all(...args) as Array<Record<string, unknown>>).map((r) => ({
+      agent: String(r.agent), runs: Number(r.runs), costUsd: Number(r.cost), costComplete: Number(r.complete) === 1,
+      inputTokens: Number(r.input), outputTokens: Number(r.output),
+    }));
+    const byProvider = new Map<string, ProviderUsageTotal>();
+    const rows = this.db.prepare(`
+      SELECT n.usage_json AS usage FROM node_executions n JOIN runs r ON r.id = n.runId
+      WHERE r.startedAt >= ? AND n.usage_json IS NOT NULL${filter.agentName ? ' AND r.agentName = ?' : ''}
+    `).all(...args) as Array<{ usage: string }>;
+    for (const row of rows) {
+      let attempts: LlmUsage[];
+      try { attempts = JSON.parse(row.usage) as LlmUsage[]; } catch { continue; }
+      for (const a of attempts) {
+        const key = `${a.provider}${a.model ? `/${a.model}` : ''}`;
+        const t = byProvider.get(key) ?? { provider: a.provider, model: a.model, calls: 0, costUsd: 0, unpricedTokens: 0, inputTokens: 0, outputTokens: 0, sources: [] };
+        t.calls += 1;
+        t.inputTokens += a.inputTokens + a.cacheReadTokens + a.cacheWriteTokens;
+        t.outputTokens += a.outputTokens;
+        if (a.costUsd !== undefined) t.costUsd += a.costUsd;
+        else t.unpricedTokens += a.inputTokens + a.outputTokens + a.cacheReadTokens + a.cacheWriteTokens;
+        if (!t.sources.includes(a.costSource)) t.sources.push(a.costSource);
+        byProvider.set(key, t);
+      }
+    }
+    const providers = [...byProvider.values()].sort((a, b) => b.costUsd - a.costUsd || b.calls - a.calls);
+    return {
+      since: sinceIso,
+      byAgent,
+      byProvider: providers,
+      totalUsd: byAgent.reduce((s, a) => s + a.costUsd, 0),
+      complete: byAgent.every((a) => a.costComplete),
+    };
   }
 
   listRuns(filter?: { agentName?: string; status?: RunStatus; limit?: number }): Run[] {
@@ -619,6 +713,8 @@ export class RunStore {
        */
       childPid?: number | null;
       childStartedAtMs?: number | null;
+      /** The node's LLM usage across provider attempts (usage.ts). */
+      usage?: NodeUsage;
     },
   ): void {
     const fields: string[] = [];
@@ -641,6 +737,11 @@ export class RunStore {
     if (updates.attemptedProviders !== undefined) { fields.push('attemptedProviders = ?'); values.push(updates.attemptedProviders); }
     if (updates.providerFailures !== undefined) { fields.push('provider_failures_json = ?'); values.push(updates.providerFailures); }
     if (updates.usedWorkflowProvider !== undefined) { fields.push('usedWorkflowProvider = ?'); values.push(updates.usedWorkflowProvider); }
+    if (updates.usage !== undefined) {
+      const t = updates.usage.total;
+      fields.push('cost_usd = ?', 'cost_complete = ?', 'input_tokens = ?', 'output_tokens = ?', 'cache_read_tokens = ?', 'cache_write_tokens = ?', 'usage_json = ?');
+      values.push(t.costUsd, t.costComplete ? 1 : 0, t.inputTokens, t.outputTokens, t.cacheReadTokens, t.cacheWriteTokens, JSON.stringify(updates.usage.attempts));
+    }
     if (fields.length === 0) return;
 
     values.push(runId, nodeId);
@@ -731,6 +832,16 @@ export class RunStore {
       temporalRunId: (row.temporal_run_id as string | null) ?? undefined,
       behaviors: parseBehaviorsJson(row.behaviors_json as string | null),
       ...(row.recalled_memories_json ? { recalledMemories: JSON.parse(String(row.recalled_memories_json)) as string[] } : {}),
+      ...(row.cost_usd !== null && row.cost_usd !== undefined ? {
+        usage: {
+          costUsd: Number(row.cost_usd),
+          costComplete: Number(row.cost_complete ?? 1) === 1,
+          inputTokens: Number(row.input_tokens ?? 0),
+          outputTokens: Number(row.output_tokens ?? 0),
+          cacheReadTokens: Number(row.cache_read_tokens ?? 0),
+          cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
+        },
+      } : {}),
     };
   }
 
@@ -757,7 +868,40 @@ export class RunStore {
       usedLLMProvider: (row.usedProvider as string | null) ?? undefined,
       attemptedProviders: (row.attemptedProviders as string | null) ?? undefined,
       providerFailures: (row.provider_failures_json as string | null) ?? undefined,
+      ...(row.usage_json ? (() => {
+        try {
+          const attempts = JSON.parse(String(row.usage_json)) as LlmUsage[];
+          return { usage: { total: {
+            costUsd: Number(row.cost_usd ?? 0), costComplete: Number(row.cost_complete ?? 1) === 1,
+            inputTokens: Number(row.input_tokens ?? 0), outputTokens: Number(row.output_tokens ?? 0),
+            cacheReadTokens: Number(row.cache_read_tokens ?? 0), cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
+          }, attempts } };
+        } catch { return {}; }
+      })() : {}),
       usedWorkflowProvider: (row.usedWorkflowProvider as string | null) ?? undefined,
     };
   }
+}
+
+/** One provider/model's spend in a usage summary. */
+export interface ProviderUsageTotal {
+  provider: string;
+  model?: string;
+  /** Node attempts. */
+  calls: number;
+  costUsd: number;
+  /** Tokens with no price (cost unknown). */
+  unpricedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  sources: Array<LlmUsage['costSource']>;
+}
+
+export interface UsageSummary {
+  since: string;
+  byAgent: Array<{ agent: string; runs: number; costUsd: number; costComplete: boolean; inputTokens: number; outputTokens: number }>;
+  byProvider: ProviderUsageTotal[];
+  totalUsd: number;
+  /** False when some usage had no price, so totals are lower bounds. */
+  complete: boolean;
 }

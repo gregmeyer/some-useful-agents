@@ -13,6 +13,7 @@
 
 import type { SpawnResult, SpawnProgress } from './node-spawner.js';
 import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
+import { openAiUsageAccumulator } from './usage.js';
 
 export interface OpenAiInvokeArgs {
   /** Base URL including the version segment, e.g. http://127.0.0.1:8181/v1 */
@@ -20,6 +21,8 @@ export interface OpenAiInvokeArgs {
   /** Bearer token; omitted ⇒ no Authorization header (local servers). */
   apiKey?: string;
   model: string;
+  /** The provider's name in sua (for usage records); defaults to "openai". */
+  providerName?: string;
   prompt: string;
   /** Wall-clock cap; aborts the request and reports a `timeout` category. */
   timeoutSec: number;
@@ -54,6 +57,7 @@ interface ChatMessage {
 }
 interface ChatCompletionResponse {
   choices?: Array<{ message?: ChatMessage }>;
+  usage?: unknown;
 }
 
 /**
@@ -61,6 +65,18 @@ interface ChatCompletionResponse {
  * return the assistant text as a `SpawnResult`.
  */
 export async function invokeOpenAiChat(args: OpenAiInvokeArgs): Promise<SpawnResult> {
+  // Tokens across every response of the tool loop, reported on the result
+  // whatever the outcome (a loop that ran out of turns still used them).
+  const usage = openAiUsageAccumulator(args.providerName ?? 'openai', args.model);
+  const result = await invokeOpenAiChatInner(args, usage);
+  const attemptUsage = usage.result();
+  return attemptUsage ? { ...result, attemptUsage } : result;
+}
+
+async function invokeOpenAiChatInner(
+  args: OpenAiInvokeArgs,
+  usage: ReturnType<typeof openAiUsageAccumulator>,
+): Promise<SpawnResult> {
   const doFetch = args.fetchImpl ?? fetch;
   const url = args.apiBase.replace(/\/+$/, '') + '/chat/completions';
 
@@ -111,6 +127,7 @@ export async function invokeOpenAiChat(args: OpenAiInvokeArgs): Promise<SpawnRes
       }
 
       const json = (await res.json()) as ChatCompletionResponse;
+      usage.add(json.usage);
       const message = json.choices?.[0]?.message;
       const toolCalls = message?.tool_calls ?? [];
       if (typeof message?.content === 'string') lastContent = message.content;

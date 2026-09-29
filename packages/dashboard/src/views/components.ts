@@ -1,3 +1,4 @@
+import { formatTokens, formatUsd, type LlmUsage, type UsageTotal } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
 
 /**
@@ -148,3 +149,25 @@ export {
   formatErrorCategory,
   explainNodeFailure,
 } from '@some-useful-agents/core';
+
+/**
+ * A run's or node's cost, e.g. "$0.15" or "≥ $0.02" (some tokens unpriced),
+ * with the token counts beside it. Cost is USD at list price (docs/cost.md).
+ */
+export function renderUsageTotal(total: UsageTotal, opts: { linkPricing?: boolean } = {}): SafeHtml {
+  const tokensIn = total.inputTokens + total.cacheReadTokens + total.cacheWriteTokens;
+  return html`<span class="mono">${formatUsd(total.costUsd, total.costComplete)}</span>
+    <span class="dim">· ${formatTokens(tokensIn)} in / ${formatTokens(total.outputTokens)} out</span>
+    ${!total.costComplete && opts.linkPricing
+      ? html` <a href="/settings/llm#pricing" class="dim" style="font-size: var(--font-size-xs);">some tokens have no price — set one</a>`
+      : html``}`;
+}
+
+/** Hover text for a node's cost chip: one line per provider attempt. */
+export function usageAttemptsTitle(attempts: readonly LlmUsage[]): string {
+  return attempts.map((a) => {
+    const cost = a.costUsd === undefined ? 'no price' : `${formatUsd(a.costUsd)} (${a.costSource})`;
+    const tokensIn = a.inputTokens + a.cacheReadTokens + a.cacheWriteTokens;
+    return `${a.provider}${a.model ? `/${a.model}` : ''}: ${cost}, ${formatTokens(tokensIn)} in (${formatTokens(a.cacheReadTokens)} cached), ${formatTokens(a.outputTokens)} out`;
+  }).join('\n');
+}

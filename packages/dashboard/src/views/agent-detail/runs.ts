@@ -1,3 +1,4 @@
+import { formatUsd } from '@some-useful-agents/core';
 import { html, type SafeHtml } from '../html.js';
 import { statusBadge, formatDuration, formatAge } from '../components.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
@@ -11,6 +12,7 @@ export function renderAgentRuns(args: AgentDetailArgs): string {
       <td>${statusBadge(r.status)}</td>
       <td class="dim">${formatAge(r.startedAt)}</td>
       <td class="dim">${formatDuration(r.startedAt, r.completedAt)}</td>
+      <td class="dim mono">${r.usage ? formatUsd(r.usage.costUsd, r.usage.costComplete) : '—'}</td>
       <td class="dim">${r.triggeredBy}</td>
     </tr>
   `);
@@ -27,7 +29,7 @@ export function renderAgentRuns(args: AgentDetailArgs): string {
       `
       : html`
         <table class="table">
-          <thead><tr><th>ID</th><th>Status</th><th>Started</th><th>Duration</th><th>Triggered</th></tr></thead>
+          <thead><tr><th>ID</th><th>Status</th><th>Started</th><th>Duration</th><th title="USD at list price, incl. agents it called">Cost</th><th>Triggered</th></tr></thead>
           <tbody>${runRows as unknown as SafeHtml[]}</tbody>
         </table>
       `}

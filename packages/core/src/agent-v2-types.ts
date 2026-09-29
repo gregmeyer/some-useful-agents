@@ -12,11 +12,11 @@
  *     only — shell nodes receive the same value as `$UPSTREAM_<NODEID>_RESULT`
  *     via env injection, matching how shell agents already consume inputs).
  */
-
 import type { AgentInputSpec, AgentOutputSpec } from './types.js';
 import type { AgentCapabilities } from './agent-capabilities.js';
 import type { AgentSource } from './agent-loader.js';
 import type { LlmProvider } from './llm-providers.js';
+import type { NodeUsage } from './usage.js';
 
 export type AgentStatus = 'active' | 'paused' | 'archived' | 'draft';
 
@@ -780,6 +780,8 @@ export interface NodeExecutionRecord {
    * back-compat).
    */
   usedLLMProvider?: string;
+  /** LLM tokens and cost across provider attempts (usage.ts). Undefined for non-LLM nodes. */
+  usage?: NodeUsage;
   /**
    * Comma-separated trail of every provider attempted in waterfall
    * order. Length 1 means no fallback fired. Stored as CSV (not JSON)

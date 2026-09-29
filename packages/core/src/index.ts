@@ -11,6 +11,7 @@ export * from './agent-tool.js';
 export * from './memory-store.js';
 export * from './sessions.js';
 export * from './transcript.js';
+export * from './usage.js';
 export * from './run-orphan-reaper.js';
 export * from './agent-executor.js';
 export * from './local-provider.js';
