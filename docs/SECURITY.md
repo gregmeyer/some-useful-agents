@@ -231,6 +231,25 @@ since the cookie value is compared against the token the server loaded.
 `sua dashboard signin-url` reprints a sign-in link for an already-running
 dashboard; that link carries the token in its fragment, so it is a credential.
 
+### Inbound webhooks
+
+`POST /hooks/<agent>` is the one dashboard path that takes no session cookie
+and no loopback `Host` check, so a service on the internet can reach it
+through a tunnel. It is **off per agent** until you turn it on (Config tab or
+`sua agent webhook <agent> --on`), which creates a random per-agent secret
+(`whk_…`, 192 bits). Every request must present that secret (bearer token,
+`X-Sua-Token`, or `?token=`), or, for `webhook.signature: github`, carry a
+valid `X-Hub-Signature-256` over the raw body; comparisons are constant-time.
+Unknown agents and switched-off webhooks both answer 404, so a caller without
+a secret can't tell which agents exist. Other limits: 1 MB bodies, 32 KB per
+input, 30 deliveries per agent per minute, only declared inputs are set,
+paused agents and community shell agents are refused, and the run is still
+bound by the agent's spend limits and tool policy. Treat the secret like a
+password: anyone holding it can run the agent with inputs of their choosing,
+so don't expose shell agents that interpolate raw inputs. Rotate it from the
+Config tab. Only `/hooks/*` is reachable through a tunnel; every other path
+still requires a loopback `Host` and a session.
+
 ## What sua does NOT defend against
 
 Being explicit so you can evaluate whether sua is the right tool for your threat model:

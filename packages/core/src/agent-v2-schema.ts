@@ -248,6 +248,14 @@ export const agentV2Schema = z.object({
   chat: z.object({ input: z.string().min(1) }).optional(),
   // Spend limits in USD at list price (docs/cost.md). Unset fields fall back
   // to the defaults in Settings → Usage.
+  // Inbound webhook (docs/webhooks.md): how a delivery maps to inputs and
+  // which deliveries start a run. Turning the webhook on happens outside the
+  // YAML (it creates a secret).
+  webhook: z.object({
+    inputs: z.record(z.string(), z.string().regex(/^(\$|\$[.[].*|header:.+|query:.+)$/, 'webhook.inputs sources are $.path, $, header:Name or query:name')).optional(),
+    when: z.record(z.string(), z.string()).optional(),
+    signature: z.enum(['github']).optional(),
+  }).optional(),
   spendLimit: z.object({
     perRunUsd: z.number().positive().optional(),
     perDayUsd: z.number().positive().optional(),
