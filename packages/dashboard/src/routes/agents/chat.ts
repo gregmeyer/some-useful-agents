@@ -18,6 +18,7 @@ import { buildLlmSettingsSnapshot } from '../../lib/llm-settings-snapshot.js';
 import { resolveRunBackend } from '../../lib/run-backend.js';
 import { renderAgentChat } from '../../views/agent-detail/chat.js';
 import { buildTabArgs } from './tabs.js';
+import { questionStore } from '../../lib/ask-human.js';
 
 /**
  * Chat tab: talk to an agent (docs/conversations.md). A message is recorded
@@ -65,6 +66,10 @@ agentChatRouter.get('/agents/:name/chat', async (req: Request, res: Response) =>
   const turns = active ? reconcileSession(sessions, ctx.runStore, active.id) : [];
   const last = turns[turns.length - 1];
   const pending = Boolean(last && last.role === 'user' && last.runId);
+  // Stopped at an ask node: point at the question instead of reloading.
+  const waitingQuestion = pending && last?.runId && ctx.runStore.getRun(last.runId)?.status === 'waiting'
+    ? questionStore(ctx).pendingForRun(last.runId)
+    : undefined;
   const blocked = chatBlockedReason(args.agent);
   let chatInput: string | undefined;
   if (!blocked) chatInput = resolveChatInput(args.agent);
@@ -79,6 +84,7 @@ agentChatRouter.get('/agents/:name/chat', async (req: Request, res: Response) =>
       active,
       turns,
       pending,
+      waitingQuestion,
       chatInput,
       notConversational: blocked,
     },

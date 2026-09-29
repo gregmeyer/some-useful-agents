@@ -126,7 +126,8 @@ export class TemporalProvider implements Provider {
    */
   async submitDagRun(agent: Agent, opts: SubmitDagRunOptions): Promise<Run> {
     const runId = opts.runId ?? randomUUID();
-    const run: Run = {
+    const existing = opts.resume && opts.runId ? this.store.getRun(opts.runId) : null;
+    const run: Run = existing ?? {
       id: runId,
       agentName: agent.id,
       status: 'pending',
@@ -136,7 +137,9 @@ export class TemporalProvider implements Provider {
       workflowId: agent.id,
       workflowVersion: agent.version,
     };
-    this.store.createRun(run);
+    // A resume reuses the run row (the activity always runs with resume: true,
+    // so it picks up after the last completed node).
+    if (!existing) this.store.createRun(run);
 
     const input: RunDagActivityInput = {
       agent,

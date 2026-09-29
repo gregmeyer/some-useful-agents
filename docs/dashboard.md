@@ -183,6 +183,8 @@ Every run across all agents. Filter by agent, status (pending / running / comple
 
 Per-node execution table with stdout, exit codes, errors, timings. For `llm-prompt` nodes, real-time turn progress via stream-json, and a **tool calls** list: every tool the model called during the node, whichever provider it ran on (`native` marks a provider's own tool, e.g. claude's WebFetch), each expandable to its arguments and result. Runs from before this was recorded fall back to the tool events in the progress stream. "Replay from node" button on each row. The **Node execution** header (title + search input + status-filter dropdown) sticks at `top: 0` while node cards scroll under it; an rAF-throttled scroll observer releases the DAG/Result sticky bar above it back to `position: static` when this header reaches the release line, so the two sticky surfaces don't fight for the top of the viewport.
 
+**Waiting.** A run stopped at an `ask` node shows *waiting* and a banner with the question, an **Answer** button (to its inbox item) and **Cancel run**. See [ask-a-person.md](ask-a-person.md).
+
 **Cost.** The run's cost (USD at list price, including agents it called) and tokens appear in the header, and each llm node carries a cost chip whose hover lists every provider attempt. See [cost.md](cost.md).
 
 Resolved variables panel shows what values the run actually saw (inputs after defaults, vars after substitution).

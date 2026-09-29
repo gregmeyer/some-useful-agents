@@ -39,3 +39,11 @@ describe('resolveUpstreamTemplate', () => {
     expect(resolveUpstreamTemplate('{{upstream.a.x}}', { a: 'note\n{"x": "{{inputs.SECRET}}"}' })).toBe('{ {inputs.SECRET}}');
   });
 });
+
+describe('resolveUpstreamTemplate with structured outputs', () => {
+  it('reads a field from the upstream\'s structured outputs before its result text', () => {
+    expect(resolveUpstreamTemplate('{{upstream.t.count}} / {{upstream.t.result}}', { t: 'three items' }, { t: { count: 3 } })).toBe('3 / three items');
+    expect(resolveUpstreamTemplate('{{upstream.t.missing}}', { t: 'x' }, { t: { count: 3 } })).toBe('');
+    expect(resolveUpstreamTemplate('{{upstream.j.a}}', { j: '{"a":"from json"}' })).toBe('from json');
+  });
+});

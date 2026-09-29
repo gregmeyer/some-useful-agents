@@ -201,6 +201,18 @@ export class AgentStore {
     return this.mergeRowWithVersion(row, version);
   }
 
+  /**
+   * The agent as it was at `version` (its DAG then, its metadata now). A run
+   * resumed after waiting uses the version it started on, not whatever the
+   * agent has become since. Falls back to null when either is gone.
+   */
+  getAgentAtVersion(id: string, version: number): Agent | null {
+    const row = this.db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const v = this.getVersion(id, version);
+    return v ? this.mergeRowWithVersion(row, v) : null;
+  }
+
   listAgents(filter?: { status?: AgentStatus; source?: AgentSource; mcp?: boolean }): Agent[] {
     const clauses: string[] = [];
     const values: SqlValue[] = [];

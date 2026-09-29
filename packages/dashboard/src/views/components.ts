@@ -11,7 +11,7 @@ export function statusBadge(status: string): SafeHtml {
     status === 'completed' ? 'badge--ok'
     : status === 'failed' ? 'badge--err'
     : status === 'running' || status === 'pending' ? 'badge--info'
-    : status === 'cancelled' ? 'badge--warn'
+    : status === 'cancelled' || status === 'waiting' ? 'badge--warn'
     : 'badge--muted';
   return html`<span class="badge ${kind}">${status}</span>`;
 }

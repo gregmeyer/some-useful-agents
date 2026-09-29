@@ -77,7 +77,8 @@ export interface AgentDefinition {
   tags?: string[];
 }
 
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+/** `waiting`: stopped at an ask node until a person answers (human-questions.ts). */
+export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting';
 
 export interface Run {
   id: string;
@@ -144,6 +145,8 @@ export interface Run {
   recalledMemories?: string[];
   /** Tokens and cost (USD at list price), incl. child runs; set when the run ends. See usage.ts. */
   usage?: UsageTotal;
+  /** Inputs (and a chat turn's conversation block) a resumed run starts from. */
+  resumeContext?: { inputs?: Record<string, string>; conversationPreamble?: string };
 }
 
 export interface RunRequest {
@@ -200,4 +203,6 @@ export interface SubmitDagRunOptions {
   experimentalApple?: boolean;
   /** A chat turn's "conversation so far" block (sessions.ts); forwarded to the executor. */
   conversationPreamble?: string;
+  /** Resume the existing run `runId` (e.g. after a person answered its question) instead of creating one. */
+  resume?: boolean;
 }

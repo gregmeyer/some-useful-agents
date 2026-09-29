@@ -214,6 +214,12 @@ export class RunStore {
     if (!runCols.has('recalled_memories_json')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN recalled_memories_json TEXT`);
     }
+    // What a resumed run needs to see the same start: its inputs and, for a
+    // chat turn, the conversation block (a run waiting on an ask node resumes
+    // hours later, in whatever process answers it).
+    if (!runCols.has('resume_context_json')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN resume_context_json TEXT`);
+    }
     // Tokens and cost (USD at list price), rolled up from the run's nodes and
     // its child runs when the run ends (rollupRunUsage). NULL ↔ no LLM usage
     // recorded (shell-only runs, or runs from before usage capture).
@@ -442,7 +448,7 @@ export class RunStore {
     return rows.map((r) => this.rowToRun(r));
   }
 
-  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors' | 'recalledMemories'>>): void {
+  updateRun(id: string, updates: Partial<Pick<Run, 'status' | 'completedAt' | 'result' | 'exitCode' | 'error' | 'usedWorkflowProvider' | 'temporalRunId' | 'behaviors' | 'recalledMemories' | 'resumeContext'>>): void {
     const fields: string[] = [];
     const values: SqlValue[] = [];
 
@@ -455,6 +461,7 @@ export class RunStore {
     if (updates.temporalRunId !== undefined) { fields.push('temporal_run_id = ?'); values.push(updates.temporalRunId); }
     if (updates.behaviors !== undefined) { fields.push('behaviors_json = ?'); values.push(JSON.stringify(updates.behaviors)); }
     if (updates.recalledMemories !== undefined) { fields.push('recalled_memories_json = ?'); values.push(JSON.stringify(updates.recalledMemories)); }
+    if (updates.resumeContext !== undefined) { fields.push('resume_context_json = ?'); values.push(JSON.stringify(updates.resumeContext)); }
 
     if (fields.length === 0) return;
 
@@ -853,6 +860,9 @@ export class RunStore {
       temporalRunId: (row.temporal_run_id as string | null) ?? undefined,
       behaviors: parseBehaviorsJson(row.behaviors_json as string | null),
       ...(row.recalled_memories_json ? { recalledMemories: JSON.parse(String(row.recalled_memories_json)) as string[] } : {}),
+      ...(row.resume_context_json ? (() => {
+        try { return { resumeContext: JSON.parse(String(row.resume_context_json)) as Run['resumeContext'] }; } catch { return {}; }
+      })() : {}),
       ...(row.cost_usd !== null && row.cost_usd !== undefined ? {
         usage: {
           costUsd: Number(row.cost_usd),

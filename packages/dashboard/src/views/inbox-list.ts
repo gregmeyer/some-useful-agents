@@ -111,6 +111,7 @@ const SOURCE_LABEL: Record<InboxSource, string> = {
   'cadence': 'Cadence',
   'manual': 'Manual',
   'system-health': 'System health',
+  'question': 'Question',
 };
 
 const PRIORITY_LABEL: Record<InboxPriority, string> = {

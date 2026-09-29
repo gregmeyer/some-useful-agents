@@ -37,6 +37,7 @@ export const STATUS_COLORS: Record<RunStatus, (s: string) => string> = {
   pending: chalk.yellow,
   failed: chalk.red,
   cancelled: chalk.gray,
+  waiting: chalk.magenta,
 };
 
 export function colorStatus(status: RunStatus): string {

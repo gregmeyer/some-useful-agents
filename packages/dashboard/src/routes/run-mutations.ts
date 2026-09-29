@@ -1,3 +1,4 @@
+import { cancelWaitingRun } from '../lib/ask-human.js';
 import { Router, type Request, type Response } from 'express';
 import { executeAgentDag, executeAgentLoop, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -343,6 +344,13 @@ runMutationsRouter.post('/runs/:id/cancel', async (req: Request, res: Response) 
   const run = ctx.runStore.getRun(id);
   if (!run) {
     res.redirect(303, `/runs?flash=${encodeURIComponent('Run not found.')}`);
+    return;
+  }
+  // A run waiting for an answer holds no process: close its question and
+  // mark it cancelled directly.
+  if (run.status === 'waiting') {
+    cancelWaitingRun(ctx, id);
+    res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Cancelled. The question was withdrawn.')}`);
     return;
   }
   if (run.status !== 'running' && run.status !== 'pending') {

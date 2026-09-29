@@ -164,7 +164,7 @@ describe('runAgentTurn', () => {
     const deps: DagExecutorDeps = { runStore, spawnNode: spawner([], () => ({ result: '', exitCode: 1, error: 'provider down' })) };
     const turn = await runAgentTurn({ agent: chatAgent(), sessions, message: 'hi', triggeredBy: 'cli', deps });
     expect(turn.run.status).toBe('failed');
-    expect(turn.reply.failed).toBe(true);
+    expect(turn.reply?.failed).toBe(true);
   });
 });
 

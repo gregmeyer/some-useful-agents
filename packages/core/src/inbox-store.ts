@@ -45,7 +45,7 @@ export type InboxStatus = typeof INBOX_STATUSES[number];
  * `system-health` is sua itself being down (e.g. the scheduler crashed), so
  * nothing runs and nothing fails. Deterministic, so never auto-triaged.
  */
-export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual', 'system-health'] as const;
+export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual', 'system-health', 'question'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
 /**
@@ -786,7 +786,7 @@ export class InboxStore {
         ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
       FROM inbox_messages
       WHERE status = 'open'
-        AND source NOT IN ('manual', 'system-health')
+        AND source NOT IN ('manual', 'system-health', 'question')
         AND paused = 0
         AND created_at <= ?
         AND NOT EXISTS (

@@ -1,3 +1,4 @@
+import type { HumanQuestion } from '@some-useful-agents/core';
 import {
   renderMarkdownSafe,
   type InboxMessage,
@@ -28,6 +29,8 @@ import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 export interface InboxDetailOptions {
   message: InboxMessage;
   responses: InboxResponse[];
+  /** For a `question` item: the question a run is waiting on (core human-questions.ts). */
+  question?: HumanQuestion;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /**
    * When true, the triage agent has a run in `pending` or `running` for
@@ -120,6 +123,7 @@ const SOURCE_LABEL: Record<string, string> = {
   'cadence': 'Cadence',
   'manual': 'Manual',
   'system-health': 'System health',
+  'question': 'Question',
 };
 
 const ROLE_LABEL: Record<InboxResponseRole, string> = {
@@ -351,7 +355,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const timelineBlock = html`
     <section class="inbox-modal__timeline-section">
       ${responses.length === 0 && !triagePending
-        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Write below and sua will reply here.</p>`
+        ? (opts.question ? html`` : html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Write below and sua will reply here.</p>`)
         : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
       ${triagePending ? renderThinkingIndicator(message.id) : html``}
     </section>
@@ -420,9 +424,51 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ${timelineBlock}
         ${learningsBlock}
       </div>
-      ${composer}
+      ${opts.question ? renderQuestionPanel(message.id, opts.question) : composer}
     </div>
   `;
+}
+
+/**
+ * A run's question (ask node): the choices as buttons, a free-text answer,
+ * and where things stand. Answering resumes the run. Replaces the chat bar:
+ * a question thread is answered, not triaged.
+ */
+function renderQuestionPanel(messageId: string, q: HumanQuestion): SafeHtml {
+  const action = `/inbox/${encodeURIComponent(messageId)}/answer`;
+  if (q.status !== 'pending') {
+    const text = q.status === 'answered'
+      ? html`Answered${q.answeredAt ? html` ${formatAge(q.answeredAt)}` : html``}: <strong>${q.answer ?? ''}</strong>. The run carried on.`
+      : q.status === 'expired' ? html`Nobody answered in time, so the run stopped.`
+      : html`The run was cancelled before anyone answered.`;
+    return html`
+      <div class="inbox-composer inbox-composer--terminal">
+        <p class="dim" style="margin: 0; font-size: var(--font-size-sm);">${text} <a href="/runs/${encodeURIComponent(q.runId)}">Open the run</a></p>
+      </div>`;
+  }
+  return html`
+    <div class="inbox-composer inbox-question">
+      ${q.choices.length > 0 ? html`
+        <div class="inbox-question__choices">
+          ${q.choices.map((c, i) => html`
+            <form method="POST" action="${action}" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" style="margin: 0;">
+              <input type="hidden" name="answer" value="${c}">
+              <button type="submit" class="btn btn--sm ${i === 0 ? 'btn--primary' : ''}">${c}</button>
+            </form>`) as unknown as SafeHtml[]}
+        </div>` : html``}
+      <form method="POST" action="${action}" data-inbox-modal-form data-inbox-modal-dismiss-on-success="1" class="inbox-chatbar">
+        <span class="inbox-chatbar__prompt" aria-hidden="true">you&nbsp;›</span>
+        <textarea name="answer" rows="1" required maxlength="8000" class="inbox-chatbar__input" data-inbox-autogrow
+          placeholder="${q.choices.length > 0 ? 'Or write your own answer…' : 'Your answer…'}" aria-label="Your answer"></textarea>
+        <button type="submit" class="btn btn--sm btn--primary inbox-chatbar__send">Answer</button>
+      </form>
+      <div class="inbox-composer__aux">
+        <span class="dim" style="font-size: var(--font-size-xs);">
+          The run is waiting on this. Answering continues it; unanswered by ${new Date(q.expiresAt).toLocaleString()}, it stops.
+          <a href="/runs/${encodeURIComponent(q.runId)}">Open the run</a>
+        </span>
+      </div>
+    </div>`;
 }
 
 /**

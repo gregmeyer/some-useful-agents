@@ -25,7 +25,7 @@ export interface RunsListOptions {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }
 
-const ALL_STATUSES: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
+const ALL_STATUSES: RunStatus[] = ['pending', 'running', 'waiting', 'completed', 'failed', 'cancelled'];
 
 export function renderRunsList(opts: RunsListOptions): string {
   const { rows, total, limit, offset, filter, distinct, flash } = opts;

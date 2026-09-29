@@ -31,6 +31,7 @@
  *   - inbox-engine.ts   — triage + action-execution + learning-extraction engine
  */
 
+import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
@@ -232,6 +233,7 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
   res.type('html').send(renderInboxDetail({
     message,
     responses,
+    question: questionForMessage(ctx, message),
     flash: parseFlash(req),
     triagePending,
     currentTargetYaml,
@@ -313,6 +315,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   res.type('html').send(render(renderInboxDetailFragment({
     message,
     responses,
+    question: questionForMessage(ctx, message),
     triagePending,
     currentTargetYaml,
     inlineActionWidgets,
@@ -547,6 +550,31 @@ inboxRouter.post('/inbox/bulk-resolve', (req: Request, res: Response) => {
 // ════════════════════════════════════════════════════════════════
 // Conversation + triage
 // ════════════════════════════════════════════════════════════════
+
+/**
+ * Answer a run's question (a `question` item from an ask node). The answer
+ * is recorded once, and the waiting run resumes. Plain form posts redirect
+ * back to the thread; the modal's AJAX posts get 204 and re-fetch.
+ */
+inboxRouter.post('/inbox/:id/answer', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  const message = ctx.inboxStore?.get(id);
+  const question = message ? questionForMessage(ctx, message) : undefined;
+  const fail = (status: number, error: string) => {
+    if (isAjax(req)) { res.status(status).type('text').send(error); return; }
+    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(error)}`);
+  };
+  if (!message || !question) { fail(404, 'No question here to answer.'); return; }
+  const answer = typeof req.body?.answer === 'string' ? req.body.answer : '';
+  if (!answer.trim()) { fail(400, 'The answer is empty.'); return; }
+  const result = await answerQuestion(ctx, question, answer);
+  if (!result.ok) { fail(409, result.error ?? 'Could not answer.'); return; }
+  try { publishInboxChanged(ctx, id, 'resolved'); } catch { /* best-effort */ }
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, `${detailUrl}?flash=${encodeURIComponent('Answered. The run is carrying on.')}`);
+});
 
 inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);

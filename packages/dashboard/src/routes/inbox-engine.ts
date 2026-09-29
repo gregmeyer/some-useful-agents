@@ -196,9 +196,11 @@ const ACTION_RESULT_PREVIEW_LIMIT = 500;
  */
 export function isTriagePending(
   ctx: ReturnType<typeof getContext>,
-  message: { triageRunId?: string },
+  message: { triageRunId?: string; source?: string },
   responses: InboxResponse[],
 ): boolean {
+  // A run's question (ask node) is answered by a person, never triaged.
+  if (message.source === 'question') return false;
   if (message.triageRunId) {
     try {
       const run = ctx.runStore.getRun(message.triageRunId);

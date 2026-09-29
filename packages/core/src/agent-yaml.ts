@@ -78,6 +78,9 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     // goal node
     ...(n.goal !== undefined && { goal: n.goal }),
     ...(n.budget && { budget: n.budget }),
+    ...(n.question !== undefined && { question: n.question }),
+    ...(n.choices && { choices: n.choices }),
+    ...(n.timeoutHours !== undefined && { timeoutHours: n.timeoutHours }),
     // file-write fields
     ...(n.path !== undefined && { path: n.path }),
     ...(n.content !== undefined && { content: n.content }),
@@ -175,7 +178,7 @@ const NODE_KEY_ORDER = [
   // tool-driven nodes
   'tool', 'action', 'toolInputs',
   // execution
-  'command', 'prompt', 'goal', 'model', 'maxTurns', 'budget', 'allowedTools', 'tools', 'provider',
+  'command', 'prompt', 'goal', 'question', 'choices', 'timeoutHours', 'model', 'maxTurns', 'budget', 'allowedTools', 'tools', 'provider',
   // file-write
   'path', 'content', 'append',
   'timeout', 'env', 'envAllowlist', 'secrets', 'redactSecrets', 'workingDirectory',

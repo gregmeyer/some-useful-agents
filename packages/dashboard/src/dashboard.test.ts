@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LlmSettingsStore, LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { executeAgentDag, HumanQuestionStore, InboxStore, LlmSettingsStore, LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -5001,5 +5001,84 @@ describe('Spend limits', () => {
     expect(overview.text).toMatch(/\$0\.25<\/span> a run/);
     expect(overview.text).toContain('codex has no price');
     rmSync(settingsDir, { recursive: true, force: true });
+  });
+});
+
+describe('Ask a person (ask nodes)', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+    .type('form');
+
+  async function setup() {
+    const { app, ctx } = await makeAppWithCtx();
+    ctx.inboxStore = new InboxStore(dbPath);
+    const agent = agentStore.createAgent({
+      id: 'asker', name: 'Asker', status: 'active', source: 'local', mcp: false,
+      nodes: [
+        { id: 'approve', type: 'ask', question: 'Ship it?', choices: ['Ship', 'Hold'] },
+        { id: 'after', type: 'shell', command: 'echo shipped', dependsOn: ['approve'] },
+      ],
+    } as never, 'cli');
+    const run = await executeAgentDag(agent, { triggeredBy: 'dashboard' }, { runStore });
+    const questions = HumanQuestionStore.fromHandle(runStore.databaseHandle());
+    const q = questions.pendingForRun(run.id)!;
+    return { app, ctx, run, q, questions };
+  }
+
+  async function waitForStatus(runId: string, status: string): Promise<void> {
+    const start = Date.now();
+    while (runStore.getRun(runId)?.status !== status && Date.now() - start < 5000) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  it('shows the question in the inbox and on the run page; answering resumes the run', async () => {
+    const { app, run, q } = await setup();
+    expect(run.status).toBe('waiting');
+
+    const runPage = await get(app, `/runs/${run.id}`);
+    expect(runPage.text).toContain('Waiting for your answer.');
+    expect(runPage.text).toContain(`href="/inbox/${q.inboxMessageId}"`);
+    expect(runPage.text).toContain('>waiting</span>');
+
+    const thread = await get(app, `/inbox/${q.inboxMessageId}`);
+    expect(thread.status).toBe(200);
+    expect(thread.text).toContain('<input type="hidden" name="answer" value="Ship">');
+    expect(thread.text).toContain(`action="/inbox/${q.inboxMessageId}/answer"`);
+    expect(thread.text).not.toContain('id="inbox-reply-form"');
+
+    const answered = await post(app, `/inbox/${q.inboxMessageId}/answer`).send('answer=Ship');
+    expect(answered.status).toBe(303);
+    await waitForStatus(run.id, 'completed');
+    expect(runStore.getRun(run.id)!.status).toBe('completed');
+    expect(runStore.listNodeExecutions(run.id).map((n) => `${n.nodeId}:${n.status}`)).toEqual(['approve:completed', 'after:completed']);
+
+    const again = await post(app, `/inbox/${q.inboxMessageId}/answer`).send('answer=Hold');
+    expect(decodeURIComponent(again.headers.location)).toContain('already answered');
+    const after = (await get(app, `/inbox/${q.inboxMessageId}`)).text;
+    expect(after).toContain('The run carried on.');
+    expect(after).not.toContain('data-triage-pending="1"');
+  });
+
+  it('cancels a waiting run and withdraws the question', async () => {
+    const { app, run, q, questions } = await setup();
+    const res = await post(app, `/runs/${run.id}/cancel`);
+    expect(decodeURIComponent(res.headers.location)).toContain('question was withdrawn');
+    expect(runStore.getRun(run.id)!.status).toBe('cancelled');
+    expect(questions.get(q.id)!.status).toBe('cancelled');
+  });
+
+  it('expires an unanswered question: the run stops with a timeout', async () => {
+    const { ctx, run, q, questions } = await setup();
+    const { sweepQuestionsOnce } = await import('./lib/ask-human.js');
+    const swept = await sweepQuestionsOnce(ctx, new Date(Date.now() + 73 * 3_600_000));
+    expect(swept.expired).toBe(1);
+    expect(questions.get(q.id)!.status).toBe('expired');
+    await waitForStatus(run.id, 'failed');
+    expect(runStore.listNodeExecutions(run.id).find((n) => n.nodeId === 'approve')?.errorCategory).toBe('timeout');
   });
 });

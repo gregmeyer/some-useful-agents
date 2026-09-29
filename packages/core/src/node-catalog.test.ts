@@ -18,6 +18,7 @@ const ALL_NODE_TYPES: NodeType[] = [
   'end',
   'break',
   'goal',
+  'ask',
 ];
 
 describe('node catalog', () => {

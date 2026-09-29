@@ -1,3 +1,4 @@
+import { questionStore } from '../lib/ask-human.js';
 import { Router, type Request, type Response } from 'express';
 import type { RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -12,7 +13,7 @@ import {
 } from '../views/output-widgets.js';
 import { deriveBack } from '../views/page-header.js';
 
-const VALID_STATUSES: RunStatus[] = ['pending', 'running', 'completed', 'failed', 'cancelled'];
+const VALID_STATUSES: RunStatus[] = ['pending', 'running', 'waiting', 'completed', 'failed', 'cancelled'];
 const VALID_STATUS_SET = new Set<string>(VALID_STATUSES);
 
 export const runsRouter: Router = Router();
@@ -140,7 +141,8 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   try { toolCalls = ctx.runStore.listToolCalls(run.id); } catch { toolCalls = undefined; }
   let childRuns;
   try { childRuns = ctx.runStore.listChildRuns(run.id); } catch { childRuns = undefined; }
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns }));
+  const question = run.status === 'waiting' ? questionStore(ctx).pendingForRun(run.id) : undefined;
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
