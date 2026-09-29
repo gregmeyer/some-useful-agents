@@ -20,7 +20,7 @@
  */
 
 import { MemoryStore, memorySettings, formatRecallBlock, MEMORY_TOOL_IDS } from './memory-store.js';
-import { HumanQuestionStore, DEFAULT_ASK_TIMEOUT_HOURS, matchChoice, raiseQuestionInInbox, type HumanQuestion } from './human-questions.js';
+import { HumanQuestionStore, DEFAULT_ASK_TIMEOUT_HOURS, matchChoice, raiseQuestionInInbox, formatAnsweredQuestions, type HumanQuestion } from './human-questions.js';
 import { effectiveSpendLimits, startOfLocalDay, dailyLimitMessage, perRunLimitMessage } from './spend-limits.js';
 import { toGoalPromptNode, finishGoalResult } from './goal-node.js';
 import { createAgentCallContext, isAgentToolId, type AgentCallContext } from './agent-tool.js';
@@ -495,6 +495,51 @@ export async function executeAgentDag(
   if (options.conversationPreamble) {
     behaviorPreamble = behaviorPreamble ? `${behaviorPreamble}\n${options.conversationPreamble}` : options.conversationPreamble;
   }
+  // ask-human setup for one node (see the spawn site). Undefined when the
+  // node doesn't list the tool.
+  const askHumanSetup = (node: AgentNode): {
+    ctx?: BuiltinToolContext['askHuman'];
+    signal?: AbortSignal;
+    preamble?: string;
+    failure?: SpawnResult;
+    pending: () => HumanQuestion | undefined;
+    dispose: () => void;
+  } | undefined => {
+    if (!(isLlmPromptType(node.type) || isGoalType(node.type)) || !(node.tools ?? []).includes('ask-human')) return undefined;
+    const store = HumanQuestionStore.fromHandle(deps.runStore.databaseHandle());
+    const asked = store.listForNode(runId, node.id);
+    const last = asked[asked.length - 1];
+    const none = { pending: () => undefined, dispose: () => {} };
+    if (last?.status === 'expired') {
+      return { ...none, failure: { result: '', exitCode: 1, category: 'timeout', error: `Nobody answered "${last.question.slice(0, 120)}" in time.` } };
+    }
+    if (last?.status === 'cancelled') {
+      return { ...none, failure: { result: '', exitCode: 1, category: 'cancelled', error: 'The question was cancelled before anyone answered.' } };
+    }
+    // A question still pending when the node starts again can only be a
+    // stray (the node was answered on another one); withdraw it.
+    for (const q of asked) if (q.status === 'pending') store.closeQuestion(q.id, 'cancelled');
+    const nodeAbort = new AbortController();
+    const forward = () => nodeAbort.abort();
+    if (effectiveSignal.aborted) nodeAbort.abort(); else effectiveSignal.addEventListener('abort', forward, { once: true });
+    const before = new Set(asked.map((q) => q.id));
+    return {
+      ctx: {
+        runId,
+        nodeId: node.id,
+        agentId: agent.id,
+        store,
+        onAsked: () => nodeAbort.abort(),
+        unavailable: options.parentRunId
+          ? 'You can\'t ask the person from inside an agent that another agent called. Carry on with what you have.'
+          : undefined,
+      },
+      signal: nodeAbort.signal,
+      preamble: formatAnsweredQuestions(asked) || undefined,
+      pending: () => store.listForNode(runId, node.id).find((q) => q.status === 'pending' && !before.has(q.id)),
+      dispose: () => effectiveSignal.removeEventListener('abort', forward),
+    };
+  };
   const memoryToolCtx = (node: AgentNode, env: Record<string, string>): BuiltinToolContext['memory'] =>
     memoryStore
       ? { agentId: agent.id, store: memoryStore, runId, secretValues: (node.secrets ?? []).map((k) => env[k]).filter(Boolean) }
@@ -1206,6 +1251,8 @@ export async function executeAgentDag(
       : undefined;
 
     let result: SpawnResult;
+    // Set when the node asked the person (ask-human) and the run must wait.
+    let askedQuestion: HumanQuestion | undefined;
     let structuredOutput: ToolOutput | undefined;
 
     try {
@@ -1375,10 +1422,22 @@ export async function executeAgentDag(
         const goal = isGoalType(node.type);
         const nodeWithDefaults: AgentNode = goal ? toGoalPromptNode(withAgentDefaults, agent) : withAgentDefaults;
         const spawnFn = deps.spawnNode ?? spawnNodeReal;
-        const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
-        const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
-        // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
-        result = goal ? finishGoalResult(node, spawnResult) : spawnResult;
+        // ask-human (human-questions.ts): a node that lists it may stop to ask
+        // the person. It gets its earlier questions + answers up front, its
+        // own abort (asking ends the attempt), and — once a question is
+        // recorded — the run waits instead of taking the attempt's result.
+        const ask = askHumanSetup(node);
+        if (ask?.failure) {
+          result = ask.failure;
+        } else {
+          const nodePreamble = ask?.preamble ? [behaviorPreamble, ask.preamble].filter(Boolean).join('\n') : behaviorPreamble;
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, ask?.signal ?? effectiveSignal, onSpawn, onChildExit);
+          ask?.dispose();
+          askedQuestion = ask ? ask.pending() : undefined;
+          // Goal: keep only the <final> answer; no <final> ⇒ budget_exhausted.
+          result = goal ? finishGoalResult(node, spawnResult) : spawnResult;
+        }
         // Try to extract framed output from stdout even for legacy nodes,
         // so users who upgrade their shell scripts to emit framed JSON get
         // structured outputs without changing the node YAML. A goal's
@@ -1420,6 +1479,25 @@ export async function executeAgentDag(
       } catch (err) {
         console.warn(`[tool-calls] could not record ${runId}/${node.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+
+    // The node asked the person: it waits (keeping what the attempt used),
+    // and the run stops here until the answer resumes it.
+    if (askedQuestion) {
+      deps.runStore.updateNodeExecution(runId, node.id, {
+        status: 'waiting',
+        result: askedQuestion.question,
+        usedLLMProvider: result.usedLLMProvider,
+        attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
+        usage: result.usage,
+      });
+      try {
+        raiseQuestionInInbox(deps.runStore.databaseHandle(), askedQuestion, agent.name ?? agent.id);
+      } catch (err) {
+        console.warn(`[ask-human] could not raise question ${askedQuestion.id} in the inbox: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      waitingOn = askedQuestion;
+      break;
     }
 
     if (result.exitCode === 0) {

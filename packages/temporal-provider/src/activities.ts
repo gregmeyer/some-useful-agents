@@ -16,6 +16,7 @@ import {
   LlmSettingsStore,
   createAgentCallContext,
   MemoryStore,
+  HumanQuestionStore,
   resolvePolicyDocument,
 } from '@some-useful-agents/core';
 import { dirname } from 'node:path';
@@ -196,6 +197,8 @@ export interface RunNodeActivityInput {
    * (Recall itself already arrived inside `behaviorPreamble`.)
    */
   memoryRunId?: string;
+  /** Set when the node may ask the person (ask-human): the worker rebuilds the tool's context on the shared db. */
+  askRunId?: string;
   /** What's left of the run's spend limit, USD (core spend-limits.ts). */
   spendBudgetUsd?: number;
   /**
@@ -312,6 +315,15 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
 
   // The worker's own handle on the shared db for the memory tools; closed below.
   const memoryStore = input.memoryRunId && input.dbPath ? new MemoryStore(input.dbPath) : undefined;
+  // ask-human on the worker: questions go to the shared db, and asking ends
+  // this attempt (the executor sees the pending question and waits).
+  const questionStore = input.askRunId && input.dbPath ? new HumanQuestionStore(input.dbPath) : undefined;
+  const askAbort = new AbortController();
+  const outerSignal = ctx?.cancellationSignal;
+  if (outerSignal) {
+    if (outerSignal.aborted) askAbort.abort();
+    else outerSignal.addEventListener('abort', () => askAbort.abort(), { once: true });
+  }
   try {
     const result = await spawnNodeReal(
       input.node,
@@ -337,6 +349,9 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
         policyDocument: input.dbPath ? resolvePolicyDocument(dirname(input.dbPath)) : undefined,
         agentCalls: workerAgentCalls(input),
         spendBudgetUsd: input.spendBudgetUsd,
+        askHuman: questionStore && input.askRunId
+          ? { runId: input.askRunId, nodeId: input.node.id, agentId: input.agentId, store: questionStore, onAsked: () => askAbort.abort() }
+          : undefined,
         memory: memoryStore
           ? {
               agentId: input.agentId,
@@ -347,13 +362,14 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
           : undefined,
       },
       onProgress,
-      ctx?.cancellationSignal,
+      askAbort.signal,
     );
 
     return { ...result, usedWorkflowProvider: 'temporal' };
   } finally {
     if (keepalive) clearInterval(keepalive);
     memoryStore?.close();
+    questionStore?.close();
   }
 }
 

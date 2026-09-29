@@ -97,6 +97,12 @@ export class HumanQuestionStore {
     return row ? toQuestion(row) : undefined;
   }
 
+  /** Every question a run's node asked, oldest first. */
+  listForNode(runId: string, nodeId: string): HumanQuestion[] {
+    return (this.db.prepare('SELECT * FROM human_questions WHERE run_id = ? AND node_id = ? ORDER BY created_at ASC, rowid ASC')
+      .all(runId, nodeId) as Record<string, unknown>[]).map(toQuestion);
+  }
+
   /** The question a run is waiting on, if any. */
   pendingForRun(runId: string): HumanQuestion | undefined {
     const row = this.db.prepare("SELECT * FROM human_questions WHERE run_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1")
@@ -160,6 +166,21 @@ function toQuestion(r: Record<string, unknown>): HumanQuestion {
     createdAt: String(r.created_at),
     inboxMessageId: (r.inbox_message_id as string | null) ?? undefined,
   };
+}
+
+/** How many questions one llm / goal node may ask per run (the ask-human tool). */
+export const MAX_QUESTIONS_PER_NODE = 3;
+
+/**
+ * What a node that asked (ask-human tool) starts with when it re-runs after
+ * an answer: its earlier questions and the answers, so it carries on rather
+ * than asking again. Empty when it hasn't asked.
+ */
+export function formatAnsweredQuestions(questions: readonly HumanQuestion[]): string {
+  const answered = questions.filter((q) => q.status === 'answered');
+  if (answered.length === 0) return '';
+  const lines = answered.map((q) => `Q: ${q.question.replace(/\s+/g, ' ')}\nA: ${(q.answer ?? '').replace(/\s+/g, ' ')}`);
+  return `YOU ALREADY ASKED THE PERSON (earlier in this step, with the ask-human tool). Their answers are below; use them and carry on. Ask again only for something new.\n${lines.join('\n')}\n`;
 }
 
 /** The choice an answer matches (case-insensitive, trimmed), or '' for a written answer. */
