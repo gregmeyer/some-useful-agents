@@ -61,6 +61,8 @@ export interface AgentDetailArgs {
    * Undefined when memory is off, so the Overview shows no section.
    */
   memories?: Memory[];
+  /** This agent's spend over the last 7 days (top-level runs; includes agents it called). */
+  spend7d?: { costUsd: number; costComplete: boolean; runs: number };
 }
 
 export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {

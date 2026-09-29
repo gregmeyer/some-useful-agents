@@ -5,7 +5,7 @@ import { renderInteractiveWidget } from '../interactive-widget.js';
 import { renderOutputWidget } from '../output-widgets.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import type { AgentEdge } from '../../lib/agent-graph.js';
-import type { Memory } from '@some-useful-agents/core';
+import { formatUsd, type Memory } from '@some-useful-agents/core';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
   const { agent, recentRuns, widgetControls, behaviorStatus } = args;
@@ -187,6 +187,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         <dt>Schedule</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`<span class="dim">none</span>`}</dd>
         <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
         <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
+        ${args.spend7d ? html`<dt>Spend, 7 days</dt><dd><span class="mono" title="USD at list price, incl. agents it called">${formatUsd(args.spend7d.costUsd, args.spend7d.costComplete)}</span> <span class="dim">over ${String(args.spend7d.runs)} run${args.spend7d.runs === 1 ? '' : 's'}</span> <a href="/settings/usage" class="dim" style="font-size: var(--font-size-xs);">usage</a></dd>` : html``}
         ${heldTo}
       </dl>
       <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">

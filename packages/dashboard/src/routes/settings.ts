@@ -20,6 +20,7 @@ import {
 import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
 import { html, type SafeHtml } from '../views/html.js';
+import { renderSettingsUsage } from '../views/settings-usage.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -731,6 +732,15 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
+settingsRouter.get('/settings/usage', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash } = readQueryBanners(req);
+  const requested = Number(req.query.days);
+  const days = [1, 7, 30].includes(requested) ? requested : 7;
+  const summary = ctx.runStore.usageSummary(new Date(Date.now() - days * 86_400_000).toISOString());
+  res.type('html').send(renderSettingsShell({ active: 'usage', body: renderSettingsUsage({ summary, days }), flash }));
+});
+
 settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -946,6 +956,44 @@ settingsRouter.post('/settings/llm/custom/remove', (req: Request, res: Response)
   redirectWith(res, '/settings/llm', 'flash', `Removed custom provider "${name}".`);
 });
 
+/**
+ * Save or clear a price (USD per million tokens) for a provider or
+ * provider/model. Used to estimate the cost of token-only providers.
+ */
+settingsRouter.post('/settings/llm/price', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const key = typeof body.key === 'string' ? body.key.trim() : '';
+  const num = (v: unknown): number | undefined => {
+    if (typeof v !== 'string' || v.trim() === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  };
+  try {
+    if (body.clear === '1') {
+      ctx.llmSettingsStore.setPrice(key, null);
+      redirectWith(res, '/settings/llm#pricing', 'flash', `Cleared the price for ${key}.`);
+      return;
+    }
+    const input = num(body.input);
+    const output = num(body.output);
+    if (input === undefined || output === undefined) throw new Error('Input and output prices are both required.');
+    const cacheRead = num(body.cacheRead);
+    ctx.llmSettingsStore.setPrice(key, {
+      inputPerMTok: input,
+      outputPerMTok: output,
+      ...(cacheRead !== undefined ? { cacheReadPerMTok: cacheRead } : {}),
+    });
+    redirectWith(res, '/settings/llm#pricing', 'flash', `Saved the price for ${key}. It applies to runs from now on.`);
+  } catch (err) {
+    redirectWith(res, '/settings/llm#pricing', 'error', (err as Error).message);
+  }
+});
+
 settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const settings = ctx.llmSettingsStore?.get();
@@ -1057,8 +1105,9 @@ function redirectWith(
   for (const [k, v] of Object.entries(extra)) params.set(k, v);
   // Targets may already carry a query (e.g. `/tools?tab=servers` since the
   // panels moved out of Settings), so join with the right separator.
-  const sep = path.includes('?') ? '&' : '?';
-  res.redirect(303, `${path}${sep}${params.toString()}`);
+  const [base, hash] = path.split('#');
+  const sep = base.includes('?') ? '&' : '?';
+  res.redirect(303, `${base}${sep}${params.toString()}${hash ? `#${hash}` : ''}`);
 }
 
 function collectDeclaredSecrets(ctx: DashboardContext): Set<string> {

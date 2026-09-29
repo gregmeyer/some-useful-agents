@@ -1,9 +1,9 @@
 import type { Agent, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
-import { unallowedWidgetImageHosts } from '@some-useful-agents/core';
+import { formatUsd, unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader, type PageHeaderBack } from './page-header.js';
-import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory, explainNodeFailure } from './components.js';
+import { statusBadge, outputFrame, formatDuration, formatElapsed, formatExitCode, formatErrorCategory, explainNodeFailure, renderUsageTotal, usageAttemptsTitle } from './components.js';
 import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
@@ -224,7 +224,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Duration</dt><dd>${renderDuration(run.startedAt, run.completedAt)}</dd>
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
-          ${run.parentRunId ? html`<dt>Called by</dt><dd><a class="mono" href="/runs/${run.parentRunId}">${run.parentRunId.slice(0, 8)}</a>${run.parentNodeId ? html` <span class="dim">(step ${run.parentNodeId})</span>` : html``}</dd>` : html``}
+          ${run.usage ? html`<dt>Cost</dt><dd title="USD at list price (what this usage costs on the API; on a subscription it is not your bill). Includes agents this run called.">${renderUsageTotal(run.usage, { linkPricing: true })}</dd>` : html``}
+          ${run.parentRunId ? html`<dt>Called by</dt><dd><a class="mono" href="/runs/${run.parentRunId}">${run.parentRunId.slice(0, 8)}</a>${run.parentNodeId ? html` <span class="dim">(node ${run.parentNodeId})</span>` : html``}</dd>` : html``}
           <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
           ${conditionedBy}
           ${replayedFrom}
@@ -655,6 +656,11 @@ function renderNodeCards(
       }
     }
 
+    // What the node's LLM calls used and cost, across provider attempts.
+    const costChip: SafeHtml = e.usage
+      ? html`<span class="badge badge--muted mono" title="${usageAttemptsTitle(e.usage.attempts)}">${formatUsd(e.usage.total.costUsd, e.usage.total.costComplete)}</span>`
+      : html``;
+
     const bodyBlocks: SafeHtml[] = [];
 
     // Collapsible variables panel showing resolved env at execution time.
@@ -680,6 +686,7 @@ function renderNodeCards(
           ${category}
           ${stateDelta}
           ${waterfallChip}
+          ${costChip}
           ${progressIndicator}
           <span class="run-node__meta">
             <span>${duration}</span>

@@ -126,6 +126,6 @@ describe('run detail — agents as tools', () => {
     const html = renderRunDetail({ run: { ...baseRun, parentRunId: 'aaaaaaaa-0000-0000-0000-000000000000', parentNodeId: 'ask' }, agent, nodeExecutions: [nodeExec({})] });
     expect(html).toContain('<dt>Called by</dt>');
     expect(html).toContain('href="/runs/aaaaaaaa-0000-0000-0000-000000000000"');
-    expect(html).toContain('(step ask)');
+    expect(html).toContain('(node ask)');
   });
 });

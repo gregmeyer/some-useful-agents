@@ -1,3 +1,4 @@
+import type { UsageTotal } from './usage.js';
 import type { SpawnNodeFn } from './node-spawner.js';
 import type { Agent } from './agent-v2-types.js';
 
@@ -141,6 +142,8 @@ export interface Run {
   behaviors?: string[];
   /** Memory ids the run started with (auto-recall). See memory-store.ts. */
   recalledMemories?: string[];
+  /** Tokens and cost (USD at list price), incl. child runs; set when the run ends. See usage.ts. */
+  usage?: UsageTotal;
 }
 
 export interface RunRequest {

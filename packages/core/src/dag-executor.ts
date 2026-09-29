@@ -1322,6 +1322,7 @@ export async function executeAgentDag(
         attemptedProviders: result.attemptedProviders ? result.attemptedProviders.join(',') : undefined,
         providerFailures: result.providerFailures ? JSON.stringify(result.providerFailures) : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
+        usage: result.usage,
       });
     } else {
       const category: NodeErrorCategory =
@@ -1342,6 +1343,7 @@ export async function executeAgentDag(
         providerFailures: result.providerFailures ? JSON.stringify(result.providerFailures) : undefined,
         usedWorkflowProvider: result.usedWorkflowProvider,
         stateBytesAfter,
+        usage: result.usage,
       });
       firstFailure = { nodeId: node.id, category, exitCode: result.exitCode, error: result.error };
     }

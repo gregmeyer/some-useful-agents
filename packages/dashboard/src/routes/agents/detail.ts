@@ -105,6 +105,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       invokes: graph.invokes.get(v2Agent.id) ?? [],
       invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
       memories: loadMemories(ctx, v2Agent),
+      spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],
     });
     res.type('html').send(html);
     return;

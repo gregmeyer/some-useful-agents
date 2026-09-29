@@ -45,6 +45,7 @@ export function workerLlmSettings(
     providers: providers ?? (local?.providers ?? []).filter((p) => !disabled.has(p)),
     customProviders: local?.customProviders,
     disabledProviders: local?.disabledProviders,
+    pricing: local?.pricing,
   };
 }
 

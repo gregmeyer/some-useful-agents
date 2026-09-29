@@ -1,5 +1,5 @@
 import { html, type SafeHtml } from './html.js';
-import type { LlmProvider, LlmSettings, ServiceStatus } from '@some-useful-agents/core';
+import { localProviderNames, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
 
 /** State of the local model server (the `model` daemon service). */
 export interface ModelServerView {
@@ -304,6 +304,71 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
     ${customBlock}
 
+    ${renderPricing(args.settings)}
+
     ${renderModelServer(args.modelServer)}
+  `;
+}
+
+/**
+ * Prices for providers that report tokens but not cost, so runs on them get
+ * an estimated cost (docs/cost.md). Claude reports its own cost; Apple
+ * Foundation Models and local endpoints are free unless you set a price.
+ */
+function renderPricing(settings: LlmSettings): SafeHtml {
+  const pricing = settings.pricing ?? {};
+  const local = localProviderNames(settings.customProviders);
+  const tokenOnly = [
+    'codex',
+    ...(settings.customProviders ?? []).map((c) => c.name),
+  ];
+  const keys = [...new Set([...tokenOnly, ...Object.keys(pricing)])];
+  const field = (name: string, value: number | undefined, label: string, required: boolean) => html`
+    <label class="settings-pricing__field">
+      <span class="dim">${label}</span>
+      <input type="number" name="${name}" min="0" step="any" inputmode="decimal" ${required ? 'required' : ''}
+        value="${value === undefined ? '' : String(value)}" placeholder="${required ? '' : 'same as input'}" style="width: 7rem;">
+    </label>`;
+  const row = (key: string) => {
+    const p: ModelPrice | undefined = pricing[key];
+    const status = p ? 'estimated from this price'
+      : local.has(key) ? 'free (runs on this machine)'
+      : 'no price — tokens recorded, cost unknown';
+    return html`
+      <li class="settings-pricing__row">
+        <form method="POST" action="/settings/llm/price" class="settings-pricing__form">
+          <input type="hidden" name="key" value="${key}">
+          <span class="mono settings-pricing__key">${key}</span>
+          ${field('input', p?.inputPerMTok, 'input', true)}
+          ${field('output', p?.outputPerMTok, 'output', true)}
+          ${field('cacheRead', p?.cacheReadPerMTok, 'cached input', false)}
+          <button type="submit" class="btn btn--sm btn--primary">Save</button>
+          ${p ? html`<button type="submit" name="clear" value="1" class="btn btn--sm btn--ghost" formnovalidate>Clear</button>` : html``}
+        </form>
+        <p class="dim settings-pricing__status">${status}</p>
+      </li>`;
+  };
+  return html`
+    <section class="settings-section" id="pricing" style="margin-top: var(--space-6);">
+      <h2 class="mt-0">Pricing</h2>
+      <p class="dim">
+        Run pages show what each run cost, in USD at list price. Claude reports its own cost.
+        Codex and OpenAI-compatible endpoints report only tokens, so sua estimates their cost from
+        the prices here, in <strong>USD per million tokens</strong>. On a subscription this is what the
+        same usage would cost on the API, not your bill. A price applies to runs from now on.
+      </p>
+      <ol class="settings-pricing">${keys.map(row) as unknown as SafeHtml[]}</ol>
+      <details style="margin-top: var(--space-3);">
+        <summary class="dim" style="cursor: pointer;">Price one model differently</summary>
+        <form method="POST" action="/settings/llm/price" class="settings-pricing__form" style="margin-top: var(--space-2);">
+          <label class="settings-pricing__field"><span class="dim">provider/model</span>
+            <input type="text" name="key" required placeholder="codex/gpt-5.5" class="mono" style="width: 12rem;"></label>
+          ${field('input', undefined, 'input', true)}
+          ${field('output', undefined, 'output', true)}
+          ${field('cacheRead', undefined, 'cached input', false)}
+          <button type="submit" class="btn btn--sm btn--primary">Add</button>
+        </form>
+      </details>
+    </section>
   `;
 }
