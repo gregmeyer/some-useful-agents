@@ -9,6 +9,7 @@
  */
 
 import type { MemoryStore } from './memory-store.js';
+import type { HumanQuestionStore } from './human-questions.js';
 import type { SecretsStore } from './secrets-store.js';
 
 export type ToolSource = 'local' | 'examples' | 'community' | 'builtin';
@@ -185,5 +186,19 @@ export interface BuiltinToolContext {
     store: MemoryStore;
     runId?: string;
     secretValues?: readonly string[];
+  };
+  /**
+   * The ask-human tool's context (human-questions.ts). Set by the executor for
+   * llm / goal nodes that list `ask-human` in their tools. Recording a question
+   * calls `onAsked`, which ends the node's attempt; the run then waits.
+   */
+  askHuman?: {
+    runId: string;
+    nodeId: string;
+    agentId: string;
+    store: HumanQuestionStore;
+    onAsked: () => void;
+    /** Why this node can't ask here (e.g. inside an agent another agent called). */
+    unavailable?: string;
   };
 }

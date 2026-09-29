@@ -38,6 +38,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`template`](tools/template.md) | Interpolate `{{inputs.X}}` into a template string |
 | [`csv-to-chart-json`](tools/csv-to-chart-json.md) | Convert CSV into the JSON shape modern-graphics expects |
 | [`oauth-loopback`](tools/oauth-loopback.md) | One-time OAuth2 authorization-code loopback; saves a refresh token to the vault |
+| `ask-human` | Ask the person mid-step; the run waits for the answer in the inbox, then the step starts again with it. Add to a node's `tools:`; see [ask-a-person.md](ask-a-person.md) |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools

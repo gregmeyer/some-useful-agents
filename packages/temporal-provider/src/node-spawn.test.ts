@@ -82,6 +82,16 @@ describe('createTemporalSpawnNode', () => {
     expect((started!.options.args[0] as Record<string, unknown>).spendBudgetUsd).toBe(0.42);
   });
 
+  it('forwards askRunId (not the in-process ask context) so the worker can let the node ask', async () => {
+    let started: { options: { args: unknown[] } } | undefined;
+    const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc' });
+    await spawn(node(), { PATH: '/usr/bin' }, { ...spawnOpts, askRunId: 'run-7', askHuman: { runId: 'run-7', nodeId: 'fetch', agentId: 'demo', store: {} as never, onAsked: () => {} } });
+    const input = started!.options.args[0] as Record<string, unknown>;
+    expect(input.askRunId).toBe('run-7');
+    expect(input.askHuman).toBeUndefined();
+  });
+
   it('strips declared secrets from the activity input env', async () => {
     let started: { options: { args: unknown[] } } | undefined;
     const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });

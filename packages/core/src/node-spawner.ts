@@ -42,7 +42,8 @@ import type { SecretsStore } from './secrets-store.js';
  * …), and a short error snippet for diagnosis.
  */
 /** Tools a node can run without: a provider that can't call them isn't skipped for them. */
-const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set<string>(MEMORY_TOOL_IDS);
+// ask-human too: a provider that can't call tools just runs without it.
+const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set<string>([...MEMORY_TOOL_IDS, 'ask-human']);
 
 export interface ProviderFailure {
   provider: string;
@@ -222,6 +223,10 @@ export type SpawnNodeFn = (
     memory?: BuiltinToolContext['memory'];
     /** Set when the agent has memory on, so a backend that can't carry `memory` (Temporal) rebuilds it. */
     memoryRunId?: string;
+    /** The ask-human tool's context (in-process only). See human-questions.ts. */
+    askHuman?: BuiltinToolContext['askHuman'];
+    /** Set when the node may ask, so a backend that can't carry `askHuman` (Temporal) rebuilds it. */
+    askRunId?: string;
     /** What's left of the run's spend limit, USD (spend-limits.ts). Unset ⇒ no limit. */
     spendBudgetUsd?: number;
   },
@@ -866,6 +871,8 @@ export async function spawnNodeReal(
     agentCallInfo?: AgentCallInfo;
     memory?: BuiltinToolContext['memory'];
     memoryRunId?: string;
+    askHuman?: BuiltinToolContext['askHuman'];
+    askRunId?: string;
     spendBudgetUsd?: number;
   },
   onProgress?: (event: SpawnProgress) => void,
@@ -1000,6 +1007,7 @@ export async function spawnNodeReal(
       experimentalApple: _opts.experimentalApple,
       agentCalls: _opts.agentCalls,
       memory: _opts.memory,
+      askHuman: _opts.askHuman,
       attemptBudgetUsd,
       costOf,
     });
@@ -1046,6 +1054,9 @@ export async function spawnNodeReal(
 
     lastResult = result;
     lastCategory = classifyLlmFailure(result);
+    // Stopped from outside (cancel, or the node asked the person and is now
+    // waiting): never hand the step to the next provider.
+    if (signal?.aborted) break;
 
     // Record + log WHY this provider failed, so a successful fallback run
     // still leaves a diagnosable trail (the per-attempt error is otherwise
@@ -1143,6 +1154,7 @@ function buildAttemptToolSurface(
     onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
     agentCalls: toolCtx.agentCalls,
     memory: toolCtx.memory,
+    askHuman: toolCtx.askHuman,
   });
   return { tools, execute };
 }
@@ -1235,6 +1247,7 @@ async function runLlmAttemptInner(
     experimentalApple?: boolean;
     agentCalls?: AgentCallContext;
     memory?: BuiltinToolContext['memory'];
+    askHuman?: BuiltinToolContext['askHuman'];
     /** What this attempt may still spend, USD. Unset ⇒ no limit. */
     attemptBudgetUsd?: number;
     /** USD cost of a usage record (the waterfall's pricing), for budget checks inside a tool loop. */

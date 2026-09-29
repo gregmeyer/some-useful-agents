@@ -1,3 +1,4 @@
+import { MAX_QUESTIONS_PER_NODE } from './human-questions.js';
 import { execSync, spawn, type ExecSyncOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -908,6 +909,49 @@ function parseCsvLine(line: string): string[] {
 
 const REGISTRY = new Map<string, BuiltinToolEntry>();
 BUILTINS.push(...MEMORY_TOOLS);
+
+/**
+ * ask-human — the model asks the person something mid-step. The question
+ * goes to the inbox, this step stops, and the run waits; once answered, the
+ * step starts again with the question and answer in front of it. See
+ * human-questions.ts / docs/ask-a-person.md.
+ */
+BUILTINS.push(def(
+  'ask-human',
+  'Ask the person',
+  'Ask the person you work for a question when you need a decision, an approval, or a fact only they have, and cannot sensibly go on without it. This step stops and waits for their answer (it may take hours); you will be started again with the answer. Offer choices when the answer is one of a few options. Do not use it for things you can find out yourself.',
+  {
+    question: { type: 'string', required: true, description: 'The question, self-contained: the person sees only this (and the agent name).' },
+    choices: { type: 'string', description: 'Optional answers to offer as buttons, separated by " | " (e.g. "Yes | No").' },
+  },
+  { questionId: { type: 'string', description: 'The id of the recorded question.' } },
+  async (inputs, ctx) => {
+    const ask = ctx.askHuman;
+    if (!ask) return { result: 'Asking the person is not available in this step.', isError: true };
+    if (ask.unavailable) return { result: ask.unavailable, isError: true };
+    const question = String(inputs.question ?? '').trim();
+    if (!question) return { result: 'The question is empty.', isError: true };
+    const earlier = ask.store.listForNode(ask.runId, ask.nodeId);
+    // One question at a time: a second call in the same turn (models batch
+    // tool calls) joins the question already waiting instead of adding one.
+    const waiting = earlier.find((q) => q.status === 'pending');
+    if (waiting) {
+      ask.onAsked();
+      return { questionId: waiting.id, result: 'A question is already waiting for the person\'s answer. Stop here and end your turn.' };
+    }
+    const asked = earlier.length;
+    if (asked >= MAX_QUESTIONS_PER_NODE) {
+      return { result: `You have already asked ${asked} questions in this step, the most allowed. Carry on with what you have.`, isError: true };
+    }
+    const choices = String(inputs.choices ?? '').split('|').map((c) => c.trim()).filter(Boolean).slice(0, 10).map((c) => c.slice(0, 80));
+    const q = ask.store.ask({ runId: ask.runId, nodeId: ask.nodeId, agentId: ask.agentId, question: question.slice(0, 4000), choices });
+    ask.onAsked();
+    return {
+      questionId: q.id,
+      result: 'Your question has been sent to the person. Stop here and end your turn: this step pauses and will start again with their answer.',
+    };
+  },
+));
 for (const entry of BUILTINS) {
   REGISTRY.set(entry.definition.id, entry);
 }

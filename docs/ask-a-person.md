@@ -37,7 +37,24 @@ A question can be answered once. If nobody answers by the deadline, the node fai
 
 - Any trigger: Run now, the schedule, `sua agent run`, MCP, a chat turn. A chat turn that waits shows "Waiting for an answer" in the conversation and gets its reply once the run finishes. Over MCP, `run-agent` returns `status: "waiting"` and a note.
 - Not yet inside an agent that another agent called (agent-invoke or agents-as-tools): the node fails with a clear message instead of waiting.
-- `llm-prompt` and `goal` nodes can't ask mid-thought yet; put an `ask` node before or after them.
+- `llm-prompt` and `goal` nodes ask mid-thought with the `ask-human` tool (below).
+
+## From inside an llm or goal node: `ask-human`
+
+List `ask-human` in a node's `tools:` and the model can ask when it needs a decision or a fact only you have:
+
+```yaml
+- id: plan
+  type: goal
+  goal: Plan the team offsite for {{inputs.MONTH}}.
+  tools: [web-fetch, ask-human]
+```
+
+The model calls `ask-human` with `question` and optional `choices` (`"Yes | No"`). The question goes to the inbox exactly like an `ask` node's, the step stops at once (no fallback to another provider), and the run waits. When you answer, the step **starts again** with your earlier questions and answers in front of the model ("You already asked… Q: … A: …"), so it carries on rather than asking twice. What the stopped attempt spent still counts.
+
+- Up to 3 questions per step per run; after that the tool tells the model to carry on with what it has.
+- Providers that can't call sua tools (codex, Apple Foundation Models) run the step without it.
+- The model's earlier turns aren't kept across the pause, only the questions and answers: for work the model shouldn't redo, put an `ask` node between two steps instead.
 
 ## Notes
 
