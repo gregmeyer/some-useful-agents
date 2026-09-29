@@ -7,6 +7,8 @@ import {
 } from '../agent-detail-helpers.js';
 import { cronToHuman } from '../components.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
+import { formatAge } from '../components.js';
+import type { Agent, Webhook } from '@some-useful-agents/core';
 
 /**
  * One Config-tab section as a `.card` with a standardised header.
@@ -175,6 +177,8 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         : html`<span class="badge badge--muted">not exposed</span><button type="submit" class="btn btn--sm">Expose via MCP</button>`}
     </form>
   `);
+
+  const webhookCard = args.webhook ? renderWebhookCard(agent, args.webhook.hook, args.webhook.baseUrl) : html``;
 
   const permImgSrc = agent.permissions?.imgSrc ?? [];
   const inboxRunnable = agent.permissions?.inboxRunnable ?? false;
@@ -437,6 +441,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         ${scheduleCard}
         ${visibilityCard}
         ${mcpCard}
+        ${webhookCard}
         ${permissionsCard}
         ${secretsCard}
       </div>
@@ -450,4 +455,47 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   `;
 
   return agentPageShell({ ...args, activeTab: 'config' }, content);
+}
+
+/**
+ * Inbound webhook: off by default. On, it shows the URL, the secret (behind
+ * a disclosure), a curl example, the last delivery, and rotate / turn off.
+ */
+function renderWebhookCard(agent: Agent, hook: Webhook | undefined, baseUrl: string): SafeHtml {
+  const action = `/agents/${encodeURIComponent(agent.id)}/webhook`;
+  const intro = html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+    Lets another service (GitHub, Stripe, Zapier, a script) start this agent with a POST. The request needs this agent's secret; a JSON body's fields fill inputs of the same name, or map them with <code>webhook:</code> in the YAML (see docs/webhooks.md).
+  </p>`;
+  if (!hook || !hook.enabled) {
+    return configCard('Webhook', html`
+      ${intro}
+      <form method="POST" action="${action}" style="display: flex; gap: var(--space-2); align-items: center;">
+        <input type="hidden" name="op" value="enable">
+        <span class="badge badge--muted">off</span>
+        <button type="submit" class="btn btn--sm">Turn on webhook</button>
+      </form>`);
+  }
+  const url = `${baseUrl.replace(/\/+$/, '')}/hooks/${encodeURIComponent(agent.id)}`;
+  const signed = agent.webhook?.signature === 'github';
+  const example = signed
+    ? `GitHub: Settings → Webhooks → Payload URL ${url}, Content type application/json, Secret = the secret above.`
+    : `curl -X POST ${url} \\\n  -H "Authorization: Bearer <secret>" \\\n  -H "Content-Type: application/json" \\\n  -d '{${Object.keys(agent.inputs ?? {}).slice(0, 2).map((k) => `"${k}": "…"`).join(', ')}}'`;
+  return configCard('Webhook', html`
+    ${intro}
+    <dl class="kv" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      <dt>Status</dt><dd><span class="badge badge--ok">on</span>${signed ? html` <span class="dim">GitHub-signed deliveries only</span>` : html``}</dd>
+      <dt>URL</dt><dd class="mono" style="overflow-wrap: anywhere;">POST ${url}</dd>
+      <dt>Secret</dt><dd><details><summary class="dim" style="cursor: pointer;">Show</summary><code class="mono" style="overflow-wrap: anywhere;">${hook.token}</code></details></dd>
+      <dt>Last delivery</dt><dd>${hook.lastDeliveryAt
+        ? html`${formatAge(hook.lastDeliveryAt)} · ${hook.lastStatus ?? ''}${hook.lastRunId && hook.lastStatus === 'started' ? html` · <a class="mono" href="/runs/${encodeURIComponent(hook.lastRunId)}">run ${hook.lastRunId.slice(0, 8)}</a>` : html``} <span class="dim">(${String(hook.deliveries)} in all)</span>`
+        : html`<span class="dim">none yet</span>`}</dd>
+    </dl>
+    <pre class="mono" style="font-size: var(--font-size-xs); white-space: pre-wrap; margin: 0 0 var(--space-3);">${example}</pre>
+    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
+      The dashboard listens on this machine only. For a service on the internet to reach it, expose just this path through a tunnel (e.g. <code>cloudflared</code> or <code>ngrok</code> to port ${new URL(url).port || '80'}); the rest of the dashboard stays unreachable through it.
+    </p>
+    <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
+      <form method="POST" action="${action}" style="margin: 0;"><input type="hidden" name="op" value="rotate"><button type="submit" class="btn btn--sm">Rotate secret</button></form>
+      <form method="POST" action="${action}" style="margin: 0;"><input type="hidden" name="op" value="disable"><button type="submit" class="btn btn--sm btn--warn">Turn off</button></form>
+    </div>`);
 }

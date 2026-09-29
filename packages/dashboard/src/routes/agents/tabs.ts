@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { extractPriorAgentInputs, type RunStatus } from '@some-useful-agents/core';
+import { WebhookStore, extractPriorAgentInputs, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentNodes, renderAgentConfig, renderAgentRuns } from '../../views/agent-detail-v2.js';
 import { deriveBack } from '../../views/page-header.js';
@@ -60,7 +60,12 @@ agentTabsRouter.get('/agents/:name/config', async (req: Request, res: Response) 
   const installedAgents = ctx.agentStore.listAgents()
     .filter((a) => a.id !== args.agent.id)
     .map((a) => ({ id: a.id, name: a.name, description: a.description }));
-  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts, installedAgents }));
+  const webhook = {
+    hook: WebhookStore.fromHandle(ctx.runStore.databaseHandle()).get(args.agent.id),
+    // The port this dashboard actually listens on (config may say another).
+    baseUrl: `http://127.0.0.1:${ctx.port}`,
+  };
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts, installedAgents, webhook }));
 });
 
 agentTabsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {

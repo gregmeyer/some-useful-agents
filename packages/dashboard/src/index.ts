@@ -40,6 +40,7 @@ import type { DashboardContext } from './context.js';
 import { getContext } from './context.js';
 import { EncryptedFileSecretsSession } from './secrets-session.js';
 import { requireAuth, readCookie } from './auth-middleware.js';
+import { hooksRouter, hooksErrorHandler } from './routes/hooks.js';
 import { connectModelRouter, MODEL_GATE_SKIP_COOKIE } from './routes/connect-model.js';
 import { getProviderReadiness, warmProviderReadiness } from './lib/provider-readiness.js';
 import { buildDashboardErrorHandler } from './error-middleware.js';
@@ -156,6 +157,12 @@ export interface DashboardHandle {
 export function buildDashboardApp(ctx: DashboardContext): Application {
   const app = express();
   app.locals = ctx as unknown as Application['locals'];
+
+  // Inbound webhooks: before the body parsers (a GitHub signature covers the
+  // raw bytes) and before the session check (callers are outside services;
+  // the per-agent secret is the credential). See routes/hooks.ts.
+  app.use(hooksRouter);
+  app.use(hooksErrorHandler);
 
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());

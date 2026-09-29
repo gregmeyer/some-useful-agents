@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeAgentDag, HumanQuestionStore, InboxStore, LlmSettingsStore, LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
+import { executeAgentDag, HumanQuestionStore, InboxStore, LlmSettingsStore, WebhookStore, LocalProvider, RunStore, AgentStore, MemorySecretsStore, MemoryStore, SessionStore, ToolStore, IntegrationsStore, loadAgents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { renderInteractiveWidget } from './views/interactive-widget.js';
 import { render } from './views/html.js';
 import { buildDashboardApp } from './index.js';
@@ -5080,5 +5080,98 @@ describe('Ask a person (ask nodes)', () => {
     expect(questions.get(q.id)!.status).toBe('expired');
     await waitForStatus(run.id, 'failed');
     expect(runStore.listNodeExecutions(run.id).find((n) => n.nodeId === 'approve')?.errorCategory).toBe('timeout');
+  });
+});
+
+describe('Inbound webhooks', () => {
+  const hook = (app: Parameters<typeof request>[0], p: string, host = `127.0.0.1:${PORT}`) => request(app).post(p).set('Host', host);
+
+  function seed(extra: Record<string, unknown> = {}) {
+    agentStore.createAgent({
+      id: 'hooked', name: 'Hooked', status: 'active', source: 'local', mcp: false,
+      inputs: { TITLE: { type: 'string', required: true }, EVENT: { type: 'string', default: 'none' } },
+      nodes: [{ id: 'say', type: 'shell', command: 'echo "got $TITLE / $EVENT"' }],
+      ...extra,
+    } as never, 'cli');
+  }
+  async function waitForRun(runId: string): Promise<void> {
+    const start = Date.now();
+    while (!['completed', 'failed'].includes(runStore.getRun(runId)?.status ?? '') && Date.now() - start < 5000) await new Promise((r) => setTimeout(r, 25));
+  }
+
+  it('is 404 until turned on, then runs the agent with the body as inputs (through a tunnel Host too)', async () => {
+    const app = await makeApp();
+    seed({ webhook: { inputs: { EVENT: 'header:X-Event' } } });
+    expect((await hook(app, '/hooks/hooked').send({ TITLE: 'x' })).status).toBe(404);
+    expect((await hook(app, '/hooks/nobody').send({})).status).toBe(404);
+
+    const { token } = WebhookStore.fromHandle(runStore.databaseHandle()).enable('hooked');
+    expect((await hook(app, '/hooks/hooked').send({ TITLE: 'x' })).status).toBe(401);
+    expect((await hook(app, '/hooks/hooked').set('Authorization', 'Bearer whk_wrong').send({ TITLE: 'x' })).status).toBe(401);
+
+    const res = await hook(app, '/hooks/hooked', 'abc123.trycloudflare.com')
+      .set('Authorization', `Bearer ${token}`).set('X-Event', 'push').send({ TITLE: 'Crash on save' });
+    expect(res.status).toBe(202);
+    await waitForRun(res.body.runId);
+    const run = runStore.getRun(res.body.runId)!;
+    expect(run).toMatchObject({ status: 'completed', triggeredBy: 'webhook', agentName: 'hooked' });
+    expect(run.result?.trim()).toBe('got Crash on save / push');
+
+    // The rest of the dashboard stays unreachable through the tunnel host.
+    const page = await request(app).get('/agents').set('Host', 'abc123.trycloudflare.com').set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(page.status).not.toBe(200);
+
+    const hookRow = WebhookStore.fromHandle(runStore.databaseHandle()).get('hooked')!;
+    expect(hookRow).toMatchObject({ lastStatus: 'started', lastRunId: res.body.runId, deliveries: 1 });
+  });
+
+  it('checks GitHub signatures, answers pings, and honours when:', async () => {
+    const app = await makeApp();
+    seed({ webhook: { signature: 'github', when: { '$.action': 'opened' }, inputs: { TITLE: '$.issue.title' } } });
+    const { token } = WebhookStore.fromHandle(runStore.databaseHandle()).enable('hooked');
+    const { createHmac } = await import('node:crypto');
+    const send = (payload: unknown, event = 'issues', sign = true) => {
+      const raw = JSON.stringify(payload);
+      const r = hook(app, '/hooks/hooked').set('Content-Type', 'application/json').set('X-GitHub-Event', event);
+      if (sign) r.set('X-Hub-Signature-256', `sha256=${createHmac('sha256', token).update(raw).digest('hex')}`);
+      return r.send(raw);
+    };
+    expect((await send({ zen: 'hi' }, 'ping')).body).toEqual({ ok: true, pong: true });
+    expect((await send({ action: 'opened' }, 'issues', false)).status).toBe(401);
+    const ignored = await send({ action: 'closed', issue: { title: 't' } });
+    expect(ignored.status).toBe(202);
+    expect(ignored.body).toMatchObject({ ignored: true });
+    const started = await send({ action: 'opened', issue: { title: 'New bug' } });
+    expect(started.status).toBe(202);
+    expect(started.body.runId).toBeTruthy();
+  });
+
+  it('says what is missing and refuses bodies that are too big', async () => {
+    const app = await makeApp();
+    seed();
+    const { token } = WebhookStore.fromHandle(runStore.databaseHandle()).enable('hooked');
+    const missing = await hook(app, '/hooks/hooked').set('X-Sua-Token', token).send({ OTHER: 1 });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toMatch(/Missing required input TITLE/);
+    const big = await hook(app, `/hooks/hooked?token=${token}`).set('Content-Type', 'application/json').send(JSON.stringify({ TITLE: 'x'.repeat(1_100_000) }));
+    expect(big.status).toBe(413);
+  });
+
+  it('turns on, shows, rotates and turns off from the Config tab', async () => {
+    const app = await makeApp();
+    seed();
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    const post = (p: string) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`).type('form');
+    expect((await get('/agents/hooked/config')).text).toContain('Turn on webhook');
+    await post('/agents/hooked/webhook').send('op=enable');
+    const store = WebhookStore.fromHandle(runStore.databaseHandle());
+    const first = store.get('hooked')!;
+    const on = (await get('/agents/hooked/config')).text;
+    expect(on).toContain('/hooks/hooked');
+    expect(on).toContain(first.token);
+    await post('/agents/hooked/webhook').send('op=rotate');
+    expect(store.get('hooked')!.token).not.toBe(first.token);
+    await post('/agents/hooked/webhook').send('op=disable');
+    expect(store.get('hooked')!.enabled).toBe(false);
   });
 });
