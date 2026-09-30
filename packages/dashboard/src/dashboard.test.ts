@@ -5266,3 +5266,43 @@ describe('Goal nodes in the node form', () => {
     expect((await get(app, '/agents/helper')).text).toContain('href="/agents/solo-goal"');
   });
 });
+
+describe('Settings → Policies', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`)
+    .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const policyPath = () => join(dir, '.sua', 'policies.json');
+
+  it('shows the rules and answers "would this be allowed?", naming the deciding rule', async () => {
+    const app = await makeApp();
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(policyPath(), JSON.stringify({
+      version: 1,
+      rules: [
+        { tool: 'web-fetch', effect: 'deny', reason: 'No web by default.' },
+        { tool: 'web-fetch', resources: ['https://docs.example.com/*'], effect: 'allow' },
+      ],
+    }));
+    const page = await get(app, '/settings/policies');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('href="/settings/policies" class="is-active"');
+    expect(page.text).toContain('No web by default.');
+
+    const ok = await get(app, '/settings/policies?tool=web-fetch&resource=https%3A%2F%2Fdocs.example.com%2Fa&source=local');
+    expect(ok.text).toContain('<strong>Allowed</strong>');
+    expect(ok.text).toContain('rule #1</a> decided it');
+    const no = await get(app, '/settings/policies?tool=web-fetch&resource=https%3A%2F%2Fevil.test&source=community');
+    expect(no.text).toContain('<strong>Blocked</strong>');
+    expect(no.text).toContain('rule #0</a> decided it');
+  });
+
+  it('says an invalid file blocks everything, and the checker agrees', async () => {
+    const app = await makeApp();
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(policyPath(), '{ "version": 1, "rules": [ { "tool": "x", "effect": "maybe" } ] }');
+    const page = await get(app, '/settings/policies?tool=http-get&resource=https%3A%2F%2Fa.test');
+    expect(page.text).toContain('Every tool call is blocked until this file is fixed.');
+    expect(page.text).toContain('<strong>Blocked</strong>');
+    expect(page.text).toContain('the policy file is invalid');
+  });
+});

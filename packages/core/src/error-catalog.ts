@@ -196,7 +196,7 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
       'The node tried a tool/host/resource the active tool policy denies.',
     ],
     troubleshooting: [
-      'Review the project tool policy for the resource the node targeted.',
+      'Open Settings → Policies (or run `sua policy check <tool> <resource>`) to see which rule blocked it.',
       'Either adjust the policy to permit it, or change the node to stay within policy.',
     ],
   },

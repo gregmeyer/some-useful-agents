@@ -185,6 +185,8 @@ Per-node execution table with stdout, exit codes, errors, timings. For `llm-prom
 
 **Waiting.** A run stopped at an `ask` node shows *waiting* and a banner with the question, an **Answer** button (to its inbox item) and **Cancel run**. See [ask-a-person.md](ask-a-person.md).
 
+**Settings → Policies** shows the tool policy in force and checks whether a tool call would be allowed ([tool-policies.md](tool-policies.md)).
+
 **Budgets.** Goal and llm nodes show turns, tool calls and time used against their budget; an out-of-budget node says which limit it hit and links to the fix. **Sub-runs** (agents a run called) are indented as a tree.
 
 **Cost.** The run's cost (USD at list price, including agents it called) and tokens appear in the header, and each llm node carries a cost chip whose hover lists every provider attempt. See [cost.md](cost.md).

@@ -21,7 +21,17 @@ import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
 import { html, type SafeHtml } from '../views/html.js';
 import { renderSettingsUsage } from '../views/settings-usage.js';
-import { unenforceableProviders } from '@some-useful-agents/core';
+import {
+  unenforceableProviders,
+  evaluatePolicy,
+  loadPolicyDocument,
+  policyFilePath,
+  PolicyLoadError,
+  type PolicyDocument,
+} from '@some-useful-agents/core';
+import { existsSync } from 'node:fs';
+import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
+import { listPickableTools } from '../views/tools-multipicker.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -750,6 +760,46 @@ settingsRouter.get('/settings/usage', (req: Request, res: Response) => {
       unenforceable: settings ? unenforceableProviders(settings) : [],
     }),
     flash: error ? { kind: 'error', message: error } : flash,
+  }));
+});
+
+/**
+ * Settings → Policies: the tool policy in force and a "would this be
+ * allowed?" checker (GET with ?tool=&resource=&source=). Read-only; the rules
+ * are edited in the file. Mirrors `sua policy show` / `sua policy check`.
+ */
+settingsRouter.get('/settings/policies', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const { flash } = readQueryBanners(req);
+  const path = policyFilePath(ctx.dataDir);
+  const exists = existsSync(path);
+  let doc: PolicyDocument | undefined;
+  let error: string | undefined;
+  try { doc = loadPolicyDocument(ctx.dataDir); } catch (err) {
+    error = err instanceof PolicyLoadError ? err.message : (err as Error).message;
+  }
+
+  let check: PolicyCheck | undefined;
+  const tool = typeof req.query.tool === 'string' ? req.query.tool.trim().slice(0, 200) : '';
+  if (tool) {
+    const resource = typeof req.query.resource === 'string' ? req.query.resource.trim().slice(0, 2000) : '';
+    const source: PolicySource = req.query.source === 'examples' || req.query.source === 'community' ? req.query.source : 'local';
+    // An invalid file fails closed at run time; the checker says the same.
+    const enforced = error
+      ? { version: 1 as const, defaultAction: 'deny' as const, rules: [], invalidReason: `${error} Every tool call is blocked until it's fixed.` }
+      : doc!;
+    check = { tool, resource, source, decision: evaluatePolicy(enforced, { toolId: tool, resource, agentSource: source, agentId: 'settings-check' }) };
+  }
+
+  let toolIds: string[] = [];
+  try {
+    toolIds = listPickableTools({ toolStore: ctx.toolStore, agents: ctx.agentStore.listAgents(), currentAgentId: '' }).map((t) => t.id);
+  } catch { /* stores unavailable: free text still works */ }
+
+  res.type('html').send(renderSettingsShell({
+    active: 'policies',
+    body: renderSettingsPolicies({ path, exists, doc, error, toolIds, check }),
+    flash,
   }));
 });
 

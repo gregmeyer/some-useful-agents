@@ -450,3 +450,9 @@
 .settings-pricing__key { min-width: 10rem; align-self: center; }
 .settings-pricing__field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-xs); }
 .settings-pricing__status { margin: var(--space-1) 0 0; font-size: var(--font-size-xs); }
+
+/* Settings → Policies (views/settings-policies.ts). */
+.settings-policies__error { white-space: pre-wrap; margin: var(--space-2) 0 0; font-size: var(--font-size-xs); }
+.settings-policies__rules tr.is-deciding td { background: var(--color-primary-soft); }
+.settings-policies__rules tr.is-deciding td:first-child { box-shadow: inset 2px 0 0 var(--color-primary); }
+.settings-policies__result { margin-top: var(--space-3); }

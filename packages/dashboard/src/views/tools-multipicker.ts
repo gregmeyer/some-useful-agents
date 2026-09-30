@@ -80,7 +80,9 @@ export function renderToolsMultipicker(args: {
           <input type="checkbox" name="${args.name}" value="${t.id}" ${selected.has(t.id) ? 'checked' : ''}>
           <span class="mono tools-picker__id">${t.id}</span>
           <span class="dim tools-picker__desc">${t.description.split(/(?<=\.)\s/)[0] ?? ''}</span>
-          ${blocked ? html`<span class="tools-picker__blocked">${blocked}</span>` : html``}
+          ${blocked ? html`<a class="tools-picker__blocked" target="_blank" rel="noopener"
+            href="/settings/policies?tool=${encodeURIComponent(t.id)}&amp;source=${args.agent.source}#check"
+            title="See the rule in Settings → Policies (opens a new tab)">${blocked}</a>` : html``}
         </label>
       </li>`;
   };

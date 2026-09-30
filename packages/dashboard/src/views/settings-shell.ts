@@ -3,7 +3,7 @@ import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 
 /** `mcp-servers` and `integrations` left for the Tools page in ADR-0034. */
-export type SettingsTab = 'secrets' | 'variables' | 'mcp' | 'llm' | 'usage' | 'temporal' | 'appearance' | 'general';
+export type SettingsTab = 'secrets' | 'variables' | 'mcp' | 'llm' | 'usage' | 'policies' | 'temporal' | 'appearance' | 'general';
 
 export interface SettingsShellArgs {
   active: SettingsTab;
@@ -35,6 +35,7 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
       ${tab('mcp', 'Claude Desktop')}
       ${tab('llm', 'LLM')}
       ${tab('usage', 'Usage')}
+      ${tab('policies', 'Policies')}
       ${tab('temporal', 'Temporal')}
       ${tab('appearance', 'Appearance')}
       ${tab('general', 'General')}
