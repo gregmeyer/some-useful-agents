@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { surveySchema, draftSchema, dashboardDesignSchema } from './survey-schema.js';
+import { buildPlanSchema } from './build-plan-schema.js';
 
 const validMixedSurvey = {
   intent: 'dashboard-mixed' as const,
@@ -145,5 +146,15 @@ describe('dashboardDesignSchema', () => {
       sections: [{ title: 'X', agentIds: [] }],
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('shape_reason', () => {
+  it('is kept on a draft and on the assembled plan (optional)', () => {
+    const draft = draftSchema.parse({ id: 'x', purpose: 'p', yaml: 'id: x', shape_reason: 'Open-ended research, so one goal node.' });
+    expect(draft.shape_reason).toBe('Open-ended research, so one goal node.');
+    expect(draftSchema.parse({ id: 'x', purpose: 'p', yaml: 'id: x' }).shape_reason).toBeUndefined();
+    const plan = buildPlanSchema.parse({ intent: 'agent', summary: 's', newAgents: [draft], dashboard: null });
+    expect(plan.newAgents[0].shape_reason).toBe('Open-ended research, so one goal node.');
   });
 });

@@ -89,7 +89,7 @@ export interface Run {
   result?: string;
   exitCode?: number;
   error?: string;
-  triggeredBy: 'cli' | 'mcp' | 'schedule' | 'dashboard' | 'webhook';
+  triggeredBy: 'cli' | 'mcp' | 'schedule' | 'dashboard' | 'webhook' | 'trial';
   /**
    * v0.13+: populated for runs that executed a DAG-mode agent.
    * Pre-v0.13 rows have both undefined. Nullable in the DB (NULL ↔ undefined).

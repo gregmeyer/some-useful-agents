@@ -268,19 +268,37 @@ export const BUILD_FROM_GOAL_JS = `
                surveyBits.join('') + '</div>';
         }
 
-        // New agents — each as a collapsible card with editable YAML textarea
+        // New agents: each card leads with its shape (diagram, plain label,
+        // tools, why), then Try it / switch shape, then the YAML to edit.
         if (plan.newAgents && plan.newAgents.length) {
           h += '<div style="margin-bottom:var(--space-3);">' +
                '<div class="dim" style="font-size:var(--font-size-xs);font-weight:var(--weight-semibold);margin-bottom:var(--space-2);">New agents to create (' + plan.newAgents.length + ')</div>';
           for (var i = 0; i < plan.newAgents.length; i++) {
             var a = plan.newAgents[i];
-            h += '<details ' + (i === 0 ? 'open' : '') + ' style="margin-bottom:var(--space-2);">' +
-                 '<summary style="cursor:pointer;padding:var(--space-1) 0;font-size:var(--font-size-sm);">' +
-                 '<code>' + esc(a.id) + '</code> <span class="dim" style="font-size:var(--font-size-xs);">' + esc(a.purpose) + '</span></summary>' +
-                 '<textarea data-new-agent-idx="' + i + '" rows="12" ' +
-                 'style="width:100%;padding:var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);' +
-                 'font-family:var(--font-mono);font-size:var(--font-size-xs);resize:vertical;line-height:1.5;tab-size:2;">' +
-                 esc(a.yaml) + '</textarea></details>';
+            var sh = a.shape || null;
+            h += '<details class="build-draft" data-draft-idx="' + i + '" ' + (i === 0 ? 'open' : '') + '>' +
+                 '<summary class="build-draft__summary"><code>' + esc(a.id) + '</code> <span class="dim">' + esc(a.purpose) + '</span></summary>';
+            if (sh) {
+              h += '<div class="build-draft__shape">' +
+                     (sh.diagramHtml ? '<div class="build-draft__diagram">' + sh.diagramHtml + '</div>' : '') +
+                     '<div>' +
+                       '<div class="build-draft__label' + (sh.kind === 'invalid' ? ' build-draft__label--err' : '') + '">' + esc(sh.label) + '</div>' +
+                       (sh.error ? '<div class="dim build-draft__meta">' + esc(sh.error) + '</div>' : '') +
+                       (sh.tools && sh.tools.length ? '<div class="build-draft__meta"><span class="dim">Uses</span> ' + sh.tools.map(function (t) { return '<code>' + esc(t) + '</code>'; }).join(' ') + '</div>' : '') +
+                       (a.shape_reason ? '<div class="build-draft__meta"><span class="dim">Why:</span> ' + esc(a.shape_reason) + '</div>' : '') +
+                     '</div>' +
+                   '</div>';
+            }
+            h += '<div class="build-draft__actions">' +
+                   '<button type="button" class="btn btn--sm" data-try-draft="' + i + '"' + (sh && sh.kind === 'invalid' ? ' disabled' : '') + '>Try it</button>' +
+                   (sh && sh.switchTo ? '<button type="button" class="btn btn--ghost btn--sm" data-switch-draft="' + i + '" data-switch-to="' + sh.switchTo + '">' +
+                     (sh.switchTo === 'goal' ? 'Make it a goal agent' : 'Make it a fixed flow') + '</button>' : '') +
+                   '<span class="dim build-draft__hint">A trial runs the draft without saving it.</span>' +
+                 '</div>' +
+                 '<div class="build-draft__trial" data-trial-for="' + i + '"></div>' +
+                 '<details class="build-draft__yaml"><summary class="dim">View or edit the YAML</summary>' +
+                 '<textarea data-new-agent-idx="' + i + '" rows="12" class="build-draft__textarea">' + esc(a.yaml) + '</textarea></details>' +
+                 '</details>';
           }
           h += '</div>';
         }
@@ -334,6 +352,7 @@ export const BUILD_FROM_GOAL_JS = `
 
         // Stash the plan so commit can rebuild it with edited YAMLs.
         wireCommit(plan);
+        wireDrafts(plan, criticErrors, criticWarning);
 
         // "Update plan" — re-run the planner with the original goal plus
         // any clarifications the user typed in the answers textarea.
@@ -346,6 +365,140 @@ export const BUILD_FROM_GOAL_JS = `
             runPlanner(lastGoal + '\\n\\nClarifications: ' + ans, lastFocus, lastProvider);
           });
         }
+      }
+
+      // Copy YAML edits from the textareas back into the plan (before a
+      // re-render, so switching one draft's shape keeps edits to the others).
+      function syncYamlEdits(plan) {
+        (plan.newAgents || []).forEach(function (a, i) {
+          var ta = document.querySelector('[data-new-agent-idx="' + i + '"]');
+          if (ta) a.yaml = ta.value;
+        });
+      }
+
+      function wireDrafts(plan, criticErrors, criticWarning) {
+        content.querySelectorAll('[data-try-draft]').forEach(function (b) {
+          b.addEventListener('click', function () { tryDraft(plan, Number(b.getAttribute('data-try-draft')), {}); });
+        });
+        content.querySelectorAll('[data-switch-draft]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            switchShape(plan, Number(b.getAttribute('data-switch-draft')), b.getAttribute('data-switch-to'), b, criticErrors, criticWarning);
+          });
+        });
+      }
+
+      // Re-draft one agent in the other shape via /agents/draft-one, then
+      // swap it into the plan and re-render the review.
+      function switchShape(plan, i, to, b, criticErrors, criticWarning) {
+        syncYamlEdits(plan);
+        var a = plan.newAgents[i];
+        var box = document.querySelector('[data-trial-for="' + i + '"]');
+        b.disabled = true;
+        b.textContent = 'Redrafting…';
+        var focus = (to === 'goal' ? 'Shape: goal agent' : 'Shape: fixed flow') + (lastFocus ? '\\n' + lastFocus : '');
+        fetch('/agents/draft-one', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'purpose=' + encodeURIComponent(a.purpose) + '&suggestedName=' + encodeURIComponent(a.id) +
+            '&focus=' + encodeURIComponent(focus) + (lastProvider ? '&provider=' + encodeURIComponent(lastProvider) : ''),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (start) {
+          if (!start.ok) throw new Error(start.error || 'Could not start the drafter');
+          function poll() {
+            fetch('/agents/build/' + encodeURIComponent(start.runId), { credentials: 'same-origin' })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (d.status === 'done' && d.plan && d.plan.newAgents && d.plan.newAgents[0]) {
+                  plan.newAgents[i] = d.plan.newAgents[0];
+                  renderPlanReview(plan, criticErrors, criticWarning);
+                  var card = document.querySelector('[data-draft-idx="' + i + '"]');
+                  if (card) card.open = true;
+                  return;
+                }
+                if (d.status === 'failed' || !d.ok) throw new Error(d.error || 'Redraft failed');
+                setTimeout(poll, 2000);
+              })
+              .catch(fail);
+          }
+          poll();
+        })
+        .catch(fail);
+        function fail(err) {
+          b.disabled = false;
+          b.textContent = to === 'goal' ? 'Make it a goal agent' : 'Make it a fixed flow';
+          if (box) box.innerHTML = '<div class="flash flash--error">' + esc(String(err && err.message || err)) + '</div>';
+        }
+      }
+
+      // Run the draft (its current YAML) without saving it, and show the result.
+      function tryDraft(plan, i, inputs) {
+        syncYamlEdits(plan);
+        var box = document.querySelector('[data-trial-for="' + i + '"]');
+        if (!box) return;
+        box.innerHTML = '<div class="dim build-draft__meta">Starting a trial…</div>';
+        fetch('/agents/build/try', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml: plan.newAgents[i].yaml, inputs: inputs }),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (start) {
+          if (start.needsInputs) { renderTrialInputs(plan, i, box, start.needsInputs); return; }
+          if (!start.ok) { box.innerHTML = '<div class="flash flash--error">' + esc(start.error || 'Could not start the trial') + '</div>'; return; }
+          var t0 = Date.now();
+          function poll() {
+            fetch('/agents/build/try/' + encodeURIComponent(start.runId), { credentials: 'same-origin' })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (!d.ok) { box.innerHTML = '<div class="flash flash--error">' + esc(d.error || 'Trial not found') + '</div>'; return; }
+                var link = '<a href="' + d.url + '" target="_blank" rel="noopener">Open the run</a>';
+                if (!d.done) {
+                  var secs = Math.round((Date.now() - t0) / 1000);
+                  box.innerHTML = '<div class="dim build-draft__meta">Running' +
+                    (d.currentNode ? ' <code>' + esc(d.currentNode) + '</code>' : '') + ' · ' + secs + 's of up to ' + start.timeoutSec + 's · ' + link + '</div>';
+                  setTimeout(poll, 1500);
+                  return;
+                }
+                box.innerHTML = renderTrialResult(d, link, start.timeoutSec);
+              })
+              .catch(function () { setTimeout(poll, 3000); });
+          }
+          poll();
+        })
+        .catch(function (err) { box.innerHTML = '<div class="flash flash--error">' + esc(String(err)) + '</div>'; });
+      }
+
+      function renderTrialInputs(plan, i, box, needs) {
+        var h = '<div class="build-draft__inputs"><div class="dim build-draft__meta">This agent needs inputs to run:</div>';
+        needs.forEach(function (n) {
+          h += '<label class="build-draft__input"><code>' + esc(n.name) + '</code>' +
+               (n.description ? ' <span class="dim">' + esc(n.description) + '</span>' : '') +
+               '<input type="text" class="form-field__input" data-trial-input="' + esc(n.name) + '"' +
+               (n.values && n.values.length ? ' placeholder="' + esc(n.values.join(' | ')) + '"' : '') + '></label>';
+        });
+        h += '<button type="button" class="btn btn--sm btn--primary" data-trial-go>Run the trial</button></div>';
+        box.innerHTML = h;
+        box.querySelector('[data-trial-go]').addEventListener('click', function () {
+          var vals = {};
+          box.querySelectorAll('[data-trial-input]').forEach(function (el) { vals[el.getAttribute('data-trial-input')] = el.value; });
+          tryDraft(plan, i, vals);
+        });
+      }
+
+      function renderTrialResult(d, link, timeoutSec) {
+        var ok = d.status === 'completed';
+        var label = ok ? 'Completed' : d.status === 'cancelled' ? 'Stopped' : d.status === 'waiting' ? 'Waiting for an answer' : 'Failed';
+        var meta = [];
+        if (typeof d.durationMs === 'number') meta.push(Math.round(d.durationMs / 1000) + 's');
+        if (typeof d.costUsd === 'number' && d.costUsd > 0) meta.push('$' + d.costUsd.toFixed(d.costUsd < 0.01 ? 4 : 2));
+        var h = '<div class="build-draft__result">' +
+          '<div><span class="badge ' + (ok ? 'badge--ok' : 'badge--err') + '">' + label + '</span> ' +
+          '<span class="dim">' + meta.join(' · ') + '</span> · ' + link + '</div>';
+        if (d.status === 'cancelled') h += '<div class="dim build-draft__meta">A trial stops after ' + timeoutSec + 's.</div>';
+        if (d.error) h += '<div class="build-draft__meta" style="color:var(--color-err);">' + esc(d.error) + '</div>';
+        if (d.result) h += '<pre class="build-draft__output">' + esc(d.result) + '</pre>';
+        return h + '</div>';
       }
 
       function wireCommit(plan) {
@@ -404,6 +557,12 @@ export const BUILD_FROM_GOAL_JS = `
               summary += '<div class="dim" style="margin-top:var(--space-1);">Skipped ' + result.agentsSkipped.length + ': ' +
                 result.agentsSkipped.map(function (s) { return esc(s.id) + ' (' + esc(s.reason) + ')'; }).join('; ') + '</div>';
             }
+            if (result.autoRuns) {
+              var runLinks = Object.keys(result.autoRuns).map(function (id) {
+                return '<a href="/runs/' + encodeURIComponent(result.autoRuns[id]) + '"><code>' + esc(id) + '</code></a>';
+              });
+              if (runLinks.length) summary += '<div class="dim" style="margin-top:var(--space-1);">First run started: ' + runLinks.join(', ') + '</div>';
+            }
             if (result.dashboardCreated) {
               summary += '<div>Created dashboard: <code>' + esc(result.dashboardCreated) + '</code></div>';
             }
@@ -416,9 +575,9 @@ export const BUILD_FROM_GOAL_JS = `
             content.innerHTML = '<div style="padding:var(--space-3);">' +
               '<h3 style="margin:0 0 var(--space-2);">Done</h3>' +
               '<div style="font-size:var(--font-size-sm);">' + summary + '</div>' +
-              '<div class="dim" style="margin-top:var(--space-3);font-size:var(--font-size-xs);">Redirecting in 1.5s...</div>' +
+              '<div class="dim" style="margin-top:var(--space-3);font-size:var(--font-size-xs);">Opening it in a few seconds… <a href="' + esc(result.redirectUrl || '/agents') + '">Go now</a></div>' +
               '</div>';
-            setTimeout(function () { window.location.href = result.redirectUrl || '/agents'; }, 1500);
+            setTimeout(function () { window.location.href = result.redirectUrl || '/agents'; }, result.autoRuns && Object.keys(result.autoRuns).length ? 5000 : 1500);
           })
           .catch(function (err) {
             commitBtn.disabled = false;
