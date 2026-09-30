@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Agent, NodeExecutionRecord } from '../agent-v2-types.js';
 import type { Run } from '../types.js';
-import { openStoreDb } from '../sqlite-open.js';
+import { openStoreDb, addColumnIfMissing } from '../sqlite-open.js';
 import { evaluateOutcome } from './detect.js';
 import type {
   EvidenceItem,
@@ -154,7 +154,7 @@ export class OutcomeStore {
     `);
     const evaluationColumns = tableColumns(this.db, 'outcome_evaluations');
     if (!evaluationColumns.has('input_fingerprint')) {
-      this.db.exec(`ALTER TABLE outcome_evaluations ADD COLUMN input_fingerprint TEXT NOT NULL DEFAULT ''`);
+      addColumnIfMissing(this.db, `ALTER TABLE outcome_evaluations ADD COLUMN input_fingerprint TEXT NOT NULL DEFAULT ''`);
       this.db.exec(`
         UPDATE outcome_evaluations
         SET input_fingerprint = COALESCE(input_fingerprint, '')
@@ -162,7 +162,7 @@ export class OutcomeStore {
       `);
     }
     if (!evaluationColumns.has('criteria_engine_version')) {
-      this.db.exec(`ALTER TABLE outcome_evaluations ADD COLUMN criteria_engine_version TEXT NOT NULL DEFAULT '${OUTCOME_CRITERIA_ENGINE_VERSION}'`);
+      addColumnIfMissing(this.db, `ALTER TABLE outcome_evaluations ADD COLUMN criteria_engine_version TEXT NOT NULL DEFAULT '${OUTCOME_CRITERIA_ENGINE_VERSION}'`);
     }
     this.db.exec(
       `CREATE INDEX IF NOT EXISTS idx_outcome_evaluations_run_time ON outcome_evaluations(run_id, evaluated_at DESC, evaluation_id DESC)`,

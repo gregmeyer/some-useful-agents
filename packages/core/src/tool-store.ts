@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { openStoreDb } from './sqlite-open.js';
+import { openStoreDb, addColumnIfMissing } from './sqlite-open.js';
 import type { ToolDefinition, ToolSource } from './tool-types.js';
 import type { McpServerConfig, McpTransport } from './mcp-server-types.js';
 
@@ -59,7 +59,7 @@ export class ToolStore {
     // Additive migration: link tools to their source MCP server. Null for
     // non-MCP tools or legacy MCP tools that predate this column.
     try {
-      this.db.exec(`ALTER TABLE tools ADD COLUMN mcp_server_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE tools ADD COLUMN mcp_server_id TEXT`);
     } catch {
       // Column already exists.
     }
