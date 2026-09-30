@@ -250,6 +250,12 @@ export interface SpawnProgress {
     | 'loop_iteration_start' | 'loop_iteration_complete';
   turn?: number;
   maxTurns?: number;
+  /**
+   * Identifies the model turn this event belongs to (claude: the assistant
+   * message id). Counting distinct ids gives the turns used so far, for
+   * providers that don't number their turns.
+   */
+  turnId?: string;
   message?: string;
   /** Tool being invoked (model-driven tool loop). Present on `tool_use` events. */
   toolName?: string;
@@ -514,6 +520,7 @@ export const claudeSpawner: LlmSpawner = {
       // dashboard hangs off these text chunks.
       if (event.type === 'assistant') {
         const content = event.message?.content;
+        const turnId = typeof event.message?.id === 'string' ? event.message.id as string : undefined;
         if (Array.isArray(content)) {
           // Prefer the FIRST text chunk we find. If a single assistant
           // event interleaves text + tool_use the tool_use case still
@@ -524,6 +531,7 @@ export const claudeSpawner: LlmSpawner = {
                 timestamp: new Date().toISOString(),
                 type: 'output_chunk',
                 message: c.text,
+                ...(turnId ? { turnId } : {}),
               };
             }
           }
@@ -539,6 +547,7 @@ export const claudeSpawner: LlmSpawner = {
               type: 'tool_use',
               message: toolName ? `Calling ${toolName}` : 'Using a tool...',
               ...(toolName ? { toolName, toolStatus: 'call' as const, preview: JSON.stringify(toolUse.input ?? {}).slice(0, 200) } : {}),
+              ...(turnId ? { turnId } : {}),
             };
           }
         }
@@ -548,6 +557,7 @@ export const claudeSpawner: LlmSpawner = {
           timestamp: new Date().toISOString(),
           type: 'turn_start',
           message: 'Claude is responding...',
+          ...(turnId ? { turnId } : {}),
         };
       }
       if (event.type === 'tool_use') {
@@ -712,6 +722,20 @@ export const codexSpawner: LlmSpawner = {
           timestamp: new Date().toISOString(),
           type: 'turn_start',
           message: 'Codex is responding...',
+        };
+      }
+      // sua tools reached over MCP (ADR-0044): show the call and its outcome.
+      if ((event.type === 'item.started' || event.type === 'item.completed') && event.item?.type === 'mcp_tool_call') {
+        const toolName = typeof event.item.tool === 'string' ? event.item.tool : 'tool';
+        const started = event.type === 'item.started';
+        const failed = !started && (event.item.status === 'failed' || Boolean(event.item.error));
+        return {
+          timestamp: new Date().toISOString(),
+          type: 'tool_use',
+          toolName,
+          toolStatus: started ? 'call' : 'result',
+          ...(started ? { preview: JSON.stringify(event.item.arguments ?? {}).slice(0, 200) } : { isError: failed }),
+          message: started ? `Calling ${toolName}` : `${toolName} ${failed ? 'errored' : 'returned'}`,
         };
       }
       if (event.type === 'item.completed' && event.item?.type === 'agent_message') {

@@ -109,6 +109,9 @@ async function invokeOpenAiChatInner(
     let lastContent = '';
 
     for (let turn = 0; turn < (useTools ? maxTurns : 1); turn++) {
+      if (useTools) {
+        emitProgress(args.onProgress, { type: 'turn_start', turn: turn + 1, maxTurns, message: `Turn ${turn + 1} of ${maxTurns}` });
+      }
       const body: Record<string, unknown> = { model: args.model, messages, stream: false };
       if (useTools) { body.tools = args.tools; body.tool_choice = 'auto'; }
 

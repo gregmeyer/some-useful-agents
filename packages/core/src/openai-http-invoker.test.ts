@@ -167,3 +167,24 @@ describe('invokeOpenAiChat', () => {
     });
   });
 });
+
+describe('turn progress', () => {
+  it('reports "turn N of M" at the start of each tool-loop turn', async () => {
+    let n = 0;
+    const fetchImpl = (async () => {
+      n += 1;
+      const message = n === 1
+        ? { role: 'assistant', content: null, tool_calls: [{ id: 'c', type: 'function', function: { name: 't', arguments: '{}' } }] }
+        : { role: 'assistant', content: 'done' };
+      return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const events: Array<{ type: string; turn?: number; maxTurns?: number }> = [];
+    await invokeOpenAiChat({
+      apiBase: 'http://x/v1', model: 'm', prompt: 'p', timeoutSec: 5, fetchImpl, maxTurns: 4,
+      tools: [{ type: 'function', function: { name: 't', parameters: { type: 'object', properties: {} } } }] as never,
+      onToolCall: async () => ({ content: 'ok' }),
+      onProgress: (e) => events.push(e),
+    });
+    expect(events.filter((e) => e.type === 'turn_start').map((e) => [e.turn, e.maxTurns])).toEqual([[1, 4], [2, 4]]);
+  });
+});
