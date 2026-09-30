@@ -126,6 +126,15 @@ function collectFromNode(
     if (mcp) mcpServers.add(mcp[1]);
   }
 
+  // Tools a goal / llm node's model may call (`tools:`), including other
+  // agents (`agent:<id>`). The model decides whether to, but they are what
+  // the agent can do, so they count.
+  for (const callable of node.tools ?? []) {
+    if (typeof callable !== 'string' || callable.length === 0) continue;
+    tools.add(callable);
+    classifyTool(callable, sideEffects);
+  }
+
   for (const allowed of node.allowedTools ?? []) {
     if (typeof allowed !== 'string' || allowed.length === 0) continue;
     tools.add(allowed);
@@ -147,7 +156,7 @@ function collectFromNode(
   }
 
   // URLs from free text in command + prompt.
-  for (const text of [node.command, node.prompt] as Array<string | undefined>) {
+  for (const text of [node.command, node.prompt, node.goal] as Array<string | undefined>) {
     if (!text) continue;
     const matches = text.match(URL_RE);
     if (matches) for (const u of matches) urls.add(stripTrailingPunct(u));

@@ -1841,23 +1841,6 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
     }, 'cli');
   }
 
-  it('sends goal nodes to the YAML editor instead of the shell/llm form (which would rewrite them)', async () => {
-    const app = await makeApp();
-    agentStore.createAgent({
-      id: 'goal-edit', name: 'Goal', status: 'active', source: 'local', mcp: false,
-      nodes: [{ id: 'g', type: 'goal', goal: 'Find things', tools: ['web-fetch'] }],
-    }, 'cli');
-    for (const req of [
-      request(app).get('/agents/goal-edit/nodes/g/edit'),
-      request(app).post('/agents/goal-edit/nodes/g/edit').type('form').send({ type: 'shell', command: 'echo x' }),
-    ]) {
-      const res = await req.set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-      expect(res.status).toBe(303);
-      expect(res.headers.location).toMatch(/^\/agents\/goal-edit\/yaml\?flash=/);
-    }
-    expect(agentStore.getAgent('goal-edit')!.nodes[0]).toMatchObject({ type: 'goal', goal: 'Find things' });
-  });
-
   it('GET /agents/:id/nodes/:nodeId/edit pre-fills the form with node state', async () => {
     const app = await makeApp();
     await seedChainAgent();
@@ -5180,5 +5163,106 @@ describe('Inbound webhooks', () => {
     expect(store.get('hooked')!.token).not.toBe(first.token);
     await post('/agents/hooked/webhook').send('op=disable');
     expect(store.get('hooked')!.enabled).toBe(false);
+  });
+});
+
+describe('Goal nodes in the node form', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`).type('form');
+
+  function seed() {
+    agentStore.createAgent({
+      id: 'researcher', name: 'Researcher', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'fetch', type: 'shell', command: 'echo hi' }],
+    } as never, 'cli');
+    agentStore.createAgent({
+      id: 'helper', name: 'Helper', status: 'active', source: 'local', mcp: false, description: 'Looks things up.',
+      nodes: [{ id: 'x', type: 'shell', command: 'echo h' }],
+    } as never, 'cli');
+  }
+
+  it('offers "Work toward a goal" and a tools picker with other agents (not itself)', async () => {
+    const app = await makeApp();
+    seed();
+    const page = (await get(app, '/agents/researcher/add-node')).text;
+    expect(page).toContain('Work toward a goal (goal)');
+    expect(page).toContain('data-pattern-tool="goal"');
+    expect(page).toContain('data-node-field="goal"');
+    expect(page).toContain('name="goalTools" value="web-fetch"');
+    expect(page).toContain('name="goalTools" value="agent:helper"');
+    expect(page).not.toContain('value="agent:researcher"');
+    // llm-prompt nodes get the same picker instead of a comma list.
+    expect(page).toContain('name="tools" value="web-fetch"');
+  });
+
+  it('adds a goal node with tools, budget and provider', async () => {
+    const app = await makeApp();
+    seed();
+    const res = await post(app, '/agents/researcher/add-node').send(
+      'id=research&type=goal&goal=Find+the+three+best+options&goalTools=web-fetch&goalTools=agent%3Ahelper&goalMaxTurns=8&goalTimeoutSec=300&goalProvider=claude&dependsOn=fetch',
+    );
+    expect(res.status).toBe(303);
+    const node = agentStore.getAgent('researcher')!.nodes.find((n) => n.id === 'research')!;
+    expect(node).toMatchObject({
+      type: 'goal', goal: 'Find the three best options', tools: ['web-fetch', 'agent:helper'],
+      budget: { maxTurns: 8, timeoutSec: 300 }, provider: 'claude', dependsOn: ['fetch'],
+    });
+  });
+
+  it('says what is wrong with a goal node and keeps what was typed', async () => {
+    const app = await makeApp();
+    seed();
+    const cases: Array<[string, RegExp]> = [
+      ['id=g1&type=goal&goal=&goalTools=web-fetch', /needs a goal/],
+      ['id=g2&type=goal&goal=Do+it', /Pick at least one tool/],
+      ['id=g3&type=goal&goal=Do+it&goalTools=no-such-tool', /Unknown tool (&quot;|")no-such-tool/],
+      ['id=g4&type=goal&goal=Do+it&goalTools=agent%3Aresearcher', /can't call its own agent|can&#39;t call its own agent/],
+      ['id=g5&type=goal&goal=Do+it&goalTools=web-fetch&goalMaxTurns=99', /Turns must be a whole number from 1 to 50/],
+    ];
+    for (const [body, error] of cases) {
+      const res = await post(app, '/agents/researcher/add-node').send(body);
+      expect(res.status).toBe(400);
+      expect(res.text).toMatch(error);
+    }
+    const kept = await post(app, '/agents/researcher/add-node').send('id=g6&type=goal&goal=Keep+me&goalTools=no-such-tool');
+    expect(kept.text).toContain('Keep me');
+    expect(agentStore.getAgent('researcher')!.nodes).toHaveLength(1);
+  });
+
+  it('edits a goal node in the form, and can turn it into an llm prompt', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'goal-edit', name: 'Goal', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'g', type: 'goal', goal: 'Find things', tools: ['web-fetch'], budget: { maxTurns: 5 } }],
+    } as never, 'cli');
+    const form = (await get(app, '/agents/goal-edit/nodes/g/edit')).text;
+    expect(form).toContain('Find things</textarea>');
+    expect(form).toMatch(/name="goalTools" value="web-fetch" checked/);
+    expect(form).toContain('name="goalMaxTurns" min="1" max="50" value="5"');
+    expect(form).toMatch(/value="goal" selected/);
+
+    await post(app, '/agents/goal-edit/nodes/g/edit').send('type=goal&goal=Find+better+things&goalTools=web-fetch&goalTools=http-get');
+    expect(agentStore.getAgent('goal-edit')!.nodes[0]).toMatchObject({ type: 'goal', goal: 'Find better things', tools: ['web-fetch', 'http-get'] });
+    expect(agentStore.getAgent('goal-edit')!.nodes[0].budget).toBeUndefined();
+
+    await post(app, '/agents/goal-edit/nodes/g/edit').send('type=llm-prompt&prompt=Just+answer&tools=http-get');
+    const node = agentStore.getAgent('goal-edit')!.nodes[0];
+    expect(node).toMatchObject({ type: 'llm-prompt', prompt: 'Just answer', tools: ['http-get'] });
+    expect(node.goal).toBeUndefined();
+  });
+
+  it('leads the Overview of a single-goal agent with its goal, and draws agent tools as calls', async () => {
+    const app = await makeApp();
+    seed();
+    agentStore.createAgent({
+      id: 'solo-goal', name: 'Solo', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'g', type: 'goal', goal: 'Plan the offsite', tools: ['web-fetch', 'agent:helper'] }],
+    } as never, 'cli');
+    const page = (await get(app, '/agents/solo-goal')).text;
+    expect(page).toContain('Plan the offsite');
+    expect(page).toContain('href="/agents/solo-goal/nodes/g/edit"');
+    expect(page).toContain('15 turns · 600 seconds');
+    expect(page).toContain('as a tool when the model decides to');
+    expect((await get(app, '/agents/helper')).text).toContain('href="/agents/solo-goal"');
   });
 });

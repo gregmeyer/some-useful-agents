@@ -117,7 +117,7 @@ Six tabs:
 Talk to the agent. Each message is a run (linked under the reply), and the agent sees the conversation so far. Conversations are listed on the left; open one to continue it, or delete it (its runs are kept). An agent without a text input for the message says so and points at the YAML tab. See [conversations.md](conversations.md).
 
 ### Nodes
-Edit / delete / add nodes inline. Template palette autocomplete for upstream fields + inputs + vars. Per-node timeout, env, secrets, onlyIf predicates.
+Edit / delete / add nodes inline. Template palette autocomplete for upstream fields + inputs + vars. Per-node timeout, env, secrets, onlyIf predicates. **Goal nodes** are added and edited here too (goal, tools, budget); llm and goal nodes pick the tools their model may call from a searchable checklist that shows policy blocks. See [goal-agents.md](goal-agents.md#editing-in-the-dashboard).
 
 ### Config
 Settings grouped by area:

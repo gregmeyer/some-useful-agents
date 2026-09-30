@@ -209,3 +209,34 @@
 @media (max-width: 720px) {
   .agent-chat { grid-template-columns: 1fr; }
 }
+
+/* ---------- Tools multi-picker (views/tools-multipicker.ts) ---------- */
+.tools-picker { display: flex; flex-direction: column; gap: var(--space-2); }
+.tools-picker__search { max-width: 24rem; }
+.tools-picker__count { margin: 0; }
+.tools-picker__list {
+  max-height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+.tools-picker__list ul { list-style: none; padding: 0; margin: 0 0 var(--space-2); }
+.tools-picker__group {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: var(--space-2) 0 var(--space-1);
+}
+.tools-picker__label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) 0;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+.tools-picker__id { flex: none; }
+.tools-picker__desc { font-size: var(--font-size-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tools-picker__blocked { flex: none; font-size: var(--font-size-xs); color: var(--color-warn); }
+.goal-budget__row { display: flex; gap: var(--space-3); flex-wrap: wrap; }

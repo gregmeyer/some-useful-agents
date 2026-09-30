@@ -32,7 +32,12 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     ? agent.capabilities.tools_used
     : (() => {
         const ids = new Set<string>();
-        for (const n of agent.nodes) ids.add(n.tool ?? (n.type === 'shell' ? 'shell-exec' : 'claude-code'));
+        for (const n of agent.nodes) {
+          if (n.tool) ids.add(n.tool);
+          else if (n.type === 'shell') ids.add('shell-exec');
+          else if (n.type === 'llm-prompt' || n.type === 'claude-code') ids.add('claude-code');
+          for (const t of n.tools ?? []) ids.add(t);
+        }
         return [...ids].sort();
       })();
   // Linkable tool ids match sua's kebab-lowercase convention (built-ins,
@@ -131,6 +136,8 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   `;
 
   const content = html`
+    ${goalCard(agent)}
+
     <!-- DAG + Widget preview (side-by-side when widget exists) -->
     ${agent.outputWidget ? html`
       <div class="run-detail-grid">
@@ -313,7 +320,7 @@ function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHt
   const row = (label: SafeHtml, e: AgentEdge): SafeHtml => html`
     <li style="margin-bottom: var(--space-1);">
       ${label}
-      <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : ''}</span>
+      <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : e.via === 'tool' ? ', as a tool when the model decides to' : ''}</span>
     </li>
   `;
 
@@ -367,4 +374,27 @@ function spendLimitsRow(s: AgentDetailArgs['spendLimits']): SafeHtml {
       ? html`<br><span style="color: var(--color-warn); font-size: var(--font-size-xs);">${unenforceable.join(', ')} ${unenforceable.length === 1 ? 'has' : 'have'} no price, so runs on ${unenforceable.length === 1 ? 'it don\'t' : 'them don\'t'} count. <a href="/settings/llm#pricing">Set a price</a>.</span>`
       : html``}
   </dd>`;
+}
+
+/**
+ * An agent that is one goal node: lead with what it works toward, the tools
+ * it may use, and its budget (a one-node diagram says nothing). Edit opens
+ * the goal form.
+ */
+function goalCard(agent: AgentDetailArgs['agent']): SafeHtml {
+  if (agent.nodes.length !== 1 || agent.nodes[0].type !== 'goal') return html``;
+  const node = agent.nodes[0];
+  const tools = node.tools ?? [];
+  return html`
+    <section class="card goal-card" style="padding: var(--space-4); margin-bottom: var(--space-4);">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3);">
+        <h3 style="margin: 0;">Goal</h3>
+        <a class="btn btn--sm" href="/agents/${encodeURIComponent(agent.id)}/nodes/${encodeURIComponent(node.id)}/edit">Edit</a>
+      </div>
+      <p style="white-space: pre-wrap; margin: var(--space-2) 0 var(--space-3);">${node.goal ?? ''}</p>
+      <dl class="kv" style="font-size: var(--font-size-xs); margin: 0;">
+        <dt>Tools</dt><dd>${tools.length === 0 ? html`<span class="dim">none</span>` : tools.map((t) => html`<span class="badge badge--muted mono" style="margin-right: var(--space-1);">${t}</span>`) as unknown as SafeHtml[]}</dd>
+        <dt>Budget</dt><dd>${String(node.budget?.maxTurns ?? 15)} turns · ${String(node.budget?.timeoutSec ?? 600)} seconds</dd>
+      </dl>
+    </section>`;
 }

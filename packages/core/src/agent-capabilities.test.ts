@@ -229,3 +229,15 @@ describe('deriveCapabilities — reads_external', () => {
     expect(c.tools_used).toEqual(['Edit', 'claude-code', 'file-write', 'shell-exec']);
   });
 });
+
+describe('callable tools', () => {
+  it('counts a goal / llm node\'s tools: (and their side effects and goal URLs)', () => {
+    const caps = deriveCapabilities({
+      id: 'g', name: 'g', status: 'active', source: 'local', mcp: false, version: 1,
+      nodes: [{ id: 'n', type: 'goal', goal: 'Check https://example.com/prices daily', tools: ['web-fetch', 'http-post', 'agent:helper'] }],
+    } as never);
+    expect(caps.tools_used).toEqual(['agent:helper', 'http-post', 'web-fetch']);
+    expect(caps.side_effects).toContain('posts_http');
+    expect(caps.reads_external).toContain('https://example.com/prices');
+  });
+});

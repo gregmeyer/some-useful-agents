@@ -58,6 +58,7 @@ export const DASHBOARD_JS = `
       if (!typeHidden || !schemas[toolId]) return;
       var implType = schemas[toolId].implType;
       typeHidden.value = implType === 'agent-invoke' ? 'agent-invoke'
+        : implType === 'goal' ? 'goal'
         : (implType === 'llm-prompt' || implType === 'claude-code') ? 'llm-prompt'
         : 'shell';
     }
@@ -65,6 +66,9 @@ export const DASHBOARD_JS = `
     function updateFields(toolId) {
       var isAgent = toolId.indexOf('agent:') === 0;
       var isLlmPrompt = toolId === 'llm-prompt' || toolId === 'claude-code';
+      var isGoal = toolId === 'goal';
+      var goalField = document.querySelector('[data-node-field="goal"]');
+      if (goalField) goalField.style.display = (!isAgent && isGoal) ? '' : 'none';
       // Show/hide the built-in command/prompt textareas.
       var shellField = document.querySelector('[data-node-field="shell"]');
       var claudeField = document.querySelector('[data-node-field="llm-prompt"]')
@@ -77,7 +81,7 @@ export const DASHBOARD_JS = `
 
       // For non-builtin tools, generate inputs from the schema.
       if (!inputsSection) return;
-      if (toolId === 'shell-exec' || isLlmPrompt) {
+      if (toolId === 'shell-exec' || isLlmPrompt || isGoal) {
         inputsSection.innerHTML = '';
         return;
       }
@@ -139,6 +143,33 @@ export const DASHBOARD_JS = `
       updateType(toolId);
       updateFields(toolId);
     });
+  })();
+
+  // ── Tools multi-picker (views/tools-multipicker.ts) ───────────────
+  // Filter rows as you type; keep the "N selected" count current.
+  (function () {
+    var pickers = document.querySelectorAll('[data-tools-picker]');
+    for (var p = 0; p < pickers.length; p++) {
+      (function (picker) {
+        var search = picker.querySelector('[data-tools-picker-search]');
+        var count = picker.querySelector('[data-tools-picker-count]');
+        var rows = picker.querySelectorAll('[data-tools-picker-row]');
+        function recount() {
+          if (!count) return;
+          var n = picker.querySelectorAll('input[type="checkbox"]:checked').length;
+          count.textContent = n + ' selected';
+        }
+        if (search) search.addEventListener('input', function () {
+          var q = (search.value || '').toLowerCase().trim();
+          for (var i = 0; i < rows.length; i++) {
+            var hay = rows[i].getAttribute('data-search') || '';
+            var checked = rows[i].querySelector('input:checked');
+            rows[i].style.display = (!q || hay.indexOf(q) !== -1 || checked) ? '' : 'none';
+          }
+        });
+        picker.addEventListener('change', recount);
+      })(pickers[p]);
+    }
   })();
 
   // ── Node type field toggle ─────────────────────────────────────────

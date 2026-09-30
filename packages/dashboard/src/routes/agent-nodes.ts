@@ -8,6 +8,7 @@ import {
   formatTemplatePathIssues,
   getBuiltinTool,
   getGeneratedTool,
+  resolvePolicyDocument,
   type ToolDefinition,
 } from '@some-useful-agents/core';
 import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
@@ -19,11 +20,36 @@ import { getContext } from '../context.js';
 import { renderAgentAddNode, type AddNodeFormValues } from '../views/agent-add-node.js';
 import { renderAgentEditNode, type EditNodeFormValues } from '../views/agent-edit-node.js';
 import { parseLlmOptions } from '../views/llm-options.js';
+import { parseGoalFields, type ToolsPickerContext } from '../views/goal-node-fields.js';
+import { listPickableTools } from '../views/tools-multipicker.js';
 import { autoFixYaml } from './run-now-build.js';
 
 export const agentNodesRouter: Router = Router();
 
 const NODE_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
+
+type Ctx = ReturnType<typeof getContext>;
+
+/** What the tools picker offers this agent, and the policy it's checked against. */
+function pickerContext(ctx: Ctx, agent: Agent): ToolsPickerContext {
+  let policy;
+  try { policy = ctx.agentStore.dataRoot ? resolvePolicyDocument(ctx.agentStore.dataRoot) : undefined; } catch { policy = undefined; }
+  return {
+    tools: listPickableTools({ toolStore: ctx.toolStore, agents: ctx.agentStore.listAgents(), currentAgentId: agent.id }),
+    policy,
+    agent: { id: agent.id, source: agent.source },
+  };
+}
+
+/** Goal-field checks that need the stores: known tools and agents. */
+function goalChecks(ctx: Ctx, agent: Agent, picker: ToolsPickerContext) {
+  const known = new Set(picker.tools.map((t) => t.id));
+  return {
+    currentAgentId: agent.id,
+    isKnownTool: (id: string) => known.has(id),
+    agentExists: (id: string) => Boolean(ctx.agentStore.getAgent(id)),
+  };
+}
 
 // ── Add node ────────────────────────────────────────────────────────────
 
@@ -37,7 +63,7 @@ agentNodesRouter.get('/agents/:name/add-node', (req: Request, res: Response) => 
   }
   const fromCreate = req.query.fromCreate === '1';
   const flashParam = typeof req.query.flash === 'string' ? req.query.flash : undefined;
-  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore, agentStore: ctx.agentStore, variablesStore: ctx.variablesStore }));
+  res.type('html').send(renderAgentAddNode({ agent, fromCreate, flash: flashParam, toolStore: ctx.toolStore, agentStore: ctx.agentStore, variablesStore: ctx.variablesStore, picker: pickerContext(ctx, agent) }));
 });
 
 agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) => {
@@ -60,11 +86,17 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   const isAgentInvoke = rawTool.startsWith('agent:');
   const nodeType = body.type === 'agent-invoke' || isAgentInvoke
     ? 'agent-invoke'
+    : body.type === 'goal' ? 'goal'
     : (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell';
+  const picker = pickerContext(ctx, agent);
+  const goalParsed = nodeType === 'goal' ? parseGoalFields(body, goalChecks(ctx, agent, picker)) : undefined;
 
   const values: AddNodeFormValues = {
     id: typeof body.id === 'string' ? body.id.trim() : undefined,
-    type: nodeType === 'agent-invoke' ? 'shell' : (nodeType as 'shell' | 'llm-prompt'), // form compat
+    type: nodeType === 'agent-invoke' ? 'shell' : (nodeType as 'shell' | 'llm-prompt' | 'goal'), // form compat
+    goal: goalParsed ? (goalParsed.ok
+      ? { goal: goalParsed.fields.goal, tools: goalParsed.fields.tools, maxTurns: goalParsed.fields.budget?.maxTurns, timeoutSec: goalParsed.fields.budget?.timeoutSec, provider: goalParsed.fields.provider, model: goalParsed.fields.model }
+      : goalParsed.values) : undefined,
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
@@ -78,13 +110,13 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   // Validate.
   if (!values.id || !NODE_ID_RE.test(values.id)) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: 'Node id must be lowercase letters, digits, hyphens, or underscores.',
+      agent, values, variablesStore: ctx.variablesStore, picker, error: 'Node id must be lowercase letters, digits, hyphens, or underscores.',
     }));
     return;
   }
   if (agent.nodes.some((n) => n.id === values.id)) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: `A node with id "${values.id}" already exists in this agent.`,
+      agent, values, variablesStore: ctx.variablesStore, picker, error: `A node with id "${values.id}" already exists in this agent.`,
     }));
     return;
   }
@@ -93,7 +125,7 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   const badDep = dependsOn.find((d) => !existingIds.has(d));
   if (badDep) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: `Unknown upstream node: "${badDep}".`,
+      agent, values, variablesStore: ctx.variablesStore, picker, error: `Unknown upstream node: "${badDep}".`,
     }));
     return;
   }
@@ -109,12 +141,17 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     }
   } else if (nodeType === 'shell' && (!values.command || values.command.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
+      agent, values, variablesStore: ctx.variablesStore, picker, error: 'Shell nodes need a command.',
     }));
     return;
   } else if (nodeType === 'llm-prompt' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: 'LLM-prompt nodes need a prompt.',
+      agent, values, variablesStore: ctx.variablesStore, picker, error: 'LLM-prompt nodes need a prompt.',
+    }));
+    return;
+  } else if (goalParsed && !goalParsed.ok) {
+    res.status(400).type('html').send(renderAgentAddNode({
+      agent, values, variablesStore: ctx.variablesStore, picker, error: goalParsed.error,
     }));
     return;
   }
@@ -141,6 +178,8 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
     };
   } else if (nodeType === 'shell') {
     newNode = { id: values.id!, type: 'shell' as const, command: values.command!, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
+  } else if (goalParsed?.ok) {
+    newNode = { id: values.id!, type: 'goal' as const, ...goalParsed.fields, ...(dependsOn.length > 0 ? { dependsOn } : {}) };
   } else {
     const llm = parseLlmOptions(body);
     newNode = {
@@ -166,24 +205,12 @@ agentNodesRouter.post('/agents/:name/add-node', (req: Request, res: Response) =>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentAddNode({
-      agent, values, variablesStore: ctx.variablesStore, error: `Save failed: ${msg}`,
+      agent, values, variablesStore: ctx.variablesStore, picker, error: `Save failed: ${msg}`,
     }));
   }
 });
 
 // ── Edit node ───────────────────────────────────────────────────────────
-
-/**
- * The node form only knows shell and llm-prompt, and rebuilds the node as one
- * of those on save — a goal node edited there would silently become a shell
- * node. Until the form learns goal nodes, send them to the YAML editor.
- */
-function redirectGoalToYaml(res: Response, agentId: string, node: { type: string }): boolean {
-  if (node.type !== 'goal') return false;
-  const flash = 'Goal nodes are edited in YAML for now — change goal, tools, or budget here.';
-  res.redirect(303, `/agents/${encodeURIComponent(agentId)}/yaml?flash=${encodeURIComponent(flash)}`);
-  return true;
-}
 
 agentNodesRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -199,8 +226,7 @@ agentNodesRouter.get('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Res
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}?flash=${encodeURIComponent(`Node "${nodeId}" not found.`)}`);
     return;
   }
-  if (redirectGoalToYaml(res, agent.id, node)) return;
-  res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore }));
+  res.type('html').send(renderAgentEditNode({ agent, node, toolStore: ctx.toolStore, variablesStore: ctx.variablesStore, picker: pickerContext(ctx, agent) }));
 });
 
 agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Response) => {
@@ -217,16 +243,20 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     res.status(404).redirect(303, `/agents/${encodeURIComponent(agent.id)}`);
     return;
   }
-  if (redirectGoalToYaml(res, agent.id, node)) return;
-
+  const picker = pickerContext(ctx, agent);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const rawDeps = body.dependsOn;
   const dependsOn: string[] = Array.isArray(rawDeps)
     ? rawDeps.filter((d): d is string => typeof d === 'string')
     : typeof rawDeps === 'string' ? [rawDeps] : [];
 
+  const editType = body.type === 'goal' ? 'goal' : (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell';
+  const goalParsed = editType === 'goal' ? parseGoalFields(body, goalChecks(ctx, agent, picker)) : undefined;
   const values: EditNodeFormValues = {
-    type: (body.type === 'llm-prompt' || body.type === 'claude-code') ? 'llm-prompt' : 'shell',
+    type: editType,
+    goal: goalParsed ? (goalParsed.ok
+      ? { goal: goalParsed.fields.goal, tools: goalParsed.fields.tools, maxTurns: goalParsed.fields.budget?.maxTurns, timeoutSec: goalParsed.fields.budget?.timeoutSec, provider: goalParsed.fields.provider, model: goalParsed.fields.model }
+      : goalParsed.values) : undefined,
     command: typeof body.command === 'string' ? body.command : undefined,
     prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
     dependsOn,
@@ -242,14 +272,14 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   const existingIds = new Set(agent.nodes.map((n) => n.id));
   if (dependsOn.includes(nodeId)) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: 'A node cannot depend on itself.',
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: 'A node cannot depend on itself.',
     }));
     return;
   }
   const badDep = dependsOn.find((d) => !existingIds.has(d));
   if (badDep) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: `Unknown upstream node: "${badDep}".`,
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: `Unknown upstream node: "${badDep}".`,
     }));
     return;
   }
@@ -257,19 +287,25 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   // but a hand-crafted POST could bypass it. Re-check.
   if (hasCycleAfterEdit(agent, nodeId, dependsOn)) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: 'Those dependencies would create a cycle in the DAG.',
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: 'Those dependencies would create a cycle in the DAG.',
     }));
     return;
   }
   if (values.type === 'shell' && (!values.command || values.command.trim() === '')) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: 'Shell nodes need a command.',
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: 'Shell nodes need a command.',
     }));
     return;
   }
   if (values.type === 'llm-prompt' && (!values.prompt || values.prompt.trim() === '')) {
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: 'LLM-prompt nodes need a prompt.',
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: 'LLM-prompt nodes need a prompt.',
+    }));
+    return;
+  }
+  if (goalParsed && !goalParsed.ok) {
+    res.status(400).type('html').send(renderAgentEditNode({
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: goalParsed.error,
     }));
     return;
   }
@@ -280,12 +316,23 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   // render them.
   const llm = parseLlmOptions(body);
 
-  const updatedNode = values.type === 'shell'
+  const cleared = { command: undefined, prompt: undefined, goal: undefined, budget: undefined, provider: undefined, model: undefined, maxTurns: undefined, allowedTools: undefined, tools: undefined };
+  const updatedNode = goalParsed?.ok
+    ? {
+        ...node,
+        ...cleared,
+        type: 'goal' as const,
+        ...goalParsed.fields,
+        ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
+      }
+    : values.type === 'shell'
     ? {
         ...node,
         type: 'shell' as const,
         command: values.command!,
         prompt: undefined,
+        goal: undefined,
+        budget: undefined,
         provider: undefined,
         model: undefined,
         maxTurns: undefined,
@@ -298,6 +345,8 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
         type: 'llm-prompt' as const,
         prompt: values.prompt!,
         command: undefined,
+        goal: undefined,
+        budget: undefined,
         provider: llm.provider,
         model: llm.model,
         maxTurns: llm.maxTurns,
@@ -319,7 +368,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).type('html').send(renderAgentEditNode({
-      agent, node, values, variablesStore: ctx.variablesStore, error: `Save failed: ${msg}`,
+      agent, node, values, variablesStore: ctx.variablesStore, picker, error: `Save failed: ${msg}`,
     }));
   }
 });

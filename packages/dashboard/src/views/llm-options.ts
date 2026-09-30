@@ -1,7 +1,8 @@
 import type { LlmProvider } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
+import { parseToolsField } from './tools-multipicker.js';
 
-const PROVIDER_OPTIONS: ReadonlyArray<{ id: LlmProvider; label: string }> = [
+export const PROVIDER_OPTIONS: ReadonlyArray<{ id: LlmProvider; label: string }> = [
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'Codex' },
   { id: 'apple-foundation-models', label: 'Apple Foundation Models' },
@@ -24,7 +25,7 @@ export interface LlmOptionsValues {
   tools?: string[] | string;
 }
 
-export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
+export function renderLlmOptions(values: LlmOptionsValues = {}, toolsPicker?: SafeHtml): SafeHtml {
   const selected: LlmProvider = PROVIDER_OPTIONS.some((o) => o.id === values.provider)
     ? (values.provider as LlmProvider)
     : 'claude';
@@ -74,9 +75,9 @@ export function renderLlmOptions(values: LlmOptionsValues = {}): SafeHtml {
 
     <div class="form-field">
       <strong>Tools the model may call <span class="dim text-xs">(optional)</span></strong>
-      <input type="text" name="tools" value="${tools}"
-        placeholder="web-scrape, csv.read.sales, notion.search" class="form-field__input">
-      <span class="form-field__hint">Comma-separated registry tool ids (builtins, integration tools, MCP tools) an OpenAI-compatible model may call mid-generation. Distinct from Allowed tools (Claude/Codex CLI tool names).</span>
+      ${toolsPicker ?? html`<input type="text" name="tools" value="${tools}"
+        placeholder="web-scrape, csv.read.sales, notion.search" class="form-field__input">`}
+      <span class="form-field__hint">sua tools (builtins, integrations, MCP) and other agents the model may call while it answers, on Claude or an OpenAI-compatible model. Distinct from Allowed tools (the CLI's own tool names).</span>
     </div>
   `;
 }
@@ -113,10 +114,9 @@ export function parseLlmOptions(body: Record<string, unknown>): ParsedLlmOptions
     if (tools.length > 0) result.allowedTools = tools;
   }
 
-  if (typeof body.tools === 'string' && body.tools.trim()) {
-    const tools = body.tools.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
-    if (tools.length > 0) result.tools = tools;
-  }
+  // A comma list (legacy text field) or the picker's checkboxes (string or array).
+  const tools = parseToolsField(body.tools);
+  if (tools.length > 0) result.tools = tools;
 
   return result;
 }

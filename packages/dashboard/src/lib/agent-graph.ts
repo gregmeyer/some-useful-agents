@@ -10,7 +10,8 @@ export interface AgentEdge {
    */
   to: string;
   nodeId: string;
-  via: 'agent-invoke' | 'loop';
+  /** How: an agent-invoke or loop node, or a goal / llm node's `agent:<id>` tool (the model decides when). */
+  via: 'agent-invoke' | 'loop' | 'tool';
   /**
    * The target is chosen at run time from an input or an upstream result, so
    * there is no fixed agent to link to. Real: `pre-resolve-adr-checker` picks
@@ -49,6 +50,12 @@ export function buildAgentGraph(agents: Agent[]): AgentGraph {
 
   for (const agent of agents) {
     for (const node of agent.nodes ?? []) {
+      // Agents a model may call as tools (agents-as-tools).
+      for (const tool of node.tools ?? []) {
+        if (!tool.startsWith('agent:')) continue;
+        const to = tool.slice(6);
+        edges.push({ from: agent.id, to, nodeId: node.id, via: 'tool', dynamic: false, resolved: known.has(to) });
+      }
       const target = node.type === 'agent-invoke'
         ? node.agentInvokeConfig?.agentId
         : node.type === 'loop'

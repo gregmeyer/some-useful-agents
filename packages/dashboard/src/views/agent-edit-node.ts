@@ -6,6 +6,8 @@ import { computePaletteSuggestions, renderPalettePayload } from './template-pale
 import { renderToolPicker, renderToolInputsSection, getAvailableTools } from './tool-picker.js';
 import { renderControlFlowSection, isControlFlowNode } from './controlflow-edit.js';
 import { renderLlmOptions } from './llm-options.js';
+import { renderGoalFields, type GoalFieldValues, type ToolsPickerContext } from './goal-node-fields.js';
+import { renderToolsMultipicker, parseToolsField } from './tools-multipicker.js';
 
 export interface EditNodeFormValues {
   type?: string;
@@ -17,6 +19,8 @@ export interface EditNodeFormValues {
   maxTurns?: number | string;
   allowedTools?: string[] | string;
   tools?: string[] | string;
+  /** Goal node fields, when re-rendering a submitted goal form. */
+  goal?: GoalFieldValues;
 }
 
 export function renderAgentEditNode(args: {
@@ -26,8 +30,10 @@ export function renderAgentEditNode(args: {
   error?: string;
   toolStore?: ToolStore;
   variablesStore?: VariablesStore;
+  /** Tools a goal / llm node may call, with the tool policy (see goal-node-fields.ts). */
+  picker?: ToolsPickerContext;
 }): string {
-  const { agent, node, values: submitted, error, toolStore, variablesStore } = args;
+  const { agent, node, values: submitted, error, toolStore, variablesStore, picker } = args;
   const allTools = getAvailableTools(toolStore);
 
   const v: EditNodeFormValues = {
@@ -119,8 +125,15 @@ export function renderAgentEditNode(args: {
             maxTurns: submitted?.maxTurns ?? node.maxTurns,
             allowedTools: submitted?.allowedTools ?? node.allowedTools,
             tools: submitted?.tools ?? node.tools,
-          })}
+          }, picker ? renderToolsMultipicker({ name: 'tools', tools: picker.tools, selected: parseToolsField(submitted?.tools ?? (node.type === 'goal' ? [] : node.tools)), policy: picker.policy, agent: picker.agent, idPrefix: 'llm' }) : undefined)}
         </div>
+        ${picker ? renderGoalFields({
+          values: submitted?.goal ?? (node.type === 'goal'
+            ? { goal: node.goal, tools: node.tools, maxTurns: node.budget?.maxTurns, timeoutSec: node.budget?.timeoutSec, provider: node.provider, model: node.model }
+            : {}),
+          picker,
+          paletteSource: 'palette-edit-node',
+        }) : html``}
       </fieldset>
 
       ${renderPalettePayload(

@@ -772,6 +772,9 @@
 
 /* ---------- Fieldset (grouped form section) ---------- */
 .fieldset {
+  /* Fieldsets default to their content's min width, so one long unwrapped
+     line (a tool description) would push the form past its card. */
+  min-inline-size: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-3);
