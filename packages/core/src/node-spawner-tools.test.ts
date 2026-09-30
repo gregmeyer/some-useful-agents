@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeDeniedTools, classifyLlmFailure, shouldFallback, spawnNodeReal } from './node-spawner.js';
+import { claudeDeniedTools, classifyLlmFailure, shouldFallback, spawnNodeReal, resetCodexMcpServerCache } from './node-spawner.js';
 import type { AgentNode } from './agent-v2-types.js';
 
 // Declared `tools:` on CLI providers (ADR-0036). Regression for starter-watch:
@@ -64,18 +64,73 @@ emit({ type: 'result', subtype: 'success', is_error: false, result: 'ARGS: ' + a
 `;
     writeFileSync(join(binDir, 'claude'), script);
     chmodSync(join(binDir, 'claude'), 0o755);
+
+    // Fake codex, also a real MCP client: `codex mcp list --json` lists the
+    // operator's servers; `codex exec` reads sua's server from its -c flag and
+    // the bearer from the env var that flag names, calls json-parse, and
+    // reports in codex's --json event shape. It echoes its argv (so tests can
+    // see the isolation flags) and whether the token was in argv.
+    const codex = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === 'mcp' && args[1] === 'list') { process.stdout.write(JSON.stringify([{ name: 'playwright' }, { name: 'notion' }])); process.exit(0); }
+process.stdin.resume(); process.stdin.on('data', () => {});
+const cfg = args.find((a) => a.startsWith('mcp_servers.sua='));
+let toolText = '(no tools)';
+if (cfg) {
+  const url = /url="([^"]+)"/.exec(cfg)[1];
+  const envVar = /bearer_token_env_var="([^"]+)"/.exec(cfg)[1];
+  const approve = /default_tools_approval_mode="approve"/.test(cfg);
+  const { Client, StreamableHTTPClientTransport } = await import(${JSON.stringify(MCP_CLIENT)});
+  const client = new Client({ name: 'fake-codex', version: '0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: 'Bearer ' + process.env[envVar] } } }));
+  const listed = (await client.listTools()).tools.map((t) => t.name);
+  const res = await client.callTool({ name: 'json-parse', arguments: { text: '[1,2]' } });
+  toolText = 'listed=' + listed.join(',') + ' got=' + res.content[0].text + ' approve=' + approve;
+  await client.close();
+}
+const emit = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+emit({ type: 'thread.started', thread_id: 't' });
+emit({ type: 'turn.started' });
+emit({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'sua', tool: 'json-parse', status: 'completed' } });
+emit({ type: 'item.completed', item: { type: 'agent_message', text: 'ARGS: ' + args.join(' ') + ' | tokenInArgv=' + args.some((a) => a.includes(process.env.SUA_TOOL_ENDPOINT_TOKEN || 'x-none')) + ' | ' + toolText } });
+emit({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 5 } });
+`;
+    writeFileSync(join(binDir, 'codex'), codex);
+    chmodSync(join(binDir, 'codex'), 0o755);
+    resetCodexMcpServerCache();
   });
 
   afterAll(() => rmSync(binDir, { recursive: true, force: true }));
 
   it('skips CLIs that cannot load sua tools instead of running tool-less, and says what would fix it', async () => {
-    const res = await spawnNodeReal(fetchNode, {}, opts(['codex', 'apple-foundation-models']));
+    const res = await spawnNodeReal(fetchNode, {}, opts(['apple-foundation-models']));
     expect(res.exitCode).not.toBe(0);
     expect(res.category).toBe('tool_unavailable');
-    expect(res.attemptedProviders).toEqual(['codex', 'apple-foundation-models']);
-    expect(res.providerFailures?.map((f) => f.category)).toEqual(['tool_unavailable', 'tool_unavailable']);
+    expect(res.attemptedProviders).toEqual(['apple-foundation-models']);
+    expect(res.providerFailures?.map((f) => f.category)).toEqual(['tool_unavailable']);
     expect(res.error).toContain("No enabled provider can use this node's tools (web-fetch)");
-    expect(res.error).toContain('Enable Claude or an OpenAI-compatible provider');
+    expect(res.error).toContain('Enable Claude, Codex or an OpenAI-compatible provider');
+  });
+
+  it('serves the node\'s sua tools to codex over MCP: only sua\'s server, pre-approved, token kept out of argv', async () => {
+    const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
+    const res = await spawnNodeReal(node, env(), opts(['codex']));
+    expect(res.exitCode).toBe(0);
+    expect(res.usedLLMProvider).toBe('codex');
+    expect(res.result).toContain('listed=json-parse');
+    expect(res.result).toMatch(/got=\[\s*1,\s*2\s*\]/);
+    expect(res.result).toContain('approve=true');
+    expect(res.result).toContain('mcp_servers.playwright.enabled=false');
+    expect(res.result).toContain('mcp_servers.notion.enabled=false');
+    expect(res.result).toContain('tokenInArgv=false');
+    // Recorded once, by sua's endpoint (codex's own mcp_tool_call event isn't counted again).
+    expect(res.toolCalls).toEqual([expect.objectContaining({ provider: 'codex', source: 'sua', toolId: 'json-parse', isError: false })]);
+  });
+
+  it('runs codex without the MCP flags for a node with no tools', async () => {
+    const res = await spawnNodeReal({ id: 'plain', type: 'llm-prompt', prompt: 'hi' }, env(), opts(['codex']));
+    expect(res.exitCode).toBe(0);
+    expect(res.result).not.toContain('mcp_servers');
   });
 
   it('does not skip a CLI for the memory tools alone (they are extras, not requirements)', async () => {
@@ -87,7 +142,7 @@ emit({ type: 'result', subtype: 'success', is_error: false, result: 'ARGS: ' + a
 
   it('serves the node\'s sua tools to claude over MCP: it lists and calls them for real', async () => {
     const node: AgentNode = { id: 'parse', type: 'llm-prompt', prompt: 'parse it', tools: ['json-parse'] };
-    const res = await spawnNodeReal(node, env(), opts(['codex', 'claude']));
+    const res = await spawnNodeReal(node, env(), opts(['claude']));
     expect(res.exitCode).toBe(0);
     expect(res.usedLLMProvider).toBe('claude');
     expect(res.result).toContain('listed=json-parse');

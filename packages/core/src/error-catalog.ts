@@ -185,7 +185,7 @@ const CATEGORY_HELP: Record<string, Omit<ErrorCatalogEntry, 'kind' | 'label'>> =
       'sua could not start its local tool endpoint for claude (see the node error).',
     ],
     troubleshooting: [
-      'Enable Claude or an OpenAI-compatible provider in Settings → LLM; both can call any sua tool.',
+      'Enable Claude, Codex or an OpenAI-compatible provider in Settings → LLM; they can all call any sua tool.',
       'Or remove the tool from the node if it does not actually need it.',
     ],
   },

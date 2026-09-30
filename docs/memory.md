@@ -32,7 +32,7 @@ nodes:
   | `memory-search` | `{ query, limit? }`: finds notes by similarity |
   | `memory-forget` | `{ id }`: deletes a note (use it when a note is wrong, then save the correction) |
 
-  They only ever act on the calling agent's memory; there is no agent id argument. Tool policy and the tool trace apply to them like any other tool. Providers that can't call sua tools (e.g. codex, Apple Foundation Models) still run the node; they get the recall block but can't save.
+  They only ever act on the calling agent's memory; there is no agent id argument. Tool policy and the tool trace apply to them like any other tool. A provider that can't call sua tools (Apple Foundation Models) still runs the node; it gets the recall block but can't save.
 
 The run records which notes it was given (`recalledMemories` on the run), so you can see what influenced it.
 

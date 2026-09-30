@@ -14,7 +14,7 @@ import type { BuiltinToolContext } from './tool-types.js';
 import type { AgentCallContext, AgentCallInfo } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
 import type { ChildProcess } from 'node:child_process';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import type { Agent, AgentNode, NodeErrorCategory, OutputContract } from './agent-v2-types.js';
 import type { ExecutionResult } from './agent-executor.js';
 import { substituteInputs } from './input-resolver.js';
@@ -273,6 +273,11 @@ export interface LlmSpawnOptions {
    * tool-mcp-endpoint.ts). Only for spawners with `supportsMcpTools`.
    */
   mcpConfigPath?: string;
+  /**
+   * sua's per-attempt tool endpoint, for CLIs configured by flags + env
+   * rather than a file (codex). The token goes in the environment.
+   */
+  mcpEndpoint?: { url: string; token: string };
   /** Spend cap for this attempt, USD (claude `--max-budget-usd`). */
   maxBudgetUsd?: number;
 }
@@ -301,8 +306,8 @@ export interface LlmSpawner {
    * the next provider without an actual spawn attempt).
    */
   resolveBinary?: () => { path: string } | { unsupported: true; reason: string };
-  /** Build the CLI argument list. */
-  buildArgs(opts: LlmSpawnOptions): string[];
+  /** Build the CLI argument list. `env` is the child's environment (e.g. its PATH). */
+  buildArgs(opts: LlmSpawnOptions, env?: Record<string, string>): string[];
   /**
    * Optional env-var contribution. The prompt-on-env-var providers
    * (apple-foundation-models) use this to surface PROMPT /
@@ -623,10 +628,41 @@ export const claudeTextSpawner: LlmSpawner = {
  * OpenAI Codex CLI spawner. Uses `codex exec -s read-only` for
  * non-interactive execution. No structured progress events.
  */
+/** Env var the codex child reads sua's tool-endpoint token from. */
+export const CODEX_TOOL_TOKEN_ENV = 'SUA_TOOL_ENDPOINT_TOKEN';
+
+let codexServersCache: { at: number; path: string; names: string[] } | undefined;
+/**
+ * MCP servers the operator configured for codex (`codex mcp list --json`,
+ * ~60ms; cached for a minute). Each is switched off for a sua attempt so only
+ * sua's endpoint loads. A listing that fails yields none — the attempt still
+ * works, just without that isolation.
+ */
+export function codexConfiguredMcpServers(env?: Record<string, string>, now = Date.now()): string[] {
+  // The same codex the attempt will run: the child's PATH decides.
+  const path = env?.PATH ?? process.env.PATH ?? '';
+  if (codexServersCache && codexServersCache.path === path && now - codexServersCache.at < 60_000) return codexServersCache.names;
+  let names: string[] = [];
+  try {
+    const out = execFileSync('codex', ['mcp', 'list', '--json'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, PATH: path } });
+    const listed = JSON.parse(out) as Array<{ name?: unknown }>;
+    names = listed.map((s) => s.name).filter((n): n is string => typeof n === 'string' && /^[A-Za-z0-9_-]+$/.test(n));
+  } catch { names = []; }
+  codexServersCache = { at: now, path, names };
+  return names;
+}
+
+/** Test seam: forget the cached codex server list. */
+export function resetCodexMcpServerCache(): void { codexServersCache = undefined; }
+
 export const codexSpawner: LlmSpawner = {
   binary: 'codex',
 
-  buildArgs(opts: LlmSpawnOptions): string[] {
+  buildEnv(opts: LlmSpawnOptions): Record<string, string> {
+    return opts.mcpEndpoint ? { [CODEX_TOOL_TOKEN_ENV]: opts.mcpEndpoint.token } : {};
+  },
+
+  buildArgs(opts: LlmSpawnOptions, env?: Record<string, string>): string[] {
     // Prompt rides on stdin (see claudeSpawner note). `codex exec` reads
     // its prompt from stdin when no positional argument is given.
     void opts.prompt;
@@ -636,6 +672,18 @@ export const codexSpawner: LlmSpawner = {
     // forwarded as triage:started → triage:token → triage:complete.
     const args = ['exec', '--json', '-s', 'read-only'];
     if (opts.model) args.push('-m', opts.model);
+    // sua's tools (ADR-0044): codex takes MCP servers as config, so the
+    // per-attempt endpoint goes in with -c. Only sua's server is on for this
+    // run (the operator's own codex MCP servers are switched off, like
+    // claude's --strict-mcp-config), its tools are pre-approved (`exec` has
+    // nobody to approve them), and the bearer token comes from the env so it
+    // never appears in `ps`.
+    if (opts.mcpEndpoint) {
+      for (const name of codexConfiguredMcpServers(env)) {
+        if (name !== TOOL_ENDPOINT_SERVER_NAME) args.push('-c', `mcp_servers.${name}.enabled=false`);
+      }
+      args.push('-c', `mcp_servers.${TOOL_ENDPOINT_SERVER_NAME}={url=${JSON.stringify(opts.mcpEndpoint.url)},bearer_token_env_var="${CODEX_TOOL_TOKEN_ENV}",default_tools_approval_mode="approve"}`);
+    }
     return args;
   },
 
@@ -718,6 +766,8 @@ export const codexSpawner: LlmSpawner = {
   },
 
   extractError: codexFailureMessage,
+  // sua's tools reach codex over MCP (see buildArgs).
+  supportsMcpTools: true,
   extractUsage: (stdout, opts) => {
     const usage = codexUsage(stdout);
     return usage ? { ...usage, model: opts.model ?? codexDefaultModel() } : undefined;
@@ -1090,7 +1140,7 @@ export async function spawnNodeReal(
     && providerFailures.every((f) => f.category === 'tool_unavailable');
   const toolsError = allToolSkips
     ? `No enabled provider can use this node's tools (${(node.tools ?? []).join(', ')}). ` +
-      'Enable Claude or an OpenAI-compatible provider (Settings → LLM); both can call any sua tool.'
+      'Enable Claude, Codex or an OpenAI-compatible provider (Settings → LLM); they can all call any sua tool.'
     : undefined;
 
   // All attempts failed (or the chain ended on a non-fallback
@@ -1205,7 +1255,7 @@ async function runLlmAttempt(
         [TOOL_ENDPOINT_SERVER_NAME]: { type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${endpoint.token}` } },
       },
     }), { mode: 0o600 });
-    return await runLlmAttemptInner(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, customProviders, toolCtx, configPath);
+    return await runLlmAttemptInner(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, customProviders, toolCtx, configPath, { url: endpoint.url, token: endpoint.token });
   } catch (err) {
     return {
       result: '',
@@ -1255,6 +1305,7 @@ async function runLlmAttemptInner(
   },
   /** Set by `runLlmAttempt` when sua's tool endpoint is up for this attempt. */
   mcpConfigPath?: string,
+  mcpEndpoint?: { url: string; token: string },
 ): Promise<SpawnResult> {
   // Custom OpenAI-compatible provider ⇒ HTTP transport, not a CLI spawn. This
   // is the ONLY divergence from the CLI path; the returned SpawnResult flows
@@ -1327,9 +1378,10 @@ async function runLlmAttemptInner(
     maxTurns: node.maxTurns,
     allowedTools,
     mcpConfigPath,
+    mcpEndpoint,
     maxBudgetUsd: toolCtx?.attemptBudgetUsd,
   };
-  const args = spawner.buildArgs(spawnOpts);
+  const args = spawner.buildArgs(spawnOpts, childEnv);
 
   // Lazy-resolve binary path. Providers like apple-foundation-models
   // compile a runner on first use; the resolver returns either a

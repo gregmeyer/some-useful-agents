@@ -77,7 +77,7 @@ export function renderLlmOptions(values: LlmOptionsValues = {}, toolsPicker?: Sa
       <strong>Tools the model may call <span class="dim text-xs">(optional)</span></strong>
       ${toolsPicker ?? html`<input type="text" name="tools" value="${tools}"
         placeholder="web-scrape, csv.read.sales, notion.search" class="form-field__input">`}
-      <span class="form-field__hint">sua tools (builtins, integrations, MCP) and other agents the model may call while it answers, on Claude or an OpenAI-compatible model. Distinct from Allowed tools (the CLI's own tool names).</span>
+      <span class="form-field__hint">sua tools (builtins, integrations, MCP) and other agents the model may call while it answers, on Claude, Codex or an OpenAI-compatible model. Distinct from Allowed tools (the CLI's own tool names).</span>
     </div>
   `;
 }
