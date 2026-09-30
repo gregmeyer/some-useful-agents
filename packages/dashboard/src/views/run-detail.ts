@@ -1,4 +1,4 @@
-import type { Agent, HumanQuestion, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
+import type { Agent, AgentNode, HumanQuestion, NodeExecutionRecord, OutcomeHistory, OutcomeRecord, Run, ToolCallRecord } from '@some-useful-agents/core';
 import { formatUsd, unallowedWidgetImageHosts } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -8,6 +8,7 @@ import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
+import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
 export interface RunDetailOptions {
   run: Run;
@@ -31,7 +32,8 @@ export interface RunDetailOptions {
   /** Recorded tool calls by node id (the `tool_calls` table). Older runs have none. */
   toolCalls?: Map<string, ToolCallRecord[]>;
   /** Runs this run started (agent-invoke / loop nodes, agents called as tools). */
-  childRuns?: Run[];
+  /** Runs this run started, as a tree flattened depth-first (`depth` 0 = a direct child). */
+  childRuns?: Array<Run & { depth?: number }>;
   /**
    * Evidence-backed record of what RESULTED from this run, when the agent
    * declared an `outcome:` block. Rendered above the raw result: "did this
@@ -158,7 +160,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   const nodeCards = isDagRun ? html`
     <section>
       <h2>Per-node execution</h2>
-      ${renderNodeCards(nodeExecutions!, undefined, undefined, toolCalls)}
+      ${renderNodeCards(nodeExecutions!, undefined, undefined, toolCalls, agent)}
     </section>
   ` : html``;
 
@@ -296,7 +298,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
               <option value="skipped">Skipped</option>
             </select>
           </div>
-          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls)}</div>
+          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls, agent)}</div>
           ${renderChildRuns(childRuns)}
         </section>
       ` : html`
@@ -496,19 +498,30 @@ function subRunLink(c: ToolCallRecord): SafeHtml {
   return m ? html`<a href="/runs/${m[1]}">Open the sub-run →</a>` : html``;
 }
 
-/** Runs this run started: agents called as tools, agent-invoke and loop sub-runs. */
-export function renderChildRuns(children: Run[] | undefined): SafeHtml {
+/**
+ * Runs this run started (agents called as tools, agent-invoke and loop
+ * sub-runs), and the runs those started, indented as a tree so a goal that
+ * delegated twice reads as a chain.
+ */
+export function renderChildRuns(children: Array<Run & { depth?: number }> | undefined): SafeHtml {
   if (!children || children.length === 0) return html``;
-  const rows = children.map((c) => html`
-    <li class="run-tool-call">
+  const rows = children.map((c) => {
+    const depth = c.depth ?? 0;
+    return html`
+    <li class="run-tool-call run-subrun" style="padding-left: calc(${String(depth)} * var(--space-6));" data-depth="${String(depth)}">
+      ${depth > 0 ? html`<span class="dim run-subrun__branch" aria-hidden="true">└</span>` : html``}
       ${statusBadge(c.status)}
       <a class="mono" href="/runs/${c.id}">${c.id.slice(0, 8)}</a>
       <span>${c.agentName}</span>
-      ${c.parentNodeId ? html`<span class="dim">from step ${c.parentNodeId}</span>` : html``}
+      ${c.parentNodeId ? html`<span class="dim">from node ${c.parentNodeId}</span>` : html``}
+      ${c.usage ? html`<span class="dim mono">${formatUsd(c.usage.costUsd, c.usage.costComplete)}</span>` : html``}
       <span class="dim mono">${renderDuration(c.startedAt, c.completedAt)}</span>
-    </li>`);
+    </li>`;
+  });
+  const direct = children.filter((c) => (c.depth ?? 0) === 0).length;
+  const nested = children.length - direct;
   return html`
-    <h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">sub-runs (${String(children.length)})</h4>
+    <h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">sub-runs (${String(direct)}${nested > 0 ? `, ${nested} more nested` : ''})</h4>
     <ul class="run-tool-calls">${rows as unknown as SafeHtml[]}</ul>`;
 }
 
@@ -598,6 +611,7 @@ function renderNodeCards(
   runId?: string,
   canReplay?: boolean,
   toolCalls?: Map<string, ToolCallRecord[]>,
+  agent?: Agent,
 ): SafeHtml {
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'completed' || e.status === 'failed' || e.error !== undefined;
@@ -627,7 +641,13 @@ function renderNodeCards(
     }
 
     // Parse progress events for turn indicator.
-    const progressIndicator = renderProgressIndicator(e);
+    // Goal / llm nodes: what they've used of their budget (turns, tool
+    // calls, time). Other nodes keep the latest-progress label.
+    const nodeDef = agent?.nodes.find((n) => n.id === e.nodeId);
+    const budget = summarizeNodeBudget(e, nodeDef, { recordedToolCalls: e.status === 'running' ? undefined : toolCalls?.get(e.nodeId)?.length });
+    const progressIndicator = budget && e.status !== 'skipped' && e.status !== 'pending'
+      ? html`<span class="dim run-node__budget" title="Turns, tool calls and time used of this node's budget">${formatNodeBudget(budget, e.status === 'running')}</span>`
+      : renderProgressIndicator(e);
 
     // Provider chip on every llm node: which provider answered, plus the
     // failed hops when the waterfall fell through. Absent only on non-llm
@@ -672,6 +692,7 @@ function renderNodeCards(
     if (varsPanel) bodyBlocks.push(varsPanel);
 
     if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
+    if (e.errorCategory === 'budget_exhausted') bodyBlocks.push(renderExhaustedHint(e, nodeDef, agent, budget));
     const toolActivity = renderToolActivity(e, toolCalls?.get(e.nodeId));
     if (toolActivity) bodyBlocks.push(toolActivity);
     if (e.result && e.result.length > 0) {
@@ -730,4 +751,25 @@ function renderWaitingBanner(runId: string, q: HumanQuestion | undefined): SafeH
         </form>
       </span>
     </div>`;
+}
+
+/**
+ * A node that ran out of budget: which limit it hit, and where to change it.
+ * Turns and time are on the node (the goal form edits them); a spend limit is
+ * the agent's or the default in Settings → Usage.
+ */
+function renderExhaustedHint(e: NodeExecutionRecord, node: AgentNode | undefined, agent: Agent | undefined, budget: NodeBudgetView | undefined): SafeHtml {
+  const limit = exhaustedLimit(e.error);
+  const editHref = agent && node ? `/agents/${encodeURIComponent(agent.id)}/nodes/${encodeURIComponent(node.id)}/edit` : undefined;
+  const what = limit === 'turns' ? (budget?.maxTurns ? `It used all ${budget.maxTurns} turns.` : 'It used all its turns.')
+    : limit === 'time' ? `It ran out of time${budget?.timeoutMs ? ` (${Math.round(budget.timeoutMs / 1000)} seconds)` : ''}.`
+    : limit === 'no-answer' ? 'The model stopped without giving a final answer.'
+    : limit === 'spend' ? 'The run reached its spend limit.'
+    : 'It ran out of budget.';
+  const action = limit === 'spend'
+    ? html`<a href="/settings/usage#limits">Change spend limits</a>${agent ? html` or set <code>spendLimit</code> on <a href="/agents/${encodeURIComponent(agent.id)}/yaml">${agent.id}</a>` : html``}`
+    : editHref
+      ? html`<a href="${editHref}">${limit === 'no-answer' ? 'Edit the goal' : 'Raise the budget'}</a>${limit === 'no-answer' ? html`: a narrower goal, or one that says what the answer should look like, usually helps.` : html`, or narrow the goal.`}`
+      : html``;
+  return html`<div class="run-node__exhausted"><strong>${what}</strong> ${action}</div>`;
 }

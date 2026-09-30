@@ -68,6 +68,8 @@ node's result:
 
 ## Seeing what it did
 
+On the run page, a goal node's header shows what it has used of its budget: while it runs, *turn 6 of 15 · 4 tool calls · 2:10 of 10:00*; once done, *6 of 15 turns · 4 tool calls · 2:10*. (Turns are counted from the provider's own signals; Codex doesn't report turns, so for it you see tool calls and time.) If it runs out, the node says which limit it hit, turns, time, no final answer, or the spend limit, and links to where you change it: **Raise the budget** opens the goal form. Agents it called as tools are listed under **sub-runs**, indented as a tree when those agents called others.
+
 Every tool call the goal node makes is on the run page under **tool calls**, with its
 arguments, result and timing, whichever provider did the work. Tool policies
 ([tool-policies.md](tool-policies.md)) apply to every call.

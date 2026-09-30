@@ -492,3 +492,17 @@ describe('timeoutError', () => {
     expect(msg).not.toContain('h elapsed');
   });
 });
+
+describe('progress events that count turns and tool calls', () => {
+  it('claude events carry the assistant message id as the turn', () => {
+    const e = claudeSpawner.parseProgress(JSON.stringify({ type: 'assistant', message: { id: 'msg_1', content: [{ type: 'tool_use', name: 'mcp__sua__web-fetch', input: { url: 'x' } }] } }));
+    expect(e).toMatchObject({ type: 'tool_use', toolStatus: 'call', turnId: 'msg_1' });
+  });
+
+  it('codex MCP tool calls show as calls and results', () => {
+    expect(codexSpawner.parseProgress(JSON.stringify({ type: 'item.started', item: { type: 'mcp_tool_call', server: 'sua', tool: 'http-get', arguments: { url: 'u' } } })))
+      .toMatchObject({ type: 'tool_use', toolStatus: 'call', toolName: 'http-get' });
+    expect(codexSpawner.parseProgress(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'sua', tool: 'http-get', status: 'failed', error: { message: 'x' } } })))
+      .toMatchObject({ type: 'tool_use', toolStatus: 'result', isError: true });
+  });
+});

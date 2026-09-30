@@ -117,7 +117,7 @@ describe('run detail — agents as tools', () => {
       toolCalls: new Map([['triage', [{ seq: 0, source: 'sua' as const, toolId: 'agent:weather', argsJson: '{"CITY":"Paris"}', resultPreview: `Agent "weather" run ${childId}: completed.\n\nSunny`, resultChars: 60, isError: false }]]]),
     });
     expect(html).toContain('sub-runs (1)');
-    expect(html).toContain('from step triage');
+    expect(html).toContain('from node triage');
     expect(html.match(new RegExp(`href="/runs/${childId}"`, 'g'))?.length).toBe(2);
     expect(html).toContain('Open the sub-run →');
   });
@@ -127,5 +127,38 @@ describe('run detail — agents as tools', () => {
     expect(html).toContain('<dt>Called by</dt>');
     expect(html).toContain('href="/runs/aaaaaaaa-0000-0000-0000-000000000000"');
     expect(html).toContain('(node ask)');
+  });
+});
+
+describe('run detail — budgets and nested sub-runs', () => {
+  it('shows a goal node\'s turns, tool calls and time, and says how to raise an exhausted budget', () => {
+    const agent = { id: 'scout', name: 'Scout', status: 'active', source: 'local', mcp: false, version: 1,
+      nodes: [{ id: 'research', type: 'goal', goal: 'x', tools: ['web-fetch'], budget: { maxTurns: 6 } }] } as unknown as Agent;
+    const exec = {
+      runId: 'r', nodeId: 'research', workflowVersion: 1, status: 'failed', errorCategory: 'budget_exhausted',
+      startedAt: '2026-09-30T10:00:00.000Z', completedAt: '2026-09-30T10:01:30.000Z',
+      error: 'Stopped without finishing: it used all 6 turns (budget: 6 turns, 600s).',
+      progressJson: JSON.stringify([{ type: 'turn_start', turn: 6, maxTurns: 6 }]),
+    } as NodeExecutionRecord;
+    const html = renderRunDetail({ run: { ...baseRun, workflowId: 'scout' } as Run, nodeExecutions: [exec], agent });
+    expect(html).toContain('6 of 6 turns · 1:30');
+    expect(html).toContain('It used all 6 turns.');
+    expect(html).toContain('href="/agents/scout/nodes/research/edit">Raise the budget</a>');
+  });
+
+  it('indents nested sub-runs and counts them separately', () => {
+    const now = new Date().toISOString();
+    const html = renderRunDetail({
+      run: { ...baseRun, workflowId: 'boss' } as Run,
+      nodeExecutions: [],
+      agent: { id: 'boss', name: 'b', status: 'active', source: 'local', mcp: false, version: 1, nodes: [] } as unknown as Agent,
+      childRuns: [
+        { id: 'c1c1c1c1-0000-0000-0000-000000000000', agentName: 'worker', status: 'completed', startedAt: now, triggeredBy: 'cli', parentNodeId: 'g', depth: 0 },
+        { id: 'c2c2c2c2-0000-0000-0000-000000000000', agentName: 'sub-worker', status: 'completed', startedAt: now, triggeredBy: 'cli', parentNodeId: 'h', depth: 1 },
+      ] as Array<Run & { depth: number }>,
+    });
+    expect(html).toContain('sub-runs (1, 1 more nested)');
+    expect(html).toMatch(/data-depth="1"[^>]*>|style="padding-left: calc\(1 \* var\(--space-6\)\);" data-depth="1"/);
+    expect(html).toContain('sub-worker');
   });
 });

@@ -1,6 +1,6 @@
 import { questionStore } from '../lib/ask-human.js';
 import { Router, type Request, type Response } from 'express';
-import type { RunStatus } from '@some-useful-agents/core';
+import type { Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderRunsList } from '../views/runs-list.js';
 import { renderRunDetail } from '../views/run-detail.js';
@@ -140,7 +140,7 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   let toolCalls;
   try { toolCalls = ctx.runStore.listToolCalls(run.id); } catch { toolCalls = undefined; }
   let childRuns;
-  try { childRuns = ctx.runStore.listChildRuns(run.id); } catch { childRuns = undefined; }
+  try { childRuns = collectSubRunTree(ctx.runStore, run.id); } catch { childRuns = undefined; }
   const question = run.status === 'waiting' ? questionStore(ctx).pendingForRun(run.id) : undefined;
   res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question }));
 });
@@ -149,4 +149,29 @@ function parseIntOr(v: unknown, fallback: number): number {
   if (typeof v !== 'string') return fallback;
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/**
+ * The runs a run started and the runs those started, depth-first, each with
+ * its depth (0 = direct child). Agent calls nest at most 3 deep; the cap
+ * guards against a bad parent link looping.
+ */
+export function collectSubRunTree(
+  runStore: { listChildRuns(id: string): Run[] },
+  rootId: string,
+  maxDepth = 4,
+): Array<Run & { depth: number }> {
+  const out: Array<Run & { depth: number }> = [];
+  const seen = new Set<string>([rootId]);
+  const walk = (id: string, depth: number) => {
+    if (depth >= maxDepth) return;
+    for (const child of runStore.listChildRuns(id)) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      out.push({ ...child, depth });
+      walk(child.id, depth + 1);
+    }
+  };
+  walk(rootId, 0);
+  return out;
 }

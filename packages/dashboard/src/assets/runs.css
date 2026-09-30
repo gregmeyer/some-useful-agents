@@ -391,3 +391,13 @@
   background: var(--color-surface-raised);
   border-radius: 6px;
 }
+
+/* Goal / llm node budget (lib/node-budget.ts) and out-of-budget hint. */
+.run-node__budget { font-size: var(--font-size-xs); margin-left: var(--space-2); font-family: var(--font-mono); }
+.run-node__exhausted {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-warn);
+  background: var(--color-warn-soft);
+  font-size: var(--font-size-sm);
+}
