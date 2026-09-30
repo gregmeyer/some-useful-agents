@@ -42,3 +42,20 @@ export function openStoreDb(dbPath: string, opts: OpenStoreDbOptions = {}): Data
   }
   return db;
 }
+
+/**
+ * Run an `ALTER TABLE … ADD COLUMN`, treating "the column already exists" as
+ * done. Stores check the table's columns first, but several processes (the
+ * dashboard, scheduler, MCP server and worker all start together under
+ * `sua daemon`) can open the same database at once; between one process's
+ * check and its ALTER another may add the column, and the loser used to crash
+ * with "duplicate column name". Any other error still throws.
+ */
+export function addColumnIfMissing(db: DatabaseSync, ddl: string): void {
+  try {
+    db.exec(ddl);
+  } catch (err) {
+    if (err instanceof Error && /duplicate column name/i.test(err.message)) return;
+    throw err;
+  }
+}

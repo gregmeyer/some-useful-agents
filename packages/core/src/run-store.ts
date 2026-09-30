@@ -1,7 +1,7 @@
 import type { LlmUsage, NodeUsage, UsageTotal } from './usage.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { ToolCallRecord } from './tool-call-record.js';
-import { openStoreDb } from './sqlite-open.js';
+import { openStoreDb, addColumnIfMissing } from './sqlite-open.js';
 
 type SqlValue = string | number | null | bigint | Uint8Array;
 import { mkdirSync, existsSync } from 'node:fs';
@@ -124,18 +124,18 @@ export class RunStore {
     // every boot once the migration has run.
     const runCols = columnNames(this.db, 'runs');
     if (!runCols.has('workflow_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN workflow_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN workflow_id TEXT`);
     }
     if (!runCols.has('workflow_version')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN workflow_version INTEGER`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN workflow_version INTEGER`);
     }
     if (!runCols.has('replayed_from_run_id')) {
       // For v0.13's `sua workflow replay`: link a replay run back to the
       // original so the UI can show a "replayed from X" breadcrumb.
-      this.db.exec(`ALTER TABLE runs ADD COLUMN replayed_from_run_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN replayed_from_run_id TEXT`);
     }
     if (!runCols.has('replayed_from_node_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN replayed_from_node_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN replayed_from_node_id TEXT`);
     }
 
     this.db.exec(`
@@ -178,10 +178,10 @@ export class RunStore {
 
     // Flow control: nested runs link back to parent via parent_run_id + parent_node_id.
     if (!runCols.has('parent_run_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN parent_run_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN parent_run_id TEXT`);
     }
     if (!runCols.has('parent_node_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN parent_node_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN parent_node_id TEXT`);
     }
 
     // Retry chain: a one-click retry creates a new run that links back to
@@ -189,10 +189,10 @@ export class RunStore {
     // (1 = first attempt). Flat chain — every retry points at the original,
     // not at the immediate previous attempt — so counting siblings is cheap.
     if (!runCols.has('retry_of_run_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN retry_of_run_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN retry_of_run_id TEXT`);
     }
     if (!runCols.has('attempt')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1`);
     }
 
     // Workflow (execution backend) provider: which provider executed this run
@@ -200,7 +200,7 @@ export class RunStore {
     // provider axis (node_executions.usedProvider column ↔ usedLLMProvider
     // field). Nullable; NULL ↔ legacy/local. See ~/.claude/plans/temporal-wiring.md (B1a).
     if (!runCols.has('usedworkflowprovider')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN usedWorkflowProvider TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN usedWorkflowProvider TEXT`);
     }
     // Temporal workflow execution runId for durable per-run executions
     // (`sua-run-<id>`). Drives the precise "View in Temporal" deep link.
@@ -212,25 +212,25 @@ export class RunStore {
     // lowercases every name it reads, so a camelCase column would never match
     // its own probe and this ALTER would re-run and throw on every boot.
     if (!runCols.has('recalled_memories_json')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN recalled_memories_json TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN recalled_memories_json TEXT`);
     }
     // What a resumed run needs to see the same start: its inputs and, for a
     // chat turn, the conversation block (a run waiting on an ask node resumes
     // hours later, in whatever process answers it).
     if (!runCols.has('resume_context_json')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN resume_context_json TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN resume_context_json TEXT`);
     }
     // Tokens and cost (USD at list price), rolled up from the run's nodes and
     // its child runs when the run ends (rollupRunUsage). NULL ↔ no LLM usage
     // recorded (shell-only runs, or runs from before usage capture).
     for (const [col, type] of [['cost_usd', 'REAL'], ['cost_complete', 'INTEGER'], ['input_tokens', 'INTEGER'], ['output_tokens', 'INTEGER'], ['cache_read_tokens', 'INTEGER'], ['cache_write_tokens', 'INTEGER']] as const) {
-      if (!runCols.has(col)) this.db.exec(`ALTER TABLE runs ADD COLUMN ${col} ${type}`);
+      if (!runCols.has(col)) addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN ${col} ${type}`);
     }
     if (!runCols.has('behaviors_json')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN behaviors_json TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN behaviors_json TEXT`);
     }
     if (!runCols.has('temporal_run_id')) {
-      this.db.exec(`ALTER TABLE runs ADD COLUMN temporal_run_id TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE runs ADD COLUMN temporal_run_id TEXT`);
     }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_runs_retry_of
@@ -240,22 +240,22 @@ export class RunStore {
     // v0.16: structured tool outputs stored alongside the flat result.
     const execCols = columnNames(this.db, 'node_executions');
     if (!execCols.has('outputsjson')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN outputsJson TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN outputsJson TEXT`);
     }
 
     // v0.17: real-time progress events captured during multi-turn LLM execution.
     if (!execCols.has('progressjson')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN progressJson TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN progressJson TEXT`);
     }
 
     // PR D.1: state-dir audit trail. Bytes-on-disk before/after each node,
     // captured only when the agent actually has a state dir. Nullable —
     // existing rows + tests/CLI runs that omit dataRoot leave them NULL.
     if (!execCols.has('statebytesbefore')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN stateBytesBefore INTEGER`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN stateBytesBefore INTEGER`);
     }
     if (!execCols.has('statebytesafter')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN stateBytesAfter INTEGER`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN stateBytesAfter INTEGER`);
     }
 
     // PR C (orphan-kill): persist the spawned child process's PID + wall-clock
@@ -264,10 +264,10 @@ export class RunStore {
     // long-uptime machines. NULL on rows from non-spawning code paths (MCP
     // tool calls, built-in tools, replay-copied prior outputs) by design.
     if (!execCols.has('childpid')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN childPid INTEGER`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN childPid INTEGER`);
     }
     if (!execCols.has('childstartedatms')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN childStartedAtMs INTEGER`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN childStartedAtMs INTEGER`);
     }
 
     // LLM provider waterfall: which provider ultimately produced the
@@ -276,16 +276,16 @@ export class RunStore {
     // the trail rarely exceeds 3 entries. The `usedProvider` COLUMN backs the
     // `usedLLMProvider` field (column name kept for back-compat).
     if (!execCols.has('usedprovider')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedProvider TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN usedProvider TEXT`);
     }
     if (!execCols.has('attemptedproviders')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN attemptedProviders TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN attemptedProviders TEXT`);
     }
     // Per-attempt failure reasons (JSON `[{provider,category,error?}]`) for the
     // providers the waterfall tried and abandoned. Surfaces WHY each skipped
     // provider was skipped. Nullable; NULL ↔ no provider failed.
     if (!execCols.has('provider_failures_json')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN provider_failures_json TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN provider_failures_json TEXT`);
     }
 
     // Workflow (execution backend) provider per node: 'local' | 'temporal'.
@@ -293,13 +293,13 @@ export class RunStore {
     // the LLM provider (claude/codex/apple). This one records where the node's
     // work actually ran. Nullable; NULL ↔ legacy/local.
     if (!execCols.has('usedworkflowprovider')) {
-      this.db.exec(`ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN usedWorkflowProvider TEXT`);
     }
 
     // A node's LLM usage (usage.ts): totals as columns for aggregation, and
     // the per-attempt breakdown (provider, model, cost source) as JSON.
     for (const [col, type] of [['cost_usd', 'REAL'], ['cost_complete', 'INTEGER'], ['input_tokens', 'INTEGER'], ['output_tokens', 'INTEGER'], ['cache_read_tokens', 'INTEGER'], ['cache_write_tokens', 'INTEGER'], ['usage_json', 'TEXT']] as const) {
-      if (!execCols.has(col)) this.db.exec(`ALTER TABLE node_executions ADD COLUMN ${col} ${type}`);
+      if (!execCols.has(col)) addColumnIfMissing(this.db, `ALTER TABLE node_executions ADD COLUMN ${col} ${type}`);
     }
 
     // Every tool call a model made during a node (see tool-call-record.ts).

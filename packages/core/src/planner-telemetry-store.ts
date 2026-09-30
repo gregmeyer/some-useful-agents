@@ -17,6 +17,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
+import { addColumnIfMissing } from './sqlite-open.js';
 import { dirname } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { chmod600Safe } from './fs-utils.js';
@@ -161,10 +162,10 @@ export class PlannerTelemetryStore {
     const existing = this.db.prepare("PRAGMA table_info(planner_telemetry)").all() as Array<{ name: string }>;
     const cols = new Set(existing.map((c) => c.name));
     if (!cols.has('smoke_run_status')) {
-      this.db.exec(`ALTER TABLE planner_telemetry ADD COLUMN smoke_run_status TEXT`);
+      addColumnIfMissing(this.db, `ALTER TABLE planner_telemetry ADD COLUMN smoke_run_status TEXT`);
     }
     if (!cols.has('smoke_run_errors')) {
-      this.db.exec(`ALTER TABLE planner_telemetry ADD COLUMN smoke_run_errors INTEGER NOT NULL DEFAULT 0`);
+      addColumnIfMissing(this.db, `ALTER TABLE planner_telemetry ADD COLUMN smoke_run_errors INTEGER NOT NULL DEFAULT 0`);
     }
   }
 
