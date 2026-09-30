@@ -119,7 +119,7 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
       { name: 'goal', type: 'string', required: true, description: 'What to achieve, in plain language. References inputs via {{inputs.X}} and upstreams via {{upstream.<id>.result}}.' },
       { name: 'tools', type: 'string[]', required: true, description: 'Tool ids the model may call while working (e.g. web-fetch, web-scrape, http-get, integration and MCP tool ids). At least one.' },
       { name: 'budget', type: '{ maxTurns?: number; timeoutSec?: number }', description: 'Limits the loop works within. Defaults: 15 turns, 600 seconds. Running out without an answer fails the node as budget_exhausted.' },
-      { name: 'provider', type: 'string', description: 'Pin a provider. Needs one that can call tools (claude, or an OpenAI-compatible provider); others are skipped.' },
+      { name: 'provider', type: 'string', description: 'Pin a provider. Needs one that can call tools (claude, codex, or an OpenAI-compatible provider); Apple Foundation Models is skipped.' },
       { name: 'model', type: 'string', description: 'Override the default model for this node only.' },
       { name: 'dependsOn', type: 'string[]', description: 'Upstream node ids this node waits on.' },
       { name: 'onlyIf', type: 'OnlyIfCondition', description: 'Per-edge predicate.' },

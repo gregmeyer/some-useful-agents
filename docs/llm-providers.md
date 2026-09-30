@@ -217,7 +217,7 @@ tool-call trace are identical whichever provider answers:
 |---|---|---|
 | OpenAI-compatible | every sua tool (builtin, generated, MCP) | sua's HTTP tool loop |
 | `claude` | every sua tool (builtin, generated, MCP) | a per-attempt MCP endpoint (below) |
-| `codex` | none — skipped | runs `exec -s read-only` |
+| `codex` | every sua tool (builtin, generated, MCP) | the same per-attempt MCP endpoint, passed as `-c` config (below) |
 | Apple Foundation Models | none — skipped | no tool support |
 
 For claude, sua starts a short-lived MCP server for the attempt: bound to `127.0.0.1` on
@@ -226,6 +226,8 @@ serving exactly the node's `tools:`. claude gets it via `--mcp-config` (a mode-0
 file, so the token never appears in `ps`) with `--strict-mcp-config`, so your own claude
 MCP servers don't leak into agent runs, and `--allowedTools mcp__sua`. The endpoint and
 file are removed when the attempt ends. See [ADR-0036](adr/0036-serve-sua-tools-to-claude-over-mcp.md).
+
+codex gets the same endpoint as config flags on `codex exec`: `-c mcp_servers.sua={url=…, bearer_token_env_var="SUA_TOOL_ENDPOINT_TOKEN", default_tools_approval_mode="approve"}`, with the token in that environment variable (never in argv). The tools are pre-approved because `exec` has nobody to approve them, and every MCP server in your own codex config is switched off for the run (`-c mcp_servers.<name>.enabled=false`, from `codex mcp list --json`), so only sua's tools load. Your other codex settings (model, reasoning effort) still apply. See [ADR-0044](adr/0044-serve-sua-tools-to-codex-over-mcp.md).
 
 A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
 never "succeeds" without the tools it declared.

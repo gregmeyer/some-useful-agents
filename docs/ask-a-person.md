@@ -53,7 +53,7 @@ List `ask-human` in a node's `tools:` and the model can ask when it needs a deci
 The model calls `ask-human` with `question` and optional `choices` (`"Yes | No"`). The question goes to the inbox exactly like an `ask` node's, the step stops at once (no fallback to another provider), and the run waits. When you answer, the step **starts again** with your earlier questions and answers in front of the model ("You already asked… Q: … A: …"), so it carries on rather than asking twice. What the stopped attempt spent still counts.
 
 - Up to 3 questions per step per run; after that the tool tells the model to carry on with what it has.
-- Providers that can't call sua tools (codex, Apple Foundation Models) run the step without it.
+- Apple Foundation Models, which can't call sua tools, runs the step without it.
 - The model's earlier turns aren't kept across the pause, only the questions and answers: for work the model shouldn't redo, put an `ask` node between two steps instead.
 
 ## Notes

@@ -71,7 +71,7 @@ export function renderGoalFields(args: { values: GoalFieldValues; picker: ToolsP
           <option value="" ${!v.provider ? 'selected' : ''}>Agent default</option>
           ${PROVIDER_OPTIONS.map((o) => html`<option value="${o.id}" ${v.provider === o.id ? 'selected' : ''}>${o.label}</option>`) as unknown as SafeHtml[]}
         </select>
-        <span class="form-field__hint">Needs one that can call tools (Claude, or an OpenAI-compatible model); others are skipped.</span>
+        <span class="form-field__hint">Needs one that can call tools (Claude, Codex, or an OpenAI-compatible model); Apple Foundation Models is skipped.</span>
       </div>
 
       <div class="form-field">
