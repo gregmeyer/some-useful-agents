@@ -5,6 +5,7 @@
  * Build: POST /agents/build, GET /agents/build/:runId, POST /agents/build/create.
  */
 
+import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import {
   executeAgentDag,
@@ -30,6 +31,7 @@ import { parse as parseRawYaml, stringify as stringifyRawYaml } from 'yaml';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
+import { describeDraftShape } from '../lib/draft-shape.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { collectLatestRunNodeDigest } from './inbox-catalog.js';
 import {
@@ -887,7 +889,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
       return;
     }
     if (session.phase === 'done' && session.plan) {
-      res.json({ ok: true, status: 'done', plan: session.plan });
+      res.json({ ok: true, status: 'done', plan: withDraftShapes(session.plan) });
       return;
     }
     if (session.phase === 'nothing_to_build') {
@@ -1011,7 +1013,7 @@ buildRouter.get('/agents/build/:runId', async (req: Request, res: Response) => {
     res.json({
       ok: true,
       status: 'done',
-      plan: outcome.plan,
+      plan: withDraftShapes(outcome.plan),
       ...(outcome.criticErrors ? { criticErrors: outcome.criticErrors } : {}),
       ...(outcome.smoke && !outcome.smoke.ok ? { smokeErrors: outcome.smoke.perAgent } : {}),
       ...(outcome.criticWarning ? { criticWarning: outcome.criticWarning } : {}),
@@ -1101,6 +1103,8 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
 
   const agentsCreated: string[] = [];
   const agentsSkipped: Array<{ id: string; reason: string }> = [];
+  /** Agent id → the first run started for it just after it's created. */
+  const autoRuns: Record<string, string> = {};
 
   for (const ref of plan.newAgents) {
     if (ctx.agentStore.getAgent(ref.id)) {
@@ -1136,9 +1140,11 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
       try {
         const stored = ctx.agentStore.getAgent(ref.id);
         if (stored) {
+          const autoRunId = randomUUID();
+          autoRuns[ref.id] = autoRunId;
           executeAgentDag(
             stored,
-            { triggeredBy: 'dashboard', inputs: {} },
+            { triggeredBy: 'dashboard', inputs: {}, runId: autoRunId },
             {
               runStore: ctx.runStore,
               secretsStore: ctx.secretsStore,
@@ -1310,6 +1316,7 @@ buildRouter.post('/agents/build/commit', (req: Request, res: Response) => {
   res.json({
     ok: true,
     agentsCreated,
+    autoRuns,
     agentsSkipped,
     dashboardCreated,
     dashboardUpdated,
@@ -1359,3 +1366,12 @@ buildRouter.post('/agents/build/create', (req: Request, res: Response) => {
     res.json({ ok: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
+
+/**
+ * The plan as the review shows it: each new agent with its shape (diagram,
+ * label, tools, which shape it can switch to). `shape` is display-only; the
+ * commit re-reads id / purpose / yaml and drops it.
+ */
+function withDraftShapes<P extends { newAgents: Array<{ yaml: string }> }>(plan: P): P {
+  return { ...plan, newAgents: plan.newAgents.map((a) => ({ ...a, shape: describeDraftShape(a.yaml) })) };
+}

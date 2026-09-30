@@ -47,6 +47,8 @@ export const buildPlanSchema = z.object({
     id: z.string().regex(AGENT_ID_RE, 'newAgents.id must be lowercase_with_dashes'),
     purpose: z.string().min(1),
     yaml: z.string().min(1, 'newAgents.yaml is required'),
+    /** Why this shape (goal node vs fixed flow); from the drafter, optional. */
+    shape_reason: z.string().max(400).optional(),
   })).default([]),
 
   dashboard: z.union([

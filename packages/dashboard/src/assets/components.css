@@ -1629,3 +1629,27 @@
   border-left: 2px solid var(--color-border);
   color: var(--color-text-muted);
 }
+
+/* Build from goal → review: one card per drafted agent (build-from-goal.js.ts). */
+.build-draft { margin-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); padding-bottom: var(--space-2); }
+.build-draft__summary { cursor: pointer; padding: var(--space-1) 0; font-size: var(--font-size-sm); }
+.build-draft__shape { display: flex; gap: var(--space-3); align-items: center; margin: var(--space-2) 0; }
+.build-draft__diagram { flex: none; }
+.build-draft__label { font-size: var(--font-size-sm); font-weight: var(--weight-medium); }
+.build-draft__label--err { color: var(--color-err); }
+.build-draft__meta { font-size: var(--font-size-xs); margin-top: var(--space-1); overflow-wrap: anywhere; }
+.build-draft__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0; }
+.build-draft__hint { font-size: var(--font-size-xs); }
+.build-draft__result { font-size: var(--font-size-xs); }
+.build-draft__output {
+  max-height: 14rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: var(--space-2) 0 0;
+  padding: var(--space-2); background: var(--color-surface-raised); border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+}
+.build-draft__inputs { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.build-draft__input { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-xs); width: 100%; }
+.build-draft__yaml > summary { cursor: pointer; font-size: var(--font-size-xs); margin: var(--space-1) 0; }
+.build-draft__textarea {
+  width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: var(--font-size-xs); resize: vertical; line-height: 1.5; tab-size: 2;
+}

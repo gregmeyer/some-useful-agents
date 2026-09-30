@@ -136,6 +136,10 @@ describe('POST /agents/build/commit', () => {
     expect(res.body.dashboardCreated).toBeNull();
     expect(res.body.redirectUrl).toBe('/agents/notes-list-daily');
     expect(agentStore.getAgent('notes-list-daily')).not.toBeNull();
+    // The first run started for it is returned so "Done" can link to it.
+    const firstRun = res.body.autoRuns['notes-list-daily'];
+    expect(firstRun).toMatch(/^[0-9a-f-]{36}$/);
+    expect(runStore.getRun(firstRun)?.agentName).toBe('notes-list-daily');
   });
 
   it('dashboard-mixed intent: creates new agent + dashboard wiring it with an existing one', async () => {

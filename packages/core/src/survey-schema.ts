@@ -96,6 +96,12 @@ export const draftSchema = z.object({
   id: z.string().regex(AGENT_ID_RE, 'id must be lowercase_with_dashes_or_underscores'),
   purpose: z.string().min(1, 'purpose is required'),
   yaml: z.string().min(1, 'yaml is required'),
+  /**
+   * One line on why the agent has the shape it has (a goal node that works
+   * it out, or a fixed flow). Shown on the build review. Optional: older
+   * drafter output and hand-built plans have none.
+   */
+  shape_reason: z.string().max(400).optional(),
 });
 
 export type Draft = z.output<typeof draftSchema>;

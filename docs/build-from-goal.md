@@ -67,11 +67,31 @@ phase. Session phases:
 Mixed outcomes (some drafts succeeded, some exhausted their retries) surface as a
 **partial-success** screen: you can commit the good agents and skip the rest.
 
+### Reviewing a draft
+
+Each drafted agent on the review shows its **shape** before its YAML:
+
+- a small diagram of its steps (none for a single node);
+- a plain label: *One goal node: works it out itself, step by step*, *3-step flow: the same steps every run*, or *…flow with a goal step*;
+- the tools and agents it uses;
+- **Why:** one sentence from the drafter on why it chose that shape (`shape_reason` in the draft; open-ended asks get a goal node, same-source-every-run jobs get a flow). See [goal-agents.md](goal-agents.md).
+
+**Make it a goal agent** / **Make it a fixed flow** re-drafts just that agent in the other shape (`POST /agents/draft-one` with `Shape: goal agent` or `Shape: fixed flow` in the focus). A flow that already contains a goal step has no switch.
+
+**Try it** runs the draft as it stands, including your YAML edits, **without saving it** (`POST /agents/build/try`, polled at `GET /agents/build/try/:runId`):
+
+- If the draft has required inputs with no defaults, it asks for them first.
+- The run is a normal run row with `triggeredBy: trial`, under the draft's id, so **Open the run** shows the full trace, and the runs list's "triggered by" filter finds trials. If you keep the agent, its trials are part of its history.
+- A trial never raises an inbox item or sends notifications; a failure is shown in the review.
+- Limits: a flow stops after 2 minutes; an agent with a goal node gets its goal budget's time plus 30 seconds. Spend limits apply as usual.
+- A draft whose id already belongs to an installed agent can't be tried (rename it in the YAML).
+
 ### Committing
 
 Reviewed plans are written via `POST /agents/build/commit`. Each new agent is
 committed sequentially as its own `agent_versions` row. Unresolved critic
-warnings can be overridden with **Commit anyway**.
+warnings can be overridden with **Commit anyway**. Each new agent is run once
+straight away; the **Done** summary links to that first run.
 
 ## The critic
 
