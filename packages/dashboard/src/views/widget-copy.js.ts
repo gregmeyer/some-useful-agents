@@ -29,6 +29,20 @@ export const WIDGET_COPY_JS = `
         btn.setAttribute('title', prevTitle);
       }, 1500);
     }
+    // innerText doesn't reach into shadow roots, where A2UI widgets render;
+    // walk them so a copied A2UI widget isn't empty.
+    function deepText(el) {
+      if (!el.querySelector || !el.querySelector('a2ui-surface')) return el.innerText || el.textContent || '';
+      var out = [];
+      (function walk(n) {
+        if (n.nodeType === 3) { var t = n.nodeValue.replace(/\\s+/g, ' ').trim(); if (t) out.push(t); return; }
+        if (n.nodeType !== 1 && n.nodeType !== 11) return;
+        if (n.tagName === 'SCRIPT' || n.tagName === 'STYLE') return;
+        if (n.shadowRoot) walk(n.shadowRoot);
+        for (var c = n.firstChild; c; c = c.nextSibling) walk(c);
+      })(el);
+      return out.join('\\n');
+    }
     function copyText(text) {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         return navigator.clipboard.writeText(text);
@@ -52,7 +66,7 @@ export const WIDGET_COPY_JS = `
       if (!btn) return;
       e.preventDefault();
       var body = findBody(btn);
-      var text = body ? (body.innerText || body.textContent || '').trim() : '';
+      var text = body ? deepText(body).trim() : '';
       if (!text) { flash(btn, false, 'Empty'); return; }
       copyText(text)
         .then(function () { flash(btn, true, 'Copied!'); })

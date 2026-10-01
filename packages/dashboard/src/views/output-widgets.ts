@@ -564,7 +564,7 @@ function renderControlsRow(
  * (two overlapping rounded squares). The empty label span is where the JS
  * shows a transient "Copied!".
  */
-function renderCopyControl(control: Extract<WidgetControl, { type: 'copy' }>): SafeHtml {
+export function renderCopyControl(control: Extract<WidgetControl, { type: 'copy' }>): SafeHtml {
   const label = control.label?.trim() ?? '';
   return html`
     <button type="button" class="wc-group wc-group--copy wc-iconbtn" data-widget-copy

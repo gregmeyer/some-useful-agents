@@ -11,6 +11,7 @@ import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
 import { SEEN_COOKIE } from './session.js';
 import { buildLoopbackAllowlist, loadPolicyDocument } from '@some-useful-agents/core';
+import { setDashboardPrefs } from './lib/dashboard-prefs.js';
 import { MemorySecretsSession } from './secrets-session.js';
 import { drainInFlight } from './test-drain.js';
 
@@ -4267,15 +4268,21 @@ describe('Widget controls (PR H)', () => {
     expect(def.text).toMatch(/data-field="uv"\s+data-hidden="1"/);
   });
 
-  it('runs URL params through to run-detail too', async () => {
+  it('runs URL params through to run-detail too (previous renderer)', async () => {
     const app = await makeApp();
     seedControlsAgent();
+    // URL-param controls belong to the previous renderer; A2UI does them in the browser.
+    setDashboardPrefs({ a2uiWidgets: false });
     const res = await request(app).get('/runs/r-w?wv=imperial')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('wc-row');
     expect(res.text).toMatch(/<a[^>]*class="[^"]*wc-chip--active[^"]*"[^>]*data-view-id="imperial"/);
+    setDashboardPrefs({ a2uiWidgets: true });
+    const a2ui = await request(app).get('/runs/r-w').set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(a2ui.text).toContain('data-a2ui-surface'); // A2UI by default: the views are Tabs
+    expect(a2ui.text).toContain('"component":"Tabs"');
   });
 });
 
