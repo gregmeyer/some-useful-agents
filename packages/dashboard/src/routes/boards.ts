@@ -6,6 +6,8 @@ import {
   BoardsStore,
   PULSE_BOARD_ID,
   boardItemsFromSections,
+  boardItemsFromLayoutPlan,
+  layoutPlanSchema,
   type Agent,
   type AgentSignal,
   type Board,
@@ -172,6 +174,28 @@ boardsRouter.post('/boards/pulse/import', (req: Request, res: Response) => {
   } catch (err) { sendSaveError(res, err); }
 });
 
+/**
+ * Turn an Improve-layout plan into board items for the editor to preview
+ * (nothing is saved here). Body: { plan }. Tiles the plan names that aren't
+ * on this board's agents are dropped, so a stale plan can't add ghosts.
+ */
+boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const r = resolveBoard(ctx, String(req.params.id));
+  if (!r) { res.status(404).json({ error: 'No such board.' }); return; }
+  const parsed = layoutPlanSchema.safeParse((req.body ?? {}).plan);
+  if (!parsed.success) { res.status(400).json({ error: `That plan isn't valid: ${parsed.error.issues[0]?.message ?? 'unknown problem'}.` }); return; }
+  const installed = new Set(ctx.agentStore.listAgents().map((a) => a.id));
+  // System tiles exist only on Pulse; agent tiles must be installed agents.
+  const known = (id: string) => (id.startsWith('_') ? r.unplaced !== undefined && r.tiles.has(id) : installed.has(id));
+  const containers = parsed.data.containers
+    .map((c) => ({ label: c.label, tiles: c.tiles.filter(known) }))
+    .filter((c) => c.tiles.length > 0);
+  if (containers.length === 0) { res.status(400).json({ error: 'The suggested layout has no tiles this board can show.' }); return; }
+  const items = boardItemsFromLayoutPlan({ ...parsed.data, containers }, (id) => preferredSize(r.tiles.get(id)));
+  res.json({ items, summary: parsed.data.summary });
+});
+
 boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
@@ -197,10 +221,12 @@ boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
     columns: BOARD_COLUMNS,
     sizes: Object.fromEntries([...r.tiles].map(([tid, t]) => [tid, preferredSize(t) ?? '1x1'])),
     agents: isPulse ? [] : placeableAgents(ctx).filter((a) => !placedAgents.has(a.id)),
+    plannerUrl: isPulse ? '/pulse/layout-plan' : `/dashboards/${encodeURIComponent(id)}/layout-plan`,
   };
   const toolbar = html`
     <div class="board-toolbar" data-board-toolbar>
       <button type="button" class="btn btn--ghost btn--sm" data-board-edit>✎ Edit</button>
+      <button type="button" class="btn btn--ghost btn--sm" data-board-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-board-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-board-status role="status" aria-live="polite"></span>
     </div>`;

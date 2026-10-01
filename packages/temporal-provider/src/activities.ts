@@ -16,6 +16,7 @@ import {
   LlmSettingsStore,
   createAgentCallContext,
   MemoryStore,
+  BoardsStore,
   HumanQuestionStore,
   resolvePolicyDocument,
 } from '@some-useful-agents/core';
@@ -315,6 +316,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
 
   // The worker's own handle on the shared db for the memory tools; closed below.
   const memoryStore = input.memoryRunId && input.dbPath ? new MemoryStore(input.dbPath) : undefined;
+  const boardsStore = input.dbPath ? new BoardsStore(input.dbPath) : undefined;
   // ask-human on the worker: questions go to the shared db, and asking ends
   // this attempt (the executor sees the pending question and waits).
   const questionStore = input.askRunId && input.dbPath ? new HumanQuestionStore(input.dbPath) : undefined;
@@ -360,6 +362,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
               secretValues: input.declaredSecrets.map((k) => env[k]).filter(Boolean),
             }
           : undefined,
+        boards: boardsStore,
       },
       onProgress,
       askAbort.signal,
@@ -369,6 +372,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
   } finally {
     if (keepalive) clearInterval(keepalive);
     memoryStore?.close();
+    boardsStore?.close();
     questionStore?.close();
   }
 }

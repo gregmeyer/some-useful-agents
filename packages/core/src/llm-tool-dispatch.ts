@@ -236,6 +236,7 @@ export interface ToolExecutorOptions {
   agentCalls?: AgentCallContext;
   /** Agent memory for memory-save / memory-search / memory-forget. */
   memory?: BuiltinToolContext['memory'];
+  boards?: BuiltinToolContext['boards'];
   /** The ask-human tool's context. */
   askHuman?: BuiltinToolContext['askHuman'];
 }
@@ -300,6 +301,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
       timeout: opts.timeoutSec,
       secretsStore: opts.secretsStore,
       memory: opts.memory,
+      boards: opts.boards,
       askHuman: opts.askHuman,
     };
     try {

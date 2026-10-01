@@ -12,6 +12,7 @@ import type {
   BuiltinToolContext,
 } from './tool-types.js';
 import { webFetch } from './web-fetch/index.js';
+import { applyBoardChanges, BoardConflictError, type BoardItem } from './boards.js';
 import { webScrape } from './web-fetch/scrape.js';
 
 /**
@@ -281,6 +282,88 @@ const MEMORY_TOOLS: BuiltinToolEntry[] = [
       const id = String(inputs.id ?? '').replace(/^\[|\]$/g, '');
       const ok = ctx.memory.store.forget(ctx.memory.agentId, id);
       return { forgotten: ok, result: ok ? `Forgot memory ${id}.` : `No memory ${id} for this agent.`, isError: !ok };
+    },
+  ),
+];
+
+const boardsOff = (): ToolOutput => ({ result: 'Boards are not available in this run.', isError: true });
+
+/** Parse an array input that a model may send as JSON text. */
+function arrayInput(v: unknown): unknown {
+  const parse = (x: unknown) => { if (typeof x === 'string') { try { return JSON.parse(x); } catch { return x; } } return x; };
+  const out = parse(v);
+  // Some models send each change as its own JSON string.
+  return Array.isArray(out) ? out.map(parse) : out;
+}
+
+function boardSummary(b: { id: string; name: string; version: number; items: BoardItem[] }): string {
+  const lines = b.items.map((i) => {
+    const what = i.kind === 'agent' ? `agent ${i.agentId}` : i.kind === 'system' ? `system ${i.tileId}` : `${i.kind} "${i.text.length > 40 ? `${i.text.slice(0, 40)}…` : i.text}"`;
+    return `[${i.id}] ${what} at x=${i.x} y=${i.y}, ${i.w}x${i.h}`;
+  });
+  return `Board "${b.name}" (${b.id}), version ${b.version}, 12 columns, ${b.items.length} item${b.items.length === 1 ? '' : 's'}${lines.length ? `:\n${lines.join('\n')}` : ' (empty).'}`;
+}
+
+/** board-read / board-place — let an agent arrange Pulse or a named dashboard. See boards.ts. */
+const BOARD_TOOLS: BuiltinToolEntry[] = [
+  def(
+    'board-read',
+    'Read a board',
+    'See how a board (Pulse or a named dashboard) is laid out: its items with their ids, positions and sizes on a 12-column grid. Leave board empty to list the boards you can arrange.',
+    { board: { type: 'string', description: 'Board id: "pulse" or a dashboard id like "user:morning-briefing". Empty lists the boards.' } },
+    {
+      board: { type: 'object', description: 'The board: {id, name, version, items}.' },
+      boards: { type: 'array', description: 'When listing: [{id, name, saved}].' },
+    },
+    async (inputs, ctx) => {
+      if (!ctx.boards) return boardsOff();
+      const id = String(inputs.board ?? '').trim();
+      if (!id) {
+        const boards = ctx.boards.listAll();
+        return { boards, result: boards.map((b) => `${b.id} — ${b.name}`).join('\n') };
+      }
+      const b = ctx.boards.loadOrDerive(id);
+      if (!b) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
+      return { board: { id: b.id, name: b.name, version: b.version, items: b.items }, result: boardSummary(b) };
+    },
+  ),
+  def(
+    'board-place',
+    'Arrange a board',
+    'Add, move, resize or remove tiles on a board (Pulse or a named dashboard). The grid is 12 columns wide; rows are 40px; tiles never overlap and float up into gaps. Changes are saved as a new version the person can undo. Read the board first to get item ids.',
+    {
+      board: { type: 'string', required: true, description: 'Board id: "pulse" or a dashboard id.' },
+      changes: {
+        type: 'array',
+        required: true,
+        description: 'Changes in order. Each is one of: {"op":"add","kind":"agent","agentId":"…","size":"1x1|2x1|1x2|2x2"} (optionally x,y,w,h; without x/y it goes in the first free spot), {"op":"add","kind":"heading","text":"…"}, {"op":"add","kind":"note","text":"…"}, {"op":"move","id":"…","x":0,"y":0}, {"op":"resize","id":"…","w":6,"h":5}, {"op":"remove","id":"…"}. id is an item id from board-read (an agent id also works for agent tiles).',
+      },
+      version: { type: 'number', description: 'The version you read. If the board changed since, nothing is saved and you get the current version back.' },
+    },
+    { board: { type: 'object', description: 'The saved board: {id, name, version, items}.' } },
+    async (inputs, ctx) => {
+      if (!ctx.boards) return boardsOff();
+      const id = String(inputs.board ?? '').trim();
+      const current = ctx.boards.loadOrDerive(id);
+      if (!current) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
+      let items: BoardItem[];
+      try {
+        items = applyBoardChanges(current.items, arrayInput(inputs.changes));
+      } catch (err) {
+        const issues = (err as { issues?: Array<{ path: Array<string | number>; message: string }> }).issues;
+        const why = issues?.length ? issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : (err as Error).message;
+        return { result: `Nothing was changed: ${why}`, isError: true };
+      }
+      const missing = ctx.boards.missingAgents(items.flatMap((i) => (i.kind === 'agent' && !current.items.some((c) => c.kind === 'agent' && c.agentId === i.agentId) ? [i.agentId] : [])));
+      if (missing.length) return { result: `Nothing was changed: no installed agent ${missing.map((m) => `"${m}"`).join(', ')}.`, isError: true };
+      const version = typeof inputs.version === 'number' ? inputs.version : Number.isFinite(Number(inputs.version)) && inputs.version !== undefined && inputs.version !== '' ? Number(inputs.version) : current.version;
+      try {
+        const saved = ctx.boards.save({ id, name: current.name, packId: current.packId, items, expectedVersion: version });
+        return { board: { id: saved.id, name: saved.name, version: saved.version, items: saved.items }, result: `Saved. ${boardSummary(saved)}` };
+      } catch (err) {
+        if (err instanceof BoardConflictError) return { result: `Nothing was changed: the board is now at version ${err.current}. Read it again and redo your changes.`, isError: true };
+        return { result: `Nothing was changed: ${(err as Error).message}`, isError: true };
+      }
     },
   ),
 ];
@@ -909,6 +992,7 @@ function parseCsvLine(line: string): string[] {
 
 const REGISTRY = new Map<string, BuiltinToolEntry>();
 BUILTINS.push(...MEMORY_TOOLS);
+BUILTINS.push(...BOARD_TOOLS);
 
 /**
  * ask-human — the model asks the person something mid-step. The question

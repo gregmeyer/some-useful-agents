@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BoardConflictError, BoardsStore, boardItemsFromSections, normalizeBoardItems, type BoardItem } from './boards.js';
+import { BoardConflictError, BoardsStore, applyBoardChanges, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
+import { getBuiltinTool } from './builtin-tools.js';
+import { DatabaseSync } from 'node:sqlite';
 
 const agent = (id: string, x: number, y: number, w = 3, h = 5): BoardItem => ({ id, kind: 'agent', agentId: id, x, y, w, h });
 
@@ -59,5 +61,85 @@ describe('BoardsStore', () => {
     expect(s.undo('pulse').items).toHaveLength(2); // undo again = redo
     expect(s.list().map((b) => b.id)).toEqual(['pulse']);
     s.close();
+  });
+});
+
+describe('applyBoardChanges', () => {
+  it('adds into the first free spot, moves, resizes and removes by item id or agent id', () => {
+    let items = normalizeBoardItems([agent('a', 0, 0, 6, 5)]);
+    expect(freeSpot(items, 3, 5)).toEqual({ x: 6, y: 0 });
+    items = applyBoardChanges(items, [
+      { op: 'add', kind: 'agent', agentId: 'b' },
+      { op: 'add', kind: 'agent', agentId: 'c', size: '2x1' },
+      { op: 'add', kind: 'heading', text: 'More' },
+      { op: 'move', id: 'c', x: 6, y: 0 },
+      { op: 'resize', id: 'a', w: 3, h: 5 },
+    ]);
+    const at = (agentId: string) => items.find((i) => i.kind === 'agent' && i.agentId === agentId)!;
+    expect(at('a')).toMatchObject({ x: 0, y: 0, w: 3 });
+    expect(at('b')).toMatchObject({ x: 6, y: 0 });
+    expect(at('c')).toMatchObject({ x: 6, w: 6 });
+    expect(items.find((i) => i.kind === 'heading')).toMatchObject({ x: 0, w: 12 });
+    items = applyBoardChanges(items, [{ op: 'remove', id: 'b' }]);
+    expect(items.some((i) => i.kind === 'agent' && i.agentId === 'b')).toBe(false);
+    expect(() => applyBoardChanges(items, [{ op: 'remove', id: 'nope' }])).toThrow(/no item "nope"/);
+    expect(() => applyBoardChanges(items, [{ op: 'explode', id: 'a' }])).toThrow();
+    expect(() => applyBoardChanges(items, [])).toThrow();
+  });
+});
+
+describe('boardItemsFromLayoutPlan', () => {
+  it('turns containers into headings + tiles sized by the plan, and system tiles into system items', () => {
+    const items = boardItemsFromLayoutPlan({
+      containers: [{ label: 'Morning', tiles: ['news', '_system-runs-today'] }],
+      topAgents: [{ id: 'news', suggestedSize: '2x2' }],
+    });
+    expect(items.map((i) => `${i.kind}:${i.w}x${i.h}`)).toEqual(['heading:12x1', 'agent:6x10', 'system:3x5']);
+    expect(items[2]).toMatchObject({ kind: 'system', tileId: '_system-runs-today' });
+  });
+});
+
+describe('board-read / board-place tools', () => {
+  function setup() {
+    const db = new DatabaseSync(join(mkdtempSync(join(tmpdir(), 'sua-board-tools-')), 'runs.db'));
+    db.exec("CREATE TABLE agents (id TEXT PRIMARY KEY); INSERT INTO agents VALUES ('news'), ('weather');");
+    db.exec("CREATE TABLE dashboards (id TEXT PRIMARY KEY, pack_id TEXT, name TEXT, layout_json TEXT, created_at INTEGER, updated_at INTEGER);");
+    db.prepare('INSERT INTO dashboards VALUES (?, NULL, ?, ?, 0, 0)').run('user:am', 'AM', JSON.stringify({ sections: [{ title: 'Top', agentIds: ['news'] }] }));
+    return new BoardsStore(db);
+  }
+  const read = getBuiltinTool('board-read')!;
+  const place = getBuiltinTool('board-place')!;
+
+  it('lists boards, reads a derived dashboard board, places tiles, and refuses stale or bad changes', async () => {
+    const boards = setup();
+    const list = await read.execute({}, { boards });
+    expect(list.result).toContain('pulse — Pulse');
+    expect(list.result).toContain('user:am — AM');
+    const am = await read.execute({ board: 'user:am' }, { boards });
+    expect(am.result).toMatch(/version 0, 12 columns, 2 items/);
+    expect(am.result).toContain('agent news at x=0 y=1');
+
+    const placed = await place.execute({ board: 'pulse', changes: JSON.stringify([{ op: 'add', kind: 'agent', agentId: 'weather', size: '2x1' }, { op: 'add', kind: 'note', text: 'Hi' }]), version: 0 }, { boards });
+    expect(placed.isError).toBeFalsy();
+    expect(placed.result).toMatch(/^Saved\. Board "Pulse" \(pulse\), version 1/);
+    expect(boards.get('pulse')!.items.map((i) => i.kind)).toEqual(['agent', 'note']);
+
+    const stale = await place.execute({ board: 'pulse', changes: [{ op: 'remove', id: 'weather' }], version: 0 }, { boards });
+    expect(stale).toMatchObject({ isError: true });
+    expect(stale.result).toMatch(/now at version 1/);
+    const ghost = await place.execute({ board: 'pulse', changes: [{ op: 'add', kind: 'agent', agentId: 'ghost' }] }, { boards });
+    expect(ghost.result).toMatch(/no installed agent "ghost"/);
+    const bad = await place.execute({ board: 'pulse', changes: [{ op: 'add', kind: 'iframe' }] }, { boards });
+    expect(bad).toMatchObject({ isError: true });
+    expect(boards.get('pulse')!.version).toBe(1);
+    expect((await place.execute({ board: 'nope', changes: [] }, { boards })).result).toMatch(/no board "nope"/);
+    expect((await read.execute({ board: 'pulse' }, {})).result).toMatch(/not available/);
+  });
+
+  it('accepts changes sent as JSON strings one by one, and a heading with a size', async () => {
+    const boards = setup();
+    const out = await place.execute({ board: 'pulse', changes: [JSON.stringify({ op: 'add', kind: 'heading', text: 'Top', x: 0, y: 0, w: 12, h: 1 }), JSON.stringify({ op: 'add', kind: 'agent', agentId: 'news' })] }, { boards });
+    expect(out.isError).toBeFalsy();
+    expect(boards.get('pulse')!.items.map((i) => `${i.kind}:${i.w}x${i.h}`)).toEqual(['heading:12x1', 'agent:3x5']);
   });
 });

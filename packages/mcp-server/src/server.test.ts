@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -423,6 +423,58 @@ nodes:
       expect(text).toMatch(/per-value cap/);
     } finally {
       await client.close();
+    }
+  });
+});
+
+/** Boards over MCP: board-read / board-place, gated by the tool policy. */
+describe('MCP board tools', () => {
+  let dataDir: string;
+  let serverHandle: { port: number; shutdown: () => Promise<void> } | undefined;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'sua-mcp-boards-'));
+    writeFileSync(join(dataDir, 'mcp-token'), 't'.repeat(64));
+    chmodSync(join(dataDir, 'mcp-token'), 0o600);
+  });
+  afterEach(async () => {
+    if (serverHandle) { await serverHandle.shutdown(); serverHandle = undefined; }
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function client(): Promise<Client> {
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${serverHandle!.port}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${'t'.repeat(64)}` } },
+    });
+    const c = new Client({ name: 'test', version: '0' });
+    await c.connect(transport);
+    return c;
+  }
+  const text = (res: unknown) => ((res as { content: Array<{ text: string }> }).content[0]?.text ?? '');
+
+  it('places a tile on Pulse and reads it back; a policy deny rule blocks placing', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent(parseAgent(`id: news\nname: news\nnodes:\n  - id: n\n    type: shell\n    command: echo hi\n`), 'cli');
+    agents.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const listed = await c.listTools();
+      expect(listed.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['board-read', 'board-place']));
+      const placed = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', changes: [{ op: 'add', kind: 'agent', agentId: 'news', size: '2x1' }], version: 0 } });
+      expect(placed.isError).toBeFalsy();
+      expect(text(placed)).toMatch(/Saved\. Board "Pulse" \(pulse\), version 1/);
+      const read = await c.callTool({ name: 'board-read', arguments: { board: 'pulse' } });
+      expect(text(read)).toContain('agent news at x=0 y=0, 6x5');
+
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'board-place', resources: ['pulse'], effect: 'deny', reason: 'Pulse is arranged by hand.' }] }));
+      const denied = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', changes: [{ op: 'remove', id: 'news' }] } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('Pulse is arranged by hand.');
+    } finally {
+      await c.close();
     }
   });
 });
