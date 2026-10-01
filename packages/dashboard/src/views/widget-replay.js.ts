@@ -106,13 +106,17 @@ export const WIDGET_REPLAY_INPLACE_JS = `
       e.preventDefault();
 
       var btn = form.querySelector('[data-widget-control="replay"]');
+      var body = new URLSearchParams();
+      new FormData(form).forEach(function (v, k) { body.append(k, String(v)); });
+      runInTile(tile, agentId, body, btn);
+    });
+
+    // Start a run of the tile's agent with \`body\` (input_NAME=value) and swap
+    // the tile when it finishes. Shared by replay forms and A2UI Run buttons.
+    function runInTile(tile, agentId, body, btn) {
       var label = btn ? btn.textContent : 'Run again';
       if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
       tile.style.opacity = '0.7';
-
-      var body = new URLSearchParams();
-      new FormData(form).forEach(function (v, k) { body.append(k, String(v)); });
-
       fetch('/agents/' + encodeURIComponent(agentId) + '/widget-run', {
         method: 'POST',
         credentials: 'same-origin',
@@ -131,6 +135,36 @@ export const WIDGET_REPLAY_INPLACE_JS = `
           restoreButton(tile, btn, label);
           flashError(tile, 'Failed to start run: ' + (err.message || err));
         });
+    }
+
+    // A2UI Run buttons (lib/legacy-view.ts legacyInteractiveView): a
+    // \`run-agent\` action carries {agent, in_<NAME>: value}. In a Pulse tile it runs in
+    // place; anywhere else it starts the run and opens it. Actions inside the
+    // agent chat transcript are chat turns (agent-chat.js.ts), not runs.
+    document.addEventListener('a2ui-action', function (e) {
+      var action = e.detail || {};
+      if (action.name !== 'run-agent') return;
+      var origin = e.target;
+      if (origin && origin.closest && origin.closest('#agent-chat-transcript')) return;
+      var ctx = action.context || {};
+      var agentId = ctx.agent;
+      if (!agentId) return;
+      var body = new URLSearchParams();
+      Object.keys(ctx).forEach(function (k) {
+        if (k.indexOf('in_') !== 0) return; // inputs travel as in_<NAME>
+        var v = ctx[k];
+        if (Array.isArray(v)) v = v[0]; // ChoicePicker values are lists
+        if (v !== undefined && v !== null && String(v) !== '') body.append('input_' + k.slice(3), String(v));
+      });
+      var tile = origin && origin.closest ? origin.closest('.pulse-tile[data-agent-id]') : null;
+      if (tile && tile.getAttribute('data-agent-id') === agentId) { runInTile(tile, agentId, body, null); return; }
+      fetch('/agents/' + encodeURIComponent(agentId) + '/widget-run', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.runId) location.href = '/runs/' + encodeURIComponent(d.runId); })
+        .catch(function () {});
     });
   })();
 `;

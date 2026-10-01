@@ -55,6 +55,8 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link}]` (1–12), `maxRows?` | rows of results |
 | `Link` | `text`, `url` (http/https) | a link, opens in a new tab |
 | `Code` | `text`, `language?` | preformatted text |
+| `Sparkline` | `values` (array of numbers, or `{value}` objects), `label?`, `current?` | a small trend line |
+| `Funnel` | `stages` (array of `{label, value}`) | decreasing stages |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
@@ -65,10 +67,10 @@ If a **generated** view isn't valid on a run, the run page says why and shows th
 
 | Converted now | Still on the current renderer (next) |
 | --- | --- |
-| templates: metric, text-headline, status, comparison, key-value, story, table; `widget` | templates: time-series, image, text-image, media, funnel |
-| widgets: key-value, raw, dashboard (text, code, badge, metric, stat, table fields), ai-template | interactive widgets (input forms), sort/filter/paginate/view-switch/field-toggle controls, diff-apply, preview/action fields, table columns with href/text templates |
+| templates: metric, text-headline, status, comparison, key-value, story, table, time-series (Sparkline), funnel, image, text-image, media (images and video files); `widget` | media with a YouTube/Vimeo link (embedded) |
+| widgets: key-value, raw, dashboard (text, code, badge, metric, stat, table fields), ai-template; **interactive widgets** (the tile shows a form for the agent's inputs and a Run button that runs it in place) | sort/filter/paginate/view-switch/field-toggle controls, diff-apply, preview/action fields, table columns with href/text templates |
 
-Across the 44 example agents, 20 of 26 Pulse templates and 6 of 22 output widgets convert today; most of the rest are interactive forms. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
+Across the 44 example agents, 25 of 26 Pulse templates and 18 of 22 output widgets convert today; the rest use widget controls. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
 
 ## In chat: replies are widgets, clicks are messages
 
@@ -84,6 +86,8 @@ On the agent's **Chat** tab, each reply whose run produced a valid view shows th
   action: { event: { name: followup, context: { message: { path: label } } } }
 - { id: choiceLabel, component: Text, text: { path: label } }
 ```
+
+Outside chat (Pulse tiles, the run page), a Button whose action is named `run-agent` runs an agent instead: its context is `{ agent: <id>, in_<INPUT>: <value>, … }` (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
 
 The click travels over the chat WebSocket like a typed message (see [conversations.md](conversations.md)), so the reply streams the same way.
 

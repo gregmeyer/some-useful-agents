@@ -140,6 +140,43 @@ export function legacySignalView(signal: AgentSignal, slots: Record<string, unkn
         columns: keys.map((k) => ({ key: k, label: k, ...(objects.some((o) => /^https?:\/\//.test(str(o[k]))) ? { format: 'link' } : {}) })),
       }] };
     }
+    case 'time-series': {
+      let values: unknown = slots.values;
+      if (typeof values === 'string') { try { values = JSON.parse(values); } catch { values = []; } }
+      (data.slots as Record<string, unknown>)._values = Array.isArray(values) ? values : [];
+      return { data, components: [{
+        id: 'root', component: 'Sparkline', values: s('_values'),
+        label: has('label') ? s('label') : signal.title,
+        ...(has('current') ? { current: s('current') } : {}),
+      }] };
+    }
+    case 'funnel': {
+      let stages: unknown = slots.stages;
+      if (typeof stages === 'string') { try { stages = JSON.parse(stages); } catch { stages = []; } }
+      (data.slots as Record<string, unknown>)._stages = Array.isArray(stages) ? stages : [];
+      return { data, components: [{ id: 'root', component: 'Funnel', stages: s('_stages') }] };
+    }
+    case 'image':
+      return { data, components: [{ id: 'root', component: 'Image', url: s('imageUrl'), ...(has('alt') ? { description: s('alt') } : {}), fit: 'cover' }] };
+    case 'text-image':
+      return { data, components: [
+        row('root', ['img', 'txt']),
+        { id: 'img', component: 'Image', url: s('imageUrl'), fit: 'cover', variant: 'mediumFeature' },
+        text('txt', s('text')),
+      ] };
+    case 'media': {
+      const url = String(slots.url ?? '');
+      // YouTube / Vimeo are embedded by the old renderer (a frame A2UI doesn't have).
+      if (/youtube\.com|youtu\.be|vimeo\.com/i.test(url)) return { unsupported: 'the "media" template with a YouTube/Vimeo link' };
+      const isVideo = slots.mediaType === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(url);
+      const kids = [...(has('title') ? ['title'] : []), 'm', ...(has('caption') ? ['caption'] : [])];
+      return { data, components: [
+        col('root', kids),
+        ...(has('title') ? [text('title', s('title'), 'h5')] : []),
+        isVideo ? { id: 'm', component: 'Video', url: s('url') } : { id: 'm', component: 'Image', url: s('url'), fit: 'cover' },
+        ...(has('caption') ? [text('caption', s('caption'), 'caption')] : []),
+      ] };
+    }
     default:
       return { unsupported: `the "${template}" template` };
   }
@@ -150,7 +187,6 @@ const PASSIVE_CONTROLS = new Set(['replay', 'copy', 'capture-image']);
 
 /** An outputWidget for one run's output (the text the old renderer gets). */
 export function legacyWidgetView(widget: OutputWidgetSchema, output: string): LegacyView {
-  if (widget.interactive) return { unsupported: 'interactive widgets (input forms)' };
   const active = (widget.controls ?? []).filter((c) => !PASSIVE_CONTROLS.has(c.type));
   if (active.length) return { unsupported: `widget controls (${[...new Set(active.map((c) => c.type))].join(', ')})` };
   const fields: Record<string, string> = {};
@@ -245,4 +281,66 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
     default:
       return { unsupported: `the "${widget.type}" widget` };
   }
+}
+
+/**
+ * An interactive widget's tile: the last result (the static conversion, when
+ * there is one) above a form for the agent's inputs and a Run button. The
+ * button sends a `run-agent` A2UI action ({agent, in_<NAME>: value}); the page runs
+ * the agent in place (views/widget-replay.js.ts).
+ */
+export function legacyInteractiveView(args: {
+  agentId: string;
+  inputs: Record<string, { type?: string; values?: Array<string | number>; default?: unknown; description?: string }>;
+  widget: OutputWidgetSchema;
+  /** The last completed run's output, if any. */
+  lastOutput?: string;
+  previousInputs?: Record<string, string>;
+}): LegacyView {
+  const { widget } = args;
+  const names = Object.keys(args.inputs).filter((n) => !widget.runInputs?.length || widget.runInputs.includes(n));
+  let result: LegacyView | undefined;
+  if (args.lastOutput !== undefined) {
+    result = legacyWidgetView(widget, args.lastOutput);
+    if ('unsupported' in result) return result;
+  }
+  const form: Record<string, unknown> = {};
+  const comps: C[] = [];
+  const fieldIds: string[] = [];
+  for (const name of names) {
+    const spec = args.inputs[name];
+    const prior = args.previousInputs?.[name] ?? (spec.default !== undefined ? String(spec.default) : '');
+    const fid = `in_${name.replace(/[^\w-]/g, '_')}`;
+    fieldIds.push(fid);
+    const label = spec.description ? `${name}: ${spec.description}` : name;
+    if (spec.type === 'enum' && spec.values?.length || spec.type === 'boolean') {
+      const values = spec.type === 'boolean' ? ['true', 'false'] : (spec.values ?? []).map(String);
+      form[name] = [values.includes(prior) ? prior : values[0]];
+      comps.push({ id: fid, component: 'ChoicePicker', label, variant: 'mutuallyExclusive', displayStyle: 'chips',
+        options: values.map((v) => ({ label: v, value: v })), value: bind(`/data/form/${name}`) });
+    } else {
+      form[name] = prior;
+      comps.push({ id: fid, component: 'TextField', label, value: bind(`/data/form/${name}`), ...(spec.type === 'number' ? { variant: 'number' } : {}) });
+    }
+  }
+  const runLabel = args.lastOutput !== undefined ? widget.replayLabel ?? 'Run again' : widget.askLabel ?? 'Run';
+  comps.push(
+    { id: 'run', component: 'Button', variant: 'primary', child: 'run_label', action: { event: {
+      name: 'run-agent',
+      // A2UI action context values are flat (a literal or one binding each),
+      // so each input travels as `in_<NAME>`.
+      context: { agent: args.agentId, ...Object.fromEntries(names.map((n) => [`in_${n}`, bind(`/data/form/${n}`)])) },
+    } } },
+    text('run_label', runLabel),
+  );
+  const resultKids: string[] = [];
+  const out: C[] = [];
+  const data: Record<string, unknown> = { form };
+  if (result && !('unsupported' in result)) {
+    // Re-root the static view under this one.
+    for (const c of result.components) out.push(c.id === 'root' ? { ...c, id: 'result' } : c);
+    Object.assign(data, result.data);
+    resultKids.push('result');
+  }
+  return { data, components: [col('root', [...resultKids, ...fieldIds, 'run']), ...out, ...comps] };
 }

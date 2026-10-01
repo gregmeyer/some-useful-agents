@@ -111,6 +111,41 @@ const Code = define('Code', 'sua-a2ui-code',
   css`pre { margin: 0; padding: 8px; background: var(--color-surface-raised); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }`,
   (p) => html`<pre>${p.text}</pre>`);
 
+const numbers = (v) => (Array.isArray(v) ? v : []).map((x) => Number(typeof x === 'object' && x ? (x.value ?? x.y ?? x.count) : x)).filter((n) => Number.isFinite(n));
+
+const Sparkline = define('Sparkline', 'sua-a2ui-sparkline',
+  Common.extend({ values: CommonSchemas.DynamicValue, label: Str.optional(), current: Str.optional() }).strict(),
+  css`
+    .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .label { font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .current { font-family: var(--font-mono); font-size: 1.5rem; }
+    svg { display: block; width: 100%; height: 48px; margin-top: 4px; }
+    polyline { fill: none; stroke: var(--color-primary); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .empty { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  (p) => {
+    const v = numbers(p.values);
+    const last = v.length ? v[v.length - 1] : undefined;
+    const head = html`<div class="head"><span class="label">${p.label ?? ''}</span><span class="current">${p.current ?? (last ?? '')}</span></div>`;
+    if (v.length < 2) return html`${head}<div class="empty">Not enough points yet.</div>`;
+    const min = Math.min(...v); const max = Math.max(...v); const span = max - min || 1;
+    const pts = v.map((n, i) => `${(i / (v.length - 1)) * 100},${40 - ((n - min) / span) * 36 - 2}`).join(' ');
+    return html`${head}<svg viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="${p.label ?? 'trend'}"><polyline points="${pts}"></polyline></svg>`;
+  });
+
+const Funnel = define('Funnel', 'sua-a2ui-funnel',
+  Common.extend({ stages: CommonSchemas.DynamicValue }).strict(),
+  css`
+    .stage { margin: 4px 0; }
+    .row { display: flex; justify-content: space-between; font-size: var(--font-size-xs); }
+    .bar { height: 8px; background: var(--color-primary); border-radius: 4px; opacity: .85; }
+    .val { font-family: var(--font-mono); color: var(--color-text-muted); }`,
+  (p) => {
+    const stages = (Array.isArray(p.stages) ? p.stages : []).map((s) => ({ label: String(s?.label ?? s?.name ?? ''), value: Number(s?.value ?? s?.count ?? 0) }));
+    const max = Math.max(1, ...stages.map((s) => s.value));
+    return html`${stages.map((s) => html`<div class="stage"><div class="row"><span>${s.label}</span><span class="val">${s.value}</span></div>
+      <div class="bar" style="width: ${Math.max(2, (s.value / max) * 100)}%"></div></div>`)}`;
+  });
+
 // The server resolves and sanitizes SanitizedHtml's html (core
 // prepareViewForRender) before the view is sent, so what arrives is already
 // allowlisted HTML. It's rendered in this element's shadow root.
@@ -126,7 +161,7 @@ const SanitizedHtml = define('SanitizedHtml', 'sua-a2ui-html',
     },
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Link, Code, SanitizedHtml];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Link, Code, Sparkline, Funnel, SanitizedHtml];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

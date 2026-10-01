@@ -5,7 +5,7 @@
 
 import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
 import { renderLegacySurface } from '../lib/a2ui-surface.js';
-import { legacySignalView, legacyWidgetView } from '../lib/legacy-view.js';
+import { legacyInteractiveView, legacySignalView, legacyWidgetView } from '../lib/legacy-view.js';
 import type { SignalTemplate } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { normalizeSignal } from './pulse-templates.js';
@@ -393,9 +393,19 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 /** The tile's signal template or output widget, converted to an A2UI surface; undefined → old renderer. */
 function legacyTileSurface(tile: PulseTile): SafeHtml | undefined {
   const agent = tile.agent;
-  if (!tile.lastRun || agent.outputWidget?.interactive) return undefined;
-  const { template } = normalizeSignal(tile.signal);
   const id = `tile-${agent.id}`;
+  // An interactive widget is a form + Run button, with or without a prior run.
+  if (agent.outputWidget?.interactive) {
+    return renderLegacySurface(id, legacyInteractiveView({
+      agentId: agent.id,
+      inputs: (agent.inputs ?? {}) as never,
+      widget: agent.outputWidget,
+      lastOutput: tile.lastRun?.status === 'completed' && typeof tile.lastRun.result === 'string' ? tile.lastRun.result : undefined,
+      previousInputs: tile.previousInputs,
+    }));
+  }
+  if (!tile.lastRun) return undefined;
+  const { template } = normalizeSignal(tile.signal);
   if (template === 'widget') {
     if (!agent.outputWidget || !tile.lastRun.result) return undefined;
     return renderLegacySurface(id, legacyWidgetView(agent.outputWidget, tile.lastRun.result));
