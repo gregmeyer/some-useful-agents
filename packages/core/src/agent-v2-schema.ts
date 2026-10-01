@@ -14,6 +14,7 @@
  * schema can read this without a context switch.
  */
 
+import { validateViewComponents } from './a2ui/view.js';
 import { z } from 'zod';
 import { validateScheduleInterval, CronInvalidError, CronTooFrequentError } from './cron-validator.js';
 import { extractInputReferences, SENSITIVE_ENV_NAMES } from './input-resolver.js';
@@ -260,6 +261,13 @@ export const agentV2Schema = z.object({
     perRunUsd: z.number().positive().optional(),
     perDayUsd: z.number().positive().optional(),
   }).optional(),
+  // A2UI view (docs/a2ui-views.md): declared components bound to each run's
+  // data, or `from: <node>` whose output is the component list. Components
+  // are checked against the sua catalog in superRefine below.
+  view: z.union([
+    z.object({ components: z.array(z.record(z.string(), z.unknown())).min(1).max(200) }).strict(),
+    z.object({ from: z.string().min(1) }).strict(),
+  ]).optional(),
 
   /**
    * CSP allowlist contributions. Currently only `imgSrc` is honored —
@@ -514,6 +522,16 @@ export const agentV2Schema = z.object({
   }
 
   const nodeIds = new Set(data.nodes.map((n) => n.id));
+
+  // view: a generated view must name a node; declared components must be a
+  // valid A2UI view against the sua catalog (same checks as the renderer).
+  if (data.view && 'from' in data.view && !nodeIds.has(data.view.from)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['view', 'from'], message: `References node "${data.view.from}", which is not a node in this agent.` });
+  }
+  if (data.view && 'components' in data.view) {
+    const v = validateViewComponents(data.view.components, { imgHosts: data.permissions?.imgSrc ?? [] });
+    if (!v.ok) for (const message of v.errors) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['view', 'components'], message });
+  }
 
   // successCriteria / outcome.success / outcome.evidence node references.
   // Previously unvalidated: a typo'd nodeId parsed clean and then failed
