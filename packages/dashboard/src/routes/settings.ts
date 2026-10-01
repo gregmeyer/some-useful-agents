@@ -40,6 +40,7 @@ import {
 import { existsSync } from 'node:fs';
 import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
 import { listPickableTools } from '../views/tools-multipicker.js';
+import { a2uiWidgetsEnabled, setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -747,8 +748,21 @@ function pickFormValuesFromQuery(req: Request): Record<string, string> {
 
 settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const { flash } = readQueryBanners(req);
-  const body = renderSettingsAppearance();
+  const body = renderSettingsAppearance({ a2uiWidgets: a2uiWidgetsEnabled() });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
+});
+
+/** Settings → Appearance: draw pre-A2UI widgets through the A2UI renderer (W3 preview). */
+settingsRouter.post('/settings/appearance/a2ui', (req: Request, res: Response) => {
+  const enabled = req.body?.enabled === '1';
+  try {
+    setDashboardPrefs({ a2uiWidgets: enabled });
+    redirectWith(res, '/settings/appearance#a2ui-widgets', 'flash', enabled
+      ? 'Existing widgets now draw with the A2UI renderer where it can. Turn it off here any time.'
+      : 'Existing widgets draw with the current renderer again.');
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#a2ui-widgets', 'error', (err as Error).message);
+  }
 });
 
 settingsRouter.get('/settings/usage', (req: Request, res: Response) => {

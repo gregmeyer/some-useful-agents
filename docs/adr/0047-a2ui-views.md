@@ -52,4 +52,8 @@ protocol) into the dashboard: 87 KB gzip, CSP-safe.
   become the next chat turn (`chat.action` frame). W2 renders views on the run page (Result),
   Pulse tiles / named dashboards (a view wins over `signal`; a view-only agent gets a tile via
   `tileSignal`), and inbox action widgets; the renderer is loaded on demand by a tiny loader in
-  the main bundle. W3 converts existing widgets into views.
+  the main bundle. W3 converts existing widgets into views:
+  `lib/legacy-view.ts` re-runs the old extraction server-side and binds the results at `/data/...`
+  (so values can't drift), returns `{unsupported}` for what the catalog can't express yet (the
+  caller keeps the old renderer), and is opt-in behind Settings → Appearance (a dashboard-wide pref
+  in `<dataDir>/.sua/dashboard-prefs.json`) until coverage is complete.

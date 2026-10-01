@@ -1686,6 +1686,8 @@
   --a2ui-button-border: 1px solid var(--color-border-strong);
   --a2ui-button-border-radius: var(--radius-sm);
   --a2ui-button-box-shadow: none;
+  --a2ui-font-family-title: var(--font-mono);
+  --a2ui-font-family-monospace: var(--font-mono);
   color: var(--color-text);
 }
 .a2ui-host--error { font-size: var(--font-size-xs); color: var(--color-err); }

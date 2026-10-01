@@ -55,6 +55,7 @@ import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
 import { attachChatSocket } from './lib/chat-socket.js';
+import { setDashboardPrefsDir } from './lib/dashboard-prefs.js';
 import { buildTryRouter } from './routes/build-try.js';
 import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
@@ -159,6 +160,7 @@ export interface DashboardHandle {
 export function buildDashboardApp(ctx: DashboardContext): Application {
   const app = express();
   app.locals = ctx as unknown as Application['locals'];
+  setDashboardPrefsDir(ctx.dataDir);
 
   // Inbound webhooks: before the body parsers (a GitHub signature covers the
   // raw bytes) and before the session check (callers are outside services;

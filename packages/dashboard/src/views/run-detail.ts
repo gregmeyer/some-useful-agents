@@ -8,7 +8,9 @@ import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
-import { renderRunView } from '../lib/a2ui-surface.js';
+import { renderRunView, renderLegacySurface } from '../lib/a2ui-surface.js';
+import { legacyWidgetView } from '../lib/legacy-view.js';
+import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
 import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
 export interface RunDetailOptions {
@@ -787,6 +789,10 @@ function runWidget(
   const fallback = () => (agent?.outputWidget
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
     : outputFrame(run.result ?? ''));
+  if (!agent?.view && agent?.outputWidget && run.status === 'completed' && a2uiWidgetsEnabled()) {
+    const surface = renderLegacySurface(`run-${run.id}`, legacyWidgetView(agent.outputWidget, run.result ?? ''));
+    if (surface) return surface;
+  }
   if (agent?.view && run.status === 'completed') {
     const view = renderRunView(agent, run, nodeExecutions ?? [], `run-${run.id}`);
     if (String(view).includes('data-a2ui-surface')) return view;
