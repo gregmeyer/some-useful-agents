@@ -752,14 +752,14 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
-/** Settings → Appearance: draw pre-A2UI widgets through the A2UI renderer (W3 preview). */
+/** Settings → Appearance: A2UI renderer for widgets (default on; off = the previous renderer, kept one release). */
 settingsRouter.post('/settings/appearance/a2ui', (req: Request, res: Response) => {
   const enabled = req.body?.enabled === '1';
   try {
     setDashboardPrefs({ a2uiWidgets: enabled });
     redirectWith(res, '/settings/appearance#a2ui-widgets', 'flash', enabled
-      ? 'Existing widgets now draw with the A2UI renderer where it can. Turn it off here any time.'
-      : 'Existing widgets draw with the current renderer again.');
+      ? 'Widgets draw with the A2UI renderer.'
+      : 'Widgets draw with the previous renderer. It will be removed in a future release, so please report what looked wrong.');
   } catch (err) {
     redirectWith(res, '/settings/appearance#a2ui-widgets', 'error', (err as Error).message);
   }

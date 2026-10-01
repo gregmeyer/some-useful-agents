@@ -55,5 +55,8 @@ protocol) into the dashboard: 87 KB gzip, CSP-safe.
   the main bundle. W3 converts existing widgets into views:
   `lib/legacy-view.ts` re-runs the old extraction server-side and binds the results at `/data/...`
   (so values can't drift), returns `{unsupported}` for what the catalog can't express yet (the
-  caller keeps the old renderer), and is opt-in behind Settings → Appearance (a dashboard-wide pref
-  in `<dataDir>/.sua/dashboard-prefs.json`) until coverage is complete.
+  caller keeps the old renderer), and was opt-in behind Settings → Appearance (a dashboard-wide pref
+  in `<dataDir>/.sua/dashboard-prefs.json`) until coverage was complete. W3c (all 44 examples
+  converting) made it the default (`a2uiWidgets` unset = on); `false` selects the previous
+  renderer, kept one release, then removed. capture-image widgets stay on the previous renderer
+  (html2canvas can't rasterise shadow DOM); copy reads text through shadow roots.

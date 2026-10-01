@@ -3,6 +3,10 @@ import type { Agent } from '@some-useful-agents/core';
 import { renderTile } from './pulse-renderers.js';
 import type { PulseTile, TileWrapFn } from './pulse-types.js';
 import { render } from './html.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setDashboardPrefs, setDashboardPrefsDir } from '../lib/dashboard-prefs.js';
 
 const passThrough: TileWrapFn = (_tile, content) => content;
 
@@ -23,8 +27,14 @@ describe('renderTile output-widget dispatch', () => {
       { outputWidget: { type: 'ai-template', interactive: true } as Agent['outputWidget'] },
       'text-headline',
     );
-    const html = render(renderTile(tile, passThrough));
-    expect(html).toContain('data-iw'); // interactive widget shell
+    // A2UI (the default): the tile is a form + Run button surface.
+    expect(render(renderTile(tile, passThrough))).toContain('data-a2ui-surface');
+    // The previous renderer (kept one release as a fallback): the interactive widget shell.
+    setDashboardPrefsDir(mkdtempSync(join(tmpdir(), 'sua-prefs-')));
+    setDashboardPrefs({ a2uiWidgets: false });
+    try {
+      expect(render(renderTile(tile, passThrough))).toContain('data-iw');
+    } finally { setDashboardPrefs({ a2uiWidgets: true }); }
   });
 
   it('leaves a compact signal.template tile alone when the outputWidget is non-interactive', () => {

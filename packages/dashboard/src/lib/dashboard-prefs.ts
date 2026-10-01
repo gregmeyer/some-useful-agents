@@ -6,7 +6,11 @@ import { join } from 'node:path';
  * Read through a small mtime cache so render paths can ask cheaply.
  */
 export interface DashboardPrefs {
-  /** Draw signal templates and output widgets through the A2UI renderer (W3 preview). */
+  /**
+   * Draw signal templates and output widgets through the A2UI renderer.
+   * Default ON (unset = on); `false` switches back to the previous renderer,
+   * which stays one release as a fallback before it's removed.
+   */
   a2uiWidgets?: boolean;
 }
 
@@ -26,7 +30,9 @@ export function getDashboardPrefs(): DashboardPrefs {
   let prefs: DashboardPrefs = {};
   try {
     const v = JSON.parse(readFileSync(file, 'utf8')) as unknown;
-    if (v && typeof v === 'object') prefs = { a2uiWidgets: (v as DashboardPrefs).a2uiWidgets === true };
+    if (v && typeof v === 'object' && typeof (v as DashboardPrefs).a2uiWidgets === 'boolean') {
+      prefs = { a2uiWidgets: (v as DashboardPrefs).a2uiWidgets };
+    }
   } catch { /* unreadable: defaults */ }
   cache = { mtimeMs, prefs };
   return prefs;
@@ -41,7 +47,7 @@ export function setDashboardPrefs(patch: DashboardPrefs): DashboardPrefs {
   return next;
 }
 
-/** Whether pre-A2UI widgets should be drawn through the A2UI renderer. */
+/** Whether pre-A2UI widgets are drawn through the A2UI renderer (the default). */
 export function a2uiWidgetsEnabled(): boolean {
-  return getDashboardPrefs().a2uiWidgets === true;
+  return getDashboardPrefs().a2uiWidgets !== false;
 }

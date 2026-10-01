@@ -100,8 +100,8 @@ describe('A2UI views across the dashboard', () => {
   });
 });
 
-describe('W3 preview: existing widgets through A2UI', () => {
-  it('Settings → Appearance switches Pulse tiles and the run page between the old renderer and A2UI', async () => {
+describe('A2UI is the default widget renderer', () => {
+  it('draws existing widgets with A2UI unless Settings → Appearance switches back to the previous renderer', async () => {
     const { app } = await setup();
     ctx.agentStore.createAgent({ id: 'stars', name: 'Stars', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'count', type: 'llm-prompt', prompt: 'x' }],
@@ -111,14 +111,30 @@ describe('W3 preview: existing widgets through A2UI', () => {
     const post = (body: string) => request(app).post('/settings/appearance/a2ui').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
 
     let tile = await get(app, '/pulse/tile/stars');
-    expect(tile.text).not.toContain('data-surface-id="tile-stars"');
-    expect((await post('enabled=1')).status).toBe(303);
-    expect((await get(app, '/settings/appearance')).text).toMatch(/name="enabled" value="1" checked/);
-    tile = await get(app, '/pulse/tile/stars');
     expect(tile.text).toContain('data-surface-id="tile-stars"');
     expect(tile.text).toContain('"value":"$89"');
-    await post('');
+    expect((await get(app, '/settings/appearance')).text).toMatch(/name="enabled" value="1" checked/);
+    expect((await post('')).status).toBe(303);
     tile = await get(app, '/pulse/tile/stars');
     expect(tile.text).not.toContain('data-surface-id="tile-stars"');
+    await post('enabled=1');
+    tile = await get(app, '/pulse/tile/stars');
+    expect(tile.text).toContain('data-surface-id="tile-stars"');
+  });
+
+  it('keeps a widget with a capture-image control on the previous renderer, and puts a copy control above A2UI widgets', async () => {
+    const { app } = await setup();
+    for (const [id, control] of [['snap', 'capture-image'], ['clip', 'copy']] as const) {
+      ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
+        nodes: [{ id: 'n', type: 'llm-prompt', prompt: 'x' }],
+        outputWidget: { type: 'key-value', fields: [{ name: 'price', type: 'text' }], controls: [{ type: control }] } } as never, 'cli');
+      await executeAgentDag(ctx.agentStore.getAgent(id) as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
+    }
+    const runOf = (agent: string) => ctx.runStore.listRuns({ agentName: agent, limit: 1 })[0].id;
+    const snap = await get(app, `/runs/${runOf('snap')}`);
+    expect(snap.text).not.toContain('data-a2ui-surface');
+    expect(snap.text).toContain('data-widget-capture');
+    const clip = await get(app, `/runs/${runOf('clip')}`);
+    expect(clip.text).toMatch(/data-widget-control-row="">\s*<button[^>]*data-widget-copy[\s\S]*?<\/div><div class="a2ui-host"/);
   });
 });

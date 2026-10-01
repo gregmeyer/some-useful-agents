@@ -170,7 +170,7 @@ function renderActionWidget(
     return renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
   }
   if (a2uiWidgetsEnabled()) {
-    const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(agent.outputWidget, run.result));
+    const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(agent.outputWidget, run.result), { widget: agent.outputWidget });
     if (surface) return surface;
   }
   return renderOutputWidget(agent.outputWidget, run.result, agent.id);

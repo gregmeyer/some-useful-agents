@@ -62,16 +62,16 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
 
-## Existing widgets through A2UI (preview)
+## Existing widgets are drawn with A2UI too
 
-**Settings → Appearance → Widget renderer (preview)** draws agents' existing widgets (Pulse `signal` templates and `outputWidget`s) through the same renderer, without changing any agent. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
+Agents' existing widgets (Pulse `signal` templates and `outputWidget`s) are drawn through the same renderer, without changing any agent. This is the default; **Settings → Appearance → Widget renderer** switches back to the previous renderer if a widget looks wrong. That fallback stays for one release and is then removed. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
 
 | Converted | Still on the current renderer |
 | --- | --- |
 | templates: metric, text-headline, status, comparison, key-value, story, table, time-series (Sparkline), funnel, image, text-image, media (images and video files); `widget` | media with a YouTube/Vimeo link (embedded) |
-| widgets: key-value, raw, dashboard, ai-template; **interactive widgets** (a form for the agent's inputs and a Run button that runs it in place); **controls**: sort / filter / paginate (on the table, in the browser), view-switch (Tabs, default first), field-toggle (a collapsible section); preview fields (a link to the file) | diff-apply, action fields, table columns with href/text templates, array controls on ai-templates |
+| widgets: key-value, raw, dashboard, ai-template; **interactive widgets** (a form for the agent's inputs and a Run button that runs it in place); **controls**: sort / filter / paginate (on the table, in the browser), view-switch (Tabs, default first), field-toggle (a collapsible section); preview fields (a link to the file) | diff-apply, action fields, table columns with href/text templates, array controls on ai-templates, the capture-image control |
 
-**All 44 example agents convert**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
+**All 44 example agents convert**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing with the previous renderer, so nothing disappears. A widget with a `capture-image` control stays on the previous renderer (the PNG capture can't see inside A2UI components); a `copy` control works on A2UI widgets. The setting applies to the whole dashboard.
 
 ## In chat: replies are widgets, clicks are messages
 

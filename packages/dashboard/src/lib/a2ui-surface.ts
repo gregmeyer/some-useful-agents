@@ -9,6 +9,8 @@ import {
 } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from '../views/html.js';
 import type { LegacyView } from './legacy-view.js';
+import type { OutputWidgetSchema } from '@some-useful-agents/core';
+import { renderCopyControl } from '../views/output-widgets.js';
 
 /**
  * The page markup for one A2UI surface: a host element carrying the A2UI
@@ -45,11 +47,15 @@ export function renderRunView(
  * when it can't be drawn that way (unsupported, or, defensively, a conversion
  * that doesn't validate), so the caller keeps the old renderer.
  */
-export function renderLegacySurface(surfaceId: string, legacy: LegacyView): SafeHtml | undefined {
+export function renderLegacySurface(surfaceId: string, legacy: LegacyView, opts: { widget?: OutputWidgetSchema } = {}): SafeHtml | undefined {
   if ('unsupported' in legacy) return undefined;
   const v = validateViewComponents(legacy.components);
   if (!v.ok) return undefined;
   const dataModel = { data: legacy.data };
   const components = prepareViewForRender(v.components, dataModel);
-  return renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, dataModel), { label: 'Widget' });
+  const surface = renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, dataModel), { label: 'Widget' });
+  // A widget's copy control: the same button, in the same row-before-body
+  // shape views/widget-copy.js.ts looks for.
+  const copy = (opts.widget?.controls ?? []).find((c): c is Extract<typeof c, { type: 'copy' }> => c.type === 'copy');
+  return copy ? html`<div class="wc-row" data-widget-control-row="">${renderCopyControl(copy)}</div>${surface}` : surface;
 }

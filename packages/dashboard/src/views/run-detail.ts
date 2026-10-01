@@ -790,7 +790,7 @@ function runWidget(
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
     : outputFrame(run.result ?? ''));
   if (!agent?.view && agent?.outputWidget && run.status === 'completed' && a2uiWidgetsEnabled()) {
-    const surface = renderLegacySurface(`run-${run.id}`, legacyWidgetView(agent.outputWidget, run.result ?? ''));
+    const surface = renderLegacySurface(`run-${run.id}`, legacyWidgetView(agent.outputWidget, run.result ?? ''), { widget: agent.outputWidget });
     if (surface) return surface;
   }
   if (agent?.view && run.status === 'completed') {

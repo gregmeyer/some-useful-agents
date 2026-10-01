@@ -183,12 +183,14 @@ export function legacySignalView(signal: AgentSignal, slots: Record<string, unkn
 }
 
 /** Control types that don't change what a static widget shows (handled around the tile). */
-const PASSIVE_CONTROLS = new Set(['replay', 'copy', 'capture-image']);
+const PASSIVE_CONTROLS = new Set(['replay', 'copy']);
 
 /** An outputWidget for one run's output (the text the old renderer gets). */
 export function legacyWidgetView(widget: OutputWidgetSchema, output: string): LegacyView {
   // The dashboard widget maps sort/filter/paginate onto its tables, view-switch
   // onto Tabs and field-toggle onto Disclosures; other widget types can't.
+  // html2canvas can't rasterise the shadow DOM A2UI components render into.
+  if ((widget.controls ?? []).some((c) => c.type === 'capture-image')) return { unsupported: 'the capture-image control' };
   const active = (widget.controls ?? []).filter((c) => !PASSIVE_CONTROLS.has(c.type));
   if (active.length && widget.type !== 'dashboard') return { unsupported: `widget controls (${[...new Set(active.map((c) => c.type))].join(', ')})` };
   const fields: Record<string, string> = {};

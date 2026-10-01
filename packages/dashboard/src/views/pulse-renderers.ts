@@ -408,7 +408,7 @@ function legacyTileSurface(tile: PulseTile): SafeHtml | undefined {
   const { template } = normalizeSignal(tile.signal);
   if (template === 'widget') {
     if (!agent.outputWidget || !tile.lastRun.result) return undefined;
-    return renderLegacySurface(id, legacyWidgetView(agent.outputWidget, tile.lastRun.result));
+    return renderLegacySurface(id, legacyWidgetView(agent.outputWidget, tile.lastRun.result), { widget: agent.outputWidget });
   }
   return renderLegacySurface(id, legacySignalView(tile.signal, tile.slots));
 }

@@ -43,18 +43,18 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean } = {}): 
     </div>
 
     <section id="a2ui-widgets" style="margin-top: var(--space-6);">
-      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Widget renderer (preview)</h2>
+      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Widget renderer</h2>
       <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3);">
-        Draw agents' existing widgets (Pulse templates and output widgets) with the new
+        Agents' widgets (Pulse templates and output widgets) are drawn with the
         <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md">A2UI renderer</a>,
-        the one agent views use. Same values, new layout. Widgets it can't draw yet (charts, images,
-        media, funnels, interactive forms, sort/filter controls) keep the current renderer.
+        the one agent views use. If a widget looks wrong, untick this to switch back to the previous
+        renderer for now (and tell us which agent): it stays one release as a fallback, then it's removed.
         Applies to everyone using this dashboard.
       </p>
       <form method="POST" action="/settings/appearance/a2ui" class="settings-pricing__form">
         <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
           <input type="checkbox" name="enabled" value="1" ${opts.a2uiWidgets ? 'checked' : ''}>
-          <span>Draw existing widgets with A2UI</span>
+          <span>Draw widgets with A2UI</span>
         </label>
         <button type="submit" class="btn btn--sm">Save</button>
       </form>
