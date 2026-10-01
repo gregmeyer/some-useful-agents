@@ -44,6 +44,8 @@ export interface Board {
   /** Bumped on every save; a save from an older version is refused. */
   version: number;
   updatedAt: number;
+  /** True when there's an earlier layout to go back to (Undo). */
+  hasPrevious?: boolean;
 }
 
 /** A save from an older version of the board than the one stored. */
@@ -167,13 +169,13 @@ export class BoardsStore {
   }
 
   get(id: string): Board | undefined {
-    const row = this.db.prepare('SELECT id, name, pack_id, items_json, version, updated_at FROM boards WHERE id = ?').get(id) as
-      | { id: string; name: string; pack_id: string | null; items_json: string; version: number; updated_at: number }
+    const row = this.db.prepare('SELECT id, name, pack_id, items_json, previous_items_json IS NOT NULL AS has_previous, version, updated_at FROM boards WHERE id = ?').get(id) as
+      | { id: string; name: string; pack_id: string | null; items_json: string; has_previous: number; version: number; updated_at: number }
       | undefined;
     if (!row) return undefined;
     let items: BoardItem[] = [];
     try { items = normalizeBoardItems(JSON.parse(row.items_json)); } catch { items = []; }
-    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at };
+    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at, hasPrevious: row.has_previous === 1 };
   }
 
   /**

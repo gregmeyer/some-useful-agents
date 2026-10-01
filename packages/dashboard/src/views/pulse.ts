@@ -353,6 +353,7 @@ export function renderPulseBoard(
           </form>
         ` : html``}
         ${improveLayoutButton()}
+        <a class="btn btn--ghost btn--sm" href="/boards/pulse" title="Arrange Pulse freely on a grid (preview)">Board view</a>
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-edit-toggle">\u270E Edit layout</button>
         <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
         ` : html``}
