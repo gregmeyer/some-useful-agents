@@ -88,6 +88,18 @@ const SUA_COMPONENTS = [
     schema: Common.extend({ text: Str, language: z.string().max(32).optional() }).strict(),
   },
   {
+    name: 'Sparkline',
+    summary: 'A small line chart of a series of numbers, with an optional label and current value.',
+    example: { id: 'trend', component: 'Sparkline', values: { path: '/outputs/history' }, label: 'Stars this week', current: { path: '/outputs/stars' } },
+    schema: Common.extend({ values: CS.DynamicValue, label: Str.optional(), current: Str.optional() }).strict(),
+  },
+  {
+    name: 'Funnel',
+    summary: 'Stages as decreasing bars, from an array of {label, value}.',
+    example: { id: 'signup', component: 'Funnel', stages: { path: '/outputs/stages' } },
+    schema: Common.extend({ stages: CS.DynamicValue }).strict(),
+  },
+  {
     name: 'SanitizedHtml',
     summary: 'Agent-written HTML, passed through sua\'s allowlist sanitizer before display (no scripts).',
     example: { id: 'card', component: 'SanitizedHtml', html: { path: '/outputs/html' } },

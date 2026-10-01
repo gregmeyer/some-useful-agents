@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAgent, validateViewComponents, type Agent, type OutputWidgetSchema } from '@some-useful-agents/core';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
-import { legacySignalView, legacyWidgetView, statusTone, type LegacyView } from './legacy-view.js';
+import { legacyInteractiveView, legacySignalView, legacyWidgetView, statusTone, type LegacyView } from './legacy-view.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const examplesDir = join(here, '..', '..', '..', 'core', 'examples');
@@ -30,7 +30,7 @@ function sampleOutput(widget: OutputWidgetSchema): string {
   return JSON.stringify(out);
 }
 
-const KNOWN_GAPS = [/template$/, /interactive widgets/, /widget controls/, /preview and action fields/, /href\/text templates/, /no template/, /diff-apply/];
+const KNOWN_GAPS = [/template$/, /YouTube\/Vimeo/, /widget controls/, /preview and action fields/, /href\/text templates/, /no template/, /diff-apply/];
 function check(label: string, v: LegacyView): 'converted' | string {
   if ('unsupported' in v) {
     expect(KNOWN_GAPS.some((re) => re.test(v.unsupported)), `${label}: unexpected gap "${v.unsupported}"`).toBe(true);
@@ -57,7 +57,7 @@ describe('legacy widgets → A2UI views, across every example agent', () => {
       const k = check(`${a.id} (${template})`, v);
       tally[k] = (tally[k] ?? 0) + 1;
     }
-    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(15);
+    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(24);
   });
 
   it('each output widget converts to a valid view or names a known gap', () => {
@@ -66,7 +66,7 @@ describe('legacy widgets → A2UI views, across every example agent', () => {
       const k = check(`${a.id} (${a.outputWidget!.type})`, legacyWidgetView(a.outputWidget!, sampleOutput(a.outputWidget!)));
       tally[k] = (tally[k] ?? 0) + 1;
     }
-    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(6);
+    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(18);
   });
 });
 
@@ -87,10 +87,44 @@ describe('conversion details', () => {
   });
 
   it('names what it cannot draw yet', () => {
-    expect(legacySignalView({ title: 'x', template: 'time-series' }, {})).toEqual({ unsupported: 'the "time-series" template' });
+    expect(legacySignalView({ title: 'x', template: 'media' }, { url: 'https://youtu.be/abcdefghijk' })).toEqual({ unsupported: 'the "media" template with a YouTube/Vimeo link' });
     expect(legacyWidgetView({ type: 'dashboard', fields: [], controls: [{ type: 'sort', column: 'a' }] } as unknown as OutputWidgetSchema, '{}'))
       .toEqual({ unsupported: 'widget controls (sort)' });
-    expect(legacyWidgetView({ type: 'key-value', fields: [], interactive: true } as unknown as OutputWidgetSchema, '{}'))
-      .toEqual({ unsupported: 'interactive widgets (input forms)' });
+    expect(legacyWidgetView({ type: 'key-value', fields: [{ name: 'a', type: 'text' }], interactive: true } as unknown as OutputWidgetSchema, '{"a":"1"}'))
+      .toMatchObject({ components: expect.any(Array) }); // the static result; the tile adds the form
+  });
+});
+
+describe('new templates and interactive forms', () => {
+  it('converts time-series, funnel, image, text-image and file media to valid views', () => {
+    for (const [template, slots] of [
+      ['time-series', { values: [1, 3, 2, 5], current: 5, label: 'Stars' }],
+      ['funnel', { stages: [{ label: 'Visit', value: 100 }, { label: 'Buy', value: 7 }] }],
+      ['image', { imageUrl: 'https://example.com/a.png', alt: 'A' }],
+      ['text-image', { text: 'Hi', imageUrl: 'https://example.com/a.png' }],
+      ['media', { url: 'https://example.com/clip.mp4', title: 'Clip' }],
+    ] as const) {
+      const v = legacySignalView({ title: 'x', template } as never, slots as never);
+      expect('components' in v && validateViewComponents(v.components), template).toMatchObject({ ok: true });
+    }
+  });
+
+  it('builds a form from the agent\'s inputs with a Run button that carries their values', () => {
+    const v = legacyInteractiveView({
+      agentId: 'magic-8',
+      inputs: { QUESTION: { type: 'string', description: 'Ask anything' }, MOOD: { type: 'enum', values: ['calm', 'wild'], default: 'wild' } },
+      widget: { type: 'key-value', fields: [{ name: 'answer', type: 'text' }], interactive: true, askLabel: 'Shake', replayLabel: 'Shake again' } as never,
+      lastOutput: '{"answer":"Yes"}',
+      previousInputs: { QUESTION: 'Will it rain?' },
+    });
+    if (!('components' in v)) throw new Error(v.unsupported);
+    const check = validateViewComponents(v.components);
+    expect(check, JSON.stringify(check)).toMatchObject({ ok: true });
+    expect(v.data).toMatchObject({ form: { QUESTION: 'Will it rain?', MOOD: ['wild'] }, items: [{ label: 'answer', value: 'Yes' }] });
+    const run = v.components.find((c) => c.id === 'run') as unknown as { action: { event: { name: string; context: Record<string, unknown> } } };
+    expect(run.action.event).toEqual({ name: 'run-agent', context: { agent: 'magic-8', in_QUESTION: { path: '/data/form/QUESTION' }, in_MOOD: { path: '/data/form/MOOD' } } });
+    expect(v.components.find((c) => c.id === 'run_label')).toMatchObject({ text: 'Shake again' });
+    const first = legacyInteractiveView({ agentId: 'magic-8', inputs: { QUESTION: { type: 'string' } }, widget: { type: 'key-value', fields: [], interactive: true, askLabel: 'Shake' } as never });
+    expect('components' in first && first.components.find((c) => c.id === 'run_label')).toMatchObject({ text: 'Shake' });
   });
 });
