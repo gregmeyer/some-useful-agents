@@ -80,22 +80,20 @@ export const AGENT_CHAT_JS = `
   if (sessionId && runId) watch(sessionId, -1);
   else sock.connect();
 
-  form.addEventListener('submit', function (e) {
-    var text = input ? input.value.trim() : '';
-    if (!text) return;
-    e.preventDefault();
+  // One turn: show the message, send the frame, claim the conversation's
+  // events. Used by the composer and by widget clicks (A2UI actions).
+  function startTurn(frame, displayText) {
     setBusy(true);
     var list = host.querySelector('.agent-chat__transcript');
     if (!list) { host.innerHTML = '<ul class="agent-chat__transcript"></ul>'; list = host.firstChild; }
     list.insertAdjacentHTML('beforeend',
-      '<li class="inbox-msg"><span class="inbox-msg__avatar inbox-msg__avatar--user">you</span><div class="inbox-msg__body"><p class="inbox-msg__text" style="margin: 0;">' + esc(text) + '</p></div></li>' +
+      '<li class="inbox-msg"><span class="inbox-msg__avatar inbox-msg__avatar--user">you</span><div class="inbox-msg__body"><p class="inbox-msg__text" style="margin: 0;">' + esc(displayText) + '</p></div></li>' +
       '<li class="inbox-msg"><span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span><div class="inbox-msg__body"><span class="inbox-msg__writing">Working…</span>' +
       '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div></div></li>');
-    input.value = '';
     scrollEnd();
     // The server subscribes this connection to the conversation before the
     // turn starts; adopt() claims those events (incl. ones that beat the reply).
-    sock.request({ type: 'chat.send', agentId: agentId, sessionId: sessionId || undefined, text: text })
+    sock.request(frame)
       .then(function (r) {
         runId = r.runId;
         if (!sessionId) {
@@ -114,6 +112,24 @@ export const AGENT_CHAT_JS = `
         setBusy(false);
         list.insertAdjacentHTML('beforeend', '<li class="inbox-msg"><div class="inbox-msg__body"><p class="flash flash--error" style="margin: 0;">' + esc(err.message) + '</p></div></li>');
       });
+  }
+
+  form.addEventListener('submit', function (e) {
+    var text = input ? input.value.trim() : '';
+    if (!text) return;
+    e.preventDefault();
+    input.value = '';
+    startTurn({ type: 'chat.send', agentId: agentId, sessionId: sessionId || undefined, text: text }, text);
+  });
+
+  // A click in a reply's widget (button, choice) is the next message. The
+  // server turns the action into text (its context.message, else "▸ name").
+  host.addEventListener('a2ui-action', function (e) {
+    var action = e.detail || {};
+    if (!sessionId || runId || (button && button.disabled)) return; // mid-turn: ignore
+    var ctx = action.context || {};
+    var display = typeof ctx.message === 'string' && ctx.message ? ctx.message : '▸ ' + (action.name || 'action');
+    startTurn({ type: 'chat.action', agentId: agentId, sessionId: sessionId, action: { name: action.name, context: ctx } }, display);
   });
 })();
 `;

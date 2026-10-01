@@ -678,6 +678,28 @@ assetsRouter.get('/assets/html2canvas.min.js', (_req: Request, res: Response) =>
   res.type('application/javascript').send(HTML2CANVAS_JS);
 });
 
+// A2UI (docs/a2ui-views.md): the vendored renderer (scripts/vendor-a2ui.mjs)
+// and sua's components + mounter. ES modules, loaded with <script type="module">.
+function readAsset(name: string): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const dir of [join(here, '..', 'assets'), join(here, '..', '..', 'src', 'assets')]) {
+    const p = join(dir, name);
+    if (existsSync(p)) return readFileSync(p, 'utf-8');
+  }
+  return '';
+}
+const A2UI_VENDOR_JS = readAsset('vendor/a2ui-v0_9.js');
+assetsRouter.get('/assets/vendor/a2ui-v0_9.js', (_req: Request, res: Response) => {
+  if (!A2UI_VENDOR_JS) { res.status(500).type('text/plain').send('a2ui renderer missing; run npm run build'); return; }
+  // Content changes only with a version bump (new file contents); revalidate cheaply via ETag.
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(A2UI_VENDOR_JS);
+});
+assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(readAsset('a2ui-sua.js'));
+});
+
 assetsRouter.get('/assets/graph-edit.js', (_req: Request, res: Response) => {
   // Same policy as graph-render.js: revalidate every load so behaviour fixes
   // land without a hard reload.

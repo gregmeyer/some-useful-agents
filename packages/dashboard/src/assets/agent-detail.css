@@ -247,3 +247,5 @@
 .agent-chat__tool.is-error .mono { color: var(--color-err); }
 .agent-chat__live-text { white-space: pre-wrap; margin-top: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .agent-chat__live-text:empty { display: none; }
+.agent-chat__raw { margin-top: var(--space-2); font-size: var(--font-size-xs); }
+.agent-chat__raw > summary { cursor: pointer; }

@@ -12,6 +12,7 @@ import { MessageProcessor, STRICT_VALIDATION } from '@a2ui/web_core/v0_9';
 import type { Run } from '../types.js';
 import type { NodeExecutionRecord } from '../agent-v2-types.js';
 import { A2UI_PROTOCOL_VERSION, SUA_CATALOG_ID, suaCatalog } from './catalog.js';
+import { sanitizeHtml } from '../html-sanitizer.js';
 
 export const MAX_VIEW_COMPONENTS = 200;
 export const MAX_VIEW_BYTES = 64 * 1024;
@@ -212,4 +213,39 @@ export function viewToMessages(surfaceId: string, components: ViewComponent[], d
     { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components } },
     { version: A2UI_PROTOCOL_VERSION, updateDataModel: { surfaceId, value: dataModel } },
   ];
+}
+
+/** Resolve an absolute JSON-pointer path (`/a/b/0`) in a data model. */
+export function resolvePointer(data: unknown, path: string): unknown {
+  if (!path.startsWith('/')) return undefined;
+  let cur: unknown = data;
+  for (const raw of path.split('/').slice(1)) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+/**
+ * Make a validated view safe to send to the browser. `SanitizedHtml.html` is
+ * resolved here (a literal, or an absolute data path) and run through sua's
+ * allowlist sanitizer, then sent as a literal: the browser never receives
+ * unsanitized HTML, and never resolves an HTML binding itself. A binding that
+ * can't be resolved safely (relative to a list item, or a function) renders
+ * as a note instead. Returns new component objects; the input isn't changed.
+ */
+export function prepareViewForRender(components: ViewComponent[], dataModel: unknown): ViewComponent[] {
+  return components.map((c) => {
+    if (c.component !== 'SanitizedHtml') return c;
+    const raw = c.html;
+    let value: unknown;
+    if (typeof raw === 'string') value = raw;
+    else if (raw && typeof raw === 'object' && typeof (raw as { path?: unknown }).path === 'string') {
+      const path = (raw as { path: string }).path;
+      value = path.startsWith('/') ? resolvePointer(dataModel, path) : undefined;
+      if (!path.startsWith('/')) return { ...c, html: '<p><em>HTML inside a list can\'t be shown safely; bind it with an absolute path.</em></p>' };
+    }
+    return { ...c, html: typeof value === 'string' ? sanitizeHtml(value) : '' };
+  });
 }

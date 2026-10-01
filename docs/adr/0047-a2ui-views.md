@@ -44,5 +44,10 @@ protocol) into the dashboard: 87 KB gzip, CSP-safe.
   to v1.0 is one conversion in one place.
 - The browser-side elements for sua components (dashboard `a2ui-sua.js`) must match these
   schemas; a test comparing the two lands with the renderer (W2).
-- Nothing is drawn from `view:` yet; W2 renders it on the run page and Pulse, WS2 in chat, and
+- WS2 (this ADR's first consumer) draws views in agent chat: the renderer is vendored by
+  `packages/dashboard/scripts/vendor-a2ui.mjs` (pinned to the same 0.12.0), sua components live
+  in `assets/a2ui-sua.js` (a test keeps their names in step with core's catalog), a small
+  escape-first markdown renderer replaces `@a2ui/markdown-it` (no HTML from data), and
+  `SanitizedHtml` is resolved + sanitized server-side (`prepareViewForRender`). Widget actions
+  become the next chat turn (`chat.action` frame). W2 renders views on the run page and Pulse;
   W3 converts existing widgets into views.

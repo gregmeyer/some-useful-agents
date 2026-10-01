@@ -202,7 +202,8 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // The chat WebSocket (lib/chat-socket.ts): 'self' covers ws: in current
   // Chrome/Firefox but not every browser, so name the dashboard's own ws://
   // origins (host:port entries of the allowlist) explicitly.
-  const wsSrc = [...ctx.allowlist].filter((h) => h.includes(':') && !h.startsWith('[') || /^\[.*\]:\d+$/.test(h))
+  // CSP host-sources can't be IPv6 literals ([::1]), so those are left out.
+  const wsSrc = [...ctx.allowlist].filter((h) => h.includes(':') && !h.startsWith('['))
     .map((h) => `ws://${h}`).join(' ');
   app.use((_req, res, next) => {
     const imgSrc = computeImgSrc();

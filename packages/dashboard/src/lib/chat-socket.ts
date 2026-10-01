@@ -13,7 +13,7 @@ import {
 import type { DashboardContext } from '../context.js';
 import { readCookie } from '../auth-middleware.js';
 import { SESSION_COOKIE } from '../session.js';
-import { chatBus, sessionChannel, startChatTurn } from './chat-turn.js';
+import { actionToMessage, chatBus, sessionChannel, startChatTurn } from './chat-turn.js';
 import type { InboxEventBus } from './inbox-event-bus.js';
 import { addInboxReply } from '../routes/inbox.js';
 
@@ -32,6 +32,7 @@ import { addInboxReply } from '../routes/inbox.js';
  *   client → server
  *     {type:'subscribe', channel:'session:<id>' | 'inbox:<messageId>', since?}  (since: replay buffered events with id > since; -1 = all)   {type:'unsubscribe', channel}
  *     {type:'chat.send', agentId, sessionId?, text, ref?}  {type:'chat.cancel', runId}
+ *     {type:'chat.action', agentId, sessionId, action:{name, context?}, ref?}  (a widget click → next turn)
  *     {type:'inbox.send', threadId, text, ref?}            (a reply in an inbox thread; triage answers on inbox:<id>)
  *     {type:'ping'}
  *   server → client
@@ -140,9 +141,17 @@ export function attachChatSocket(server: Server, ctx: DashboardContext): ChatSoc
           subs.delete(channel);
           return;
         }
-        case 'chat.send': {
+        case 'chat.send':
+        case 'chat.action': {
           const agentId = typeof msg.agentId === 'string' ? msg.agentId : '';
-          const text = typeof msg.text === 'string' ? msg.text : '';
+          // A widget click (A2UI action) is the next turn, as the message it stands for.
+          let text = typeof msg.text === 'string' ? msg.text : '';
+          if (msg.type === 'chat.action') {
+            if (typeof msg.sessionId !== 'string' || !msg.sessionId) { send({ type: 'error', ref, message: 'An action belongs to a conversation.' }); return; }
+            const m = actionToMessage(msg.action);
+            if ('error' in m) { send({ type: 'error', ref, message: m.error }); return; }
+            text = m.message;
+          }
           const sessionId = typeof msg.sessionId === 'string' && msg.sessionId ? msg.sessionId : undefined;
           const agent = ctx.agentStore.getAgent(agentId);
           if (!agent) { send({ type: 'error', ref, message: `No agent "${agentId}".` }); return; }

@@ -13,6 +13,8 @@ export interface AgentChatArgs extends AgentDetailArgs {
     pending: boolean;
     /** The run behind the pending message is waiting on this question. */
     waitingQuestion?: HumanQuestion;
+    /** The agent's A2UI view for each reply, by run id (lib/a2ui-surface.ts). */
+    views?: Record<string, SafeHtml>;
     /** The input a message fills, or why the agent can't take one. */
     chatInput?: string;
     notConversational?: string;
@@ -108,6 +110,7 @@ export function renderAgentChat(args: AgentChatArgs): string {
       </div>
     </section>
     ${script}
+    ${agent.view ? unsafeHtml('<script type="module" src="/assets/a2ui-sua.js"></script>') : html``}
   `;
   return agentPageShell({ ...args, activeTab: 'chat' }, content);
 }
@@ -132,7 +135,10 @@ export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentC
           ${t.role === 'agent' && t.failed
             ? html`<p class="inbox-msg__text" style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`
             : t.role === 'agent'
-              ? mdBody(t.text)
+              ? (t.runId && chat.views?.[t.runId] && String(chat.views[t.runId]).includes('data-a2ui-surface')
+                // The widget is the reply; the raw text stays one click away.
+                ? html`${chat.views[t.runId]}<details class="agent-chat__raw"><summary class="dim">Show the raw reply</summary>${mdBody(t.text)}</details>`
+                : html`${mdBody(t.text)}${t.runId && chat.views?.[t.runId] ? chat.views[t.runId] : html``}`)
               : html`<p class="inbox-msg__text" style="margin: 0;">${t.text}</p>`}
         </div>
       </li>`;

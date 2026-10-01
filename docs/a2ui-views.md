@@ -1,6 +1,6 @@
 # A2UI views
 
-> **Status:** the schema, catalog and validation are in place (W1). Rendering views on the run page, Pulse and in chat lands next (see the plan in the changelog / ROADMAP). Until then a `view:` is validated and stored but the dashboard keeps drawing the agent's existing widget.
+> **Status:** views are drawn **in agent chat** (each reply shows the agent's view; clicks continue the conversation). The run page, Pulse tiles and inbox threads come next; there the agent's existing widget is still what you see.
 
 An agent can describe how its results look as an [A2UI](https://a2ui.org) view: a list of UI components (text, cards, rows, metrics, tables, buttons…) bound to the data each run produces. A2UI is an open, declarative format: no code, only components from a known catalog, so it's safe to render even when a model wrote it.
 
@@ -57,13 +57,33 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Code` | `text`, `language?` | preformatted text |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
+## In chat: replies are widgets, clicks are messages
+
+On the agent's **Chat** tab, each reply whose run produced a valid view shows the view instead of the raw text ("Show the raw reply" keeps the text one click away). A Button (or any component with an `action`) continues the conversation when clicked: the action becomes your next message, either its `context.message` or "▸ name (key: value, …)".
+
+```yaml
+- id: choices
+  component: Row
+  children: { path: /outputs/followups, componentId: choice }   # one button per follow-up
+- id: choice
+  component: Button
+  child: choiceLabel
+  action: { event: { name: followup, context: { message: { path: label } } } }
+- { id: choiceLabel, component: Text, text: { path: label } }
+```
+
+The click travels over the chat WebSocket like a typed message (see [conversations.md](conversations.md)), so the reply streams the same way.
+
 ## Validation
 
 Every view, declared or generated, is checked the same way:
 
 1. At most 200 components and 64 KB.
 2. The A2UI message processor in **strict** mode against the sua catalog (the same code the browser renderer runs): only known components, every prop checked against its schema (unknown props are rejected), exactly one `root`, no references to missing components, nothing unreachable from `root`, bounded depth.
-3. sua's own checks: a literal `Image` url must be https from a host in the agent's `permissions.imgSrc` (or a `data:` URL); a literal `Link` url must be http(s). Bound urls are checked when the view is drawn.
+3. sua's own checks: a literal `Image` url must be https from a host in the agent's `permissions.imgSrc` (or a `data:` URL); a literal `Link` url must be http(s). Bound urls are checked when the view is drawn (links: http(s) only, enforced by the component; images: the page's CSP only allows hosts from `permissions.imgSrc`).
+4. `SanitizedHtml` is resolved and sanitized **on the server** before the view is sent: the browser only ever receives allowlisted HTML as a literal. Binding it to a path inside a list item isn't supported (it would have to be resolved in the browser), so it shows a note instead.
+
+Text supports a small, safe markdown subset (`**bold**`, `*italic*`, `` `code` ``, line breaks); everything else is shown as text.
 
 A declared view is checked when the agent is saved or imported (an invalid one is refused, with the reason). A generated view is checked on every run; if the node's output isn't a valid view, the widget shows why instead of the output.
 

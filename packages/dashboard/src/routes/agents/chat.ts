@@ -7,13 +7,16 @@ import {
   SessionNotFoundError,
   ChatMessageError,
   type Agent,
+  type SessionTurn,
   type Session,
 } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentChat, renderChatTranscript } from '../../views/agent-detail/chat.js';
 import { startChatTurn } from '../../lib/chat-turn.js';
+import { renderRunView } from '../../lib/a2ui-surface.js';
 import { buildTabArgs } from './tabs.js';
 import { questionStore } from '../../lib/ask-human.js';
+import type { SafeHtml } from '../../views/html.js';
 
 /**
  * Chat tab: talk to an agent (docs/conversations.md). A message is recorded
@@ -69,10 +72,12 @@ agentChatRouter.get('/agents/:name/chat', async (req: Request, res: Response) =>
   let chatInput: string | undefined;
   if (!blocked) chatInput = resolveChatInput(args.agent);
 
+  // A2UI views for the replies (agents with `view:`), newest 20 turns.
+  const views = args.agent.view ? replyViews(ctx, args.agent, turns) : undefined;
   // The live client re-renders the transcript from source when a turn ends.
   if (req.query.fragment === 'transcript') {
     res.setHeader('X-Chat-Pending', pending ? '1' : '0');
-    res.type('html').send(String(renderChatTranscript(args.agent, { sessions: [], active, turns, pending, waitingQuestion })));
+    res.type('html').send(String(renderChatTranscript(args.agent, { sessions: [], active, turns, pending, waitingQuestion, views })));
     return;
   }
   const error = typeof req.query.error === 'string' ? req.query.error : undefined;
@@ -86,6 +91,7 @@ agentChatRouter.get('/agents/:name/chat', async (req: Request, res: Response) =>
       turns,
       pending,
       waitingQuestion,
+      views,
       chatInput,
       notConversational: blocked,
     },
@@ -125,3 +131,15 @@ agentChatRouter.post('/agents/:name/chat/:sid/delete', (req: Request, res: Respo
   if (s && s.agentId === agentId) sessions.delete(s.id);
   res.redirect(303, chatUrl(agentId, undefined, s && s.agentId === agentId ? 'Conversation deleted. Its runs are kept.' : undefined, 'ok'));
 });
+
+/** The agent's view for each of its recent replies, keyed by run id. */
+function replyViews(ctx: Ctx, agent: Agent, turns: readonly SessionTurn[]): Record<string, SafeHtml> {
+  const out: Record<string, SafeHtml> = {};
+  for (const t of turns.slice(-20)) {
+    if (t.role !== 'agent' || !t.runId || t.failed) continue;
+    const run = ctx.runStore.getRun(t.runId);
+    if (!run || run.status !== 'completed') continue;
+    out[t.runId] = renderRunView(agent, run, ctx.runStore.listNodeExecutions(t.runId), `chat-${t.runId}`);
+  }
+  return out;
+}

@@ -68,6 +68,17 @@ async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
     inputs: { QUESTION: { type: 'string' } },
     nodes: [{ id: 'answer', type: 'llm-prompt', prompt: 'Answer: {{inputs.QUESTION}}' }],
   } as never, 'cli');
+  agentStore.createAgent({
+    id: 'shop', name: 'Shop', status: 'active', source: 'local', mcp: false,
+    inputs: { QUESTION: { type: 'string' } },
+    nodes: [{ id: 'answer', type: 'llm-prompt', prompt: 'Answer: {{inputs.QUESTION}}' }],
+    view: { components: [
+      { id: 'root', component: 'Column', children: ['price', 'cheaper'] },
+      { id: 'price', component: 'Metric', label: 'Best price', value: { path: '/outputs/price' } },
+      { id: 'cheaper', component: 'Button', child: 'cheaperLabel', action: { event: { name: 'refine', context: { message: 'Show cheaper ones' } } } },
+      { id: 'cheaperLabel', component: 'Text', text: 'Cheaper' },
+    ] },
+  } as never, 'cli');
   server = createServer();
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   port = (server.address() as { port: number }).port;
@@ -224,6 +235,35 @@ describe('chat WebSocket, inbox threads', () => {
     expect(await next((f) => f.ref === 'e')).toMatchObject({ type: 'error', message: 'Reply cannot be empty.' });
     ws.send(JSON.stringify({ type: 'subscribe', ref: 'u', channel: 'inbox:nope' }));
     expect(await next((f) => f.ref === 'u')).toMatchObject({ type: 'error', message: 'No such inbox thread.' });
+    ws.close();
+  });
+});
+
+describe('chat WebSocket, inline A2UI views', () => {
+  const jsonModel: SpawnNodeFn = async () => ({ result: '{"price":"$89"}', exitCode: 0 });
+  it('puts the agent\'s view under its reply, and a widget click becomes the next turn', async () => {
+    await start(jsonModel);
+    const { ws, next } = await connect(goodHeaders());
+    ws.send(JSON.stringify({ type: 'chat.send', ref: 'a', agentId: 'shop', text: 'Trail shoes?' }));
+    const started = await next((f) => f.type === 'chat.started');
+    await next((f) => f.event === 'turn-end');
+    const sid = String(started.sessionId);
+    const frag = await request(server!).get(`/agents/shop/chat?session=${sid}&fragment=transcript`)
+      .set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('data-a2ui-surface');
+    expect(frag.text).toContain('"price":"$89"');
+    const page = await request(server!).get(`/agents/shop/chat?session=${sid}`).set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('<script type="module" src="/assets/a2ui-sua.js"></script>');
+
+    ws.send(JSON.stringify({ type: 'chat.action', ref: 'b', agentId: 'shop', sessionId: sid, action: { name: 'refine', context: { message: 'Show cheaper ones' } } }));
+    const second = await next((f) => f.type === 'chat.started' && f.ref === 'b');
+    expect(second.sessionId).toBe(sid);
+    await next((f) => f.event === 'turn-end' && (f.data as { runId: string }).runId === second.runId);
+    const after = await request(server!).get(`/agents/shop/chat?session=${sid}&fragment=transcript`).set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(after.text).toContain('Show cheaper ones');
+
+    ws.send(JSON.stringify({ type: 'chat.action', ref: 'c', agentId: 'shop', action: { name: 'refine' } }));
+    expect(await next((f) => f.ref === 'c')).toMatchObject({ type: 'error', message: 'An action belongs to a conversation.' });
     ws.close();
   });
 });
