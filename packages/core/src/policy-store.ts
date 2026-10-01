@@ -273,6 +273,9 @@ export function policyResource(toolId: string, args: Record<string, unknown>, wo
     }
     case 'shell-exec':
       return str(args.command);
+    case 'board-read':
+    case 'board-place':
+      return str(args.board);
     default:
       return '';
   }

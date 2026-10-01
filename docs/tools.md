@@ -41,6 +41,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`csv-to-chart-json`](tools/csv-to-chart-json.md) | Convert CSV into the JSON shape modern-graphics expects |
 | [`oauth-loopback`](tools/oauth-loopback.md) | One-time OAuth2 authorization-code loopback; saves a refresh token to the vault |
 | `ask-human` | Ask the person mid-node; the run waits for the answer in the inbox, then the node starts again with it. Add to a node's `tools:`; see [ask-a-person.md](ask-a-person.md) |
+| `board-read`, `board-place` | Read and arrange a board (Pulse or a named dashboard): add, move, resize and remove tiles, saved as an undoable version. Also offered over MCP; see [tools/board-place.md](tools/board-place.md) |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools

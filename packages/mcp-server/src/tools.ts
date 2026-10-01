@@ -24,6 +24,11 @@ import {
   InvalidInputTypeError,
   UndeclaredInputError,
   SensitiveInputNameError,
+  BoardsStore,
+  getBuiltinTool,
+  evaluatePolicy,
+  resolvePolicyDocument,
+  policyResource,
 } from '@some-useful-agents/core';
 
 /**
@@ -379,6 +384,46 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         isError: current.status === 'failed',
       };
     },
+  );
+
+  // Boards: let an MCP client (Claude Desktop, Codex…) read and arrange Pulse
+  // or a named dashboard, through the same board-read / board-place tools an
+  // agent uses — same validation, same tool policy, same undoable versions.
+  const boardsStore = (() => {
+    try { return opts.runStore ? new BoardsStore(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
+  })();
+  const runBoardTool = async (toolId: 'board-read' | 'board-place', args: Record<string, unknown>) => {
+    if (!boardsStore) return errorResult('Boards are not available on this server.');
+    if (opts.dataRoot) {
+      const decision = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), {
+        toolId, resource: policyResource(toolId, args), agentSource: 'local', agentId: 'mcp',
+      });
+      if (decision.effect === 'deny') return errorResult(decision.reason ?? `Policy denies "${toolId}".`);
+    }
+    const out = await getBuiltinTool(toolId)!.execute(args, { boards: boardsStore });
+    return { content: [{ type: 'text' as const, text: String(out.result ?? '') }], ...(out.isError ? { isError: true } : {}) };
+  };
+
+  server.registerTool(
+    'board-read',
+    {
+      description: 'See how a sua board (Pulse, or a named dashboard) is laid out: items with ids, positions and sizes on a 12-column grid. Omit board to list the boards.',
+      inputSchema: { board: z.string().optional().describe('Board id: "pulse" or a dashboard id like "user:morning-briefing".') },
+    },
+    async ({ board }) => runBoardTool('board-read', { board: board ?? '' }),
+  );
+
+  server.registerTool(
+    'board-place',
+    {
+      description: 'Add, move, resize or remove tiles on a sua board (12-column grid, 40px rows; tiles never overlap and float up). Saved as a new version the person can undo. Read the board first for item ids.',
+      inputSchema: {
+        board: z.string().describe('Board id: "pulse" or a dashboard id.'),
+        changes: z.array(z.record(z.string(), z.unknown())).describe('Changes in order: {op:"add",kind:"agent",agentId,size?:"1x1|2x1|1x2|2x2",x?,y?,w?,h?} | {op:"add",kind:"heading",text} | {op:"add",kind:"note",text} | {op:"move",id,x,y} | {op:"resize",id,w,h} | {op:"remove",id}.'),
+        version: z.number().optional().describe('The version you read; if the board changed since, nothing is saved.'),
+      },
+    },
+    async ({ board, changes, version }) => runBoardTool('board-place', { board, changes, ...(version !== undefined ? { version } : {}) }),
   );
 
   server.registerTool(

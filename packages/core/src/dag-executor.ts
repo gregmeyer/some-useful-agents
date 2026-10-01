@@ -1,3 +1,4 @@
+import { BoardsStore } from './boards.js';
 /**
  * DAG executor. Walks an `Agent`'s nodes topologically, writes one
  * `node_executions` row per node, propagates `{{upstream.<id>.result}}`
@@ -477,6 +478,12 @@ export async function executeAgentDag(
   // store shares the run database, so this works in every process that runs
   // agents without extra wiring.
   const memory = memorySettings(agent);
+  // Boards for board-read / board-place, opened on first use (same DB file).
+  let boards: BoardsStore | undefined;
+  const boardsStore = (): BoardsStore | undefined => {
+    if (!boards) { try { boards = new BoardsStore(deps.runStore.databaseHandle()); } catch { boards = undefined; } }
+    return boards;
+  };
   let memoryStore: MemoryStore | undefined;
   if (memory.enabled) {
     try { memoryStore = deps.memoryStore ?? MemoryStore.fromHandle(deps.runStore.databaseHandle()); } catch { memoryStore = undefined; }
@@ -1333,6 +1340,7 @@ export async function executeAgentDag(
           // a minted token. Already in scope — used for generated tools at ~L878.
           secretsStore: deps.secretsStore,
           memory: memoryToolCtx(node, env),
+          boards: boardsStore(),
         };
         structuredOutput = await builtinEntry.execute(toolInputs, ctx);
         const stdout = structuredOutput.result ?? '';
@@ -1412,7 +1420,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), spendBudgetUsd: nodeSpendBudget };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1439,7 +1447,7 @@ export async function executeAgentDag(
           result = ask.failure;
         } else {
           const nodePreamble = ask?.preamble ? [behaviorPreamble, ask.preamble].filter(Boolean).join('\n') : behaviorPreamble;
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
           const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, ask?.signal ?? effectiveSignal, onSpawn, onChildExit);
           ask?.dispose();
           askedQuestion = ask ? ask.pending() : undefined;

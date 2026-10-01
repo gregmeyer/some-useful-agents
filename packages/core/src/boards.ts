@@ -89,6 +89,18 @@ export function normalizeBoardItems(input: unknown): BoardItem[] {
   return placed.sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
+/**
+ * Each tile template's default size — the dashboard's TEMPLATE_REGISTRY
+ * `defaultSize`, mirrored here so boards derived outside the dashboard (the
+ * board tools) size tiles the way the page does. A dashboard test keeps the
+ * two in step.
+ */
+export const TILE_TEMPLATE_DEFAULT_SIZES: Readonly<Record<string, '1x1' | '2x1' | '1x2' | '2x2'>> = {
+  metric: '1x1', 'time-series': '2x1', 'text-headline': '1x1', 'text-image': '2x1', image: '2x2',
+  table: '2x1', status: '1x1', media: '2x1', widget: '2x1', comparison: '2x1', 'key-value': '2x1',
+  story: '2x1', funnel: '1x2',
+};
+
 /** Grid size for an old tile size hint (`1x1` … `2x2`). */
 export function sizeToSpan(size: string | undefined): { w: number; h: number } {
   switch (size) {
@@ -136,6 +148,106 @@ export function boardItemsFromSections(
 /** A short fingerprint of a board's items (for comparisons and tests). */
 export function boardItemsHash(items: readonly BoardItem[]): string {
   return createHash('sha256').update(JSON.stringify(items)).digest('hex').slice(0, 12);
+}
+
+/** First free w×h spot on a board, top to bottom then left to right (else a new row at the bottom). */
+export function freeSpot(items: readonly BoardItem[], w: number, h: number): { x: number; y: number } {
+  const width = Math.min(Math.max(1, w), BOARD_COLUMNS);
+  const end = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
+  for (let y = 0; y <= end; y++) {
+    for (let x = 0; x + width <= BOARD_COLUMNS; x++) {
+      const probe = { id: '_', kind: 'heading', text: '_', x, y, w: width, h } as BoardItem;
+      if (!items.some((o) => overlaps(probe, o))) return { x, y };
+    }
+  }
+  return { x: 0, y: end };
+}
+
+const pos = { x: z.number().int().min(0).max(BOARD_COLUMNS - 1).optional(), y: z.number().int().min(0).max(10_000).optional() };
+const span = { w: z.number().int().min(1).max(BOARD_COLUMNS).optional(), h: z.number().int().min(1).max(60).optional() };
+
+/** One change an agent (or the board-place tool) makes to a board. */
+export const boardChangeSchema = z.union([
+  z.object({ op: z.literal('add'), kind: z.literal('agent'), agentId: z.string().min(1).max(128), size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(), ...pos, ...span }).strict(),
+  // A heading always spans the row; w/h are accepted (models send them) and ignored.
+  z.object({ op: z.literal('add'), kind: z.literal('heading'), text: z.string().min(1).max(120), ...pos, ...span }).strict(),
+  z.object({ op: z.literal('add'), kind: z.literal('note'), text: z.string().min(1).max(4000), ...pos, ...span }).strict(),
+  z.object({ op: z.literal('move'), id: z.string().min(1), x: z.number().int().min(0).max(BOARD_COLUMNS - 1), y: z.number().int().min(0).max(10_000) }).strict(),
+  z.object({ op: z.literal('resize'), id: z.string().min(1), w: z.number().int().min(1).max(BOARD_COLUMNS), h: z.number().int().min(1).max(60) }).strict(),
+  z.object({ op: z.literal('remove'), id: z.string().min(1) }).strict(),
+]);
+export type BoardChange = z.infer<typeof boardChangeSchema>;
+
+/**
+ * Apply changes to a board's items and settle them. An `add` without x/y
+ * goes in the first free spot; `move`/`resize`/`remove` take an item id
+ * (or, for an agent tile, the agent id). Throws a readable error on an
+ * unknown id or a change that fails the schema.
+ */
+export function applyBoardChanges(current: readonly BoardItem[], changesInput: unknown): BoardItem[] {
+  const changes = z.array(boardChangeSchema).min(1).max(100).parse(changesInput);
+  let items: BoardItem[] = current.map((i) => ({ ...i }));
+  const find = (id: string) => items.find((i) => i.id === id) ?? items.find((i) => i.kind === 'agent' && i.agentId === id);
+  const newId = (prefix: string) => {
+    let n = items.length + 1;
+    while (items.some((i) => i.id === `${prefix}${n}`)) n += 1;
+    return `${prefix}${n}`;
+  };
+  for (const c of changes) {
+    if (c.op === 'add') {
+      if (c.kind === 'agent') {
+        const { w, h } = c.w || c.h ? { w: c.w ?? 3, h: c.h ?? 5 } : sizeToSpan(c.size);
+        const at = c.x !== undefined && c.y !== undefined ? { x: c.x, y: c.y } : freeSpot(items, w, h);
+        items.push({ id: newId('a'), kind: 'agent', agentId: c.agentId, ...at, w, h });
+      } else if (c.kind === 'heading') {
+        const end = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
+        items.push({ id: newId('h'), kind: 'heading', text: c.text, x: 0, y: c.y ?? end, w: BOARD_COLUMNS, h: 1 });
+      } else {
+        const w = c.w ?? 4;
+        const h = c.h ?? 3;
+        const at = c.x !== undefined && c.y !== undefined ? { x: c.x, y: c.y } : freeSpot(items, w, h);
+        items.push({ id: newId('n'), kind: 'note', text: c.text, ...at, w, h });
+      }
+      items = normalizeBoardItems(items);
+      continue;
+    }
+    const target = find(c.id);
+    if (!target) throw new Error(`There's no item "${c.id}" on this board. Read the board first to get item ids.`);
+    if (c.op === 'remove') items = items.filter((i) => i !== target);
+    else if (c.op === 'move') { target.x = Math.min(c.x, BOARD_COLUMNS - target.w); target.y = c.y; }
+    else { target.w = c.w; target.h = c.h; target.x = Math.min(target.x, BOARD_COLUMNS - c.w); }
+    items = normalizeBoardItems(items);
+  }
+  return items;
+}
+
+/**
+ * Board items from an Improve-layout plan: each container becomes a heading
+ * plus its tiles, sized by the plan's suggestion for that agent (else
+ * `sizeOf`). System tiles (`_…`) become system items.
+ */
+export function boardItemsFromLayoutPlan(
+  plan: { containers: Array<{ label: string; tiles: string[] }>; topAgents?: Array<{ id: string; suggestedSize?: string; suggestedHeight?: number; suggestedTileFit?: 'grow' | 'scroll' }> },
+  sizeOf: (tileId: string) => string | undefined = () => undefined,
+): BoardItem[] {
+  const hints = new Map((plan.topAgents ?? []).map((a) => [a.id, a]));
+  const sections: DashboardSection[] = plan.containers.map((c) => ({
+    title: c.label,
+    agentIds: c.tiles,
+    placements: Object.fromEntries(c.tiles.flatMap((t) => {
+      const hnt = hints.get(t);
+      if (!hnt) return [];
+      return [[t, {
+        ...(hnt.suggestedSize ? { size: hnt.suggestedSize as '1x1' } : {}),
+        ...(hnt.suggestedHeight ? { height: hnt.suggestedHeight } : {}),
+        ...(hnt.suggestedTileFit ? { tileFit: hnt.suggestedTileFit } : {}),
+      }]];
+    })),
+  }));
+  return boardItemsFromSections(sections, (id) => sizeOf(id)).map((it) =>
+    it.kind === 'agent' && it.agentId.startsWith('_')
+      ? { id: it.id, kind: 'system' as const, tileId: it.agentId, x: it.x, y: it.y, w: it.w, h: it.h }
+      : it);
 }
 
 /**
@@ -210,6 +322,66 @@ export class BoardsStore {
     this.db.prepare('UPDATE boards SET items_json = previous_items_json, previous_items_json = items_json, version = version + 1, updated_at = ? WHERE id = ?')
       .run(Date.now(), id);
     return this.get(id)!;
+  }
+
+  /**
+   * The board as it stands: the saved one, or (never saved) Pulse with nothing
+   * placed / a named dashboard laid out from its sections. Undefined when
+   * there's no such board. Used by the board tools, which have no tile data.
+   */
+  loadOrDerive(id: string): (Board & { derived: boolean }) | undefined {
+    const stored = this.get(id);
+    if (stored) return { ...stored, derived: false };
+    if (id === PULSE_BOARD_ID) return { id, name: 'Pulse', packId: null, items: [], version: 0, updatedAt: 0, derived: true };
+    let row: { name: string; pack_id: string | null; layout_json: string; updated_at: number } | undefined;
+    try {
+      row = this.db.prepare('SELECT name, pack_id, layout_json, updated_at FROM dashboards WHERE id = ?').get(id) as typeof row;
+    } catch { row = undefined; }
+    if (!row) return undefined;
+    let sections: DashboardSection[] = [];
+    try { sections = (JSON.parse(row.layout_json) as { sections?: DashboardSection[] }).sections ?? []; } catch { sections = []; }
+    return { id, name: row.name, packId: row.pack_id, items: boardItemsFromSections(sections, (agentId) => this.tileSize(agentId)), version: 0, updatedAt: row.updated_at, derived: true };
+  }
+
+  /** Every board you can open: saved boards, Pulse, and every named dashboard. */
+  listAll(): Array<{ id: string; name: string; saved: boolean }> {
+    const out = new Map<string, { id: string; name: string; saved: boolean }>();
+    out.set(PULSE_BOARD_ID, { id: PULSE_BOARD_ID, name: 'Pulse', saved: false });
+    try {
+      for (const r of this.db.prepare('SELECT id, name FROM dashboards ORDER BY name').all() as Array<{ id: string; name: string }>) out.set(r.id, { id: r.id, name: r.name, saved: false });
+    } catch { /* no dashboards table */ }
+    for (const b of this.list()) out.set(b.id, { id: b.id, name: b.name, saved: true });
+    return [...out.values()];
+  }
+
+  /**
+   * The size an agent's tile prefers, as the dashboard picks it: an
+   * Improve-layout hint, else the tile's declared size, else its template's
+   * default (agents with only a view use the widget template).
+   */
+  tileSize(agentId: string): string | undefined {
+    try {
+      const hint = this.db.prepare('SELECT size FROM layout_hints WHERE agent_id = ?').get(agentId) as { size: string | null } | undefined;
+      if (hint?.size) return hint.size;
+    } catch { /* no layout_hints table */ }
+    try {
+      const row = this.db.prepare('SELECT v.dag_json FROM agents a JOIN agent_versions v ON v.agent_id = a.id AND v.version = a.current_version WHERE a.id = ?').get(agentId) as { dag_json: string } | undefined;
+      if (!row) return undefined;
+      const dag = JSON.parse(row.dag_json) as { signal?: { size?: string; template?: string }; view?: unknown };
+      if (dag.signal?.size) return dag.signal.size;
+      if (dag.signal?.template) return TILE_TEMPLATE_DEFAULT_SIZES[dag.signal.template];
+      if (dag.view) return TILE_TEMPLATE_DEFAULT_SIZES.widget;
+    } catch { /* no agents tables, or unreadable */ }
+    return undefined;
+  }
+
+  /** Agent ids among `ids` that aren't installed (or have no tile to show). */
+  missingAgents(ids: readonly string[]): string[] {
+    if (ids.length === 0) return [];
+    try {
+      const stmt = this.db.prepare('SELECT 1 FROM agents WHERE id = ?');
+      return ids.filter((a) => !stmt.get(a));
+    } catch { return []; }
   }
 
   delete(id: string): void {

@@ -225,7 +225,7 @@ Named, sectioned views over installed agents — pack-owned (e.g. `starter:media
 
 ## `/boards/:id` — Boards (preview)
 
-Pulse (`/boards/pulse`) and any named dashboard (`/boards/<dashboard id>`) as a board: tiles placed on a 12-column grid, with Pulse's unplaced agents in a tray below. Open it with **Board view** on Pulse or a dashboard, and arrange it with **Edit** (drag, resize, keyboard, add headings, notes and tiles; Save and Undo). See [Boards](boards.md).
+Pulse (`/boards/pulse`) and any named dashboard (`/boards/<dashboard id>`) as a board: tiles placed on a 12-column grid, with Pulse's unplaced agents in a tray below. Open it with **Board view** on Pulse or a dashboard, and arrange it with **Edit** (drag, resize, keyboard, add headings, notes and tiles; Save and Undo). **✨ Suggest a layout** asks the layout planner for an arrangement you review before saving. See [Boards](boards.md).
 
 ## `/settings`
 

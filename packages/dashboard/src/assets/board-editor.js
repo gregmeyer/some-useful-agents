@@ -113,6 +113,8 @@ function init(data) {
     editBtn.hidden = on;
     for (const b of editOnly) b.hidden = !on;
     if (undoBtn) undoBtn.hidden = on;
+    const sb = toolbar.querySelector('[data-board-suggest]');
+    if (sb) sb.hidden = on;
     if (on) {
       root.querySelectorAll('.board-item').forEach(addCover);
       paint();
@@ -378,6 +380,89 @@ function init(data) {
     say(out.json.error || 'Couldn’t undo.', true);
   });
   window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ── Suggest a layout (Improve layout's planner → preview in the editor) ─
+  const suggestBtn = toolbar.querySelector('[data-board-suggest]');
+  suggestBtn?.addEventListener('click', async () => {
+    if (window.matchMedia('(max-width: 900px)').matches) { say('Boards can be arranged on a wider screen.', true); return; }
+    if (dirty) { say('Save or cancel your changes first.', true); return; }
+    suggestBtn.disabled = true;
+    say('Asking the layout planner…');
+    try {
+      const start = await post(data.plannerUrl, { focus: '' });
+      if (!start.ok || !start.json.ok) throw new Error(start.json.error || 'The layout planner didn’t start.');
+      let plan = null;
+      for (let i = 0; i < 150 && !plan; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const res = await fetch(data.plannerUrl + '/' + encodeURIComponent(start.json.runId), { headers: { Accept: 'application/json' } });
+        const json = await res.json();
+        if (json.status === 'done') plan = json.plan;
+        else if (json.status === 'failed' || json.status === 'not_found' || json.ok === false) throw new Error(json.error || 'The layout planner failed.');
+        else say(json.phase || 'Designing layout…');
+      }
+      if (!plan) throw new Error('The layout planner took too long.');
+      const preview = await post('/boards/' + encodeURIComponent(data.id) + '/plan-preview', { plan });
+      if (!preview.ok) throw new Error(preview.json.error || 'Couldn’t use that layout.');
+      await loadItems(preview.json.items);
+      say('Suggested layout' + (preview.json.summary ? ': ' + preview.json.summary : '') + ' Adjust it, then Save, or Cancel to keep your board as it was.');
+    } catch (err) {
+      say(err && err.message ? err.message : 'Couldn’t suggest a layout.', true);
+    } finally {
+      suggestBtn.disabled = false;
+    }
+  });
+
+  /** Replace the board's items (a suggestion) in edit mode, reusing tiles already on the page. */
+  async function loadItems(next) {
+    setEditing(true);
+    const pool = new Map();
+    root.querySelectorAll('.board-grid .pulse-tile, .board-tray .pulse-tile').forEach((t) => {
+      t.querySelector('.board-tray__place')?.remove();
+      pool.set(t.getAttribute('data-agent-id'), t);
+    });
+    root.querySelectorAll('.board-grid .board-item').forEach((n) => n.remove());
+    items = [];
+    for (const it of next) {
+      let child;
+      if (it.kind === 'heading' || it.kind === 'note') {
+        child = document.createElement(it.kind === 'heading' ? 'h2' : 'div');
+        child.className = it.kind === 'heading' ? 'board-heading' : 'board-note';
+        child.textContent = it.text;
+      } else {
+        const tileId = it.kind === 'agent' ? it.agentId : it.tileId;
+        child = pool.get(tileId);
+        pool.delete(tileId);
+        if (!child) {
+          const res = await fetch('/pulse/tile/' + encodeURIComponent(tileId), { headers: { Accept: 'text/html' } });
+          if (!res.ok) continue;
+          const holder = document.createElement('div');
+          holder.innerHTML = await res.text();
+          child = holder.firstElementChild;
+          if (!child) continue;
+        }
+      }
+      items.push({ ...it });
+      wrap(it.id, it.kind, child);
+    }
+    // Tiles the suggestion leaves out go back to Pulse's tray.
+    const tray = root.querySelector('.board-tray__grid');
+    for (const tile of pool.values()) {
+      if (data.isPulse && tray) { tray.append(tile); addPlaceButton(tile); continue; }
+      // On a dashboard, offer a left-out agent in the Add menu again.
+      const id = tile.getAttribute('data-agent-id');
+      const select = toolbar.querySelector('[data-board-agent]');
+      if (select && id && !select.querySelector('option[value="' + CSS.escape(id) + '"]')) {
+        const o = document.createElement('option');
+        o.value = id;
+        o.textContent = (tile.querySelector('.pulse-tile__title')?.textContent || id).trim();
+        select.append(o);
+        if (!data.agents.some((a) => a.id === id)) data.agents.push({ id, name: o.textContent, size: tile.getAttribute('data-tile-size') || '1x1' });
+      }
+      tile.remove();
+    }
+    updateTrayCounts();
+    changed();
+  }
 
   if (data.isPulse && data.version === 0) offerImport();
 

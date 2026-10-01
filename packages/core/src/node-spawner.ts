@@ -221,6 +221,7 @@ export type SpawnNodeFn = (
     agentCallInfo?: AgentCallInfo;
     /** Agent memory for the memory tools (in-process only). See memory-store.ts. */
     memory?: BuiltinToolContext['memory'];
+    boards?: BuiltinToolContext['boards'];
     /** Set when the agent has memory on, so a backend that can't carry `memory` (Temporal) rebuilds it. */
     memoryRunId?: string;
     /** The ask-human tool's context (in-process only). See human-questions.ts. */
@@ -960,6 +961,7 @@ export async function spawnNodeReal(
     agentCalls?: AgentCallContext;
     agentCallInfo?: AgentCallInfo;
     memory?: BuiltinToolContext['memory'];
+    boards?: BuiltinToolContext['boards'];
     memoryRunId?: string;
     askHuman?: BuiltinToolContext['askHuman'];
     askRunId?: string;
@@ -1097,6 +1099,7 @@ export async function spawnNodeReal(
       experimentalApple: _opts.experimentalApple,
       agentCalls: _opts.agentCalls,
       memory: _opts.memory,
+      boards: _opts.boards,
       askHuman: _opts.askHuman,
       attemptBudgetUsd,
       costOf,
@@ -1244,6 +1247,7 @@ function buildAttemptToolSurface(
     onCall: toolCtx.onToolCall ? (r) => toolCtx.onToolCall?.({ ...r, provider }) : undefined,
     agentCalls: toolCtx.agentCalls,
     memory: toolCtx.memory,
+    boards: toolCtx.boards,
     askHuman: toolCtx.askHuman,
   });
   return { tools, execute };
@@ -1337,6 +1341,7 @@ async function runLlmAttemptInner(
     experimentalApple?: boolean;
     agentCalls?: AgentCallContext;
     memory?: BuiltinToolContext['memory'];
+    boards?: BuiltinToolContext['boards'];
     askHuman?: BuiltinToolContext['askHuman'];
     /** What this attempt may still spend, USD. Unset ⇒ no limit. */
     attemptBudgetUsd?: number;

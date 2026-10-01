@@ -43,9 +43,10 @@ async function setup() {
   return buildDashboardApp(ctx);
 }
 afterEach(async () => {
+  if (!dir) return; // this test didn't call setup()
   await provider?.shutdown();
   try { ctx.runStore.close(); ctx.agentStore.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
   dir = '';
 });
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
@@ -151,5 +152,50 @@ describe('board editor routes', () => {
     const json = await get(app, '/boards/pulse.json');
     expect(json.body.unplaced).not.toContain('weather');
     expect(json.body.unplaced).toContain('news');
+  });
+});
+
+describe('suggested layouts', () => {
+  it('turns an Improve-layout plan into board items without saving, dropping tiles the board can\'t show', async () => {
+    const app = await setup();
+    const plan = {
+      summary: 'Weather first.',
+      topAgents: [{ id: 'weather', rationale: 'Most used', suggestedSize: '2x2' }],
+      containers: [{ label: 'Now', tiles: ['weather', 'ghost', '_system-runs-today'] }, { label: 'Later', tiles: ['notes'] }],
+    };
+    let res = await post(app, '/boards/user:morning/plan-preview', { plan });
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toBe('Weather first.');
+    expect(res.body.items.map((i: { kind: string; agentId?: string; text?: string; w: number; h: number }) => `${i.kind}:${i.agentId ?? i.text}:${i.w}x${i.h}`))
+      .toEqual(['heading:Now:12x1', 'agent:weather:6x10', 'heading:Later:12x1', 'agent:notes:3x5']);
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')).toBeUndefined();
+
+    res = await post(app, '/boards/pulse/plan-preview', { plan });
+    expect(res.body.items.some((i: { kind: string }) => i.kind === 'system')).toBe(true);
+
+    res = await post(app, '/boards/user:morning/plan-preview', { plan: { summary: 'x', topAgents: [], containers: [] } });
+    expect(res.status).toBe(400);
+    res = await post(app, '/boards/user:morning/plan-preview', { plan: { summary: 'x', topAgents: [{ id: 'ghost', rationale: 'r' }], containers: [{ label: 'G', tiles: ['ghost'] }] } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no tiles this board can show/);
+
+    const page = await get(app, '/boards/user:morning');
+    expect(page.text).toContain('data-board-suggest');
+    expect(page.text).toContain('"plannerUrl":"/dashboards/user%3Amorning/layout-plan"');
+  });
+});
+
+describe('boards outside the page', () => {
+  it('derives the same never-saved dashboard board for the tools as the page shows', async () => {
+    const app = await setup();
+    const page = await get(app, '/boards/user:morning.json');
+    const tools = new BoardsStore(ctx.runStore.databaseHandle()).loadOrDerive('user:morning')!;
+    expect(tools.items).toEqual(page.body.board.items);
+  });
+
+  it("keeps core's template default sizes in step with the dashboard's template registry", async () => {
+    const { TILE_TEMPLATE_DEFAULT_SIZES } = await import('@some-useful-agents/core');
+    const { TEMPLATE_REGISTRY } = await import('../views/pulse-templates.js');
+    expect(TILE_TEMPLATE_DEFAULT_SIZES).toEqual(Object.fromEntries(Object.entries(TEMPLATE_REGISTRY).map(([k, v]) => [k, v.defaultSize])));
   });
 });

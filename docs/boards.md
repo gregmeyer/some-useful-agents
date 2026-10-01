@@ -1,6 +1,6 @@
 # Boards
 
-> **Preview (0.29).** Open Pulse or any named dashboard as a board with **Board view** on its page (or go to `/boards/<id>`), and arrange it with **Edit**. Agents placing tiles arrive next. `/pulse` and `/dashboards/<id>` themselves are unchanged for now.
+> **Preview (0.29).** Open Pulse or any named dashboard as a board with **Board view** on its page (or go to `/boards/<id>`), and arrange it with **Edit**. `/pulse` and `/dashboards/<id>` themselves are unchanged for now.
 
 A **board** is a canvas of tiles placed on a 12-column grid, stored by the dashboard rather than in your browser. Pulse is the board `pulse`; every named dashboard is a board with the dashboard's id (`user:morning-briefing`, `starter:weather`, …).
 
@@ -55,6 +55,14 @@ If the board was changed somewhere else since you opened it (another tab, or an 
 ### Starting from your old Pulse arrangement
 
 If this browser kept a custom arrangement for the old Pulse (your own groups or tile sizes), Pulse's board offers **Start from my Pulse arrangement** until the board is first saved. Each of your groups becomes a heading with its tiles, at the sizes you chose.
+
+## Suggest a layout
+
+**✨ Suggest a layout** asks the layout planner (the same one behind Improve layout) to arrange the board. Its suggestion opens in the editor as unsaved changes, with the planner's summary above the board: adjust it, then **Save**, or **Cancel** to keep the board as it was. Tiles the suggestion leaves out go back to Pulse's tray, or back into **+ Agent tile…** on a dashboard.
+
+## Agents and MCP clients
+
+An agent can arrange a board with the built-in [`board-read` and `board-place`](tools/board-place.md) tools, and MCP clients (Claude Desktop, Codex…) get the same two tools from `sua mcp`. Their changes go through the same checks as yours (no overlaps, a stale version is refused, unknown agents are rejected), land as a new version you can undo from the board page, and follow your [tool policy](tool-policies.md), where the board id is the resource.
 
 ## Reading a board
 

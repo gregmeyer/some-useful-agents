@@ -1,3 +1,4 @@
+import type { BoardsStore } from './boards.js';
 /**
  * Tool types. A tool is a named, reusable unit of work that a node invokes
  * by reference. It declares typed inputs + structured outputs; the executor
@@ -192,6 +193,8 @@ export interface BuiltinToolContext {
    * llm / goal nodes that list `ask-human` in their tools. Recording a question
    * calls `onAsked`, which ends the node's attempt; the run then waits.
    */
+  /** Boards, for board-read / board-place (see boards.ts). */
+  boards?: BoardsStore;
   askHuman?: {
     runId: string;
     nodeId: string;
