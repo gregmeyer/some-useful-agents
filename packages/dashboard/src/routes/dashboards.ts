@@ -16,7 +16,7 @@ import {
   type AvailableAgent,
   type DashboardSectionRender,
 } from '../views/dashboards.js';
-import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
+import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import type { PulseTile } from '../views/pulse-types.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 
@@ -47,7 +47,7 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
     const tiles: PulseTile[] = [];
     const missingAgentIds: string[] = [];
     for (const agentId of s.agentIds) {
-      const agent = ctx.agentStore.getAgent(agentId);
+      const agent = withTileSignal(ctx.agentStore.getAgent(agentId));
       if (!agent || !agent.signal) {
         missingAgentIds.push(agentId);
         continue;
@@ -85,6 +85,7 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
   // recency) is stable across sections.
   const availableAgents: AvailableAgent[] = ctx.agentStore
     .listAgents()
+    .map(withTileSignal)
     .filter((a) => a.signal)
     .map((a) => {
       let lastFiredAt: string | null = null;

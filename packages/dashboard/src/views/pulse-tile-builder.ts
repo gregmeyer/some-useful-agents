@@ -10,6 +10,25 @@
 import type { Agent, AgentSignal, LayoutHintsStore, Run, RunStore } from '@some-useful-agents/core';
 import type { PulseTile } from './pulse-types.js';
 import { normalizeSignal, extractMappedValues } from './pulse-templates.js';
+import type { SafeHtml } from './html.js';
+import { renderRunView } from '../lib/a2ui-surface.js';
+
+/**
+ * The signal a tile is built from: the agent's own, or, for an agent that
+ * only declares an A2UI `view:`, a plain one titled after the agent, so a
+ * view alone is enough to be on Pulse and dashboards.
+ */
+export function tileSignal(agent: Agent): AgentSignal | undefined {
+  if (agent.signal) return agent.signal;
+  if (agent.view) return { title: agent.name, template: 'widget' };
+  return undefined;
+}
+
+/** The agent with its tile signal filled in (see tileSignal), for code that gates on `agent.signal`. */
+export function withTileSignal<A extends Agent | null | undefined>(agent: A): A {
+  if (!agent || agent.signal || !agent.view) return agent;
+  return { ...agent, signal: tileSignal(agent) } as A;
+}
 
 export interface BuildTileDeps {
   runStore: RunStore;
@@ -23,11 +42,13 @@ export function buildPulseTile(
   let lastRun: Run | undefined;
   let outputsJson: string | undefined;
   let previousInputs: Record<string, string> | undefined;
+  let viewHtml: SafeHtml | undefined;
   try {
     const runs = deps.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
     if (runs.length > 0) {
       lastRun = runs[0];
       const execs = deps.runStore.listNodeExecutions(lastRun.id);
+      if (agent.view) viewHtml = renderRunView(agent, lastRun, execs, `tile-${agent.id}`);
       const lastExec = execs.filter((e) => e.status === 'completed').pop();
       if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;
 
@@ -71,7 +92,7 @@ export function buildPulseTile(
   }
   outputFields.push(...Array.from(fieldSet).sort());
 
-  return { agent, signal, lastRun, slots, outputFields, previousInputs };
+  return { agent, signal, lastRun, slots, outputFields, previousInputs, ...(viewHtml ? { viewHtml } : {}) };
 }
 
 /**

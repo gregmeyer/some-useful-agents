@@ -325,6 +325,11 @@ function renderFunnel(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
+  // An A2UI view (docs/a2ui-views.md) owns the tile when it has one.
+  if (tile.viewHtml) return wrap(tile, tile.viewHtml);
+  if (tile.agent.view && !tile.agent.signal) {
+    return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No runs yet.</p>`);
+  }
   // An INTERACTIVE outputWidget is a tile-level mini-app (inputs form + run
   // button) and renders without a prior run, so it must own the tile even when
   // signal.template wasn't set to 'widget'. Pulse dispatches on signal.template,

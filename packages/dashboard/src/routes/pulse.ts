@@ -7,7 +7,7 @@ import { render } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { tileWrap, renderPulseBoard, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
-import { buildPulseTile, attachLayoutHints } from '../views/pulse-tile-builder.js';
+import { buildPulseTile, withTileSignal, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { schedulerTileState } from '../lib/scheduler-tile.js';
 
@@ -151,7 +151,7 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
 } {
   autoImportSignalExamples(ctx);
 
-  const agents = ctx.agentStore.listAgents();
+  const agents = ctx.agentStore.listAgents().map(withTileSignal);
   const tiles: PulseTile[] = [];
   const hiddenTiles: PulseTile[] = [];
 
@@ -210,7 +210,7 @@ export function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; 
 pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const agent = ctx.agentStore.getAgent(id);
+  const agent = withTileSignal(ctx.agentStore.getAgent(id));
   if (!agent || !agent.signal) {
     res.redirect(303, '/pulse');
     return;
@@ -236,7 +236,7 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
 pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const agent = ctx.agentStore.getAgent(id);
+  const agent = withTileSignal(ctx.agentStore.getAgent(id));
   if (!agent) {
     res.redirect(303, '/pulse');
     return;
@@ -298,7 +298,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
 pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   let hidden = 0;
-  for (const agent of ctx.agentStore.listAgents()) {
+  for (const agent of ctx.agentStore.listAgents().map(withTileSignal)) {
     if (!agent.signal) continue;
     const alreadyHidden = agent.pulseVisible === false
       || (agent.pulseVisible === undefined && agent.signal.hidden === true);
@@ -317,7 +317,7 @@ pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
 pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   let shown = 0;
-  for (const agent of ctx.agentStore.listAgents()) {
+  for (const agent of ctx.agentStore.listAgents().map(withTileSignal)) {
     if (!agent.signal) continue;
     if (agent.pulseVisible === true) continue;
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
@@ -340,7 +340,7 @@ pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {
   }
 
   // Agent tiles.
-  const agent = ctx.agentStore.getAgent(id);
+  const agent = withTileSignal(ctx.agentStore.getAgent(id));
   if (!agent || !agent.signal) { res.status(404).send('Tile not found'); return; }
   const tile = buildTile(agent as Agent & { signal: AgentSignal }, ctx);
   res.type('html').send(renderTile(tile, tileWrap).toString());

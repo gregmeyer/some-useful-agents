@@ -26,6 +26,8 @@ export interface PulseTile {
    * outputWidget.tileFit, which is the pre-hints behaviour.
    */
   layoutHint?: LayoutHint;
+  /** The agent's A2UI view for its last run (lib/a2ui-surface.ts); wins over the signal template. */
+  viewHtml?: import('./html.js').SafeHtml;
 }
 
 export interface PulsePageInput {

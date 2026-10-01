@@ -6,6 +6,7 @@
  * server round-trip.
  */
 
+import { withTileSignal } from '../views/pulse-tile-builder.js';
 import { Router, type Request, type Response } from 'express';
 import { allocateUserDashboardId, mutateSections } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -37,7 +38,7 @@ dashboardsEditRouter.get('/dashboards/:id/edit', (req: Request, res: Response) =
   }
   // Only signal-bearing agents can render as Pulse tiles. Filter so the
   // add-tile dropdown doesn't surface agents that would render empty.
-  const signalAgents = ctx.agentStore.listAgents().filter((a) => a.signal);
+  const signalAgents = ctx.agentStore.listAgents().map(withTileSignal).filter((a) => a.signal);
   res.type('html').send(renderDashboardEditPage({
     dashboard,
     signalAgents,

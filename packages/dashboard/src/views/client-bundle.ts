@@ -43,6 +43,7 @@ import { APP_ASK_JS } from './app-ask.js.js';
 import { MINI_DAG_TIP_JS } from './mini-dag-tip.js.js';
 import { AGENT_ID_SLUG_JS } from './agent-id-slug.js.js';
 import { CHAT_SOCKET_JS } from './chat-socket.js.js';
+import { A2UI_LOADER_JS } from './a2ui-loader.js.js';
 import { AGENT_CHAT_JS } from './agent-chat.js.js';
 
 export const CLIENT_BUNDLE_JS: string =
@@ -58,4 +59,4 @@ export const CLIENT_BUNDLE_JS: string =
   + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + INBOX_BADGE_JS
   + INBOX_STREAM_JS + INBOX_LIST_JS + HOME_INBOX_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS
   + NODE_DISCOVERY_JS + APP_ASK_JS + MINI_DAG_TIP_JS + AGENT_ID_SLUG_JS
-  + AGENT_CHAT_JS;
+  + AGENT_CHAT_JS + A2UI_LOADER_JS;

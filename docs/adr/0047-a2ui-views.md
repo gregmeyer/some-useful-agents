@@ -49,5 +49,7 @@ protocol) into the dashboard: 87 KB gzip, CSP-safe.
   in `assets/a2ui-sua.js` (a test keeps their names in step with core's catalog), a small
   escape-first markdown renderer replaces `@a2ui/markdown-it` (no HTML from data), and
   `SanitizedHtml` is resolved + sanitized server-side (`prepareViewForRender`). Widget actions
-  become the next chat turn (`chat.action` frame). W2 renders views on the run page and Pulse;
-  W3 converts existing widgets into views.
+  become the next chat turn (`chat.action` frame). W2 renders views on the run page (Result),
+  Pulse tiles / named dashboards (a view wins over `signal`; a view-only agent gets a tile via
+  `tileSignal`), and inbox action widgets; the renderer is loaded on demand by a tiny loader in
+  the main bundle. W3 converts existing widgets into views.

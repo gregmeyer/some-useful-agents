@@ -110,7 +110,6 @@ export function renderAgentChat(args: AgentChatArgs): string {
       </div>
     </section>
     ${script}
-    ${agent.view ? unsafeHtml('<script type="module" src="/assets/a2ui-sua.js"></script>') : html``}
   `;
   return agentPageShell({ ...args, activeTab: 'chat' }, content);
 }

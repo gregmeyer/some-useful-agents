@@ -8,6 +8,7 @@ import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
+import { renderRunView } from '../lib/a2ui-surface.js';
 import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
 export interface RunDetailOptions {
@@ -272,9 +273,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             ${!inProgress && run.result
               ? (widgetBlocked
                   ? widgetHiddenNotice
-                  : agent?.outputWidget
-                    ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result)
-                    : outputFrame(run.result))
+                  : runWidget(agent, run, nodeExecutions, widgetControls))
               : inProgress
                 ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
                 : html`<p class="dim" style="font-size: var(--font-size-xs);">No output yet.</p>`}
@@ -311,7 +310,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <div data-poll-region="result">${run.result
           ? (widgetBlocked
               ? widgetHiddenNotice
-              : agent?.outputWidget ? renderOutputWidget(agent.outputWidget, run.result, agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result) : outputFrame(run.result))
+              : runWidget(agent, run, nodeExecutions, widgetControls))
           : html`<p class="dim">No output yet.</p>`}</div>
       `}
       ${cancelModal}
@@ -772,4 +771,26 @@ function renderExhaustedHint(e: NodeExecutionRecord, node: AgentNode | undefined
       ? html`<a href="${editHref}">${limit === 'no-answer' ? 'Edit the goal' : 'Raise the budget'}</a>${limit === 'no-answer' ? html`: a narrower goal, or one that says what the answer should look like, usually helps.` : html`, or narrow the goal.`}`
       : html``;
   return html`<div class="run-node__exhausted"><strong>${what}</strong> ${action}</div>`;
+}
+
+/**
+ * The result area: the agent's A2UI view when it has one (docs/a2ui-views.md),
+ * else its output widget, else the raw output. A generated view that wasn't
+ * valid this run shows why, then the output widget (or raw output) below it.
+ */
+function runWidget(
+  agent: Agent | undefined,
+  run: Run,
+  nodeExecutions: NodeExecutionRecord[] | undefined,
+  widgetControls: Parameters<typeof renderOutputWidget>[3],
+): SafeHtml {
+  const fallback = () => (agent?.outputWidget
+    ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
+    : outputFrame(run.result ?? ''));
+  if (agent?.view && run.status === 'completed') {
+    const view = renderRunView(agent, run, nodeExecutions ?? [], `run-${run.id}`);
+    if (String(view).includes('data-a2ui-surface')) return view;
+    return html`${view}${fallback()}`;
+  }
+  return fallback();
 }

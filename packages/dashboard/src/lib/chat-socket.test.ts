@@ -253,7 +253,7 @@ describe('chat WebSocket, inline A2UI views', () => {
     expect(frag.text).toContain('data-a2ui-surface');
     expect(frag.text).toContain('"price":"$89"');
     const page = await request(server!).get(`/agents/shop/chat?session=${sid}`).set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
-    expect(page.text).toContain('<script type="module" src="/assets/a2ui-sua.js"></script>');
+    expect(page.text).toContain('data-a2ui-surface'); // the bundle's loader pulls in the renderer
 
     ws.send(JSON.stringify({ type: 'chat.action', ref: 'b', agentId: 'shop', sessionId: sid, action: { name: 'refine', context: { message: 'Show cheaper ones' } } }));
     const second = await next((f) => f.type === 'chat.started' && f.ref === 'b');
