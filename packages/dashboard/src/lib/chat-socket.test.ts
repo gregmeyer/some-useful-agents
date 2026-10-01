@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 import request from 'supertest';
 import {
   AgentStore,
+  InboxStore,
   LocalProvider,
   MemorySecretsStore,
   RunStore,
@@ -19,6 +20,7 @@ import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';
 import { attachChatSocket, type ChatSocketHandle } from './chat-socket.js';
+import { InboxEventBus } from './inbox-event-bus.js';
 
 const TOKEN = 'a'.repeat(64);
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
@@ -29,6 +31,7 @@ let socket: ChatSocketHandle | undefined;
 let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
+let inboxStore: InboxStore;
 let port = 0;
 
 /** A model that streams two chunks, calls a tool, and answers. */
@@ -57,6 +60,7 @@ async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
   const secretsStore = new MemorySecretsStore();
   runStore = new RunStore(dbPath);
   agentStore = new AgentStore(dbPath);
+  inboxStore = new InboxStore(dbPath);
   provider = new LocalProvider(dbPath, secretsStore);
   await provider.initialize();
   agentStore.createAgent({
@@ -89,6 +93,8 @@ async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${port}`,
     workflowSpawnNode: model,
+    inboxStore,
+    inboxEventBus: new InboxEventBus(),
   };
   server.on('request', buildDashboardApp(ctx));
   socket = attachChatSocket(server, ctx);
@@ -98,7 +104,7 @@ afterEach(async () => {
   socket?.close();
   if (server) await new Promise<void>((r) => { server!.close(() => r()); server!.closeAllConnections(); });
   await provider?.shutdown();
-  try { runStore.close(); agentStore.close(); } catch { /* ignore */ }
+  try { runStore.close(); agentStore.close(); inboxStore.close(); } catch { /* ignore */ }
   if (dir) rmSync(dir, { recursive: true, force: true });
   server = undefined; socket = undefined; dir = '';
 });
@@ -198,6 +204,26 @@ describe('chat WebSocket, streamed deltas', () => {
     expect(tokens).toEqual(['It ', 'is ', 'sunny.']);
     const progress = JSON.parse(runStore.listNodeExecutions(String(started.runId))[0].progressJson ?? '[]') as Array<{ type: string }>;
     expect(progress.map((p) => p.type)).toEqual(['output_chunk']);
+    ws.close();
+  });
+});
+
+describe('chat WebSocket, inbox threads', () => {
+  it('subscribes to a thread and posts a reply over the socket (same path as POST /respond)', async () => {
+    await start();
+    const thread = inboxStore.add({ priority: 'medium', source: 'manual', title: 'Help', body: 'b' });
+    const { ws, next } = await connect(goodHeaders());
+    ws.send(JSON.stringify({ type: 'subscribe', channel: `inbox:${thread.id}` }));
+    ws.send(JSON.stringify({ type: 'inbox.send', ref: 's', threadId: thread.id, text: 'Can you check the weather?' }));
+    expect(await next((f) => f.ref === 's')).toMatchObject({ type: 'inbox.sent', threadId: thread.id });
+    const created = await next((f) => f.event === 'message:created');
+    expect(created).toMatchObject({ channel: `inbox:${thread.id}`, data: { role: 'user', body: 'Can you check the weather?' } });
+    expect(inboxStore.listResponses(thread.id).some((r) => r.role === 'user' && r.body === 'Can you check the weather?')).toBe(true);
+
+    ws.send(JSON.stringify({ type: 'inbox.send', ref: 'e', threadId: thread.id, text: '   ' }));
+    expect(await next((f) => f.ref === 'e')).toMatchObject({ type: 'error', message: 'Reply cannot be empty.' });
+    ws.send(JSON.stringify({ type: 'subscribe', ref: 'u', channel: 'inbox:nope' }));
+    expect(await next((f) => f.ref === 'u')).toMatchObject({ type: 'error', message: 'No such inbox thread.' });
     ws.close();
   });
 });

@@ -14,6 +14,8 @@ import type { DashboardContext } from '../context.js';
 import { readCookie } from '../auth-middleware.js';
 import { SESSION_COOKIE } from '../session.js';
 import { chatBus, sessionChannel, startChatTurn } from './chat-turn.js';
+import type { InboxEventBus } from './inbox-event-bus.js';
+import { addInboxReply } from '../routes/inbox.js';
 
 /**
  * The dashboard's chat WebSocket, `GET /ws` (upgrade). One connection per
@@ -28,13 +30,14 @@ import { chatBus, sessionChannel, startChatTurn } from './chat-turn.js';
  *
  * Protocol (JSON text frames):
  *   client → server
- *     {type:'subscribe', channel:'session:<id>', since?}  (since: replay buffered events with id > since; -1 = all)   {type:'unsubscribe', channel}
+ *     {type:'subscribe', channel:'session:<id>' | 'inbox:<messageId>', since?}  (since: replay buffered events with id > since; -1 = all)   {type:'unsubscribe', channel}
  *     {type:'chat.send', agentId, sessionId?, text, ref?}  {type:'chat.cancel', runId}
+ *     {type:'inbox.send', threadId, text, ref?}            (a reply in an inbox thread; triage answers on inbox:<id>)
  *     {type:'ping'}
  *   server → client
  *     {type:'hello'}  {type:'pong'}
  *     {type:'event', channel, id, event, data}             (see chat-turn.ts for events)
- *     {type:'chat.started', ref?, agentId, sessionId, runId}
+ *     {type:'chat.started', ref?, agentId, sessionId, runId}  {type:'inbox.sent', ref?, threadId}
  *     {type:'error', ref?, message}
  */
 export const CHAT_SOCKET_PATH = '/ws';
@@ -102,9 +105,9 @@ export function attachChatSocket(server: Server, ctx: DashboardContext): ChatSoc
       void handle(msg, ref).catch((err) => send({ type: 'error', ref, message: err instanceof Error ? err.message : String(err) }));
     });
 
-    function subscribe(channel: string, since?: number): void {
+    function subscribe(channel: string, since?: number, bus: InboxEventBus = chatBus(ctx), busChannel: string = channel): void {
       if (subs.has(channel)) return;
-      subs.set(channel, chatBus(ctx).subscribe(channel, (ev) => {
+      subs.set(channel, bus.subscribe(busChannel, (ev) => {
         send({ type: 'event', channel, id: ev.id, event: ev.type, data: ev.data });
       }, since));
     }
@@ -114,11 +117,21 @@ export function attachChatSocket(server: Server, ctx: DashboardContext): ChatSoc
         case 'ping': send({ type: 'pong' }); return;
         case 'subscribe': {
           const channel = typeof msg.channel === 'string' ? msg.channel : '';
-          const m = /^session:([\w-]{1,64})$/.exec(channel);
-          if (!m) { send({ type: 'error', ref, message: `Unknown channel "${channel}".` }); return; }
-          if (!sessions().get(m[1])) { send({ type: 'error', ref, message: 'No such conversation.' }); return; }
           const since = typeof msg.since === 'number' ? msg.since : undefined;
-          subscribe(channel, since);
+          const s = /^session:([\w-]{1,64})$/.exec(channel);
+          if (s) {
+            if (!sessions().get(s[1])) { send({ type: 'error', ref, message: 'No such conversation.' }); return; }
+            subscribe(channel, since);
+            return;
+          }
+          // An inbox thread: the inbox's own bus, keyed by the message id.
+          const t = /^inbox:([\w-]{1,64})$/.exec(channel);
+          if (t) {
+            if (!ctx.inboxEventBus || !ctx.inboxStore?.get(t[1])) { send({ type: 'error', ref, message: 'No such inbox thread.' }); return; }
+            subscribe(channel, since, ctx.inboxEventBus, t[1]);
+            return;
+          }
+          send({ type: 'error', ref, message: `Unknown channel "${channel}".` });
           return;
         }
         case 'unsubscribe': {
@@ -147,6 +160,13 @@ export function attachChatSocket(server: Server, ctx: DashboardContext): ChatSoc
             }
             throw err;
           }
+          return;
+        }
+        case 'inbox.send': {
+          const threadId = typeof msg.threadId === 'string' ? msg.threadId : '';
+          const out = addInboxReply(ctx, threadId, typeof msg.text === 'string' ? msg.text : '');
+          if (!out.ok) { send({ type: 'error', ref, message: out.message }); return; }
+          send({ type: 'inbox.sent', ref, threadId });
           return;
         }
         case 'chat.cancel': {

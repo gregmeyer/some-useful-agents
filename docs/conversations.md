@@ -51,13 +51,14 @@ This works the same on every provider (claude, codex, OpenAI-compatible models s
 
 ## Live replies in the dashboard
 
-The Chat tab talks to the dashboard over a WebSocket (`/ws`), so a reply shows up as it's produced:
+The Chat tab and inbox threads talk to the dashboard over one WebSocket per tab (`/ws`), so a reply shows up as it's produced:
 
 - **Text streams in** as the model writes it with Claude (it sends small pieces). Codex and OpenAI-compatible endpoints send each message whole, so with them you see each message arrive, plus the tool calls as they happen.
 - **Tool calls** appear under the reply while it's being worked on (`→ web-fetch …`, in red if one failed).
 - When the turn ends, the conversation re-renders from what was stored, so the finished reply is formatted exactly as it is on reload.
 - A dropped connection reconnects by itself and picks up the events it missed. Without WebSocket support the tab falls back to sending the form and reloading until the reply lands.
 - On the durable (Temporal) backend, progress isn't relayed yet; the tab polls until the reply is recorded.
+- **Inbox threads** use the same socket: replies you post go over it, and the triage agent's answer, action cards and status changes arrive on it (`inbox:<thread>` channel). Without a socket the thread falls back to its server-sent-events stream and plain posts. The inbox list and the unread badge still use their page-wide event stream.
 
 The socket uses the dashboard session (cookie), the same Host check as every page, and requires an allowed `Origin`, so another site can't open it in your browser. It accepts at most 64 KB per message and 120 messages a minute. The wire protocol is documented in `packages/dashboard/src/lib/chat-socket.ts`; see [ADR-0046](adr/0046-chat-over-websocket.md).
 

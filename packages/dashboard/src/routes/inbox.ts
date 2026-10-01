@@ -576,26 +576,20 @@ inboxRouter.post('/inbox/:id/answer', async (req: Request, res: Response) => {
   res.redirect(303, `${detailUrl}?flash=${encodeURIComponent('Answered. The run is carrying on.')}`);
 });
 
-inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
-  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
-    if (isAjax(req)) { res.status(404).end(); return; }
-    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
-    return;
-  }
-  const bodyRaw = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
-  if (!bodyRaw) {
-    if (isAjax(req)) { res.status(400).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Reply cannot be empty.')}`);
-    return;
-  }
-  if (bodyRaw.length > 8192) {
-    if (isAjax(req)) { res.status(400).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent('Reply is too long (max 8 KB).')}`);
-    return;
-  }
+/**
+ * Add the operator's reply to a thread and start the triage turn that
+ * answers it. Shared by POST /inbox/:id/respond and the chat WebSocket's
+ * `inbox.send` (lib/chat-socket.ts).
+ */
+export function addInboxReply(
+  ctx: ReturnType<typeof getContext>,
+  id: string,
+  body: string,
+): { ok: true } | { ok: false; status: number; message: string } {
+  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) return { ok: false, status: 404, message: 'Message not found.' };
+  const bodyRaw = body.trim();
+  if (!bodyRaw) return { ok: false, status: 400, message: 'Reply cannot be empty.' };
+  if (bodyRaw.length > 8192) return { ok: false, status: 400, message: 'Reply is too long (max 8 KB).' };
   // A fresh reply is genuine re-engagement, so lift any operator Stop and let
   // triage run again for this turn. Clears both the in-memory set and the
   // persisted `paused` column (the restart-surviving form of Stop).
@@ -605,10 +599,7 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
   try {
     userResponse = ctx.inboxStore.addResponse(id, 'user', bodyRaw);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (isAjax(req)) { res.status(500).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Reply failed: ${msg}`)}`);
-    return;
+    return { ok: false, status: 500, message: `Reply failed: ${err instanceof Error ? err.message : String(err)}` };
   }
   // First reply on a manual-source thread still carrying the default
   // "New conversation" title? Auto-rename from the body so /inbox stops
@@ -624,9 +615,9 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
       ctx.inboxStore.updateTitle(id, deriveTitleFromBody(bodyRaw));
     } catch { /* ignore — title update is best-effort */ }
   }
-  // Publish to the SSE bus so any modal subscribed to this thread
-  // sees the persisted user reply within a network RTT. The fragment
-  // poll fallback still works for clients that haven't subscribed.
+  // Publish so any client watching this thread sees the persisted user
+  // reply within a network RTT. The fragment poll fallback still works for
+  // clients that haven't subscribed.
   publishInboxEvent(ctx, id, 'message:created', {
     responseId: userResponse.id,
     role: 'user',
@@ -663,12 +654,24 @@ inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
     // A fresh operator reply restores the transient-crash retry budget — this
     // is genuine new input, not a crash loop, so it deserves a clean slate.
     resetTriageCrashRetries(ctx, id);
-    // Fire-and-forget; the modal polls /fragment for the response.
-    // The conversation thread itself signals "in progress" via the
-    // user-reply-within-30s heuristic in isTriagePending.
+    // Fire-and-forget; the modal hears about it on the thread's channel.
     void runTriageAgent(ctx, id).catch(() => { /* logged in helper */ });
   }
+  return { ok: true };
+}
 
+inboxRouter.post('/inbox/:id/respond', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
+  const out = addInboxReply(ctx, id, typeof req.body?.body === 'string' ? req.body.body : '');
+  if (!out.ok) {
+    if (isAjax(req)) { res.status(out.status).end(); return; }
+    res.redirect(303, out.status === 404
+      ? `/inbox?error=${encodeURIComponent(out.message)}`
+      : `${detailUrl}?error=${encodeURIComponent(out.message)}`);
+    return;
+  }
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Reply added.')}`);
 });

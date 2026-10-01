@@ -43,5 +43,9 @@ calls and UI updates.
 - Codex and OpenAI-compatible endpoints stream per message, not per token, until their spawners
   emit deltas.
 - Durable (Temporal) runs don't relay progress; the client polls for them.
-- Next: the inbox thread moves from SSE to this socket (WS1b), then inline A2UI surfaces and
-  actions ride the same frames (WS2).
+- Inbox threads (WS1b) ride the same socket: `inbox:<messageId>` channels backed by the inbox
+  bus, and `inbox.send` (the same `addInboxReply` path as POST /respond). The thread modal's
+  handlers are unchanged; an EventSource-shaped adapter feeds them socket events, and the
+  per-thread SSE endpoint stays as the fallback. The page-wide `/inbox/events` feed (badge,
+  list) stays on SSE for now.
+- Next: inline A2UI surfaces and actions ride the same frames (WS2).
