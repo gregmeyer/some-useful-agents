@@ -12,6 +12,7 @@
  * (a planned "inbox span of control" capability), widen `INLINE_INBOX_WIDGET_TYPES`
  * and the render path HERE — not in the route file.
  */
+import { renderRunView } from '../lib/a2ui-surface.js';
 import {
   exportAgent,
   unallowedWidgetImageHosts,
@@ -91,6 +92,7 @@ export function buildThreadSummary(
 }
 
 export function canRenderInlineInboxWidget(agent: Agent | null | undefined): agent is Agent & { outputWidget: NonNullable<Agent['outputWidget']> } {
+  if (agent?.view) return true; // an A2UI view renders inline anywhere (docs/a2ui-views.md)
   if (!agent?.outputWidget) return false;
   return INLINE_INBOX_WIDGET_TYPES.has(agent.outputWidget.type);
 }
@@ -152,6 +154,10 @@ function renderActionWidget(
   if (!canRenderInlineInboxWidget(agent)) return undefined;
   const run = ctx.runStore.getRun(meta.runId);
   if (!run?.result) return undefined;
+  if (agent.view) {
+    if (run.status !== 'completed') return undefined;
+    return renderRunView(agent, run, ctx.runStore.listNodeExecutions(run.id), `inbox-${messageId}-${run.id}`);
+  }
 
   const blockedHosts = unallowedWidgetImageHosts({
     outputWidget: agent.outputWidget,

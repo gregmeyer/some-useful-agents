@@ -1,6 +1,6 @@
 # A2UI views
 
-> **Status:** views are drawn **in agent chat** (each reply shows the agent's view; clicks continue the conversation). The run page, Pulse tiles and inbox threads come next; there the agent's existing widget is still what you see.
+> **Where views show:** the run page (Result), the agent's **Pulse** tile and named dashboards, inbox threads (under an action that ran the agent), and **agent chat** (each reply; clicks continue the conversation). A view takes the place of the agent's `signal` template and `outputWidget` wherever both exist. An agent with only a `view:` (no `signal:`) still gets a Pulse tile, titled with its name.
 
 An agent can describe how its results look as an [A2UI](https://a2ui.org) view: a list of UI components (text, cards, rows, metrics, tables, buttons…) bound to the data each run produces. A2UI is an open, declarative format: no code, only components from a known catalog, so it's safe to render even when a model wrote it.
 
@@ -56,6 +56,8 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Link` | `text`, `url` (http/https) | a link, opens in a new tab |
 | `Code` | `text`, `language?` | preformatted text |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
+
+If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
 
 ## In chat: replies are widgets, clicks are messages
 
