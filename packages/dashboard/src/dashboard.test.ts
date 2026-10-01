@@ -10,7 +10,7 @@ import { buildDashboardApp } from './index.js';
 import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
 import { SEEN_COOKIE } from './session.js';
-import { buildLoopbackAllowlist } from '@some-useful-agents/core';
+import { buildLoopbackAllowlist, loadPolicyDocument } from '@some-useful-agents/core';
 import { MemorySecretsSession } from './secrets-session.js';
 import { drainInFlight } from './test-drain.js';
 
@@ -5304,5 +5304,81 @@ describe('Settings → Policies', () => {
     expect(page.text).toContain('Every tool call is blocked until this file is fixed.');
     expect(page.text).toContain('<strong>Blocked</strong>');
     expect(page.text).toContain('the policy file is invalid');
+  });
+});
+
+describe('Settings → Policies editing', () => {
+  const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p)
+    .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+  const post = (app: Parameters<typeof request>[0], p: string) => request(app).post(p)
+    .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`).type('form');
+  const versionOf = (text: string) => /name="version" value="([0-9a-f]*)"/.exec(text)?.[1] ?? '';
+  const policy = () => loadPolicyDocument(dir);
+  const msg = (loc: string) => { const q = new URL(loc, 'http://x').searchParams; return q.get('flash') ?? q.get('error') ?? ''; };
+
+  it('adds, edits, moves and deletes rules, and sets the default', async () => {
+    const app = await makeApp();
+    let page = await get(app, '/settings/policies');
+    expect(page.text).toContain('Adding a rule creates');
+    let res = await post(app, '/settings/policies/rules').send(`version=${versionOf(page.text)}&index=&effect=deny&tool=web-fetch&resources=&reason=No+web`);
+    expect(res.status).toBe(303);
+    expect(policy().rules).toEqual([{ tool: 'web-fetch', action: 'execute', resources: [], effect: 'deny', reason: 'No web' }]);
+
+    page = await get(app, '/settings/policies?edit=new');
+    expect(page.text).toContain('aria-label="New rule"');
+    await post(app, '/settings/policies/rules').send(`version=${versionOf(page.text)}&index=&effect=allow&tool=web-fetch&resources=https%3A%2F%2Fdocs.example.com%2F*%0Ahttps%3A%2F%2Fapi.example.com%2F**&source=local&source=examples`);
+    expect(policy().rules[1]).toMatchObject({ effect: 'allow', resources: ['https://docs.example.com/*', 'https://api.example.com/**'], conditions: { source: ['local', 'examples'] } });
+
+    page = await get(app, '/settings/policies?edit=0');
+    expect(page.text).toContain('aria-label="Edit rule #0"');
+    await post(app, '/settings/policies/rules').send(`version=${versionOf(page.text)}&index=0&effect=deny&tool=*&reason=Locked+down`);
+    expect(policy().rules[0]).toMatchObject({ tool: '*', reason: 'Locked down' });
+
+    page = await get(app, '/settings/policies');
+    await post(app, '/settings/policies/rules/1/move').send(`version=${versionOf(page.text)}&dir=up`);
+    expect(policy().rules.map((r) => r.effect)).toEqual(['allow', 'deny']);
+
+    page = await get(app, '/settings/policies');
+    await post(app, '/settings/policies/default').send(`version=${versionOf(page.text)}&defaultAction=deny`);
+    expect(policy().defaultAction).toBe('deny');
+
+    page = await get(app, '/settings/policies');
+    res = await post(app, '/settings/policies/rules/0/delete').send(`version=${versionOf(page.text)}`);
+    expect(msg(res.headers.location)).toContain('Deleted rule #0');
+    expect(policy().rules).toHaveLength(1);
+
+    // Undo puts the deleted rule back.
+    page = await get(app, '/settings/policies');
+    expect(page.text).toContain('Undo last change');
+    await post(app, '/settings/policies/undo').send(`version=${versionOf(page.text)}`);
+    expect(policy().rules).toHaveLength(2);
+  });
+
+  it('refuses a save over a file edited elsewhere, and never writes an invalid document', async () => {
+    const app = await makeApp();
+    const page = await get(app, '/settings/policies');
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(join(dir, '.sua', 'policies.json'), JSON.stringify({ version: 1, rules: [{ tool: 'shell-exec', effect: 'deny' }] }));
+    const res = await post(app, '/settings/policies/rules').send(`version=${versionOf(page.text)}&index=&effect=deny&tool=web-fetch`);
+    expect(msg(res.headers.location)).toContain('changed since you opened it');
+    expect(policy().rules).toEqual([{ tool: 'shell-exec', action: 'execute', resources: [], effect: 'deny' }]);
+
+    const fresh = await get(app, '/settings/policies');
+    const bad = await post(app, '/settings/policies/raw').send(`version=${versionOf(fresh.text)}&text=${encodeURIComponent('{"version":1,"rules":[{"tool":"x","effect":"maybe"}]}')}`);
+    expect(msg(bad.headers.location)).toContain('Not saved, the policy is invalid');
+    expect(policy().rules[0].tool).toBe('shell-exec');
+  });
+
+  it('an invalid file opens the JSON editor and can be fixed there', async () => {
+    const app = await makeApp();
+    mkdirSync(join(dir, '.sua'), { recursive: true });
+    writeFileSync(join(dir, '.sua', 'policies.json'), '{ "version": 1, "rules": [ { "tool": "x", "effect": "maybe" } ] }');
+    const page = await get(app, '/settings/policies');
+    expect(page.text).toMatch(/<details id="json" class="settings-policies__json" open/);
+    expect(page.text).not.toContain('Add a rule');
+    const blocked = await post(app, '/settings/policies/rules').send(`version=${versionOf(page.text)}&index=&effect=deny&tool=y`);
+    expect(msg(blocked.headers.location)).toContain('Fix it under Edit as JSON');
+    await post(app, '/settings/policies/raw').send(`version=${versionOf(page.text)}&text=${encodeURIComponent('{"version":1,"rules":[{"tool":"x","effect":"deny"}]}')}`);
+    expect(policy().rules[0]).toMatchObject({ tool: 'x', effect: 'deny' });
   });
 });

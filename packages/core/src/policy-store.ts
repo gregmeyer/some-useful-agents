@@ -17,8 +17,9 @@
  * editor will reuse.
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 
 /**
@@ -305,4 +306,120 @@ export function resolvePolicyDocument(dataDir: string): EnforcedPolicy {
   }
   policyCache.set(path, { mtimeMs, doc });
   return doc;
+}
+
+// ── Writing (the dashboard's rules editor) ─────────────────────────────
+
+/** The file changed between reading it and saving over it. */
+export class PolicyConflictError extends Error {
+  constructor(public readonly path: string) {
+    super(`${path} changed since you opened it (someone or something else edited it). Reload to see the current rules, then make your change again.`);
+    this.name = 'PolicyConflictError';
+  }
+}
+
+/**
+ * A short fingerprint of the policy file as it is on disk ('' when there is
+ * no file). An editor reads it with the rules and sends it back with a save,
+ * so a save never silently overwrites an edit made in between.
+ */
+export function policyFileVersion(dataDir: string): string {
+  const path = policyFilePath(dataDir);
+  let raw: string;
+  try { raw = readFileSync(path, 'utf-8'); } catch { return ''; }
+  return createHash('sha256').update(raw).digest('hex').slice(0, 16);
+}
+
+/** The raw file text ('' when there is none), for the JSON editor. */
+export function readPolicyFileText(dataDir: string): string {
+  try { return readFileSync(policyFilePath(dataDir), 'utf-8'); } catch { return ''; }
+}
+
+/**
+ * The document as it's written: defaults left out (action "execute", empty
+ * resources, empty conditions), so a saved file reads like a hand-written one.
+ */
+export function serializePolicyDocument(doc: PolicyDocument): string {
+  const rules = doc.rules.map((r) => {
+    const out: Record<string, unknown> = { tool: r.tool };
+    if (r.action !== 'execute') out.action = r.action;
+    if (r.resources.length > 0) out.resources = r.resources;
+    out.effect = r.effect;
+    if (r.conditions?.source?.length) out.conditions = { source: r.conditions.source };
+    if (r.reason) out.reason = r.reason;
+    return out;
+  });
+  return `${JSON.stringify({ version: 1, defaultAction: doc.defaultAction, rules }, null, 2)}\n`;
+}
+
+/**
+ * Write the policy file: validate first (an invalid document is never
+ * written, so the editor can't produce a file that blocks everything),
+ * refuse when the file changed since `expectedVersion` was read, keep the
+ * previous contents as `policies.json.bak` (for Undo), and replace the file
+ * atomically. Returns the new version. Takes effect on the next tool call
+ * (the resolver re-reads on mtime change).
+ */
+export function savePolicyDocument(
+  dataDir: string,
+  input: unknown,
+  opts: { expectedVersion?: string } = {},
+): { version: string; doc: PolicyDocument } {
+  const result = policyDocumentSchema.safeParse(input);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+    throw new PolicyLoadError(`Not saved, the policy is invalid: ${issues}`, policyFilePath(dataDir));
+  }
+  writePolicyText(dataDir, serializePolicyDocument(result.data), opts.expectedVersion);
+  return { version: policyFileVersion(dataDir), doc: result.data };
+}
+
+/**
+ * Save raw JSON text (the JSON editor). Must parse and validate; the text is
+ * written as given so the author's formatting is kept.
+ */
+export function savePolicyText(dataDir: string, text: string, opts: { expectedVersion?: string } = {}): { version: string } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch (e) {
+    throw new PolicyLoadError(`Not saved, that isn't valid JSON: ${(e as Error).message}`, policyFilePath(dataDir));
+  }
+  const result = policyDocumentSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
+    throw new PolicyLoadError(`Not saved, the policy is invalid: ${issues}`, policyFilePath(dataDir));
+  }
+  writePolicyText(dataDir, text.endsWith('\n') ? text : `${text}\n`, opts.expectedVersion);
+  return { version: policyFileVersion(dataDir) };
+}
+
+/** Whether there is a previous version to go back to. */
+export function hasPolicyBackup(dataDir: string): boolean {
+  return existsSync(`${policyFilePath(dataDir)}.bak`);
+}
+
+/**
+ * Undo the last save: put `policies.json.bak` back (the current file becomes
+ * the new .bak, so Undo twice is Redo). Same conflict check as a save. The
+ * backup is restored even if it no longer validates — it was the file before.
+ */
+export function restorePolicyBackup(dataDir: string, opts: { expectedVersion?: string } = {}): { version: string } {
+  const path = policyFilePath(dataDir);
+  const backup = `${path}.bak`;
+  if (!existsSync(backup)) throw new PolicyLoadError('There is no earlier version to go back to.', path);
+  writePolicyText(dataDir, readFileSync(backup, 'utf-8'), opts.expectedVersion);
+  return { version: policyFileVersion(dataDir) };
+}
+
+function writePolicyText(dataDir: string, text: string, expectedVersion: string | undefined): void {
+  const path = policyFilePath(dataDir);
+  if (expectedVersion !== undefined && expectedVersion !== policyFileVersion(dataDir)) {
+    throw new PolicyConflictError(path);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const previous = readPolicyFileText(dataDir);
+  if (existsSync(path)) writeFileSync(`${path}.bak`, previous, { mode: 0o600 });
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  renameSync(tmp, path);
+  policyCache.delete(path);
 }

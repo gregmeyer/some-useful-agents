@@ -16,7 +16,7 @@ const base = { path: '/data/.sua/policies.json', toolIds: ['web-fetch', 'shell-e
 describe('Settings → Policies', () => {
   it('says everything is allowed when there is no file', () => {
     const html = String(renderSettingsPolicies({ ...base, exists: false, doc: { version: 1, defaultAction: 'allow', rules: [] } }));
-    expect(html).toContain('No policy file, so every tool call is allowed');
+    expect(html).toContain('No policy file yet, so every tool call is allowed');
     expect(html).toContain('Would this be allowed?');
   });
 

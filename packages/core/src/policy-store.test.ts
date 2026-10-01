@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -13,6 +13,13 @@ import {
   globToRegExp,
   policyResource,
   resolvePolicyDocument,
+  savePolicyDocument,
+  savePolicyText,
+  policyFileVersion,
+  readPolicyFileText,
+  hasPolicyBackup,
+  restorePolicyBackup,
+  PolicyConflictError,
   type EnforcedPolicy,
 } from './policy-store.js';
 
@@ -215,5 +222,50 @@ describe('PolicyDeniedError', () => {
     expect(err.toolId).toBe('http-post');
     expect(err.resource).toBe('https://evil/');
     expect(err.matchedRuleIndex).toBe(3);
+  });
+});
+
+describe('saving the policy (rules editor)', () => {
+  const tmp = () => mkdtempSync(join(tmpdir(), 'sua-policy-save-'));
+  const doc = { version: 1, defaultAction: 'allow', rules: [{ tool: 'web-fetch', effect: 'deny', reason: 'no web' }] };
+
+  it('validates, writes tidy JSON, and takes effect on the next resolve', () => {
+    const dir = tmp();
+    expect(resolvePolicyDocument(dir).rules).toEqual([]);
+    const { version } = savePolicyDocument(dir, doc, { expectedVersion: '' });
+    expect(version).toBe(policyFileVersion(dir));
+    expect(JSON.parse(readFileSync(policyFilePath(dir), 'utf-8'))).toEqual({
+      version: 1, defaultAction: 'allow', rules: [{ tool: 'web-fetch', effect: 'deny', reason: 'no web' }],
+    });
+    expect(resolvePolicyDocument(dir).rules).toHaveLength(1);
+    expect(() => savePolicyDocument(dir, { version: 1, rules: [{ tool: 'x', effect: 'maybe' }] })).toThrow(/Not saved, the policy is invalid/);
+    expect(resolvePolicyDocument(dir).rules).toHaveLength(1); // unchanged
+  });
+
+  it('refuses to overwrite a file that changed since it was read', () => {
+    const dir = tmp();
+    const { version } = savePolicyDocument(dir, doc);
+    writeFileSync(policyFilePath(dir), JSON.stringify({ version: 1, rules: [] }));
+    expect(() => savePolicyDocument(dir, doc, { expectedVersion: version })).toThrow(PolicyConflictError);
+  });
+
+  it('keeps the previous file for Undo, and Undo twice is Redo', () => {
+    const dir = tmp();
+    savePolicyDocument(dir, doc);
+    expect(hasPolicyBackup(dir)).toBe(false);
+    const second = savePolicyDocument(dir, { ...doc, defaultAction: 'deny' });
+    expect(hasPolicyBackup(dir)).toBe(true);
+    const undone = restorePolicyBackup(dir, { expectedVersion: second.version });
+    expect(loadPolicyDocument(dir).defaultAction).toBe('allow');
+    restorePolicyBackup(dir, { expectedVersion: undone.version });
+    expect(loadPolicyDocument(dir).defaultAction).toBe('deny');
+  });
+
+  it('saves raw JSON text as written, but only when it is valid', () => {
+    const dir = tmp();
+    const text = '{ "version": 1, "rules": [ { "tool": "shell-exec", "effect": "deny" } ] }';
+    savePolicyText(dir, text);
+    expect(readPolicyFileText(dir)).toBe(`${text}\n`);
+    expect(() => savePolicyText(dir, '{ nope')).toThrow(/isn't valid JSON/);
   });
 });

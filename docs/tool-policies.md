@@ -88,13 +88,20 @@ sua policy validate                               # non-zero exit if the file is
 
 `check` exits 0 for allow and 1 for deny, so it works in scripts.
 
-## Seeing and testing the policy in the dashboard
+## Seeing, editing and testing the policy in the dashboard
 
 **Settings → Policies** shows the file in force: its path, the default action, and the rules in order ("the last matching rule decides"). If the file is invalid it says so in red, with the parse error, because an invalid file blocks every tool call until it's fixed.
 
 Under it, **Would this be allowed?** takes a tool id, a resource (URL, absolute path or command) and which kind of agent is asking (local, examples, community), and answers Allowed or Blocked, naming and highlighting the rule that decided. It's the same check as `sua policy check`. In the goal node's tools picker, "Blocked by policy rule #N" links here with the tool filled in.
 
-The page is read-only: edit the rules in the file (`sua policy validate` checks it). Changes apply on the next tool call.
+**Editing.** The same page edits the file:
+
+- **Add a rule** (added at the end, so it wins over earlier matching rules), or **Edit** one: effect, tool (`*` for any), resources one per line (empty = anything), which agents it applies to (none ticked = all), and the reason shown when it blocks a call.
+- **↑ / ↓** reorder rules (order matters: the last match decides), **Delete** removes one, and the default action has its own Save.
+- **Edit as JSON** edits the whole file as text. It's also how you fix an invalid file from the dashboard: it opens by itself when the file doesn't parse.
+- **Undo last change** puts back the file as it was before the last save (kept as `policies.json.bak`); Undo again redoes.
+
+Every save is checked first, so the editor never writes a file that would block everything. If the file changed since you opened the page (you edited it in a terminal, say), the save is refused and you're asked to reload, rather than overwriting that edit. Changes apply on the next tool call. See [ADR-0045](adr/0045-edit-the-tool-policy-from-the-dashboard.md).
 
 ## What policies don't cover
 

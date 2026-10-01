@@ -27,7 +27,15 @@ import {
   loadPolicyDocument,
   policyFilePath,
   PolicyLoadError,
+  PolicyConflictError,
+  policyFileVersion,
+  readPolicyFileText,
+  savePolicyDocument,
+  savePolicyText,
+  hasPolicyBackup,
+  restorePolicyBackup,
   type PolicyDocument,
+  type PolicyRule,
 } from '@some-useful-agents/core';
 import { existsSync } from 'node:fs';
 import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
@@ -798,9 +806,130 @@ settingsRouter.get('/settings/policies', (req: Request, res: Response) => {
 
   res.type('html').send(renderSettingsShell({
     active: 'policies',
-    body: renderSettingsPolicies({ path, exists, doc, error, toolIds, check }),
+    body: renderSettingsPolicies({
+      path, exists, doc, error, toolIds, check,
+      version: policyFileVersion(ctx.dataDir),
+      rawText: readPolicyFileText(ctx.dataDir),
+      canUndo: hasPolicyBackup(ctx.dataDir),
+      editing: req.query.edit === 'new' ? 'new'
+        : typeof req.query.edit === 'string' && /^\d+$/.test(req.query.edit) ? Number(req.query.edit) : undefined,
+    }),
     flash,
   }));
+});
+
+// ── Policy editing ────────────────────────────────────────────────────
+// Each POST carries the file `version` it was rendered from; a save over a
+// file that changed in between is refused (PolicyConflictError) rather than
+// silently overwriting it. Invalid documents are never written.
+
+/** Run an edit against the current (valid) document and save it. */
+function editPolicy(
+  req: Request,
+  res: Response,
+  change: (doc: PolicyDocument) => { doc: PolicyDocument; message: string; anchor?: string } | string,
+): void {
+  const ctx = getContext(req.app.locals);
+  const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
+  let doc: PolicyDocument;
+  try { doc = loadPolicyDocument(ctx.dataDir); } catch {
+    redirectWith(res, '/settings/policies#json', 'error', 'The policy file is invalid. Fix it under Edit as JSON (or undo the last change) before editing rules.');
+    return;
+  }
+  const out = change(structuredClone(doc));
+  if (typeof out === 'string') { redirectWith(res, '/settings/policies#rules', 'error', out); return; }
+  try {
+    savePolicyDocument(ctx.dataDir, out.doc, { expectedVersion: version });
+    redirectWith(res, `/settings/policies#${out.anchor ?? 'rules'}`, 'flash', `${out.message} It applies to the next tool call.`);
+  } catch (err) {
+    redirectWith(res, '/settings/policies#rules', 'error', (err as Error).message);
+  }
+}
+
+function ruleIndex(req: Request, doc: PolicyDocument): number | undefined {
+  const raw = Array.isArray(req.params.i) ? req.params.i[0] : req.params.i;
+  const i = Number(raw);
+  return Number.isInteger(i) && i >= 0 && i < doc.rules.length ? i : undefined;
+}
+
+settingsRouter.post('/settings/policies/default', (req: Request, res: Response) => {
+  editPolicy(req, res, (doc) => {
+    const action = req.body?.defaultAction;
+    if (action !== 'allow' && action !== 'deny') return 'Choose allow or deny.';
+    return { doc: { ...doc, defaultAction: action }, message: `When no rule matches, tool calls are now ${action === 'deny' ? 'denied' : 'allowed'}.` };
+  });
+});
+
+/** Add (index empty) or replace a rule from the rule form. */
+settingsRouter.post('/settings/policies/rules', (req: Request, res: Response) => {
+  editPolicy(req, res, (doc) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const tool = typeof body.tool === 'string' ? body.tool.trim() : '';
+    if (!tool) return 'A rule needs a tool (or * for any tool).';
+    const effect = body.effect === 'allow' ? 'allow' : body.effect === 'deny' ? 'deny' : undefined;
+    if (!effect) return 'Choose deny or allow.';
+    const resources = (typeof body.resources === 'string' ? body.resources : '')
+      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const picked = ([] as unknown[]).concat(body.source ?? []).filter((s): s is 'local' | 'examples' | 'community' =>
+      s === 'local' || s === 'examples' || s === 'community');
+    const reason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 300) : undefined;
+    const rule: PolicyRule = {
+      tool, action: 'execute', resources, effect,
+      ...(picked.length > 0 && picked.length < 3 ? { conditions: { source: picked } } : {}),
+      ...(reason ? { reason } : {}),
+    };
+    const index = typeof body.index === 'string' && body.index !== '' ? Number(body.index) : undefined;
+    if (index === undefined) {
+      doc.rules.push(rule);
+      return { doc, message: `Added rule #${doc.rules.length - 1}.`, anchor: `rule-${doc.rules.length - 1}` };
+    }
+    if (!Number.isInteger(index) || index < 0 || index >= doc.rules.length) return 'That rule no longer exists. Reload and try again.';
+    doc.rules[index] = rule;
+    return { doc, message: `Saved rule #${index}.`, anchor: `rule-${index}` };
+  });
+});
+
+settingsRouter.post('/settings/policies/rules/:i/move', (req: Request, res: Response) => {
+  editPolicy(req, res, (doc) => {
+    const i = ruleIndex(req, doc);
+    const j = i === undefined ? undefined : req.body?.dir === 'up' ? i - 1 : i + 1;
+    if (i === undefined || j === undefined || j < 0 || j >= doc.rules.length) return 'That rule can\'t move that way.';
+    [doc.rules[i], doc.rules[j]] = [doc.rules[j], doc.rules[i]];
+    return { doc, message: `Moved rule #${i} to #${j}.`, anchor: `rule-${j}` };
+  });
+});
+
+settingsRouter.post('/settings/policies/rules/:i/delete', (req: Request, res: Response) => {
+  editPolicy(req, res, (doc) => {
+    const i = ruleIndex(req, doc);
+    if (i === undefined) return 'That rule no longer exists. Reload and try again.';
+    const [removed] = doc.rules.splice(i, 1);
+    return { doc, message: `Deleted rule #${i} (${removed.effect} ${removed.tool}). Undo puts it back.` };
+  });
+});
+
+/** The JSON editor: saved as written, only when it parses and validates. */
+settingsRouter.post('/settings/policies/raw', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const text = typeof req.body?.text === 'string' ? req.body.text : '';
+  const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
+  try {
+    savePolicyText(ctx.dataDir, text, { expectedVersion: version });
+    redirectWith(res, '/settings/policies', 'flash', 'Saved the policy file. It applies to the next tool call.');
+  } catch (err) {
+    redirectWith(res, '/settings/policies#json', 'error', (err as Error).message);
+  }
+});
+
+settingsRouter.post('/settings/policies/undo', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
+  try {
+    restorePolicyBackup(ctx.dataDir, { expectedVersion: version });
+    redirectWith(res, '/settings/policies', 'flash', 'Put back the previous version of the policy file. Undo again to redo.');
+  } catch (err) {
+    redirectWith(res, '/settings/policies', 'error', err instanceof PolicyConflictError || err instanceof PolicyLoadError ? err.message : String(err));
+  }
 });
 
 /** Save the default spend limits (USD) for agents without their own. */
