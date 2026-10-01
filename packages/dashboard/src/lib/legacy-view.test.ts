@@ -30,7 +30,7 @@ function sampleOutput(widget: OutputWidgetSchema): string {
   return JSON.stringify(out);
 }
 
-const KNOWN_GAPS = [/template$/, /YouTube\/Vimeo/, /widget controls/, /preview and action fields/, /href\/text templates/, /no template/, /diff-apply/];
+const KNOWN_GAPS = [/template$/, /YouTube\/Vimeo/, /widget controls/, /action fields/, /isn't a table field/, /href\/text templates/, /no template/, /diff-apply/];
 function check(label: string, v: LegacyView): 'converted' | string {
   if ('unsupported' in v) {
     expect(KNOWN_GAPS.some((re) => re.test(v.unsupported)), `${label}: unexpected gap "${v.unsupported}"`).toBe(true);
@@ -57,7 +57,8 @@ describe('legacy widgets → A2UI views, across every example agent', () => {
       const k = check(`${a.id} (${template})`, v);
       tally[k] = (tally[k] ?? 0) + 1;
     }
-    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(24);
+    // Every example's Pulse template converts.
+    expect(Object.keys(tally)).toEqual(['converted']);
   });
 
   it('each output widget converts to a valid view or names a known gap', () => {
@@ -66,7 +67,8 @@ describe('legacy widgets → A2UI views, across every example agent', () => {
       const k = check(`${a.id} (${a.outputWidget!.type})`, legacyWidgetView(a.outputWidget!, sampleOutput(a.outputWidget!)));
       tally[k] = (tally[k] ?? 0) + 1;
     }
-    expect(tally.converted ?? 0).toBeGreaterThanOrEqual(18);
+    // Every example's output widget converts.
+    expect(Object.keys(tally)).toEqual(['converted']);
   });
 });
 
@@ -88,8 +90,10 @@ describe('conversion details', () => {
 
   it('names what it cannot draw yet', () => {
     expect(legacySignalView({ title: 'x', template: 'media' }, { url: 'https://youtu.be/abcdefghijk' })).toEqual({ unsupported: 'the "media" template with a YouTube/Vimeo link' });
-    expect(legacyWidgetView({ type: 'dashboard', fields: [], controls: [{ type: 'sort', column: 'a' }] } as unknown as OutputWidgetSchema, '{}'))
-      .toEqual({ unsupported: 'widget controls (sort)' });
+    expect(legacyWidgetView({ type: 'dashboard', fields: [{ name: 'x', type: 'text' }], controls: [{ type: 'sort', field: 'a', columns: ['b'] }] } as unknown as OutputWidgetSchema, '{"x":"1"}'))
+      .toEqual({ unsupported: 'a sort control on "a", which isn\'t a table field' });
+    expect(legacyWidgetView({ type: 'raw', fields: [{ name: 'x', type: 'text' }], controls: [{ type: 'filter', field: 'a', columns: ['b'] }] } as unknown as OutputWidgetSchema, '{"x":"1"}'))
+      .toEqual({ unsupported: 'widget controls (filter)' });
     expect(legacyWidgetView({ type: 'key-value', fields: [{ name: 'a', type: 'text' }], interactive: true } as unknown as OutputWidgetSchema, '{"a":"1"}'))
       .toMatchObject({ components: expect.any(Array) }); // the static result; the tile adds the form
   });
@@ -126,5 +130,39 @@ describe('new templates and interactive forms', () => {
     expect(v.components.find((c) => c.id === 'run_label')).toMatchObject({ text: 'Shake again' });
     const first = legacyInteractiveView({ agentId: 'magic-8', inputs: { QUESTION: { type: 'string' } }, widget: { type: 'key-value', fields: [], interactive: true, askLabel: 'Shake' } as never });
     expect('components' in first && first.components.find((c) => c.id === 'run_label')).toMatchObject({ text: 'Shake' });
+  });
+});
+
+describe('widget controls', () => {
+  const widget = {
+    type: 'dashboard',
+    fields: [
+      { name: 'temp', type: 'metric', label: 'Now' },
+      { name: 'humidity', type: 'stat', label: 'Humidity' },
+      { name: 'week', type: 'table', label: 'Week', columns: [{ name: 'day' }, { name: 'high' }] },
+      { name: 'chart', type: 'preview', label: 'Chart' },
+    ],
+    controls: [
+      { type: 'view-switch', label: 'Range', default: 'week', views: [{ id: 'today', fields: ['temp'] }, { id: 'week', fields: ['week'] }] },
+      { type: 'field-toggle', label: 'Extras', fields: ['humidity'], default: 'hidden' },
+      { type: 'sort', field: 'week', columns: ['day', 'high'], default: 'high desc' },
+      { type: 'filter', field: 'week', columns: ['day'], placeholder: 'Find a day' },
+      { type: 'paginate', field: 'week', pageSize: 5 },
+    ],
+  } as unknown as OutputWidgetSchema;
+  const output = JSON.stringify({ temp: '21', humidity: '40%', chart: 'out/chart.png', week: [{ day: 'Mon', high: 22 }, { day: 'Tue', high: 25 }] });
+
+  it('maps view-switch to Tabs (default first), field-toggle to a Disclosure, array controls to Table props, previews to links', () => {
+    const v = legacyWidgetView(widget, output);
+    if (!('components' in v)) throw new Error(v.unsupported);
+    const check = validateViewComponents(v.components);
+    expect(check, JSON.stringify(check)).toMatchObject({ ok: true });
+    const byId = Object.fromEntries(v.components.map((c) => [c.id, c]));
+    expect((byId.views as unknown as { tabs: Array<{ title: string }> }).tabs.map((t) => t.title)).toEqual(['week', 'today']);
+    expect(byId.toggle0).toMatchObject({ component: 'Disclosure', label: 'Extras', open: false });
+    const table = v.components.find((c) => c.component === 'Table');
+    expect(table).toMatchObject({ sortColumns: ['day', 'high'], defaultSort: 'high desc', filterColumns: ['day'], filterPlaceholder: 'Find a day', pageSize: 5, rows: { path: '/data/arrays/week' } });
+    expect(v.data).toMatchObject({ previews: { chart: '/output-file?path=out%2Fchart.png' }, arrays: { week: [{ day: 'Mon', high: 22 }, { day: 'Tue', high: 25 }] } });
+    expect(v.components.some((c) => c.component === 'Link' && (c.url as { path: string }).path === '/data/previews/chart')).toBe(true);
   });
 });

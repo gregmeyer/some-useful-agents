@@ -29,7 +29,8 @@ const Common = CommonSchemas.ComponentCommon.omit({ id: true });
 const Str = CommonSchemas.DynamicString;
 const tones = new Set(['neutral', 'ok', 'warn', 'err']);
 const tone = (t) => (tones.has(t) ? t : 'neutral');
-const safeUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : undefined);
+// http(s), or a same-origin dashboard path ("/x", not "//host").
+const safeUrl = (u) => (typeof u === 'string' && /^(https?:\/\/|\/(?!\/))/i.test(u) ? u : undefined);
 
 const shared = css`
   :host { display: block; color: var(--color-text); font-size: var(--font-size-sm); }
@@ -56,9 +57,11 @@ const Metric = define('Metric', 'sua-a2ui-metric',
     .label { font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
     .value { font-family: var(--font-mono); font-size: 2rem; line-height: 1.1; }
     .unit { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-left: .25rem; }
-    .delta { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+    .delta { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .value.long { font-family: inherit; font-size: var(--font-size-md, 1rem); line-height: 1.4; }`,
+  // A "metric" that's really a sentence (e.g. a day's forecast) reads as text, not a big number.
   (p) => html`<div class="label">${p.label}</div>
-    <div class="value ${tone(p.tone)}">${p.value}${p.unit ? html`<span class="unit">${p.unit}</span>` : nothing}</div>
+    <div class="value ${tone(p.tone)} ${String(p.value ?? '').length > 14 ? 'long' : ''}">${p.value}${p.unit ? html`<span class="unit">${p.unit}</span>` : nothing}</div>
     ${p.delta ? html`<div class="delta">${p.delta}</div>` : nothing}`);
 
 const Badge = define('Badge', 'sua-a2ui-badge',
@@ -79,27 +82,80 @@ const KeyValue = define('KeyValue', 'sua-a2ui-keyvalue',
     return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${typeof it?.value === 'object' ? JSON.stringify(it.value) : String(it?.value ?? '')}</dd>`)}</dl>`;
   });
 
+const cellText = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+const compare = (a, b) => {
+  const na = Number(a); const nb = Number(b);
+  if (a !== '' && b !== '' && Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return cellText(a).localeCompare(cellText(b), undefined, { numeric: true, sensitivity: 'base' });
+};
+
+// Sort (click a sortable header), filter (substring across filterColumns)
+// and pages all happen here, on the rows the view bound: no round trip.
 const Table = define('Table', 'sua-a2ui-table',
   Common.extend({
     rows: CommonSchemas.DynamicValue,
     columns: z.array(z.object({ key: z.string(), label: z.string(), format: z.enum(['text', 'link']).optional() }).strict()).min(1).max(12),
     maxRows: z.number().int().min(1).max(200).optional(),
+    sortColumns: z.array(z.string()).max(12).optional(),
+    defaultSort: z.string().max(80).optional(),
+    filterColumns: z.array(z.string()).max(12).optional(),
+    filterPlaceholder: z.string().max(80).optional(),
+    pageSize: z.number().int().min(1).max(200).optional(),
   }).strict(),
   css`
     :host { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: anywhere; }`,
-  (p) => {
-    const rows = (Array.isArray(p.rows) ? p.rows : []).slice(0, p.maxRows ?? 50);
+    th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
+    th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: anywhere; }
+    .tools { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    input[type=search] { flex: 1; padding: 4px 8px; background: var(--color-surface-raised); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); }
+    .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .pager button { padding: 2px 8px; background: var(--color-surface-raised); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+    .pager button[disabled] { opacity: .4; cursor: default; }`,
+  function (p) {
+    if (this._sort === undefined && p.defaultSort) {
+      const [col, dir] = String(p.defaultSort).trim().split(/\s+/);
+      this._sort = { col, dir: dir === 'desc' ? 'desc' : 'asc' };
+    }
+    const sortable = new Set(p.sortColumns ?? []);
+    const filterCols = p.filterColumns ?? [];
+    let rows = Array.isArray(p.rows) ? p.rows.slice() : [];
+    const q = (this._filter ?? '').trim().toLowerCase();
+    if (q && filterCols.length) rows = rows.filter((r) => filterCols.some((c) => cellText(r?.[c]).toLowerCase().includes(q)));
+    if (this._sort) {
+      const { col, dir } = this._sort;
+      rows = rows.map((r, i) => [r, i]).sort((x, y) => compare(x[0]?.[col], y[0]?.[col]) * (dir === 'desc' ? -1 : 1) || x[1] - y[1]).map((x) => x[0]);
+    }
+    const size = p.pageSize ?? p.maxRows ?? 50;
+    const pages = Math.max(1, Math.ceil(rows.length / size));
+    const page = Math.min(this._page ?? 0, pages - 1);
+    const visible = rows.slice(page * size, page * size + size);
+    const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     const cell = (row, col) => {
       const v = row?.[col.key];
-      if (col.format === 'link') { const u = safeUrl(v); return u ? html`<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\//, '')}</a>` : String(v ?? ''); }
-      return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (col.format === 'link') { const u = safeUrl(v); return u ? html`<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\//, '')}</a>` : cellText(v); }
+      return cellText(v);
     };
-    return html`<table><thead><tr>${p.columns.map((c) => html`<th>${c.label}</th>`)}</tr></thead>
-      <tbody>${rows.map((r) => html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`)}</tbody></table>`;
+    const header = (c) => {
+      if (!sortable.has(c.key)) return html`<th>${c.label}</th>`;
+      const active = this._sort?.col === c.key;
+      const next = active && this._sort.dir === 'asc' ? 'desc' : 'asc';
+      return html`<th aria-sort="${active ? (this._sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button @click=${() => set('_sort', { col: c.key, dir: next })}>${c.label}${active ? (this._sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>`;
+    };
+    return html`
+      ${filterCols.length ? html`<div class="tools"><input type="search" aria-label="${p.filterPlaceholder ?? 'Filter'}" placeholder="${p.filterPlaceholder ?? 'Filter…'}" .value=${this._filter ?? ''} @input=${(e) => { this._page = 0; set('_filter', e.target.value); }}></div>` : nothing}
+      <table><thead><tr>${p.columns.map(header)}</tr></thead>
+        <tbody>${visible.map((r) => html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`)}</tbody></table>
+      ${pages > 1 ? html`<div class="pager"><button ?disabled=${page === 0} @click=${() => set('_page', page - 1)}>‹ Prev</button><span>${page + 1} / ${pages}</span><button ?disabled=${page >= pages - 1} @click=${() => set('_page', page + 1)}>Next ›</button></div>` : nothing}`;
   });
+
+const Disclosure = define('Disclosure', 'sua-a2ui-disclosure',
+  Common.extend({ label: Str, child: CommonSchemas.ComponentId, open: z.boolean().optional() }).strict(),
+  css`
+    details > summary { cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; margin: 4px 0; }
+    details[open] > summary { margin-bottom: 8px; }`,
+  function (p) { return html`<details ?open=${p.open}><summary>${p.label}</summary>${this.renderNode(p.child)}</details>`; });
 
 const Link = define('Link', 'sua-a2ui-link',
   Common.extend({ text: Str, url: Str }).strict(),
@@ -161,7 +217,7 @@ const SanitizedHtml = define('SanitizedHtml', 'sua-a2ui-html',
     },
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Link, Code, Sparkline, Funnel, SanitizedHtml];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, SanitizedHtml];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);
