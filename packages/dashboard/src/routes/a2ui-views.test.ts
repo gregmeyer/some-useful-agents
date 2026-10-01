@@ -99,3 +99,26 @@ describe('A2UI views across the dashboard', () => {
     expect(String(widgets[r.id])).toContain(`data-surface-id="inbox-${m.id}-${gauge.id}"`);
   });
 });
+
+describe('W3 preview: existing widgets through A2UI', () => {
+  it('Settings → Appearance switches Pulse tiles and the run page between the old renderer and A2UI', async () => {
+    const { app } = await setup();
+    ctx.agentStore.createAgent({ id: 'stars', name: 'Stars', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'count', type: 'llm-prompt', prompt: 'x' }],
+      signal: { title: 'Stars', template: 'metric', mapping: { value: 'price' } } } as never, 'cli');
+    const run = await executeAgentDag(ctx.agentStore.getAgent('stars') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
+    expect(run.status).toBe('completed');
+    const post = (body: string) => request(app).post('/settings/appearance/a2ui').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+
+    let tile = await get(app, '/pulse/tile/stars');
+    expect(tile.text).not.toContain('data-surface-id="tile-stars"');
+    expect((await post('enabled=1')).status).toBe(303);
+    expect((await get(app, '/settings/appearance')).text).toMatch(/name="enabled" value="1" checked/);
+    tile = await get(app, '/pulse/tile/stars');
+    expect(tile.text).toContain('data-surface-id="tile-stars"');
+    expect(tile.text).toContain('"value":"$89"');
+    await post('');
+    tile = await get(app, '/pulse/tile/stars');
+    expect(tile.text).not.toContain('data-surface-id="tile-stars"');
+  });
+});

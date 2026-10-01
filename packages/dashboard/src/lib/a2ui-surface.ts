@@ -1,4 +1,5 @@
 import {
+  validateViewComponents,
   prepareViewForRender,
   resolveAgentView,
   viewToMessages,
@@ -7,6 +8,7 @@ import {
   type Run,
 } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from '../views/html.js';
+import type { LegacyView } from './legacy-view.js';
 
 /**
  * The page markup for one A2UI surface: a host element carrying the A2UI
@@ -36,4 +38,18 @@ export function renderRunView(
   }
   const components = prepareViewForRender(resolved.components, resolved.dataModel);
   return renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, resolved.dataModel), { label: `${agent.id} widget` });
+}
+
+/**
+ * A converted pre-A2UI widget (lib/legacy-view.ts) as a surface, or undefined
+ * when it can't be drawn that way (unsupported, or, defensively, a conversion
+ * that doesn't validate), so the caller keeps the old renderer.
+ */
+export function renderLegacySurface(surfaceId: string, legacy: LegacyView): SafeHtml | undefined {
+  if ('unsupported' in legacy) return undefined;
+  const v = validateViewComponents(legacy.components);
+  if (!v.ok) return undefined;
+  const dataModel = { data: legacy.data };
+  const components = prepareViewForRender(v.components, dataModel);
+  return renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, dataModel), { label: 'Widget' });
 }

@@ -5,7 +5,7 @@
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { THEMES } from './themes.js';
 
-export function renderSettingsAppearance(): SafeHtml {
+export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean } = {}): SafeHtml {
   const cards = THEMES.map((t) => {
     return html`
       <button type="button" class="theme-card" data-theme-id="${t.id}" title="${t.description}">
@@ -41,6 +41,24 @@ export function renderSettingsAppearance(): SafeHtml {
         Widget themes override widget colors only.
       </p>
     </div>
+
+    <section id="a2ui-widgets" style="margin-top: var(--space-6);">
+      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Widget renderer (preview)</h2>
+      <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3);">
+        Draw agents' existing widgets (Pulse templates and output widgets) with the new
+        <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md">A2UI renderer</a>,
+        the one agent views use. Same values, new layout. Widgets it can't draw yet (charts, images,
+        media, funnels, interactive forms, sort/filter controls) keep the current renderer.
+        Applies to everyone using this dashboard.
+      </p>
+      <form method="POST" action="/settings/appearance/a2ui" class="settings-pricing__form">
+        <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
+          <input type="checkbox" name="enabled" value="1" ${opts.a2uiWidgets ? 'checked' : ''}>
+          <span>Draw existing widgets with A2UI</span>
+        </label>
+        <button type="submit" class="btn btn--sm">Save</button>
+      </form>
+    </section>
 
     ${unsafeHtml(`<script>
       (function () {

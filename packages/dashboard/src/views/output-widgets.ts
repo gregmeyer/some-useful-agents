@@ -85,7 +85,7 @@ export function extractField(output: string, fieldName: string): string | undefi
  * Limited to a few-KB outputs by construction — agent run output today
  * is bounded by the output-framing layer.
  */
-function parseJsonFromOutput(output: string): unknown {
+export function parseJsonFromOutput(output: string): unknown {
   // Fast path: the whole thing is JSON.
   try {
     const parsed = JSON.parse(output);

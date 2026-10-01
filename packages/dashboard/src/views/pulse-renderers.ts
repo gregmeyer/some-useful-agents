@@ -3,6 +3,9 @@
  * SafeHtml for the tile's inner content (wrapped by tileWrap in pulse.ts).
  */
 
+import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
+import { renderLegacySurface } from '../lib/a2ui-surface.js';
+import { legacySignalView, legacyWidgetView } from '../lib/legacy-view.js';
 import type { SignalTemplate } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { normalizeSignal } from './pulse-templates.js';
@@ -330,6 +333,11 @@ export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   if (tile.agent.view && !tile.agent.signal) {
     return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No runs yet.</p>`);
   }
+  // Preview (Settings → Appearance): existing templates/widgets drawn through A2UI.
+  if (a2uiWidgetsEnabled()) {
+    const surface = legacyTileSurface(tile);
+    if (surface) return wrap(tile, surface);
+  }
   // An INTERACTIVE outputWidget is a tile-level mini-app (inputs form + run
   // button) and renders without a prior run, so it must own the tile even when
   // signal.template wasn't set to 'widget'. Pulse dispatches on signal.template,
@@ -380,4 +388,17 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   //      the widget's own <style> block (see widget-controls CSS classes)
   const widgetHtml = renderOutputWidget(agent.outputWidget, tile.lastRun.result, agent.id, {});
   return wrap(tile, widgetHtml ?? html`<p class="dim" style="font-size: var(--font-size-xs);">Widget render failed.</p>`);
+}
+
+/** The tile's signal template or output widget, converted to an A2UI surface; undefined → old renderer. */
+function legacyTileSurface(tile: PulseTile): SafeHtml | undefined {
+  const agent = tile.agent;
+  if (!tile.lastRun || agent.outputWidget?.interactive) return undefined;
+  const { template } = normalizeSignal(tile.signal);
+  const id = `tile-${agent.id}`;
+  if (template === 'widget') {
+    if (!agent.outputWidget || !tile.lastRun.result) return undefined;
+    return renderLegacySurface(id, legacyWidgetView(agent.outputWidget, tile.lastRun.result));
+  }
+  return renderLegacySurface(id, legacySignalView(tile.signal, tile.slots));
 }

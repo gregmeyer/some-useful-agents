@@ -59,6 +59,17 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
 
+## Existing widgets through A2UI (preview)
+
+**Settings → Appearance → Widget renderer (preview)** draws agents' existing widgets (Pulse `signal` templates and `outputWidget`s) through the same renderer, without changing any agent. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
+
+| Converted now | Still on the current renderer (next) |
+| --- | --- |
+| templates: metric, text-headline, status, comparison, key-value, story, table; `widget` | templates: time-series, image, text-image, media, funnel |
+| widgets: key-value, raw, dashboard (text, code, badge, metric, stat, table fields), ai-template | interactive widgets (input forms), sort/filter/paginate/view-switch/field-toggle controls, diff-apply, preview/action fields, table columns with href/text templates |
+
+Across the 44 example agents, 20 of 26 Pulse templates and 6 of 22 output widgets convert today; most of the rest are interactive forms. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
+
 ## In chat: replies are widgets, clicks are messages
 
 On the agent's **Chat** tab, each reply whose run produced a valid view shows the view instead of the raw text ("Show the raw reply" keeps the text one click away). A Button (or any component with an `action`) continues the conversation when clicked: the action becomes your next message, either its `context.message` or "▸ name (key: value, …)".
