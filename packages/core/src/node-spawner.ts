@@ -680,7 +680,10 @@ export const codexSpawner: LlmSpawner = {
     // `--output-format stream-json`. This unlocks the inbox SSE
     // pipeline: turn.started → output_chunk → turn.completed get
     // forwarded as triage:started → triage:token → triage:complete.
-    const args = ['exec', '--json', '-s', 'read-only'];
+    // --skip-git-repo-check: codex refuses to run outside a git repo it
+    // trusts, which breaks any sua project in a plain folder. The check
+    // guards against unreviewable file edits; this run is read-only.
+    const args = ['exec', '--json', '-s', 'read-only', '--skip-git-repo-check'];
     if (opts.model) args.push('-m', opts.model);
     // sua's tools (ADR-0044): codex takes MCP servers as config, so the
     // per-attempt endpoint goes in with -c. Only sua's server is on for this

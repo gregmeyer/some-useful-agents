@@ -46,6 +46,8 @@ Two kinds of provider can sit in the waterfall:
 | `codex` | `codex` | OpenAI Codex CLI |
 | `apple-foundation-models` | on-device | Apple Foundation Models via a Swift runner compiled on first use; macOS only |
 
+sua always runs codex with `exec -s read-only --skip-git-repo-check`: codex's own guard refuses to run outside a git repo it trusts, which would stop any sua project in a plain folder from using it, and the guard only matters when codex may edit files, which sua's runs can't.
+
 **Custom OpenAI-compatible providers** — POST to a `/v1/chat/completions`
 endpoint. This is how you run a **local or self-hosted model** (llama.cpp,
 LM Studio, Ollama, vLLM, a gateway, …) as a first-class provider. Each one is a

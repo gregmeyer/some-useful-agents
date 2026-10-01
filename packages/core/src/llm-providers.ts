@@ -39,7 +39,9 @@ export const PROVIDERS: Record<LlmProvider, ProviderDef> = {
     displayName: 'Codex',
     binary: 'codex',
     versionArgv: ['--version'],
-    promptArgv: (prompt) => ['exec', '-s', 'read-only', prompt],
+    // Read-only, so codex's "only in a trusted git repo" guard is moot; without
+    // the flag a sua project outside a git repo can't use codex at all.
+    promptArgv: (prompt) => ['exec', '-s', 'read-only', '--skip-git-repo-check', prompt],
   },
   // Apple Foundation Models runs on-device via a tiny Swift runner we
   // compile and cache at ~/.sua/runners/apple_foundationmodels. The

@@ -22,6 +22,6 @@ describe('PROVIDERS registry', () => {
     expect(PROVIDERS.claude.binary).toBe('claude');
     expect(PROVIDERS.claude.promptArgv('hi')).toEqual(['--print', 'hi']);
     expect(PROVIDERS.codex.binary).toBe('codex');
-    expect(PROVIDERS.codex.promptArgv('hi')).toEqual(['exec', '-s', 'read-only', 'hi']);
+    expect(PROVIDERS.codex.promptArgv('hi')).toEqual(['exec', '-s', 'read-only', '--skip-git-repo-check', 'hi']);
   });
 });
