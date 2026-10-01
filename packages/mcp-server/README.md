@@ -25,6 +25,8 @@ Binds `127.0.0.1:3003` by default. Bearer token auth via `~/.sua/mcp-token`.
 }
 ```
 
+`run-agent` also holds conversations: pass `message` (and the returned `sessionId` to continue). A run that stops to ask you something reports `waiting`; answer in the dashboard inbox. See [docs/conversations.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/conversations.md).
+
 See the [main repo README](https://github.com/gregmeyer/some-useful-agents) for full documentation.
 
 ## License

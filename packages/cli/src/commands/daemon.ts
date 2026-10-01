@@ -25,6 +25,12 @@ export const daemonCommand = new Command('daemon')
 daemonCommand
   .command('start')
   .description('Start configured services as detached subprocesses')
+  .addHelpText('after', `
+Which services start comes from daemon.services in sua.config.json
+(schedule, dashboard, mcp, worker, model). The model service runs a local
+model server (e.g. llama-server) from daemon.model.command; see
+docs/llm-providers.md.
+`)
   .option('--service <name>', 'Start only this service (repeatable)', collectService, [] as ServiceName[])
   .action(async (opts: { service: ServiceName[] }) => {
     const config = loadConfig();

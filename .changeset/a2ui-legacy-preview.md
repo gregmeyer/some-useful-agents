@@ -6,6 +6,6 @@
 "@some-useful-agents/dashboard": minor
 ---
 
-Preview: draw existing widgets with the A2UI renderer.
+Existing widgets are converted to A2UI views.
 
-Settings → Appearance has a new "Widget renderer (preview)" switch that draws agents' existing Pulse templates and output widgets through the A2UI renderer agent views use, with the same values (the old extraction runs on the server; threshold and accent colours carry over). Metric, text-headline, status, comparison, key-value, story and table templates, and key-value, raw, dashboard and ai-template widgets convert today; charts, images, media, funnels, interactive forms and sort/filter controls keep the current renderer. Off by default.
+A converter turns agents' existing Pulse templates and output widgets into A2UI views, so they draw through the same renderer as agent `view:`s, with the same values: the old slot mapping, field extraction and ai-template substitution run on the server and the view only lays them out. Threshold and accent colours carry over to metrics, and headings use the dashboard's monospace font. See "Widgets are drawn with A2UI by default" for how it's switched on.

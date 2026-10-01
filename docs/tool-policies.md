@@ -5,8 +5,9 @@ allow/deny rules that sua checks before **every** sua tool call:
 
 - a tool node in a flow (`tool: http-get`, `type: file-write`, …), and
 - every tool a model calls during an `llm-prompt` node, whichever provider answers:
-  an OpenAI-compatible model through sua's tool loop, or claude through sua's tool
-  endpoint ([ADR-0036](adr/0036-serve-sua-tools-to-claude-over-mcp.md)).
+  an OpenAI-compatible model through sua's tool loop, or claude or codex through sua's
+  per-attempt tool endpoint ([ADR-0036](adr/0036-serve-sua-tools-to-claude-over-mcp.md),
+  [ADR-0044](adr/0044-serve-sua-tools-to-codex-over-mcp.md)).
 
 No file means no restrictions: everything is allowed, as before.
 

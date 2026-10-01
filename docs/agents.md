@@ -25,7 +25,7 @@ nonEntryConditions:           # optional routing — when it should NOT (disambi
 sampleQuestions:              # optional routing — representative questions it answers
   - What's the weather in Denver tomorrow?
 
-provider: claude              # optional agent-level LLM default (claude | codex)
+provider: claude              # optional agent-level LLM default (claude | codex | a custom endpoint | apple-foundation-models)
 model: claude-sonnet-4-5      # optional agent-level model default
 
 inputs:                       # optional — runtime values users can supply
@@ -42,7 +42,9 @@ webhook: { inputs: { TITLE: $.issue.title } }  # optional — how a webhook deli
 envAllowlist: [PATH, HOME]    # optional — override the default shell env allowlist
 secrets: [API_KEY]            # optional — secrets this agent's nodes can reference
 redactSecrets: true           # optional — redact matched-prefix credentials in run logs
-pulseVisible: true            # optional — show this agent's tile on the home board (/)
+pulseVisible: true            # optional — show this agent's tile on Pulse (/pulse)
+behaviors: [declare-blind-spots]  # optional — Agent Behavior specs that steer this agent; see behaviors.md
+allowedSubAgents: [weather]   # optional — allowlist of agents this one may call (agent-invoke, loop, agent:<id> tools); see agents-as-tools.md
 
 permissions:                  # optional — per-agent CSP allowances for widget rendering
   imgSrc: ["https://images.example.com"]
@@ -135,7 +137,7 @@ nodes:
 
 State is **not** swept by run retention — it persists until the agent is deleted. Don't put secrets in there; the dir lives on disk in plain text.
 
-Currently available to: dashboard runs, `sua workflow run`, `sua workflow replay`. **Not yet available** to scheduled agents going through `sua schedule start` (uses the v1 chain executor; will be wired in a follow-up).
+Available to every run: the dashboard, `sua agent run`, `sua workflow run` / `replay`, MCP, webhooks, and scheduled runs (`sua schedule start`).
 
 ### Per-agent size cap
 
@@ -311,9 +313,9 @@ Two layers protect a run from burning unbounded time / tokens:
 | Per-node | `nodes[*].timeout:` | 300s | each node | Soft cap for a single node. If the child process is still running at the deadline, `spawnProcess` sends SIGTERM, then SIGKILL after 5s if the child hasn't exited. The node ends with `exitCode=124` and `errorCategory='timeout'`; downstream nodes still run. |
 | Agent-level | `timeoutSec:` (top level) | unset | this file | Hard wall-clock ceiling for the entire DAG run. Catches the "10-node DAG legitimately runs 10 minutes" case that no single per-node `timeout:` can see. |
 
-A `goal` step has its own time limit (`budget.timeoutSec`, default 600s) on top of these; see [goal-agents.md](goal-agents.md).
+A `goal` node has its own time limit (`budget.timeoutSec`, default 600s) on top of these; see [goal-agents.md](goal-agents.md).
 
-> `timeoutSec` (and `runOn`) were silently dropped when an agent was loaded from YAML or saved, before v0.29, so the cap never applied. It does now.
+> `timeoutSec` (and `runOn`) were silently dropped when an agent was loaded from YAML or saved, before v0.28, so the cap never applied. It does now.
 
 When `timeoutSec` trips, the executor's internal `AbortController` fires, the in-flight node's spawn receives the same SIGTERM-then-SIGKILL escalation as per-node timeout, every remaining not-yet-started node is written as `cancelled` (category `cancelled`, not `timeout`), and the run's `error` field names the cap directly: `Agent wall-clock timeout (60s) exceeded.` Set `timeoutSec: 0` (or omit) to disable.
 

@@ -1,7 +1,7 @@
 # Agents as tools
 
-Any step that lets a model call tools can also let it call **other agents**. Put
-`agent:<id>` in the step's `tools:`:
+Any node that lets a model call tools can also let it call **other agents**. Put
+`agent:<id>` in the node's `tools:`:
 
 ```yaml
 nodes:
@@ -20,11 +20,11 @@ agent and hands its result back to the model.
 ## What a call does
 
 - It runs the agent as a **sub-run** of the calling run, recorded with the calling
-  run and step. The calling run's page lists its **sub-runs**, and each sub-run links
+  run and node. The calling run's page lists its **sub-runs**, and each sub-run links
   back with **Called by**.
-- The call appears in the step's **tool calls** list, with a link to the sub-run.
+- The call appears in the node's **tool calls** list, with a link to the sub-run.
 - Cancelling the calling run cancels its sub-runs.
-- It works on every provider that can call tools (claude, OpenAI-compatible models),
+- It works on every provider that can call tools (claude, codex, OpenAI-compatible models),
   and on a Temporal worker.
 
 ## Limits

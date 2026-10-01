@@ -5,7 +5,17 @@ on direction.
 
 ## Recently shipped
 
-### Current cycle (v0.22 → v0.24, next release pending)
+### v0.28
+Toward a general-purpose agent platform, and agents that populate a canvas instead of a static dashboard:
+- **Goal agents** — a [`goal` node](docs/goal-agents.md) gives a model a goal, tools and a budget; **agents as tools** ([`agent:<id>`](docs/agents-as-tools.md)); Build from goal drafts goal agents, shows each draft's shape and why, and lets you **Try it** before keeping it.
+- **Memory and conversations** — [per-agent memory](docs/memory.md) with recall and tools; [conversations](docs/conversations.md) from the Chat tab, `sua agent chat` and MCP; chat and inbox threads stream over a WebSocket.
+- **People and triggers** — [ask a person](docs/ask-a-person.md) mid-run (`ask` node, `ask-human` tool) and [inbound webhooks](docs/webhooks.md).
+- **Control** — [cost capture and spend limits](docs/cost.md); [tool policies](docs/tool-policies.md) enforced on every call, edited and tested in Settings → Policies; every tool call recorded on the run page.
+- **Tools everywhere** — Claude and Codex call sua tools over a per-attempt MCP endpoint; OpenAI-compatible models have a native tool loop; a local model server runs as a `sua daemon` service.
+- **A2UI widgets** — agents can describe their widget as an [A2UI view](docs/a2ui-views.md) (declared or generated), drawn on the run page, Pulse, dashboards, inbox and as chat replies whose buttons continue the conversation; every existing widget is drawn with A2UI too.
+- **Behaviors** — [Agent Behavior](docs/behaviors.md) specs, optionally steering an agent; plus the Tools page as the one home for everything an agent can call, and a plain-language sweep of the dashboard.
+
+### v0.22 → v0.27
 - **Custom OpenAI-compatible LLM providers + waterfall management** — run local / self-hosted models (llama.cpp, LM Studio, Ollama, vLLM, a Qwen GGUF, …) as first-class providers. Add an endpoint at `/settings/llm` (name / API base / model / optional key) with a reachability probe; it POSTs `/v1/chat/completions` and slots into the existing fallback waterfall. Plus per-provider **enable/disable** (flip Claude and Codex off to run local-only) — a disabled provider is off everywhere, including for nodes that pin it. Full guide: [docs/llm-providers.md](docs/llm-providers.md).
 - **Stable machine-key secrets store** — the zero-passphrase fallback keyed off `hostname:username`, which broke agent runs whenever macOS flipped `os.hostname()`. It now derives from a stable per-vault machine key (self-heals existing vaults on first read; actionable error when a vault is genuinely unreadable).
 - **Inbox triage matured** — triage can **resolve** a thread it has fully handled, **see a whole run's output** (not just the first ~2KB) to answer data questions, **write to dashboards** (add-tile / create), and **show an agent's widget inline** without re-running it. Stop halts the whole autonomous chain.
@@ -76,14 +86,14 @@ on direction.
 
 ## Now
 
-**v0.21 polish + tool policies.** Run reliability (orphan reaper, agent timeoutSec, child-PID-aware reaper kill), the Scheduled-agents management surface, and the DAG zoom + sticky Node execution header all merged. **Tool policies** shipped: allow/deny rules in `.sua/policies.json` enforced for every sua tool call on every provider ([docs](docs/tool-policies.md)). Next per the v0.20+ sequence: outcome-driven flows → node discovery. Followup nice-to-haves that fell out of the v0.21 work: surface orphan-reaper stats (`runsReaped` / `pidsKilled`) on `/health` and the boot log; a `timeoutSec` editor in `/agents/:id/config` so wall-clock caps are settable without editing YAML; one-click "Clear schedule" on `/scheduled` rows (kept off the row today since it's less reversible than Pause).
+**The canvas.** With every widget now an A2UI view, Pulse and named dashboards become **boards** stored on the server, where widgets are placed and sized freely on a grid (W4), then actions and run history in views (W5), and authoring: the build planner writes views, a widget editor with live preview, and **"Redesign this widget"**, where an agent proposes a better view from the current one and real data (W6). Streaming widgets in chat (WS3) and removing the previous widget renderer (one release from now) are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
 
 ## Next (3–6 months)
 
-- **~~Outcome-driven flows~~ → goal agents (shipped).** Superseded: rather than a planner that generates and re-plans DAGs, a [`goal` step](docs/goal-agents.md) gives the model a goal, tools and a budget and lets it loop until it has an answer, and [agents can call other agents as tools](docs/agents-as-tools.md). Build-from-goal drafts goal agents for open-ended asks. Follow-ups: cost budgets (shipped: capture + per-run / per-day limits), an LLM judge for success, sessions + memory.
-- **Variables editor refactor** — Output Widget editor moved to its own page with sub-tabs in #180; the matching Variables editor refactor is the leftover. Plan: [`~/.claude/plans/agent-config-editors-followup.md`](.).
-- **First-Run Tour CTA** — onboarding polish; surface a guided first-run tour after install. Plan: [`~/.claude/plans/mellow-splashing-squirrel.md`](.).
-- **Agents-as-packages** — npm-style mini-packages with manifest + assets + versioning. Big shape change; promote when a concrete trigger lands (e.g., a real package someone wants to publish). Plan: [`~/.claude/plans/agents-as-packages.md`](.).
+- **~~Outcome-driven flows~~ → goal agents (shipped).** Superseded: rather than a planner that generates and re-plans DAGs, a [`goal` step](docs/goal-agents.md) gives the model a goal, tools and a budget and lets it loop until it has an answer, and [agents can call other agents as tools](docs/agents-as-tools.md). Build-from-goal drafts goal agents for open-ended asks. Follow-ups shipped in v0.28: cost budgets (capture + per-run / per-day limits), conversations and memory. Still open: an LLM judge for success.
+- **Variables editor refactor** — Output Widget editor moved to its own page with sub-tabs in #180; the matching Variables editor refactor is the leftover. 
+- **First-run tour** — mostly shipped (Start here, the home intro with Start here / Tutorial buttons); left: a tutorial stage for goal agents and chat.
+- **Agents-as-packages** — npm-style mini-packages with manifest + assets + versioning. Big shape change; promote when a concrete trigger lands (e.g., a real package someone wants to publish).
 - **Catalog + provenance** — `provenance_json` column on the `agents` table tracking origin (npm / local / community / examples). Sequenced with agents-as-packages.
 - **OS keychain for secrets (Phase S3)** — optional `keytar`-backed store for stronger at-rest encryption than the current passphrase-derived file cipher.
 - **Temporal scheduling** — use Temporal's Schedules API for agents running via the Temporal provider (so scheduling works without a local scheduler daemon).
@@ -97,14 +107,14 @@ on direction.
 
 - **Agent marketplace web UI** — browsable community catalog outside GitHub.
 - **Remote MCP access with auth** — expose the MCP server to remote clients via authenticated HTTPS.
-- **Agent performance stats** — `sua agent stats <name>` for duration, success rate, output size, and (for claude-code agents) token usage.
+- **Agent performance stats** — `sua agent stats <name>` for duration, success rate and output size (tokens and cost already ship: `sua usage`, Settings → Usage).
 - **Agent templates** — `sua agent create --from template/daily-digest` scaffolds new agents from curated templates.
 - **Users / groups / RBAC** — today sua is single-user: one local OS account, one bearer token shared between MCP and dashboard, no concept of identity or permissions. For shared / team deployments (single laptop with multiple collaborators, or eventual hosted mode), we'd need: per-user accounts with password or SSO, groups for grouping accounts, role-based permissions on agents (run / edit / delete / manage secrets), an audit log of who did what, and per-user secrets so credentials aren't shared across the team. Big shape change — touches secrets store, dashboard auth middleware, run-store attribution, and the MCP token model. Plan when there's a concrete multi-user use case driving it; until then, single-user is fine and the simpler surface is a feature, not a gap.
 
 ## Explicitly rejected
 
 - **Slack OAuth** — incoming webhooks cover the local-tool use case with zero auth infrastructure. OAuth requires a registered app with a redirect URL, awkward for a CLI with no public web surface.
-- **Bundling agents in the CLI npm package** — agents are per-user state; scaffolding happens via `sua init` and `sua tutorial`, not via shipped YAML files in `node_modules`.
+- **Agents as installed package state** — your agents are per-user state in your project, not files in `node_modules`. (The bundled *example* agents do ship inside `@some-useful-agents/core` since v0.28, and `sua init` installs them into your project.)
 
 ## How we decide
 

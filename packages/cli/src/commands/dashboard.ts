@@ -111,7 +111,7 @@ async function confirmTty(question: string): Promise<boolean> {
 }
 
 export const dashboardCommand = new Command('dashboard')
-  .description('Read-only web UI for agents, runs, and run-now');
+  .description('Web UI: build, run, chat with and monitor agents');
 
 dashboardCommand
   .command('signin-url')

@@ -71,8 +71,8 @@ async function runV2FromAgentVerb(
 }
 
 export const runCommand = new Command('run')
-  .description('Run an agent')
-  .argument('<name>', 'Agent name')
+  .description('Run an agent once and wait for the result')
+  .argument('<name>', 'Agent id')
   .option('--provider <provider>', 'Override provider (local | temporal)')
   .option(
     '--allow-untrusted-shell <name>',
@@ -103,8 +103,8 @@ Inputs:
     $ sua agent run weather --input ZIP=94110
     $ sua agent run weather --input ZIP=10001 --input STYLE=verse
 
-  claude-code prompts can reference {{inputs.X}}; shell commands read
-  them as $X environment variables. See README "Templates" section.
+  llm-prompt and goal nodes can reference {{inputs.X}}; shell commands read
+  them as $X environment variables. See docs/templating.md.
 `,
   )
   .action(async (name: string, options: RunOptions) => {

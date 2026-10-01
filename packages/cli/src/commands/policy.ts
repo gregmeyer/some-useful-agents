@@ -18,7 +18,7 @@ import * as ui from '../ui.js';
  * out the hard way. See docs/tool-policies.md.
  */
 export const policyCommand = new Command('policy')
-  .description('Show, test, and validate the tool policy (.sua/policies.json)');
+  .description('Show, test, and validate the tool policy (<dataDir>/.sua/policies.json; edit it in Settings → Policies)');
 
 const SOURCES = ['examples', 'local', 'community'] as const;
 

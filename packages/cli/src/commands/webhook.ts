@@ -15,6 +15,17 @@ export const webhookCommand = new Command('webhook')
   .option('--on', 'Turn the webhook on (creates its secret the first time)')
   .option('--off', 'Turn the webhook off (deliveries get 404)')
   .option('--rotate', 'Replace the secret; the old one stops working')
+  .addHelpText('after', `
+Examples:
+  $ sua agent webhook triage-bot --on        Turn it on; prints the URL and secret
+  $ curl -X POST http://127.0.0.1:3000/hooks/triage-bot \\
+      -H "Authorization: Bearer <secret>" -H "Content-Type: application/json" \\
+      -d '{"issue":{"title":"Login broken"}}'
+
+  Map the delivery to inputs with a \`webhook:\` block in the agent's YAML
+  (e.g. inputs: { TITLE: $.issue.title }). GitHub signatures work too.
+  See docs/webhooks.md.
+`)
   .action((agentId: string, opts: { on?: boolean; off?: boolean; rotate?: boolean }) => {
     const stores = openStores();
     try {

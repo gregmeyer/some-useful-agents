@@ -4,10 +4,11 @@
 
 An **output widget** is a declarative renderer for an agent run's output. Instead of showing the raw stdout, the agent declares a schema — a widget type plus a list of fields (or an HTML template) — and the dashboard uses it to render a structured, often colorful, result panel.
 
-Widgets appear in two places:
+Widgets appear wherever an agent's results do:
 
-1. On the **agent detail page** (`/agents/<id>`), at the top of the most recent run's output
-2. On **Pulse**, when the signal's template is set to `widget` (the tile mirrors whatever the agent's outputWidget renders)
+1. On the **run page** (`/runs/<id>`, the Result area) and the **agent detail page**
+2. On **Pulse** and named **dashboards**, when the signal's template is `widget` (the tile mirrors the agent's outputWidget)
+3. In **inbox threads**, under an action that ran the agent
 
 This page is the reference. For how to edit a widget in the dashboard, see the [Dashboard tour](dashboard.md#output-widget-editor).
 
@@ -194,9 +195,9 @@ Pick one, tweak the field names to match your agent, save.
 
 ## Interactive controls
 
-Add a `controls:` array on `outputWidget` to render an interactive controls row above the widget body. State lives entirely in URL query params (no client JS), so refresh resets to defaults and links can be shared.
+Add a `controls:` array on `outputWidget` to make a widget interactive. With the A2UI renderer (the default), the controls work in the browser on the widget itself: sort, filter and paginate act on the table they name (click a header to sort, a filter box, a pager), `view-switch` becomes tabs, `field-toggle` becomes a collapsible section, and `replay` / interactive widgets become a form with a Run button. With the previous renderer (Settings → Appearance, for one more release), state lives in URL query params instead (see *URL grammar* below).
 
-Six control types:
+Eight control types:
 
 | Type | Purpose | Notes |
 |---|---|---|
@@ -206,10 +207,12 @@ Six control types:
 | `sort` | Sort an array/`table` field | `field:` names the array; sort direction toggles via URL state |
 | `filter` | Filter rows of an array/`table` field | substring/value filter, per-field URL state |
 | `paginate` | Page through a long array/`table` field | `pageSize:` sets rows per page |
+| `copy` | Copy the widget's text to the clipboard | `label?` |
+| `capture-image` | Save the widget as a PNG | `label?`, `filename?`; a widget with this control is drawn with the previous renderer (the capture can't see inside A2UI components) |
 
 A synthesized `replay` control ("Run again") is added automatically when an agent declares inputs but no explicit `replay` control, so most widgets get a re-run button for free.
 
-Example — weather agent with all three controls:
+Example — weather agent with three controls:
 
 ```yaml
 outputWidget:
@@ -235,14 +238,14 @@ outputWidget:
       default: hidden
 ```
 
-URL grammar:
+URL grammar (previous renderer only):
 
 - `?wv=<view-id>` — active view for the `view-switch`. Omitted = default view.
 - `?wh=<csv-of-field-names>` — fields hidden via `field-toggle`. When `?wh=` mentions any toggle field, it's the authoritative hidden set; otherwise per-control `default:` applies.
 
 `field-toggle` and `view-switch` are not supported on `ai-template` widgets — the template author controls layout directly. `replay` works on any widget type.
 
-Controls render **everywhere the widget renders** — agent detail, run detail, and Pulse / dashboard tiles. Appearance is owned by the dashboard's default widget-controls CSS plus any `<style>` block the widget author adds, so a widget can restyle (or hide) its own controls.
+Controls work **everywhere the widget renders** — the run page, agent detail, Pulse / dashboard tiles and inbox threads. With the previous renderer, appearance is owned by the dashboard's default widget-controls CSS plus any `<style>` block the widget author adds.
 
 ### Interactive widgets
 

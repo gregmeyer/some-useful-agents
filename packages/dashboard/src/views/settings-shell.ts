@@ -24,7 +24,7 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
   const body = html`
     ${pageHeader({
       title: 'Settings',
-      description: 'Everything sua needs to reach the outside world — model providers, secrets, and connected services — plus how this dashboard looks.',
+      description: 'Model providers, secrets and variables, what runs cost, and which tools agents may call, plus how this dashboard looks. Connected services and MCP servers live under Tools.',
     })}
     <nav class="tab-strip">
       ${tab('secrets', 'Secrets')}

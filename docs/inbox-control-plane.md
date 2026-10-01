@@ -80,7 +80,7 @@ a system note once a scheduler heartbeats again. `system-health` threads are nev
 auto-triaged — the message already says what to do.
 
 - **Routing on agent metadata**: triage picks which agent to dispatch using each
-  agent's routing metadata (see [Agents → Routing metadata](agents.md#routing-metadata--entryconditions-nonentryconditions-samplequestions)).
+  agent's routing metadata (see [Agents → Routing metadata](agents.md#routing-metadata--tags-entryconditions-nonentryconditions-samplequestions)).
   `entryConditions` and `sampleQuestions` boost an agent's relevance in the ranked
   `AGENT_CATALOG` (so it surfaces even when its name/description miss the request),
   and all three fields are handed to the triage LLM — which prefers agents whose

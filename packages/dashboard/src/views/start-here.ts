@@ -126,7 +126,7 @@ export function renderStartHerePage(args: StartHereArgs): string {
             the tab label. */ html``}
       <h2 class="starters__title">Four agents, four patterns</h2>
       <p class="starters__lede">
-        The first three are a handful of steps wired together, and every step is
+        The first three are a handful of nodes wired together, and every node is
         just an instruction plus a tool or two. Run one and watch the graph —
         nodes light up as they go, some run side by side, some get skipped. The
         fourth is a single node with no wiring at all: give it a goal and it
