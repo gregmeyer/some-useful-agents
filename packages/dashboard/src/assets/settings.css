@@ -456,3 +456,22 @@
 .settings-policies__rules tr.is-deciding td { background: var(--color-primary-soft); }
 .settings-policies__rules tr.is-deciding td:first-child { box-shadow: inset 2px 0 0 var(--color-primary); }
 .settings-policies__result { margin-top: var(--space-3); }
+.settings-policies__inline { display: inline; margin: 0; }
+.settings-policies__actions { white-space: nowrap; text-align: right; }
+.settings-policies__actions .btn { padding-inline: var(--space-2); }
+.settings-policies__default { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.settings-policies__rules tr.is-editing td { background: var(--color-surface-raised); }
+.settings-policies__form { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) 0; }
+.settings-policies__form fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-3); min-inline-size: 0; }
+.settings-policies__form legend { padding: 0; margin-bottom: var(--space-1); width: 100%; }
+.settings-policies__resources, .settings-policies__json-text {
+  width: 100%; font-family: var(--font-mono); font-size: var(--font-size-xs);
+  padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+}
+.settings-policies__hint { font-size: var(--font-size-xs); }
+.settings-policies__form-actions { display: flex; gap: var(--space-2); }
+.settings-policies__new { margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.settings-policies__json { margin-top: var(--space-5); }
+.settings-policies__json > summary { cursor: pointer; }
+/* Keeps Delete aligned when a row has no ↑ or ↓. */
+.settings-policies__spacer { visibility: hidden; display: inline-block; padding-inline: var(--space-2); border: 1px solid transparent; font-size: var(--font-size-sm); }
