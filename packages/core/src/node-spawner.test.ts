@@ -508,3 +508,12 @@ describe('progress events that count turns and tool calls', () => {
       .toMatchObject({ type: 'tool_use', toolStatus: 'result', isError: true });
   });
 });
+
+describe('claude text deltas', () => {
+  it('asks for partial messages and turns text deltas into output_delta progress', () => {
+    expect(claudeSpawner.buildArgs({ prompt: 'hi' })).toContain('--include-partial-messages');
+    const e = claudeSpawner.parseProgress(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello there' } } }));
+    expect(e).toMatchObject({ type: 'output_delta', message: 'Hello there' });
+    expect(claudeSpawner.parseProgress(JSON.stringify({ type: 'stream_event', event: { type: 'message_stop' } }))).toBeNull();
+  });
+});

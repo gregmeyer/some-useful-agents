@@ -45,52 +45,16 @@ export function renderAgentChat(args: AgentChatArgs): string {
     </aside>
   `;
 
-  const turnRow = (t: SessionTurn, prev: SessionTurn | undefined): SafeHtml => {
-    const grouped = !!prev && prev.role === t.role;
-    const who = t.role === 'user' ? 'you' : 'agent';
-    return html`
-      <li class="inbox-msg ${grouped ? 'inbox-msg--grouped' : ''}">
-        <span class="inbox-msg__avatar ${t.role === 'user' ? 'inbox-msg__avatar--user' : 'inbox-msg__avatar--triage'}">${who}</span>
-        <div class="inbox-msg__body">
-          <div class="inbox-msg__meta">
-            <span class="inbox-msg__time">${formatAge(t.createdAt)}</span>
-            ${t.role === 'agent' && t.runId ? html`<a href="/runs/${encodeURIComponent(t.runId)}" class="mono">run ${t.runId.slice(0, 8)}</a>` : html``}
-          </div>
-          ${t.role === 'agent' && t.failed
-            ? html`<p class="inbox-msg__text" style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`
-            : t.role === 'agent'
-              ? mdBody(t.text)
-              : html`<p class="inbox-msg__text" style="margin: 0;">${t.text}</p>`}
-        </div>
-      </li>`;
-  };
-
-  const lastUser = [...chat.turns].reverse().find((t) => t.role === 'user');
-  const transcript = chat.turns.length === 0
-    ? html`<p class="dim" style="font-size: var(--font-size-sm);">
-        Ask ${agent.name} something. Each message is a run of this agent, and it sees the conversation so far${chat.chatInput ? html` (your message fills its <code>${chat.chatInput}</code> input)` : html``}.
-      </p>`
-    : html`<ul class="agent-chat__transcript">
-        ${chat.turns.map((t, i) => turnRow(t, chat.turns[i - 1])) as unknown as SafeHtml[]}
-        ${chat.pending ? html`
-          <li class="inbox-msg">
-            <span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span>
-            <div class="inbox-msg__body">${chat.waitingQuestion
-              ? html`<span class="inbox-msg__writing">Waiting for an answer:</span> ${chat.waitingQuestion.question}
-                  ${chat.waitingQuestion.inboxMessageId ? html` <a href="/inbox/${encodeURIComponent(chat.waitingQuestion.inboxMessageId)}">Answer in the inbox</a>` : html``}`
-              : html`<span class="inbox-msg__writing">Working…</span>`}
-              ${lastUser?.runId ? html` <a href="/runs/${encodeURIComponent(lastUser.runId)}" class="mono dim" style="font-size: var(--font-size-xs);">watch run ${lastUser.runId.slice(0, 8)}</a>` : html``}
-            </div>
-          </li>` : html``}
-      </ul>`;
-
+  const transcript = renderChatTranscript(agent, chat);
   const composer = chat.notConversational
     ? html`<div class="card" style="padding: var(--space-3);">
         <p style="margin: 0;">${chat.notConversational}</p>
         <p class="dim" style="margin: var(--space-2) 0 0; font-size: var(--font-size-xs);">Change it on the <a href="/agents/${encodeURIComponent(agent.id)}/yaml">YAML</a> tab.</p>
       </div>`
     : html`
-      <form method="POST" action="${base}" class="inbox-chatbar" id="agent-chat-form">
+      <form method="POST" action="${base}" class="inbox-chatbar" id="agent-chat-form"
+        data-chat-live data-agent-id="${agent.id}" data-session-id="${chat.active?.id ?? ''}"
+        data-pending-run="${chat.pending ? ([...chat.turns].reverse().find((t) => t.role === 'user')?.runId ?? '') : ''}">
         ${chat.active ? html`<input type="hidden" name="session" value="${chat.active.id}">` : html``}
         <span class="inbox-chatbar__prompt" aria-hidden="true">you&nbsp;›</span>
         <textarea name="message" rows="1" required maxlength="8192" class="inbox-chatbar__input"
@@ -126,7 +90,9 @@ export function renderAgentChat(args: AgentChatArgs): string {
       }
     });
   }
-  ${chat.pending && !chat.waitingQuestion ? "setTimeout(() => location.reload(), 3000);" : ''}
+  // Fallback while a reply is pending: reload until it lands. The live
+  // client (agent-chat.js.ts) cancels this once the socket is connected.
+  ${chat.pending && !chat.waitingQuestion ? "window.__suaChatReload = setTimeout(() => location.reload(), 3000);" : ''}
   const t = document.querySelector('.agent-chat__transcript');
   if (t) t.lastElementChild && t.lastElementChild.scrollIntoView({ block: 'end' });
 })();
@@ -137,11 +103,60 @@ export function renderAgentChat(args: AgentChatArgs): string {
       ${sessionList}
       <div class="agent-chat__main">
         ${chat.active ? html`<h2 style="margin-top: 0;">${chat.active.title}</h2>` : html``}
-        ${transcript}
+        <div id="agent-chat-transcript">${transcript}</div>
         ${composer}
       </div>
     </section>
     ${script}
   `;
   return agentPageShell({ ...args, activeTab: 'chat' }, content);
+}
+
+/**
+ * The conversation's messages, plus the in-progress reply. Also served alone
+ * (`?fragment=transcript`) so the live client can re-render it from source
+ * when a turn ends.
+ */
+export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentChatArgs['chat']): SafeHtml {
+  const turnRow = (t: SessionTurn, prev: SessionTurn | undefined): SafeHtml => {
+    const grouped = !!prev && prev.role === t.role;
+    const who = t.role === 'user' ? 'you' : 'agent';
+    return html`
+      <li class="inbox-msg ${grouped ? 'inbox-msg--grouped' : ''}">
+        <span class="inbox-msg__avatar ${t.role === 'user' ? 'inbox-msg__avatar--user' : 'inbox-msg__avatar--triage'}">${who}</span>
+        <div class="inbox-msg__body">
+          <div class="inbox-msg__meta">
+            <span class="inbox-msg__time">${formatAge(t.createdAt)}</span>
+            ${t.role === 'agent' && t.runId ? html`<a href="/runs/${encodeURIComponent(t.runId)}" class="mono">run ${t.runId.slice(0, 8)}</a>` : html``}
+          </div>
+          ${t.role === 'agent' && t.failed
+            ? html`<p class="inbox-msg__text" style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`
+            : t.role === 'agent'
+              ? mdBody(t.text)
+              : html`<p class="inbox-msg__text" style="margin: 0;">${t.text}</p>`}
+        </div>
+      </li>`;
+  };
+
+  const lastUser = [...chat.turns].reverse().find((t) => t.role === 'user');
+  return chat.turns.length === 0
+    ? html`<p class="dim" style="font-size: var(--font-size-sm);">
+        Ask ${agent.name} something. Each message is a run of this agent, and it sees the conversation so far${chat.chatInput ? html` (your message fills its <code>${chat.chatInput}</code> input)` : html``}.
+      </p>`
+    : html`<ul class="agent-chat__transcript">
+        ${chat.turns.map((t, i) => turnRow(t, chat.turns[i - 1])) as unknown as SafeHtml[]}
+        ${chat.pending ? html`
+          <li class="inbox-msg">
+            <span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span>
+            <div class="inbox-msg__body">${chat.waitingQuestion
+              ? html`<span class="inbox-msg__writing">Waiting for an answer:</span> ${chat.waitingQuestion.question}
+                  ${chat.waitingQuestion.inboxMessageId ? html` <a href="/inbox/${encodeURIComponent(chat.waitingQuestion.inboxMessageId)}">Answer in the inbox</a>` : html``}`
+              : html`<span class="inbox-msg__writing">Working…</span>
+                  <ul class="agent-chat__live-tools" data-chat-live-tools></ul>
+                  <div class="agent-chat__live-text" data-chat-live-text></div>`}
+              ${lastUser?.runId ? html` <a href="/runs/${encodeURIComponent(lastUser.runId)}" class="mono dim" style="font-size: var(--font-size-xs);">watch run ${lastUser.runId.slice(0, 8)}</a>` : html``}
+            </div>
+          </li>` : html``}
+      </ul>`;
+
 }

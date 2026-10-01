@@ -183,6 +183,8 @@ export interface DashboardContext {
    * `GET /inbox/:id/events`. Optional — booting without it leaves
    * the modal on its 1.5s fragment-poll path (which still works).
    */
+  /** Live chat events (agent conversations), sent over the WebSocket. See lib/chat-turn.ts. */
+  chatEventBus?: import('./lib/inbox-event-bus.js').InboxEventBus;
   inboxEventBus?: InboxEventBus;
   /**
    * Integrations store. Holds project-scoped named external-service configs

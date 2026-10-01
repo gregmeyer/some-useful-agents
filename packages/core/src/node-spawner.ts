@@ -247,6 +247,13 @@ export interface SpawnProgress {
   timestamp: string;
   type:
     | 'turn_start' | 'turn_complete' | 'tool_use' | 'thinking' | 'output_chunk'
+    /**
+     * A small piece of the model's text as it's generated (claude with
+     * --include-partial-messages). Live listeners only: the executor does not
+     * store these in progressJson, and the full message still arrives as an
+     * `output_chunk`.
+     */
+    | 'output_delta'
     | 'loop_iteration_start' | 'loop_iteration_complete';
   turn?: number;
   maxTurns?: number;
@@ -497,7 +504,9 @@ export const claudeSpawner: LlmSpawner = {
     // out of argv avoids E2BIG when {{upstream.X.result}} substitution
     // produces a fat prompt.
     void opts.prompt;
-    const args = ['--print', '--output-format', 'stream-json', '--verbose'];
+    // --include-partial-messages: text deltas as the model writes, so live
+    // chat can stream it (parseProgress → output_delta).
+    const args = ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
     if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
@@ -518,6 +527,10 @@ export const claudeSpawner: LlmSpawner = {
       // Each `assistant` event from the stream-json output represents a chunk
       // (the CLI streams in sub-message intervals). Per-token reveal in the
       // dashboard hangs off these text chunks.
+      if (event.type === 'stream_event' && event.event?.type === 'content_block_delta'
+        && event.event.delta?.type === 'text_delta' && typeof event.event.delta.text === 'string' && event.event.delta.text) {
+        return { timestamp: new Date().toISOString(), type: 'output_delta', message: event.event.delta.text };
+      }
       if (event.type === 'assistant') {
         const content = event.message?.content;
         const turnId = typeof event.message?.id === 'string' ? event.message.id as string : undefined;
