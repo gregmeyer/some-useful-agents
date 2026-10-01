@@ -132,13 +132,39 @@ export const INBOX_MODAL_JS = `
    * 1.5s fragment poll. Same behavior on SSE disconnect via the
    * watchdog below.
    */
+  /**
+   * The thread's live channel over the chat WebSocket (lib/chat-socket.ts),
+   * shaped like an EventSource so the handlers below work unchanged: each
+   * listener gets { data: <json string> }. Reconnect + replay are the socket
+   * client's job (it re-subscribes from the last event id it saw).
+   */
+  function socketSource(messageId) {
+    var sock = window.suaSocket;
+    var handlers = {};
+    var off = sock.subscribe('inbox:' + messageId, function (type, data) {
+      var ev = { data: JSON.stringify(data || {}) };
+      (handlers[type] || []).forEach(function (fn) { try { fn(ev); } catch (e) { console.error(e); } });
+    });
+    var statusFn = function (s) { if (s === 'open') (handlers.open || []).forEach(function (fn) { fn(); }); };
+    sock.onStatus(statusFn);
+    return {
+      viaSocket: true,
+      addEventListener: function (type, fn) { (handlers[type] || (handlers[type] = [])).push(fn); },
+      close: function () { off(); handlers = {}; },
+    };
+  }
+
   function openEventSource(messageId) {
     closeEventSource();
-    if (typeof EventSource === 'undefined') return;
     var es;
-    try {
-      es = new EventSource('/inbox/' + encodeURIComponent(messageId) + '/events');
-    } catch (_) { return; }
+    if (window.suaSocket) {
+      es = socketSource(messageId);
+    } else {
+      if (typeof EventSource === 'undefined') return;
+      try {
+        es = new EventSource('/inbox/' + encodeURIComponent(messageId) + '/events');
+      } catch (_) { return; }
+    }
     eventSource = es;
     sseAliveAt = Date.now();
 
@@ -214,6 +240,8 @@ export const INBOX_MODAL_JS = `
     if (sseWatchdog) clearInterval(sseWatchdog);
     sseWatchdog = setInterval(function () {
       if (!eventSource || currentId !== messageId) return;
+      // An open socket is heartbeat-checked server-side; silence is normal.
+      if (eventSource.viaSocket && window.suaSocket && window.suaSocket.isOpen()) { sseAliveAt = Date.now(); return; }
       if (Date.now() - sseAliveAt > SSE_WATCHDOG_MS) {
         refresh();
         sseAliveAt = Date.now();
@@ -847,18 +875,24 @@ export const INBOX_MODAL_JS = `
       }
     }
 
-    fetch(action, {
-      method: method,
-      credentials: 'same-origin',
-      body: new URLSearchParams(Array.from(formData.entries())).toString(),
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'fetch',
-      },
-    })
-      .then(function (r) {
-        if (!r.ok) throw new Error('mutation failed: ' + r.status);
-      })
+    // Replies go over the chat socket when it's connected (same server-side
+    // path as POST /respond); everything else, and the no-socket case, posts.
+    var actionParts = String(action || '').split('?')[0].split('/'); // ['', 'inbox', '<id>', 'respond']
+    var replyThread = isReplyForm && pendingEntry && actionParts[1] === 'inbox' && actionParts[3] === 'respond' ? actionParts[2] : null;
+    var sending = replyThread && window.suaSocket && window.suaSocket.isOpen()
+      ? window.suaSocket.request({ type: 'inbox.send', threadId: decodeURIComponent(replyThread), text: (formData.get('body') || '').toString() })
+      : fetch(action, {
+          method: method,
+          credentials: 'same-origin',
+          body: new URLSearchParams(Array.from(formData.entries())).toString(),
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'fetch',
+          },
+        }).then(function (r) {
+          if (!r.ok) throw new Error('mutation failed: ' + r.status);
+        });
+    sending
       .then(function () {
         // refresh() will replace the pending placeholder with the
         // real persisted entry, so no manual cleanup needed.
