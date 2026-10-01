@@ -31,6 +31,8 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`shell-exec`](tools/shell-exec.md) | Run an arbitrary shell command |
 | [`http-get`](tools/http-get.md) | HTTP GET with SSRF protection |
 | [`http-post`](tools/http-post.md) | HTTP POST with SSRF protection |
+| [`web-fetch`](tools/web-fetch.md) | Fetch a public web page as clean, readable text for a model |
+| [`web-scrape`](tools/web-scrape.md) | Extract structured data from a page (JSON-LD, metadata, optional rendered HTML) |
 | [`file-read`](tools/file-read.md) | Read a file within the project root |
 | [`file-write`](tools/file-write.md) | Write a file within the project root |
 | [`json-parse`](tools/json-parse.md) | Parse a JSON string into structured fields |
@@ -38,7 +40,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`template`](tools/template.md) | Interpolate `{{inputs.X}}` into a template string |
 | [`csv-to-chart-json`](tools/csv-to-chart-json.md) | Convert CSV into the JSON shape modern-graphics expects |
 | [`oauth-loopback`](tools/oauth-loopback.md) | One-time OAuth2 authorization-code loopback; saves a refresh token to the vault |
-| `ask-human` | Ask the person mid-step; the run waits for the answer in the inbox, then the step starts again with it. Add to a node's `tools:`; see [ask-a-person.md](ask-a-person.md) |
+| `ask-human` | Ask the person mid-node; the run waits for the answer in the inbox, then the node starts again with it. Add to a node's `tools:`; see [ask-a-person.md](ask-a-person.md) |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools

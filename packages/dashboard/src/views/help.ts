@@ -38,6 +38,16 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
         inDashboard: { label: '"Run now" on agent detail', href: '/agents' },
       },
       {
+        cmd: 'sua agent chat <id>',
+        desc: 'Talk to an agent and follow up; -m "…" sends one message, --session continues a conversation.',
+        inDashboard: { label: 'Chat tab on agent detail', href: '/agents' },
+      },
+      {
+        cmd: 'sua agent webhook <id> --on',
+        desc: 'Let another service start the agent with POST /hooks/<id> (creates its secret).',
+        inDashboard: { label: 'Webhook card on agent Config', href: '/agents' },
+      },
+      {
         cmd: 'sua workflow show <id>',
         desc: 'Print an agent\u2019s nodes and how they connect, as text or YAML.',
         inDashboard: { label: 'Diagram on agent detail', href: '/agents' },
@@ -81,11 +91,22 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
     ],
   },
   {
+    title: 'Memory, cost & safety',
+    commands: [
+      { cmd: 'sua memory list <id>', desc: 'What an agent remembers between runs (also: search, pin, forget).', inDashboard: { label: 'Memory on agent Overview', href: '/agents' } },
+      { cmd: 'sua usage --days 30', desc: 'What runs cost, by agent and provider/model.', inDashboard: { label: 'Settings → Usage', href: '/settings/usage' } },
+      { cmd: 'sua policy check <tool> [resource]', desc: 'Would this tool call be allowed? (also: show, validate)', inDashboard: { label: 'Settings → Policies', href: '/settings/policies' } },
+      { cmd: 'sua behaviors list', desc: 'Agent Behavior specs in this project (also: show, validate).', inDashboard: { label: 'Behaviors', href: '/behaviors' } },
+    ],
+  },
+  {
     title: 'MCP & dashboard',
     commands: [
       { cmd: 'sua mcp start', desc: 'Start the MCP server on 127.0.0.1:3003.' },
-      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token. No dashboard equivalent yet.' },
+      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token.', inDashboard: { label: 'Settings → Claude Desktop', href: '/settings/mcp' } },
       { cmd: 'sua dashboard start', desc: 'Start this web UI.' },
+      { cmd: 'sua dashboard signin-url', desc: 'Print the sign-in link again (when the session has expired).' },
+      { cmd: 'sua daemon start', desc: 'Run the dashboard, scheduler, MCP server (and a local model server or Temporal worker, if configured) in the background.' },
     ],
   },
 ];
@@ -131,8 +152,10 @@ export function renderHelp(): string {
       <p class="card__title">What is sua?</p>
       <p style="margin-bottom: var(--space-3); line-height: 1.6;">
         A <strong>local-first agent playground</strong>. Your agents are YAML files that run on your
-        machine \u2014 shell commands, Claude/Codex prompts, and tools wired together step by step. No cloud.
-        Runs, secrets, and imported MCP tools all live in <code>data/runs.db</code> beside the project.
+        machine \u2014 shell commands, model prompts (Claude, Codex, OpenAI-compatible or local models),
+        goal nodes that work things out with tools, and other agents, wired together as nodes. No cloud.
+        Runs and imported tools live in <code>data/runs.db</code>; secrets are encrypted in
+        <code>data/secrets.enc</code>.
       </p>
       <p class="dim" style="margin: 0; line-height: 1.6;">
         Start the dashboard (you're here), author agents in the browser or your editor, schedule them
@@ -145,63 +168,53 @@ export function renderHelp(): string {
       <p class="card__title">From idea to dashboard \u2014 the 10-step tour</p>
       <ol style="margin: 0; padding-left: var(--space-6); line-height: 1.9;">
         <li>
-          <strong>Start with a goal.</strong> On <a href="/agents">Agents</a>, click
-          <em>Build from goal</em> and describe what you want in plain English \u2014 Claude
-          designs a complete agent with nodes, inputs, and tools. Or use <em>New agent</em> to
-          scaffold manually.
+          <strong>Start with a goal.</strong> On <a href="/agents">Agents</a>, click <em>Build from goal</em>
+          and describe what you want. Each draft shows its shape (a goal node that works it out, or a fixed
+          flow) and why; switch it, or <em>Try it</em> before keeping it. Or use <em>New agent</em>.
         </li>
         <li>
-          <strong>Pick your tools.</strong> Browse built-in tools (<code>http-get</code>,
-          <code>file-read</code>, <code>csv-to-chart-json</code>, etc.) plus the
-          <code>llm-prompt</code> node type on
-          <a href="/tools?tab=builtin">/tools \u2192 Built-in</a>.
-          Need something third-party? Paste a Claude-Desktop <code>mcpServers</code> config at
-          <a href="/tools/mcp/import">/tools/mcp/import</a> and pick which tools to import.
+          <strong>Pick its tools.</strong> Built-in tools (<code>web-fetch</code>, <code>http-get</code>,
+          <code>file-read</code>, \u2026) are on <a href="/tools?tab=builtin">Tools \u2192 Built-in</a>; import
+          third-party ones at <a href="/tools/mcp/import">/tools/mcp/import</a>. Put
+          <code>agent:&lt;id&gt;</code> in a node's <code>tools:</code> to let it call another agent.
         </li>
         <li>
-          <strong>Write the agent.</strong> Chain nodes with <code>dependsOn</code>. Pass upstream
-          data via <code>{{upstream.&lt;id&gt;.result}}</code> (llm-prompt) or
-          <code>$UPSTREAM_&lt;ID&gt;_RESULT</code> (shell). Edit nodes directly on
-          <a href="/agents">agent detail \u2192 Nodes tab</a>, or author YAML and
-          <code>sua workflow import-yaml</code>.
+          <strong>Write the agent.</strong> Wire nodes on the agent's <em>Nodes</em> tab (or the graph's
+          wiring mode): shell, llm-prompt, <strong>goal</strong> (a goal, tools and a budget), and
+          <strong>ask</strong> (pause and ask you). Pass data with <code>{{upstream.&lt;id&gt;.result}}</code>.
         </li>
         <li>
-          <strong>Style the output.</strong> On the agent's <em>Config</em> tab, configure an
-          <strong>Output Widget</strong>: pick a widget card (raw / key-value / diff-apply / dashboard),
-          or try <em>AI template \u2728</em> \u2014 describe the layout, Claude generates sanitized HTML,
-          you see a live preview as you edit.
+          <strong>Shape the output.</strong> Give it an <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md" target="_blank" rel="noreferrer">A2UI <code>view:</code></a>
+          (metrics, tables, buttons bound to its outputs) or an output widget on the <em>Config</em> tab.
+          Either draws on the run page, Pulse, the inbox and in chat.
         </li>
         <li>
-          <strong>Run it.</strong> Click <em>Run now</em> on the agent card. Watch
-          <a href="/runs">live run progress</a> \u2014 per-node stdout, stream-json turn events,
-          exit codes, timings.
+          <strong>Run it.</strong> <em>Run now</em>, then watch <a href="/runs">the run</a>: each node's output,
+          the tools it called, its cost, and a goal node's budget used. A failed run offers
+          <em>Suggest improvements</em>.
         </li>
         <li>
-          <strong>Fix with an LLM.</strong> A failing run's detail page has <em>Suggest improvements</em> \u2014
-          the built-in <code>agent-analyzer</code> reviews your YAML, the classification, and the error,
-          then returns an <em>auto-validated</em> diff you can apply with one click. Works with Claude and Codex.
+          <strong>Talk to it.</strong> The agent's <em>Chat</em> tab holds a conversation; replies stream in.
+          Turn on <code>memory: true</code> and it remembers notes between runs.
         </li>
         <li>
-          <strong>Share secrets + variables.</strong> Put API keys in
-          <a href="/settings/secrets">Secrets</a> (encrypted, passphrase-unlocked). Put non-sensitive
-          config in <a href="/settings/variables">Variables</a> (plain-text, available as
-          <code>$NAME</code> / <code>{{vars.NAME}}</code>).
+          <strong>Keep it in bounds.</strong> Decide what tools it may call in
+          <a href="/settings/policies">Settings \u2192 Policies</a>, cap what it spends in
+          <a href="/settings/usage">Settings \u2192 Usage</a>, and keep keys in
+          <a href="/settings/secrets">Secrets</a> (non-secret config in <a href="/settings/variables">Variables</a>).
         </li>
         <li>
-          <strong>Schedule it (optional).</strong> Set a cron expression on the agent. Start the local
-          scheduler with <code>sua schedule start</code> \u2014 it fires active scheduled agents and
-          logs to the dashboard.
+          <strong>Trigger it.</strong> Set a cron schedule (run <code>sua schedule start</code> or <code>sua daemon start</code>),
+          or let another service start it with a webhook (<code>POST /hooks/&lt;id&gt;</code>). When it needs
+          you, it asks in the <a href="/">inbox</a>.
         </li>
         <li>
-          <strong>Pin it to Pulse.</strong> Add a <code>signal:</code> block to the agent. Pick
-          template <code>widget</code> and the agent's own output widget becomes a live tile on
-          <a href="/">the Home board</a> \u2014 no slot mapping needed.
+          <strong>Put it on Pulse.</strong> An agent with a <code>signal:</code> or a <code>view:</code> gets a
+          tile on <a href="/pulse">Pulse</a>, with a Run button.
         </li>
         <li>
-          <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> on the agent and run
-          <code>sua mcp start</code>. Claude Desktop, Cursor, or any MCP client with your bearer
-          token can invoke the agent like any other tool. The sua process itself can also run in
-          Docker if you want it as a long-lived service beside your app.
+          <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:
+          Claude Desktop, Cursor or any MCP client can run it, and hold a conversation with it.
         </li>
       </ol>
     </section>
@@ -214,8 +227,8 @@ export function renderHelp(): string {
         <a href="/nodes" class="btn">Node reference \u2192</a>
       </p>
       <p style="margin: 0 0 var(--space-3); line-height: 1.6;">
-        <strong>Start here</strong> is three agents, one per pattern \u2014 research something,
-        watch something, draft something. Run one and watch it move through its nodes; each is a few nodes
+        <strong>Start here</strong> is four agents, one per pattern \u2014 research something,
+        watch something, draft something, or work something out. Run one and watch it move through its nodes; each is a few nodes
         wired together, and the YAML is a click away. Fastest way to see what this is.
       </p>
       <p class="dim" style="margin: 0; line-height: 1.6;">
@@ -242,6 +255,18 @@ export function renderHelp(): string {
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/quickstart.md" target="_blank" rel="noreferrer">Quickstart</a> \u2014 30-minute first-touch guide, from install to chained agents.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/agents.md" target="_blank" rel="noreferrer">Agent YAML reference</a> \u2014 every field: inputs, nodes, schedule, signal, output widget.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/flows.md" target="_blank" rel="noreferrer">Flow control</a> \u2014 conditional, switch, loop, agent-invoke, branch, end, break.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/goal-agents.md" target="_blank" rel="noreferrer">Goal agents</a> \u2014 a model with a goal, tools and a budget.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/agents-as-tools.md" target="_blank" rel="noreferrer">Agents as tools</a> \u2014 let a model call other agents.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/conversations.md" target="_blank" rel="noreferrer">Conversations</a> \u2014 chat with an agent and follow up.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/memory.md" target="_blank" rel="noreferrer">Memory</a> \u2014 what an agent remembers between runs.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/ask-a-person.md" target="_blank" rel="noreferrer">Ask a person</a> \u2014 agents that stop and ask you.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/webhooks.md" target="_blank" rel="noreferrer">Webhooks</a> \u2014 start an agent from another service.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/cost.md" target="_blank" rel="noreferrer">Cost</a> \u2014 what runs cost, and spend limits (<a href="/settings/usage">Settings \u2192 Usage</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tool-policies.md" target="_blank" rel="noreferrer">Tool policies</a> \u2014 which tools agents may call (<a href="/settings/policies">Settings \u2192 Policies</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md" target="_blank" rel="noreferrer">A2UI views</a> \u2014 how an agent's results look, everywhere.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/llm-providers.md" target="_blank" rel="noreferrer">LLM providers</a> \u2014 Claude, Codex, local and OpenAI-compatible models (<a href="/settings/llm">Settings \u2192 LLM</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/build-from-goal.md" target="_blank" rel="noreferrer">Build from goal</a> \u2014 drafting agents from a description.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/behaviors.md" target="_blank" rel="noreferrer">Behaviors</a> \u2014 Agent Behavior specs (<a href="/behaviors">Behaviors</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tools.md" target="_blank" rel="noreferrer">Tools</a> \u2014 built-in + MCP + user-authored; one page per tool.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/mcp.md" target="_blank" rel="noreferrer">MCP servers</a> \u2014 paste-config import, enable/disable, cascade delete (<a href="/tools/mcp/import">/tools/mcp/import</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/output-widgets.md" target="_blank" rel="noreferrer">Output widgets</a> \u2014 widget types + AI-generated HTML templates (<a href="/agents">agent config</a>).</li>

@@ -69,7 +69,7 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
   unreachable and falls through; a 401/429 maps to auth/rate-limited.
 - A node that declares `tools:` skips any provider that can't call them
   (`tool_unavailable`) instead of running without them — see
-  [Tool-calling](#tool-calling-openai-compatible-providers). If every provider
+  [Tool-calling](#tool-calling). If every provider
   is skipped, the node fails with what to enable.
 
 ## Add a custom endpoint
@@ -178,7 +178,7 @@ provider actually produced the output) and the full `attemptedProviders` trail,
 visible on the run-detail page: every llm node shows which provider it ran on,
 plus the failed hops when the waterfall fell through.
 
-## Tool-calling (OpenAI-compatible providers)
+## Tool-calling
 
 Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a
 `/v1/chat/completions` endpoint), an `llm-prompt` / `claude-code` node can let the

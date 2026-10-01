@@ -65,7 +65,7 @@ export function renderSettingsPolicies(args: {
       <h2 class="mt-0">Policies</h2>
       <p class="dim">
         Which tools agents may call, and on what. sua checks every tool call against these rules,
-        whether a flow step runs the tool or a model asks for it. Changes apply to the next tool call, no restart needed.
+        whether a node runs the tool or a model asks for it. Changes apply to the next tool call, no restart needed.
         <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tool-policies.md">How policies work</a>
       </p>
       <p class="settings-policies__file"><span class="dim">File</span> <code>${path}</code> ${undo}</p>

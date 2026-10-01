@@ -31,8 +31,8 @@ session and runs three specialist agents in sequence:
 
    **Open-ended asks become goal agents.** When a fragment is open-ended (find,
    compare, research, figure out), the drafter writes one
-   [`goal` step](goal-agents.md) with tools and a budget instead of guessing a
-   chain of fetch-and-summarise steps. The model then works out the steps at run
+   [`goal` node](goal-agents.md) with tools and a budget instead of guessing a
+   chain of fetch-and-summarise nodes. The model then works out the steps at run
    time. It can list existing agents as tools (`agent:<id>`,
    [agents-as-tools.md](agents-as-tools.md)). Fixed, repeatable pipelines still
    get a flow. The critic checks that every `agent:<id>` names a real agent, and
@@ -71,7 +71,7 @@ Mixed outcomes (some drafts succeeded, some exhausted their retries) surface as 
 
 Each drafted agent on the review shows its **shape** before its YAML:
 
-- a small diagram of its steps (none for a single node);
+- a small diagram of its nodes (none for a single node);
 - a plain label: *One goal node: works it out itself, step by step*, *3-step flow: the same steps every run*, or *…flow with a goal step*;
 - the tools and agents it uses;
 - **Why:** one sentence from the drafter on why it chose that shape (`shape_reason` in the draft; open-ended asks get a goal node, same-source-every-run jobs get a flow). See [goal-agents.md](goal-agents.md).

@@ -66,12 +66,12 @@ If a **generated** view isn't valid on a run, the run page says why and shows th
 
 Agents' existing widgets (Pulse `signal` templates and `outputWidget`s) are drawn through the same renderer, without changing any agent. This is the default; **Settings → Appearance → Widget renderer** switches back to the previous renderer if a widget looks wrong. That fallback stays for one release and is then removed. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
 
-| Converted | Still on the current renderer |
+| Converted | Still on the previous renderer |
 | --- | --- |
 | templates: metric, text-headline, status, comparison, key-value, story, table, time-series (Sparkline), funnel, image, text-image, media (images and video files); `widget` | media with a YouTube/Vimeo link (embedded) |
 | widgets: key-value, raw, dashboard, ai-template; **interactive widgets** (a form for the agent's inputs and a Run button that runs it in place); **controls**: sort / filter / paginate (on the table, in the browser), view-switch (Tabs, default first), field-toggle (a collapsible section); preview fields (a link to the file) | diff-apply, action fields, table columns with href/text templates, array controls on ai-templates, the capture-image control |
 
-**All 44 example agents convert**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing with the previous renderer, so nothing disappears. A widget with a `capture-image` control stays on the previous renderer (the PNG capture can't see inside A2UI components); a `copy` control works on A2UI widgets. The setting applies to the whole dashboard.
+**Every widget in the 44 example agents converts**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing with the previous renderer, so nothing disappears. A widget with a `capture-image` control stays on the previous renderer (the PNG capture can't see inside A2UI components); a `copy` control works on A2UI widgets. The setting applies to the whole dashboard.
 
 ## In chat: replies are widgets, clicks are messages
 
@@ -88,7 +88,7 @@ On the agent's **Chat** tab, each reply whose run produced a valid view shows th
 - { id: choiceLabel, component: Text, text: { path: label } }
 ```
 
-Outside chat (Pulse tiles, the run page), a Button whose action is named `run-agent` runs an agent instead: its context is `{ agent: <id>, in_<INPUT>: <value>, … }` (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
+Outside chat (Pulse tiles, dashboards, the run page, inbox threads), a Button whose action is named `run-agent` runs an agent instead: its context is `{ agent: <id>, in_<INPUT>: <value>, … }` (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
 
 The click travels over the chat WebSocket like a typed message (see [conversations.md](conversations.md)), so the reply streams the same way.
 
@@ -103,6 +103,6 @@ Every view, declared or generated, is checked the same way:
 
 Text supports a small, safe markdown subset (`**bold**`, `*italic*`, `` `code` ``, line breaks); everything else is shown as text.
 
-A declared view is checked when the agent is saved or imported (an invalid one is refused, with the reason). A generated view is checked on every run; if the node's output isn't a valid view, the widget shows why instead of the output.
+A declared view is checked when the agent is saved or imported (an invalid one is refused, with the reason). A generated view is checked on every run; if the node's output isn't a valid view, the run page says why and falls back to the agent's output widget (or the raw output), and Pulse and chat show the reason. The model's output is never drawn unchecked.
 
 See [ADR-0047](adr/0047-a2ui-views.md) for the design.

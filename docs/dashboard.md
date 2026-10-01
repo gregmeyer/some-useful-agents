@@ -30,34 +30,11 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar leads with the daily-driver surfaces: `sua · Inbox · Agents · Settings · Help`. The `sua` brand IS the home link → `/`, the single dashboard surface (it tints when you're there); there's no separate "Home" item. **Agents** links to the agents list and groups the building blocks and executions — on each of those landing pages an in-page tab strip (**Agents · Tools · Nodes · Runs · Packs · Scheduled**) sits under the page header, mirroring the Settings tabs, with the current page highlighted. There's no separate global subnav bar. URLs are unchanged (`/agents`, `/tools`, `/nodes`, `/runs`, `/packs`, `/scheduled`); the grouping just keeps the top bar uncluttered.
+The top bar: `sua · Inbox · Agents · Pulse · Settings · Help`. The `sua` brand is the home link (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. An amber **"N need your reply →"** toast in the top bar (every page) appears when inbox threads are waiting for you. The **Ask sua** bar under the top bar starts a conversation with the triage agent from anywhere.
 
-## `/` — Mission Control home
+## `/` — Home (your inbox)
 
-The single dashboard surface. Top to bottom:
-
-- **Ask sua →** — the primary CTA in the header opens a fresh inbox thread
-  (`POST /inbox/new`), so the home's main action is "ask sua to run, build, fix,
-  or look something up." (Distinct from the top-bar toast, which is for reviewing
-  what's already waiting.) With no agents installed the page is the
-  Build-from-goal empty state instead.
-- **Live Pulse** — the live board (system metric tiles + per-agent signal
-  tiles), fully editable here: configure/hide tiles, drag to reorder, Edit
-  layout, Improve layout. The **dashboards dropdown** in the board header
-  switches to named/pack dashboards (`/dashboards/:id`); "Default Dashboard"
-  is this home board.
-- **Recent activity** — the paginated run feed, collapsed by default.
-
-This replaced the old system-stat-only home (a strict subset of Pulse) AND the
-separate `/pulse` page — there's now **one** dashboard surface. `/pulse` 302-
-redirects to `/`; its sub-routes (tile fragments, hide/show-all, layout planner)
-are unchanged.
-
-The **"needs you" signal lives in the top bar**, not on the home: an amber
-**"N need your reply →"** toast appears in the top-bar empty space (on every
-page) whenever inbox threads are awaiting your reply — count from
-`/inbox/needs-you-count`, polled ~30s, hidden when zero. Click it to go to the
-inbox.
+The front door is the inbox, organised by cadence: **Needs you** (questions from agents, failures, things to review), then **Today**, **This week** and **Earlier**, plus a ticker of what sua closed on its own. Each row carries a tag for what kind of work it is (scheduled or ad hoc, deterministic or not). Open a thread to see the conversation, action cards and inline widgets; replies stream in over the chat WebSocket. With no agents installed the page is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
 
 ## `/agents` — Agents list
 
@@ -114,7 +91,7 @@ Six tabs:
 - Signal + output widget previews
 
 ### Chat
-Talk to the agent. Each message is a run (linked under the reply), and the agent sees the conversation so far. Conversations are listed on the left; open one to continue it, or delete it (its runs are kept). An agent without a text input for the message says so and points at the YAML tab. See [conversations.md](conversations.md).
+Talk to the agent. Each message is a run (linked under the reply), and the agent sees the conversation so far. Replies stream in as they're written (with Claude), with the tools the agent calls shown as it calls them; an agent with an A2UI `view:` replies with its widget, and clicking a button in it sends the next message. Conversations are listed on the left; open one to continue it, or delete it (its runs are kept). An agent without a text input for the message says so and points at the YAML tab. See [conversations.md](conversations.md).
 
 ### Nodes
 Edit / delete / add nodes inline. Template palette autocomplete for upstream fields + inputs + vars. Per-node timeout, env, secrets, onlyIf predicates. **Goal nodes** are added and edited here too (goal, tools, budget); llm and goal nodes pick the tools their model may call from a searchable checklist that shows policy blocks. See [goal-agents.md](goal-agents.md#editing-in-the-dashboard).
@@ -152,9 +129,12 @@ See [Output widgets](output-widgets.md) for the full reference.
 
 ## `/tools` — Tools list
 
-**Tabs:** User / Built-in (per-tab counts).
+**Tabs:** Imported / Built-in / Servers / Integrations (with counts). Tools is the one home for everything an agent can call.
 
-**User tab** shows tools imported from MCP servers or authored locally. **Built-in tab** shows the tools that ship with the runtime (plus any tools auto-generated by integrations).
+- **Imported** — tools imported from MCP servers or authored locally.
+- **Built-in** — the tools that ship with the runtime (plus tools generated by integrations).
+- **Servers** — imported MCP servers with tool counts, **Enable/Disable** (gates every tool from that server) and **Delete** (cascades). See [MCP servers](mcp.md).
+- **Integrations** — saved connections: notify destinations (Slack / webhook / file) and data-source / service kinds — CSV / Postgres / SQLite (which generate find/count tools) and Gmail (OAuth). See [Integrations](integrations.md).
 
 Each card shows tool id, source badge (local / examples / community / builtin), implementation type badge (shell / llm-prompt / builtin / mcp), description, input + output counts.
 
@@ -185,8 +165,6 @@ Per-node execution table with stdout, exit codes, errors, timings. For `llm-prom
 
 **Waiting.** A run stopped at an `ask` node shows *waiting* and a banner with the question, an **Answer** button (to its inbox item) and **Cancel run**. See [ask-a-person.md](ask-a-person.md).
 
-**Settings → Policies** shows and edits the tool policy, and checks whether a tool call would be allowed ([tool-policies.md](tool-policies.md)).
-
 **Budgets.** Goal and llm nodes show turns, tool calls and time used against their budget; an out-of-budget node says which limit it hit and links to the fix. **Sub-runs** (agents a run called) are indented as a tree.
 
 **Cost.** The run's cost (USD at list price, including agents it called) and tokens appear in the header, and each llm node carries a cost chip whose hover lists every provider attempt. See [cost.md](cost.md).
@@ -195,19 +173,11 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
-## The board (lives on `/`)
+## `/pulse` — the board
 
-> **Heads-up — the front door changed.** There used to be three overlapping
-> landing surfaces: a stat-only Home (`/`), the Pulse board (`/pulse`), and the
-> Inbox. They're now unified into **one** dashboard at `/` (see `/` above).
-> **`/pulse` 302-redirects to `/`** — bookmarks still work, the nav item is gone
-> (the `sua` brand is the home link), and the board is editable right on the
-> home. The `/pulse/*` sub-routes (tile fragments, hide/show-all, layout planner)
-> are unchanged. Below is the board reference — it all applies to the board on `/`.
+The board is your agents at a glance. Each agent with a `signal:` block, or an A2UI `view:`, gets a tile showing its latest result, and every tile has a **Run** button. Tiles are drawn with [A2UI](a2ui-views.md) (sorting, filtering, tabs and run-in-place forms work in the browser); Settings → Appearance switches back to the previous renderer for one more release.
 
-The board is your agents at a glance, with draggable signal tiles. Each agent with a `signal:` block gets a tile.
-
-**10 templates:** `metric`, `time-series`, `text-headline`, `text-image`, `image`, `table`, `status`, `media`, `widget`, `comparison`, `key-value`, `story`, `funnel`.
+**13 templates:** `metric`, `time-series`, `text-headline`, `text-image`, `image`, `table`, `status`, `media`, `widget`, `comparison`, `key-value`, `story`, `funnel`.
 
 **`template: widget`** is special — mirrors the agent's own outputWidget. No mapping required.
 
@@ -245,17 +215,17 @@ the run, as before.
 
 **Tiles run themselves.** Adding an agent to a dashboard runs it once automatically, so a freshly added tile is never blank. If a widget references an external image host blocked by the dashboard's CSP, the tile shows a one-click **allow** modal that appends the host to the agent's `permissions.imgSrc` allowlist.
 
-**Improve layout** — wizard button on the home board and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
+**Improve layout** — wizard button on Pulse and on any named dashboard (`/dashboards/:id`). It reads the current layout and proposes a tidier arrangement, surfaces installed agents that aren't here yet (Path A), and can draft brand-new agents inline (Path B). See [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).
 
-**Dashboards dropdown** — in the board header; switches between the Default (home) board and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on the home board), plus a "Browse all packs →" link to the full [/packs](#packs--widget-packs) page.
+**Dashboards dropdown** — in the board header; switches between the default board and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on the board), plus a "Browse all packs →" link to the full `/packs` page.
 
 ## `/dashboards/:id` — Named dashboards
 
-Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (the home board) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as the home board apply (first-run auto-execution, in-place Run again, CSP image-allow).
+Named, sectioned views over installed agents — pack-owned (e.g. `starter:media`) or user-created. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (Pulse) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
 
 ## `/settings`
 
-Tabs: Secrets, Variables, **MCP Servers**, Integrations, Appearance, General.
+Tabs: Secrets, Variables, Claude Desktop, LLM, Usage, Policies, Temporal, Appearance, General. (MCP servers and integrations live under [Tools](#tools--tools-list).)
 
 ### Secrets
 Encrypted-at-rest store (scrypt + AES-256-GCM). Unlock with passphrase, set/delete secrets, copy-before-save modal for newly created secrets.
@@ -263,11 +233,11 @@ Encrypted-at-rest store (scrypt + AES-256-GCM). Unlock with passphrase, set/dele
 ### Variables
 Global plain-text values. CRUD with values visible. Referenced as `$NAME` / `{{vars.NAME}}`.
 
-### MCP Servers
-List of imported MCP servers with tool counts, **Enable/Disable** toggle (gates every tool from that server), **Delete** (cascades). Add new servers via `/tools/mcp/import`. See [MCP servers](mcp.md).
+### Claude Desktop
+sua as an MCP server for Claude Desktop and other clients: the config to paste, and token rotation. See [MCP](mcp.md).
 
-### Integrations
-Tabbed UI for saved connections. Notify destinations (Slack / webhook / file) that `notify` handlers reference by id, plus data-source and service *kinds* — CSV / Postgres / SQLite (which auto-generate find/count tools) and Gmail (OAuth). See [Integrations](integrations.md).
+### LLM
+The provider waterfall: reorder, add OpenAI-compatible endpoints, enable/disable. See [LLM providers](llm-providers.md).
 
 ### LLM → Pricing
 Prices (USD per million tokens) for providers that report tokens but not cost (codex, OpenAI-compatible endpoints), per provider or per `provider/model`. See [cost.md](cost.md).
@@ -275,16 +245,25 @@ Prices (USD per million tokens) for providers that report tokens but not cost (c
 ### Usage
 What runs cost over the last 1 / 7 / 30 days, by agent and by provider/model, with a note when some tokens had no price, and the default **spend limits** (per run, per agent per day) for agents without their own. See [cost.md](cost.md).
 
+### Policies
+The tool policy: the rules in order ("the last match decides"), add / edit / reorder / delete, the default action, **Edit as JSON**, **Undo last change**, and **Would this be allowed?** to test a call. An invalid file is flagged in red (it blocks every tool call) and can be fixed here. See [tool-policies.md](tool-policies.md).
+
+### Temporal
+Connection status for the durable backend. See [Temporal](temporal.md).
+
+### Appearance
+Light/dark, widget themes, and the **Widget renderer** switch: widgets are drawn with A2UI; untick to use the previous renderer for one more release. See [A2UI views](a2ui-views.md).
+
 ### General
-MCP token rotation, data paths, retention, scheduler heartbeat.
+Data paths, retention, scheduler heartbeat.
 
 ## `/help`
 
-CLI reference grouped by purpose. Each command shows a "Where in the UI" link when equivalent dashboard action exists. Links to user guides on GitHub (quickstart, agents, flows, tools, mcp, output widgets, templating, dashboard).
+A short tour, the CLI grouped by purpose (each command links to where the same thing lives in the dashboard), and links to the user guides on GitHub.
 
 ## `/help/tutorial`
 
-7-step progress-tracked walkthrough. Scaffolds a hello agent, runs it, adds a second node, explores secrets, etc. Progress reflects your actual project state.
+8-step progress-tracked walkthrough. Scaffolds a hello agent, runs it, adds a second node, explores secrets, etc. Progress reflects your actual project state.
 
 ## Related
 

@@ -179,8 +179,8 @@ The `ai-template` output widget type stores LLM-generated HTML and re-renders it
 ### Tool policies (v0.28)
 
 `<dataDir>/.sua/policies.json` holds allow/deny rules checked before every sua tool call:
-tool nodes, and every tool a model calls on any provider (sua's HTTP tool loop and claude's
-per-attempt tool endpoint share one executor, so one check covers both). Rules match the
+tool nodes, and every tool a model calls on any provider (sua's HTTP tool loop and claude's and
+codex's per-attempt tool endpoint share one executor, so one check covers them all). Rules match the
 tool id, the resolved resource (URL, absolute path, command) and the agent's source tier;
 the last matching rule wins. An invalid file fails closed (every tool call denied). Not
 covered: plain `shell` nodes (the community-shell gate still applies) and a CLI provider's

@@ -64,15 +64,22 @@ Examples:
   $ sua agent run my-agent                       Run an agent once
   $ sua agent run weather --input ZIP=94110      Supply a declared input
   $ sua agent list                               See everything runnable
+  $ sua agent chat my-agent                      Talk to an agent and follow up
+  $ sua agent webhook my-agent --on              Let another service start it (POST /hooks/my-agent)
+  $ sua memory list my-agent                     What an agent remembers between runs
+  $ sua usage --days 30                          What runs cost, by agent and provider
+  $ sua policy check web-fetch https://x.test    Would this tool call be allowed?
   $ sua schedule start                           Fire scheduled agents on cron
-  $ sua daemon start                             Run schedule + dashboard as detached background services
+  $ sua daemon start                             Run schedule + dashboard (+ mcp, worker, model) in the background
   $ sua mcp start                                Start the MCP server on 127.0.0.1:3003
   $ sua doctor --security                        Audit security posture
   $ sua outcome list --unsatisfied               Runs whose declared outcome was not achieved
 
 Template syntax in agent YAML:
   {{inputs.X}}               caller-supplied values (see \`sua agent run --help\`)
-  {{outputs.X.result}}       upstream chain output (inside the \`input:\` field only)
+  {{upstream.<node>.result}} an earlier node's output ($UPSTREAM_<NODE>_RESULT in shell)
+  {{vars.X}}                 a global variable (sua vars)
+  Full reference: docs/templating.md
 
 Security model: docs/SECURITY.md
 Full docs:      https://github.com/gregmeyer/some-useful-agents

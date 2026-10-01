@@ -27,7 +27,9 @@ Configure in `sua.config.json`:
 }
 ```
 
-See the [main repo README](https://github.com/gregmeyer/some-useful-agents) for full documentation.
+Workers use the same providers (including custom OpenAI-compatible ones), tools, tool policies and memory as local runs, reading LLM settings from the worker's data directory. `sua daemon` can run the worker as a service.
+
+See the [main repo README](https://github.com/gregmeyer/some-useful-agents) and [docs/temporal.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/temporal.md) for full documentation.
 
 ## License
 

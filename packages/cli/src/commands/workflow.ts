@@ -50,7 +50,7 @@ import * as ui from '../ui.js';
  * the MCP server and scheduler can trigger DAG agents too.
  */
 export const workflowCommand = new Command('workflow')
-  .description('Manage and run DAG agents (v2 model)');
+  .description('Lower-level agent tools: show, replay, logs, import, export, status (sua agent run/list cover everyday use)');
 
 function collectInput(value: string, previous: Record<string, string>): Record<string, string> {
   const eq = value.indexOf('=');
@@ -62,7 +62,7 @@ function collectInput(value: string, previous: Record<string, string>): Record<s
 
 workflowCommand
   .command('import')
-  .description('Scan v1 YAML agents + merge chains into v2 DAG agents in the run DB')
+  .description('Bring agents written in the older format up to date (merges chains into one agent)')
   .argument('[dir]', 'Root directory containing agents/ (defaults to current project)')
   .option('--apply', 'Commit the migration. Without this flag, prints the plan and exits.')
   .option(
@@ -180,7 +180,7 @@ workflowCommand
 
 workflowCommand
   .command('list')
-  .description('List DAG agents in the run DB')
+  .description('List agents in the store, with their nodes')
   .option('--status <status>', 'Filter by status (active | paused | archived | draft)')
   .option('--source <source>', 'Filter by source (local | community | examples)')
   .action((options: { status?: string; source?: string }) => {
@@ -219,7 +219,7 @@ workflowCommand
 
 workflowCommand
   .command('show')
-  .description('Print the DAG of an agent as text')
+  .description("Print an agent's nodes and how they connect")
   .argument('<id>', 'Agent id')
   .option('--format <format>', 'Output format (text | yaml)', 'text')
   .action((id: string, options: { format: 'text' | 'yaml' }) => {
@@ -270,7 +270,7 @@ workflowCommand
 
 workflowCommand
   .command('run')
-  .description('Execute a DAG agent once (synchronous)')
+  .description('Run an agent once and wait (same as sua agent run)')
   .argument('<id>', 'Agent id')
   .option('-i, --input <KEY=value>', 'Supply an input (repeatable)', collectInput, {} as Record<string, string>)
   .option('--allow-untrusted-shell <id>', 'Pre-allow a community shell agent to run', (v: string, prev: string[]) => [...prev, v], [] as string[])
@@ -545,7 +545,7 @@ workflowCommand
 
 workflowCommand
   .command('import-yaml')
-  .description('Read a v2 YAML file directly into the store (bypasses v1 migration)')
+  .description('Import an agent YAML file into the store')
   .argument('<file>', 'Path to a v2 YAML file')
   .action((file: string) => {
     if (!existsSync(file) || statSync(file).isDirectory()) {
