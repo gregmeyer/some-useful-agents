@@ -147,3 +147,24 @@ export async function startChatTurn(
     .finally(() => { ctx.activeRuns.delete(runId); });
   return { session, runId };
 }
+
+/** A widget action (A2UI `action` event) as the user message it stands for. */
+export interface ChatAction { name: string; context?: Record<string, unknown> }
+
+/**
+ * Validate a widget action and turn it into the next turn's message: the
+ * context's `message` (so a choice button can say exactly what it means),
+ * else "▸ name (key: value, …)". Returns an error string when it's malformed.
+ */
+export function actionToMessage(input: unknown): { message: string } | { error: string } {
+  if (!input || typeof input !== 'object') return { error: 'An action needs a name.' };
+  const a = input as { name?: unknown; context?: unknown };
+  if (typeof a.name !== 'string' || !a.name.trim() || a.name.length > 64) return { error: 'An action needs a name (at most 64 characters).' };
+  const context = a.context && typeof a.context === 'object' && !Array.isArray(a.context) ? a.context as Record<string, unknown> : {};
+  if (JSON.stringify(context).length > 4096) return { error: 'That action carries too much data.' };
+  if (typeof context.message === 'string' && context.message.trim()) return { message: context.message.trim().slice(0, 2000) };
+  const parts = Object.entries(context)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+  return { message: `▸ ${a.name.trim()}${parts.length ? ` (${parts.join(', ')})` : ''}`.slice(0, 2000) };
+}

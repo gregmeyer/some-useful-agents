@@ -128,3 +128,23 @@ describe('view: in agent YAML', () => {
     expect(() => parseAgent(`${base}view:\n  from: nope\n`)).toThrow(/not a node in this agent/);
   });
 });
+
+describe('prepareViewForRender (SanitizedHtml never reaches the browser unsanitized)', () => {
+  it('resolves literal and absolute-path html and sanitizes it; refuses list-relative bindings', async () => {
+    const { prepareViewForRender, resolvePointer } = await import('./view.js');
+    const dm = { outputs: { card: '<p onclick="x()">Hi<script>alert(1)</script></p>' } };
+    const out = prepareViewForRender([
+      { id: 'root', component: 'Column', children: ['a', 'b', 'c'] },
+      { id: 'a', component: 'SanitizedHtml', html: '<b>ok</b><img src=x onerror=alert(1)>' },
+      { id: 'b', component: 'SanitizedHtml', html: { path: '/outputs/card' } },
+      { id: 'c', component: 'SanitizedHtml', html: { path: 'item/html' } },
+    ], dm);
+    expect(out[1].html).toContain('<b>ok</b>');
+    expect(String(out[1].html)).not.toMatch(/onerror/);
+    expect(String(out[2].html)).toContain('Hi');
+    expect(String(out[2].html)).not.toMatch(/<script|onclick/);
+    expect(String(out[3].html)).toMatch(/can't be shown safely/);
+    expect(out[0]).toEqual({ id: 'root', component: 'Column', children: ['a', 'b', 'c'] });
+    expect(resolvePointer({ a: { 'b/c': [1, 2] } }, '/a/b~1c/1')).toBe(2);
+  });
+});

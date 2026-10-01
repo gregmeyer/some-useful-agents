@@ -543,6 +543,8 @@ export {
   runOutputs,
   resolveAgentView,
   viewToMessages,
+  prepareViewForRender,
+  resolvePointer,
   type AgentView,
   type ViewComponent,
   type ViewDataModel,
