@@ -26,7 +26,8 @@ describe('sua catalog', () => {
       expect(names).toContain(n);
     }
     for (const d of suaComponentDocs()) {
-      const v = validateViewComponents([{ ...d.example, id: 'root' }]);
+      const child = typeof d.example.child === 'string' ? [{ id: d.example.child, component: 'Text', text: 'x' }] : [];
+      const v = validateViewComponents([{ ...d.example, id: 'root' }, ...child]);
       expect(v, `${d.name} example`).toMatchObject({ ok: true });
     }
   });
@@ -47,6 +48,7 @@ describe('validateViewComponents (the A2UI processor in strict mode, plus sua li
     expect(err([...card.slice(0, 2), { id: 'title', component: 'Text', text: 42 }, ...card.slice(3)])).toMatch(/Validation failed for component 'Text'/);
     expect(err([...card.slice(0, 3), { ...card[3], onclick: 'alert(1)' }, card[4]])).toMatch(/Unrecognized key/);
     expect(err([card[0], { id: 'col', component: 'Column', children: ['title', 'ghost'] }, card[2]])).toMatch(/non-existent component 'ghost'/);
+    expect(err([{ id: 'root', component: 'Disclosure', label: 'More', child: 'ghost' }])).toMatch(/non-existent component 'ghost'/);
     expect(err(card.slice(1))).toMatch(/Missing root/);
     expect(err([...card, { id: 'lonely', component: 'Text', text: 'x' }])).toMatch(/not reachable from 'root'/);
     expect(err(Array.from({ length: 201 }, (_, i) => ({ id: `c${i}`, component: 'Text', text: 'x' })))).toMatch(/at most 200 components/);
@@ -60,6 +62,8 @@ describe('validateViewComponents (the A2UI processor in strict mode, plus sua li
     expect(validateViewComponents(img('http://images.example.com/a.png'), { imgHosts: ['*.example.com'] })).toMatchObject({ ok: false });
     expect(validateViewComponents([{ id: 'root', component: 'Link', text: 'x', url: 'javascript:alert(1)' }])).toMatchObject({ ok: false });
     expect(validateViewComponents([{ id: 'root', component: 'Link', text: 'x', url: { path: '/outputs/url' } }])).toMatchObject({ ok: true });
+    expect(validateViewComponents([{ id: 'root', component: 'Link', text: 'x', url: '/output-file?path=a.png' }])).toMatchObject({ ok: true });
+    expect(validateViewComponents([{ id: 'root', component: 'Link', text: 'x', url: '//evil.example/x' }])).toMatchObject({ ok: false });
   });
 });
 

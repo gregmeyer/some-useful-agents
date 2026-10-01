@@ -187,8 +187,10 @@ const PASSIVE_CONTROLS = new Set(['replay', 'copy', 'capture-image']);
 
 /** An outputWidget for one run's output (the text the old renderer gets). */
 export function legacyWidgetView(widget: OutputWidgetSchema, output: string): LegacyView {
+  // The dashboard widget maps sort/filter/paginate onto its tables, view-switch
+  // onto Tabs and field-toggle onto Disclosures; other widget types can't.
   const active = (widget.controls ?? []).filter((c) => !PASSIVE_CONTROLS.has(c.type));
-  if (active.length) return { unsupported: `widget controls (${[...new Set(active.map((c) => c.type))].join(', ')})` };
+  if (active.length && widget.type !== 'dashboard') return { unsupported: `widget controls (${[...new Set(active.map((c) => c.type))].join(', ')})` };
   const fields: Record<string, string> = {};
   for (const f of widget.fields ?? []) {
     const v = extractField(output, f.name);
@@ -197,9 +199,13 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
   const data: Record<string, unknown> = { fields };
   const fieldPath = (name: string) => bind(`/data/fields/${name}`);
   const shown = (widget.fields ?? []).filter((f) => f.type === 'table' || fields[f.name] !== undefined);
-  if (shown.some((f) => f.type === 'preview' || f.type === 'action')) {
-    return { unsupported: 'preview and action fields' };
-  }
+  if (shown.some((f) => f.type === 'action')) return { unsupported: 'action fields' };
+  // A preview field (a file the run wrote) becomes a link to the dashboard's file viewer.
+  const previews: Record<string, string> = {};
+  for (const f of shown) if (f.type === 'preview' && fields[f.name]) previews[f.name] = `/output-file?path=${encodeURIComponent(fields[f.name])}`;
+  if (Object.keys(previews).length) data.previews = previews;
+  const previewLink = (f: { name: string; label?: string }, cid: string): C =>
+    ({ id: cid, component: 'Link', text: `Open ${f.label ?? f.name}`, url: bind(`/data/previews/${f.name}`) });
   const id = (f: { name: string }, suffix = '') => `f_${f.name.replace(/[^\w-]/g, '_')}${suffix}`;
 
   switch (widget.type) {
@@ -218,15 +224,19 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
       return { data, components: [{ id: 'root', component: 'SanitizedHtml', html: bind('/data/html') }] };
     }
     case 'key-value': {
-      data.items = shown.map((f) => ({ label: f.label ?? f.name, value: fields[f.name] ?? '' }));
-      return { data, components: [{ id: 'root', component: 'KeyValue', items: bind('/data/items') }] };
+      data.items = shown.filter((f) => f.type !== 'preview').map((f) => ({ label: f.label ?? f.name, value: fields[f.name] ?? '' }));
+      const links = shown.filter((f) => f.type === 'preview' && previews[f.name]);
+      if (!links.length) return { data, components: [{ id: 'root', component: 'KeyValue', items: bind('/data/items') }] };
+      return { data, components: [col('root', ['kv', ...links.map((f) => id(f))]), { id: 'kv', component: 'KeyValue', items: bind('/data/items') }, ...links.map((f) => previewLink(f, id(f)))] };
     }
     case 'raw': {
       const comps: C[] = [];
       const kids: string[] = [];
       for (const f of shown) {
         kids.push(id(f));
-        if (f.type === 'code') {
+        if (f.type === 'preview') {
+          comps.push(previewLink(f, id(f)));
+        } else if (f.type === 'code') {
           comps.push(col(id(f), [id(f, '_l'), id(f, '_v')]), text(id(f, '_l'), f.label ?? f.name, 'caption'), { id: id(f, '_v'), component: 'Code', text: fieldPath(f.name) });
         } else if (f.type === 'badge') {
           comps.push(row(id(f), [id(f, '_l'), id(f, '_v')]), text(id(f, '_l'), `${f.label ?? f.name}:`, 'caption'), { id: id(f, '_v'), component: 'Badge', text: fieldPath(f.name) });
@@ -238,45 +248,87 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
       return { data, components: [col('root', kids), ...comps] };
     }
     case 'dashboard': {
-      let parsed: unknown;
-      parsed = parseJsonFromOutput(output);
+      const parsed = parseJsonFromOutput(output);
       const arrays: Record<string, unknown> = {};
+      const controls = widget.controls ?? [];
+      const tableFields = new Set(shown.filter((f) => f.type === 'table').map((f) => f.name));
+      // sort / filter / paginate: props on the table they name.
+      const tableProps: Record<string, Record<string, unknown>> = {};
+      for (const c of controls) {
+        if (c.type !== 'sort' && c.type !== 'filter' && c.type !== 'paginate') continue;
+        if (!tableFields.has(c.field)) return { unsupported: `a ${c.type} control on "${c.field}", which isn't a table field` };
+        const p = (tableProps[c.field] ??= {});
+        if (c.type === 'sort') { p.sortColumns = c.columns.slice(0, 12); if (c.default) p.defaultSort = c.default; }
+        if (c.type === 'filter') { p.filterColumns = c.columns.slice(0, 12); if (c.placeholder) p.filterPlaceholder = c.placeholder; }
+        if (c.type === 'paginate') p.pageSize = Math.min(200, Math.max(1, c.pageSize));
+      }
       const comps: C[] = [];
-      const top: string[] = []; const stats: string[] = []; const rest: string[] = [];
-      for (const f of shown) {
+      const made = new Set<string>();
+      /** Components for one field (ids suffixed so a field can appear in several tabs). */
+      const fieldComp = (f: (typeof shown)[number], sfx: string): { cid: string; slot: 'top' | 'stats' | 'rest' } => {
         const label = f.label ?? f.name;
+        const cid = id(f, sfx);
+        const push = (...cs: C[]) => { if (!made.has(cid)) { comps.push(...cs); made.add(cid); } };
         if (f.type === 'table') {
-          if ((f.columns ?? []).some((c) => c.href || c.text)) return { unsupported: 'table columns with href/text templates' };
-          const value = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>)[f.name] : undefined;
-          arrays[f.name] = Array.isArray(value) ? value : [];
+          if (!(f.name in arrays)) {
+            const value = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>)[f.name] : undefined;
+            arrays[f.name] = Array.isArray(value) ? value : [];
+          }
           const cols = (f.columns ?? []).length
             ? (f.columns ?? []).map((c) => ({ key: c.name, label: c.label ?? c.name, ...(c.format === 'link' ? { format: 'link' } : {}) }))
             : Object.keys((arrays[f.name] as Record<string, unknown>[])[0] ?? { value: '' }).slice(0, 12).map((k) => ({ key: k, label: k }));
-          comps.push(col(id(f), [id(f, '_l'), id(f, '_t')]), text(id(f, '_l'), label, 'caption'),
-            { id: id(f, '_t'), component: 'Table', rows: bind(`/data/arrays/${f.name}`), columns: cols });
-          rest.push(id(f));
-        } else if (f.type === 'metric') {
-          comps.push({ id: id(f), component: 'Metric', label, value: fieldPath(f.name) }); top.push(id(f));
-        } else if (f.type === 'badge') {
-          comps.push(col(id(f), [id(f, '_v'), id(f, '_l')]), { id: id(f, '_v'), component: 'Badge', text: fieldPath(f.name) }, text(id(f, '_l'), label, 'caption'));
-          top.push(id(f));
-        } else if (f.type === 'stat') {
-          comps.push({ id: id(f), component: 'Metric', label, value: fieldPath(f.name) }); stats.push(id(f));
-        } else if (f.type === 'code') {
-          comps.push(col(id(f), [id(f, '_l'), id(f, '_v')]), text(id(f, '_l'), label, 'caption'), { id: id(f, '_v'), component: 'Code', text: fieldPath(f.name) });
-          rest.push(id(f));
-        } else {
-          comps.push(col(id(f), [id(f, '_l'), id(f, '_v')]), text(id(f, '_l'), label, 'caption'), text(id(f, '_v'), fieldPath(f.name)));
-          rest.push(id(f));
+          push(col(cid, [`${cid}_l`, `${cid}_t`]), text(`${cid}_l`, label, 'caption'),
+            { id: `${cid}_t`, component: 'Table', rows: bind(`/data/arrays/${f.name}`), columns: cols, ...(tableProps[f.name] ?? {}) });
+          return { cid, slot: 'rest' };
         }
+        if (f.type === 'metric') { push({ id: cid, component: 'Metric', label, value: fieldPath(f.name) }); return { cid, slot: 'top' }; }
+        if (f.type === 'badge') {
+          push(col(cid, [`${cid}_v`, `${cid}_l`]), { id: `${cid}_v`, component: 'Badge', text: fieldPath(f.name) }, text(`${cid}_l`, label, 'caption'));
+          return { cid, slot: 'top' };
+        }
+        if (f.type === 'stat') { push({ id: cid, component: 'Metric', label, value: fieldPath(f.name) }); return { cid, slot: 'stats' }; }
+        if (f.type === 'preview') { push(previewLink(f, cid)); return { cid, slot: 'rest' }; }
+        if (f.type === 'code') {
+          push(col(cid, [`${cid}_l`, `${cid}_v`]), text(`${cid}_l`, label, 'caption'), { id: `${cid}_v`, component: 'Code', text: fieldPath(f.name) });
+          return { cid, slot: 'rest' };
+        }
+        push(col(cid, [`${cid}_l`, `${cid}_v`]), text(`${cid}_l`, label, 'caption'), text(`${cid}_v`, fieldPath(f.name)));
+        return { cid, slot: 'rest' };
+      };
+      /** The old layout for a set of fields: hero metrics/badges in a row, stats in a row, the rest stacked. */
+      const layout = (fs: typeof shown, sfx: string): string | undefined => {
+        const top: string[] = []; const stats: string[] = []; const rest: string[] = [];
+        for (const f of fs) { const { cid, slot } = fieldComp(f, sfx); (slot === 'top' ? top : slot === 'stats' ? stats : rest).push(cid); }
+        const groups: string[] = [];
+        if (top.length) { comps.push(row(`top${sfx}`, top)); groups.push(`top${sfx}`); }
+        if (stats.length) { comps.push(row(`stats${sfx}`, stats)); groups.push(`stats${sfx}`); }
+        groups.push(...rest);
+        if (!groups.length) return undefined;
+        comps.push(col(`body${sfx}`, groups));
+        return `body${sfx}`;
+      };
+      // field-toggle: those fields move into a Disclosure (open when default is "shown").
+      const toggles = controls.filter((c): c is Extract<typeof c, { type: 'field-toggle' }> => c.type === 'field-toggle');
+      const toggled = new Set(toggles.flatMap((t) => t.fields));
+      // view-switch: one tab per view (default first); fields in no view stay above the tabs.
+      const sw = controls.find((c): c is Extract<typeof c, { type: 'view-switch' }> => c.type === 'view-switch');
+      const inViews = new Set(sw ? sw.views.flatMap((v) => v.fields) : []);
+      const parts: string[] = [];
+      const always = layout(shown.filter((f) => !toggled.has(f.name) && !inViews.has(f.name)), '');
+      if (always) parts.push(always);
+      if (sw) {
+        const views = [...sw.views].sort((x, y) => (x.id === sw.default ? -1 : y.id === sw.default ? 1 : 0));
+        const tabs = views.map((v) => ({ v, body: layout(shown.filter((f) => v.fields.includes(f.name) && !toggled.has(f.name)), `_v_${v.id.replace(/[^\w-]/g, '_')}`) }))
+          .filter((t): t is { v: (typeof views)[number]; body: string } => !!t.body);
+        if (tabs.length) { comps.push({ id: 'views', component: 'Tabs', tabs: tabs.map((t) => ({ title: t.v.id, child: t.body })) }); parts.push('views'); }
       }
+      toggles.forEach((t, i) => {
+        const body = layout(shown.filter((f) => t.fields.includes(f.name)), `_t${i}`);
+        if (body) { comps.push({ id: `toggle${i}`, component: 'Disclosure', label: t.label, child: body, open: t.default === 'shown' }); parts.push(`toggle${i}`); }
+      });
       data.arrays = arrays;
-      const groups: string[] = [];
-      if (top.length) { comps.push(row('top', top)); groups.push('top'); }
-      if (stats.length) { comps.push(row('stats', stats)); groups.push('stats'); }
-      groups.push(...rest);
-      if (!groups.length) return { unsupported: 'a widget with no fields in this output' };
-      return { data, components: [col('root', groups), ...comps] };
+      if (!parts.length) return { unsupported: 'a widget with no fields in this output' };
+      return { data, components: [col('root', parts), ...comps] };
     }
     default:
       return { unsupported: `the "${widget.type}" widget` };

@@ -51,8 +51,8 @@ function staticChecks(components: ViewComponent[], opts: ViewValidationOptions):
         errors.push(`${c.id}: images from ${url.hostname} aren't allowed; add it to permissions.imgSrc.`);
       }
     }
-    if (c.component === 'Link' && typeof c.url === 'string' && !/^https?:\/\//i.test(c.url)) {
-      errors.push(`${c.id}: Link url must start with http:// or https://.`);
+    if (c.component === 'Link' && typeof c.url === 'string' && !/^(https?:\/\/|\/(?!\/))/i.test(c.url)) {
+      errors.push(`${c.id}: Link url must start with http://, https:// or / (a dashboard path).`);
     }
   }
   return errors;

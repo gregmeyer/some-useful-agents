@@ -60,7 +60,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Table',
-    summary: 'Rows (an array of objects) shown in named columns; link columns render the value as a link.',
+    summary: 'Rows (an array of objects) shown in named columns; link columns render the value as a link. Optional sortColumns/defaultSort, filterColumns/filterPlaceholder and pageSize make it sortable, filterable and paged in the browser.',
     example: {
       id: 'jobs', component: 'Table', rows: { path: '/outputs/jobs' },
       columns: [{ key: 'title', label: 'Role' }, { key: 'url', label: 'Link', format: 'link' }],
@@ -73,11 +73,25 @@ const SUA_COMPONENTS = [
         format: z.enum(['text', 'link']).optional(),
       }).strict()).min(1).max(12),
       maxRows: z.number().int().min(1).max(200).optional(),
+      /** Columns the viewer can sort by (click the header); `defaultSort` is "col" or "col desc". */
+      sortColumns: z.array(z.string().min(1).max(64)).max(12).optional(),
+      defaultSort: z.string().max(80).optional(),
+      /** Columns a filter box searches (case-insensitive substring). */
+      filterColumns: z.array(z.string().min(1).max(64)).max(12).optional(),
+      filterPlaceholder: z.string().max(80).optional(),
+      /** Rows per page, with a pager when there are more. */
+      pageSize: z.number().int().min(1).max(200).optional(),
     }).strict(),
   },
   {
+    name: 'Disclosure',
+    summary: 'A collapsible section: a label that shows or hides its child component.',
+    example: { id: 'more', component: 'Disclosure', label: 'More details', child: 'more_body', open: false },
+    schema: Common.extend({ label: Str, child: CS.ComponentId, open: z.boolean().optional() }).strict(),
+  },
+  {
     name: 'Link',
-    summary: 'A link that opens in a new tab (http/https only).',
+    summary: 'A link that opens in a new tab (http/https, or a dashboard path starting with /).',
     example: { id: 'src', component: 'Link', text: 'Source', url: { path: '/outputs/url' } },
     schema: Common.extend({ text: Str, url: Str }).strict(),
   },

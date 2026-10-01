@@ -52,8 +52,9 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Metric` | `label`, `value`, `unit?`, `delta?`, `tone?` (neutral/ok/warn/err) | a big number |
 | `Badge` | `text`, `tone?` | a status pill |
 | `KeyValue` | `items` (array of `{label, value}`) | facts |
-| `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link}]` (1–12), `maxRows?` | rows of results |
-| `Link` | `text`, `url` (http/https) | a link, opens in a new tab |
+| `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link}]` (1–12), `maxRows?`, `sortColumns?` + `defaultSort?` ("col" or "col desc"), `filterColumns?` + `filterPlaceholder?`, `pageSize?` | rows of results; sorting (click a header), filtering and paging happen in the browser |
+| `Disclosure` | `label`, `child` (a component id), `open?` | a collapsible section |
+| `Link` | `text`, `url` (http/https, or a dashboard path starting with `/`) | a link, opens in a new tab |
 | `Code` | `text`, `language?` | preformatted text |
 | `Sparkline` | `values` (array of numbers, or `{value}` objects), `label?`, `current?` | a small trend line |
 | `Funnel` | `stages` (array of `{label, value}`) | decreasing stages |
@@ -65,12 +66,12 @@ If a **generated** view isn't valid on a run, the run page says why and shows th
 
 **Settings → Appearance → Widget renderer (preview)** draws agents' existing widgets (Pulse `signal` templates and `outputWidget`s) through the same renderer, without changing any agent. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
 
-| Converted now | Still on the current renderer (next) |
+| Converted | Still on the current renderer |
 | --- | --- |
 | templates: metric, text-headline, status, comparison, key-value, story, table, time-series (Sparkline), funnel, image, text-image, media (images and video files); `widget` | media with a YouTube/Vimeo link (embedded) |
-| widgets: key-value, raw, dashboard (text, code, badge, metric, stat, table fields), ai-template; **interactive widgets** (the tile shows a form for the agent's inputs and a Run button that runs it in place) | sort/filter/paginate/view-switch/field-toggle controls, diff-apply, preview/action fields, table columns with href/text templates |
+| widgets: key-value, raw, dashboard, ai-template; **interactive widgets** (a form for the agent's inputs and a Run button that runs it in place); **controls**: sort / filter / paginate (on the table, in the browser), view-switch (Tabs, default first), field-toggle (a collapsible section); preview fields (a link to the file) | diff-apply, action fields, table columns with href/text templates, array controls on ai-templates |
 
-Across the 44 example agents, 25 of 26 Pulse templates and 18 of 22 output widgets convert today; the rest use widget controls. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
+**All 44 example agents convert**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing exactly as before, so the preview can't make a widget disappear. It's off by default and applies to the whole dashboard.
 
 ## In chat: replies are widgets, clicks are messages
 
