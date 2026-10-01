@@ -240,3 +240,10 @@
 .tools-picker__desc { font-size: var(--font-size-xs); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools-picker__blocked { flex: none; font-size: var(--font-size-xs); color: var(--color-warn); }
 .goal-budget__row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+/* Agent Chat, live reply (views/agent-chat.js.ts). */
+.agent-chat__live-tools { list-style: none; margin: var(--space-1) 0 0; padding: 0; font-size: var(--font-size-xs); }
+.agent-chat__tool { margin: 2px 0; color: var(--color-text-muted); overflow-wrap: anywhere; }
+.agent-chat__tool.is-error .mono { color: var(--color-err); }
+.agent-chat__live-text { white-space: pre-wrap; margin-top: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.agent-chat__live-text:empty { display: none; }

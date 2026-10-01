@@ -54,6 +54,7 @@ import { agentInputsRouter } from './routes/agent-inputs.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
+import { attachChatSocket } from './lib/chat-socket.js';
 import { buildTryRouter } from './routes/build-try.js';
 import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
@@ -198,11 +199,16 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
     cachedAt = Date.now();
     return cachedImgSrc;
   };
+  // The chat WebSocket (lib/chat-socket.ts): 'self' covers ws: in current
+  // Chrome/Firefox but not every browser, so name the dashboard's own ws://
+  // origins (host:port entries of the allowlist) explicitly.
+  const wsSrc = [...ctx.allowlist].filter((h) => h.includes(':') && !h.startsWith('[') || /^\[.*\]:\d+$/.test(h))
+    .map((h) => `ws://${h}`).join(' ');
   app.use((_req, res, next) => {
     const imgSrc = computeImgSrc();
     res.setHeader(
       'Content-Security-Policy',
-      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src ${imgSrc}; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'`,
+      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src ${imgSrc}; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ${wsSrc}; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; frame-ancestors 'none'`,
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -709,6 +715,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     // and routes that don't have a store will short-circuit before
     // touching it.
     inboxEventBus: new InboxEventBus(),
+    chatEventBus: new InboxEventBus({ ringSize: 400 }),
     integrationsStore,
     plannerTelemetryStore,
     plannerLoopStepLogStore,
@@ -777,6 +784,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   }
 
   const server = await listenWithErrors(app, opts.port, host);
+  // Live chat (agent conversations) over a WebSocket on the same port.
+  const chatSocket = attachChatSocket(server, ctx);
 
   const authUrl = `http://${host}:${opts.port}/auth#token=${token}`;
 
@@ -797,6 +806,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       // lingering sockets after asking the server to stop. `closeAllConnections`
       // exists on Node 18.2+; optional-chain it so older runtimes degrade to the
       // old (hanging) behavior rather than throwing.
+      // Upgraded WebSocket connections aren't HTTP connections, so
+      // closeAllConnections() doesn't reach them; close them first.
+      chatSocket.close();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         server.closeAllConnections?.();

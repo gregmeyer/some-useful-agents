@@ -1191,6 +1191,14 @@ export async function executeAgentDag(
     // node and swallowing its own errors.
     const progressEvents: SpawnProgress[] = [];
     const onProgress = (event: SpawnProgress) => {
+      // Text deltas are for live listeners only: storing hundreds per reply
+      // would rewrite progressJson hundreds of times.
+      if (event.type === 'output_delta') {
+        if (deps.inboxOnProgress) {
+          try { deps.inboxOnProgress({ nodeId: node.id, progress: event }); } catch { /* swallow */ }
+        }
+        return;
+      }
       progressEvents.push(event);
       // Write to DB on each event so polling picks it up immediately.
       deps.runStore.updateNodeExecution(runId, node.id, {

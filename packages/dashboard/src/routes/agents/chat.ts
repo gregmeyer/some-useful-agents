@@ -1,12 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import {
   SessionStore,
-  prepareAgentTurn,
-  completeAgentTurn,
   reconcileSession,
   resolveChatInput,
-  executeAgentDag,
-  isAppleIntegrationEnabled,
   NotConversationalError,
   SessionNotFoundError,
   ChatMessageError,
@@ -14,9 +10,8 @@ import {
   type Session,
 } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
-import { buildLlmSettingsSnapshot } from '../../lib/llm-settings-snapshot.js';
-import { resolveRunBackend } from '../../lib/run-backend.js';
-import { renderAgentChat } from '../../views/agent-detail/chat.js';
+import { renderAgentChat, renderChatTranscript } from '../../views/agent-detail/chat.js';
+import { startChatTurn } from '../../lib/chat-turn.js';
 import { buildTabArgs } from './tabs.js';
 import { questionStore } from '../../lib/ask-human.js';
 
@@ -74,6 +69,12 @@ agentChatRouter.get('/agents/:name/chat', async (req: Request, res: Response) =>
   let chatInput: string | undefined;
   if (!blocked) chatInput = resolveChatInput(args.agent);
 
+  // The live client re-renders the transcript from source when a turn ends.
+  if (req.query.fragment === 'transcript') {
+    res.setHeader('X-Chat-Pending', pending ? '1' : '0');
+    res.type('html').send(String(renderChatTranscript(args.agent, { sessions: [], active, turns, pending, waitingQuestion })));
+    return;
+  }
   const error = typeof req.query.error === 'string' ? req.query.error : undefined;
   res.type('html').send(renderAgentChat({
     ...args,
@@ -103,9 +104,9 @@ agentChatRouter.post('/agents/:name/chat', async (req: Request, res: Response) =
   if (blocked) { res.redirect(303, chatUrl(agent.id, sessionId, blocked)); return; }
 
   const sessions = sessionsOf(ctx);
-  let prepared;
+  let session;
   try {
-    prepared = prepareAgentTurn({ agent, sessions, message, sessionId, runStore: ctx.runStore });
+    ({ session } = await startChatTurn(ctx, sessions, agent, { message, sessionId }));
   } catch (err) {
     if (err instanceof ChatMessageError || err instanceof SessionNotFoundError || err instanceof NotConversationalError) {
       res.redirect(303, chatUrl(agent.id, sessionId, err.message));
@@ -113,66 +114,6 @@ agentChatRouter.post('/agents/:name/chat', async (req: Request, res: Response) =
     }
     throw err;
   }
-  const { session, runId, inputs, conversationPreamble } = prepared;
-
-  if (resolveRunBackend(ctx.provider, agent) === 'temporal' && ctx.provider.submitDagRun) {
-    try {
-      await ctx.provider.submitDagRun(agent, {
-        runId,
-        inputs,
-        triggeredBy: 'dashboard',
-        variablesPath: ctx.variablesPath,
-        dataRoot: ctx.agentStore.dataRoot,
-        llmProviders: buildLlmSettingsSnapshot(ctx)?.providers,
-        allowUntrustedShell: ctx.allowUntrustedShell ? [...ctx.allowUntrustedShell] : undefined,
-        experimentalApple: isAppleIntegrationEnabled(),
-        conversationPreamble: conversationPreamble || undefined,
-      });
-    } catch (err) {
-      // No run row → record the failure as the reply so the turn isn't stuck.
-      completeAgentTurn(sessions, session.id, {
-        id: runId, status: 'failed', error: `Couldn't start the run: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-    res.redirect(303, chatUrl(agent.id, session.id));
-    return;
-  }
-
-  // In process, fire-and-forget; the page reloads until the reply lands.
-  const abortController = new AbortController();
-  ctx.activeRuns.set(runId, abortController);
-  void executeAgentDag(
-    agent,
-    {
-      triggeredBy: 'dashboard',
-      inputs,
-      runId,
-      signal: abortController.signal,
-      conversationPreamble: conversationPreamble || undefined,
-    },
-    {
-      runStore: ctx.runStore,
-      secretsStore: ctx.secretsStore,
-      variablesStore: ctx.variablesStore,
-      integrationsStore: ctx.integrationsStore,
-      toolStore: ctx.toolStore,
-      agentStore: ctx.agentStore,
-      allowUntrustedShell: ctx.allowUntrustedShell,
-      dashboardBaseUrl: ctx.dashboardBaseUrl,
-      dataRoot: ctx.agentStore.dataRoot,
-      llmSettings: buildLlmSettingsSnapshot(ctx),
-      spawnNode: ctx.workflowSpawnNode,
-      // A failed turn shows in the conversation; no separate inbox thread.
-      onRunComplete: ctx.onRunCompleteQuiet,
-      experimentalApple: isAppleIntegrationEnabled(),
-    },
-  )
-    .then((run) => { completeAgentTurn(sessions, session.id, run); })
-    .catch((err) => {
-      completeAgentTurn(sessions, session.id, { id: runId, status: 'failed', error: err instanceof Error ? err.message : String(err) });
-    })
-    .finally(() => { ctx.activeRuns.delete(runId); });
-
   res.redirect(303, chatUrl(agent.id, session.id));
 });
 
