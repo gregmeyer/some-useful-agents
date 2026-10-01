@@ -551,3 +551,18 @@ export {
   type ViewValidation,
   type ResolvedView,
 } from './a2ui/view.js';
+export {
+  BOARD_COLUMNS,
+  BOARD_ROW_PX,
+  MAX_BOARD_ITEMS,
+  PULSE_BOARD_ID,
+  boardItemSchema,
+  normalizeBoardItems,
+  sizeToSpan,
+  boardItemsFromSections,
+  boardItemsHash,
+  BoardsStore,
+  BoardConflictError,
+  type Board,
+  type BoardItem,
+} from './boards.js';

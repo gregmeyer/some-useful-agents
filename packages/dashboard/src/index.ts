@@ -55,6 +55,7 @@ import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
 import { attachChatSocket } from './lib/chat-socket.js';
+import { boardsRouter } from './routes/boards.js';
 import { setDashboardPrefsDir } from './lib/dashboard-prefs.js';
 import { buildTryRouter } from './routes/build-try.js';
 import { metricsPlannerRouter } from './routes/metrics-planner.js';
@@ -295,6 +296,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(runsRouter);
   app.use(runNowRouter);
   app.use(buildRouter);
+  app.use(boardsRouter);
   app.use(buildTryRouter);
   app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);
