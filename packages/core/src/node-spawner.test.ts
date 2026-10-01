@@ -344,6 +344,8 @@ describe('codexSpawner', () => {
     expect(args).toContain('exec');
     expect(args).toContain('-s');
     expect(args).toContain('read-only');
+    // Works in a project folder that isn't a git repo.
+    expect(args).toContain('--skip-git-repo-check');
   });
 
   it('buildArgs threads through the model when set', () => {
