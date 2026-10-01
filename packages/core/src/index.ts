@@ -526,3 +526,26 @@ export {
   type MigrationPlanAgent,
   type MigrationWarning,
 } from './agent-migration.js';
+export {
+  SUA_CATALOG_ID,
+  A2UI_PROTOCOL_VERSION,
+  suaCatalog,
+  suaCatalogComponentNames,
+  suaComponentDocs,
+  type SuaComponentDoc,
+} from './a2ui/catalog.js';
+export {
+  MAX_VIEW_COMPONENTS,
+  MAX_VIEW_BYTES,
+  validateViewComponents,
+  extractGeneratedView,
+  buildViewDataModel,
+  runOutputs,
+  resolveAgentView,
+  viewToMessages,
+  type AgentView,
+  type ViewComponent,
+  type ViewDataModel,
+  type ViewValidation,
+  type ResolvedView,
+} from './a2ui/view.js';

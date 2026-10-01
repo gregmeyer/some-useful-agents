@@ -434,6 +434,7 @@ export class AgentStore {
     if (agent.chat !== undefined) dag.chat = agent.chat;
     if (agent.spendLimit !== undefined) dag.spendLimit = agent.spendLimit;
     if (agent.webhook !== undefined) dag.webhook = agent.webhook;
+    if (agent.view !== undefined) dag.view = agent.view;
     if (agent.successCriteria) dag.successCriteria = agent.successCriteria;
     if (agent.maxLoopIterations !== undefined) dag.maxLoopIterations = agent.maxLoopIterations;
     if (agent.outcome) dag.outcome = agent.outcome;
@@ -519,6 +520,7 @@ export class AgentStore {
       chat: dag.chat,
       spendLimit: dag.spendLimit,
       webhook: dag.webhook,
+      view: dag.view,
       successCriteria: dag.successCriteria,
       maxLoopIterations: dag.maxLoopIterations,
       outcome: dag.outcome,

@@ -9,6 +9,7 @@
     "clean": "rm -rf dist examples"
   },
   "dependencies": {
+    "@a2ui/web_core": "0.12.0",
     "@modelcontextprotocol/client": "2.1.0",
     "@modelcontextprotocol/node": "2.1.0",
     "@modelcontextprotocol/server": "2.1.0",

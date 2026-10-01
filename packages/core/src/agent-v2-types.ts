@@ -12,6 +12,7 @@
  *     only — shell nodes receive the same value as `$UPSTREAM_<NODEID>_RESULT`
  *     via env injection, matching how shell agents already consume inputs).
  */
+import type { AgentView } from './a2ui/view.js';
 import type { AgentInputSpec, AgentOutputSpec } from './types.js';
 import type { AgentCapabilities } from './agent-capabilities.js';
 import type { AgentSource } from './agent-loader.js';
@@ -419,6 +420,8 @@ export interface Agent {
   spendLimit?: SpendLimits;
   /** Inbound webhook mapping + filter (webhooks.ts / docs/webhooks.md). */
   webhook?: WebhookConfig;
+  /** A2UI view: declared components, or the node whose output is the view (a2ui/view.ts, docs/a2ui-views.md). */
+  view?: AgentView;
 
   /**
    * CSP allowlist contributions, merged into the dashboard's page-wide
@@ -713,6 +716,8 @@ export interface AgentVersionDag {
   spendLimit?: SpendLimits;
   /** Inbound webhook mapping + filter (webhooks.ts / docs/webhooks.md). */
   webhook?: WebhookConfig;
+  /** A2UI view: declared components, or the node whose output is the view (a2ui/view.ts, docs/a2ui-views.md). */
+  view?: AgentView;
   /**
    * See Agent.successCriteria / maxLoopIterations / outcome. All three are
    * versioned: they are design-time acceptance and observation decisions
