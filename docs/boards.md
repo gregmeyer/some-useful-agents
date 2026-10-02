@@ -4,6 +4,22 @@
 
 A **board** is a canvas of tiles placed on a 12-column grid, stored by the dashboard rather than in your browser. Pulse is the board `pulse`; every named dashboard is a board with the dashboard's id (`user:morning-briefing`, `starter:weather`, …).
 
+## Canvas boards (preview)
+
+Boards are becoming one A2UI surface each, so a board can use any layout A2UI can express: sections, responsive grids, rows, tabs and cards, with every agent's tile drawn inside. **Canvas preview** on a board's toolbar (or `/boards/<id>/canvas`) shows the board drawn that way today: your sections become titled groups, tiles keep their sizes, and on Pulse the agents you haven't placed sit under **Everything else**, in tabs by recent use. Tiles work as on the board: Run (or the agent's own form) runs in place and refreshes only that tile; ⚙ configures; × hides from Pulse. Arranging a canvas, and switching Pulse and dashboards over to it, come next.
+
+A canvas is an A2UI document (`components`, one with id `root`) using the basic catalog plus five board-only components:
+
+| Component | What it is |
+|---|---|
+| `Section` | A titled group: `{ title, child }` |
+| `Grid` | Tiles in responsive columns, each at least `minWidth` px (default 280): `{ children, minWidth? }` |
+| `Cell` | A grid child spanning columns and/or rows: `{ child, span?, rows? }` (1–4) |
+| `AgentTile` | An agent's tile, its latest result drawn with its own view: `{ agentId, palette? }` |
+| `SystemTile` | A health tile: `{ tileId }` (e.g. `_system-runs-today`) |
+
+Agent views can't use these: they belong to boards. A board document is checked like a view (the A2UI processor in strict mode), with room for up to 800 components.
+
 ## What can be on a board
 
 | Item | What it shows |

@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BoardConflictError, BoardsStore, applyBoardChanges, sectionsFromBoardItems, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
+import { BoardConflictError, BoardsStore, applyBoardChanges, sectionsFromBoardItems, boardDocFromItems, validateBoardDoc, boardDocAgentIds, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
 import { getBuiltinTool } from './builtin-tools.js';
+import { validateViewComponents } from './a2ui/view.js';
 import type { DashboardSection } from './packs-store.js';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -162,5 +163,54 @@ describe('sectionsFromBoardItems', () => {
     expect(normalizeBoardItems([{ ...agent('a', 0, 0), palette: 'dark' }])[0]).toMatchObject({ palette: 'dark' });
     expect(() => normalizeBoardItems([{ ...agent('a', 0, 0), palette: 'neon' }])).toThrow();
     expect(() => normalizeBoardItems([{ id: 'h', kind: 'heading', text: 'x', x: 0, y: 0, w: 12, h: 1, palette: 'dark' }])).toThrow();
+  });
+});
+
+describe('canvas board documents', () => {
+  it('converts grid items to a valid document: headings become Sections, tiles Grid cells with spans', () => {
+    const items = boardItemsFromSections([
+      { title: 'Today', agentIds: ['weather', 'news'], placements: { weather: { size: '2x2' } } },
+      { title: 'Later', agentIds: ['notes'] },
+    ]);
+    items.push({ id: 'n1', kind: 'note', text: '**Hi**', x: 0, y: 99, w: 4, h: 3 });
+    const doc = boardDocFromItems(items);
+    const v = validateBoardDoc(doc);
+    expect(v.ok).toBe(true);
+    const by = (id: string) => doc.components.find((c) => c.id === id)!;
+    const root = by('root');
+    expect(root).toMatchObject({ component: 'Column' });
+    const sections = (root.children as string[]).map(by);
+    expect(sections.map((s) => s.title)).toEqual(['Today', 'Later']);
+    const todayCells = (by(sections[0].child as string).children as string[]).map(by);
+    expect(todayCells[0]).toMatchObject({ component: 'Cell', span: 2, rows: 2 });
+    expect(by(todayCells[0].child as string)).toMatchObject({ component: 'AgentTile', agentId: 'weather' });
+    expect(boardDocAgentIds(doc)).toEqual(['weather', 'news', 'notes']);
+    expect(doc.components.some((c) => c.component === 'Text' && c.text === '**Hi**')).toBe(true);
+    expect(validateBoardDoc(boardDocFromItems([])).ok).toBe(true);
+  });
+
+  it('keeps board-only components out of agent views, and checks board documents strictly', () => {
+    const tile = [{ id: 'root', component: 'AgentTile', agentId: 'x' }];
+    expect(validateViewComponents(tile)).toMatchObject({ ok: false, errors: [expect.stringMatching(/only be used on a board/)] });
+    expect(validateBoardDoc({ components: tile }).ok).toBe(true);
+    expect(validateBoardDoc({ components: [{ id: 'root', component: 'AgentTile', agentId: 'x', onClick: 'y' }] }).ok).toBe(false);
+    expect(validateBoardDoc({ components: [{ id: 'root', component: 'Grid', children: ['missing'] }] }).ok).toBe(false);
+    expect(validateBoardDoc({}).ok).toBe(false);
+  });
+
+  it('stores a document with a version, refuses stale saves, and undoes to the previous layout', () => {
+    const s = new BoardsStore(join(mkdtempSync(join(tmpdir(), 'sua-boards-doc-')), 'runs.db'));
+    s.save({ id: 'b', name: 'B', items: [agent('a', 0, 0)], expectedVersion: 0 });
+    expect(s.get('b')!.doc).toBeUndefined();
+    const doc = { components: [{ id: 't', component: 'AgentTile', agentId: 'a' }, { id: 'root', component: 'Tabs', tabs: [{ title: 'One', child: 't' }] }] };
+    const saved = s.saveDoc({ id: 'b', name: 'B', doc, expectedVersion: 1 });
+    expect(saved).toMatchObject({ version: 2, hasPrevious: true });
+    expect(saved.doc!.components.find((c) => c.id === 'root')).toMatchObject({ component: 'Tabs' });
+    expect(() => s.saveDoc({ id: 'b', name: 'B', doc, expectedVersion: 1 })).toThrow(BoardConflictError);
+    expect(() => s.saveDoc({ id: 'b', name: 'B', doc: { components: [{ id: 'root', component: 'Nope' }] } })).toThrow(/isn't valid/);
+    const undone = s.undo('b', 2);
+    expect(undone.doc!.components.find((c) => c.id === 'root')).toMatchObject({ component: 'Column' });
+    expect(s.loadDocOrDerive('b')!.doc.components.some((c) => c.component === 'AgentTile')).toBe(true);
+    s.close();
   });
 });

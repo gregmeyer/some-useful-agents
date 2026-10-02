@@ -11,7 +11,7 @@
 import { MessageProcessor, STRICT_VALIDATION } from '@a2ui/web_core/v0_9';
 import type { Run } from '../types.js';
 import type { NodeExecutionRecord } from '../agent-v2-types.js';
-import { A2UI_PROTOCOL_VERSION, SUA_CATALOG_ID, suaCatalog } from './catalog.js';
+import { A2UI_PROTOCOL_VERSION, BOARD_COMPONENT_NAMES, SUA_CATALOG_ID, suaCatalog } from './catalog.js';
 import { sanitizeHtml } from '../html-sanitizer.js';
 
 export const MAX_VIEW_COMPONENTS = 200;
@@ -26,7 +26,13 @@ export type AgentView =
 export interface ViewValidationOptions {
   /** Hosts images may load from (the agent's `permissions.imgSrc`; `*.example.com` allowed). */
   imgHosts?: readonly string[];
+  /** Validating a board (boards.ts): allow the board-only components and a board's larger limits. */
+  board?: boolean;
 }
+
+/** A board can hold more than one view: every tile is a few components. */
+export const MAX_BOARD_COMPONENTS = 800;
+export const MAX_BOARD_BYTES = 256 * 1024;
 
 export type ViewValidation = { ok: true; components: ViewComponent[] } | { ok: false; errors: string[] };
 
@@ -42,6 +48,9 @@ function hostAllowed(host: string, patterns: readonly string[]): boolean {
 function staticChecks(components: ViewComponent[], opts: ViewValidationOptions): string[] {
   const errors: string[] = [];
   for (const c of components) {
+    if (!opts.board && BOARD_COMPONENT_NAMES.includes(c.component)) {
+      errors.push(`${c.id}: ${c.component} can only be used on a board, not in an agent's view.`);
+    }
     if (c.component === 'Image' && typeof c.url === 'string') {
       let url: URL | undefined;
       try { url = new URL(c.url); } catch { errors.push(`${c.id}: Image url "${c.url}" isn't a valid URL.`); continue; }
@@ -66,9 +75,12 @@ function staticChecks(components: ViewComponent[], opts: ViewValidationOptions):
  */
 export function validateViewComponents(input: unknown, opts: ViewValidationOptions = {}): ViewValidation {
   if (!Array.isArray(input) || input.length === 0) return { ok: false, errors: ['A view needs a non-empty list of components.'] };
-  if (input.length > MAX_VIEW_COMPONENTS) return { ok: false, errors: [`A view can have at most ${MAX_VIEW_COMPONENTS} components (got ${input.length}).`] };
+  const what = opts.board ? 'A board' : 'A view';
+  const maxComponents = opts.board ? MAX_BOARD_COMPONENTS : MAX_VIEW_COMPONENTS;
+  const maxBytes = opts.board ? MAX_BOARD_BYTES : MAX_VIEW_BYTES;
+  if (input.length > maxComponents) return { ok: false, errors: [`${what} can have at most ${maxComponents} components (got ${input.length}).`] };
   const bytes = Buffer.byteLength(JSON.stringify(input), 'utf8');
-  if (bytes > MAX_VIEW_BYTES) return { ok: false, errors: [`A view can be at most ${MAX_VIEW_BYTES / 1024} KB (got ${Math.ceil(bytes / 1024)} KB).`] };
+  if (bytes > maxBytes) return { ok: false, errors: [`${what} can be at most ${maxBytes / 1024} KB (got ${Math.ceil(bytes / 1024)} KB).`] };
   const errors: string[] = [];
   input.forEach((c, i) => {
     if (!c || typeof c !== 'object' || Array.isArray(c)) errors.push(`components[${i}] must be an object.`);

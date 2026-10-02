@@ -110,7 +110,7 @@ export function tileWrap(
   );
 }
 
-function resolveAutoPalette(tile: PulseTile): string | null {
+export function resolveAutoPalette(tile: PulseTile): string | null {
   const { template } = normalizeSignal(tile.signal);
 
   if (tile.signal.thresholds && tile.signal.thresholds.length > 0) {
@@ -210,7 +210,7 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
  * A `widget` tile with no widget or no prior run renders "No widget output
  * yet." and no control — which is precisely a tile that needs ours.
  */
-function tileRendersOwnRunControl(tile: PulseTile): boolean {
+export function tileRendersOwnRunControl(tile: PulseTile): boolean {
   if (tile.agent.outputWidget?.interactive) return true;
   const { template } = normalizeSignal(tile.signal);
   return template === 'widget' && Boolean(tile.agent.outputWidget) && Boolean(tile.lastRun?.result);

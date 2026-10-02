@@ -33,13 +33,26 @@ export function renderRunView(
   nodeExecutions: readonly NodeExecutionRecord[],
   surfaceId = `run-${run.id}`,
 ): SafeHtml {
-  const resolved = resolveAgentView(agent, { run, nodeExecutions });
-  if (!resolved) return html``;
-  if (!resolved.ok) {
-    return html`<div class="a2ui-host a2ui-host--error"><span class="dim">This reply's widget couldn't be shown:</span> ${resolved.errors[0] ?? 'invalid view'}</div>`;
+  const out = runViewMessages(agent, run, nodeExecutions, surfaceId);
+  if (!out) return html``;
+  if ('error' in out) {
+    return html`<div class="a2ui-host a2ui-host--error"><span class="dim">This reply's widget couldn't be shown:</span> ${out.error}</div>`;
   }
+  return renderSurfaceHost(surfaceId, out.messages, { label: `${agent.id} widget` });
+}
+
+/** An agent's view for one run as A2UI messages; `error` when a generated view didn't validate; undefined with no view. */
+export function runViewMessages(
+  agent: Pick<Agent, 'id' | 'view' | 'permissions'>,
+  run: Run,
+  nodeExecutions: readonly NodeExecutionRecord[],
+  surfaceId = `run-${run.id}`,
+): { messages: unknown[] } | { error: string } | undefined {
+  const resolved = resolveAgentView(agent, { run, nodeExecutions });
+  if (!resolved) return undefined;
+  if (!resolved.ok) return { error: resolved.errors[0] ?? 'invalid view' };
   const components = prepareViewForRender(resolved.components, resolved.dataModel);
-  return renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, resolved.dataModel), { label: `${agent.id} widget` });
+  return { messages: viewToMessages(surfaceId, components, resolved.dataModel) };
 }
 
 /**
@@ -48,14 +61,20 @@ export function renderRunView(
  * that doesn't validate), so the caller keeps the old renderer.
  */
 export function renderLegacySurface(surfaceId: string, legacy: LegacyView, opts: { widget?: OutputWidgetSchema } = {}): SafeHtml | undefined {
-  if ('unsupported' in legacy) return undefined;
-  const v = validateViewComponents(legacy.components);
-  if (!v.ok) return undefined;
-  const dataModel = { data: legacy.data };
-  const components = prepareViewForRender(v.components, dataModel);
-  const surface = renderSurfaceHost(surfaceId, viewToMessages(surfaceId, components, dataModel), { label: 'Widget' });
+  const messages = legacySurfaceMessages(surfaceId, legacy);
+  if (!messages) return undefined;
+  const surface = renderSurfaceHost(surfaceId, messages, { label: 'Widget' });
   // A widget's copy control: the same button, in the same row-before-body
   // shape views/widget-copy.js.ts looks for.
   const copy = (opts.widget?.controls ?? []).find((c): c is Extract<typeof c, { type: 'copy' }> => c.type === 'copy');
   return copy ? html`<div class="wc-row" data-widget-control-row="">${renderCopyControl(copy)}</div>${surface}` : surface;
+}
+
+/** A converted pre-A2UI widget as A2UI messages, or undefined when it can't be drawn that way. */
+export function legacySurfaceMessages(surfaceId: string, legacy: LegacyView): unknown[] | undefined {
+  if ('unsupported' in legacy) return undefined;
+  const v = validateViewComponents(legacy.components);
+  if (!v.ok) return undefined;
+  const dataModel = { data: legacy.data };
+  return viewToMessages(surfaceId, prepareViewForRender(v.components, dataModel), dataModel);
 }

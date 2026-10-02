@@ -28,6 +28,8 @@ export interface PulseTile {
   layoutHint?: LayoutHint;
   /** The agent's A2UI view for its last run (lib/a2ui-surface.ts); wins over the signal template. */
   viewHtml?: import('./html.js').SafeHtml;
+  /** The same view as A2UI messages (canvas boards), or the reason it couldn't be shown. */
+  viewMessages?: { messages: unknown[] } | { error: string };
 }
 
 export interface PulsePageInput {

@@ -4,9 +4,9 @@
  */
 
 import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
-import { renderLegacySurface } from '../lib/a2ui-surface.js';
-import { legacyInteractiveView, legacySignalView, legacyWidgetView } from '../lib/legacy-view.js';
-import type { SignalTemplate } from '@some-useful-agents/core';
+import { renderLegacySurface, legacySurfaceMessages } from '../lib/a2ui-surface.js';
+import { legacyInteractiveView, legacySignalView, legacyWidgetView, type LegacyView } from '../lib/legacy-view.js';
+import type { OutputWidgetSchema, SignalTemplate } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { normalizeSignal } from './pulse-templates.js';
 import { esc, stringify, renderMarkdown, looksLikeJson, prettyJson } from './pulse-helpers.js';
@@ -391,24 +391,50 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 }
 
 /** The tile's signal template or output widget, converted to an A2UI surface; undefined → old renderer. */
-function legacyTileSurface(tile: PulseTile): SafeHtml | undefined {
+/** The converted pre-A2UI view of a tile, or undefined when there's nothing to draw (no run yet). */
+function legacyTileView(tile: PulseTile): { legacy: LegacyView; widget?: OutputWidgetSchema } | undefined {
   const agent = tile.agent;
-  const id = `tile-${agent.id}`;
   // An interactive widget is a form + Run button, with or without a prior run.
   if (agent.outputWidget?.interactive) {
-    return renderLegacySurface(id, legacyInteractiveView({
-      agentId: agent.id,
-      inputs: (agent.inputs ?? {}) as never,
-      widget: agent.outputWidget,
-      lastOutput: tile.lastRun?.status === 'completed' && typeof tile.lastRun.result === 'string' ? tile.lastRun.result : undefined,
-      previousInputs: tile.previousInputs,
-    }));
+    return {
+      legacy: legacyInteractiveView({
+        agentId: agent.id,
+        inputs: (agent.inputs ?? {}) as never,
+        widget: agent.outputWidget,
+        lastOutput: tile.lastRun?.status === 'completed' && typeof tile.lastRun.result === 'string' ? tile.lastRun.result : undefined,
+        previousInputs: tile.previousInputs,
+      }),
+    };
   }
-  if (!tile.lastRun) return undefined;
+  // System tiles have no run of their own; their slots are computed.
+  if (!tile.lastRun && !tile.agent.id.startsWith('_system-')) return undefined;
   const { template } = normalizeSignal(tile.signal);
   if (template === 'widget') {
-    if (!agent.outputWidget || !tile.lastRun.result) return undefined;
-    return renderLegacySurface(id, legacyWidgetView(agent.outputWidget, tile.lastRun.result), { widget: agent.outputWidget });
+    if (!agent.outputWidget || !tile.lastRun?.result) return undefined;
+    return { legacy: legacyWidgetView(agent.outputWidget, tile.lastRun.result), widget: agent.outputWidget };
   }
-  return renderLegacySurface(id, legacySignalView(tile.signal, tile.slots));
+  return { legacy: legacySignalView(tile.signal, tile.slots) };
+}
+
+function legacyTileSurface(tile: PulseTile): SafeHtml | undefined {
+  if (!tile.lastRun && tile.agent.id.startsWith('_system-')) return undefined; // keep the classic system tiles on this path
+  const v = legacyTileView(tile);
+  return v ? renderLegacySurface(`tile-${tile.agent.id}`, v.legacy, { widget: v.widget }) : undefined;
+}
+
+/**
+ * A tile's body as A2UI messages for a canvas board (docs/boards.md):
+ * `messages` to draw, `empty` when it has nothing to show yet, or
+ * `unsupported` when its widget can't be drawn with A2UI (the classic tile
+ * page still can).
+ */
+export function tileSurfaceMessages(tile: PulseTile): { messages: unknown[] } | { empty: string } | { unsupported: string } {
+  const id = `tile-${tile.agent.id}`;
+  if (tile.viewMessages) return 'error' in tile.viewMessages ? { unsupported: `This tile's view couldn't be shown: ${tile.viewMessages.error}` } : { messages: tile.viewMessages.messages };
+  if (tile.agent.view && !tile.agent.signal) return { empty: 'No runs yet.' };
+  const v = legacyTileView(tile);
+  if (!v) return { empty: tile.lastRun ? 'No output yet.' : 'No runs yet.' };
+  if ('unsupported' in v.legacy) return { unsupported: v.legacy.unsupported };
+  const messages = legacySurfaceMessages(id, v.legacy);
+  return messages ? { messages } : { unsupported: "This tile's widget can't be drawn here yet." };
 }

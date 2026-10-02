@@ -121,6 +121,54 @@ const SUA_COMPONENTS = [
   },
 ] as const;
 
+/**
+ * Board-only components (docs/boards.md): the layout and tiles of a canvas
+ * board. They're in the sua catalog so the browser draws them, but agent views
+ * can't use them (validateViewComponents refuses them unless it's validating a
+ * board) and they're left out of the component docs agents see for views.
+ */
+const BOARD_COMPONENTS = [
+  {
+    name: 'Grid',
+    summary: 'Tiles in responsive columns (each at least minWidth px wide, default 280); wrap a child in Cell to span columns or rows.',
+    example: { id: 'today_grid', component: 'Grid', children: ['cell_weather', 'cell_news'], minWidth: 280 },
+    schema: Common.extend({ children: CS.ChildList, minWidth: z.number().int().min(120).max(800).optional() }).strict(),
+  },
+  {
+    name: 'Cell',
+    summary: 'A Grid child that spans several columns (span, 1–4) and/or rows (rows, 1–4).',
+    example: { id: 'cell_weather', component: 'Cell', child: 'tile_weather', span: 2 },
+    schema: Common.extend({ child: CS.ComponentId, span: z.number().int().min(1).max(4).optional(), rows: z.number().int().min(1).max(4).optional() }).strict(),
+  },
+  {
+    name: 'Section',
+    summary: 'A titled group of the board.',
+    example: { id: 'today', component: 'Section', title: 'Today', child: 'today_grid' },
+    schema: Common.extend({ title: Str, child: CS.ComponentId }).strict(),
+  },
+  {
+    name: 'AgentTile',
+    summary: "An agent's tile: its latest result drawn with its own view, with Run and the tile's controls.",
+    example: { id: 'tile_weather', component: 'AgentTile', agentId: 'weather-forecast' },
+    schema: Common.extend({
+      agentId: z.string().min(1).max(128),
+      palette: z.enum(['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green']).optional(),
+    }).strict(),
+  },
+  {
+    name: 'SystemTile',
+    summary: 'One of the health tiles (runs today, failure rate, average duration, agents, scheduler).',
+    example: { id: 'tile_runs', component: 'SystemTile', tileId: '_system-runs-today' },
+    schema: Common.extend({
+      tileId: z.string().regex(/^_[a-z0-9_-]+$/i),
+      palette: z.enum(['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green']).optional(),
+    }).strict(),
+  },
+] as const;
+
+/** Components only a board may use. */
+export const BOARD_COMPONENT_NAMES: readonly string[] = BOARD_COMPONENTS.map((c) => c.name);
+
 /** Basic catalog component APIs (Text, Image, Row, Column, List, Card, Button, …). */
 function basicComponentApis(): Array<{ name: string; schema: unknown }> {
   return Object.entries(basic)
@@ -134,7 +182,7 @@ let catalog: Catalog<never> | undefined;
 /** The sua catalog, built once. */
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
-    const components = [...basicComponentApis(), ...SUA_COMPONENTS.map(({ name, schema }) => ({ name, schema }))];
+    const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
     catalog = new Catalog(SUA_CATALOG_ID, '0.9', components as never[], basic.BASIC_FUNCTIONS as never[]) as Catalog<never>;
   }
   return catalog;
@@ -148,4 +196,9 @@ export function suaCatalogComponentNames(): string[] {
 /** The sua-only components with a one-line summary and an example, for docs and prompts. */
 export function suaComponentDocs(): SuaComponentDoc[] {
   return SUA_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
+}
+
+/** The board-only components with a summary and an example, for board prompts (board-place, the board builder). */
+export function boardComponentDocs(): SuaComponentDoc[] {
+  return BOARD_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
 }

@@ -11,7 +11,7 @@ import type { Agent, AgentSignal, LayoutHintsStore, Run, RunStore } from '@some-
 import type { PulseTile } from './pulse-types.js';
 import { normalizeSignal, extractMappedValues } from './pulse-templates.js';
 import type { SafeHtml } from './html.js';
-import { renderRunView } from '../lib/a2ui-surface.js';
+import { renderRunView, runViewMessages, renderSurfaceHost } from '../lib/a2ui-surface.js';
 
 /**
  * The signal a tile is built from: the agent's own, or, for an agent that
@@ -43,12 +43,18 @@ export function buildPulseTile(
   let outputsJson: string | undefined;
   let previousInputs: Record<string, string> | undefined;
   let viewHtml: SafeHtml | undefined;
+  let viewMessages: ReturnType<typeof runViewMessages>;
   try {
     const runs = deps.runStore.listRuns({ agentName: agent.id, status: 'completed', limit: 1 });
     if (runs.length > 0) {
       lastRun = runs[0];
       const execs = deps.runStore.listNodeExecutions(lastRun.id);
-      if (agent.view) viewHtml = renderRunView(agent, lastRun, execs, `tile-${agent.id}`);
+      if (agent.view) {
+        viewMessages = runViewMessages(agent, lastRun, execs, `tile-${agent.id}`);
+        viewHtml = viewMessages && 'messages' in viewMessages
+          ? renderSurfaceHost(`tile-${agent.id}`, viewMessages.messages, { label: `${agent.id} widget` })
+          : renderRunView(agent, lastRun, execs, `tile-${agent.id}`);
+      }
       const lastExec = execs.filter((e) => e.status === 'completed').pop();
       if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;
 
@@ -92,7 +98,7 @@ export function buildPulseTile(
   }
   outputFields.push(...Array.from(fieldSet).sort());
 
-  return { agent, signal, lastRun, slots, outputFields, previousInputs, ...(viewHtml ? { viewHtml } : {}) };
+  return { agent, signal, lastRun, slots, outputFields, previousInputs, ...(viewHtml ? { viewHtml } : {}), ...(viewMessages ? { viewMessages } : {}) };
 }
 
 /**

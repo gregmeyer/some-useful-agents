@@ -12,6 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { openStoreDb } from './sqlite-open.js';
 import type { DashboardSection } from './packs-store.js';
+import { validateViewComponents, type ViewComponent } from './a2ui/view.js';
 
 export const BOARD_COLUMNS = 12;
 /** Height of one grid row, in CSS pixels. */
@@ -50,6 +51,8 @@ export interface Board {
   updatedAt: number;
   /** True when there's an earlier layout to go back to (Undo). */
   hasPrevious?: boolean;
+  /** The canvas document, once the board has been saved as one (else derive it from `items`). */
+  doc?: BoardDoc;
 }
 
 /** A save from an older version of the board than the one stored. */
@@ -275,6 +278,76 @@ export function boardItemsFromLayoutPlan(
       : it);
 }
 
+// ── Canvas boards (docs/boards.md) ─────────────────────────────────────
+// A board's layout as ONE A2UI surface: basic layout components plus the
+// board-only Grid, Cell, Section, AgentTile and SystemTile, rooted at `root`.
+
+/** A board's A2UI document: the component list (one has id `root`). */
+export interface BoardDoc {
+  components: ViewComponent[];
+}
+
+/** Validate a board document (strict A2UI processor, board limits). */
+export function validateBoardDoc(doc: unknown): { ok: true; doc: BoardDoc } | { ok: false; errors: string[] } {
+  const components = doc && typeof doc === 'object' ? (doc as { components?: unknown }).components : undefined;
+  const v = validateViewComponents(components, { board: true });
+  return v.ok ? { ok: true, doc: { components: v.components } } : v;
+}
+
+/** Agent ids a board document shows (AgentTile leaves), in document order. */
+export function boardDocAgentIds(doc: BoardDoc): string[] {
+  return doc.components.flatMap((c) => (c.component === 'AgentTile' && typeof c.agentId === 'string' ? [c.agentId] : []));
+}
+
+/** System tile ids a board document shows. */
+export function boardDocSystemTileIds(doc: BoardDoc): string[] {
+  return doc.components.flatMap((c) => (c.component === 'SystemTile' && typeof c.tileId === 'string' ? [c.tileId] : []));
+}
+
+/** Column span for a grid item's width (12-column units → 1–3 tiles wide). */
+function spanFor(w: number): number { return w >= 9 ? 3 : w >= 5 ? 2 : 1; }
+
+/**
+ * A grid board (items) as a canvas document: each heading starts a Section
+ * holding a Grid of its tiles; tiles before the first heading sit in a Grid at
+ * the top. Wide items span 2–3 columns, tall ones 2 rows. Notes become Text.
+ */
+export function boardDocFromItems(items: readonly BoardItem[]): BoardDoc {
+  const components: ViewComponent[] = [];
+  const top: string[] = [];
+  let cells: string[] = [];
+  let title: string | undefined;
+  let n = 0;
+  const flush = () => {
+    if (cells.length === 0 && title === undefined) return;
+    n += 1;
+    const gridId = `grid_${n}`;
+    components.push({ id: gridId, component: 'Grid', children: cells });
+    if (title === undefined) top.push(gridId);
+    else {
+      const sectionId = `section_${n}`;
+      components.push({ id: sectionId, component: 'Section', title, child: gridId });
+      top.push(sectionId);
+    }
+    cells = [];
+  };
+  for (const it of [...items].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    if (it.kind === 'heading') { flush(); title = it.text; continue; }
+    const leafId = `tile_${it.id}`;
+    if (it.kind === 'agent') components.push({ id: leafId, component: 'AgentTile', agentId: it.agentId, ...(it.palette ? { palette: it.palette } : {}) });
+    else if (it.kind === 'system') components.push({ id: leafId, component: 'SystemTile', tileId: it.tileId, ...(it.palette ? { palette: it.palette } : {}) });
+    else components.push({ id: leafId, component: 'Text', text: it.text });
+    const cellId = `cell_${it.id}`;
+    const span = spanFor(it.w);
+    const rows = it.h >= 8 ? 2 : 1;
+    components.push({ id: cellId, component: 'Cell', child: leafId, ...(span > 1 ? { span } : {}), ...(rows > 1 ? { rows } : {}) });
+    cells.push(cellId);
+  }
+  flush();
+  components.push({ id: 'root', component: 'Column', children: top });
+  return { components };
+}
+
 /**
  * Stored boards. A board with no row is "not customised yet": the caller
  * derives it (Pulse: nothing placed, everything in the Unplaced tray; a named
@@ -303,16 +376,24 @@ export class BoardsStore {
         updated_at INTEGER NOT NULL
       )
     `);
+    // Canvas documents (W5/C1): added later, so older databases get the columns here.
+    const cols = new Set((this.db.prepare("SELECT name FROM pragma_table_info('boards')").all() as Array<{ name: string }>).map((r) => r.name));
+    if (!cols.has('doc_json')) this.db.exec('ALTER TABLE boards ADD COLUMN doc_json TEXT');
+    if (!cols.has('previous_doc_json')) this.db.exec('ALTER TABLE boards ADD COLUMN previous_doc_json TEXT');
   }
 
   get(id: string): Board | undefined {
-    const row = this.db.prepare('SELECT id, name, pack_id, items_json, previous_items_json IS NOT NULL AS has_previous, version, updated_at FROM boards WHERE id = ?').get(id) as
-      | { id: string; name: string; pack_id: string | null; items_json: string; has_previous: number; version: number; updated_at: number }
+    const row = this.db.prepare('SELECT id, name, pack_id, items_json, doc_json, (previous_items_json IS NOT NULL OR previous_doc_json IS NOT NULL) AS has_previous, version, updated_at FROM boards WHERE id = ?').get(id) as
+      | { id: string; name: string; pack_id: string | null; items_json: string; doc_json: string | null; has_previous: number; version: number; updated_at: number }
       | undefined;
     if (!row) return undefined;
     let items: BoardItem[] = [];
     try { items = normalizeBoardItems(JSON.parse(row.items_json)); } catch { items = []; }
-    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at, hasPrevious: row.has_previous === 1 };
+    let doc: BoardDoc | undefined;
+    if (row.doc_json) {
+      try { const v = validateBoardDoc(JSON.parse(row.doc_json)); if (v.ok) doc = v.doc; } catch { doc = undefined; }
+    }
+    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at, hasPrevious: row.has_previous === 1, ...(doc ? { doc } : {}) };
   }
 
   /**
@@ -338,14 +419,47 @@ export class BoardsStore {
     return this.get(args.id)!;
   }
 
+  /**
+   * Save a board's canvas document (validated). Same version rule as save();
+   * the previous document is kept for one-step Undo.
+   */
+  saveDoc(args: { id: string; name: string; packId?: string | null; doc: unknown; expectedVersion?: number }): Board {
+    const v = validateBoardDoc(args.doc);
+    if (!v.ok) throw new Error(`That board layout isn't valid: ${v.errors[0]}`);
+    const current = this.get(args.id);
+    const currentVersion = current?.version ?? 0;
+    if (args.expectedVersion !== undefined && args.expectedVersion !== currentVersion) throw new BoardConflictError(args.id, currentVersion);
+    const json = JSON.stringify(v.doc);
+    const now = Date.now();
+    if (current) {
+      this.db.prepare('UPDATE boards SET name = ?, previous_doc_json = COALESCE(doc_json, ?), doc_json = ?, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(args.name, JSON.stringify(boardDocFromItems(current.items)), json, now, args.id);
+    } else {
+      this.db.prepare("INSERT INTO boards (id, name, pack_id, items_json, doc_json, version, updated_at) VALUES (?, ?, ?, '[]', ?, 1, ?)")
+        .run(args.id, args.name, args.packId ?? null, json, now);
+    }
+    return this.get(args.id)!;
+  }
+
+  /** The board's canvas document: the saved one, else derived from its items (Pulse: empty). */
+  loadDocOrDerive(id: string): (Board & { derived: boolean; doc: BoardDoc }) | undefined {
+    const b = this.loadOrDerive(id);
+    if (!b) return undefined;
+    return { ...b, doc: b.doc ?? boardDocFromItems(b.items) };
+  }
+
   /** Put back the items from before the last save (Undo twice = Redo). */
   undo(id: string, expectedVersion?: number): Board {
-    const row = this.db.prepare('SELECT previous_items_json, version FROM boards WHERE id = ?').get(id) as
-      | { previous_items_json: string | null; version: number } | undefined;
-    if (!row || !row.previous_items_json) throw new Error('There is no earlier layout to go back to.');
+    const row = this.db.prepare('SELECT previous_items_json, previous_doc_json, version FROM boards WHERE id = ?').get(id) as
+      | { previous_items_json: string | null; previous_doc_json: string | null; version: number } | undefined;
+    if (!row || (!row.previous_items_json && !row.previous_doc_json)) throw new Error('There is no earlier layout to go back to.');
     if (expectedVersion !== undefined && expectedVersion !== row.version) throw new BoardConflictError(id, row.version);
-    this.db.prepare('UPDATE boards SET items_json = previous_items_json, previous_items_json = items_json, version = version + 1, updated_at = ? WHERE id = ?')
-      .run(Date.now(), id);
+    if (row.previous_doc_json) {
+      this.db.prepare('UPDATE boards SET doc_json = previous_doc_json, previous_doc_json = doc_json, version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), id);
+    } else {
+      this.db.prepare('UPDATE boards SET items_json = previous_items_json, previous_items_json = items_json, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(Date.now(), id);
+    }
     return this.get(id)!;
   }
 
