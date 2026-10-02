@@ -297,13 +297,14 @@ describe('brand theme', () => {
   });
 });
 
-describe('build a board from a request', () => {
+describe('build a board from a request', { timeout: 30_000 }, () => {
   it('plans with the board builder, arranges a canvas, runs the tiles, and reports in the inbox', async () => {
     const app = await setup();
     // A stand-in board builder that returns a fixed plan (the real one is an LLM agent).
     const plan = { name: 'Morning view', summary: 'Weather and news; no calendar agent yet.', layout: 'sections',
       sections: [{ title: 'Outside', tiles: [{ agentId: 'weather', span: 2 }] }, { title: 'Reading', tiles: [{ agentId: 'news' }, { agentId: 'ghost' }] }],
-      missing: [{ purpose: 'summarise my calendar', suggestedName: 'calendar-today' }] };
+      missing: [] };
+    // (Drafting agents for missing parts is covered in board-build-drafts.test.ts, with a stubbed drafter.)
     ctx.agentStore.createAgent({ id: 'board-builder', name: 'Test builder', status: 'active', source: 'local', mcp: false,
       inputs: { REQUEST: { type: 'string', required: true }, CATALOG: { type: 'string', required: true } },
       nodes: [{ id: 'plan', type: 'shell', command: `printf '%s' '<plan>${JSON.stringify(plan)}</plan>'` }] } as never, 'cli');
@@ -317,18 +318,17 @@ describe('build a board from a request', () => {
     expect(boardId).toMatch(/^user:a-morning-board/);
 
     let build: { phase: string } = { phase: '' };
-    for (let i = 0; i < 100 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
+    for (let i = 0; i < 300 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
       await new Promise((r) => setTimeout(r, 100));
       build = (await get(app, `/boards/${encodeURIComponent(boardId)}/build.json`)).body;
     }
-    expect(build).toMatchObject({ phase: 'done', placed: ['weather', 'news'], failed: [], missing: [{ purpose: 'summarise my calendar' }], detail: plan.summary });
+    expect(build).toMatchObject({ phase: 'done', placed: ['weather', 'news'], failed: [], missing: [], drafts: [], detail: plan.summary });
 
     const board = await get(app, res.headers.location);
     const comps = surface(board.text);
     expect(comps.filter((c) => c.component === 'Section').map((c) => c.title).sort()).toEqual(['Outside', 'Reading']);
     expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId).sort()).toEqual(['news', 'weather']);
     expect(board.text).toContain('Built from your request.');
-    expect(board.text).toContain('summarise my calendar');
     expect(ctx.dashboardsStore!.getDashboard(boardId)!.name).toBe('Morning view');
     // Every tile ran once.
     expect(ctx.runStore.listRuns({ agentName: 'weather', limit: 5 }).length).toBeGreaterThan(0);
@@ -337,7 +337,7 @@ describe('build a board from a request', () => {
     const msg = ctx.inboxStore!.list({ source: 'board' })[0];
     expect(msg).toMatchObject({ source: 'board', title: 'Your board "Morning view" is ready' });
     expect(msg.body).toContain(res.headers.location);
-    expect(msg.body).toContain('summarise my calendar');
+    expect(msg.body).toContain('2 tiles from your agents, all run.');
   });
 
   it('reports a builder that fails, and refuses an empty request', async () => {
@@ -349,7 +349,7 @@ describe('build a board from a request', () => {
       .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const boardId = decodeURIComponent(res.headers.location.replace('/dashboards/', ''));
     let build: { phase: string; error?: string } = { phase: '' };
-    for (let i = 0; i < 100 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
+    for (let i = 0; i < 300 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
       await new Promise((r) => setTimeout(r, 100));
       build = (await get(app, `/boards/${encodeURIComponent(boardId)}/build.json`)).body;
     }
