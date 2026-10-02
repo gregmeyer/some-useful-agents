@@ -1,5 +1,49 @@
 # @some-useful-agents/cli
 
+## 0.29.0
+
+### Minor Changes
+
+- 971264c: Build a board from Ask sua or MCP, and run failed tiles again.
+  
+  Ask sua for a board ("build me a board for my evenings: Hacker News, tomorrow's weather and a cocktail idea") and the inbox triage agent starts the build and links it. MCP clients get `build-board` and `board-build-status`: the build is queued in the shared database and the dashboard picks it up within seconds. When tiles didn't run cleanly, the board's banner offers to run them again.
+- db6ead7: Boards built from a request draft the missing agents, behind one approval.
+  
+  When none of your agents covers part of a board request, sua now drafts an agent for it (Build from goal's drafter and critic) and saves it as a draft that doesn't run. One inbox item, also shown on the board, asks to approve them: **Approve** makes them active, adds them to the board in a "New agents" section and runs them once; **Decline** deletes the drafts.
+- 653f33d: Build a board from a request: describe it, and sua picks your agents, lays it out, runs it, and tells you when it's ready.
+  
+  **＋ New board** asks what the board should show. A new board-builder agent picks the agents you already have that answer it, groups and sizes them; sua lays out the canvas, runs every tile once, and posts "your board is ready" to the inbox, with any tile that failed and the parts of the request no agent covers yet. The board shows progress while it builds, so you can leave and come back. Inbox items from this use a new `board` source and aren't auto-triaged.
+- 970c9cf: Agents arrange boards: `board-read` and `board-place` tools, also over MCP.
+  
+  `board-read` returns a board as an outline of its sections, tabs, rows, grids and tiles, each with its id, plus a short brand guide; `board-place` takes the same operations as the Arrange editor (`insert`, `move`, `remove`, `wrap`, `unwrap`, `set`, `span`), checked and saved together as an undoable version (a stale version, an unknown id or an uninstalled agent changes nothing). Claude Desktop and other MCP clients get the same two tools, and the tool policy applies with the board id as the resource, so a rule can keep agents off Pulse.
+- 9ef3e3e: Brand theme: one theme for the whole dashboard, every board and every tile.
+  
+  Settings → Appearance → Brand sets the dashboard's theme for everyone: start from a preset (Default, Warm, Minimal, Neon, Editorial Paper), then change the colours for dark and light mode, the fonts, corner radius and the tile accent colours. It's stored in `.sua/theme.json` (versioned saves, Undo, Reset), served as `/assets/theme.css`, and reaches inside every canvas tile. Tile palettes and accents are now defined once as tokens instead of in several stylesheets. The per-browser widget themes become shared presets. Agents arranging boards get a short brand guide (style through tone, palette and accent names, never colours).
+- 9bcc707: Arrange canvas boards: an outline editor for sections, tabs, rows, grids and tiles.
+  
+  On a board's canvas page, **✎ Arrange** opens an outline of the board beside it. Add sections, headings, notes, grids, rows, tabs, cards and tiles; wrap things in sections, cards, rows or tabs (or unwrap them); move by dragging in the outline or Alt+arrows; set titles, text, grid width, palettes and how many columns and rows a tile takes; undo step by step, then save. Every change is applied by the dashboard with one set of tree operations (`applyBoardOps` in core, the same ones agents use through `board-place`), so a canvas can't be saved broken, and a stale save is refused.
+- c70b773: Pulse and dashboards are canvases: each board is one A2UI surface you arrange.
+  
+  Pulse (`/pulse`) and every named dashboard (`/dashboards/<id>`) are now drawn as a single A2UI canvas: titled sections, responsive grids, rows, tabs and cards, with every agent's tile drawn inside by its own view. Run (or the agent's own form) runs in place and refreshes only that tile; ⚙ configures it and × hides it from Pulse. Pulse shows what you've placed first, then everything else in tabs by recent use. **✨ Suggest a layout** asks the layout planner for an arrangement that opens as unsaved changes. Layouts are stored by the dashboard (the same in every browser), versioned, and undoable; **Save as pack** exports the canvas, each section or tab becoming a pack section. The A2UI catalog gains five board-only components (`Section`, `Grid`, `Cell`, `AgentTile`, `SystemTile`) that agent views can't use. The previous layout is one switch away for this release: Settings → Appearance → Show Pulse and dashboards as boards.
+
+### Patch Changes
+
+- 8945a13: Docs and help pass for 0.29: boards as canvases, building a board from a request, and the brand theme.
+  
+  The README, the dashboard package README, the in-app help tour, the quickstart, the dashboard tour and the Build-from-goal guide describe Pulse and dashboards as canvases (Arrange, Suggest a layout), the new ＋ New board / Ask sua / MCP ways to build a board, and Settings → Appearance → Brand.
+- Updated dependencies [971264c]
+- Updated dependencies [db6ead7]
+- Updated dependencies [653f33d]
+- Updated dependencies [970c9cf]
+- Updated dependencies [9ef3e3e]
+- Updated dependencies [9bcc707]
+- Updated dependencies [c70b773]
+- Updated dependencies [8945a13]
+  - @some-useful-agents/core@0.29.0
+  - @some-useful-agents/mcp-server@0.29.0
+  - @some-useful-agents/temporal-provider@0.29.0
+  - @some-useful-agents/dashboard@0.29.0
+
 ## 0.28.0
 
 ### Minor Changes
