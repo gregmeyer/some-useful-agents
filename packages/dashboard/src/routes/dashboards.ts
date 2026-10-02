@@ -11,7 +11,7 @@
 import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
 import { renderBoardPage } from './boards.js';
 import { Router, type Request, type Response } from 'express';
-import { BoardsStore, dashboardToPackManifest, sectionsFromBoardItems, type Agent, type AgentSignal } from '@some-useful-agents/core';
+import { BoardsStore, dashboardToPackManifest, sectionsFromBoardDoc, sectionsFromBoardItems, type Agent, type AgentSignal } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import {
   renderDashboardPage,
@@ -156,7 +156,7 @@ dashboardsRouter.get('/dashboards/:id/export', (req: Request, res: Response) => 
   // Once the dashboard has been arranged as a board, the pack carries the
   // board's layout (headings become sections, in reading order).
   const board = new BoardsStore(ctx.runStore.databaseHandle()).get(id);
-  const dashboard = board ? { ...stored, layout: { sections: sectionsFromBoardItems(board.items) } } : stored;
+  const dashboard = board ? { ...stored, layout: { sections: board.doc ? sectionsFromBoardDoc(board.doc) : sectionsFromBoardItems(board.items) } } : stored;
 
   // Resolve the agents the dashboard references.
   const agentIds = new Set<string>();

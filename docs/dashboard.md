@@ -175,7 +175,7 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 ## `/pulse` — the board
 
-Pulse is a [board](boards.md): you place and size tiles on a grid with **Edit**, and agents you haven't placed wait in the **Unplaced** tray below, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
+Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
 
 The board is your agents at a glance. Each agent with a `signal:` block, or an A2UI `view:`, gets a tile showing its latest result, and every tile has a **Run** button. Tiles are drawn with [A2UI](a2ui-views.md) (sorting, filtering, tabs and run-in-place forms work in the browser); Settings → Appearance switches back to the previous renderer for one more release.
 
@@ -183,7 +183,7 @@ The board is your agents at a glance. Each agent with a `signal:` block, or an A
 
 **`template: widget`** is special — mirrors the agent's own outputWidget. No mapping required.
 
-**The tray groups tiles by how recently you used them** — Health (system metrics),
+**Everything else groups tiles by how recently you used them** — Health (system metrics),
 Recent (ran in the last 7 days, newest first), Idle, and Never run. Empty groups
 are omitted. The ordering is meant for a run console: what you used last is what
 you are most likely to run again, and agents you set up but never used are
@@ -223,11 +223,11 @@ the run, as before.
 
 ## `/dashboards/:id` — Named dashboards
 
-Named views over installed agents — pack-owned (e.g. `starter:media`) or user-created — each a [board](boards.md): arrange it with **Edit · add tiles** (which also adds agent tiles) and **✨ Suggest a layout**. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (Pulse) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
+Named views over installed agents — pack-owned (e.g. `starter:media`) or user-created — each a [board](boards.md): arrange it with **✎ Arrange** (which also adds agent tiles) and **✨ Suggest a layout**. Render at `/dashboards/:id`, edit inline at `/dashboards/:id/edit` (rename the dashboard, add / remove / reorder sections and tiles, all server-rendered). Renaming changes only the display name — the dashboard's stable id is preserved (shown in the editor header), so delete and pack uninstall still match after a rename. The built-in "Default Dashboard" (Pulse) has no stored row and can't be renamed. The **+ Add tile** modal is in-place and offers a blank agent or build-from-goal; edit mode persists across reloads and warns before you navigate away. Pack-owned dashboards are editable but not deletable (uninstall the pack) — their editor explains why and links to the owning pack's page, where Uninstall removes the pack's dashboards while keeping any contributed agents; user-created ones are deletable, and removing the last tile offers to delete the dashboard. Each named dashboard curates its own tile list independently of `pulseVisible`. The same tile behaviors as Pulse apply (first-run auto-execution, in-place Run again, CSP image-allow).
 
 ## `/boards/:id` — Boards
 
-Redirects to the board's page (`/pulse` or `/dashboards/<id>`). With boards switched off in Settings → Appearance, it shows the board as a preview instead. `/boards/<id>.json` returns the board's layout. See [Boards](boards.md).
+Redirects to the board's page (`/pulse` or `/dashboards/<id>`). With boards switched off in Settings → Appearance, `/boards/<id>/canvas` shows the board's canvas. `/boards/<id>.json` returns the board's layout. See [Boards](boards.md).
 
 ## `/settings`
 

@@ -355,7 +355,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     const app = await makeApp();
     const res = await authed(app, '/pulse');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('class="board"');
+    expect(res.text).toContain('data-board-canvas="pulse"');
   });
 
   it('/pulse carries a scheduler health tile', async () => {
@@ -364,8 +364,8 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     expect(res.status).toBe(200);
     // With no heartbeat file in the test data dir the scheduler reads as
     // stopped — the state the board was silent about for nine days.
-    expect(res.text).toContain('_system-scheduler');
-    expect(res.text).toContain('pulse-tile__status-dot');
+    expect(res.text).toContain('"_system-scheduler"');
+    expect(res.text).toContain('"surfaceId":"tile-_system-scheduler"');
   });
 
   it('has no global subnav bar anywhere', async () => {

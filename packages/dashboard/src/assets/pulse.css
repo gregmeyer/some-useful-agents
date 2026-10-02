@@ -1207,73 +1207,13 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   margin-top: var(--space-4);
 }
 
-/* Boards (W4, views/board.ts): placed items on a 12-column grid. */
-.board-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: var(--board-row, 40px);
-  gap: var(--space-3);
-  margin-bottom: var(--space-6);
-}
-.board-item { min-width: 0; min-height: 0; display: flex; }
-.board-item > .pulse-tile, .board-item > .card { flex: 1; min-width: 0; height: 100%; margin: 0; overflow: auto; }
-.board-item > .pulse-tile { grid-column: auto !important; grid-row: auto !important; }
-.board-item--heading { align-items: end; }
-.board-heading { margin: 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold); }
-.board-note { padding: var(--space-3); font-size: var(--font-size-sm); color: var(--color-text-muted); border-left: 2px solid var(--color-border-strong); overflow: auto; }
-.board-missing { padding: var(--space-3); border: 1px dashed var(--color-border-strong); font-size: var(--font-size-xs); }
-.board-empty { padding: var(--space-4) 0; }
-.board-tray { border-top: 1px solid var(--color-border); padding-top: var(--space-4); }
-.board-tray__title { font-size: var(--font-size-md); margin: 0 0 var(--space-3); }
-.board-tray__group { margin-bottom: var(--space-5); }
-.board-tray__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); align-items: start; }
-/* Narrow screens: items flow in board order, two columns then one. */
-@media (max-width: 900px) {
-  .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
-  .board-item { grid-column: auto / span 1 !important; grid-row: auto !important; }
-  .board-item--heading { grid-column: 1 / -1 !important; }
-  .board-item > .pulse-tile { height: auto; }
-}
-@media (max-width: 560px) {
-  .board-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* Board editor (assets/board-editor.js). */
+/* Board toolbar (board pages and the canvas editor). */
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); }
 .board-toolbar__status { font-size: var(--font-size-xs); }
 .board-toolbar__status--error { color: var(--color-err); }
 .board-toolbar__text { min-width: 14rem; padding: var(--space-1) var(--space-2); font: inherit; font-size: var(--font-size-sm); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
 .board-toolbar__select { font: inherit; font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
-.board-item { position: relative; }
-.board--editing .board-grid {
-  background-image:
-    linear-gradient(to right, var(--color-border) 1px, transparent 1px);
-  background-size: calc((100% + var(--space-3)) / 12) 100%;
-  border-radius: var(--radius-sm, 4px);
-}
-.board-item__cover { display: none; }
-.board--editing .board-item__cover {
-  display: block; position: absolute; inset: 0; z-index: 2; cursor: grab;
-  border: 1px dashed var(--color-border-strong); border-radius: var(--radius-sm, 4px);
-  background: color-mix(in srgb, var(--color-bg) 35%, transparent);
-  touch-action: none;
-}
-.board--editing .board-item__cover:hover, .board--editing .board-item__cover:focus-visible { border: 2px solid var(--color-primary); outline: none; }
-.board-item--active .board-item__cover { cursor: grabbing; border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
-.board-item__remove {
-  position: absolute; top: var(--space-1); right: var(--space-1);
-  width: 1.5rem; height: 1.5rem; line-height: 1; border-radius: 50%;
-  border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-text);
-  cursor: pointer; font-size: var(--font-size-md);
-}
-.board-item__remove:hover { border-color: var(--color-err); color: var(--color-err); }
-.board-item__resize {
-  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--color-primary) 50%);
-  border-bottom-right-radius: var(--radius-sm, 4px);
-}
-.board-tray__place { margin: var(--space-2) var(--space-2) 0; align-self: flex-start; }
-.board-toolbar [hidden], .board-tray__place[hidden] { display: none !important; }
+.board-toolbar [hidden] { display: none !important; }
 
 /* Board pages (/pulse, /dashboards/:id as boards). */
 .board-page__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }

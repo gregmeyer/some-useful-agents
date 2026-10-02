@@ -279,19 +279,81 @@ function init(data) {
   const editOnly = [addMenu, tileMenu, wrapMenu, unwrapBtn, removeBtn, undoEditBtn, saveBtn, doneBtn];
   for (const el of editOnly) { el.hidden = true; toolbar.insertBefore(el, status); }
 
-  editBtn.addEventListener('click', () => {
-    if (window.matchMedia('(max-width: 900px)').matches) { say('Boards can be arranged on a wider screen.', true); return; }
+  function enterEdit() {
+    if (boardEdit.on) return true;
+    if (window.matchMedia('(max-width: 900px)').matches) { say('Boards can be arranged on a wider screen.', true); return false; }
     boardEdit.on = true;
     boardEdit.selected = selected;
     editBtn.hidden = true;
     if (undoSaveBtn) undoSaveBtn.hidden = true;
+    if (suggestBtn) suggestBtn.hidden = true;
     for (const el of editOnly) el.hidden = false;
     outline.hidden = false;
     document.querySelector('[data-canvas-workspace]')?.classList.add('canvas-workspace--editing');
     renderOutline();
     redraw();
-    say('Pick something in the outline or on the board, then add, move, wrap or remove.');
+    return true;
+  }
+  editBtn.addEventListener('click', () => {
+    if (enterEdit()) say('Pick something in the outline or on the board, then add, move, wrap or remove.');
   });
+
+  // ── Suggest a layout: the layout planner's plan, opened as unsaved changes ─
+  const suggestBtn = toolbar.querySelector('[data-canvas-suggest]');
+  suggestBtn?.addEventListener('click', async () => {
+    if (dirty) { say('Save or cancel your changes first.', true); return; }
+    suggestBtn.disabled = true;
+    say('Asking the layout planner…');
+    try {
+      const start = await post(data.plannerUrl, { focus: '' });
+      if (!start.ok || !start.json.ok) throw new Error(start.json.error || 'The layout planner didn’t start.');
+      let plan = null;
+      for (let i = 0; i < 150 && !plan; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const json = await (await fetch(`${data.plannerUrl}/${encodeURIComponent(start.json.runId)}`, { headers: { Accept: 'application/json' } })).json();
+        if (json.status === 'done') plan = json.plan;
+        else if (json.status === 'failed' || json.status === 'not_found' || json.ok === false) throw new Error(json.error || 'The layout planner failed.');
+        else say(json.phase || 'Designing layout…');
+      }
+      if (!plan) throw new Error('The layout planner took too long.');
+      const preview = await post(`/boards/${encodeURIComponent(data.id)}/plan-preview`, { plan });
+      if (!preview.ok) throw new Error(preview.json.error || 'Couldn’t use that layout.');
+      const drawn = await post(`/boards/${encodeURIComponent(data.id)}/doc/apply`, { doc: preview.json.doc, ops: [] });
+      if (!drawn.ok) throw new Error(drawn.json.error || 'Couldn’t draw that layout.');
+      if (!enterEdit()) return;
+      history.push(doc);
+      doc = drawn.json.doc;
+      dirty = true; saveBtn.disabled = false; undoEditBtn.disabled = false;
+      selected = 'root'; boardEdit.selected = 'root';
+      remountBoard(host, drawn.json.messages, drawn.json.tiles);
+      renderOutline();
+      say('Suggested layout' + (preview.json.summary ? `: ${preview.json.summary}` : '') + ' Adjust it, then Save, or Cancel to keep your board as it was.');
+    } catch (err) {
+      say(err && err.message ? err.message : 'Couldn’t suggest a layout.', true);
+    } finally { suggestBtn.disabled = false; }
+  });
+
+  // ── One-time: start Pulse from the old Pulse's arrangement in this browser ─
+  if (data.offerImport) {
+    let layout = null;
+    let sizes = {};
+    try { layout = JSON.parse(localStorage.getItem('sua-pulse-layout') || 'null'); } catch { layout = null; }
+    try { sizes = JSON.parse(localStorage.getItem('sua-pulse-layout-sizes') || localStorage.getItem('sua-pulse-sizes') || '{}') || {}; } catch { sizes = {}; }
+    const AUTO = ['health', 'recent', 'idle', 'never-run', 'agents', '_other'];
+    const containers = layout && Array.isArray(layout.containers) ? layout.containers : [];
+    if (containers.some((c) => c && !AUTO.includes(c.id)) || Object.keys(sizes).length > 0) {
+      const b = btn('Start from my Pulse arrangement');
+      b.title = 'Use the groups and tile sizes this browser saved for the old Pulse';
+      toolbar.insertBefore(b, status);
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        const out = await post('/boards/pulse/import', { containers, sizes });
+        if (out.ok) { location.reload(); return; }
+        b.disabled = false;
+        say(out.json.error || 'Couldn’t import.', true);
+      });
+    }
+  }
   undoSaveBtn?.addEventListener('click', async () => {
     undoSaveBtn.disabled = true;
     const out = await post(`/boards/${encodeURIComponent(data.id)}/undo`, { version: data.version });

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BoardConflictError, BoardsStore, applyBoardChanges, sectionsFromBoardItems, boardDocFromItems, validateBoardDoc, boardDocAgentIds, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
+import { BoardConflictError, BoardsStore, applyBoardChanges, sectionsFromBoardItems, boardDocFromItems, validateBoardDoc, boardDocAgentIds, sectionsFromBoardDoc, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
 import { getBuiltinTool } from './builtin-tools.js';
 import { validateViewComponents } from './a2ui/view.js';
 import type { DashboardSection } from './packs-store.js';
@@ -212,5 +212,25 @@ describe('canvas board documents', () => {
     expect(undone.doc!.components.find((c) => c.id === 'root')).toMatchObject({ component: 'Column' });
     expect(s.loadDocOrDerive('b')!.doc.components.some((c) => c.component === 'AgentTile')).toBe(true);
     s.close();
+  });
+});
+
+describe('sectionsFromBoardDoc', () => {
+  it('groups tiles by enclosing section or tab title in reading order, with sizes from spans', () => {
+    const doc = boardDocFromItems(boardItemsFromSections([
+      { title: 'Today', agentIds: ['weather', 'news'], placements: { weather: { size: '2x2' } } },
+      { title: 'Later', agentIds: ['notes'] },
+    ]));
+    expect(sectionsFromBoardDoc(doc)).toEqual([
+      { title: 'Today', agentIds: ['weather', 'news'], placements: { weather: { size: '2x2' }, news: { size: '1x1' } } },
+      { title: 'Later', agentIds: ['notes'], placements: { notes: { size: '1x1' } } },
+    ]);
+    const tabbed = { components: [
+      { id: 'a', component: 'AgentTile', agentId: 'a' }, { id: 'b', component: 'AgentTile', agentId: 'b' },
+      { id: 'tabs', component: 'Tabs', tabs: [{ title: 'One', child: 'a' }, { title: 'Two', child: 'b' }] },
+      { id: 'c', component: 'AgentTile', agentId: 'c' },
+      { id: 'root', component: 'Column', children: ['c', 'tabs'] },
+    ] };
+    expect(sectionsFromBoardDoc(tabbed).map((s) => [s.title, s.agentIds])).toEqual([['Tiles', ['c']], ['One', ['a']], ['Two', ['b']]]);
   });
 });

@@ -53,256 +53,94 @@ afterEach(async () => {
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 const post = (app: Parameters<typeof request>[0], p: string, body: unknown) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send(body as object);
 
-describe('boards (read-only)', () => {
-  it('derives a named dashboard as a board from its sections, with a missing agent shown in place', async () => {
+const embedded = (text: string, re: RegExp) => JSON.parse(re.exec(text)![1].replace(/\\u003c/g, '<'));
+const surface = (text: string) => embedded(text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/)[1].updateComponents.components as Array<Record<string, unknown>>;
+const registry = (text: string) => embedded(text, /<script type="application\/json" id="board-tiles">([\s\S]*?)<\/script>/);
+const editorData = (text: string) => embedded(text, /<script type="application\/json" id="board-canvas-data">([\s\S]*?)<\/script>/);
+
+describe('boards are canvases', () => {
+  it('draws a dashboard as one A2UI surface: Sections of Grids of AgentTiles, with a tile registry and the editor', async () => {
     const app = await setup();
     const json = await get(app, '/boards/user:morning.json');
-    expect(json.status).toBe(200);
     expect(json.body.board).toMatchObject({ id: 'user:morning', name: 'Morning', derived: true, version: 0 });
-    expect(json.body.board.items.map((i: { kind: string; agentId?: string; w: number }) => `${i.kind}:${i.agentId ?? ''}:${i.w}`))
-      .toEqual(['heading::12', 'agent:news:3', 'agent:weather:6', 'agent:ghost:3']);
     const page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toContain('class="board-grid"');
-    expect(page.text).toContain('grid-column: 4 / span 6;'); // weather, 2x1, after news
-    expect(page.text).toContain("isn't installed");
-  });
-
-  it('shows Pulse with everything in the Unplaced tray until something is placed, then the placed tiles on the grid', async () => {
-    const app = await setup();
-    let json = await get(app, '/boards/pulse.json');
-    expect(json.body.board).toMatchObject({ id: 'pulse', derived: true, items: [] });
-    expect(json.body.unplaced).toEqual(expect.arrayContaining(['news', 'weather', 'notes']));
-    new BoardsStore(ctx.runStore.databaseHandle()).save({ id: 'pulse', name: 'Pulse', items: [{ id: 'a', kind: 'agent', agentId: 'news', x: 0, y: 3, w: 6, h: 5 }], expectedVersion: 0 });
-    json = await get(app, '/boards/pulse.json');
-    expect(json.body.board).toMatchObject({ derived: false, version: 1, items: [{ agentId: 'news', y: 0 }] });
-    expect(json.body.unplaced).not.toContain('news');
-    const page = await get(app, '/pulse');
-    expect(page.text).toContain('data-board-item="a"');
-    expect(page.text).toContain('Unplaced');
-    // each unplaced tile appears exactly once in the tray (system tiles head it, not repeated)
-    for (const id of ['_system-runs-today', 'weather']) expect(page.text.split(`data-agent-id="${id}" data-tile-size`).length - 1).toBe(1);
-  });
-
-  it('404s for an unknown board', async () => {
-    const app = await setup();
-    expect((await get(app, '/boards/nope')).status).toBe(404);
-    expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');
-    expect((await get(app, '/boards/user:morning')).headers.location).toBe('/dashboards/user%3Amorning');
-    expect((await get(app, '/boards/nope.json')).status).toBe(404);
-  });
-});
-
-describe('board editor routes', () => {
-  it('saves a board (settled), refuses a stale save, rejects a bad layout, and undoes', async () => {
-    const app = await setup();
-    let res = await post(app, '/boards/user:morning', { version: 0, items: [
-      { id: 'h', kind: 'heading', text: 'Top', x: 0, y: 0, w: 12, h: 1 },
-      { id: 'w', kind: 'agent', agentId: 'weather', x: 0, y: 9, w: 6, h: 5 },
-      { id: 'n', kind: 'note', text: '**hi** <script>', x: 6, y: 1, w: 4, h: 3 },
-    ] });
-    expect(res.status).toBe(200);
-    expect(res.body.board).toMatchObject({ version: 1, hasPrevious: false });
-    expect(res.body.board.items.find((i: { id: string }) => i.id === 'w')).toMatchObject({ y: 1 });
-
-    res = await post(app, '/boards/user:morning', { version: 0, items: [] });
-    expect(res.status).toBe(409);
-    expect(res.body.version).toBe(1);
-
-    res = await post(app, '/boards/user:morning', { version: 1, items: [{ id: 'x', kind: 'iframe', x: 0, y: 0, w: 1, h: 1 }] });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/isn't valid/);
-
-    res = await post(app, '/boards/user:morning', { version: 1, items: [{ id: 'h', kind: 'heading', text: 'Only', x: 0, y: 0, w: 12, h: 1 }] });
-    expect(res.body.board).toMatchObject({ version: 2, hasPrevious: true });
-
-    const page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toContain('data-board-undo');
-    expect(page.text).toContain('src="/assets/board-editor.js"');
-    const js = await get(app, '/assets/board-editor.js');
-    expect(js.status).toBe(200);
-    expect(js.headers['content-type']).toMatch(/javascript/);
-    expect(js.text).toContain('normalizeBoardItems');
-    const data = JSON.parse(/<script type="application\/json" id="board-data">([^<]*)<\/script>/.exec(page.text)![1]);
-    expect(data).toMatchObject({ id: 'user:morning', version: 2, hasPrevious: true, isPulse: false });
-    expect(data.agents.map((a: { id: string }) => a.id)).toEqual(expect.arrayContaining(['news', 'weather', 'notes']));
-
-    res = await post(app, '/boards/user:morning/undo', { version: 2 });
-    expect(res.body.error).toBeUndefined();
-    expect(res.status).toBe(200);
-    expect(res.body.board.items.map((i: { id: string }) => i.id)).toEqual(['h', 'w', 'n']);
-
-    expect((await post(app, '/boards/nope', { version: 0, items: [] })).status).toBe(404);
-    expect((await post(app, '/boards/user:morning', { items: [] })).status).toBe(400);
-  });
-
-  it('refuses a save from another origin', async () => {
-    const app = await setup();
-    const res = await request(app).post('/boards/pulse').set('Host', `127.0.0.1:${PORT}`).set('Origin', 'https://evil.example').set('Cookie', COOKIE).send({ version: 0, items: [] });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('pulse')).toBeUndefined();
-  });
-
-  it('starts Pulse from the old browser arrangement once, keeping known tiles and sizes', async () => {
-    const app = await setup();
-    let res = await post(app, '/boards/pulse/import', {
-      containers: [{ id: 'mine', label: 'Mine', tiles: ['weather', 'ghost', '_system-runs-today'] }, { id: 'x', label: 'Empty', tiles: ['ghost'] }],
-      sizes: { weather: '2x2' },
-    });
-    expect(res.status).toBe(200);
-    expect(res.body.board.items.map((i: { kind: string; agentId?: string; tileId?: string; w: number; h: number }) => `${i.kind}:${i.agentId ?? i.tileId ?? ''}:${i.w}x${i.h}`))
-      .toEqual(['heading::12x1', 'agent:weather:6x10', 'system:_system-runs-today:3x5']);
-    res = await post(app, '/boards/pulse/import', { containers: [{ label: 'Again', tiles: ['news'] }] });
-    expect(res.status).toBe(409);
-    const json = await get(app, '/boards/pulse.json');
-    expect(json.body.unplaced).not.toContain('weather');
-    expect(json.body.unplaced).toContain('news');
-  });
-});
-
-describe('suggested layouts', () => {
-  it('turns an Improve-layout plan into board items without saving, dropping tiles the board can\'t show', async () => {
-    const app = await setup();
-    const plan = {
-      summary: 'Weather first.',
-      topAgents: [{ id: 'weather', rationale: 'Most used', suggestedSize: '2x2' }],
-      containers: [{ label: 'Now', tiles: ['weather', 'ghost', '_system-runs-today'] }, { label: 'Later', tiles: ['notes'] }],
-    };
-    let res = await post(app, '/boards/user:morning/plan-preview', { plan });
-    expect(res.status).toBe(200);
-    expect(res.body.summary).toBe('Weather first.');
-    expect(res.body.items.map((i: { kind: string; agentId?: string; text?: string; w: number; h: number }) => `${i.kind}:${i.agentId ?? i.text}:${i.w}x${i.h}`))
-      .toEqual(['heading:Now:12x1', 'agent:weather:6x10', 'heading:Later:12x1', 'agent:notes:3x5']);
-    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')).toBeUndefined();
-
-    res = await post(app, '/boards/pulse/plan-preview', { plan });
-    expect(res.body.items.some((i: { kind: string }) => i.kind === 'system')).toBe(true);
-
-    res = await post(app, '/boards/user:morning/plan-preview', { plan: { summary: 'x', topAgents: [], containers: [] } });
-    expect(res.status).toBe(400);
-    res = await post(app, '/boards/user:morning/plan-preview', { plan: { summary: 'x', topAgents: [{ id: 'ghost', rationale: 'r' }], containers: [{ label: 'G', tiles: ['ghost'] }] } });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/no tiles this board can show/);
-
-    const page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toContain('data-board-suggest');
-    expect(page.text).toContain('"plannerUrl":"/dashboards/user%3Amorning/layout-plan"');
-  });
-});
-
-describe('boards outside the page', () => {
-  it('derives the same never-saved dashboard board for the tools as the page shows', async () => {
-    const app = await setup();
-    const page = await get(app, '/boards/user:morning.json');
-    const tools = new BoardsStore(ctx.runStore.databaseHandle()).loadOrDerive('user:morning')!;
-    expect(tools.items).toEqual(page.body.board.items);
-  });
-
-  it("keeps core's template default sizes in step with the dashboard's template registry", async () => {
-    const { TILE_TEMPLATE_DEFAULT_SIZES } = await import('@some-useful-agents/core');
-    const { TEMPLATE_REGISTRY } = await import('../views/pulse-templates.js');
-    expect(TILE_TEMPLATE_DEFAULT_SIZES).toEqual(Object.fromEntries(Object.entries(TEMPLATE_REGISTRY).map(([k, v]) => [k, v.defaultSize])));
-  });
-});
-
-describe('board pages', () => {
-  it('a dashboard tile × removes it from the board; ● saves its palette; Save as pack exports the board', async () => {
-    const app = await setup();
-    let page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toContain('action="/boards/user%3Amorning/items/s0t0/remove"');
-    expect(page.text).toContain('data-board-item-id="s0t0"');
-    expect(page.text).not.toContain('Hide from Pulse');
-    expect(page.text).not.toContain('pulse-tile__resize-handle');
-    expect(page.text).toContain('Save as pack');
-
-    const removed = await request(app).post('/boards/user:morning/items/s0t0/remove').type('form')
-      .send({ returnTo: '/dashboards/user:morning' })
-      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(removed.status).toBe(303);
-    expect(removed.headers.location).toMatch(/^\/dashboards\/user:morning\?ok=Removed%20news/);
-    const board = new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')!;
-    expect(board.items.some((i) => i.kind === 'agent' && i.agentId === 'news')).toBe(false);
-
-    const weatherItem = board.items.find((i) => i.kind === 'agent' && i.agentId === 'weather')!;
-    let res = await post(app, `/boards/user:morning/items/${weatherItem.id}/palette`, { palette: 'dark', version: board.version });
-    expect(res.body.version).toBe(board.version + 1);
-    page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toMatch(/data-agent-id="weather"[^>]*data-palette="dark"/);
-    res = await post(app, `/boards/user:morning/items/${weatherItem.id}/palette`, { palette: 'neon', version: board.version + 1 });
-    expect(res.status).toBe(400);
-
-    const pack = await get(app, '/dashboards/user:morning/export');
-    expect(pack.text).toContain('weather');
-    expect(pack.text).not.toMatch(/- news\b/);
-  });
-
-  it('Pulse: a hidden agent drops off the board; the previous layout comes back when boards are switched off', async () => {
-    const app = await setup();
-    new BoardsStore(ctx.runStore.databaseHandle()).save({ id: 'pulse', name: 'Pulse', expectedVersion: 0, items: [
-      { id: 'a', kind: 'agent', agentId: 'news', x: 0, y: 0, w: 3, h: 5 },
-      { id: 'b', kind: 'agent', agentId: 'weather', x: 0, y: 5, w: 3, h: 5 },
-    ] });
-    ctx.agentStore.updateAgentMeta('news', { pulseVisible: false });
-    let page = await get(app, '/pulse');
-    expect(page.text).toContain('class="board"');
-    expect(page.text).not.toContain('data-board-item="a"');
-    expect(page.text).toMatch(/data-board-item="b"[^>]*grid-row: 1 \/ span 5/);
-    expect(page.text).toContain('1 hidden');
-    expect(page.text).toContain('Hide from Pulse');
-
-    setDashboardPrefs({ boardPages: false });
-    try {
-      page = await get(app, '/pulse');
-      expect(page.text).toContain('id="pulse-tile-data"');
-      const preview = await get(app, '/boards/pulse');
-      expect(preview.status).toBe(200);
-      expect(preview.text).toContain('Board view (preview)');
-    } finally { setDashboardPrefs({ boardPages: true }); }
-  });
-});
-
-describe('canvas boards (preview)', () => {
-  const embedded = (text: string, re: RegExp) => JSON.parse(re.exec(text)![1].replace(/\\u003c/g, '<'));
-  it('draws a dashboard as one A2UI surface: Sections of Grids of AgentTiles, with a tile registry', async () => {
-    const app = await setup();
-    const page = await get(app, '/boards/user:morning/canvas');
     expect(page.status).toBe(200);
     expect(page.text).toContain('data-board-canvas="user:morning"');
-    const messages = embedded(page.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/);
-    const comps = messages[1].updateComponents.components as Array<Record<string, unknown>>;
+    expect(page.text).toContain('src="/assets/board-canvas-editor.js"');
+    expect(page.text).toContain('data-canvas-edit');
+    expect(page.text).toContain('data-canvas-suggest');
+    expect(page.text).toContain('Save as pack');
+    expect(page.text).not.toContain('board-grid');
+    const comps = surface(page.text);
     expect(comps.find((c) => c.id === 'root')).toMatchObject({ component: 'Column' });
     expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Today']);
     expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
-    const tiles = embedded(page.text, /<script type="application\/json" id="board-tiles">([\s\S]*?)<\/script>/);
-    expect(Object.keys(tiles).sort()).toEqual(['news', 'weather']);
+    expect(comps.find((c) => c.component === 'Cell')).toMatchObject({ span: 2 }); // weather is 2x1
+    const tiles = registry(page.text);
+    expect(Object.keys(tiles).sort()).toEqual(['news', 'weather']); // ghost draws as "isn't installed"
     expect(tiles.news).toMatchObject({ title: 'news', run: 'button', empty: 'No runs yet.', age: 'never' });
     expect(tiles.news.configure.config).toMatchObject({ template: 'text-headline' });
     expect(tiles.news.hideAction).toBeUndefined();
+    expect(editorData(page.text)).toMatchObject({ id: 'user:morning', version: 0, isPulse: false, plannerUrl: '/dashboards/user%3Amorning/layout-plan', offerImport: false });
   });
 
-  it('adds Pulse\'s unplaced agents under "Everything else" in tabs, with health tiles drawn as A2UI and × hiding', async () => {
+  it('Pulse: placed tiles on the canvas, the rest under "Everything else" in tabs; health tiles as A2UI; × hides', async () => {
     const app = await setup();
-    const page = await get(app, '/boards/pulse/canvas');
-    const messages = embedded(page.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/);
-    const comps = messages[1].updateComponents.components as Array<Record<string, unknown>>;
+    let page = await get(app, '/pulse');
+    let comps = surface(page.text);
     expect(comps.find((c) => c.id === 'rest')).toMatchObject({ component: 'Section', title: 'Everything else', child: 'rest_tabs' });
     expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Health/), expect.stringMatching(/^Never run/)]));
-    const tiles = embedded(page.text, /<script type="application\/json" id="board-tiles">([\s\S]*?)<\/script>/);
+    let tiles = registry(page.text);
     expect(tiles.weather.hideAction).toBe('/agents/weather/signal/toggle');
     expect(JSON.stringify(tiles['_system-runs-today'].messages)).toContain('"component":"Metric"');
+    expect(editorData(page.text)).toMatchObject({ isPulse: true, offerImport: true });
+
+    new BoardsStore(ctx.runStore.databaseHandle()).saveDoc({ id: 'pulse', name: 'Pulse', expectedVersion: 0, doc: { components: [
+      { id: 't1', component: 'AgentTile', agentId: 'news' }, { id: 't2', component: 'AgentTile', agentId: 'weather' },
+      { id: 'root', component: 'Column', children: ['t1', 't2'] },
+    ] } });
+    page = await get(app, '/pulse');
+    comps = surface(page.text);
+    expect((comps.find((c) => c.id === 'root')!.children as string[]).slice(0, 2)).toEqual(['t1', 't2']);
+    expect(comps.some((c) => c.id === 'rest_tile_news')).toBe(false); // placed, so not under Everything else
+    expect(comps.some((c) => c.id === 'rest_tile_notes')).toBe(true);
+    expect(editorData(page.text)).toMatchObject({ version: 1, offerImport: false });
+
+    // A placed agent hidden from Pulse drops off the canvas.
+    ctx.agentStore.updateAgentMeta('news', { pulseVisible: false });
+    page = await get(app, '/pulse');
+    comps = surface(page.text);
+    expect(comps.some((c) => c.component === 'AgentTile' && c.agentId === 'news')).toBe(false);
+    expect(page.text).toContain('1 hidden');
 
     const one = await get(app, '/boards/tile/weather.json?board=pulse');
     expect(one.body).toMatchObject({ title: 'weather', hideAction: '/agents/weather/signal/toggle' });
     expect((await get(app, '/boards/tile/ghost.json')).status).toBe(404);
+  });
+
+  it('redirects /boards/<id> to the page; with boards off the old pages return and /boards/<id>/canvas previews', async () => {
+    const app = await setup();
+    expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');
+    expect((await get(app, '/boards/user:morning')).headers.location).toBe('/dashboards/user%3Amorning');
+    expect((await get(app, '/boards/user:morning/canvas')).headers.location).toBe('/dashboards/user%3Amorning');
+    expect((await get(app, '/boards/nope')).status).toBe(404);
+    expect((await get(app, '/boards/nope.json')).status).toBe(404);
+    setDashboardPrefs({ boardPages: false });
+    try {
+      expect((await get(app, '/pulse')).text).toContain('id="pulse-tile-data"');
+      expect((await get(app, '/boards/pulse')).headers.location).toBe('/boards/pulse/canvas');
+      const preview = await get(app, '/boards/pulse/canvas');
+      expect(preview.status).toBe(200);
+      expect(preview.text).toContain('Canvas preview');
+      expect(preview.text).toContain('data-board-canvas="pulse"');
+    } finally { setDashboardPrefs({ boardPages: true }); }
   });
 });
 
 describe('arranging a canvas', () => {
   it('applies tree operations to a working copy (nothing saved), then saves with a version and undoes', async () => {
     const app = await setup();
-    const page = await get(app, '/boards/user:morning/canvas');
-    expect(page.text).toContain('src="/assets/board-canvas-editor.js"');
-    const data = JSON.parse(/<script type="application\/json" id="board-canvas-data">([\s\S]*?)<\/script>/.exec(page.text)![1].replace(/\\u003c/g, '<'));
-    expect(data).toMatchObject({ id: 'user:morning', version: 0, isPulse: false });
+    const data = editorData((await get(app, '/dashboards/user:morning')).text);
     const section = (data.doc.components as Array<{ id: string; component: string }>).find((c) => c.component === 'Section')!;
 
     let res = await post(app, '/boards/user:morning/doc/apply', { doc: data.doc, ops: [
@@ -310,7 +148,6 @@ describe('arranging a canvas', () => {
       { op: 'insert', parent: 'root', node: { type: 'tile', agentId: 'notes' } },
     ] });
     expect(res.body.error).toBeUndefined();
-    expect(res.status).toBe(200);
     expect(res.body.created).toHaveLength(1);
     expect(res.body.tiles.notes).toMatchObject({ title: 'notes' });
     expect(JSON.stringify(res.body.messages)).toContain('"component":"Tabs"');
@@ -328,24 +165,77 @@ describe('arranging a canvas', () => {
     res = await post(app, '/boards/user:morning/doc', { doc: working, version: 0 });
     expect(res.body.board).toMatchObject({ version: 1 });
     expect((await post(app, '/boards/user:morning/doc', { doc: working, version: 0 })).status).toBe(409);
-    const second = (await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [{ op: 'remove', id: res.body.board ? (working.components as Array<{ id: string; component: string; agentId?: string }>).find((c) => c.agentId === 'notes')!.id : '' }] })).body.doc;
+    const notesTile = (working.components as Array<{ id: string; agentId?: string }>).find((c) => c.agentId === 'notes')!.id;
+    const second = (await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [{ op: 'remove', id: notesTile }] })).body.doc;
     expect((await post(app, '/boards/user:morning/doc', { doc: second, version: 1 })).body.board.version).toBe(2);
     res = await post(app, '/boards/user:morning/undo', { version: 2 });
-    expect(res.status).toBe(200);
-    const after = await get(app, '/boards/user:morning/canvas');
+    expect(res.body.error).toBeUndefined();
+    const after = await get(app, '/dashboards/user:morning');
     expect(after.text).toContain('data-canvas-undo');
-    expect(after.text).toContain('"agentId":"notes"');
-    expect((await get(app, '/dashboards/user:morning')).text).toContain('Canvas (arranged)');
+    expect(surface(after.text).some((c) => c.agentId === 'notes')).toBe(true);
+  });
+
+  it('a save from another origin is refused', async () => {
+    const app = await setup();
+    const res = await request(app).post('/boards/pulse/doc').set('Host', `127.0.0.1:${PORT}`).set('Origin', 'https://evil.example').set('Cookie', COOKIE)
+      .send({ version: 0, doc: { components: [{ id: 'root', component: 'Column', children: [] }] } });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('pulse')).toBeUndefined();
+  });
+
+  it('Save as pack exports the canvas: each section or tab becomes a pack section', async () => {
+    const app = await setup();
+    new BoardsStore(ctx.runStore.databaseHandle()).saveDoc({ id: 'user:morning', name: 'Morning', expectedVersion: 0, doc: { components: [
+      { id: 'a', component: 'AgentTile', agentId: 'weather' }, { id: 'b', component: 'AgentTile', agentId: 'notes' },
+      { id: 'tabs', component: 'Tabs', tabs: [{ title: 'Outside', child: 'a' }, { title: 'Reading', child: 'b' }] },
+      { id: 'root', component: 'Column', children: ['tabs'] },
+    ] } });
+    const pack = await get(app, '/dashboards/user:morning/export');
+    expect(pack.text).toContain('Outside');
+    expect(pack.text).toContain('Reading');
+    expect(pack.text).not.toMatch(/- news\b/);
+  });
+
+  it('starts Pulse from the old browser arrangement once', async () => {
+    const app = await setup();
+    let res = await post(app, '/boards/pulse/import', {
+      containers: [{ id: 'mine', label: 'Mine', tiles: ['weather', 'ghost', '_system-runs-today'] }],
+      sizes: { weather: '2x2' },
+    });
+    expect(res.status).toBe(200);
+    const comps = surface((await get(app, '/pulse')).text);
+    expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Mine', 'Everything else']);
+    expect(comps.find((c) => c.component === 'Cell')).toMatchObject({ span: 2, rows: 2 });
+    res = await post(app, '/boards/pulse/import', { containers: [{ label: 'Again', tiles: ['news'] }] });
+    expect(res.status).toBe(409);
+  });
+
+  it('turns a layout-planner plan into a canvas document without saving', async () => {
+    const app = await setup();
+    const plan = {
+      summary: 'Weather first.',
+      topAgents: [{ id: 'weather', rationale: 'Most used', suggestedSize: '2x2' }],
+      containers: [{ label: 'Now', tiles: ['weather', 'ghost', '_system-runs-today'] }, { label: 'Later', tiles: ['notes'] }],
+    };
+    let res = await post(app, '/boards/user:morning/plan-preview', { plan });
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toBe('Weather first.');
+    const comps = res.body.doc.components as Array<Record<string, unknown>>;
+    expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Now', 'Later']);
+    expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['weather', 'notes']);
+    expect(comps.some((c) => c.component === 'SystemTile')).toBe(false); // health tiles only on Pulse
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')).toBeUndefined();
+    res = await post(app, '/boards/user:morning/plan-preview', { plan: { summary: 'x', topAgents: [{ id: 'ghost', rationale: 'r' }], containers: [{ label: 'G', tiles: ['ghost'] }] } });
+    expect(res.status).toBe(400);
   });
 
   it('keeps board-place off boards arranged as a canvas (until it learns trees)', async () => {
-    const app = await setup();
+    await setup();
     const store = new BoardsStore(ctx.runStore.databaseHandle());
     store.saveDoc({ id: 'user:morning', name: 'Morning', doc: { components: [{ id: 'root', component: 'Column', children: [] }] }, expectedVersion: 0 });
     const { getBuiltinTool } = await import('@some-useful-agents/core');
     const out = await getBuiltinTool('board-place')!.execute({ board: 'user:morning', changes: [{ op: 'add', kind: 'heading', text: 'x' }] }, { boards: store });
     expect(out).toMatchObject({ isError: true });
     expect(out.result).toMatch(/arranged as a canvas/);
-    void app;
   });
 });

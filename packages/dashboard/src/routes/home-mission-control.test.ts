@@ -224,8 +224,8 @@ describe('GET / — Mission Control home', () => {
     const res = await request(app).get('/pulse')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).redirects(0);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('class="board"');
-    expect(res.text).toContain('id="board-data"');
+    expect(res.text).toContain('data-board-canvas="pulse"');
+    expect(res.text).toContain('id="board-canvas-data"');
   });
 
   it('renders the global top-bar needs-you toast (hidden until JS fills the count)', async () => {
