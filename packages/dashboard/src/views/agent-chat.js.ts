@@ -85,11 +85,13 @@ export const AGENT_CHAT_JS = `
   function startTurn(frame, displayText) {
     setBusy(true);
     var list = host.querySelector('.agent-chat__transcript');
-    if (!list) { host.innerHTML = '<ul class="agent-chat__transcript"></ul>'; list = host.firstChild; }
-    list.insertAdjacentHTML('beforeend',
-      '<li class="inbox-msg"><span class="inbox-msg__avatar inbox-msg__avatar--user">you</span><div class="inbox-msg__body"><p class="inbox-msg__text" style="margin: 0;">' + esc(displayText) + '</p></div></li>' +
-      '<li class="inbox-msg"><span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span><div class="inbox-msg__body"><span class="inbox-msg__writing">Working…</span>' +
-      '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div></div></li>');
+    if (!list) { host.innerHTML = ''; list = window.suaThread.list(host, 'agent-chat__transcript'); }
+    // The shared thread rows (thread.js.ts): your message, then the reply as it streams.
+    list.appendChild(window.suaThread.entry({ role: 'user', sigil: 'you', label: 'You', text: displayText }));
+    list.appendChild(window.suaThread.entry({
+      role: 'agent', sigil: 'agent', label: 'Agent', writing: 'Working…',
+      html: '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div>',
+    }));
     scrollEnd();
     // The server subscribes this connection to the conversation before the
     // turn starts; adopt() claims those events (incl. ones that beat the reply).
@@ -110,7 +112,7 @@ export const AGENT_CHAT_JS = `
       })
       .catch(function (err) {
         setBusy(false);
-        list.insertAdjacentHTML('beforeend', '<li class="inbox-msg"><div class="inbox-msg__body"><p class="flash flash--error" style="margin: 0;">' + esc(err.message) + '</p></div></li>');
+        list.insertAdjacentHTML('beforeend', '<li class="inbox-timeline__entry"><p class="flash flash--error" style="margin: 0;">' + esc(err.message) + '</p></li>');
       });
   }
 

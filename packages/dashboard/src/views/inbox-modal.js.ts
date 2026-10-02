@@ -280,45 +280,18 @@ export const INBOX_MODAL_JS = `
     var existing = content.querySelector('[data-streaming-bubble]');
     if (existing) return existing.querySelector('.inbox-msg__text');
 
-    var ul = content.querySelector('ul.inbox-timeline');
-    if (!ul) {
-      var section = content.querySelector('.inbox-modal__timeline-section');
-      if (!section) return null;
-      var emptyP = section.querySelector('p.dim');
-      if (emptyP && emptyP.parentNode) emptyP.parentNode.removeChild(emptyP);
-      ul = document.createElement('ul');
-      ul.className = 'inbox-timeline';
-      section.appendChild(ul);
-    }
+    var ul = timelineList();
+    if (!ul) return null;
     // Remove the server-rendered thinking indicator if present —
     // the streaming bubble takes its place.
     var thinking = content.querySelector('.inbox-thinking[data-triage-pending]');
     if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
 
-    var li = document.createElement('li');
-    li.className = 'inbox-timeline__entry';
-    var msg = document.createElement('div');
-    msg.className = 'inbox-msg inbox-msg--triage inbox-msg--new';
-    msg.setAttribute('data-streaming', '1');
-    msg.setAttribute('data-streaming-bubble', '1');
-    var avatar = document.createElement('div');
-    avatar.className = 'inbox-msg__avatar inbox-msg__avatar--triage';
-    avatar.textContent = 'triage';
-    var body = document.createElement('div');
-    body.className = 'inbox-msg__body';
-    var meta = document.createElement('div');
-    meta.className = 'inbox-msg__meta';
-    var age = document.createElement('span');
-    age.className = 'inbox-msg__writing';
-    age.textContent = 'Writing…';
-    meta.appendChild(age);
-    var text = document.createElement('div');
-    text.className = 'inbox-msg__text';
-    body.appendChild(meta);
-    body.appendChild(text);
-    msg.appendChild(avatar);
-    msg.appendChild(body);
-    li.appendChild(msg);
+    var li = window.suaThread.entry({
+      role: 'triage', sigil: 'triage', label: 'Triage agent', writing: 'Writing…', classes: 'inbox-msg--new',
+      attrs: { 'data-streaming': '1', 'data-streaming-bubble': '1' },
+    });
+    var text = li.querySelector('.inbox-msg__text');
     ul.appendChild(li);
     // Only follow the new streaming bubble down if the operator was already at
     // the bottom. If they've scrolled up to read a tall widget, a triage reply
@@ -978,50 +951,30 @@ export const INBOX_MODAL_JS = `
   });
 
   /**
-   * Append a "Sending…" placeholder bubble to the conversation
-   * timeline. Matches the structure of renderConversationEntry so the
-   * CSS styles it like a real user message, plus a data-pending
-   * attribute that drives the dimmed appearance. Returns the
-   * <li> element so the catch path can remove it on failure.
+   * The thread list, made when the "no replies yet" empty state has none
+   * (the fragment refresh replaces it with the server-rendered timeline).
+   */
+  function timelineList() {
+    var section = content.querySelector('.inbox-modal__timeline-section');
+    if (!section) return content.querySelector('ul.inbox-timeline');
+    var emptyP = section.querySelector(':scope > p.dim');
+    if (emptyP && !section.querySelector('ul.inbox-timeline') && emptyP.parentNode) emptyP.parentNode.removeChild(emptyP);
+    return window.suaThread.list(section);
+  }
+
+  /**
+   * Append a "Sending…" placeholder bubble to the conversation timeline:
+   * the shared thread row (thread.js.ts), plus a data-pending attribute
+   * that drives the dimmed appearance. Returns the <li> element so the
+   * catch path can remove it on failure.
    */
   function appendPendingReply(bodyText) {
-    var ul = content.querySelector('ul.inbox-timeline');
-    if (!ul) {
-      // The "no replies yet" empty state doesn't render a <ul>; build
-      // one so the optimistic append has a home. The fragment refresh
-      // will replace this with the canonical server-rendered timeline.
-      var section = content.querySelector('.inbox-modal__timeline-section');
-      if (!section) return null;
-      var emptyP = section.querySelector('p.dim');
-      if (emptyP && emptyP.parentNode) emptyP.parentNode.removeChild(emptyP);
-      ul = document.createElement('ul');
-      ul.className = 'inbox-timeline';
-      section.appendChild(ul);
-    }
-    var li = document.createElement('li');
-    li.className = 'inbox-timeline__entry';
-    var msg = document.createElement('div');
-    msg.className = 'inbox-msg inbox-msg--user';
-    msg.setAttribute('data-pending', '1');
-    var avatar = document.createElement('div');
-    avatar.className = 'inbox-msg__avatar inbox-msg__avatar--user';
-    avatar.textContent = 'you';
-    var bodyEl = document.createElement('div');
-    bodyEl.className = 'inbox-msg__body';
-    var meta = document.createElement('div');
-    meta.className = 'inbox-msg__meta';
-    var age = document.createElement('span');
-    age.className = 'inbox-msg__writing';
-    age.textContent = 'Sending…';
-    meta.appendChild(age);
-    var text = document.createElement('div');
-    text.className = 'inbox-msg__text';
-    text.textContent = bodyText;
-    bodyEl.appendChild(meta);
-    bodyEl.appendChild(text);
-    msg.appendChild(avatar);
-    msg.appendChild(bodyEl);
-    li.appendChild(msg);
+    var ul = timelineList();
+    if (!ul) return null;
+    var li = window.suaThread.entry({
+      role: 'user', sigil: 'you', label: 'You', writing: 'Sending…', text: bodyText,
+      attrs: { 'data-pending': '1' },
+    });
     ul.appendChild(li);
     // Scroll the optimistic message into view so the operator sees
     // it land.
