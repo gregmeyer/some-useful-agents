@@ -700,6 +700,13 @@ assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
 });
 
+// Canvas editor (docs/boards.md): a plain ES module, loaded only on a board's canvas page.
+const BOARD_CANVAS_EDITOR_JS = readAsset('board-canvas-editor.js');
+assetsRouter.get('/assets/board-canvas-editor.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(BOARD_CANVAS_EDITOR_JS);
+});
+
 // Board editor (W4b): a plain ES module, loaded only on /boards/:id.
 const BOARD_EDITOR_JS = readAsset('board-editor.js');
 assetsRouter.get('/assets/board-editor.js', (_req: Request, res: Response) => {

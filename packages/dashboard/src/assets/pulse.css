@@ -1281,3 +1281,20 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .board-page__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .board-page__head .page-header__description { flex-basis: 100%; margin: 0; }
 .board-page__hidden { margin-top: var(--space-6); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* Canvas editor (assets/board-canvas-editor.js). */
+.canvas-workspace { display: block; }
+.canvas-workspace--editing { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.canvas-outline { position: sticky; top: var(--space-3); max-height: calc(100vh - var(--space-6)); overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); padding: var(--space-2); font-size: var(--font-size-sm); }
+.canvas-outline__title { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); margin: var(--space-2) var(--space-1); }
+.canvas-outline__tree { list-style: none; margin: 0; padding: 0; }
+.canvas-outline__item { padding: 4px 6px; border-radius: var(--radius-sm, 4px); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid transparent; }
+.canvas-outline__item:hover { background: var(--color-surface-raised); }
+.canvas-outline__item.is-container { color: var(--color-text-muted); }
+.canvas-outline__item.is-selected { background: var(--color-primary-soft); color: var(--color-text); border-color: var(--color-primary); }
+.canvas-outline__item.is-drop { border-style: dashed; border-color: var(--color-primary); }
+.canvas-outline__item:focus-visible { outline: 2px solid var(--color-primary); }
+.canvas-props { border-top: 1px solid var(--color-border); margin-top: var(--space-3); padding-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2); }
+.canvas-props__field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.canvas-props__field input, .canvas-props__field select { font: inherit; font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
+.canvas-stage { min-width: 0; }

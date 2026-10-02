@@ -6,7 +6,20 @@ A **board** is a canvas of tiles placed on a 12-column grid, stored by the dashb
 
 ## Canvas boards (preview)
 
-Boards are becoming one A2UI surface each, so a board can use any layout A2UI can express: sections, responsive grids, rows, tabs and cards, with every agent's tile drawn inside. **Canvas preview** on a board's toolbar (or `/boards/<id>/canvas`) shows the board drawn that way today: your sections become titled groups, tiles keep their sizes, and on Pulse the agents you haven't placed sit under **Everything else**, in tabs by recent use. Tiles work as on the board: Run (or the agent's own form) runs in place and refreshes only that tile; ⚙ configures; × hides from Pulse. Arranging a canvas, and switching Pulse and dashboards over to it, come next.
+Boards are becoming one A2UI surface each, so a board can use any layout A2UI can express: sections, responsive grids, rows, tabs and cards, with every agent's tile drawn inside. **Canvas preview** on a board's toolbar (or `/boards/<id>/canvas`) shows the board drawn that way today: your sections become titled groups, tiles keep their sizes, and on Pulse the agents you haven't placed sit under **Everything else**, in tabs by recent use. Tiles work as on the board: Run (or the agent's own form) runs in place and refreshes only that tile; ⚙ configures; × hides from Pulse. Switching Pulse and dashboards over to the canvas comes next.
+
+### Arranging a canvas
+
+Press **✎ Arrange** on the canvas page (on a wide screen). An outline of the board appears on the left; pick something there, or click a tile or a section title on the board.
+
+- **+ Add…** a section, heading, note, grid, row, tabs, card or health tile; **+ Agent tile…** any agent with a tile. New things go *into* the selection when it holds things (a section, grid, row, tabs, card), otherwise just after it.
+- **Wrap in…** puts the selection inside a section, card, row, column or tabs (tabs turn a section into a tab you can add others beside). **Unwrap** puts a container's contents back where it was.
+- **Move**: drag in the outline (onto a container to move into it, onto anything else to move before it), or Alt+↑/↓ to move within its parent.
+- **Settings** for the selection sit under the outline: a section's title, a heading's or note's text, a grid's tile width, tab titles, and a tile's palette and how many columns and rows it takes in its grid.
+- **Remove** (or Delete in the outline) takes out the selection and everything in it.
+- **↶ Undo** steps back through your changes; nothing is saved until **Save**. **Undo last save** puts the previous saved layout back; **Cancel** throws your changes away.
+
+Every change is applied by the dashboard with the same rules agents use, so the board can't end up broken: a change that wouldn't make sense (moving a section into itself, adding an agent that isn't installed) is refused with the reason, and a save from a stale copy of the board is refused rather than overwriting a newer layout.
 
 A canvas is an A2UI document (`components`, one with id `root`) using the basic catalog plus five board-only components:
 

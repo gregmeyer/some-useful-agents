@@ -583,3 +583,4 @@ export {
   type BoardChange,
   type BoardDoc,
 } from './boards.js';
+export { applyBoardOps, boardOpSchema, type BoardOp, type BoardNodeSpec } from './board-tree.js';

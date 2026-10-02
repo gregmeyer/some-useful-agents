@@ -127,6 +127,7 @@ describe('board editor routes', () => {
     expect(data.agents.map((a: { id: string }) => a.id)).toEqual(expect.arrayContaining(['news', 'weather', 'notes']));
 
     res = await post(app, '/boards/user:morning/undo', { version: 2 });
+    expect(res.body.error).toBeUndefined();
     expect(res.status).toBe(200);
     expect(res.body.board.items.map((i: { id: string }) => i.id)).toEqual(['h', 'w', 'n']);
 
@@ -292,5 +293,59 @@ describe('canvas boards (preview)', () => {
     const one = await get(app, '/boards/tile/weather.json?board=pulse');
     expect(one.body).toMatchObject({ title: 'weather', hideAction: '/agents/weather/signal/toggle' });
     expect((await get(app, '/boards/tile/ghost.json')).status).toBe(404);
+  });
+});
+
+describe('arranging a canvas', () => {
+  it('applies tree operations to a working copy (nothing saved), then saves with a version and undoes', async () => {
+    const app = await setup();
+    const page = await get(app, '/boards/user:morning/canvas');
+    expect(page.text).toContain('src="/assets/board-canvas-editor.js"');
+    const data = JSON.parse(/<script type="application\/json" id="board-canvas-data">([\s\S]*?)<\/script>/.exec(page.text)![1].replace(/\\u003c/g, '<'));
+    expect(data).toMatchObject({ id: 'user:morning', version: 0, isPulse: false });
+    const section = (data.doc.components as Array<{ id: string; component: string }>).find((c) => c.component === 'Section')!;
+
+    let res = await post(app, '/boards/user:morning/doc/apply', { doc: data.doc, ops: [
+      { op: 'wrap', id: section.id, in: 'tabs', title: 'Now' },
+      { op: 'insert', parent: 'root', node: { type: 'tile', agentId: 'notes' } },
+    ] });
+    expect(res.body.error).toBeUndefined();
+    expect(res.status).toBe(200);
+    expect(res.body.created).toHaveLength(1);
+    expect(res.body.tiles.notes).toMatchObject({ title: 'notes' });
+    expect(JSON.stringify(res.body.messages)).toContain('"component":"Tabs"');
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')).toBeUndefined();
+    const working = res.body.doc;
+
+    res = await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [{ op: 'insert', parent: 'root', node: { type: 'tile', agentId: 'nope-agent' } }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/No tile for "nope-agent"/);
+    res = await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [{ op: 'remove', id: 'root' }] });
+    expect(res.body.error).toMatch(/root/);
+    res = await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [] });
+    expect(res.body.doc).toEqual(working);
+
+    res = await post(app, '/boards/user:morning/doc', { doc: working, version: 0 });
+    expect(res.body.board).toMatchObject({ version: 1 });
+    expect((await post(app, '/boards/user:morning/doc', { doc: working, version: 0 })).status).toBe(409);
+    const second = (await post(app, '/boards/user:morning/doc/apply', { doc: working, ops: [{ op: 'remove', id: res.body.board ? (working.components as Array<{ id: string; component: string; agentId?: string }>).find((c) => c.agentId === 'notes')!.id : '' }] })).body.doc;
+    expect((await post(app, '/boards/user:morning/doc', { doc: second, version: 1 })).body.board.version).toBe(2);
+    res = await post(app, '/boards/user:morning/undo', { version: 2 });
+    expect(res.status).toBe(200);
+    const after = await get(app, '/boards/user:morning/canvas');
+    expect(after.text).toContain('data-canvas-undo');
+    expect(after.text).toContain('"agentId":"notes"');
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('Canvas (arranged)');
+  });
+
+  it('keeps board-place off boards arranged as a canvas (until it learns trees)', async () => {
+    const app = await setup();
+    const store = new BoardsStore(ctx.runStore.databaseHandle());
+    store.saveDoc({ id: 'user:morning', name: 'Morning', doc: { components: [{ id: 'root', component: 'Column', children: [] }] }, expectedVersion: 0 });
+    const { getBuiltinTool } = await import('@some-useful-agents/core');
+    const out = await getBuiltinTool('board-place')!.execute({ board: 'user:morning', changes: [{ op: 'add', kind: 'heading', text: 'x' }] }, { boards: store });
+    expect(out).toMatchObject({ isError: true });
+    expect(out.result).toMatch(/arranged as a canvas/);
+    void app;
   });
 });
