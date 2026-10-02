@@ -17,6 +17,7 @@ import {
   BoardsStore,
   allocateUserDashboardId,
   boardDocFromBuildPlan,
+  applyBoardOps,
   executeAgentWithRetry,
   extractBoardBuildPlan,
   parseAgent,
@@ -26,6 +27,8 @@ import {
   type BoardBuild,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { advanceSession, getSession, startDraftOneSession } from '../routes/build-orchestrator.js';
+import { autoFixYaml } from '../routes/run-now-build.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
@@ -130,7 +133,9 @@ async function runBoardBuild(ctx: Ctx, buildId: string, opts: { keepName: boolea
   const current = boards.get(build.boardId);
   boards.saveDoc({ id: build.boardId, name, doc, expectedVersion: current?.version ?? 0 });
   if (placed.length === 0) {
-    return finish(ctx, buildId, { placed, summary: plan.summary, name, error: plan.missing.length ? undefined : 'None of your agents fit that request.' });
+    if (!plan.missing.length) return finish(ctx, buildId, { placed, summary: plan.summary, name, error: 'None of your agents fit that request.' });
+    finish(ctx, buildId, { placed, summary: plan.summary, name, drafting: true });
+    return draftMissing(ctx, buildId, { request: build.request, name, missing: plan.missing });
   }
 
   // 3. Running: each tile once, a few at a time, so the board opens with results.
@@ -151,18 +156,22 @@ async function runBoardBuild(ctx: Ctx, buildId: string, opts: { keepName: boolea
     }
   };
   await Promise.all(Array.from({ length: Math.min(RUN_CONCURRENCY, runnable.length) }, worker));
-  finish(ctx, buildId, { placed, failed, summary: plan.summary, name });
+  finish(ctx, buildId, { placed, failed, summary: plan.summary, name, drafting: plan.missing.length > 0 });
+  if (plan.missing.length) await draftMissing(ctx, buildId, { request: build.request, name, missing: plan.missing });
 }
 
 /** Mark the build done (or failed) and tell the person in the inbox. */
-function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[]; failed?: string[]; summary?: string; name?: string }): void {
+function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[]; failed?: string[]; summary?: string; name?: string; drafting?: boolean }): void {
   const builds = buildsOf(ctx);
   const build = builds.get(buildId);
   if (!build) return;
   const failedBuild = Boolean(r.error) && !(r.placed?.length);
+  const missingCount = build.missing.length;
   builds.update(buildId, {
-    phase: failedBuild ? 'failed' : 'done',
-    detail: failedBuild ? 'The build stopped.' : (r.summary || 'Ready.'),
+    phase: failedBuild ? 'failed' : r.drafting ? 'drafting' : 'done',
+    detail: failedBuild ? 'The build stopped.' : r.drafting
+      ? `Drafting ${missingCount} new agent${missingCount === 1 ? '' : 's'} for the parts your agents don't cover…`
+      : (r.summary || 'Ready.'),
     ...(r.error ? { error: r.error } : {}),
     ...(r.placed ? { placed: r.placed } : {}),
     ...(r.failed ? { failed: r.failed } : {}),
@@ -177,7 +186,9 @@ function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[
       '',
       `Open it: ${link}`,
       `${done.placed.length} tile${done.placed.length === 1 ? '' : 's'} from your agents${done.failed.length ? `; ${done.failed.length} didn't run cleanly (${done.failed.join(', ')}) — their tiles show what happened` : ', all run'}.`,
-      ...(done.missing.length ? ['', 'Not covered by any of your agents yet:', ...done.missing.map((m) => `- ${m.purpose}${m.suggestedName ? ` (${m.suggestedName})` : ''}`), '', 'Build an agent for any of these (Build from goal), then add it with Arrange.'] : []),
+      ...(done.missing.length ? ['', 'Not covered by any of your agents yet:', ...done.missing.map((m) => `- ${m.purpose}${m.suggestedName ? ` (${m.suggestedName})` : ''}`), '', r.drafting
+        ? 'sua is drafting agents for these now. They won\'t run until you approve them; you\'ll be asked here in your inbox.'
+        : 'Build an agent for any of these (Build from goal), then add it with Arrange.'] : []),
     ];
   try {
     ctx.inboxStore?.add({
@@ -203,4 +214,141 @@ export function reportInterruptedBoardBuilds(ctx: Ctx): void {
 /** The latest build of a board, for its page. */
 export function latestBoardBuild(ctx: Ctx, boardId: string): BoardBuild | undefined {
   try { return buildsOf(ctx).latestFor(boardId); } catch { return undefined; }
+}
+
+// ── Drafting the missing agents (one approval) ───────────────────────────
+
+/** How long one draft may take (drafter + critic retries). */
+const DRAFT_TIMEOUT_MS = 8 * 60_000;
+
+/**
+ * Draft an agent for each part no agent covers, with Build from goal's drafter
+ * and critic. Drafts are saved with status "draft": you can open them, but
+ * nothing runs them. Then ONE inbox item asks to approve them all.
+ */
+async function draftMissing(ctx: Ctx, buildId: string, args: { request: string; name: string; missing: Array<{ purpose: string; suggestedName?: string }> }): Promise<void> {
+  const builds = buildsOf(ctx);
+  const build = builds.get(buildId)!;
+  const drafts: BoardBuild['drafts'] = [];
+  for (const [i, m] of args.missing.entries()) {
+    builds.update(buildId, { detail: `Drafting agent ${i + 1} of ${args.missing.length}: ${m.purpose}…`, drafts: [...drafts] });
+    drafts.push(await draftOne(ctx, m, args));
+  }
+  const ok = drafts.filter((d) => d.ok && d.id);
+  const link = `/dashboards/${encodeURIComponent(build.boardId)}`;
+  if (ok.length === 0) {
+    builds.update(buildId, { phase: 'done', drafts, detail: 'Couldn\'t draft agents for the missing parts.' });
+    try {
+      ctx.inboxStore?.add({
+        priority: 'low', source: 'board', title: `No new agents drafted for "${args.name}"`,
+        body: [`sua couldn't draft agents for the parts of your board that none of your agents cover:`, ...drafts.map((d) => `- ${d.purpose}: ${d.error ?? 'no draft'}`), '', `Try Build from goal on the Agents page, then add them to ${link} with Arrange.`].join('\n'),
+        dedupeKey: `board-drafts:${buildId}`, contextJson: JSON.stringify({ kind: 'board-build', buildId, boardId: build.boardId }),
+      });
+    } catch { /* noted on the board page */ }
+    return;
+  }
+  let messageId: string | undefined;
+  try {
+    const msg = ctx.inboxStore?.add({
+      priority: 'medium',
+      source: 'board',
+      title: `Approve ${ok.length} new agent${ok.length === 1 ? '' : 's'} for your board "${args.name}"?`,
+      body: [
+        `None of your agents covered ${ok.length === 1 ? 'one part' : 'some parts'} of your board, so sua drafted ${ok.length === 1 ? 'an agent' : `${ok.length} agents`}. They're saved as drafts and haven't run.`,
+        '',
+        ...ok.map((d) => `- **${d.name ?? d.id}** (\`${d.id}\`): ${d.purpose}. Review: /agents/${d.id}${d.hasTile ? '' : ' (no tile yet, so it won\'t show on the board)'}`),
+        ...drafts.filter((d) => !d.ok).map((d) => `- Couldn't draft: ${d.purpose} (${d.error ?? 'no draft'})`),
+        '',
+        `**Approve** makes them active, adds them to ${link} and runs them once. **Decline** deletes the drafts.`,
+      ].join('\n'),
+      dedupeKey: `board-approval:${buildId}`,
+      contextJson: JSON.stringify({ kind: 'board-agents-approval', buildId, boardId: build.boardId, agentIds: ok.map((d) => d.id) }),
+    });
+    messageId = msg?.id;
+  } catch { /* the board page still offers the approval */ }
+  builds.update(buildId, {
+    phase: 'done', drafts, approval: 'pending', ...(messageId ? { approvalMessageId: messageId } : {}),
+    detail: `${ok.length} new agent${ok.length === 1 ? ' is' : 's are'} waiting for your approval.`,
+  });
+}
+
+async function draftOne(ctx: Ctx, m: { purpose: string; suggestedName?: string }, args: { request: string; name: string }): Promise<BoardBuild['drafts'][number]> {
+  const focus = `This agent will be a tile on the board "${args.name}", built for the request: "${args.request}". It must have a Pulse tile (signal, or an A2UI view) that shows its result, and it must run with no input or with defaults.`;
+  let sessionId: string | null = null;
+  try { sessionId = await startDraftOneSession({ ctx, purpose: m.purpose, ...(m.suggestedName ? { suggestedName: m.suggestedName } : {}), focus }); } catch (err) {
+    return { purpose: m.purpose, ok: false, error: (err as Error).message };
+  }
+  if (!sessionId) return { purpose: m.purpose, ok: false, error: 'the agent drafter is missing' };
+  const started = Date.now();
+  for (;;) {
+    const session = getSession(sessionId);
+    if (!session) return { purpose: m.purpose, ok: false, error: 'the draft was lost' };
+    await advanceSession(ctx, session);
+    if (session.phase === 'failed' || session.phase === 'nothing_to_build') return { purpose: m.purpose, ok: false, error: session.error ?? session.phaseMessage };
+    if (session.phase === 'done') {
+      const ref = session.plan?.newAgents?.[0];
+      if (!ref) return { purpose: m.purpose, ok: false, error: 'the drafter returned no agent' };
+      try {
+        const parsed = parseAgent(autoFixYaml(ref.yaml));
+        if (ctx.agentStore.getAgent(parsed.id)) return { purpose: m.purpose, ok: false, error: `an agent "${parsed.id}" already exists` };
+        ctx.agentStore.createAgent({ ...parsed, source: 'local', status: 'draft' }, 'dashboard', `Drafted for the board "${args.name}" (needs approval)`);
+        const hasTile = Boolean(withTileSignal(ctx.agentStore.getAgent(parsed.id))?.signal);
+        return { purpose: m.purpose, ok: true, id: parsed.id, name: parsed.name, hasTile };
+      } catch (err) {
+        return { purpose: m.purpose, ok: false, error: `the draft didn't load: ${(err as Error).message}` };
+      }
+    }
+    if (Date.now() - started > DRAFT_TIMEOUT_MS) return { purpose: m.purpose, ok: false, error: 'drafting took too long' };
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+/**
+ * The one approval. Approve: drafts become active, join the board in a "New
+ * agents" section and run once. Decline: drafts are deleted. Either way the
+ * inbox item is resolved. Idempotent: only a pending approval acts.
+ */
+export function decideBoardDrafts(ctx: Ctx, buildId: string, decision: 'approve' | 'decline'): { ok: boolean; message: string; boardId?: string } {
+  const builds = buildsOf(ctx);
+  const build = builds.get(buildId);
+  if (!build) return { ok: false, message: 'That board build no longer exists.' };
+  if (build.approval !== 'pending') return { ok: false, message: `Already ${build.approval ?? 'decided'}.`, boardId: build.boardId };
+  const ids = build.drafts.filter((d) => d.ok && d.id).map((d) => d.id!)
+    .filter((id) => ctx.agentStore.getAgent(id)?.status === 'draft');
+  let message: string;
+  if (decision === 'decline') {
+    for (const id of ids) { try { ctx.agentStore.deleteAgent(id); } catch { /* already gone */ } }
+    builds.update(buildId, { approval: 'declined', detail: 'The drafted agents were declined and deleted.' });
+    message = `Declined: deleted ${ids.length} draft agent${ids.length === 1 ? '' : 's'}.`;
+  } else {
+    for (const id of ids) ctx.agentStore.updateAgentMeta(id, { status: 'active' });
+    const withTiles = ids.filter((id) => Boolean(withTileSignal(ctx.agentStore.getAgent(id))?.signal));
+    if (withTiles.length) {
+      const boards = new BoardsStore(ctx.runStore.databaseHandle());
+      const current = boards.loadDocOrDerive(build.boardId);
+      if (current) {
+        try {
+          const sec = applyBoardOps(current.doc, [{ op: 'insert', parent: 'root', node: { type: 'section', title: 'New agents' } }]);
+          const grid = sec.doc.components.find((c) => c.id === sec.created[0])!.child as string;
+          const out = applyBoardOps(sec.doc, withTiles.map((agentId) => ({ op: 'insert' as const, parent: grid, node: { type: 'tile' as const, agentId } })));
+          boards.saveDoc({ id: build.boardId, name: current.name, packId: current.packId, doc: out.doc, expectedVersion: current.version });
+          const dash = ctx.dashboardsStore?.getDashboard(build.boardId);
+          if (dash) ctx.dashboardsStore!.upsertDashboard({ id: dash.id, packId: dash.packId, name: dash.name, layout: { sections: sectionsFromBoardDoc(out.doc) } });
+        } catch { /* agents are active anyway; they can be added with Arrange */ }
+      }
+    }
+    for (const id of ids) {
+      const agent = ctx.agentStore.getAgent(id);
+      if (agent && !needsInput(agent)) void executeAgentWithRetry(agent, { triggeredBy: 'dashboard' }, runDeps(ctx)).catch(() => { /* shows as a failed run */ });
+    }
+    builds.update(buildId, { approval: 'approved', placed: [...build.placed, ...withTiles], detail: `Added ${withTiles.length} new agent${withTiles.length === 1 ? '' : 's'} to the board.` });
+    message = `Approved: ${ids.length} agent${ids.length === 1 ? '' : 's'} now active${withTiles.length ? `, ${withTiles.length} added to the board and running` : ''}.`;
+  }
+  if (build.approvalMessageId && ctx.inboxStore) {
+    try {
+      ctx.inboxStore.addResponse(build.approvalMessageId, 'system', message);
+      ctx.inboxStore.updateStatus(build.approvalMessageId, 'resolved');
+    } catch { /* the board page shows the outcome */ }
+  }
+  return { ok: true, message, boardId: build.boardId };
 }

@@ -33,11 +33,13 @@ A dashboard you haven't arranged is shown laid out from its sections: each becom
 1. **Picks agents** you already have that answer it (the **board-builder** agent reads your agents' titles, descriptions and example questions; it never invents agents), groups them into sections and sizes them;
 2. **lays out** a new board with them (the same operations as Arrange);
 3. **runs every tile once**, so the board opens with results;
-4. **tells you in your inbox** when it's ready: what it shows, any tile that didn't run cleanly, and the parts of your request **no agent covers yet**, so you can build agents for them.
+4. **tells you in your inbox** when it's ready: what it shows, any tile that didn't run cleanly, and the parts of your request **no agent covers yet**;
+5. **drafts an agent for each uncovered part** (Build from goal's drafter and critic), saved as a *draft*: you can open it on the Agents page, but nothing runs it;
+6. **asks once**, in your inbox (and on the board), to approve them. **Approve** makes them active, adds them to the board in a **New agents** section and runs them; **Decline** deletes the drafts.
 
 You're taken to the new board straight away; it shows progress while it builds, and you can leave. The board is an ordinary dashboard afterwards: arrange it, rename it, or delete it. If the dashboard restarts mid-build, the inbox says so.
 
-Drafting the missing agents for you (with your approval before they run) comes next.
+New agents never run before you approve them. A draft that can't be made (the critic gives up, or it would reuse an existing agent's id) is listed in the approval message instead.
 
 ## Arranging a board
 

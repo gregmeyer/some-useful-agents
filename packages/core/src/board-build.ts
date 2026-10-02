@@ -98,7 +98,7 @@ export function extractBoardBuildPlan(text: string): { ok: true; plan: BoardBuil
 
 // ── Builds ───────────────────────────────────────────────────────────────
 
-export type BoardBuildPhase = 'planning' | 'arranging' | 'running' | 'done' | 'failed';
+export type BoardBuildPhase = 'planning' | 'arranging' | 'running' | 'drafting' | 'done' | 'failed';
 
 export interface BoardBuild {
   id: string;
@@ -112,6 +112,11 @@ export interface BoardBuild {
   placed: string[];
   failed: string[];
   missing: Array<{ purpose: string; suggestedName?: string }>;
+  /** Agents drafted for the missing parts (saved with status "draft" until approved). */
+  drafts: Array<{ purpose: string; ok: boolean; id?: string; name?: string; hasTile?: boolean; error?: string }>;
+  /** The one approval for the drafts: pending (asked in the inbox), approved, declined. */
+  approval?: 'pending' | 'approved' | 'declined';
+  approvalMessageId?: string;
   plannerRunId?: string;
   createdAt: number;
   updatedAt: number;
@@ -145,12 +150,12 @@ export class BoardBuildStore {
       .run(id, boardId, request, 'planning', 'Choosing agents for this board…', now, now);
     return this.get(id)!;
   }
-  update(id: string, patch: Partial<Pick<BoardBuild, 'phase' | 'detail' | 'error' | 'placed' | 'failed' | 'missing' | 'plannerRunId'>>): void {
+  update(id: string, patch: Partial<Pick<BoardBuild, 'phase' | 'detail' | 'error' | 'placed' | 'failed' | 'missing' | 'drafts' | 'approval' | 'approvalMessageId' | 'plannerRunId'>>): void {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch };
     this.db.prepare('UPDATE board_builds SET phase = ?, detail = ?, error = ?, result_json = ?, planner_run_id = ?, updated_at = ? WHERE id = ?')
-      .run(next.phase, next.detail, next.error ?? null, JSON.stringify({ placed: next.placed, failed: next.failed, missing: next.missing }), next.plannerRunId ?? null, Date.now(), id);
+      .run(next.phase, next.detail, next.error ?? null, JSON.stringify({ placed: next.placed, failed: next.failed, missing: next.missing, drafts: next.drafts, approval: next.approval, approvalMessageId: next.approvalMessageId }), next.plannerRunId ?? null, Date.now(), id);
   }
   get(id: string): BoardBuild | undefined {
     const r = this.db.prepare('SELECT * FROM board_builds WHERE id = ?').get(id) as Record<string, unknown> | undefined;
@@ -163,15 +168,16 @@ export class BoardBuildStore {
   }
   /** Builds a restart interrupted (still planning/arranging/running). */
   unfinished(): BoardBuild[] {
-    return (this.db.prepare("SELECT * FROM board_builds WHERE phase IN ('planning','arranging','running')").all() as Array<Record<string, unknown>>).map((r) => this.row(r));
+    return (this.db.prepare("SELECT * FROM board_builds WHERE phase IN ('planning','arranging','running','drafting')").all() as Array<Record<string, unknown>>).map((r) => this.row(r));
   }
   private row(r: Record<string, unknown>): BoardBuild {
-    let res: { placed?: string[]; failed?: string[]; missing?: BoardBuild['missing'] } = {};
+    let res: { placed?: string[]; failed?: string[]; missing?: BoardBuild['missing']; drafts?: BoardBuild['drafts']; approval?: BoardBuild['approval']; approvalMessageId?: string } = {};
     try { res = JSON.parse(String(r.result_json ?? '{}')); } catch { res = {}; }
     return {
       id: String(r.id), boardId: String(r.board_id), request: String(r.request), phase: r.phase as BoardBuildPhase,
       detail: String(r.detail ?? ''), ...(r.error ? { error: String(r.error) } : {}),
-      placed: res.placed ?? [], failed: res.failed ?? [], missing: res.missing ?? [],
+      placed: res.placed ?? [], failed: res.failed ?? [], missing: res.missing ?? [], drafts: res.drafts ?? [],
+      ...(res.approval ? { approval: res.approval } : {}), ...(res.approvalMessageId ? { approvalMessageId: res.approvalMessageId } : {}),
       ...(r.planner_run_id ? { plannerRunId: String(r.planner_run_id) } : {}),
       createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     };

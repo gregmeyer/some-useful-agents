@@ -18,11 +18,12 @@ import {
   type Board,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { html, render, unsafeHtml } from '../views/html.js';
+import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
-import { boardCatalog, latestBoardBuild, startBoardBuild } from '../lib/board-build.js';
+import { boardCatalog, decideBoardDrafts, latestBoardBuild, startBoardBuild } from '../lib/board-build.js';
+import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
 import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
@@ -273,14 +274,21 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
 
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const build = isPulse ? undefined : latestBoardBuild(ctx, id);
-  const building = build && (build.phase === 'planning' || build.phase === 'arranging' || build.phase === 'running');
-  const recentlyBuilt = build && !building && Date.now() - build.updatedAt < 6 * 3_600_000 && (r.board.version <= 1);
+  const building = build && (build.phase === 'planning' || build.phase === 'arranging' || build.phase === 'running' || build.phase === 'drafting');
+  const awaitingApproval = build && build.approval === 'pending';
+  const recentlyBuilt = build && !building && !awaitingApproval && Date.now() - build.updatedAt < 6 * 3_600_000 && (r.board.version <= 1);
   const buildBanner = building
     ? html`<div class="flash flash--info board-build" data-board-build="${id}" role="status" aria-live="polite">
         <strong>Building this board from your request.</strong> <span data-board-build-detail>${build!.detail}</span>
         <span class="dim"> You can leave; your inbox will say when it's ready.</span>
       </div>
       ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-build]');if(!el)return;var id=el.getAttribute('data-board-build');function tick(){fetch('/boards/'+encodeURIComponent(id)+'/build.json',{headers:{Accept:'application/json'}}).then(function(r){return r.json();}).then(function(b){if(!b||!b.phase)return;if(b.phase==='done'||b.phase==='failed'){location.reload();return;}var d=el.querySelector('[data-board-build-detail]');if(d)d.textContent=b.detail||'';setTimeout(tick,3000);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,3000);})();</script>`)}`
+    : awaitingApproval
+      ? html`<div class="flash flash--info board-build" role="status">
+          <strong>${build!.detail}</strong> They were drafted for the parts of your request none of your agents covered, and haven't run.
+          <ul class="board-build__drafts">${build!.drafts.filter((d) => d.ok && d.id).map((d) => html`<li><a href="/agents/${encodeURIComponent(d.id!)}">${d.name ?? d.id}</a>: ${d.purpose}</li>`) as unknown as SafeHtml[]}</ul>
+          ${boardApprovalButtons(build!.id, returnTo)}
+        </div>`
     : recentlyBuilt
       ? html`<div class="flash ${build!.phase === 'failed' ? 'flash--error' : 'flash--info'} board-build" role="status">
           ${build!.phase === 'failed'
@@ -462,6 +470,16 @@ boardsRouter.post('/boards/build', (req: Request, res: Response) => {
     res.redirect(303, `/boards/new?error=${encodeURIComponent((err as Error).message)}`);
   }
 });
+
+/** The one approval for a build's drafted agents (from the inbox or the board page). */
+for (const decision of ['approve', 'decline'] as const) {
+  boardsRouter.post(`/boards/builds/:buildId/${decision}`, (req: Request, res: Response) => {
+    const ctx = getContext(req.app.locals);
+    const out = decideBoardDrafts(ctx, String(req.params.buildId), decision);
+    const back = out.boardId ? boardPageUrl(out.boardId) : '/inbox';
+    res.redirect(303, `${back}?${out.ok ? 'ok' : 'error'}=${encodeURIComponent(out.message)}`);
+  });
+}
 
 /** A board's latest build (progress for its page). */
 boardsRouter.get('/boards/:id/build.json', (req: Request, res: Response) => {

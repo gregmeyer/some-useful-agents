@@ -23,6 +23,7 @@ function readVerifyKind(metaJson?: string): 'verified' | 'verify-failed' | 'veri
 }
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { boardApprovalButtons } from './board-approval.js';
 import { pageHeader } from './page-header.js';
 import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 
@@ -282,6 +283,14 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="inbox-modal__body">${mdBody(message.body)}</div>
   ` : html``;
 
+  // A board build's drafted agents: the one approval, right here in the inbox.
+  let approvalBlock = html``;
+  if (message.contextJson && message.status === 'open') {
+    try {
+      const c = JSON.parse(message.contextJson) as { kind?: string; buildId?: string };
+      if (c.kind === 'board-agents-approval' && typeof c.buildId === 'string') approvalBlock = boardApprovalButtons(c.buildId);
+    } catch { /* not JSON */ }
+  }
   const contextBlock = message.contextJson ? html`
     <details class="inbox-modal__context">
       <summary>Context payload</summary>
@@ -418,6 +427,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ${headerMeta}
         ${flashBlock}
         ${bodyBlock}
+        ${approvalBlock}
         ${contextBlock}
         ${summaryBlock}
       </div>

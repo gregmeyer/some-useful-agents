@@ -1245,3 +1245,5 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .board-new__field textarea, .board-new__field input { font: inherit; padding: var(--space-2); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
 .board-new .btn { align-self: flex-start; }
 .board-build { margin-bottom: var(--space-3); }
+.board-approval { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.board-build__drafts { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
