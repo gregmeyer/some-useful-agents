@@ -574,6 +574,7 @@ export {
   sectionsFromBoardItems,
   validateBoardDoc,
   boardDocFromItems,
+  sectionsFromBoardDoc,
   boardDocAgentIds,
   boardDocSystemTileIds,
   BoardsStore,

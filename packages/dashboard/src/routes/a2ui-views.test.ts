@@ -85,7 +85,7 @@ describe('A2UI views across the dashboard', () => {
   it('an agent with only a view gets a Pulse tile drawn from it, and the tile refresh returns it too', async () => {
     const { app } = await setup();
     const pulse = await get(app, '/pulse');
-    expect(pulse.text).toContain('data-surface-id="tile-gauge"');
+    expect(pulse.text).toContain('"surfaceId":"tile-gauge"'); // the canvas tile registry carries the view
     const tile = await get(app, '/pulse/tile/gauge');
     expect(tile.status).toBe(200);
     expect(tile.text).toContain('data-surface-id="tile-gauge"');

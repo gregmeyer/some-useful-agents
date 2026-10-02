@@ -351,6 +351,45 @@ export function boardDocFromItems(items: readonly BoardItem[]): BoardDoc {
 }
 
 /**
+ * A canvas document as dashboard sections (Save as pack, and anything that
+ * still speaks sections): tiles are grouped under the nearest enclosing
+ * Section title or tab title, in reading order; tiles outside any go under
+ * "Tiles". A Cell's span/rows become the 1x1…2x2 size.
+ */
+export function sectionsFromBoardDoc(doc: BoardDoc): DashboardSection[] {
+  const byId = new Map(doc.components.map((c) => [c.id, c]));
+  const order: string[] = [];
+  const groups = new Map<string, DashboardSection>();
+  const put = (title: string, agentId: string, size: string) => {
+    let g = groups.get(title);
+    if (!g) { g = { title, agentIds: [] }; groups.set(title, g); order.push(title); }
+    if (g.agentIds.includes(agentId)) return;
+    g.agentIds.push(agentId);
+    g.placements = { ...(g.placements ?? {}), [agentId]: { size: size as '1x1' } };
+  };
+  const walk = (id: string, title: string, size: string, seen: Set<string>) => {
+    const c = byId.get(id);
+    if (!c || seen.has(id)) return;
+    seen.add(id);
+    if (c.component === 'AgentTile' && typeof c.agentId === 'string') { put(title, c.agentId, size); return; }
+    if (c.component === 'Section' && typeof c.child === 'string') return walk(c.child, String(c.title), '1x1', seen);
+    if (c.component === 'Cell' && typeof c.child === 'string') {
+      const span = Number(c.span ?? 1);
+      const rows = Number(c.rows ?? 1);
+      return walk(c.child, title, `${span >= 2 ? 2 : 1}x${rows >= 2 ? 2 : 1}`, seen);
+    }
+    if (c.component === 'Tabs' && Array.isArray(c.tabs)) {
+      for (const t of c.tabs as Array<{ title: string; child: string }>) walk(t.child, t.title || title, '1x1', seen);
+      return;
+    }
+    const kids = Array.isArray(c.children) ? c.children as string[] : typeof c.child === 'string' ? [c.child] : [];
+    for (const k of kids) walk(k, title, '1x1', seen);
+  };
+  walk('root', 'Tiles', '1x1', new Set());
+  return order.map((t) => groups.get(t)!);
+}
+
+/**
  * Stored boards. A board with no row is "not customised yet": the caller
  * derives it (Pulse: nothing placed, everything in the Unplaced tray; a named
  * dashboard: from its sections) and the first save creates the row.

@@ -707,13 +707,6 @@ assetsRouter.get('/assets/board-canvas-editor.js', (_req: Request, res: Response
   res.type('application/javascript').send(BOARD_CANVAS_EDITOR_JS);
 });
 
-// Board editor (W4b): a plain ES module, loaded only on /boards/:id.
-const BOARD_EDITOR_JS = readAsset('board-editor.js');
-assetsRouter.get('/assets/board-editor.js', (_req: Request, res: Response) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('application/javascript').send(BOARD_EDITOR_JS);
-});
-
 assetsRouter.get('/assets/graph-edit.js', (_req: Request, res: Response) => {
   // Same policy as graph-render.js: revalidate every load so behaviour fixes
   // land without a hard reload.

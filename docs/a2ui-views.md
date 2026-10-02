@@ -107,4 +107,4 @@ A declared view is checked when the agent is saved or imported (an invalid one i
 
 See [ADR-0047](adr/0047-a2ui-views.md) for the design.
 
-The catalog also holds five board-only components (`Section`, `Grid`, `Cell`, `AgentTile`, `SystemTile`) that lay out [canvas boards](boards.md#canvas-boards-preview). An agent's view can't use them.
+The catalog also holds five board-only components (`Section`, `Grid`, `Cell`, `AgentTile`, `SystemTile`) that lay out [canvas boards](boards.md#the-board-document). An agent's view can't use them.

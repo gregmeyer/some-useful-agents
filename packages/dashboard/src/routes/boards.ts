@@ -1,9 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import {
-  BOARD_COLUMNS,
-  BOARD_ROW_PX,
   BoardConflictError,
-  BOARD_PALETTES,
   BoardsStore,
   PULSE_BOARD_ID,
   boardItemsFromSections,
@@ -24,7 +21,6 @@ import { getContext } from '../context.js';
 import { html, render, unsafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
-import { renderBoard } from '../views/board.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
@@ -35,10 +31,11 @@ import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js'
 import type { PulseTile } from '../views/pulse-types.js';
 
 /**
- * Boards (W4a, docs/boards.md): read-only for now. `/boards/pulse` is Pulse as
- * a board (placed items + the Unplaced tray); `/boards/<dashboard id>` is a
- * named dashboard, from its saved board or, until one is saved, derived from
- * its sections. Editing (W4b) and agent placement (W4c) build on this.
+ * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
+ * A2UI surface (a canvas) and arranged in the canvas editor. A board's layout
+ * is its saved canvas document, or, until it has one, derived from its older
+ * grid items / the dashboard's sections. Pulse adds agents the document
+ * doesn't place under "Everything else".
  */
 export const boardsRouter: Router = Router();
 
@@ -140,23 +137,6 @@ function sendSaveError(res: Response, err: unknown): void {
   res.status(400).json({ error: (err as Error).message });
 }
 
-/** Save a board's items. Body: { items, version } where version is what the editor loaded. */
-boardsRouter.post('/boards/:id', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = String(req.params.id);
-  const r = resolveBoard(ctx, id);
-  if (!r) { res.status(404).json({ error: 'No such board.' }); return; }
-  const body = (req.body ?? {}) as { items?: unknown; version?: unknown };
-  if (!Array.isArray(body.items) || typeof body.version !== 'number') {
-    res.status(400).json({ error: 'Send { items: [...], version: <the version you loaded> }.' });
-    return;
-  }
-  try {
-    const board = boardsOf(ctx).save({ id, name: r.board.name, packId: r.board.packId, items: body.items, expectedVersion: body.version });
-    res.json({ board });
-  } catch (err) { sendSaveError(res, err); }
-});
-
 /** Go back to the layout before the last save. Body: { version }. */
 boardsRouter.post('/boards/:id/undo', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -195,8 +175,8 @@ boardsRouter.post('/boards/pulse/import', (req: Request, res: Response) => {
 });
 
 /**
- * Turn an Improve-layout plan into board items for the editor to preview
- * (nothing is saved here). Body: { plan }. Tiles the plan names that aren't
+ * Turn a layout-planner plan into a canvas document for the editor to show
+ * as unsaved changes (nothing is saved here). Body: { plan }. Tiles the plan names that aren't
  * on this board's agents are dropped, so a stale plan can't add ghosts.
  */
 boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
@@ -213,23 +193,24 @@ boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
     .filter((c) => c.tiles.length > 0);
   if (containers.length === 0) { res.status(400).json({ error: 'The suggested layout has no tiles this board can show.' }); return; }
   const items = boardItemsFromLayoutPlan({ ...parsed.data, containers }, (id) => preferredSize(r.tiles.get(id)));
-  res.json({ items, summary: parsed.data.summary });
+  res.json({ doc: boardDocFromItems(items), summary: parsed.data.summary });
 });
 
 type Flash = { kind: 'ok' | 'error' | 'info'; message: string } | undefined;
 
 /** The page a board lives at: /pulse, /dashboards/<id> (or /boards/<id> when board pages are off). */
 export function boardPageUrl(id: string): string {
-  if (!boardPagesEnabled()) return `/boards/${encodeURIComponent(id)}`;
+  if (!boardPagesEnabled()) return `/boards/${encodeURIComponent(id)}/canvas`;
   return id === PULSE_BOARD_ID ? '/pulse' : `/dashboards/${encodeURIComponent(id)}`;
 }
 
 /**
  * A board's full page: the page header (Pulse's or the dashboard's), the
- * board toolbar (Edit, Suggest a layout, Undo), the board, and the editor.
+ * toolbar (Arrange, Suggest a layout, Undo last save), the canvas, and the
+ * canvas editor.
  * Undefined when there's no such board.
  */
-export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, opts: { flash?: Flash; canvas?: boolean } = {}): string | undefined {
+export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, opts: { flash?: Flash } = {}): string | undefined {
   const r = resolveBoard(ctx, id);
   if (!r) return undefined;
   const isPulse = id === PULSE_BOARD_ID;
@@ -239,8 +220,10 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   const dropdown = options.length > 1
     ? renderDashboardsDropdown({ options, activeHref: isPulse ? '/' : `/dashboards/${encodeURIComponent(id)}` })
     : html``;
-  const placedAgents = new Set(r.board.items.flatMap((it) => (it.kind === 'agent' ? [it.agentId] : [])));
-  const tileCount = r.board.items.filter((it) => it.kind === 'agent' || it.kind === 'system').length;
+  const doc = currentDoc(ctx, r);
+  const canvas = canvasFor(ctx, r, doc);
+  const tileCount = boardDocAgentIds(canvas.doc).length + boardDocSystemTileIds(canvas.doc).length;
+
 
   let header;
   let after = html``;
@@ -250,7 +233,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     header = html`
       <div class="board-page__head">
         <h1 style="margin: 0;">Pulse</h1>
-        <span class="dim board-page__meta">${String(tileCount)} placed · ${String(r.unplaced?.length ?? 0)} unplaced${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
+        <span class="dim board-page__meta">${String(tileCount)} placed${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
         <div class="board-page__actions">
           ${dropdown}
           ${p.tiles.length > 0 ? html`
@@ -258,7 +241,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
               <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
             </form>` : html``}
         </div>
-        <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Edit to arrange the board; agents you haven't placed wait in the tray below.</p>
+        <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Arrange to lay it out; agents you haven't placed are under Everything else.</p>
       </div>`;
     after = html`
       ${hidden > 0 ? html`
@@ -282,68 +265,46 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       </div>`;
   }
   if (!boardPagesEnabled()) {
-    header = html`${header}<p class="dim" style="font-size: var(--font-size-sm);">Board view (preview). Turn on boards in <a href="/settings/appearance#board-pages">Settings → Appearance</a> to make this the page.</p>`;
+    header = html`${header}<p class="dim" style="font-size: var(--font-size-sm);">Canvas preview. Turn on boards in <a href="/settings/appearance#board-pages">Settings → Appearance</a> to make this the page.</p>`;
   }
 
+  const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const editorData = {
     id,
     version: r.board.version,
-    hasPrevious: Boolean(r.board.hasPrevious),
     isPulse,
-    items: r.board.items,
-    rowPx: BOARD_ROW_PX,
-    columns: BOARD_COLUMNS,
-    sizes: Object.fromEntries([...r.tiles].map(([tid, t]) => [tid, preferredSize(t) ?? '1x1'])),
-    agents: isPulse ? [] : placeableAgents(ctx).filter((a) => !placedAgents.has(a.id)),
+    doc,
+    agents: placeableAgents(ctx),
+    systemTiles: (r.systemTileIds ?? []).map((sid) => ({ id: sid, title: r.tiles.get(sid)?.signal.title ?? sid })),
     plannerUrl: isPulse ? '/pulse/layout-plan' : `/dashboards/${encodeURIComponent(id)}/layout-plan`,
+    // Offer the old Pulse's browser arrangement until Pulse's board is first saved.
+    offerImport: isPulse && r.board.version === 0,
   };
-  if (opts.canvas) {
-    // The canvas (docs/boards.md): the whole board as one A2UI surface, with its editor.
-    const doc = boardsOf(ctx).get(id)?.doc ?? boardDocFromItems(r.board.items);
-    const canvas = canvasFor(ctx, r, doc);
-    const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    const editorData = {
-      id,
-      version: r.board.version,
-      isPulse,
-      doc,
-      agents: placeableAgents(ctx),
-      systemTiles: (r.systemTileIds ?? []).map((sid) => ({ id: sid, title: r.tiles.get(sid)?.signal.title ?? sid })),
-    };
-    return render(layout({ title: `${isPulse ? 'Pulse' : r.board.name} · Canvas`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
-      ${header}
-      <div class="board-toolbar" data-canvas-toolbar>
-        <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>✎ Arrange</button>
-        ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
-        <span class="dim" style="font-size: var(--font-size-sm);">Canvas preview: this board drawn as one A2UI surface. <a href="${returnTo}">Back to the board</a>.</span>
-        <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
-      </div>
-      ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
-      <div class="canvas-workspace" data-canvas-workspace>
-        <aside class="canvas-outline" data-canvas-outline hidden aria-label="Board outline"></aside>
-        <div class="canvas-stage">
-          ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
-          <div class="a2ui-host board-canvas" data-a2ui-surface data-board-canvas="${id}" aria-label="${r.board.name}">${unsafeHtml(`<script type="application/json">${json(canvas.messages)}</script>`)}</div>
-        </div>
-      </div>
-      ${after}
-      ${unsafeHtml(`<script type="application/json" id="board-canvas-data">${json(editorData)}</script>`)}
-      ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
-      <script type="module" src="/assets/board-canvas-editor.js"></script>`));
-  }
-  const toolbar = html`
-    <div class="board-toolbar" data-board-toolbar>
-      <button type="button" class="btn btn--ghost btn--sm" data-board-edit>✎ Edit${isPulse ? '' : html` · add tiles`}</button>
-      <button type="button" class="btn btn--ghost btn--sm" data-board-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
-      ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-board-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
-      <a class="btn btn--ghost btn--sm" href="/boards/${encodeURIComponent(id)}/canvas" title="See this board drawn as one A2UI surface">${boardsOf(ctx).get(id)?.doc ? 'Canvas (arranged)' : 'Canvas preview'}</a>
-      <span class="board-toolbar__status dim" data-board-status role="status" aria-live="polite"></span>
-    </div>`;
   return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
-    ${header}${toolbar}${renderBoard({ ...r, returnTo })}${after}
-    ${unsafeHtml(`<script type="application/json" id="board-data">${JSON.stringify(editorData).replace(/</g, '\\u003c')}</script>`)}
+    ${header}
+    <div class="board-toolbar" data-canvas-toolbar>
+      <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>✎ Arrange</button>
+      <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
+      ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
+      <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
+    </div>
+    ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
+    <div class="canvas-workspace" data-canvas-workspace>
+      <aside class="canvas-outline" data-canvas-outline hidden aria-label="Board outline"></aside>
+      <div class="canvas-stage">
+        ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
+        <div class="a2ui-host board-canvas" data-a2ui-surface data-board-canvas="${id}" data-return-to="${returnTo}" aria-label="${r.board.name}">${unsafeHtml(`<script type="application/json">${json(canvas.messages)}</script>`)}</div>
+      </div>
+    </div>
+    ${after}
+    ${unsafeHtml(`<script type="application/json" id="board-canvas-data">${json(editorData)}</script>`)}
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
-    <script type="module" src="/assets/board-editor.js"></script>`));
+    <script type="module" src="/assets/board-canvas-editor.js"></script>`));
+}
+
+/** The board's canvas document: saved, else derived from its grid items / sections. */
+function currentDoc(ctx: ReturnType<typeof getContext>, r: ResolvedBoard): BoardDoc {
+  return boardsOf(ctx).get(r.board.id)?.doc ?? boardDocFromItems(r.board.items);
 }
 
 /**
@@ -351,8 +312,16 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
  * board's own data doesn't cover (an agent just added to a dashboard) are
  * built here.
  */
-function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, doc: BoardDoc) {
+function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: BoardDoc) {
   const isPulse = r.unplaced !== undefined;
+  let doc = docIn;
+  if (isPulse) {
+    // An agent placed on Pulse and since hidden (or deleted) drops off the board.
+    const gone = doc.components.filter((c) => (c.component === 'AgentTile' && !r.tiles.has(String(c.agentId))) || (c.component === 'SystemTile' && !r.tiles.has(String(c.tileId))));
+    if (gone.length) {
+      try { doc = applyBoardOps(doc, gone.map((c) => ({ op: 'remove', id: c.id }))).doc; } catch { /* keep as is */ }
+    }
+  }
   const tiles = new Map(r.tiles);
   for (const agentId of boardDocAgentIds(doc)) {
     if (tiles.has(agentId)) continue;
@@ -362,7 +331,7 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, doc: Bo
     attachLayoutHints([tile], ctx.layoutHintsStore);
     tiles.set(agentId, tile);
   }
-  return assembleCanvas({ boardId: r.board.id, doc, tiles, ...(isPulse ? { unplaced: r.unplaced ?? [], systemTileIds: r.systemTileIds } : {}) });
+  return { doc, ...assembleCanvas({ boardId: r.board.id, doc, tiles, ...(isPulse ? { unplaced: r.unplaced ?? [], systemTileIds: r.systemTileIds } : {}) }) };
 }
 
 /**
@@ -394,7 +363,7 @@ boardsRouter.post('/boards/:id/doc/apply', (req: Request, res: Response) => {
     const v = validateBoardDoc(body.doc);
     if (!v.ok) { res.status(400).json({ error: `That board layout isn't valid: ${v.errors[0]}` }); return; }
     base = v.doc;
-  } else base = boardsOf(ctx).get(id)?.doc ?? boardDocFromItems(r.board.items);
+  } else base = currentDoc(ctx, r);
   try {
     // An empty list just redraws the working copy (the editor's undo).
     const out = Array.isArray(body.ops) && body.ops.length === 0 ? { doc: base, created: [] as string[] } : applyBoardOps(base, body.ops);
@@ -418,7 +387,7 @@ boardsRouter.post('/boards/:id/doc', (req: Request, res: Response) => {
   if (typeof body.version !== 'number') { res.status(400).json({ error: 'Send { doc, version: <the version you loaded> }.' }); return; }
   const v = validateBoardDoc(body.doc);
   if (!v.ok) { res.status(400).json({ error: `That board layout isn't valid: ${v.errors[0]}` }); return; }
-  const saved = boardsOf(ctx).get(id)?.doc ?? boardDocFromItems(r.board.items);
+  const saved = currentDoc(ctx, r);
   const unknown = unknownTiles(ctx, v.doc, r, saved);
   if (unknown.length) { res.status(400).json({ error: `No tile for ${unknown.map((u) => `"${u}"`).join(', ')}: install the agent first.` }); return; }
   try {
@@ -445,65 +414,19 @@ boardsRouter.get('/boards/tile/:tileId.json', (req: Request, res: Response) => {
   res.json(canvasTileEntry(tile, { isPulse }));
 });
 
-/** The canvas preview of a board. */
+/** A board's canvas page when board pages are off (with them on, the board lives at /pulse or /dashboards/<id>). */
 boardsRouter.get('/boards/:id/canvas', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const page = renderBoardPage(ctx, String(req.params.id), { canvas: true });
-  if (!page) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${String(req.params.id)}".` })))); return; }
-  res.type('html').send(page);
-});
-
-/** Remove one item from a board (a tile's × on a dashboard board). Form post. */
-boardsRouter.post('/boards/:id/items/:itemId/remove', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
-  const back = safeReturnTo((req.body ?? {}).returnTo, boardPageUrl(id));
-  const r = resolveBoard(ctx, id);
-  if (!r) { res.redirect(303, back); return; }
-  const itemId = String(req.params.itemId);
-  const item = r.board.items.find((it) => it.id === itemId);
-  if (!item) { res.redirect(303, `${back}?error=${encodeURIComponent('That tile is no longer on the board.')}`); return; }
-  try {
-    boardsOf(ctx).save({ id, name: r.board.name, packId: r.board.packId, items: r.board.items.filter((it) => it.id !== itemId), expectedVersion: r.board.version });
-    const label = item.kind === 'agent' ? item.agentId : item.kind === 'system' ? item.tileId : item.kind;
-    res.redirect(303, `${back}?ok=${encodeURIComponent(`Removed ${label} from the board. Undo last save puts it back.`)}`);
-  } catch (err) {
-    res.redirect(303, `${back}?error=${encodeURIComponent((err as Error).message)}`);
-  }
-});
-
-/** Set one tile's palette (the ● button). Body: { palette, version }. Returns the new version. */
-boardsRouter.post('/boards/:id/items/:itemId/palette', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = String(req.params.id);
-  const r = resolveBoard(ctx, id);
-  if (!r) { res.status(404).json({ error: 'No such board.' }); return; }
-  const body = (req.body ?? {}) as { palette?: unknown; version?: unknown };
-  if (typeof body.palette !== 'string' || !(BOARD_PALETTES as readonly string[]).includes(body.palette)) { res.status(400).json({ error: 'Unknown palette.' }); return; }
-  const itemId = String(req.params.itemId);
-  if (!r.board.items.some((it) => it.id === itemId && (it.kind === 'agent' || it.kind === 'system'))) { res.status(404).json({ error: 'That tile is no longer on the board.' }); return; }
-  const items = r.board.items.map((it) => {
-    if (it.id !== itemId || (it.kind !== 'agent' && it.kind !== 'system')) return it;
-    const { palette: _old, ...rest } = it;
-    return body.palette === 'default' ? rest : { ...rest, palette: body.palette as typeof it.palette };
-  });
-  try {
-    const board = boardsOf(ctx).save({ id, name: r.board.name, packId: r.board.packId, items, expectedVersion: typeof body.version === 'number' ? body.version : r.board.version });
-    res.json({ version: board.version });
-  } catch (err) { sendSaveError(res, err); }
-});
-
-/** Only same-site paths come back from a form's returnTo. */
-function safeReturnTo(v: unknown, fallback: string): string {
-  return typeof v === 'string' && /^\/(?!\/)[\w\-./:%]*$/.test(v) ? v : fallback;
-}
-
-boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = String(req.params.id);
-  // With board pages on, a board's home is /pulse or /dashboards/<id>.
   if (boardPagesEnabled() && resolveBoard(ctx, id)) { res.redirect(302, boardPageUrl(id)); return; }
   const page = renderBoardPage(ctx, id);
   if (!page) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
   res.type('html').send(page);
+});
+
+boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  if (!resolveBoard(ctx, id)) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
+  res.redirect(302, boardPagesEnabled() ? boardPageUrl(id) : `/boards/${encodeURIComponent(id)}/canvas`);
 });
