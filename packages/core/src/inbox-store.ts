@@ -44,8 +44,12 @@ export type InboxStatus = typeof INBOX_STATUSES[number];
  *
  * `system-health` is sua itself being down (e.g. the scheduler crashed), so
  * nothing runs and nothing fails. Deterministic, so never auto-triaged.
+ *
+ * `conversation` is a chat with an agent (sessions.ts, ADR-0048): never
+ * triaged, never "needs you", and left out of the inbox list and its
+ * filters unless asked for by source.
  */
-export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual', 'system-health', 'question', 'board'] as const;
+export const INBOX_SOURCES = ['run-failure', 'outcome', 'permission-request', 'cadence', 'manual', 'system-health', 'question', 'board', 'conversation'] as const;
 export type InboxSource = typeof INBOX_SOURCES[number];
 
 /**
@@ -66,7 +70,8 @@ export type AgentTrustLevel = typeof AGENT_TRUST_LEVELS[number];
 /** Sentinel `agent_id` for the global-autonomy-mode row of `inbox_trust`. */
 export const GLOBAL_TRUST_KEY = '*';
 
-export const INBOX_RESPONSE_ROLES = ['user', 'triage', 'system', 'action'] as const;
+/** `agent` is an agent's reply in a `conversation` thread (sessions.ts). */
+export const INBOX_RESPONSE_ROLES = ['user', 'triage', 'system', 'action', 'agent'] as const;
 export type InboxResponseRole = typeof INBOX_RESPONSE_ROLES[number];
 
 /**
@@ -633,6 +638,8 @@ export class InboxStore {
     if (typeof opts.source === 'string' && opts.source) {
       where.push('source = ?');
       params.push(opts.source);
+    } else {
+      where.push("source != 'conversation'");
     }
     if (typeof opts.agentId === 'string' && opts.agentId) {
       where.push('agent_id = ?');
@@ -786,7 +793,7 @@ export class InboxStore {
         ${LAST_ACTIVITY_AT_SQL} AS last_activity_at
       FROM inbox_messages
       WHERE status = 'open'
-        AND source NOT IN ('manual', 'system-health', 'question', 'board')
+        AND source NOT IN ('manual', 'system-health', 'question', 'board', 'conversation')
         AND paused = 0
         AND created_at <= ?
         AND NOT EXISTS (
@@ -913,7 +920,7 @@ export class InboxStore {
    *  the list's Agent filter dropdown. */
   listAllAgentIds(): string[] {
     const rows = this.db.prepare(
-      `SELECT DISTINCT agent_id FROM inbox_messages WHERE agent_id IS NOT NULL AND agent_id != '' ORDER BY LOWER(agent_id)`,
+      `SELECT DISTINCT agent_id FROM inbox_messages WHERE agent_id IS NOT NULL AND agent_id != '' AND source != 'conversation' ORDER BY LOWER(agent_id)`,
     ).all() as Array<{ agent_id: string }>;
     return rows.map((r) => r.agent_id);
   }
@@ -1136,7 +1143,7 @@ export class InboxStore {
       SELECT id, message_id, created_at, role, body, meta_json
         FROM inbox_responses
         WHERE message_id = ?
-        ORDER BY created_at ASC
+        ORDER BY created_at ASC, rowid ASC
     `).all(messageId) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToResponse(r));
   }

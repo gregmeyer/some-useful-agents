@@ -113,6 +113,7 @@ const SOURCE_LABEL: Record<InboxSource, string> = {
   'system-health': 'System health',
   'board': 'Board',
   'question': 'Question',
+  'conversation': 'Conversation',
 };
 
 const PRIORITY_LABEL: Record<InboxPriority, string> = {
@@ -316,7 +317,8 @@ function renderFilterBar(filter: InboxListFilter, allTags: string[], allAgents: 
   const tagOptions = allTags.map((t) => html`
     <option value="${t}" ${filter.tag === t ? 'selected' : ''}>#${t}</option>
   `);
-  const sourceOptions = (Object.keys(SOURCE_LABEL) as InboxSource[]).map((s) => html`
+  // Agent conversations aren't listed in the inbox yet (conversations phase 3).
+  const sourceOptions = (Object.keys(SOURCE_LABEL) as InboxSource[]).filter((s) => s !== 'conversation').map((s) => html`
     <option value="${s}" ${filter.source === s ? 'selected' : ''}>${SOURCE_LABEL[s]}</option>
   `);
   const agentOptions = allAgents.map((a) => html`

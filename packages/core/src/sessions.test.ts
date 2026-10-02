@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
+import { InboxStore } from './inbox-store.js';
 import {
   SessionStore,
+  migrateLegacySessions,
   resolveChatInput,
   formatConversationBlock,
   prepareAgentTurn,
@@ -176,5 +178,78 @@ describe('reconcileSession', () => {
     const turns = reconcileSession(sessions, runStore, p.session.id);
     expect(turns.map((t) => `${t.role}:${t.text}`)).toEqual(['user:hi', 'agent:hello!']);
     expect(reconcileSession(sessions, runStore, p.session.id)).toHaveLength(2);
+  });
+});
+
+describe('conversations in the inbox store', () => {
+  it('keeps turns in order when they land in the same millisecond, and is not a regular inbox thread', () => {
+    const s = sessions.create('helper', 'quick');
+    for (let i = 0; i < 6; i++) sessions.appendTurn({ sessionId: s.id, role: i % 2 ? 'agent' : 'user', text: `t${i}` });
+    expect(sessions.turns(s.id).map((t) => `${t.seq}:${t.text}`)).toEqual(['1:t0', '2:t1', '3:t2', '4:t3', '5:t4', '6:t5']);
+
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const thread = inbox.add({ priority: 'medium', source: 'manual', title: 'New conversation', body: '(empty)' });
+    expect(sessions.get(thread.id)).toBeUndefined();
+    expect(sessions.delete(thread.id)).toBe(false);
+    expect(inbox.get(thread.id)).not.toBeNull();
+
+    // Hidden from the inbox list, its search, the agent filter and auto-triage.
+    expect(inbox.list().map((m) => m.id)).toEqual([thread.id]);
+    expect(inbox.list({ q: 'quick' })).toEqual([]);
+    expect(inbox.list({ source: 'conversation' }).map((m) => m.id)).toEqual([s.id]);
+    expect(inbox.listAllAgentIds()).toEqual([]);
+    expect(inbox.listAutoTriageCandidates({ olderThanMs: -60_000, limit: 10 }).map((m) => m.id)).not.toContain(s.id);
+  });
+});
+
+describe('migrateLegacySessions', () => {
+  const legacy = (db: ReturnType<RunStore['databaseHandle']>) => {
+    db.exec(`
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE INDEX idx_sessions_agent ON sessions(agent_id, updated_at DESC);
+      CREATE TABLE session_turns (session_id TEXT NOT NULL, seq INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL,
+        run_id TEXT, failed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, PRIMARY KEY (session_id, seq));
+    `);
+  };
+  const tables = (db: ReturnType<RunStore['databaseHandle']>) =>
+    (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'session%' ORDER BY name`).all() as { name: string }[]).map((r) => r.name);
+
+  it('copies old sessions with their ids, order, run links and failures, then keeps the originals as *_legacy', () => {
+    const dir2 = mkdtempSync(join(tmpdir(), 'sua-sessions-legacy-'));
+    const rs = new RunStore(join(dir2, 'runs.db'));
+    try {
+      const db = rs.databaseHandle();
+      legacy(db);
+      db.prepare(`INSERT INTO sessions VALUES ('abc12345', 'helper', 'Old chat', '2026-09-01T10:00:00.000Z', '2026-09-01T10:05:00.000Z')`).run();
+      db.prepare(`INSERT INTO session_turns VALUES ('abc12345', 1, 'user', 'hi', 'run-1', 0, '2026-09-01T10:00:00.000Z')`).run();
+      db.prepare(`INSERT INTO session_turns VALUES ('abc12345', 2, 'agent', 'boom', 'run-1', 1, '2026-09-01T10:00:00.000Z')`).run();
+      db.prepare(`INSERT INTO session_turns VALUES ('abc12345', 3, 'user', 'again?', 'run-2', 0, '2026-09-01T10:05:00.000Z')`).run();
+
+      const store = SessionStore.fromHandle(db);
+      expect(tables(db)).toEqual(['session_turns_legacy', 'sessions_legacy']);
+      expect(store.list('helper')).toEqual([{
+        id: 'abc12345', agentId: 'helper', title: 'Old chat',
+        createdAt: '2026-09-01T10:00:00.000Z', updatedAt: '2026-09-01T10:05:00.000Z',
+      }]);
+      expect(store.turns('abc12345')).toEqual([
+        { sessionId: 'abc12345', seq: 1, role: 'user', text: 'hi', runId: 'run-1', failed: false, createdAt: '2026-09-01T10:00:00.000Z' },
+        { sessionId: 'abc12345', seq: 2, role: 'agent', text: 'boom', runId: 'run-1', failed: true, createdAt: '2026-09-01T10:00:00.000Z' },
+        { sessionId: 'abc12345', seq: 3, role: 'user', text: 'again?', runId: 'run-2', failed: false, createdAt: '2026-09-01T10:05:00.000Z' },
+      ]);
+
+      // An older build on the same database recreates the tables and adds a session.
+      legacy(db);
+      db.prepare(`INSERT INTO sessions VALUES ('abc12345', 'helper', 'Old chat', '2026-09-01T10:00:00.000Z', '2026-09-01T10:05:00.000Z')`).run();
+      db.prepare(`INSERT INTO sessions VALUES ('def67890', 'helper', 'Newer', '2026-09-02T10:00:00.000Z', '2026-09-02T10:00:00.000Z')`).run();
+      expect(migrateLegacySessions(db)).toBe(1);
+      expect(store.list('helper').map((s) => s.id)).toEqual(['def67890', 'abc12345']);
+      expect(store.turns('abc12345')).toHaveLength(3);
+      expect(tables(db)).toEqual(['session_turns_legacy', 'sessions_legacy']);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM sessions_legacy').get()).toEqual({ n: 2 });
+      expect(migrateLegacySessions(db)).toBe(0);
+    } finally {
+      rs.close();
+      rmSync(dir2, { recursive: true, force: true });
+    }
   });
 });

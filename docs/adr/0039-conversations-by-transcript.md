@@ -1,6 +1,6 @@
 # ADR-0039: Conversations replay a budgeted transcript; each turn is a run
 
-- Status: accepted
+- Status: accepted (storage superseded by ADR-0048)
 - Date: 2026-09-28
 - Deciders: Greg Meyer
 

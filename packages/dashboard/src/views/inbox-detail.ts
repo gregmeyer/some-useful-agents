@@ -126,6 +126,7 @@ const SOURCE_LABEL: Record<string, string> = {
   'system-health': 'System health',
   'board': 'Board',
   'question': 'Question',
+  'conversation': 'Conversation',
 };
 
 const ROLE_LABEL: Record<InboxResponseRole, string> = {
@@ -133,6 +134,7 @@ const ROLE_LABEL: Record<InboxResponseRole, string> = {
   triage: 'Triage agent',
   system: 'System',
   action: 'Proposed action',
+  agent: 'Agent',
 };
 
 /** Terminal-native speaker sigil per role — rendered mono as `triage ›`, the
@@ -142,6 +144,7 @@ const ROLE_AVATAR: Record<InboxResponseRole, string> = {
   triage: 'triage',
   system: 'system',
   action: 'action',
+  agent: 'agent',
 };
 
 /** Human label for each action-card status. */
