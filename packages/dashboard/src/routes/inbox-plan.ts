@@ -365,6 +365,29 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `board-build` builds a whole board from a request (route-handled pseudo-agent).
+    if (type === 'board-build') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof k === 'string' && typeof v === 'string') inputs[k] = v;
+        }
+      }
+      if (!(inputs.REQUEST ?? '').trim()) {
+        rejected.push({ agentId: 'board-build', reason: 'board-build requires inputs.REQUEST' });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'board-build',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: 'Build board',
+      });
+      continue;
+    }
     if (type !== 'run-agent' || !agentId) {
       rejected.push({ agentId: agentId || '<unknown>', reason: 'malformed action entry' });
       continue;

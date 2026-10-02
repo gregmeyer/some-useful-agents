@@ -607,6 +607,7 @@ export {
   boardDocFromBuildPlan,
   extractBoardBuildPlan,
   BoardBuildStore,
+  queueBoardBuild,
   type BoardBuildPlan,
   type BoardBuild,
   type BoardBuildPhase,

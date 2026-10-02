@@ -25,6 +25,9 @@ import {
   UndeclaredInputError,
   SensitiveInputNameError,
   BoardsStore,
+  BoardBuildStore,
+  queueBoardBuild,
+  type DashboardsStore,
   getBuiltinTool,
   evaluatePolicy,
   resolvePolicyDocument,
@@ -173,6 +176,8 @@ export interface RegisterToolsOptions {
   dataRoot?: string;
   /** Legacy filesystem source — v1 YAML directories. */
   agentDirs?: string[];
+  /** Named dashboards, for build-board (a new board is a user dashboard). */
+  dashboardsStore?: DashboardsStore;
 }
 
 export function registerTools(server: McpServer, opts: RegisterToolsOptions): void {
@@ -424,6 +429,61 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
       },
     },
     async ({ board, ops, version }) => runBoardTool('board-place', { board, ops, ...(version !== undefined ? { version } : {}) }),
+  );
+
+  // Build a whole board from a request (docs/boards.md § Build a board). The
+  // build itself runs in the dashboard (it drafts agents and runs tiles), so
+  // this queues it in the shared database; the dashboard picks it up within
+  // seconds and posts "your board is ready" to the sua inbox.
+  const builds = (() => {
+    try { return opts.runStore ? new BoardBuildStore(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
+  })();
+  const policyAllows = (toolId: string): string | undefined => {
+    if (!opts.dataRoot) return undefined;
+    const d = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), { toolId, resource: '', agentSource: 'local', agentId: 'mcp' });
+    return d.effect === 'deny' ? (d.reason ?? `Policy denies "${toolId}".`) : undefined;
+  };
+  server.registerTool(
+    'build-board',
+    {
+      description: 'Build a sua board from a request: sua picks the right agents from the person\'s catalog, lays out a new board, runs every tile, drafts agents for anything not covered (the person approves those in the sua inbox), and posts "your board is ready" to the inbox. Returns the new board and a build id; it takes a minute or two (check with board-build-status).',
+      inputSchema: {
+        request: z.string().describe('What the board should show, in the person\'s words, e.g. "a morning board with the weather in Seattle, the markets and my job leads".'),
+        name: z.string().optional().describe('Optional short board name.'),
+      },
+    },
+    async ({ request, name }) => {
+      const denied = policyAllows('build-board');
+      if (denied) return errorResult(denied);
+      if (!opts.runStore || !opts.dashboardsStore) return errorResult('Boards are not available on this server.');
+      try {
+        const { boardId, build } = queueBoardBuild(opts.runStore.databaseHandle(), opts.dashboardsStore, { request, ...(name ? { name } : {}), queued: true, origin: 'mcp' });
+        return { content: [{ type: 'text' as const, text: `Queued the board "${name?.trim() || boardId.replace(/^user:/, '')}" (board ${boardId}, build ${build.id}). The sua dashboard builds it now: open /dashboards/${encodeURIComponent(boardId)} there. Check progress with board-build-status; the person's inbox says when it's ready.` }] };
+      } catch (err) {
+        return errorResult((err as Error).message);
+      }
+    },
+  );
+  server.registerTool(
+    'board-build-status',
+    {
+      description: 'How a build-board build is going: its phase (queued, planning, arranging, running, drafting, done, failed), the agents placed, any that failed, the parts no agent covered, and whether drafted agents await approval.',
+      inputSchema: { build: z.string().describe('The build id build-board returned.') },
+    },
+    async ({ build }) => {
+      if (!builds) return errorResult('Boards are not available on this server.');
+      const b = builds.get(build);
+      if (!b) return errorResult(`No build "${build}".`);
+      const lines = [
+        `Board ${b.boardId}: ${b.phase}. ${b.detail}`,
+        ...(b.placed.length ? [`Placed: ${b.placed.join(', ')}`] : []),
+        ...(b.failed.length ? [`Didn't run cleanly: ${b.failed.join(', ')}`] : []),
+        ...(b.missing.length ? [`Not covered by existing agents: ${b.missing.map((m) => m.purpose).join('; ')}`] : []),
+        ...(b.drafts.filter((d) => d.ok).length ? [`Drafted (${b.approval ?? 'pending'}): ${b.drafts.filter((d) => d.ok).map((d) => d.id).join(', ')} — the person approves these in the sua inbox.`] : []),
+        ...(b.error ? [`Error: ${b.error}`] : []),
+      ];
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
   );
 
   server.registerTool(

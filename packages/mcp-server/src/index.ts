@@ -7,6 +7,7 @@ import {
   LocalProvider,
   EncryptedFileStore,
   RunStore,
+  DashboardsStore,
   VariablesStore,
   ensureMcpToken,
   getMcpTokenPath,
@@ -107,6 +108,7 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
   // substitution works for MCP-triggered runs.
   const agentStore = new AgentStore(options.dbPath);
   const runStore = new RunStore(options.dbPath);
+  const dashboardsStore = new DashboardsStore(options.dbPath);
   const dataRoot = dirname(options.dbPath);
   const variablesStore = (() => {
     try { return new VariablesStore(`${dataRoot}/.sua/variables.json`); }
@@ -132,6 +134,7 @@ export async function startMcpServer(options: McpServerOptions): Promise<McpServ
         variablesStore,
         dataRoot,
         agentDirs: options.agentDirs,
+        dashboardsStore,
       });
       return s;
     }, { legacy: 'stateless' }),

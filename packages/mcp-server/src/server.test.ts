@@ -475,6 +475,12 @@ describe('MCP board tools', () => {
 
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'board-place', resources: ['pulse'], effect: 'deny', reason: 'Pulse is arranged by hand.' }] }));
+      // build-board queues a build for the dashboard to run; board-build-status reports it.
+      const queued = await c.callTool({ name: 'build-board', arguments: { request: 'a board with the news', name: 'News' } });
+      expect(queued.isError).toBeFalsy();
+      const buildId = /build ([0-9a-f-]{36})/.exec(text(queued))![1];
+      expect(text(queued)).toContain('/dashboards/user%3Anews');
+      expect(text(await c.callTool({ name: 'board-build-status', arguments: { build: buildId } }))).toMatch(/^Board user:news: queued\./);
       const denied = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', ops: [{ op: 'remove', id: grid }] } });
       expect(denied.isError).toBe(true);
       expect(text(denied)).toBe('Pulse is arranged by hand.');
