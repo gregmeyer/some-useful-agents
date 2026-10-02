@@ -63,6 +63,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'inbox-learning-extractor': 'post-resolution distillation, runs unattended',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
+  'board-builder': 'invoked by New board from a request (/boards/new)',
 
   // 2. trivial demos
   'apple-foundationmodels-prompt': 'provider smoke test, not a user-facing job',

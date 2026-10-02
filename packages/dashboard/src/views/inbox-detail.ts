@@ -123,6 +123,7 @@ const SOURCE_LABEL: Record<string, string> = {
   'cadence': 'Cadence',
   'manual': 'Manual',
   'system-health': 'System health',
+  'board': 'Board',
   'question': 'Question',
 };
 

@@ -22,6 +22,7 @@ import { html, render, unsafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
+import { boardCatalog, latestBoardBuild, startBoardBuild } from '../lib/board-build.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
 import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
@@ -236,6 +237,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <span class="dim board-page__meta">${String(tileCount)} placed${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
         <div class="board-page__actions">
           ${dropdown}
+          <a class="btn btn--ghost btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">＋ New board</a>
           ${p.tiles.length > 0 ? html`
             <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
               <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
@@ -259,6 +261,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <span class="dim board-page__meta">${String(tileCount)} tile${tileCount === 1 ? '' : 's'} · ${sourceLabel}</span>
         <div class="board-page__actions">
           ${dropdown}
+          <a class="btn btn--ghost btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">＋ New board</a>
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/edit">Edit dashboard</a>
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
         </div>
@@ -269,6 +272,23 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   }
 
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  const build = isPulse ? undefined : latestBoardBuild(ctx, id);
+  const building = build && (build.phase === 'planning' || build.phase === 'arranging' || build.phase === 'running');
+  const recentlyBuilt = build && !building && Date.now() - build.updatedAt < 6 * 3_600_000 && (r.board.version <= 1);
+  const buildBanner = building
+    ? html`<div class="flash flash--info board-build" data-board-build="${id}" role="status" aria-live="polite">
+        <strong>Building this board from your request.</strong> <span data-board-build-detail>${build!.detail}</span>
+        <span class="dim"> You can leave; your inbox will say when it's ready.</span>
+      </div>
+      ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-build]');if(!el)return;var id=el.getAttribute('data-board-build');function tick(){fetch('/boards/'+encodeURIComponent(id)+'/build.json',{headers:{Accept:'application/json'}}).then(function(r){return r.json();}).then(function(b){if(!b||!b.phase)return;if(b.phase==='done'||b.phase==='failed'){location.reload();return;}var d=el.querySelector('[data-board-build-detail]');if(d)d.textContent=b.detail||'';setTimeout(tick,3000);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,3000);})();</script>`)}`
+    : recentlyBuilt
+      ? html`<div class="flash ${build!.phase === 'failed' ? 'flash--error' : 'flash--info'} board-build" role="status">
+          ${build!.phase === 'failed'
+            ? html`<strong>This board couldn't be built.</strong> ${build!.error ?? ''}`
+            : html`<strong>Built from your request.</strong> ${build!.detail}${build!.failed.length ? html` ${String(build!.failed.length)} tile${build!.failed.length === 1 ? '' : 's'} didn't run cleanly.` : html``}`}
+          ${build!.missing.length ? html`<div style="margin-top: var(--space-1);">Not covered by your agents yet: ${build!.missing.map((m) => m.purpose).join('; ')}. Build an agent for them (Build from goal on the <a href="/agents">Agents</a> page), then add it with Arrange.</div>` : html``}
+        </div>`
+      : html``;
   const editorData = {
     id,
     version: r.board.version,
@@ -282,6 +302,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   };
   return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
     ${header}
+    ${buildBanner}
     <div class="board-toolbar" data-canvas-toolbar>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>✎ Arrange</button>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
@@ -412,6 +433,42 @@ boardsRouter.get('/boards/tile/:tileId.json', (req: Request, res: Response) => {
   }
   if (!tile) { res.status(404).json({ error: 'No such tile.' }); return; }
   res.json(canvasTileEntry(tile, { isPulse }));
+});
+
+/** New board from a request: the form. */
+boardsRouter.get('/boards/new', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const count = boardCatalog(ctx).length;
+  res.type('html').send(render(layout({ title: 'New board', activeNav: 'pulse' }, html`
+    ${pageHeader({ title: 'New board from a request', description: 'Describe what you want to see. sua picks from your agents, groups and sizes them on a new board, runs every tile, and tells you in your inbox when it\'s ready.' })}
+    <form method="POST" action="/boards/build" class="board-new">
+      <label class="board-new__field"><span>What should this board show?</span>
+        <textarea name="request" rows="4" required maxlength="2000" placeholder="A morning board: weather in Seattle, the markets, and new remote PM jobs"></textarea></label>
+      <label class="board-new__field"><span>Name <span class="dim">(optional; sua names it otherwise)</span></span>
+        <input type="text" name="name" maxlength="60" placeholder="Morning"></label>
+      <p class="dim" style="font-size: var(--font-size-sm);">It uses the ${String(count)} agent${count === 1 ? '' : 's'} you have that can be a tile. Parts none of them cover are listed when it's done, so you can build agents for them.</p>
+      <button type="submit" class="btn btn--primary">Build the board</button>
+    </form>`)));
+});
+
+/** Start building a board from a request; go to the new board (it shows progress). */
+boardsRouter.post('/boards/build', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as { request?: unknown; name?: unknown };
+  try {
+    const { boardId } = startBoardBuild(ctx, { request: String(body.request ?? ''), name: typeof body.name === 'string' ? body.name : undefined });
+    res.redirect(303, boardPageUrl(boardId));
+  } catch (err) {
+    res.redirect(303, `/boards/new?error=${encodeURIComponent((err as Error).message)}`);
+  }
+});
+
+/** A board's latest build (progress for its page). */
+boardsRouter.get('/boards/:id/build.json', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const b = latestBoardBuild(ctx, String(req.params.id));
+  if (!b) { res.status(404).json({ error: 'No build for this board.' }); return; }
+  res.json(b);
 });
 
 /** A board's canvas page when board pages are off (with them on, the board lives at /pulse or /dashboards/<id>). */
