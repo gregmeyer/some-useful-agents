@@ -106,3 +106,5 @@ Text supports a small, safe markdown subset (`**bold**`, `*italic*`, `` `code` `
 A declared view is checked when the agent is saved or imported (an invalid one is refused, with the reason). A generated view is checked on every run; if the node's output isn't a valid view, the run page says why and falls back to the agent's output widget (or the raw output), and Pulse and chat show the reason. The model's output is never drawn unchecked.
 
 See [ADR-0047](adr/0047-a2ui-views.md) for the design.
+
+The catalog also holds five board-only components (`Section`, `Grid`, `Cell`, `AgentTile`, `SystemTile`) that lay out [canvas boards](boards.md#canvas-boards-preview). An agent's view can't use them.

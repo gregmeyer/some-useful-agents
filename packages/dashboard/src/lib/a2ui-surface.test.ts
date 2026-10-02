@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { suaComponentDocs, type Run } from '@some-useful-agents/core';
+import { suaComponentDocs, boardComponentDocs, type Run } from '@some-useful-agents/core';
 import { renderRunView, renderSurfaceHost } from './a2ui-surface.js';
 import { actionToMessage } from './chat-turn.js';
 
@@ -41,6 +41,8 @@ describe('browser components match the core catalog', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf8');
     const defined = [...js.matchAll(/define\('(\w+)'/g)].map((m) => m[1]).sort();
-    expect(defined).toEqual(suaComponentDocs().map((d) => d.name).sort());
+    expect(defined).toEqual([...suaComponentDocs(), ...boardComponentDocs()].map((d) => d.name).sort());
+    // Board-only components are never offered to agent views.
+    expect(suaComponentDocs().map((d) => d.name)).not.toContain('AgentTile');
   });
 });

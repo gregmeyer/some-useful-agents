@@ -378,5 +378,12 @@ export const PULSE_CONFIGURE_JS = `
 
       openModal(agentId, config, outputFields);
     });
+
+    // Canvas boards: an AgentTile's ⚙ (inside shadow DOM) sends its config here.
+    document.addEventListener('sua-configure-tile', function (e) {
+      var d = e.detail || {};
+      if (!d.agentId) return;
+      openModal(d.agentId, d.config || {}, d.outputFields || []);
+    });
   })();
 `;

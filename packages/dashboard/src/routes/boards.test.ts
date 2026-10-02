@@ -258,3 +258,39 @@ describe('board pages', () => {
     } finally { setDashboardPrefs({ boardPages: true }); }
   });
 });
+
+describe('canvas boards (preview)', () => {
+  const embedded = (text: string, re: RegExp) => JSON.parse(re.exec(text)![1].replace(/\\u003c/g, '<'));
+  it('draws a dashboard as one A2UI surface: Sections of Grids of AgentTiles, with a tile registry', async () => {
+    const app = await setup();
+    const page = await get(app, '/boards/user:morning/canvas');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('data-board-canvas="user:morning"');
+    const messages = embedded(page.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/);
+    const comps = messages[1].updateComponents.components as Array<Record<string, unknown>>;
+    expect(comps.find((c) => c.id === 'root')).toMatchObject({ component: 'Column' });
+    expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Today']);
+    expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
+    const tiles = embedded(page.text, /<script type="application\/json" id="board-tiles">([\s\S]*?)<\/script>/);
+    expect(Object.keys(tiles).sort()).toEqual(['news', 'weather']);
+    expect(tiles.news).toMatchObject({ title: 'news', run: 'button', empty: 'No runs yet.', age: 'never' });
+    expect(tiles.news.configure.config).toMatchObject({ template: 'text-headline' });
+    expect(tiles.news.hideAction).toBeUndefined();
+  });
+
+  it('adds Pulse\'s unplaced agents under "Everything else" in tabs, with health tiles drawn as A2UI and × hiding', async () => {
+    const app = await setup();
+    const page = await get(app, '/boards/pulse/canvas');
+    const messages = embedded(page.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/);
+    const comps = messages[1].updateComponents.components as Array<Record<string, unknown>>;
+    expect(comps.find((c) => c.id === 'rest')).toMatchObject({ component: 'Section', title: 'Everything else', child: 'rest_tabs' });
+    expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Health/), expect.stringMatching(/^Never run/)]));
+    const tiles = embedded(page.text, /<script type="application\/json" id="board-tiles">([\s\S]*?)<\/script>/);
+    expect(tiles.weather.hideAction).toBe('/agents/weather/signal/toggle');
+    expect(JSON.stringify(tiles['_system-runs-today'].messages)).toContain('"component":"Metric"');
+
+    const one = await get(app, '/boards/tile/weather.json?board=pulse');
+    expect(one.body).toMatchObject({ title: 'weather', hideAction: '/agents/weather/signal/toggle' });
+    expect((await get(app, '/boards/tile/ghost.json')).status).toBe(404);
+  });
+});
