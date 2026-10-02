@@ -229,13 +229,22 @@ describe('arranging a canvas', () => {
     expect(res.status).toBe(400);
   });
 
-  it('keeps board-place off boards arranged as a canvas (until it learns trees)', async () => {
-    await setup();
+  it('an agent arranges the canvas with board-place, and the page shows it', async () => {
+    const app = await setup();
     const store = new BoardsStore(ctx.runStore.databaseHandle());
-    store.saveDoc({ id: 'user:morning', name: 'Morning', doc: { components: [{ id: 'root', component: 'Column', children: [] }] }, expectedVersion: 0 });
     const { getBuiltinTool } = await import('@some-useful-agents/core');
-    const out = await getBuiltinTool('board-place')!.execute({ board: 'user:morning', changes: [{ op: 'add', kind: 'heading', text: 'x' }] }, { boards: store });
-    expect(out).toMatchObject({ isError: true });
-    expect(out.result).toMatch(/arranged as a canvas/);
+    const read = await getBuiltinTool('board-read')!.execute({ board: 'user:morning' }, { boards: store });
+    const grid = /\[(grid_\d+)\] grid/.exec(String(read.result))![1];
+    const out = await getBuiltinTool('board-place')!.execute({ board: 'user:morning', version: 0, ops: [
+      { op: 'insert', parent: grid, index: 0, node: { type: 'tile', agentId: 'notes' } },
+      { op: 'insert', parent: 'root', index: 0, node: { type: 'section', title: 'Agent picks' } },
+    ] }, { boards: store });
+    expect(out.isError).toBeFalsy();
+    const comps = surface((await get(app, '/dashboards/user:morning')).text);
+    const root = comps.find((c) => c.id === 'root')!;
+    expect((root.children as string[]).map((id) => comps.find((c) => c.id === id)!.title)).toEqual(['Agent picks', 'Today']);
+    const gridKids = comps.find((c) => c.id === grid)!.children as string[];
+    expect(comps.find((c) => c.id === gridKids[0])).toMatchObject({ component: 'AgentTile', agentId: 'notes' });
   });
+
 });

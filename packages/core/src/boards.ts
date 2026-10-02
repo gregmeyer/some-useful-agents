@@ -178,77 +178,6 @@ export function boardItemsHash(items: readonly BoardItem[]): string {
   return createHash('sha256').update(JSON.stringify(items)).digest('hex').slice(0, 12);
 }
 
-/** First free w×h spot on a board, top to bottom then left to right (else a new row at the bottom). */
-export function freeSpot(items: readonly BoardItem[], w: number, h: number): { x: number; y: number } {
-  const width = Math.min(Math.max(1, w), BOARD_COLUMNS);
-  const end = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
-  for (let y = 0; y <= end; y++) {
-    for (let x = 0; x + width <= BOARD_COLUMNS; x++) {
-      const probe = { id: '_', kind: 'heading', text: '_', x, y, w: width, h } as BoardItem;
-      if (!items.some((o) => overlaps(probe, o))) return { x, y };
-    }
-  }
-  return { x: 0, y: end };
-}
-
-const pos = { x: z.number().int().min(0).max(BOARD_COLUMNS - 1).optional(), y: z.number().int().min(0).max(10_000).optional() };
-const span = { w: z.number().int().min(1).max(BOARD_COLUMNS).optional(), h: z.number().int().min(1).max(60).optional() };
-
-/** One change an agent (or the board-place tool) makes to a board. */
-export const boardChangeSchema = z.union([
-  z.object({ op: z.literal('add'), kind: z.literal('agent'), agentId: z.string().min(1).max(128), size: z.enum(['1x1', '2x1', '1x2', '2x2']).optional(), ...pos, ...span }).strict(),
-  // A heading always spans the row; w/h are accepted (models send them) and ignored.
-  z.object({ op: z.literal('add'), kind: z.literal('heading'), text: z.string().min(1).max(120), ...pos, ...span }).strict(),
-  z.object({ op: z.literal('add'), kind: z.literal('note'), text: z.string().min(1).max(4000), ...pos, ...span }).strict(),
-  z.object({ op: z.literal('move'), id: z.string().min(1), x: z.number().int().min(0).max(BOARD_COLUMNS - 1), y: z.number().int().min(0).max(10_000) }).strict(),
-  z.object({ op: z.literal('resize'), id: z.string().min(1), w: z.number().int().min(1).max(BOARD_COLUMNS), h: z.number().int().min(1).max(60) }).strict(),
-  z.object({ op: z.literal('remove'), id: z.string().min(1) }).strict(),
-]);
-export type BoardChange = z.infer<typeof boardChangeSchema>;
-
-/**
- * Apply changes to a board's items and settle them. An `add` without x/y
- * goes in the first free spot; `move`/`resize`/`remove` take an item id
- * (or, for an agent tile, the agent id). Throws a readable error on an
- * unknown id or a change that fails the schema.
- */
-export function applyBoardChanges(current: readonly BoardItem[], changesInput: unknown): BoardItem[] {
-  const changes = z.array(boardChangeSchema).min(1).max(100).parse(changesInput);
-  let items: BoardItem[] = current.map((i) => ({ ...i }));
-  const find = (id: string) => items.find((i) => i.id === id) ?? items.find((i) => i.kind === 'agent' && i.agentId === id);
-  const newId = (prefix: string) => {
-    let n = items.length + 1;
-    while (items.some((i) => i.id === `${prefix}${n}`)) n += 1;
-    return `${prefix}${n}`;
-  };
-  for (const c of changes) {
-    if (c.op === 'add') {
-      if (c.kind === 'agent') {
-        const { w, h } = c.w || c.h ? { w: c.w ?? 3, h: c.h ?? 5 } : sizeToSpan(c.size);
-        const at = c.x !== undefined && c.y !== undefined ? { x: c.x, y: c.y } : freeSpot(items, w, h);
-        items.push({ id: newId('a'), kind: 'agent', agentId: c.agentId, ...at, w, h });
-      } else if (c.kind === 'heading') {
-        const end = items.reduce((m, i) => Math.max(m, i.y + i.h), 0);
-        items.push({ id: newId('h'), kind: 'heading', text: c.text, x: 0, y: c.y ?? end, w: BOARD_COLUMNS, h: 1 });
-      } else {
-        const w = c.w ?? 4;
-        const h = c.h ?? 3;
-        const at = c.x !== undefined && c.y !== undefined ? { x: c.x, y: c.y } : freeSpot(items, w, h);
-        items.push({ id: newId('n'), kind: 'note', text: c.text, ...at, w, h });
-      }
-      items = normalizeBoardItems(items);
-      continue;
-    }
-    const target = find(c.id);
-    if (!target) throw new Error(`There's no item "${c.id}" on this board. Read the board first to get item ids.`);
-    if (c.op === 'remove') items = items.filter((i) => i !== target);
-    else if (c.op === 'move') { target.x = Math.min(c.x, BOARD_COLUMNS - target.w); target.y = c.y; }
-    else { target.w = c.w; target.h = c.h; target.x = Math.min(target.x, BOARD_COLUMNS - c.w); }
-    items = normalizeBoardItems(items);
-  }
-  return items;
-}
-
 /**
  * Board items from an Improve-layout plan: each container becomes a heading
  * plus its tiles, sized by the plan's suggestion for that agent (else
@@ -553,6 +482,16 @@ export class BoardsStore {
       if (dag.view) return TILE_TEMPLATE_DEFAULT_SIZES.widget;
     } catch { /* no agents tables, or unreadable */ }
     return undefined;
+  }
+
+  /** An agent's tile title (its signal title, else its name), for outlines. */
+  tileTitle(agentId: string): string | undefined {
+    try {
+      const row = this.db.prepare('SELECT a.name AS name, v.dag_json AS dag FROM agents a JOIN agent_versions v ON v.agent_id = a.id AND v.version = a.current_version WHERE a.id = ?').get(agentId) as { name: string; dag: string } | undefined;
+      if (!row) return undefined;
+      const dag = JSON.parse(row.dag) as { signal?: { title?: string } };
+      return dag.signal?.title || row.name || undefined;
+    } catch { return undefined; }
   }
 
   /** Agent ids among `ids` that aren't installed (or have no tile to show). */

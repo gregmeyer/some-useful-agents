@@ -12,7 +12,8 @@ import type {
   BuiltinToolContext,
 } from './tool-types.js';
 import { webFetch } from './web-fetch/index.js';
-import { applyBoardChanges, BoardConflictError, type BoardItem } from './boards.js';
+import { BoardConflictError, boardDocAgentIds, boardDocSystemTileIds, type BoardDoc } from './boards.js';
+import { applyBoardOps, describeBoardDoc } from './board-tree.js';
 import { webScrape } from './web-fetch/scrape.js';
 
 /**
@@ -296,23 +297,29 @@ function arrayInput(v: unknown): unknown {
   return Array.isArray(out) ? out.map(parse) : out;
 }
 
-function boardSummary(b: { id: string; name: string; version: number; items: BoardItem[] }): string {
-  const lines = b.items.map((i) => {
-    const what = i.kind === 'agent' ? `agent ${i.agentId}` : i.kind === 'system' ? `system ${i.tileId}` : `${i.kind} "${i.text.length > 40 ? `${i.text.slice(0, 40)}…` : i.text}"`;
-    return `[${i.id}] ${what} at x=${i.x} y=${i.y}, ${i.w}x${i.h}`;
-  });
-  return `Board "${b.name}" (${b.id}), version ${b.version}, 12 columns, ${b.items.length} item${b.items.length === 1 ? '' : 's'}${lines.length ? `:\n${lines.join('\n')}` : ' (empty).'}`;
+/** The board's outline for a tool result. */
+function boardOutline(boards: NonNullable<BuiltinToolContext['boards']>, b: { id: string; name: string; version: number; doc: BoardDoc }): string {
+  const tiles = boardDocAgentIds(b.doc).length + boardDocSystemTileIds(b.doc).length;
+  return `Board "${b.name}" (${b.id}), version ${b.version}, ${tiles} tile${tiles === 1 ? '' : 's'}:\n${describeBoardDoc(b.doc, (a) => boards.tileTitle(a))}`;
 }
 
-/** board-read / board-place — let an agent arrange Pulse or a named dashboard. See boards.ts. */
+const OPS_HELP = 'Operations, applied in order: '
+  + '{"op":"insert","parent":ID,"index"?:N,"node":{"type":"tile","agentId":"…"} | {"type":"system","tileId":"_system-…"} | {"type":"section","title":"…"} (a titled section holding a grid) | {"type":"heading","text":"…"} | {"type":"note","text":"…"} | {"type":"grid"} | {"type":"row"} | {"type":"column"} | {"type":"tabs","title"?:"…"} | {"type":"card"}}; '
+  + '{"op":"move","id":ID,"parent":ID,"index"?:N}; {"op":"remove","id":ID}; '
+  + '{"op":"wrap","id":ID,"in":"section"|"card"|"row"|"column"|"tabs","title"?:"…"} (tabs: the node becomes a tab; insert into the tabs to add more tabs); {"op":"unwrap","id":ID}; '
+  + '{"op":"set","id":ID,"props":{"title"?,"text"?,"minWidth"?,"palette"?:"default|dark|light|accent-teal|accent-red|accent-green","tabTitles"?:[…]}}; '
+  + '{"op":"span","id":TILE_ID,"span"?:1-4,"rows"?:1-4} (columns/rows a tile takes in its grid). '
+  + 'Insert a tile into a grid (a section\'s grid id is shown under it). ids come from board-read; "root" is the board itself.';
+
+/** board-read / board-place — let an agent arrange Pulse or a named dashboard (canvas trees, board-tree.ts). */
 const BOARD_TOOLS: BuiltinToolEntry[] = [
   def(
     'board-read',
     'Read a board',
-    'See how a board (Pulse or a named dashboard) is laid out: its items with their ids, positions and sizes on a 12-column grid. Leave board empty to list the boards you can arrange.',
+    'See how a board (Pulse or a named dashboard) is laid out: an outline of its sections, tabs, rows, grids and tiles, each with the id board-place needs, and its version. Leave board empty to list the boards you can arrange.',
     { board: { type: 'string', description: 'Board id: "pulse" or a dashboard id like "user:morning-briefing". Empty lists the boards.' } },
     {
-      board: { type: 'object', description: 'The board: {id, name, version, items}.' },
+      board: { type: 'object', description: 'The board: {id, name, version, doc} where doc is its A2UI component list.' },
       boards: { type: 'array', description: 'When listing: [{id, name, saved}].' },
     },
     async (inputs, ctx) => {
@@ -322,45 +329,41 @@ const BOARD_TOOLS: BuiltinToolEntry[] = [
         const boards = ctx.boards.listAll();
         return { boards, result: boards.map((b) => `${b.id} — ${b.name}`).join('\n') };
       }
-      const b = ctx.boards.loadOrDerive(id);
+      const b = ctx.boards.loadDocOrDerive(id);
       if (!b) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
-      return { board: { id: b.id, name: b.name, version: b.version, items: b.items }, result: boardSummary(b) };
+      return { board: { id: b.id, name: b.name, version: b.version, doc: b.doc }, result: boardOutline(ctx.boards, b) };
     },
   ),
   def(
     'board-place',
     'Arrange a board',
-    'Add, move, resize or remove tiles on a board (Pulse or a named dashboard). The grid is 12 columns wide; rows are 40px; tiles never overlap and float up into gaps. Changes are saved as a new version the person can undo. Read the board first to get item ids.',
+    `Change how a board (Pulse or a named dashboard) is laid out: add tiles, sections, tabs, rows, grids, headings and notes; move, wrap, unwrap or remove them; set titles, palettes and tile spans. Read the board first for ids. All operations are checked and saved together as a new version the person can undo; if any fails, nothing changes. ${OPS_HELP}`,
     {
       board: { type: 'string', required: true, description: 'Board id: "pulse" or a dashboard id.' },
-      changes: {
-        type: 'array',
-        required: true,
-        description: 'Changes in order. Each is one of: {"op":"add","kind":"agent","agentId":"…","size":"1x1|2x1|1x2|2x2"} (optionally x,y,w,h; without x/y it goes in the first free spot), {"op":"add","kind":"heading","text":"…"}, {"op":"add","kind":"note","text":"…"}, {"op":"move","id":"…","x":0,"y":0}, {"op":"resize","id":"…","w":6,"h":5}, {"op":"remove","id":"…"}. id is an item id from board-read (an agent id also works for agent tiles).',
-      },
+      ops: { type: 'array', required: true, description: OPS_HELP },
       version: { type: 'number', description: 'The version you read. If the board changed since, nothing is saved and you get the current version back.' },
     },
-    { board: { type: 'object', description: 'The saved board: {id, name, version, items}.' } },
+    { board: { type: 'object', description: 'The saved board: {id, name, version, doc}.' } },
     async (inputs, ctx) => {
       if (!ctx.boards) return boardsOff();
       const id = String(inputs.board ?? '').trim();
-      const current = ctx.boards.loadOrDerive(id);
+      const current = ctx.boards.loadDocOrDerive(id);
       if (!current) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
-      if (current.doc) return { result: `Nothing was changed: "${id}" is arranged as a canvas, which these tile changes can't edit yet. Ask the person to arrange it on its canvas page.`, isError: true };
-      let items: BoardItem[];
+      let doc: BoardDoc;
       try {
-        items = applyBoardChanges(current.items, arrayInput(inputs.changes));
+        doc = applyBoardOps(current.doc, arrayInput(inputs.ops ?? inputs.changes)).doc;
       } catch (err) {
         const issues = (err as { issues?: Array<{ path: Array<string | number>; message: string }> }).issues;
         const why = issues?.length ? issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : (err as Error).message;
         return { result: `Nothing was changed: ${why}`, isError: true };
       }
-      const missing = ctx.boards.missingAgents(items.flatMap((i) => (i.kind === 'agent' && !current.items.some((c) => c.kind === 'agent' && c.agentId === i.agentId) ? [i.agentId] : [])));
+      const had = new Set(boardDocAgentIds(current.doc));
+      const missing = ctx.boards.missingAgents(boardDocAgentIds(doc).filter((a) => !had.has(a)));
       if (missing.length) return { result: `Nothing was changed: no installed agent ${missing.map((m) => `"${m}"`).join(', ')}.`, isError: true };
-      const version = typeof inputs.version === 'number' ? inputs.version : Number.isFinite(Number(inputs.version)) && inputs.version !== undefined && inputs.version !== '' ? Number(inputs.version) : current.version;
+      const version = typeof inputs.version === 'number' ? inputs.version : inputs.version !== undefined && inputs.version !== '' && Number.isFinite(Number(inputs.version)) ? Number(inputs.version) : current.version;
       try {
-        const saved = ctx.boards.save({ id, name: current.name, packId: current.packId, items, expectedVersion: version });
-        return { board: { id: saved.id, name: saved.name, version: saved.version, items: saved.items }, result: `Saved. ${boardSummary(saved)}` };
+        const saved = ctx.boards.saveDoc({ id, name: current.name, packId: current.packId, doc, expectedVersion: version });
+        return { board: { id: saved.id, name: saved.name, version: saved.version, doc: saved.doc }, result: `Saved. ${boardOutline(ctx.boards, { ...saved, doc: saved.doc! })}` };
       } catch (err) {
         if (err instanceof BoardConflictError) return { result: `Nothing was changed: the board is now at version ${err.current}. Read it again and redo your changes.`, isError: true };
         return { result: `Nothing was changed: ${(err as Error).message}`, isError: true };

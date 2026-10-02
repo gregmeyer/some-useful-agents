@@ -45,7 +45,7 @@ Every change is applied by the dashboard with the same rules agents use, so the 
 
 ## Agents and MCP clients
 
-An agent can arrange a board with the built-in [`board-read` and `board-place`](tools/board-place.md) tools, and MCP clients (Claude Desktop, Codex…) get the same two tools from `sua mcp`. Their changes land as a new version you can undo from the board page, and follow your [tool policy](tool-policies.md), where the board id is the resource. For now `board-place` edits only boards that haven't been arranged on the canvas yet; teaching it the canvas's sections, tabs and grids comes next.
+An agent can arrange a board with the built-in [`board-read` and `board-place`](tools/board-place.md) tools, and MCP clients (Claude Desktop, Codex…) get the same two tools from `sua mcp`. Their changes land as a new version you can undo from the board page, and follow your [tool policy](tool-policies.md), where the board id is the resource. They work on the board's tree with the same operations as **✎ Arrange** (`insert`, `move`, `remove`, `wrap`, `unwrap`, `set`, `span`), so an agent can, say, put the weather tile in a new "Outside" section two columns wide, or turn two sections into tabs.
 
 ## The board document
 

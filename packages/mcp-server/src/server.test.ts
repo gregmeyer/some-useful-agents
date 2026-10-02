@@ -462,15 +462,20 @@ describe('MCP board tools', () => {
     try {
       const listed = await c.listTools();
       expect(listed.tools.map((t) => t.name)).toEqual(expect.arrayContaining(['board-read', 'board-place']));
-      const placed = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', changes: [{ op: 'add', kind: 'agent', agentId: 'news', size: '2x1' }], version: 0 } });
+      const placed = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', version: 0, ops: [
+        { op: 'insert', parent: 'root', node: { type: 'section', title: 'Today' } },
+      ] } });
       expect(placed.isError).toBeFalsy();
       expect(text(placed)).toMatch(/Saved\. Board "Pulse" \(pulse\), version 1/);
+      const grid = /\[(grid_\d+)\] grid/.exec(text(placed))![1];
+      expect(text(await c.callTool({ name: 'board-place', arguments: { board: 'pulse', version: 1, ops: [{ op: 'insert', parent: grid, node: { type: 'tile', agentId: 'news' } }] } })).startsWith('Saved')).toBe(true);
       const read = await c.callTool({ name: 'board-read', arguments: { board: 'pulse' } });
-      expect(text(read)).toContain('agent news at x=0 y=0, 6x5');
+      expect(text(read)).toContain('section "Today"');
+      expect(text(read)).toMatch(/tile news/);
 
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'board-place', resources: ['pulse'], effect: 'deny', reason: 'Pulse is arranged by hand.' }] }));
-      const denied = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', changes: [{ op: 'remove', id: 'news' }] } });
+      const denied = await c.callTool({ name: 'board-place', arguments: { board: 'pulse', ops: [{ op: 'remove', id: grid }] } });
       expect(denied.isError).toBe(true);
       expect(text(denied)).toBe('Pulse is arranged by hand.');
     } finally {

@@ -565,9 +565,6 @@ export {
   sizeToSpan,
   boardItemsFromSections,
   boardItemsHash,
-  freeSpot,
-  boardChangeSchema,
-  applyBoardChanges,
   boardItemsFromLayoutPlan,
   TILE_TEMPLATE_DEFAULT_SIZES,
   BOARD_PALETTES,
@@ -581,7 +578,6 @@ export {
   BoardConflictError,
   type Board,
   type BoardItem,
-  type BoardChange,
   type BoardDoc,
 } from './boards.js';
-export { applyBoardOps, boardOpSchema, type BoardOp, type BoardNodeSpec } from './board-tree.js';
+export { applyBoardOps, boardOpSchema, describeBoardDoc, type BoardOp, type BoardNodeSpec } from './board-tree.js';
