@@ -84,7 +84,7 @@ From here you can:
 - Browse agents on `/agents` (tabs: User / Examples / Community) and run one from its card
 - Watch a run live at `/runs/:id`: each node's output, tool calls, cost and budget
 - Talk to an agent on its **Chat** tab; replies stream in as they're written
-- See every agent's latest result on **Pulse** (`/pulse`), and run any tile in place
+- See every agent's latest result on **Pulse** (`/pulse`), run any tile in place, and arrange it with **✎ Arrange**; or describe a whole board with **＋ New board** and sua builds it from your agents ([Boards](boards.md))
 - Answer agents' questions and review failures in your inbox at `/`
 
 ## Create your own agent

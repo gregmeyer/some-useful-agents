@@ -5,8 +5,11 @@ widgets, and dashboard tiles for you. Two entry points share the same machinery:
 
 - **Build from goal** — the Build button on `/` and `/agents`. Starts from an
   empty goal and can produce one agent or a whole dashboard.
-- **Improve layout** — the wizard on the home board (`/`) and any `/dashboards/:id`. Starts
-  from an *existing* layout and proposes what to surface, add, or create.
+- **Improve layout** — the wizard on Pulse and any `/dashboards/:id` when boards are switched off
+  (Settings → Appearance). Starts from an *existing* layout and proposes what to surface, add, or
+  create. With boards on (the default), use **✨ Suggest a layout** to rearrange a board, and
+  **＋ New board** to [build a board from a request](boards.md#build-a-board-from-a-request), which
+  also drafts missing agents behind one approval.
 
 ## The build flow
 
@@ -118,6 +121,8 @@ saved. Current checks include:
   (e.g. `text-image`) produces a broken tile, so the critic flags it.
 
 ## Improve layout (Path A / Path B)
+
+This wizard belongs to the previous Pulse layout (Settings → Appearance → *Show Pulse and dashboards as boards* off). On boards, **✨ Suggest a layout** and **＋ New board** cover the same ground; see [Boards](boards.md).
 
 The Improve-layout wizard reuses the same drafter, but it starts from a current
 layout and emits a `LayoutPlan` (`packages/core/src/layout-plan-schema.ts`) that
