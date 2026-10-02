@@ -4,9 +4,9 @@ Web dashboard for some-useful-agents. Server-rendered HTML, no bundler, no frame
 
 ## Features
 
-- **Pulse & dashboards** — the board of agent tiles at `/pulse` (grouped by recent use; every tile has Run) plus named, sectioned `/dashboards/:id`. 13 display templates including `widget`; all widgets are drawn with A2UI. Drag-and-drop layout, edit mode (persists across reloads, with a navigate-away guard), in-place "+ Add tile" modal, widget palette, auto-theming. System metric tiles. Markdown rendering, YouTube media player, tile collapse/expand.
+- **Pulse & dashboards as canvases** — `/pulse` and `/dashboards/:id` are each one A2UI surface: sections, responsive grids, rows, tabs and cards, with every agent's tile drawn inside (every tile has Run). **✎ Arrange** is an outline editor (add, move, wrap, unwrap, spans, palettes; step undo; versioned saves); **✨ Suggest a layout** asks the layout planner. 13 display templates including `widget`; system metric tiles.
 - **Tiles that run themselves** — an agent runs once automatically when first added to a dashboard, "Run again" refreshes the tile in place, and a one-click modal allows CSP-blocked widget image hosts.
-- **Improve layout wizard** — on `/pulse` or any named dashboard: proposes what to surface, which installed agents to add (Path A), and which new agents to draft inline (Path B).
+- **Build a board from a request** — **＋ New board** (or Ask sua, or MCP `build-board`): the board builder picks your agents, lays out a new board, runs it, drafts agents for what's missing behind one inbox approval, and posts "your board is ready".
 - **Integrations** (Tools → Integrations, `/tools?tab=integrations`) — tabbed UI for CSV / Postgres / SQLite / Gmail (OAuth) kinds and Slack / webhook / file destinations; data-source kinds auto-generate query tools.
 - **Agents** — card grid with **User / Examples / Community tabs**, filtering (status, search), sorting (name, status, recent, starred), pagination. 5-tab detail page: Overview (DAG viz, stats), Nodes (edit/delete/add), Config (variables, output widget, signal, secrets, status), Runs (history), YAML (editor).
 - **Output widget editor** — at `/agents/:id/config`: visual cards for 5 widget types (raw, key-value, diff-apply, dashboard, **ai-template**), 5 load-example starters, live preview, per-type helper copy, and an **AI template** flow that calls Claude to generate sanitized HTML from a plain-English prompt.
@@ -18,7 +18,7 @@ Web dashboard for some-useful-agents. Server-rendered HTML, no bundler, no frame
 - **A2UI views** — an agent's `view:` (or its converted output widget) draws on the run page, Pulse, dashboards, inbox and chat.
 - **Suggest improvements** — AI-powered agent review. "Apply now" saves directly, auto-fixes shell template mistakes. Available from failed run pages with the error pre-filled.
 - **Runs** — filter by agent/status, paginate, replay from any node, resolved variables panel, real-time turn progress for LLM nodes
-- **Settings** — Secrets, Variables, Claude Desktop (MCP token), LLM providers, Usage (cost + spend limits), Policies (edit + test the tool policy), Temporal, Appearance (themes, widget renderer), General
+- **Settings** — Secrets, Variables, Claude Desktop (MCP token), LLM providers, Usage (cost + spend limits), Policies (edit + test the tool policy), Temporal, Appearance (brand theme, widget renderer, boards), General
 - **LLM options** — agent-level provider (Claude, Codex, OpenAI-compatible, Apple) and model defaults, plus per-node `model` / `maxTurns` / `allowedTools` on the forms (`llm-prompt` nodes; `claude-code` alias still accepted)
 - **Design system** — DESIGN.md source of truth. Dark mode default, JetBrains Mono headings, warm stone neutrals, teal accent.
 

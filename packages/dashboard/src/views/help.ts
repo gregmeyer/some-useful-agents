@@ -209,8 +209,11 @@ export function renderHelp(): string {
           you, it asks in the <a href="/">inbox</a>.
         </li>
         <li>
-          <strong>Put it on Pulse.</strong> An agent with a <code>signal:</code> or a <code>view:</code> gets a
-          tile on <a href="/pulse">Pulse</a>, with a Run button.
+          <strong>Put it on a board.</strong> An agent with a <code>signal:</code> or a <code>view:</code> gets a
+          tile on <a href="/pulse">Pulse</a>, with a Run button. <em>Arrange</em> lays out a board (sections,
+          tabs, grids); <a href="/boards/new">New board</a> builds one from a description, using your agents and
+          drafting any that are missing for your approval. Style everything in
+          <a href="/settings/appearance#brand">Settings \u2192 Appearance \u2192 Brand</a>.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:

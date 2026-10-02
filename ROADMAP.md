@@ -5,6 +5,13 @@ on direction.
 
 ## Recently shipped
 
+### v0.29
+Boards that agents can build, on a canvas:
+- **Boards are canvases** — Pulse and every dashboard are one [A2UI surface](docs/boards.md): sections, responsive grids, rows, tabs and cards, each agent's tile drawn inside by its own view. **✎ Arrange** (an outline editor), **✨ Suggest a layout**, versioned saves with undo, Save as pack.
+- **Agents arrange boards** — `board-read` / `board-place` tools with the editor's tree operations, also over MCP, under the tool policy.
+- **Build a board from a request** — **＋ New board**, Ask sua or MCP `build-board`: the board builder picks your agents, lays out and runs the board, drafts agents for what's missing behind one inbox approval, and posts "your board is ready".
+- **Brand theme** — [one theme](docs/brand.md) (preset, colours per mode, fonts, radius, tile accents) for every page, board and tile.
+
 ### v0.28
 Toward a general-purpose agent platform, and agents that populate a canvas instead of a static dashboard:
 - **Goal agents** — a [`goal` node](docs/goal-agents.md) gives a model a goal, tools and a budget; **agents as tools** ([`agent:<id>`](docs/agents-as-tools.md)); Build from goal drafts goal agents, shows each draft's shape and why, and lets you **Try it** before keeping it.
@@ -86,7 +93,7 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 
 ## Now
 
-**The canvas.** With every widget now an A2UI view, Pulse and named dashboards become **boards** stored on the server, where widgets are placed and sized freely on a grid (W4), then actions and run history in views (W5), and authoring: the build planner writes views, a widget editor with live preview, and **"Redesign this widget"**, where an agent proposes a better view from the current one and real data (W6). Streaming widgets in chat (WS3) and removing the previous widget renderer (one release from now) are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
+**Authoring on the canvas.** Boards are canvases agents can build (v0.29). Next: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3), and removing the previous widget renderer and the previous Pulse layout (kept one more release), are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
 
 ## Next (3–6 months)
 

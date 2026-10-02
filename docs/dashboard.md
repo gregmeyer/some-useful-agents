@@ -175,7 +175,7 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 ## `/pulse` — the board
 
-Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
+Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
 
 The board is your agents at a glance. Each agent with a `signal:` block, or an A2UI `view:`, gets a tile showing its latest result, and every tile has a **Run** button. Tiles are drawn with [A2UI](a2ui-views.md) (sorting, filtering, tabs and run-in-place forms work in the browser); Settings → Appearance switches back to the previous renderer for one more release.
 
@@ -189,7 +189,7 @@ are omitted. The ordering is meant for a run console: what you used last is what
 you are most likely to run again, and agents you set up but never used are
 collected at the bottom rather than scattered through the board.
 
-Configure tiles via the ⚙ gear on each one, and change a tile's colours with ●. Hide/unhide via the × (it toggles the agent's `pulseVisible` flag). System tiles (runs today, avg duration, failure rate, agent count, **scheduler**) head the tray until you place them.
+Configure tiles via the ⚙ gear on each one, and set a tile's palette in **✎ Arrange**. Hide/unhide via the × (it toggles the agent's `pulseVisible` flag). System tiles (runs today, avg duration, failure rate, agent count, **scheduler**) head the tray until you place them.
 
 **The scheduler tile** reports whether the schedule daemon is actually running,
 because a dead scheduler is otherwise invisible here: `/health` knows and
@@ -260,7 +260,7 @@ The tool policy: the rules in order ("the last match decides"), add / edit / reo
 Connection status for the durable backend. See [Temporal](temporal.md).
 
 ### Appearance
-Light/dark, widget themes, and the **Widget renderer** switch: widgets are drawn with A2UI; untick to use the previous renderer for one more release. See [A2UI views](a2ui-views.md).
+The **Brand** theme (a preset, then your colours, fonts, corner radius and tile accents, for everyone; see [Brand theme](brand.md)), the **Widget renderer** switch (widgets are drawn with A2UI; untick to use the previous renderer for one more release), and **Pulse and dashboards** (untick to use the previous layout for one more release). See [A2UI views](a2ui-views.md).
 
 ### General
 Data paths, retention, scheduler heartbeat.

@@ -6,6 +6,6 @@
 "@some-useful-agents/dashboard": minor
 ---
 
-Agents arrange canvas boards: board-read gives an outline, board-place takes tree operations.
+Agents arrange boards: `board-read` and `board-place` tools, also over MCP.
 
-`board-read` now returns a board as an outline of its sections, tabs, rows, grids and tiles, each with its id, and `board-place` takes the same operations as the Arrange editor (`insert`, `move`, `remove`, `wrap`, `unwrap`, `set`, `span`), checked and saved together as an undoable version. An agent, or Claude Desktop over MCP, can now build sections, turn them into tabs, size tiles and add new ones. The earlier grid-style changes (`add`/`move` by x/y) are replaced.
+`board-read` returns a board as an outline of its sections, tabs, rows, grids and tiles, each with its id, plus a short brand guide; `board-place` takes the same operations as the Arrange editor (`insert`, `move`, `remove`, `wrap`, `unwrap`, `set`, `span`), checked and saved together as an undoable version (a stale version, an unknown id or an uninstalled agent changes nothing). Claude Desktop and other MCP clients get the same two tools, and the tool policy applies with the board id as the resource, so a rule can keep agents off Pulse.
