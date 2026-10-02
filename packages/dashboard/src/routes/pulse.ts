@@ -1,5 +1,7 @@
+import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
+import { renderBoardPage } from './boards.js';
 import { Router, type Request, type Response } from 'express';
-import { parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
+import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
@@ -193,8 +195,13 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
 // `editable` defaults on, giving the full arrange/hide/improve toolbar.
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const board = buildPulseBoardData(ctx);
   const flash = parsePulseFlash(req);
+  // Pulse is a board (docs/boards.md) unless the previous layout is switched back on.
+  if (boardPagesEnabled()) {
+    res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+    return;
+  }
+  const board = buildPulseBoardData(ctx);
   const description = 'Your board of agents — each tile shows one agent’s latest result, '
     + 'and you can run it right from the tile.';
   res.send(render(layout({ title: 'Pulse', activeNav: 'pulse', flash }, renderPulseBoard(board, { description }))));

@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BoardConflictError, BoardsStore, applyBoardChanges, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
+import { BoardConflictError, BoardsStore, applyBoardChanges, sectionsFromBoardItems, boardItemsFromLayoutPlan, boardItemsFromSections, freeSpot, normalizeBoardItems, type BoardItem } from './boards.js';
 import { getBuiltinTool } from './builtin-tools.js';
+import type { DashboardSection } from './packs-store.js';
 import { DatabaseSync } from 'node:sqlite';
 
 const agent = (id: string, x: number, y: number, w = 3, h = 5): BoardItem => ({ id, kind: 'agent', agentId: id, x, y, w, h });
@@ -141,5 +142,25 @@ describe('board-read / board-place tools', () => {
     const out = await place.execute({ board: 'pulse', changes: [JSON.stringify({ op: 'add', kind: 'heading', text: 'Top', x: 0, y: 0, w: 12, h: 1 }), JSON.stringify({ op: 'add', kind: 'agent', agentId: 'news' })] }, { boards });
     expect(out.isError).toBeFalsy();
     expect(boards.get('pulse')!.items.map((i) => `${i.kind}:${i.w}x${i.h}`)).toEqual(['heading:12x1', 'agent:3x5']);
+  });
+});
+
+describe('sectionsFromBoardItems', () => {
+  it('round-trips sections through a board, keeping titles, order and sizes', () => {
+    const sections: DashboardSection[] = [
+      { title: 'News', agentIds: ['hn', 'weather'], placements: { weather: { size: '2x1' as const } } },
+      { title: 'Notes', agentIds: ['notes'], placements: { notes: { size: '2x2' as const } } },
+    ];
+    const back = sectionsFromBoardItems(boardItemsFromSections(sections));
+    expect(back.map((s) => [s.title, s.agentIds])).toEqual([['News', ['hn', 'weather']], ['Notes', ['notes']]]);
+    expect(back[0].placements).toMatchObject({ hn: { size: '1x1' }, weather: { size: '2x1' } });
+    expect(back[1].placements).toMatchObject({ notes: { size: '2x2' } });
+    expect(sectionsFromBoardItems([agent('a', 0, 0)])).toEqual([{ title: 'Tiles', agentIds: ['a'], placements: { a: { size: '1x1' } } }]);
+  });
+
+  it('accepts a palette on agent and system tiles only', () => {
+    expect(normalizeBoardItems([{ ...agent('a', 0, 0), palette: 'dark' }])[0]).toMatchObject({ palette: 'dark' });
+    expect(() => normalizeBoardItems([{ ...agent('a', 0, 0), palette: 'neon' }])).toThrow();
+    expect(() => normalizeBoardItems([{ id: 'h', kind: 'heading', text: 'x', x: 0, y: 0, w: 12, h: 1, palette: 'dark' }])).toThrow();
   });
 });

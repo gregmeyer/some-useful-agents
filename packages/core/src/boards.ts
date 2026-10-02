@@ -27,11 +27,15 @@ const itemBase = {
   h: z.number().int().min(1).max(60),
 };
 
+/** Tile colour schemes (the ● button on a tile). `default` is stored as no palette. */
+export const BOARD_PALETTES = ['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green'] as const;
+const palette = z.enum(BOARD_PALETTES).optional();
+
 export const boardItemSchema = z.discriminatedUnion('kind', [
-  z.object({ ...itemBase, kind: z.literal('agent'), agentId: z.string().min(1).max(128), fit: z.enum(['grow', 'scroll']).optional() }).strict(),
+  z.object({ ...itemBase, kind: z.literal('agent'), agentId: z.string().min(1).max(128), fit: z.enum(['grow', 'scroll']).optional(), palette }).strict(),
   z.object({ ...itemBase, kind: z.literal('heading'), text: z.string().min(1).max(120) }).strict(),
   z.object({ ...itemBase, kind: z.literal('note'), text: z.string().min(1).max(4000) }).strict(),
-  z.object({ ...itemBase, kind: z.literal('system'), tileId: z.string().regex(/^_[a-z0-9_-]+$/i) }).strict(),
+  z.object({ ...itemBase, kind: z.literal('system'), tileId: z.string().regex(/^_[a-z0-9_-]+$/i), palette }).strict(),
 ]);
 
 export type BoardItem = z.infer<typeof boardItemSchema>;
@@ -143,6 +147,27 @@ export function boardItemsFromSections(
     y += rowH;
   });
   return normalizeBoardItems(items);
+}
+
+/**
+ * A board as dashboard sections (for Save as pack and anything else that
+ * still speaks sections): each heading starts a section; tiles before the
+ * first heading go in an untitled one. Order is the board's reading order;
+ * sizes come back as the nearest 1x1…2x2.
+ */
+export function sectionsFromBoardItems(items: readonly BoardItem[]): DashboardSection[] {
+  const sections: DashboardSection[] = [];
+  let cur: DashboardSection | undefined;
+  for (const it of [...items].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    if (it.kind === 'heading') { cur = { title: it.text, agentIds: [] }; sections.push(cur); continue; }
+    if (it.kind !== 'agent') continue;
+    if (!cur) { cur = { title: 'Tiles', agentIds: [] }; sections.push(cur); }
+    if (cur.agentIds.includes(it.agentId)) continue;
+    cur.agentIds.push(it.agentId);
+    const size = `${it.w >= 5 ? 2 : 1}x${it.h >= 8 ? 2 : 1}` as '1x1';
+    cur.placements = { ...(cur.placements ?? {}), [it.agentId]: { size, ...(it.fit ? { tileFit: it.fit } : {}) } };
+  }
+  return sections.filter((sct) => sct.agentIds.length > 0);
 }
 
 /** A short fingerprint of a board's items (for comparisons and tests). */

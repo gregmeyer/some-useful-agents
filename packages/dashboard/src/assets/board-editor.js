@@ -464,6 +464,31 @@ function init(data) {
     changed();
   }
 
+  // ── Palette (● on a placed tile): saved on the board item straight away ─
+  const PALETTES = ['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green'];
+  let paletteQueue = Promise.resolve();
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('.pulse-tile__palette-btn[data-board-item-id]');
+    if (!b || editing) return;
+    e.preventDefault();
+    const itemId = b.getAttribute('data-board-item-id');
+    const tile = b.closest('.pulse-tile');
+    const it = items.find((i) => i.id === itemId);
+    if (!tile || !it) return;
+    const current = tile.getAttribute('data-palette') || 'default';
+    const next = PALETTES[(PALETTES.indexOf(current) + 1) % PALETTES.length];
+    if (next === 'default') tile.removeAttribute('data-palette'); else tile.setAttribute('data-palette', next);
+    paletteQueue = paletteQueue.then(async () => {
+      const out = await post('/boards/' + encodeURIComponent(data.id) + '/items/' + encodeURIComponent(itemId) + '/palette', { palette: next, version: data.version });
+      if (out.ok) {
+        data.version = out.json.version;
+        if (next === 'default') delete it.palette; else it.palette = next;
+      } else {
+        say(out.status === 409 ? 'This board changed somewhere else. Reload to see it.' : (out.json.error || 'Couldn’t save the palette.'), true);
+      }
+    });
+  });
+
   if (data.isPulse && data.version === 0) offerImport();
 
   // ── One-time import of the old Pulse arrangement (this browser) ────────

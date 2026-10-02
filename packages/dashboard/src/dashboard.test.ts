@@ -355,7 +355,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     const app = await makeApp();
     const res = await authed(app, '/pulse');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('pulse-grid');
+    expect(res.text).toContain('class="board"');
   });
 
   it('/pulse carries a scheduler health tile', async () => {

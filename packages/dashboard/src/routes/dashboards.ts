@@ -8,8 +8,10 @@
  * (added via the editor in PR 5).
  */
 
+import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
+import { renderBoardPage } from './boards.js';
 import { Router, type Request, type Response } from 'express';
-import { dashboardToPackManifest, type Agent, type AgentSignal } from '@some-useful-agents/core';
+import { BoardsStore, dashboardToPackManifest, sectionsFromBoardItems, type Agent, type AgentSignal } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import {
   renderDashboardPage,
@@ -38,6 +40,11 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
       path: req.originalUrl,
       message: `No dashboard with id "${id}".`,
     }));
+    return;
+  }
+  // A dashboard is a board (docs/boards.md) unless the previous layout is switched back on.
+  if (boardPagesEnabled()) {
+    res.type('html').send(renderBoardPage(ctx, id, { flash: parseFlash(req) })!);
     return;
   }
 
@@ -141,11 +148,15 @@ dashboardsRouter.get('/dashboards/:id/export', (req: Request, res: Response) => 
     return;
   }
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const dashboard = ctx.dashboardsStore.getDashboard(id);
-  if (!dashboard) {
+  const stored = ctx.dashboardsStore.getDashboard(id);
+  if (!stored) {
     res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: `No dashboard with id "${id}".` }));
     return;
   }
+  // Once the dashboard has been arranged as a board, the pack carries the
+  // board's layout (headings become sections, in reading order).
+  const board = new BoardsStore(ctx.runStore.databaseHandle()).get(id);
+  const dashboard = board ? { ...stored, layout: { sections: sectionsFromBoardItems(board.items) } } : stored;
 
   // Resolve the agents the dashboard references.
   const agentIds = new Set<string>();

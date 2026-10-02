@@ -32,7 +32,13 @@ import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
  */
 export type TileWrapContext =
   | { kind: 'pulse' }
-  | { kind: 'dashboard'; dashboardId: string; sectionIdx: number; tileIdx: number };
+  | { kind: 'dashboard'; dashboardId: string; sectionIdx: number; tileIdx: number }
+  /**
+   * A tile on a board (views/board.ts). `itemId` is set for a placed tile
+   * (palette and × act on the board item); unset for Pulse's Unplaced tray.
+   * `returnTo` is the page to come back to after a form post.
+   */
+  | { kind: 'board'; boardId: string; isPulse: boolean; itemId?: string; palette?: string; returnTo: string };
 
 /** Wraps tile content with header, footer, resize handle, and data attributes. */
 export function tileWrap(
@@ -57,9 +63,15 @@ export function tileWrap(
     ?? TEMPLATE_REGISTRY[normalizeSignal(tile.signal).template]?.defaultSize;
   const sizeAttr = tile.layoutHint?.size ?? effectiveSize ?? '1x1';
   const autoPalette = resolveAutoPalette(tile);
-  const paletteAttr = autoPalette && autoPalette !== 'default'
-    ? ` data-auto-palette="${autoPalette}"`
-    : '';
+  // A board tile carries its palette (saved on the board item, else the auto
+  // palette) as data-palette directly; elsewhere the layout script applies
+  // the auto palette or the browser's saved choice.
+  const boardPalette = ctx.kind === 'board' ? (ctx.palette ?? autoPalette ?? 'default') : undefined;
+  const paletteAttr = ctx.kind === 'board'
+    ? (boardPalette && boardPalette !== 'default' ? ` data-palette="${esc(boardPalette)}"` : '')
+    : autoPalette && autoPalette !== 'default'
+      ? ` data-auto-palette="${autoPalette}"`
+      : '';
   const accentAttr = tile.signal.accent
     ? ` data-accent="${esc(tile.signal.accent)}"`
     : '';
@@ -81,7 +93,8 @@ export function tileWrap(
   // the widget-layout.js.ts code writes localStorage that the hydrator
   // re-applies. (Hint heights from the planner are the starting point,
   // not a lock — user resizes still take effect.)
-  const heightAttr = tile.layoutHint?.height
+  // On a board the grid cell sets the height, so no pinned height there.
+  const heightAttr = tile.layoutHint?.height && ctx.kind !== 'board'
     ? ` style="height: ${tile.layoutHint.height}px"`
     : '';
 
@@ -92,7 +105,7 @@ export function tileWrap(
     content.toString() +
     `</div>` +
     (isSystem ? '' : tileFooter(tile).toString()) +
-    '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>' +
+    (ctx.kind === 'board' ? '' : '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>') +
     '</div>'
   );
 }
@@ -150,7 +163,7 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
     <div class="pulse-tile__header"
       data-signal-config="${signalData}"
       data-output-fields="${outputFieldsJson}">
-      <button type="button" class="pulse-tile__collapse" data-tile-id="${tile.agent.id}" title="Collapse/expand">\u25BC</button>
+      ${ctx.kind === 'board' ? html`` : html`<button type="button" class="pulse-tile__collapse" data-tile-id="${tile.agent.id}" title="Collapse/expand">\u25BC</button>`}
       <div style="display: flex; align-items: center; gap: var(--space-2); flex: 1; cursor: pointer;" data-tile-id="${tile.agent.id}" data-collapse-trigger>
         ${icon ? html`<span class="pulse-tile__icon">${icon}</span>` : html``}
         <span class="pulse-tile__title">${tile.signal.title}</span>
@@ -159,8 +172,17 @@ function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): S
         ${isSystem ? html`` : html`
           <button type="button" class="pulse-tile__configure-btn" data-tile-id="${tile.agent.id}" title="Configure tile">\u2699</button>
         `}
-        <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
-        ${isSystem ? html`` : (ctx.kind === 'dashboard'
+        ${ctx.kind === 'board' && !ctx.itemId ? html`` : html`
+          <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}"${ctx.kind === 'board' ? unsafeHtml(` data-board-item-id="${esc(ctx.itemId!)}"`) : html``} title="Change palette">\u25CF</button>
+        `}
+        ${ctx.kind === 'board' && !ctx.isPulse && ctx.itemId
+          ? html`
+              <form method="POST" action="/boards/${encodeURIComponent(ctx.boardId)}/items/${encodeURIComponent(ctx.itemId)}/remove" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title} from this board? Undo last save puts it back, or add it again from Edit." data-confirm-label="Remove" data-confirm-title="Remove tile?">
+                <input type="hidden" name="returnTo" value="${ctx.returnTo}">
+                <button type="submit" class="pulse-tile__toggle" title="Remove from this board">\u00D7</button>
+              </form>
+            `
+          : isSystem ? html`` : (ctx.kind === 'dashboard'
           ? html`
               <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title} from this dashboard? You can add it back later from the Add tile button." data-confirm-label="Remove" data-confirm-title="Remove tile?">
                 <input type="hidden" name="returnTo" value="dashboard">

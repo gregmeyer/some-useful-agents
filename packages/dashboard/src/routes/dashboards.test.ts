@@ -15,6 +15,7 @@ import {
   loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
+import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
@@ -82,7 +83,10 @@ async function makeApp() {
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   };
 
-  return buildDashboardApp(ctx);
+  const app = buildDashboardApp(ctx);
+  // These cover the previous dashboard layout (kept one release); boards.test.ts covers the board page.
+  setDashboardPrefs({ boardPages: false });
+  return app;
 }
 
 afterEach(async () => {

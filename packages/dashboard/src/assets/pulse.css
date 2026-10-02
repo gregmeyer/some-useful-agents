@@ -1274,3 +1274,10 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 }
 .board-tray__place { margin: var(--space-2) var(--space-2) 0; align-self: flex-start; }
 .board-toolbar [hidden], .board-tray__place[hidden] { display: none !important; }
+
+/* Board pages (/pulse, /dashboards/:id as boards). */
+.board-page__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.board-page__meta { font-size: var(--font-size-sm); }
+.board-page__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.board-page__head .page-header__description { flex-basis: 100%; margin: 0; }
+.board-page__hidden { margin-top: var(--space-6); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted); }

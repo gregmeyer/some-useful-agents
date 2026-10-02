@@ -8,6 +8,7 @@ import {
   buildLoopbackAllowlist, loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
+import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';
@@ -60,7 +61,7 @@ describe('boards (read-only)', () => {
     expect(json.body.board).toMatchObject({ id: 'user:morning', name: 'Morning', derived: true, version: 0 });
     expect(json.body.board.items.map((i: { kind: string; agentId?: string; w: number }) => `${i.kind}:${i.agentId ?? ''}:${i.w}`))
       .toEqual(['heading::12', 'agent:news:3', 'agent:weather:6', 'agent:ghost:3']);
-    const page = await get(app, '/boards/user:morning');
+    const page = await get(app, '/dashboards/user:morning');
     expect(page.text).toContain('class="board-grid"');
     expect(page.text).toContain('grid-column: 4 / span 6;'); // weather, 2x1, after news
     expect(page.text).toContain("isn't installed");
@@ -75,7 +76,7 @@ describe('boards (read-only)', () => {
     json = await get(app, '/boards/pulse.json');
     expect(json.body.board).toMatchObject({ derived: false, version: 1, items: [{ agentId: 'news', y: 0 }] });
     expect(json.body.unplaced).not.toContain('news');
-    const page = await get(app, '/boards/pulse');
+    const page = await get(app, '/pulse');
     expect(page.text).toContain('data-board-item="a"');
     expect(page.text).toContain('Unplaced');
     // each unplaced tile appears exactly once in the tray (system tiles head it, not repeated)
@@ -85,6 +86,8 @@ describe('boards (read-only)', () => {
   it('404s for an unknown board', async () => {
     const app = await setup();
     expect((await get(app, '/boards/nope')).status).toBe(404);
+    expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');
+    expect((await get(app, '/boards/user:morning')).headers.location).toBe('/dashboards/user%3Amorning');
     expect((await get(app, '/boards/nope.json')).status).toBe(404);
   });
 });
@@ -112,7 +115,7 @@ describe('board editor routes', () => {
     res = await post(app, '/boards/user:morning', { version: 1, items: [{ id: 'h', kind: 'heading', text: 'Only', x: 0, y: 0, w: 12, h: 1 }] });
     expect(res.body.board).toMatchObject({ version: 2, hasPrevious: true });
 
-    const page = await get(app, '/boards/user:morning');
+    const page = await get(app, '/dashboards/user:morning');
     expect(page.text).toContain('data-board-undo');
     expect(page.text).toContain('src="/assets/board-editor.js"');
     const js = await get(app, '/assets/board-editor.js');
@@ -179,7 +182,7 @@ describe('suggested layouts', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/no tiles this board can show/);
 
-    const page = await get(app, '/boards/user:morning');
+    const page = await get(app, '/dashboards/user:morning');
     expect(page.text).toContain('data-board-suggest');
     expect(page.text).toContain('"plannerUrl":"/dashboards/user%3Amorning/layout-plan"');
   });
@@ -197,5 +200,61 @@ describe('boards outside the page', () => {
     const { TILE_TEMPLATE_DEFAULT_SIZES } = await import('@some-useful-agents/core');
     const { TEMPLATE_REGISTRY } = await import('../views/pulse-templates.js');
     expect(TILE_TEMPLATE_DEFAULT_SIZES).toEqual(Object.fromEntries(Object.entries(TEMPLATE_REGISTRY).map(([k, v]) => [k, v.defaultSize])));
+  });
+});
+
+describe('board pages', () => {
+  it('a dashboard tile × removes it from the board; ● saves its palette; Save as pack exports the board', async () => {
+    const app = await setup();
+    let page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('action="/boards/user%3Amorning/items/s0t0/remove"');
+    expect(page.text).toContain('data-board-item-id="s0t0"');
+    expect(page.text).not.toContain('Hide from Pulse');
+    expect(page.text).not.toContain('pulse-tile__resize-handle');
+    expect(page.text).toContain('Save as pack');
+
+    const removed = await request(app).post('/boards/user:morning/items/s0t0/remove').type('form')
+      .send({ returnTo: '/dashboards/user:morning' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(removed.status).toBe(303);
+    expect(removed.headers.location).toMatch(/^\/dashboards\/user:morning\?ok=Removed%20news/);
+    const board = new BoardsStore(ctx.runStore.databaseHandle()).get('user:morning')!;
+    expect(board.items.some((i) => i.kind === 'agent' && i.agentId === 'news')).toBe(false);
+
+    const weatherItem = board.items.find((i) => i.kind === 'agent' && i.agentId === 'weather')!;
+    let res = await post(app, `/boards/user:morning/items/${weatherItem.id}/palette`, { palette: 'dark', version: board.version });
+    expect(res.body.version).toBe(board.version + 1);
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toMatch(/data-agent-id="weather"[^>]*data-palette="dark"/);
+    res = await post(app, `/boards/user:morning/items/${weatherItem.id}/palette`, { palette: 'neon', version: board.version + 1 });
+    expect(res.status).toBe(400);
+
+    const pack = await get(app, '/dashboards/user:morning/export');
+    expect(pack.text).toContain('weather');
+    expect(pack.text).not.toMatch(/- news\b/);
+  });
+
+  it('Pulse: a hidden agent drops off the board; the previous layout comes back when boards are switched off', async () => {
+    const app = await setup();
+    new BoardsStore(ctx.runStore.databaseHandle()).save({ id: 'pulse', name: 'Pulse', expectedVersion: 0, items: [
+      { id: 'a', kind: 'agent', agentId: 'news', x: 0, y: 0, w: 3, h: 5 },
+      { id: 'b', kind: 'agent', agentId: 'weather', x: 0, y: 5, w: 3, h: 5 },
+    ] });
+    ctx.agentStore.updateAgentMeta('news', { pulseVisible: false });
+    let page = await get(app, '/pulse');
+    expect(page.text).toContain('class="board"');
+    expect(page.text).not.toContain('data-board-item="a"');
+    expect(page.text).toMatch(/data-board-item="b"[^>]*grid-row: 1 \/ span 5/);
+    expect(page.text).toContain('1 hidden');
+    expect(page.text).toContain('Hide from Pulse');
+
+    setDashboardPrefs({ boardPages: false });
+    try {
+      page = await get(app, '/pulse');
+      expect(page.text).toContain('id="pulse-tile-data"');
+      const preview = await get(app, '/boards/pulse');
+      expect(preview.status).toBe(200);
+      expect(preview.text).toContain('Board view (preview)');
+    } finally { setDashboardPrefs({ boardPages: true }); }
   });
 });

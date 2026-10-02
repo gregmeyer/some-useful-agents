@@ -31,8 +31,14 @@ export function renderBoard(args: {
   /** Pulse only: tiles not placed on the board. */
   unplaced?: PulseTile[];
   systemTileIds?: string[];
+  /** Where the tile forms (remove, hide) come back to. Defaults to /boards/<id>. */
+  returnTo?: string;
 }): SafeHtml {
   const { board, tiles } = args;
+  const isPulse = args.unplaced !== undefined;
+  const returnTo = args.returnTo ?? `/boards/${encodeURIComponent(board.id)}`;
+  const wrapFor = (itemId?: string, palette?: string) => (tile: PulseTile, content: SafeHtml) =>
+    tileWrap(tile, content, { kind: 'board', boardId: board.id, isPulse, returnTo, ...(itemId ? { itemId } : {}), ...(palette ? { palette } : {}) });
   const missing = (label: string) => html`<div class="card dim board-missing"><span class="mono">${label}</span> isn't installed. Remove it from the board or install it.</div>`;
   const items = board.items.map((it) => {
     let body: SafeHtml;
@@ -41,7 +47,7 @@ export function renderBoard(args: {
     else {
       const key = it.kind === 'agent' ? it.agentId : it.tileId;
       const tile = tiles.get(key);
-      body = tile ? renderTile(tile, tileWrap) : missing(key);
+      body = tile ? renderTile(tile, wrapFor(it.id, it.palette)) : missing(key);
     }
     return html`<div class="board-item board-item--${it.kind}${it.kind === 'agent' && it.fit === 'scroll' ? ' board-item--scroll' : ''}" data-board-item="${it.id}" style="${placeStyle(it)}">${body}</div>`;
   });
@@ -53,7 +59,7 @@ export function renderBoard(args: {
       ).map((g) => html`
         <section class="board-tray__group" data-tray-group="${g.id}">
           <div class="pulse-container__header"><span class="pulse-container__label">${g.label}</span><span class="pulse-container__count">${String(g.tiles.length)}</span></div>
-          <div class="board-tray__grid">${g.tiles.map((id) => tiles.get(id)).filter((t): t is PulseTile => !!t).map((t) => renderTile(t, tileWrap)) as unknown as SafeHtml[]}</div>
+          <div class="board-tray__grid">${g.tiles.map((id) => tiles.get(id)).filter((t): t is PulseTile => !!t).map((t) => renderTile(t, wrapFor())) as unknown as SafeHtml[]}</div>
         </section>`)
     : [];
   return html`
