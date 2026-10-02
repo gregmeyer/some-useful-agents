@@ -5,7 +5,7 @@
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { THEMES } from './themes.js';
 
-export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean } = {}): SafeHtml {
+export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPages?: boolean } = {}): SafeHtml {
   const cards = THEMES.map((t) => {
     return html`
       <button type="button" class="theme-card" data-theme-id="${t.id}" title="${t.description}">
@@ -55,6 +55,22 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean } = {}): 
         <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
           <input type="checkbox" name="enabled" value="1" ${opts.a2uiWidgets ? 'checked' : ''}>
           <span>Draw widgets with A2UI</span>
+        </label>
+        <button type="submit" class="btn btn--sm">Save</button>
+      </form>
+    </section>
+
+    <section id="board-pages" style="margin-top: var(--space-6);">
+      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Pulse and dashboards</h2>
+      <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3);">
+        Pulse and your dashboards are <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/boards.md">boards</a>:
+        tiles you place and size on a grid, saved for every browser, and arrangeable by agents. Untick this to go back to
+        the previous layout for now: it stays one release as a fallback, then it's removed. Applies to everyone using this dashboard.
+      </p>
+      <form method="POST" action="/settings/appearance/boards" class="settings-pricing__form">
+        <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
+          <input type="checkbox" name="enabled" value="1" ${opts.boardPages ? 'checked' : ''}>
+          <span>Show Pulse and dashboards as boards</span>
         </label>
         <button type="submit" class="btn btn--sm">Save</button>
       </form>

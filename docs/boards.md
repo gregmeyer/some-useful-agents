@@ -1,6 +1,6 @@
 # Boards
 
-> **Preview (0.29).** Open Pulse or any named dashboard as a board with **Board view** on its page (or go to `/boards/<id>`), and arrange it with **Edit**. `/pulse` and `/dashboards/<id>` themselves are unchanged for now.
+> **New in 0.29.** Pulse (`/pulse`) and every named dashboard (`/dashboards/<id>`) are boards. The previous layout is one switch away for this release: Settings → Appearance → **Show Pulse and dashboards as boards**. With it off, `/boards/<id>` still shows the board as a preview.
 
 A **board** is a canvas of tiles placed on a 12-column grid, stored by the dashboard rather than in your browser. Pulse is the board `pulse`; every named dashboard is a board with the dashboard's id (`user:morning-briefing`, `starter:weather`, …).
 
@@ -38,9 +38,21 @@ A dashboard you haven't arranged yet is shown laid out from its sections: each s
 
 An agent listed on a dashboard but not installed shows as a placeholder in its place.
 
+## On the page
+
+Each tile keeps its controls:
+
+- **⚙** configures the tile (template, title, size, accent), as before.
+- **●** cycles the tile's colour palette. On a board it's saved with the board, so it's the same in every browser.
+- **×** on Pulse hides the agent from Pulse (restore it from the hidden section at the bottom); a hidden agent leaves the board and the tiles below float up. On a dashboard, × removes the tile from the board (**Undo last save** puts it back).
+
+Tiles on a board don't collapse, and their size comes from the board, not a drag handle on the tile: use **Edit** to resize.
+
+**Save as pack** on a dashboard exports the board: each heading becomes a section, in reading order, with the tiles' sizes.
+
 ## Arranging a board
 
-Press **Edit** (on a wide screen). Every tile gets a frame:
+Press **Edit** (on a wide screen; on a dashboard it reads **Edit · add tiles**). Every tile gets a frame:
 
 - **Move**: drag the tile. Dropping it on another tile's top row takes that spot and pushes the other tile down.
 - **Resize**: drag the corner at the bottom right.

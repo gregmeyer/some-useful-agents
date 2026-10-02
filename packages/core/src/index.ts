@@ -566,6 +566,8 @@ export {
   applyBoardChanges,
   boardItemsFromLayoutPlan,
   TILE_TEMPLATE_DEFAULT_SIZES,
+  BOARD_PALETTES,
+  sectionsFromBoardItems,
   BoardsStore,
   BoardConflictError,
   type Board,

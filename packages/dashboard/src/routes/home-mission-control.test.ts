@@ -224,8 +224,8 @@ describe('GET / — Mission Control home', () => {
     const res = await request(app).get('/pulse')
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).redirects(0);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('pulse-grid');
-    expect(res.text).toContain('id="pulse-tile-data"');
+    expect(res.text).toContain('class="board"');
+    expect(res.text).toContain('id="board-data"');
   });
 
   it('renders the global top-bar needs-you toast (hidden until JS fills the count)', async () => {

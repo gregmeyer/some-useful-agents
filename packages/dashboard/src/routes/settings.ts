@@ -40,7 +40,7 @@ import {
 import { existsSync } from 'node:fs';
 import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
 import { listPickableTools } from '../views/tools-multipicker.js';
-import { a2uiWidgetsEnabled, setDashboardPrefs } from '../lib/dashboard-prefs.js';
+import { a2uiWidgetsEnabled, boardPagesEnabled, setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -748,7 +748,7 @@ function pickFormValuesFromQuery(req: Request): Record<string, string> {
 
 settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const { flash } = readQueryBanners(req);
-  const body = renderSettingsAppearance({ a2uiWidgets: a2uiWidgetsEnabled() });
+  const body = renderSettingsAppearance({ a2uiWidgets: a2uiWidgetsEnabled(), boardPages: boardPagesEnabled() });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
@@ -762,6 +762,19 @@ settingsRouter.post('/settings/appearance/a2ui', (req: Request, res: Response) =
       : 'Widgets draw with the previous renderer. It will be removed in a future release, so please report what looked wrong.');
   } catch (err) {
     redirectWith(res, '/settings/appearance#a2ui-widgets', 'error', (err as Error).message);
+  }
+});
+
+/** Settings → Appearance: Pulse and dashboards as boards (default on; off = the previous layout, kept one release). */
+settingsRouter.post('/settings/appearance/boards', (req: Request, res: Response) => {
+  const enabled = req.body?.enabled === '1';
+  try {
+    setDashboardPrefs({ boardPages: enabled });
+    redirectWith(res, '/settings/appearance#board-pages', 'flash', enabled
+      ? 'Pulse and dashboards show as boards.'
+      : 'Pulse and dashboards use the previous layout. It will be removed in a future release, so please tell us what you missed.');
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#board-pages', 'error', (err as Error).message);
   }
 });
 

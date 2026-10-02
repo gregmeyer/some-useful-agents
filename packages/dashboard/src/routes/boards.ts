@@ -3,10 +3,12 @@ import {
   BOARD_COLUMNS,
   BOARD_ROW_PX,
   BoardConflictError,
+  BOARD_PALETTES,
   BoardsStore,
   PULSE_BOARD_ID,
   boardItemsFromSections,
   boardItemsFromLayoutPlan,
+  normalizeBoardItems,
   layoutPlanSchema,
   type Agent,
   type AgentSignal,
@@ -17,6 +19,9 @@ import { html, render, unsafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
 import { renderBoard } from '../views/board.js';
+import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
+import { renderInstallPacksModal } from '../views/install-packs-modal.js';
+import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
 import { buildPulseBoardData } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
@@ -43,6 +48,8 @@ export interface ResolvedBoard {
   tiles: Map<string, PulseTile>;
   unplaced?: PulseTile[];
   systemTileIds?: string[];
+  /** Pulse only: the Pulse page data (hidden count, dashboards, packs). */
+  pulse?: ReturnType<typeof buildPulseBoardData>;
 }
 
 /** A board with the tiles it needs, or undefined when there's no such board. */
@@ -52,13 +59,18 @@ export function resolveBoard(ctx: ReturnType<typeof getContext>, id: string): Re
     const data = buildPulseBoardData(ctx);
     const all = [...data.systemTiles, ...data.tiles];
     const tiles = new Map(all.map((t) => [t.agent.id, t]));
-    const board = stored ?? { id, name: 'Pulse', packId: null, items: [], version: 0, updatedAt: 0 };
+    const saved = stored ?? { id, name: 'Pulse', packId: null, items: [], version: 0, updatedAt: 0 };
+    // A placed agent that's since been hidden from Pulse (or deleted) drops
+    // off the board: the others float up, and the next save forgets it.
+    const shown = saved.items.filter((it) => (it.kind === 'agent' ? tiles.has(it.agentId) : it.kind === 'system' ? tiles.has(it.tileId) : true));
+    const board = shown.length === saved.items.length ? saved : { ...saved, items: normalizeBoardItems(shown) };
     const placed = new Set(board.items.flatMap((it) => (it.kind === 'agent' ? [it.agentId] : it.kind === 'system' ? [it.tileId] : [])));
     return {
       board: { ...board, derived: !stored },
       tiles,
       unplaced: all.filter((t) => !placed.has(t.agent.id)),
       systemTileIds: data.systemTiles.map((t) => t.agent.id),
+      pulse: data,
     };
   }
   const dashboard = ctx.dashboardsStore?.getDashboard(id);
@@ -196,21 +208,75 @@ boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
   res.json({ items, summary: parsed.data.summary });
 });
 
-boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = String(req.params.id);
+type Flash = { kind: 'ok' | 'error' | 'info'; message: string } | undefined;
+
+/** The page a board lives at: /pulse, /dashboards/<id> (or /boards/<id> when board pages are off). */
+export function boardPageUrl(id: string): string {
+  if (!boardPagesEnabled()) return `/boards/${encodeURIComponent(id)}`;
+  return id === PULSE_BOARD_ID ? '/pulse' : `/dashboards/${encodeURIComponent(id)}`;
+}
+
+/**
+ * A board's full page: the page header (Pulse's or the dashboard's), the
+ * board toolbar (Edit, Suggest a layout, Undo), the board, and the editor.
+ * Undefined when there's no such board.
+ */
+export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, opts: { flash?: Flash } = {}): string | undefined {
   const r = resolveBoard(ctx, id);
-  if (!r) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
+  if (!r) return undefined;
   const isPulse = id === PULSE_BOARD_ID;
-  const header = pageHeader({
-    title: r.board.name,
-    description: r.board.derived
-      ? (isPulse
-        ? 'Pulse as a board (preview). Nothing is placed yet: press Edit, then Place the tiles you want on the board.'
-        : 'This dashboard as a board (preview), laid out from its sections. Press Edit to arrange it.')
-      : 'A board (preview). Press Edit to arrange it.',
-  });
+  const returnTo = boardPageUrl(id);
+  const installed = ctx.dashboardsStore?.listDashboards() ?? [];
+  const options = buildDashboardOptions(installed);
+  const dropdown = options.length > 1
+    ? renderDashboardsDropdown({ options, activeHref: isPulse ? '/' : `/dashboards/${encodeURIComponent(id)}` })
+    : html``;
   const placedAgents = new Set(r.board.items.flatMap((it) => (it.kind === 'agent' ? [it.agentId] : [])));
+  const tileCount = r.board.items.filter((it) => it.kind === 'agent' || it.kind === 'system').length;
+
+  let header;
+  let after = html``;
+  if (isPulse) {
+    const p = r.pulse!;
+    const hidden = p.hiddenTiles.length;
+    header = html`
+      <div class="board-page__head">
+        <h1 style="margin: 0;">Pulse</h1>
+        <span class="dim board-page__meta">${String(tileCount)} placed · ${String(r.unplaced?.length ?? 0)} unplaced${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
+        <div class="board-page__actions">
+          ${dropdown}
+          ${p.tiles.length > 0 ? html`
+            <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
+              <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
+            </form>` : html``}
+        </div>
+        <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Edit to arrange the board; agents you haven't placed wait in the tray below.</p>
+      </div>`;
+    after = html`
+      ${hidden > 0 ? html`
+        <div class="pulse-hidden-section board-page__hidden">
+          <span>${String(hidden)} agent${hidden !== 1 ? 's' : ''} hidden from Pulse.</span>
+          <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;"><button type="submit" class="btn btn--ghost btn--sm">Show all</button></form>
+          <a class="btn btn--ghost btn--sm" href="/agents">Manage in /agents</a>
+        </div>` : html``}
+      ${options.length > 1 ? renderInstallPacksModal(p.availablePacks ?? []) : html``}`;
+  } else {
+    const sourceLabel = r.board.packId ? `from pack: ${r.board.packId}` : 'user-created';
+    header = html`
+      <div class="board-page__head">
+        <h1 style="margin: 0;">${r.board.name}</h1>
+        <span class="dim board-page__meta">${String(tileCount)} tile${tileCount === 1 ? '' : 's'} · ${sourceLabel}</span>
+        <div class="board-page__actions">
+          ${dropdown}
+          <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/edit">Edit dashboard</a>
+          <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
+        </div>
+      </div>`;
+  }
+  if (!boardPagesEnabled()) {
+    header = html`${header}<p class="dim" style="font-size: var(--font-size-sm);">Board view (preview). Turn on boards in <a href="/settings/appearance#board-pages">Settings → Appearance</a> to make this the page.</p>`;
+  }
+
   const editorData = {
     id,
     version: r.board.version,
@@ -225,13 +291,69 @@ boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
   };
   const toolbar = html`
     <div class="board-toolbar" data-board-toolbar>
-      <button type="button" class="btn btn--ghost btn--sm" data-board-edit>✎ Edit</button>
+      <button type="button" class="btn btn--ghost btn--sm" data-board-edit>✎ Edit${isPulse ? '' : html` · add tiles`}</button>
       <button type="button" class="btn btn--ghost btn--sm" data-board-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-board-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-board-status role="status" aria-live="polite"></span>
     </div>`;
-  res.type('html').send(render(layout({ title: r.board.name, activeNav: isPulse ? 'pulse' : 'home' }, html`
-    ${header}${toolbar}${renderBoard(r)}
+  return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
+    ${header}${toolbar}${renderBoard({ ...r, returnTo })}${after}
     ${unsafeHtml(`<script type="application/json" id="board-data">${JSON.stringify(editorData).replace(/</g, '\\u003c')}</script>`)}
-    <script type="module" src="/assets/board-editor.js"></script>`)));
+    ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
+    <script type="module" src="/assets/board-editor.js"></script>`));
+}
+
+/** Remove one item from a board (a tile's × on a dashboard board). Form post. */
+boardsRouter.post('/boards/:id/items/:itemId/remove', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const back = safeReturnTo((req.body ?? {}).returnTo, boardPageUrl(id));
+  const r = resolveBoard(ctx, id);
+  if (!r) { res.redirect(303, back); return; }
+  const itemId = String(req.params.itemId);
+  const item = r.board.items.find((it) => it.id === itemId);
+  if (!item) { res.redirect(303, `${back}?error=${encodeURIComponent('That tile is no longer on the board.')}`); return; }
+  try {
+    boardsOf(ctx).save({ id, name: r.board.name, packId: r.board.packId, items: r.board.items.filter((it) => it.id !== itemId), expectedVersion: r.board.version });
+    const label = item.kind === 'agent' ? item.agentId : item.kind === 'system' ? item.tileId : item.kind;
+    res.redirect(303, `${back}?ok=${encodeURIComponent(`Removed ${label} from the board. Undo last save puts it back.`)}`);
+  } catch (err) {
+    res.redirect(303, `${back}?error=${encodeURIComponent((err as Error).message)}`);
+  }
+});
+
+/** Set one tile's palette (the ● button). Body: { palette, version }. Returns the new version. */
+boardsRouter.post('/boards/:id/items/:itemId/palette', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const r = resolveBoard(ctx, id);
+  if (!r) { res.status(404).json({ error: 'No such board.' }); return; }
+  const body = (req.body ?? {}) as { palette?: unknown; version?: unknown };
+  if (typeof body.palette !== 'string' || !(BOARD_PALETTES as readonly string[]).includes(body.palette)) { res.status(400).json({ error: 'Unknown palette.' }); return; }
+  const itemId = String(req.params.itemId);
+  if (!r.board.items.some((it) => it.id === itemId && (it.kind === 'agent' || it.kind === 'system'))) { res.status(404).json({ error: 'That tile is no longer on the board.' }); return; }
+  const items = r.board.items.map((it) => {
+    if (it.id !== itemId || (it.kind !== 'agent' && it.kind !== 'system')) return it;
+    const { palette: _old, ...rest } = it;
+    return body.palette === 'default' ? rest : { ...rest, palette: body.palette as typeof it.palette };
+  });
+  try {
+    const board = boardsOf(ctx).save({ id, name: r.board.name, packId: r.board.packId, items, expectedVersion: typeof body.version === 'number' ? body.version : r.board.version });
+    res.json({ version: board.version });
+  } catch (err) { sendSaveError(res, err); }
+});
+
+/** Only same-site paths come back from a form's returnTo. */
+function safeReturnTo(v: unknown, fallback: string): string {
+  return typeof v === 'string' && /^\/(?!\/)[\w\-./:%]*$/.test(v) ? v : fallback;
+}
+
+boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  // With board pages on, a board's home is /pulse or /dashboards/<id>.
+  if (boardPagesEnabled() && resolveBoard(ctx, id)) { res.redirect(302, boardPageUrl(id)); return; }
+  const page = renderBoardPage(ctx, id);
+  if (!page) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
+  res.type('html').send(page);
 });
