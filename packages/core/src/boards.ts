@@ -337,9 +337,11 @@ export function boardDocFromItems(items: readonly BoardItem[]): BoardDoc {
     if (it.kind === 'agent') components.push({ id: leafId, component: 'AgentTile', agentId: it.agentId, ...(it.palette ? { palette: it.palette } : {}) });
     else if (it.kind === 'system') components.push({ id: leafId, component: 'SystemTile', tileId: it.tileId, ...(it.palette ? { palette: it.palette } : {}) });
     else components.push({ id: leafId, component: 'Text', text: it.text });
-    const cellId = `cell_${it.id}`;
+    // A Cell only when the tile spans more than one column or row.
     const span = spanFor(it.w);
     const rows = it.h >= 8 ? 2 : 1;
+    if (span === 1 && rows === 1) { cells.push(leafId); continue; }
+    const cellId = `cell_${it.id}`;
     components.push({ id: cellId, component: 'Cell', child: leafId, ...(span > 1 ? { span } : {}), ...(rows > 1 ? { rows } : {}) });
     cells.push(cellId);
   }

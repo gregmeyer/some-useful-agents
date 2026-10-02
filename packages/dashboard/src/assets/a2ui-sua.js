@@ -232,12 +232,35 @@ function boardTile(id) {
 }
 const boardId = () => document.querySelector('[data-board-canvas]')?.getAttribute('data-board-canvas') || '';
 
+// Arranging a canvas (assets/board-canvas-editor.js): tiles become selectable
+// and the selected node is outlined. The editor flips this and redraws.
+export const boardEdit = { on: false, selected: '' };
+const selfId = (el) => el.context?.componentModel?.id ?? '';
+function selectNode(el, e) {
+  e.preventDefault(); e.stopPropagation();
+  el.dispatchEvent(new CustomEvent('sua-board-select', { bubbles: true, composed: true, detail: { id: selfId(el) } }));
+}
+
+/** Redraw a board surface from new messages, merging new tiles into the registry. */
+export function remountBoard(host, messages, tiles = {}) {
+  boardTile('');
+  Object.assign(boardTiles, tiles);
+  host.querySelector('a2ui-surface')?.remove();
+  host.querySelectorAll(':scope > p.flash').forEach((p) => p.remove());
+  const script = host.querySelector('script[type="application/json"]');
+  if (script) script.textContent = JSON.stringify(messages);
+  host.removeAttribute('data-a2ui-mounted');
+  mountSurface(host);
+}
+
 const Grid = define('Grid', 'sua-a2ui-grid',
   Common.extend({ children: CommonSchemas.ChildList, minWidth: z.number().int().min(120).max(800).optional() }).strict(),
-  css`.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--min, 280px), 100%), 1fr)); gap: var(--space-3, 12px); align-items: start; grid-auto-flow: dense; }`,
+  css`.sel { outline: 2px solid var(--color-primary); outline-offset: 4px; border-radius: 4px; }
+  .grid { min-height: 40px; } .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--min, 280px), 100%), 1fr)); gap: var(--space-3, 12px); align-items: start; grid-auto-flow: dense; }`,
   function (p) {
     const kids = Array.isArray(p.children) ? p.children : [];
-    return html`<div class="grid" style="--min: ${p.minWidth ?? 280}px">${kids.map((c) => this.renderNode(c))}</div>`;
+    const sel = boardEdit.on && boardEdit.selected === selfId(this);
+    return html`<div class="grid ${sel ? 'sel' : ''}" style="--min: ${p.minWidth ?? 280}px">${kids.map((c) => this.renderNode(c))}</div>`;
   });
 
 const Cell = define('Cell', 'sua-a2ui-cell',
@@ -253,8 +276,13 @@ const Section = define('Section', 'sua-a2ui-section',
   Common.extend({ title: Str, child: CommonSchemas.ComponentId }).strict(),
   css`
     :host { margin-bottom: var(--space-5, 20px); }
-    h2 { margin: 0 0 var(--space-3, 12px); font-size: var(--font-size-md); font-weight: var(--weight-semibold, 600); color: var(--color-text); }`,
-  function (p) { return html`<section><h2>${p.title}</h2>${this.renderNode(p.child)}</section>`; });
+    h2 { margin: 0 0 var(--space-3, 12px); font-size: var(--font-size-md); font-weight: var(--weight-semibold, 600); color: var(--color-text); }
+    .sel { outline: 2px solid var(--color-primary); outline-offset: 6px; border-radius: 4px; }
+    .pick-title { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; }`,
+  function (p) {
+    const sel = boardEdit.on && boardEdit.selected === selfId(this);
+    return html`<section class=${sel ? 'sel' : ''}><h2>${boardEdit.on ? html`<button type="button" class="pick-title" @click=${(e) => selectNode(this, e)}>${p.title}</button>` : p.title}</h2>${this.renderNode(p.child)}</section>`;
+  });
 
 const tileStyles = css`
   :host { display: block; min-width: 0; height: 100%; }
@@ -279,7 +307,11 @@ const tileStyles = css`
   .age { margin-left: auto; color: var(--color-text-muted); text-decoration: none; white-space: nowrap; }
   .run { font: inherit; font-size: var(--font-size-xs); padding: 3px 10px; border-radius: var(--radius-sm, 4px); border: 0; background: var(--color-primary); color: var(--color-bg); cursor: pointer; text-decoration: none; white-space: nowrap; }
   .run[disabled] { opacity: .6; cursor: default; }
-  .err { color: var(--color-err); }`;
+  .err { color: var(--color-err); }
+  .tile { position: relative; }
+  .pick { position: absolute; inset: -1px; z-index: 2; background: transparent; border: 2px dashed var(--color-border-strong); border-radius: var(--radius-md, 8px); cursor: pointer; }
+  .pick:hover, .pick:focus-visible { border-color: var(--color-primary); outline: none; }
+  .tile.selected .pick { border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }`;
 
 /** Draw messages as a nested surface; its actions bubble out of `host` (crossing shadow roots). */
 function nestedSurface(host, messages) {
@@ -310,7 +342,9 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
     if (!this._body || this._bodyFor !== t) { this._bodyFor = t; this._body = tileBody.call(this, t); }
     const href = `/agents/${encodeURIComponent(p.agentId)}`;
     const palette = p.palette && p.palette !== 'default' ? p.palette : t.autoPalette;
-    return html`<div class="tile" data-agent-id=${p.agentId} data-palette=${palette ?? nothing} data-accent=${t.accent ?? nothing}>
+    const sel = boardEdit.on && boardEdit.selected === selfId(this);
+    return html`<div class="tile ${sel ? 'selected' : ''}" data-agent-id=${p.agentId} data-palette=${palette ?? nothing} data-accent=${t.accent ?? nothing}>
+      ${boardEdit.on ? html`<button type="button" class="pick" aria-label="Select ${t.title}" aria-pressed=${sel ? 'true' : 'false'} @click=${(e) => selectNode(this, e)}></button>` : nothing}
       <header>
         ${t.icon ? html`<span aria-hidden="true">${t.icon}</span>` : nothing}
         <span class="title" title=${t.title}>${t.title}</span>
@@ -385,7 +419,9 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     const t = boardTile(p.tileId);
     if (!t) return nothing;
     if (!this._body) this._body = tileBody.call(this, t);
-    return html`<div class="tile" data-palette=${p.palette && p.palette !== 'default' ? p.palette : nothing}>
+    const sel = boardEdit.on && boardEdit.selected === selfId(this);
+    return html`<div class="tile ${sel ? 'selected' : ''}" data-palette=${p.palette && p.palette !== 'default' ? p.palette : nothing}>
+      ${boardEdit.on ? html`<button type="button" class="pick" aria-label="Select ${t.title}" @click=${(e) => selectNode(this, e)}></button>` : nothing}
       <header>${t.icon ? html`<span aria-hidden="true">${t.icon}</span>` : nothing}<span class="title">${t.title}</span></header>
       <div class="body">${this._body}</div>
     </div>`;

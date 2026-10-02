@@ -346,6 +346,7 @@ const BOARD_TOOLS: BuiltinToolEntry[] = [
       const id = String(inputs.board ?? '').trim();
       const current = ctx.boards.loadOrDerive(id);
       if (!current) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
+      if (current.doc) return { result: `Nothing was changed: "${id}" is arranged as a canvas, which these tile changes can't edit yet. Ask the person to arrange it on its canvas page.`, isError: true };
       let items: BoardItem[];
       try {
         items = applyBoardChanges(current.items, arrayInput(inputs.changes));
