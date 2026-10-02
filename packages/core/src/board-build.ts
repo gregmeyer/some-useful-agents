@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { openStoreDb } from './sqlite-open.js';
 import { applyBoardOps, type BoardOp } from './board-tree.js';
+import { allocateUserDashboardId } from './dashboard-layout.js';
 import type { BoardDoc } from './boards.js';
 
 const AGENT_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/;
@@ -98,7 +99,7 @@ export function extractBoardBuildPlan(text: string): { ok: true; plan: BoardBuil
 
 // ── Builds ───────────────────────────────────────────────────────────────
 
-export type BoardBuildPhase = 'planning' | 'arranging' | 'running' | 'drafting' | 'done' | 'failed';
+export type BoardBuildPhase = 'queued' | 'planning' | 'arranging' | 'running' | 'drafting' | 'done' | 'failed';
 
 export interface BoardBuild {
   id: string;
@@ -117,6 +118,10 @@ export interface BoardBuild {
   /** The one approval for the drafts: pending (asked in the inbox), approved, declined. */
   approval?: 'pending' | 'approved' | 'declined';
   approvalMessageId?: string;
+  /** The person named the board, so the builder's name doesn't replace it. */
+  keepName?: boolean;
+  /** Where the request came from (dashboard, inbox, mcp), for the record. */
+  origin?: string;
   plannerRunId?: string;
   createdAt: number;
   updatedAt: number;
@@ -143,19 +148,31 @@ export class BoardBuildStore {
       CREATE INDEX IF NOT EXISTS board_builds_board ON board_builds (board_id, created_at DESC);
     `);
   }
-  create(boardId: string, request: string): BoardBuild {
+  create(boardId: string, request: string, opts: { queued?: boolean; keepName?: boolean; origin?: string } = {}): BoardBuild {
     const now = Date.now();
     const id = randomUUID();
-    this.db.prepare('INSERT INTO board_builds (id, board_id, request, phase, detail, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, boardId, request, 'planning', 'Choosing agents for this board…', now, now);
+    this.db.prepare('INSERT INTO board_builds (id, board_id, request, phase, detail, result_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, boardId, request, opts.queued ? 'queued' : 'planning', opts.queued ? 'Waiting for the dashboard to start building…' : 'Choosing agents for this board…',
+        JSON.stringify({ keepName: opts.keepName ?? false, origin: opts.origin }), now, now);
     return this.get(id)!;
   }
-  update(id: string, patch: Partial<Pick<BoardBuild, 'phase' | 'detail' | 'error' | 'placed' | 'failed' | 'missing' | 'drafts' | 'approval' | 'approvalMessageId' | 'plannerRunId'>>): void {
+
+  /** Claim a queued build for running (only one claimer wins). */
+  claim(id: string): boolean {
+    const r = this.db.prepare("UPDATE board_builds SET phase = 'planning', detail = 'Choosing agents for this board…', updated_at = ? WHERE id = ? AND phase = 'queued'").run(Date.now(), id);
+    return Number(r.changes) === 1;
+  }
+
+  /** Builds waiting for the dashboard to run them (queued by MCP, or while it was down). */
+  queued(): BoardBuild[] {
+    return (this.db.prepare("SELECT * FROM board_builds WHERE phase = 'queued' ORDER BY created_at").all() as Array<Record<string, unknown>>).map((r) => this.row(r));
+  }
+  update(id: string, patch: Partial<Pick<BoardBuild, 'phase' | 'detail' | 'error' | 'placed' | 'failed' | 'missing' | 'drafts' | 'approval' | 'approvalMessageId' | 'plannerRunId' | 'keepName' | 'origin'>>): void {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch };
     this.db.prepare('UPDATE board_builds SET phase = ?, detail = ?, error = ?, result_json = ?, planner_run_id = ?, updated_at = ? WHERE id = ?')
-      .run(next.phase, next.detail, next.error ?? null, JSON.stringify({ placed: next.placed, failed: next.failed, missing: next.missing, drafts: next.drafts, approval: next.approval, approvalMessageId: next.approvalMessageId }), next.plannerRunId ?? null, Date.now(), id);
+      .run(next.phase, next.detail, next.error ?? null, JSON.stringify({ placed: next.placed, failed: next.failed, missing: next.missing, drafts: next.drafts, approval: next.approval, approvalMessageId: next.approvalMessageId, keepName: next.keepName, origin: next.origin }), next.plannerRunId ?? null, Date.now(), id);
   }
   get(id: string): BoardBuild | undefined {
     const r = this.db.prepare('SELECT * FROM board_builds WHERE id = ?').get(id) as Record<string, unknown> | undefined;
@@ -166,21 +183,42 @@ export class BoardBuildStore {
     const r = this.db.prepare('SELECT * FROM board_builds WHERE board_id = ? ORDER BY created_at DESC LIMIT 1').get(boardId) as Record<string, unknown> | undefined;
     return r ? this.row(r) : undefined;
   }
-  /** Builds a restart interrupted (still planning/arranging/running). */
+  /** Builds a restart interrupted (still planning/arranging/running/drafting; not queued ones, which simply wait). */
   unfinished(): BoardBuild[] {
     return (this.db.prepare("SELECT * FROM board_builds WHERE phase IN ('planning','arranging','running','drafting')").all() as Array<Record<string, unknown>>).map((r) => this.row(r));
   }
   private row(r: Record<string, unknown>): BoardBuild {
-    let res: { placed?: string[]; failed?: string[]; missing?: BoardBuild['missing']; drafts?: BoardBuild['drafts']; approval?: BoardBuild['approval']; approvalMessageId?: string } = {};
+    let res: { placed?: string[]; failed?: string[]; missing?: BoardBuild['missing']; drafts?: BoardBuild['drafts']; approval?: BoardBuild['approval']; approvalMessageId?: string; keepName?: boolean; origin?: string } = {};
     try { res = JSON.parse(String(r.result_json ?? '{}')); } catch { res = {}; }
     return {
       id: String(r.id), boardId: String(r.board_id), request: String(r.request), phase: r.phase as BoardBuildPhase,
       detail: String(r.detail ?? ''), ...(r.error ? { error: String(r.error) } : {}),
       placed: res.placed ?? [], failed: res.failed ?? [], missing: res.missing ?? [], drafts: res.drafts ?? [],
       ...(res.approval ? { approval: res.approval } : {}), ...(res.approvalMessageId ? { approvalMessageId: res.approvalMessageId } : {}),
+      ...(res.keepName ? { keepName: true } : {}), ...(res.origin ? { origin: res.origin } : {}),
       ...(r.planner_run_id ? { plannerRunId: String(r.planner_run_id) } : {}),
       createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
     };
   }
   close(): void { if (this.ownsConnection) this.db.close(); }
+}
+
+/**
+ * Create a board (a user dashboard) and a build for it, from any process —
+ * the dashboard starts it at once; the MCP server leaves it queued for the
+ * dashboard to pick up. Returns the new board id and build.
+ */
+export function queueBoardBuild(
+  db: DatabaseSync,
+  dashboards: { getDashboard(id: string): unknown; upsertDashboard(args: { id: string; packId: string | null; name: string; layout: { sections: [] } }): void },
+  args: { request: string; name?: string; queued?: boolean; origin?: string },
+): { boardId: string; build: BoardBuild } {
+  const request = args.request.trim().slice(0, 2000);
+  if (!request) throw new Error('Say what the board should show.');
+  const named = Boolean(args.name?.trim());
+  const provisional = (args.name?.trim() || request.split(/\s+/).slice(0, 4).join(' ')).slice(0, 60);
+  const boardId = allocateUserDashboardId(provisional, (id) => Boolean(dashboards.getDashboard(id)));
+  dashboards.upsertDashboard({ id: boardId, packId: null, name: provisional, layout: { sections: [] } });
+  const build = new BoardBuildStore(db).create(boardId, request, { queued: args.queued, keepName: named, ...(args.origin ? { origin: args.origin } : {}) });
+  return { boardId, build };
 }

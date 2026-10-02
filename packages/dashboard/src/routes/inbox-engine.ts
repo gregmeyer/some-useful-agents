@@ -37,6 +37,7 @@ import {
   type LearningScope,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { startBoardBuild } from '../lib/board-build.js';
 import { maybeKickoffFirstRun } from './dashboard-first-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { autoFixYaml } from './run-now-build.js';
@@ -128,6 +129,7 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-builder',
   'dashboard-editor',
   'agent-schedule',
+  'board-build',
 ]);
 
 /**
@@ -170,7 +172,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -820,10 +822,34 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'agent-schedule') {
     return executeAgentSchedule(ctx, meta);
   }
+  if (meta.agentId === 'board-build') {
+    return executeBoardBuild(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
   };
+}
+
+/**
+ * Execute a `board-build` action: build a whole board from a request (docs/boards.md
+ * § Build a board) — the board builder picks agents, the board is laid out and
+ * run, and the inbox says when it's ready (missing agents are drafted behind
+ * one approval). Starts the background build and returns at once with the link.
+ */
+export function executeBoardBuild(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const request = (meta.inputs.REQUEST ?? '').trim();
+  if (!request) return { status: 'failed', refusalReason: 'board-build needs a REQUEST saying what the board should show.' };
+  try {
+    const name = (meta.inputs.NAME ?? '').trim();
+    const { boardId } = startBoardBuild(ctx, { request, ...(name ? { name } : {}), origin: 'inbox' });
+    return { status: 'completed', summary: `Building the board now — /dashboards/${boardId}. It picks from your agents, runs them, and a separate inbox message says when it's ready (with anything it couldn't cover).` };
+  } catch (err) {
+    return { status: 'failed', refusalReason: (err as Error).message };
+  }
 }
 
 /**

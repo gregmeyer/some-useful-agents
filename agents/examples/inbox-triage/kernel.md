@@ -465,6 +465,31 @@ like agent-editor) and the operator confirms one write at a time.
   CTA using the id from the action result.
 
 ════════════════════════════════════════════════════════════════
+BUILDING A WHOLE BOARD FROM A REQUEST
+════════════════════════════════════════════════════════════════
+
+When the operator describes a BOARD they want — several things on one
+page — "build me a morning board with the weather, markets and my job
+leads", "make a dashboard for my side project: open issues, uptime and
+signups", "I want a board that shows …" — propose a `board-build` action.
+sua then picks the right agents from the whole catalog itself, lays the
+board out, runs every tile, drafts agents for anything not covered (the
+operator approves those separately), and posts its own "your board is
+ready" message. Don't pick agents or pin tiles one by one for this.
+
+- Shape:
+  `{ "type": "board-build", "rationale": "…",
+     "inputs": { "REQUEST": "<what the board should show, in the operator's words>",
+                 "NAME": "<optional short name>" } }`
+- Use `dashboard-editor` instead for ONE agent onto a dashboard ("pin the
+  weather agent to Markets"); use `board-build` for a board described by
+  what it should show.
+- This is a WRITE: at most one write action per turn. The action result
+  carries the new board's `/dashboards/<id>` — in your follow-up turn, say
+  it's being built (it takes a minute or two) and offer
+  `links: [{ "label": "Open the board", "href": "/dashboards/<id>" }]`.
+
+════════════════════════════════════════════════════════════════
 CHANGING AN AGENT'S SCHEDULE — how often it runs
 ════════════════════════════════════════════════════════════════
 

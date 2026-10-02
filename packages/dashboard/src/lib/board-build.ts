@@ -14,8 +14,8 @@
  */
 import {
   BoardBuildStore,
+  queueBoardBuild,
   BoardsStore,
-  allocateUserDashboardId,
   boardDocFromBuildPlan,
   applyBoardOps,
   executeAgentWithRetry,
@@ -77,21 +77,62 @@ export function boardCatalog(ctx: Ctx): Array<Record<string, unknown>> {
 }
 
 /** Start building: the dashboard exists straight away (showing progress); the work runs in the background. */
-export function startBoardBuild(ctx: Ctx, args: { request: string; name?: string }): { boardId: string; build: BoardBuild } {
+export function startBoardBuild(ctx: Ctx, args: { request: string; name?: string; origin?: string }): { boardId: string; build: BoardBuild } {
   if (!ctx.dashboardsStore) throw new Error('Dashboards are not available.');
-  const request = args.request.trim().slice(0, 2000);
-  if (!request) throw new Error('Say what the board should show.');
-  const provisional = (args.name?.trim() || request.split(/\s+/).slice(0, 4).join(' ')).slice(0, 60);
-  const boardId = allocateUserDashboardId(provisional, (id) => Boolean(ctx.dashboardsStore!.getDashboard(id)));
-  ctx.dashboardsStore.upsertDashboard({ id: boardId, packId: null, name: provisional, layout: { sections: [] } });
-  const build = buildsOf(ctx).create(boardId, request);
-  void runBoardBuild(ctx, build.id, { keepName: Boolean(args.name?.trim()) }).catch((err) => {
-    finish(ctx, build.id, { error: (err as Error).message || 'The build stopped unexpectedly.' });
-  });
+  const { boardId, build } = queueBoardBuild(ctx.runStore.databaseHandle(), ctx.dashboardsStore, { request: args.request, ...(args.name ? { name: args.name } : {}), origin: args.origin ?? 'dashboard' });
+  launch(ctx, build.id);
   return { boardId, build };
 }
 
-async function runBoardBuild(ctx: Ctx, buildId: string, opts: { keepName: boolean }): Promise<void> {
+function launch(ctx: Ctx, buildId: string): void {
+  void runBoardBuild(ctx, buildId).catch((err) => {
+    finish(ctx, buildId, { error: (err as Error).message || 'The build stopped unexpectedly.' });
+  });
+}
+
+/**
+ * Run builds queued from elsewhere (the MCP server's build-board tool), or
+ * left queued while the dashboard was down. Each is claimed first, so two
+ * dashboards on one data dir can't both run it.
+ */
+export function startQueuedBoardBuilds(ctx: Ctx): number {
+  let started = 0;
+  try {
+    const builds = buildsOf(ctx);
+    for (const b of builds.queued()) {
+      if (!builds.claim(b.id)) continue;
+      launch(ctx, b.id);
+      started += 1;
+    }
+  } catch { /* no table yet */ }
+  return started;
+}
+
+/** Check for queued builds every few seconds (the timer never keeps the process alive). */
+export function watchQueuedBoardBuilds(ctx: Ctx, everyMs = 4000): () => void {
+  const t = setInterval(() => startQueuedBoardBuilds(ctx), everyMs);
+  t.unref?.();
+  return () => clearInterval(t);
+}
+
+/** Run a build's failed tiles again; the board's banner shows the new outcome when they finish. */
+export function retryFailedTiles(ctx: Ctx, buildId: string): { ok: boolean; message: string; boardId?: string } {
+  const builds = buildsOf(ctx);
+  const build = builds.get(buildId);
+  if (!build) return { ok: false, message: 'That board build no longer exists.' };
+  const agents = build.failed.map((id) => ctx.agentStore.getAgent(id)).filter((a): a is Agent => Boolean(a));
+  if (agents.length === 0) return { ok: false, message: 'Nothing to retry.', boardId: build.boardId };
+  builds.update(buildId, { detail: `Retrying ${agents.length} tile${agents.length === 1 ? '' : 's'}…` });
+  void Promise.all(agents.map(async (agent) => {
+    try { return (await executeAgentWithRetry(agent, { triggeredBy: 'dashboard' }, runDeps(ctx))).status === 'completed' ? null : agent.id; } catch { return agent.id; }
+  })).then((still) => {
+    const failed = still.filter((x): x is string => Boolean(x));
+    builds.update(buildId, { failed, detail: failed.length ? `${failed.length} tile${failed.length === 1 ? '' : 's'} still didn't run cleanly.` : 'All tiles ran.' });
+  });
+  return { ok: true, message: `Running ${agents.length} tile${agents.length === 1 ? '' : 's'} again.`, boardId: build.boardId };
+}
+
+async function runBoardBuild(ctx: Ctx, buildId: string): Promise<void> {
   const builds = buildsOf(ctx);
   const build = builds.get(buildId)!;
 
@@ -127,7 +168,7 @@ async function runBoardBuild(ctx: Ctx, buildId: string, opts: { keepName: boolea
   const tileable = new Set(catalog.map((c) => String(c.id)));
   const { doc, placed } = boardDocFromBuildPlan(plan, (id) => tileable.has(id));
   const dashboard = ctx.dashboardsStore!.getDashboard(build.boardId);
-  const name = opts.keepName && dashboard ? dashboard.name : plan.name;
+  const name = build.keepName && dashboard ? dashboard.name : plan.name;
   ctx.dashboardsStore!.upsertDashboard({ id: build.boardId, packId: null, name, layout: { sections: sectionsFromBoardDoc(doc) } });
   const boards = new BoardsStore(ctx.runStore.databaseHandle());
   const current = boards.get(build.boardId);

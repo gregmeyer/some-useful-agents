@@ -28,7 +28,13 @@ A dashboard you haven't arranged is shown laid out from its sections: each becom
 
 ## Build a board from a request
 
-**＋ New board** (on Pulse or any dashboard) asks what the board should show, in your words, e.g. *"A morning board: the weather in Seattle, how the markets are doing, top Hacker News stories, and new remote PM job leads"*. Then sua:
+Ask for one any of three ways:
+
+- **＋ New board** on Pulse or any dashboard;
+- **Ask sua** ("build me a board for my evenings: top Hacker News, tomorrow's weather and a cocktail idea"); the inbox triage agent starts the build and links the board;
+- **MCP**: `build-board` (with `board-build-status` to follow it) from Claude Desktop, Codex or any MCP client. The build runs in the dashboard, which picks it up within seconds.
+
+You describe what the board should show, in your words, e.g. *"A morning board: the weather in Seattle, how the markets are doing, top Hacker News stories, and new remote PM job leads"*. Then sua:
 
 1. **Picks agents** you already have that answer it (the **board-builder** agent reads your agents' titles, descriptions and example questions; it never invents agents), groups them into sections and sizes them;
 2. **lays out** a new board with them (the same operations as Arrange);
@@ -39,7 +45,7 @@ A dashboard you haven't arranged is shown laid out from its sections: each becom
 
 You're taken to the new board straight away; it shows progress while it builds, and you can leave. The board is an ordinary dashboard afterwards: arrange it, rename it, or delete it. If the dashboard restarts mid-build, the inbox says so.
 
-New agents never run before you approve them. A draft that can't be made (the critic gives up, or it would reuse an existing agent's id) is listed in the approval message instead.
+New agents never run before you approve them. If some tiles didn't run cleanly, the board's banner offers to **run them again**. A draft that can't be made (the critic gives up, or it would reuse an existing agent's id) is listed in the approval message instead.
 
 ## Arranging a board
 

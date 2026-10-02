@@ -22,7 +22,7 @@ import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
-import { boardCatalog, decideBoardDrafts, latestBoardBuild, startBoardBuild } from '../lib/board-build.js';
+import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, startBoardBuild } from '../lib/board-build.js';
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
@@ -293,7 +293,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       ? html`<div class="flash ${build!.phase === 'failed' ? 'flash--error' : 'flash--info'} board-build" role="status">
           ${build!.phase === 'failed'
             ? html`<strong>This board couldn't be built.</strong> ${build!.error ?? ''}`
-            : html`<strong>Built from your request.</strong> ${build!.detail}${build!.failed.length ? html` ${String(build!.failed.length)} tile${build!.failed.length === 1 ? '' : 's'} didn't run cleanly.` : html``}`}
+            : html`<strong>Built from your request.</strong> ${build!.detail}${build!.failed.length ? html` ${String(build!.failed.length)} tile${build!.failed.length === 1 ? '' : 's'} didn't run cleanly (${build!.failed.join(', ')}).
+                <form method="POST" action="/boards/builds/${encodeURIComponent(build!.id)}/retry" style="display: inline; margin: 0;"><button type="submit" class="btn btn--ghost btn--sm">Run ${build!.failed.length === 1 ? 'it' : 'them'} again</button></form>` : html``}`}
           ${build!.missing.length ? html`<div style="margin-top: var(--space-1);">Not covered by your agents yet: ${build!.missing.map((m) => m.purpose).join('; ')}. Build an agent for them (Build from goal on the <a href="/agents">Agents</a> page), then add it with Arrange.</div>` : html``}
         </div>`
       : html``;
@@ -472,6 +473,14 @@ boardsRouter.post('/boards/build', (req: Request, res: Response) => {
 });
 
 /** The one approval for a build's drafted agents (from the inbox or the board page). */
+/** Run a build's failed tiles again. */
+boardsRouter.post('/boards/builds/:buildId/retry', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const out = retryFailedTiles(ctx, String(req.params.buildId));
+  const back = out.boardId ? boardPageUrl(out.boardId) : '/pulse';
+  res.redirect(303, `${back}?${out.ok ? 'ok' : 'error'}=${encodeURIComponent(out.message)}`);
+});
+
 for (const decision of ['approve', 'decline'] as const) {
   boardsRouter.post(`/boards/builds/:buildId/${decision}`, (req: Request, res: Response) => {
     const ctx = getContext(req.app.locals);
