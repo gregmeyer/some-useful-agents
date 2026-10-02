@@ -1,6 +1,6 @@
 # board-read and board-place
 
-Let an agent read and arrange a [board](../boards.md): Pulse (`pulse`) or a named dashboard (`user:morning-briefing`, …). Both are built in; add them to a node's `tools:`.
+Let an agent read and arrange a [board](../boards.md): Pulse (`pulse`) or a named dashboard (`user:morning-briefing`, …). A board is an A2UI canvas, a tree of sections, tabs, rows, grids and tiles, and these tools work on that tree with the same operations as the **✎ Arrange** editor. Both are built in; add them to a node's `tools:`.
 
 ```yaml
 nodes:
@@ -8,11 +8,11 @@ nodes:
     type: llm-prompt
     tools: [board-read, board-place]
     prompt: |
-      Read the board "user:morning-briefing", put the weather tile top left at 2x1,
-      and add a heading "Today" above it. Pass the version you read.
+      Read the board "user:morning-briefing". Put the weather tile in a new
+      section "Outside" at the top, two columns wide. Pass the version you read.
 ```
 
-The same two tools are offered to MCP clients (Claude Desktop, Codex…) by `sua mcp`.
+MCP clients (Claude Desktop, Codex…) get the same two tools from `sua mcp`.
 
 ## board-read
 
@@ -20,34 +20,46 @@ The same two tools are offered to MCP clients (Claude Desktop, Codex…) by `sua
 |---|---|---|---|
 | `board` | string | no | Board id. Empty lists the boards you can arrange. |
 
-Returns the board's `version` and its items, one per line: `[id] agent weather-forecast at x=0 y=1, 6x5`. The grid is 12 columns wide and each row is 40px. A dashboard that has never been arranged is shown laid out from its sections (version 0).
+Returns the board's `version` and an outline of its tree, one node per line with its id:
+
+```text
+Board "Morning Briefing" (user:morning-briefing), version 3, 5 tiles:
+[root] board (column)
+  [section_1] section "Morning Glance"
+    [grid_1] grid
+      [tile_s0t0] tile daily-greeting "Morning Greeting"
+      [tile_s0t1] tile weather-forecast "Weather" (spans 2 columns; cell cell_s0t1)
+  [tabs_4] tabs
+    tab "Sports":
+      [section_2] section "MLB"
+        …
+```
+
+A board that has never been arranged is shown laid out from the dashboard's sections (Pulse: empty, everything else is under "Everything else" on the page). The result also carries the board's A2UI document (`board.doc`).
 
 ## board-place
 
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `board` | string | yes | Board id |
-| `changes` | array | yes | Changes, applied in order (below) |
+| `ops` | array | yes | Operations, applied in order (below) |
 | `version` | number | no | The version you read. If the board changed since, nothing is saved. |
 
-Each change is one of:
-
-| Change | Effect |
+| Operation | Effect |
 |---|---|
-| `{"op":"add","kind":"agent","agentId":"…","size":"2x1"}` | Add an agent's tile. Sizes `1x1` (3×5 cells), `2x1` (6×5), `1x2` (3×10), `2x2` (6×10); or give `w`/`h`. Without `x`/`y` it goes in the first free spot. |
-| `{"op":"add","kind":"heading","text":"…"}` | Add a full-width heading (at the bottom, or at `y`). |
-| `{"op":"add","kind":"note","text":"…"}` | Add a short note (`**bold**`, `*italic*`, `` `code` ``). |
-| `{"op":"move","id":"…","x":0,"y":0}` | Move an item. Dropping onto another item's spot pushes it down. |
-| `{"op":"resize","id":"…","w":6,"h":5}` | Resize an item. |
-| `{"op":"remove","id":"…"}` | Remove an item. |
+| `{"op":"insert","parent":ID,"index"?:N,"node":{…}}` | Add a node into a container (`root`, a section, grid, row, column, tabs or card). Nodes: `{"type":"tile","agentId":"…"}`, `{"type":"system","tileId":"_system-…"}`, `{"type":"section","title":"…"}` (a section holding a grid), `{"type":"heading","text":"…"}`, `{"type":"note","text":"…"}`, `{"type":"grid"}`, `{"type":"row"}`, `{"type":"column"}`, `{"type":"tabs","title"?:"…"}`, `{"type":"card"}`. Inserting into tabs adds a tab. |
+| `{"op":"move","id":ID,"parent":ID,"index"?:N}` | Move a node (a tile takes its span with it). |
+| `{"op":"remove","id":ID}` | Remove a node and everything in it. |
+| `{"op":"wrap","id":ID,"in":"section\|card\|row\|column\|tabs","title"?:"…"}` | Put a node inside a new container. |
+| `{"op":"unwrap","id":ID}` | Put a container's contents where it was. |
+| `{"op":"set","id":ID,"props":{…}}` | `title` (section), `text` (heading/note), `minWidth` (grid, px), `palette` (tile: `default`, `dark`, `light`, `accent-teal`, `accent-red`, `accent-green`), `tabTitles` (tabs). |
+| `{"op":"span","id":TILE,"span"?:1-4,"rows"?:1-4}` | How many columns and rows a tile takes in its grid. |
 
-`id` is an item id from `board-read`; for an agent tile its agent id works too. Tiles never overlap and float up into gaps after every change.
-
-All changes are saved together as a new version, which the person can undo from the board page (**Undo last save**). Nothing is saved when any change is invalid, an agent isn't installed, or the board changed since `version`; the tool says which.
+All operations are checked and saved together as a new version, which the person can undo from the board (**Undo last save**). Nothing is saved when any operation can't be applied (an unknown id, moving something into itself, removing the root), when it would add an agent that isn't installed, or when the board changed since `version`; the tool says which.
 
 ## Policy
 
-The board id is the tool's resource, so a [tool policy](../tool-policies.md) rule can limit which boards an agent may arrange:
+The board id is the tools' resource, so a [tool policy](../tool-policies.md) rule can limit which boards an agent may arrange:
 
 ```json
 { "tool": "board-place", "resources": ["pulse"], "effect": "deny", "reason": "Pulse is arranged by hand." }

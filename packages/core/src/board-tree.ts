@@ -295,3 +295,45 @@ export function applyBoardOps(doc: BoardDoc, opsInput: unknown): { doc: BoardDoc
   if (!v.ok) throw new Error(`That would make the board invalid: ${v.errors[0]}`);
   return { doc: v.doc, created };
 }
+
+/**
+ * A board document as an indented outline for agents (board-read): one line
+ * per node with its id, what it is, and a tile's span, in reading order.
+ * `names` gives friendlier tile labels (agent id → title).
+ */
+export function describeBoardDoc(doc: BoardDoc, names: (agentId: string) => string | undefined = () => undefined): string {
+  const byId = new Map(doc.components.map((c) => [c.id, c]));
+  const lines: string[] = [];
+  const kids = (c: Comp): string[] => (LIST.has(c.component) ? ((c.children as string[]) ?? []) : SINGLE.has(c.component) ? (typeof c.child === 'string' ? [c.child] : []) : []);
+  const walk = (id: string, depth: number, extra = '') => {
+    const c = byId.get(id) as Comp | undefined;
+    if (!c) return;
+    const pad = '  '.repeat(depth);
+    if (c.component === 'Cell') {
+      const child = typeof c.child === 'string' ? c.child : '';
+      walk(child, depth, ` (spans ${String(c.span ?? 1)} column${Number(c.span ?? 1) === 1 ? '' : 's'}${Number(c.rows ?? 1) > 1 ? `, ${String(c.rows)} rows` : ''}; cell ${c.id})`);
+      return;
+    }
+    let what: string;
+    switch (c.component) {
+      case 'AgentTile': { const n = names(String(c.agentId)); what = `tile ${String(c.agentId)}${n && n !== c.agentId ? ` "${n}"` : ''}${c.palette ? `, palette ${String(c.palette)}` : ''}`; break; }
+      case 'SystemTile': what = `health tile ${String(c.tileId)}`; break;
+      case 'Section': what = `section "${String(c.title)}"`; break;
+      case 'Text': what = `${String(c.variant ?? '').startsWith('h') ? 'heading' : 'note'} "${String(c.text).slice(0, 60)}"`; break;
+      case 'Grid': what = `grid${c.minWidth ? ` (tiles ≥ ${String(c.minWidth)}px)` : ''}`; break;
+      case 'Column': what = id === 'root' ? 'board (column)' : 'column'; break;
+      default: what = c.component.toLowerCase();
+    }
+    lines.push(`${pad}[${id}] ${what}${extra}`);
+    if (c.component === 'Tabs') {
+      for (const t of (c.tabs as Array<{ title: string; child: string }>) ?? []) {
+        lines.push(`${pad}  tab "${t.title}":`);
+        walk(t.child, depth + 2);
+      }
+      return;
+    }
+    for (const k of kids(c)) walk(k, depth + 1);
+  };
+  walk('root', 0);
+  return lines.join('\n');
+}

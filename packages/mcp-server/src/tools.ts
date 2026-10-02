@@ -407,7 +407,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   server.registerTool(
     'board-read',
     {
-      description: 'See how a sua board (Pulse, or a named dashboard) is laid out: items with ids, positions and sizes on a 12-column grid. Omit board to list the boards.',
+      description: 'See how a sua board (Pulse, or a named dashboard) is laid out: an outline of its sections, tabs, rows, grids and tiles with the ids board-place needs, and its version. Omit board to list the boards.',
       inputSchema: { board: z.string().optional().describe('Board id: "pulse" or a dashboard id like "user:morning-briefing".') },
     },
     async ({ board }) => runBoardTool('board-read', { board: board ?? '' }),
@@ -416,14 +416,14 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   server.registerTool(
     'board-place',
     {
-      description: 'Add, move, resize or remove tiles on a sua board (12-column grid, 40px rows; tiles never overlap and float up). Saved as a new version the person can undo. Read the board first for item ids.',
+      description: getBuiltinTool('board-place')!.definition.description,
       inputSchema: {
         board: z.string().describe('Board id: "pulse" or a dashboard id.'),
-        changes: z.array(z.record(z.string(), z.unknown())).describe('Changes in order: {op:"add",kind:"agent",agentId,size?:"1x1|2x1|1x2|2x2",x?,y?,w?,h?} | {op:"add",kind:"heading",text} | {op:"add",kind:"note",text} | {op:"move",id,x,y} | {op:"resize",id,w,h} | {op:"remove",id}.'),
+        ops: z.array(z.record(z.string(), z.unknown())).describe('Tree operations in order: insert / move / remove / wrap / unwrap / set / span (see the tool description). ids come from board-read.'),
         version: z.number().optional().describe('The version you read; if the board changed since, nothing is saved.'),
       },
     },
-    async ({ board, changes, version }) => runBoardTool('board-place', { board, changes, ...(version !== undefined ? { version } : {}) }),
+    async ({ board, ops, version }) => runBoardTool('board-place', { board, ops, ...(version !== undefined ? { version } : {}) }),
   );
 
   server.registerTool(
