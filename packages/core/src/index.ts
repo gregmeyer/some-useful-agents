@@ -602,3 +602,12 @@ export {
   type BrandPreset,
   type BrandColorToken,
 } from './brand-theme.js';
+export {
+  boardBuildPlanSchema,
+  boardDocFromBuildPlan,
+  extractBoardBuildPlan,
+  BoardBuildStore,
+  type BoardBuildPlan,
+  type BoardBuild,
+  type BoardBuildPhase,
+} from './board-build.js';

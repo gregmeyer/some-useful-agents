@@ -26,6 +26,19 @@ A dashboard you haven't arranged is shown laid out from its sections: each becom
 
 **Save as pack** exports the board: each section (or tab) becomes a pack section, in reading order, with its tiles' sizes.
 
+## Build a board from a request
+
+**＋ New board** (on Pulse or any dashboard) asks what the board should show, in your words, e.g. *"A morning board: the weather in Seattle, how the markets are doing, top Hacker News stories, and new remote PM job leads"*. Then sua:
+
+1. **Picks agents** you already have that answer it (the **board-builder** agent reads your agents' titles, descriptions and example questions; it never invents agents), groups them into sections and sizes them;
+2. **lays out** a new board with them (the same operations as Arrange);
+3. **runs every tile once**, so the board opens with results;
+4. **tells you in your inbox** when it's ready: what it shows, any tile that didn't run cleanly, and the parts of your request **no agent covers yet**, so you can build agents for them.
+
+You're taken to the new board straight away; it shows progress while it builds, and you can leave. The board is an ordinary dashboard afterwards: arrange it, rename it, or delete it. If the dashboard restarts mid-build, the inbox says so.
+
+Drafting the missing agents for you (with your approval before they run) comes next.
+
 ## Arranging a board
 
 Press **✎ Arrange** on Pulse or a dashboard (on a wide screen). An outline of the board appears on the left; pick something there, or click a tile or a section title on the board.

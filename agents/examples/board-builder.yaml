@@ -1,0 +1,84 @@
+# System agent: "Build a board from a request" (docs/boards.md § Build a board).
+#
+# Given what the person wants to see and the agents they already have, pick
+# the agents that answer it, group them into sections, size them, and say
+# which parts no agent covers yet. The dashboard turns the plan into a canvas
+# board (the same tree operations as Arrange), runs every tile, and posts
+# "your board is ready" to the inbox.
+id: board-builder
+name: Board Builder
+description: >
+  Turns a request ("a morning board with weather, markets and my job leads")
+  into a board plan: which of your agents to show, grouped into sections and
+  sized, plus the parts no agent covers yet. Run from "New board from a
+  request".
+status: active
+source: examples
+
+timeoutSec: 180
+
+inputs:
+  REQUEST:
+    type: string
+    required: true
+    description: What the person wants the board to show, in their words.
+  CATALOG:
+    type: string
+    required: true
+    description: >
+      JSON array of the agents that can be a tile, injected by the dashboard:
+      [{ "id", "title", "description"?, "examples"?: [...], "needsInput"?: true,
+      "inputs"?: [{ "name", "default"? }], "lastRunAt"? }].
+
+nodes:
+  - id: plan
+    type: llm-prompt
+    prompt: |
+      You design boards for the sua agent platform. A board is a page of tiles;
+      each tile is one of the person's agents, showing its latest result, with a
+      Run button. Your job: choose which EXISTING agents answer the request below,
+      arrange them, and name what's missing. You never invent agents.
+
+      REQUEST:
+      {{inputs.REQUEST}}
+
+      CATALOG (the only agents you may use, JSON):
+      {{inputs.CATALOG}}
+
+      RULES
+      - Use only ids from CATALOG, exactly as written. Pick agents whose title,
+        description or examples genuinely match part of the request; don't pad the
+        board with loosely related agents. Fewer, relevant tiles beat many.
+      - Group tiles into 1–5 sections with short titles in the person's terms
+        ("Weather", "Markets", "Job leads"). Order sections and tiles by what the
+        person most likely looks at first.
+      - Size: "span" is how many columns a tile takes (1–3). Use 2 for tables,
+        lists, charts and anything wide; 1 for a single number or short text.
+      - layout: prefer "sections" (stacked, everything visible at a glance).
+        Use "tabs" (one tab per section) only when the person asks for tabs, or
+        there are 4+ sections that each hold several tiles. A section with a
+        single tile is fine; don't split one idea into many one-tile sections
+        when a shared section ("Today", "Work") reads better.
+      - "missing": each part of the request NO catalog agent covers, as a short
+        purpose ("summarise my calendar for today"), with a suggestedName in
+        lowercase-with-dashes. Empty when everything is covered.
+      - "name": a short board name (2–4 words). "summary": one sentence saying
+        what the board shows and anything left out.
+      - An agent with "needsInput": true can't run without input; include it only
+        if it's central to the request.
+
+      Reply with ONLY this JSON inside <plan></plan>, nothing after it:
+      <plan>
+      {
+        "name": "Morning board",
+        "summary": "Weather and markets for the morning; no calendar agent yet.",
+        "layout": "sections",
+        "sections": [
+          { "title": "Weather", "tiles": [ { "agentId": "weather-forecast", "span": 2 } ] },
+          { "title": "Markets", "tiles": [ { "agentId": "markets-today", "span": 1 } ] }
+        ],
+        "missing": [ { "purpose": "summarise my calendar for today", "suggestedName": "calendar-today" } ]
+      }
+      </plan>
+    maxTurns: 1
+    timeout: 170

@@ -1238,3 +1238,10 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .canvas-props__field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .canvas-props__field input, .canvas-props__field select { font: inherit; font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
 .canvas-stage { min-width: 0; }
+
+/* New board from a request (/boards/new). */
+.board-new { display: flex; flex-direction: column; gap: var(--space-3); max-width: 44rem; }
+.board-new__field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-sm); }
+.board-new__field textarea, .board-new__field input { font: inherit; padding: var(--space-2); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
+.board-new .btn { align-self: flex-start; }
+.board-build { margin-bottom: var(--space-3); }

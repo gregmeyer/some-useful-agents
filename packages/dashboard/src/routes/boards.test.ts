@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  AgentStore, BoardsStore, DashboardsStore, LocalProvider, MemorySecretsStore, RunStore,
+  AgentStore, BoardsStore, DashboardsStore, InboxStore, LocalProvider, MemorySecretsStore, RunStore,
   buildLoopbackAllowlist, loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
@@ -30,7 +30,7 @@ async function setup() {
   await provider.initialize();
   ctx = {
     token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), dashboardsStore: new DashboardsStore(dbPath),
+    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), dashboardsStore: new DashboardsStore(dbPath), inboxStore: new InboxStore(dbPath),
     loadAgents: () => loadAgents({ directories: [agentsDir] }), secretsStore,
     secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'),
     retentionDays: 30, dbPath, secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64),
@@ -294,5 +294,69 @@ describe('brand theme', () => {
     expect(page.text).toContain('action="/settings/appearance/brand/undo"');
     res = await form(app, '/settings/appearance/brand/undo', { version: v3 });
     expect((await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text).toContain('--color-primary: #ff0066;');
+  });
+});
+
+describe('build a board from a request', () => {
+  it('plans with the board builder, arranges a canvas, runs the tiles, and reports in the inbox', async () => {
+    const app = await setup();
+    // A stand-in board builder that returns a fixed plan (the real one is an LLM agent).
+    const plan = { name: 'Morning view', summary: 'Weather and news; no calendar agent yet.', layout: 'sections',
+      sections: [{ title: 'Outside', tiles: [{ agentId: 'weather', span: 2 }] }, { title: 'Reading', tiles: [{ agentId: 'news' }, { agentId: 'ghost' }] }],
+      missing: [{ purpose: 'summarise my calendar', suggestedName: 'calendar-today' }] };
+    ctx.agentStore.createAgent({ id: 'board-builder', name: 'Test builder', status: 'active', source: 'local', mcp: false,
+      inputs: { REQUEST: { type: 'string', required: true }, CATALOG: { type: 'string', required: true } },
+      nodes: [{ id: 'plan', type: 'shell', command: `printf '%s' '<plan>${JSON.stringify(plan)}</plan>'` }] } as never, 'cli');
+
+    const page = await get(app, '/boards/new');
+    expect(page.text).toContain('action="/boards/build"');
+    const res = await request(app).post('/boards/build').type('form').send({ request: 'a morning board with weather and news' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(303);
+    const boardId = decodeURIComponent(res.headers.location.replace('/dashboards/', ''));
+    expect(boardId).toMatch(/^user:a-morning-board/);
+
+    let build: { phase: string } = { phase: '' };
+    for (let i = 0; i < 100 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      build = (await get(app, `/boards/${encodeURIComponent(boardId)}/build.json`)).body;
+    }
+    expect(build).toMatchObject({ phase: 'done', placed: ['weather', 'news'], failed: [], missing: [{ purpose: 'summarise my calendar' }], detail: plan.summary });
+
+    const board = await get(app, res.headers.location);
+    const comps = surface(board.text);
+    expect(comps.filter((c) => c.component === 'Section').map((c) => c.title).sort()).toEqual(['Outside', 'Reading']);
+    expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId).sort()).toEqual(['news', 'weather']);
+    expect(board.text).toContain('Built from your request.');
+    expect(board.text).toContain('summarise my calendar');
+    expect(ctx.dashboardsStore!.getDashboard(boardId)!.name).toBe('Morning view');
+    // Every tile ran once.
+    expect(ctx.runStore.listRuns({ agentName: 'weather', limit: 5 }).length).toBeGreaterThan(0);
+    expect(ctx.runStore.listRuns({ agentName: 'news', limit: 5 }).length).toBeGreaterThan(0);
+    // The inbox says it's ready.
+    const msg = ctx.inboxStore!.list({ source: 'board' })[0];
+    expect(msg).toMatchObject({ source: 'board', title: 'Your board "Morning view" is ready' });
+    expect(msg.body).toContain(res.headers.location);
+    expect(msg.body).toContain('summarise my calendar');
+  });
+
+  it('reports a builder that fails, and refuses an empty request', async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'board-builder', name: 'Broken builder', status: 'active', source: 'local', mcp: false,
+      inputs: { REQUEST: { type: 'string', required: true }, CATALOG: { type: 'string', required: true } },
+      nodes: [{ id: 'plan', type: 'shell', command: 'echo not a plan' }] } as never, 'cli');
+    const res = await request(app).post('/boards/build').type('form').send({ request: 'anything' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const boardId = decodeURIComponent(res.headers.location.replace('/dashboards/', ''));
+    let build: { phase: string; error?: string } = { phase: '' };
+    for (let i = 0; i < 100 && build.phase !== 'done' && build.phase !== 'failed'; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      build = (await get(app, `/boards/${encodeURIComponent(boardId)}/build.json`)).body;
+    }
+    expect(build).toMatchObject({ phase: 'failed', error: expect.stringMatching(/didn't return a plan/) });
+    expect(ctx.inboxStore!.list({ source: 'board' })[0]).toMatchObject({ title: "Couldn't build your board", priority: 'high' });
+    const empty = await request(app).post('/boards/build').type('form').send({ request: '  ' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(empty.headers.location).toMatch(/^\/boards\/new\?error=/);
   });
 });
