@@ -475,3 +475,18 @@
 .settings-policies__json > summary { cursor: pointer; }
 /* Keeps Delete aligned when a row has no ↑ or ↓. */
 .settings-policies__spacer { visibility: hidden; display: inline-block; padding-inline: var(--space-2); border: 1px solid transparent; font-size: var(--font-size-sm); }
+
+/* Brand theme form (Settings → Appearance, docs/brand.md). */
+.brand-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.theme-card { cursor: pointer; }
+.theme-card__radio { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.theme-card:focus-within { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.brand-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-4); }
+.brand-fieldset { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.brand-fieldset--inline { flex-direction: row; flex-wrap: wrap; }
+.brand-fieldset legend { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); padding: 0 var(--space-1); }
+.brand-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 9rem; }
+.brand-field--wide { min-width: 16rem; flex: 1; }
+.brand-field__row { display: flex; align-items: center; gap: var(--space-2); }
+.brand-field input { font: inherit; font-family: var(--font-mono); font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; }
+.brand-swatch { flex: none; width: 1.25rem; height: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border-strong); }

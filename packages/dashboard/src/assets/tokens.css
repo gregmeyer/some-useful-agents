@@ -82,6 +82,26 @@
   --shadow-md: 0 4px 10px rgb(0 0 0 / 0.3);
   --shadow-focus: 0 0 0 3px rgba(45, 212, 191, 0.25);
 
+  /* Tile accents (signal.accent's coloured edge) — the brand theme can change them. */
+  --accent-teal: #2dd4bf;
+  --accent-blue: #60a5fa;
+  --accent-green: #4ade80;
+  --accent-orange: #fb923c;
+  --accent-red: #f87171;
+  --accent-purple: #a78bfa;
+
+  /* Tile palettes "dark" and "light" (the ● button): fixed looks a tile can take whatever the mode. */
+  --palette-dark-surface: #1a1918;
+  --palette-dark-surface-raised: #2e2c2a;
+  --palette-dark-text: #e7e5e4;
+  --palette-dark-text-muted: #a8a29e;
+  --palette-dark-border: #3d3a37;
+  --palette-light-surface: #ffffff;
+  --palette-light-surface-raised: #f5f4f2;
+  --palette-light-text: #1c1917;
+  --palette-light-text-muted: #78716c;
+  --palette-light-border: #e7e5e4;
+
   /* Layout */
   --content-max: 1600px;
   --content-max-wide: 1760px;

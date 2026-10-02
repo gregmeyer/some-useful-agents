@@ -14,6 +14,7 @@ import type {
 import { webFetch } from './web-fetch/index.js';
 import { BoardConflictError, boardDocAgentIds, boardDocSystemTileIds, type BoardDoc } from './boards.js';
 import { applyBoardOps, describeBoardDoc } from './board-tree.js';
+import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
 
 /**
@@ -331,7 +332,7 @@ const BOARD_TOOLS: BuiltinToolEntry[] = [
       }
       const b = ctx.boards.loadDocOrDerive(id);
       if (!b) return { result: `There's no board "${id}". Call board-read with no board to list them.`, isError: true };
-      return { board: { id: b.id, name: b.name, version: b.version, doc: b.doc }, result: boardOutline(ctx.boards, b) };
+      return { board: { id: b.id, name: b.name, version: b.version, doc: b.doc }, result: `${boardOutline(ctx.boards, b)}\n\n${brandGuideText()}` };
     },
   ),
   def(

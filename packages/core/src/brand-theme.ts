@@ -1,0 +1,203 @@
+/**
+ * The brand theme (docs/brand.md): one stored theme for the whole dashboard —
+ * colours for dark and light mode, fonts, corner radius, and the tile accent
+ * colours — applied to every page, board and tile as CSS custom properties
+ * (`/assets/theme.css`). It starts from a preset (sua's default, or Warm,
+ * Minimal, Neon, Editorial) and overrides any token on top.
+ *
+ * Stored at <dataDir>/.sua/theme.json like the tool policy: every save is
+ * checked against the version it was loaded at, and the previous file is
+ * kept for Undo. Values are validated strictly (colours, font stacks, px), so
+ * nothing in a theme can break out of a CSS declaration.
+ */
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { z } from 'zod';
+
+/** Colour tokens a theme can set (the `--color-<name>` variables from tokens.css). */
+export const BRAND_COLOR_TOKENS = [
+  'bg', 'surface', 'surface-raised', 'border', 'border-strong',
+  'text', 'text-muted', 'text-subtle',
+  'primary', 'primary-hover', 'primary-soft',
+  'ok', 'ok-soft', 'warn', 'warn-soft', 'err', 'err-soft', 'info', 'info-soft',
+] as const;
+export type BrandColorToken = typeof BRAND_COLOR_TOKENS[number];
+
+/** Tile accent colours (signal.accent; the coloured left edge) and accent palettes. */
+export const BRAND_ACCENTS = ['teal', 'blue', 'green', 'orange', 'red', 'purple'] as const;
+export const BRAND_PRESETS = ['default', 'warm', 'minimal', 'neon', 'editorial'] as const;
+export type BrandPreset = typeof BRAND_PRESETS[number];
+
+/** #rgb[a], #rrggbb[aa], rgb()/rgba()/hsl()/hsla() with plain numbers, or `transparent`. */
+const COLOR_RE = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|(rgb|rgba|hsl|hsla)\(\s*[0-9.\s,%/deg]+\)|transparent)$/i;
+const color = z.string().trim().max(64).regex(COLOR_RE, 'a colour: #rrggbb, rgb(…), rgba(…), hsl(…) or transparent');
+const font = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9 ,"'\-]+$/, 'a font stack: family names separated by commas');
+const px = z.number().int().min(0).max(40);
+const colors = z.object(Object.fromEntries(BRAND_COLOR_TOKENS.map((t) => [t, color.optional()]))).strict();
+
+export const brandThemeSchema = z.object({
+  version: z.literal(1),
+  /** A short name for the theme ("Acme"). */
+  name: z.string().trim().max(60).optional(),
+  preset: z.enum(BRAND_PRESETS).default('default'),
+  dark: colors.default({}),
+  light: colors.default({}),
+  fonts: z.object({ sans: font.optional(), mono: font.optional() }).strict().default({}),
+  radius: z.object({ sm: px.optional(), md: px.optional(), lg: px.optional() }).strict().default({}),
+  accents: z.object(Object.fromEntries(BRAND_ACCENTS.map((a) => [a, color.optional()]))).strict().default({}),
+}).strict();
+export type BrandTheme = z.infer<typeof brandThemeSchema>;
+
+export const DEFAULT_BRAND_THEME: BrandTheme = brandThemeSchema.parse({ version: 1 });
+
+/** sua's default accent colours (tokens.css). */
+export const DEFAULT_ACCENTS: Record<typeof BRAND_ACCENTS[number], string> = {
+  teal: '#2dd4bf', blue: '#60a5fa', green: '#4ade80', orange: '#fb923c', red: '#f87171', purple: '#a78bfa',
+};
+
+type Tokens = Partial<Record<BrandColorToken, string>>;
+interface PresetDef { dark: Tokens; light: Tokens; fonts?: { sans?: string }; radius?: { sm?: number; md?: number; lg?: number } }
+
+/** The presets (formerly the per-browser "widget themes"). Default changes nothing. */
+export const BRAND_PRESET_DEFS: Record<BrandPreset, PresetDef> = {
+  default: { dark: {}, light: {} },
+  warm: {
+    dark: {
+      primary: '#f59e0b', 'primary-hover': '#d97706', 'primary-soft': 'rgba(245, 158, 11, 0.1)',
+      bg: '#1c1917', surface: '#292524', 'surface-raised': '#44403c', border: '#57534e', 'border-strong': '#78716c',
+      text: '#fafaf9', 'text-muted': '#d6d3d1', 'text-subtle': '#a8a29e',
+    },
+    light: { primary: '#b45309', 'primary-hover': '#92400e', 'primary-soft': '#fef3c7' },
+    radius: { sm: 8, md: 16, lg: 20 },
+  },
+  minimal: {
+    dark: { primary: '#a3a3a3', 'primary-hover': '#d4d4d4', 'primary-soft': 'rgba(163, 163, 163, 0.08)', border: 'transparent', 'border-strong': 'rgba(255, 255, 255, 0.06)' },
+    light: { primary: '#525252', 'primary-hover': '#404040', 'primary-soft': '#f5f5f5', border: 'transparent', 'border-strong': 'rgba(0, 0, 0, 0.06)' },
+    radius: { sm: 0, md: 0, lg: 0 },
+  },
+  neon: {
+    dark: {
+      primary: '#a855f7', 'primary-hover': '#c084fc', 'primary-soft': 'rgba(168, 85, 247, 0.12)',
+      bg: '#0a0a0a', surface: '#171717', 'surface-raised': '#262626', border: '#333333', 'border-strong': '#444444',
+      text: '#fafafa', 'text-muted': '#a3a3a3', 'text-subtle': '#737373',
+      ok: '#22d3ee', 'ok-soft': 'rgba(34, 211, 238, 0.1)', err: '#fb7185', 'err-soft': 'rgba(251, 113, 133, 0.1)',
+      warn: '#fbbf24', info: '#818cf8', 'info-soft': 'rgba(129, 140, 248, 0.1)',
+    },
+    light: { primary: '#7e22ce', 'primary-hover': '#6b21a8', 'primary-soft': '#f3e8ff' },
+  },
+  editorial: {
+    // A paper look in both modes: the preset is light-based.
+    dark: {
+      bg: '#f4eede', surface: '#fffdf8', 'surface-raised': '#fbf5e8', border: '#e0d5c0', 'border-strong': '#cdbfa4',
+      text: '#241f18', 'text-muted': '#6f6655', 'text-subtle': '#948a76',
+      primary: '#2f6f6a', 'primary-hover': '#255a55', 'primary-soft': 'rgba(47, 111, 106, 0.12)',
+      ok: '#4a7c59', 'ok-soft': 'rgba(74, 124, 89, 0.12)', warn: '#b07d26', 'warn-soft': 'rgba(193, 137, 45, 0.14)',
+      err: '#a23b28', 'err-soft': 'rgba(162, 59, 40, 0.12)', info: '#40607a', 'info-soft': 'rgba(64, 96, 122, 0.12)',
+    },
+    light: {},
+    fonts: { sans: '"Charter", "Iowan Old Style", Georgia, "Times New Roman", serif' },
+    radius: { sm: 8, md: 12, lg: 16 },
+  },
+};
+BRAND_PRESET_DEFS.editorial.light = BRAND_PRESET_DEFS.editorial.dark;
+
+/** The theme's effective values: its preset with its own overrides on top. */
+export function resolveBrandTheme(theme: BrandTheme) {
+  const p = BRAND_PRESET_DEFS[theme.preset];
+  return {
+    dark: { ...p.dark, ...theme.dark } as Tokens,
+    light: { ...p.light, ...theme.light } as Tokens,
+    fonts: { ...(p.fonts ?? {}), ...theme.fonts },
+    radius: { ...(p.radius ?? {}), ...theme.radius },
+    accents: { ...DEFAULT_ACCENTS, ...theme.accents } as Record<typeof BRAND_ACCENTS[number], string>,
+  };
+}
+
+/**
+ * The theme as CSS: custom properties on :root (dark, the default) and
+ * [data-theme="light"]. Only what the theme sets is written, so the
+ * defaults in tokens.css stand for everything else.
+ */
+export function brandThemeCss(theme: BrandTheme): string {
+  const r = resolveBrandTheme(theme);
+  const decl = (vars: Array<[string, string | undefined]>) => vars.filter(([, v]) => v !== undefined).map(([k, v]) => `  ${k}: ${v};`).join('\n');
+  const colorVars = (t: Tokens) => BRAND_COLOR_TOKENS.map((k) => [`--color-${k}`, t[k]] as [string, string | undefined]);
+  const shared: Array<[string, string | undefined]> = [
+    ['--font-sans', r.fonts.sans], ['--font-mono', r.fonts.mono],
+    ['--radius-sm', r.radius.sm !== undefined ? `${r.radius.sm}px` : undefined],
+    ['--radius-md', r.radius.md !== undefined ? `${r.radius.md}px` : undefined],
+    ['--radius-lg', r.radius.lg !== undefined ? `${r.radius.lg}px` : undefined],
+    ...BRAND_ACCENTS.map((a) => [`--accent-${a}`, r.accents[a]] as [string, string]),
+  ];
+  const dark = decl([...colorVars(r.dark), ...shared]);
+  const light = decl(colorVars(r.light));
+  return `/* Brand theme${theme.name ? `: ${theme.name}` : ''} (preset ${theme.preset}). Generated from .sua/theme.json — edit it in Settings → Appearance. */\n:root {\n${dark}\n}\n${light ? `[data-theme="light"] {\n${light}\n}\n` : ''}`;
+}
+
+/** A short brand guide for agents arranging boards or writing views: names to use, never raw colours. */
+export function brandGuideText(theme: BrandTheme = DEFAULT_BRAND_THEME): string {
+  return [
+    `Brand${theme.name ? ` "${theme.name}"` : ''}: style through names, never colours.`,
+    '- Tones (Metric, Badge): neutral, ok, warn, err.',
+    '- Tile palettes (board tiles): default, dark, light, accent-teal, accent-red, accent-green.',
+    `- Tile accents (a coloured edge): ${BRAND_ACCENTS.join(', ')}.`,
+    '- Don\'t put colours, fonts or inline styles in agent-written HTML; the dashboard\'s theme styles everything.',
+  ].join('\n');
+}
+
+// ── Storage ──────────────────────────────────────────────────────────────
+
+export class BrandThemeError extends Error {
+  constructor(message: string) { super(message); this.name = 'BrandThemeError'; }
+}
+
+export function brandThemePath(dataDir: string): string {
+  return join(dataDir, '.sua', 'theme.json');
+}
+
+/** The file's version (a short hash; '' when there's no file). Saves must quote the version they loaded. */
+export function brandThemeVersion(dataDir: string): string {
+  try { return createHash('sha256').update(readFileSync(brandThemePath(dataDir), 'utf-8')).digest('hex').slice(0, 16); } catch { return ''; }
+}
+
+/** The stored theme, or the default when there's none or it can't be read (the dashboard must never fail to style). */
+export function loadBrandTheme(dataDir: string): BrandTheme {
+  let raw: string;
+  try { raw = readFileSync(brandThemePath(dataDir), 'utf-8'); } catch { return DEFAULT_BRAND_THEME; }
+  try {
+    const parsed = brandThemeSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : DEFAULT_BRAND_THEME;
+  } catch { return DEFAULT_BRAND_THEME; }
+}
+
+function writeChecked(dataDir: string, text: string, expectedVersion?: string): void {
+  const path = brandThemePath(dataDir);
+  if (expectedVersion !== undefined && expectedVersion !== brandThemeVersion(dataDir)) {
+    throw new BrandThemeError('The theme changed since you opened it. Reload to see the current theme, then make your change again.');
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  if (existsSync(path)) copyFileSync(path, `${path}.bak`);
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, text, { mode: 0o600 });
+  renameSync(tmp, path);
+}
+
+/** Validate and save a theme. Throws BrandThemeError with the problems; nothing is written then. */
+export function saveBrandTheme(dataDir: string, input: unknown, opts: { expectedVersion?: string } = {}): { version: string; theme: BrandTheme } {
+  const parsed = brandThemeSchema.safeParse(input);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.slice(0, 4).map((i) => `${i.path.join('.') || '(theme)'}: ${i.message}`).join('; ');
+    throw new BrandThemeError(`Not saved: ${issues}`);
+  }
+  writeChecked(dataDir, `${JSON.stringify(parsed.data, null, 2)}\n`, opts.expectedVersion);
+  return { version: brandThemeVersion(dataDir), theme: parsed.data };
+}
+
+/** Put the theme from before the last save back (Undo twice = Redo). */
+export function restoreBrandThemeBackup(dataDir: string, opts: { expectedVersion?: string } = {}): { version: string } {
+  const backup = `${brandThemePath(dataDir)}.bak`;
+  if (!existsSync(backup)) throw new BrandThemeError('There is no earlier theme to go back to.');
+  writeChecked(dataDir, readFileSync(backup, 'utf-8'), opts.expectedVersion);
+  return { version: brandThemeVersion(dataDir) };
+}

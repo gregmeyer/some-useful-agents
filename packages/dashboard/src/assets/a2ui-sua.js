@@ -287,14 +287,14 @@ const Section = define('Section', 'sua-a2ui-section',
 const tileStyles = css`
   :host { display: block; min-width: 0; height: 100%; }
   .tile { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; min-height: 120px; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); padding: var(--space-3, 12px); }
-  .tile[data-accent="teal"] { border-left: 4px solid #2dd4bf; } .tile[data-accent="blue"] { border-left: 4px solid #60a5fa; }
-  .tile[data-accent="green"] { border-left: 4px solid #4ade80; } .tile[data-accent="orange"] { border-left: 4px solid #fb923c; }
-  .tile[data-accent="red"] { border-left: 4px solid #f87171; } .tile[data-accent="purple"] { border-left: 4px solid #a78bfa; }
-  .tile[data-palette="dark"] { --color-surface: #1a1918; --color-text: #e7e5e4; --color-text-muted: #a8a29e; --color-border: #3d3a37; --color-surface-raised: #2e2c2a; }
-  .tile[data-palette="light"] { --color-surface: #ffffff; --color-text: #1c1917; --color-text-muted: #78716c; --color-border: #e7e5e4; --color-surface-raised: #f5f4f2; }
-  .tile[data-palette="accent-teal"] { background: rgba(45,212,191,0.08); border-color: var(--color-primary); }
-  .tile[data-palette="accent-red"] { background: rgba(248,113,113,0.08); border-color: var(--color-err); }
-  .tile[data-palette="accent-green"] { background: rgba(74,222,128,0.08); border-color: var(--color-ok); }
+  .tile[data-accent="teal"] { border-left: 4px solid var(--accent-teal); } .tile[data-accent="blue"] { border-left: 4px solid var(--accent-blue); }
+  .tile[data-accent="green"] { border-left: 4px solid var(--accent-green); } .tile[data-accent="orange"] { border-left: 4px solid var(--accent-orange); }
+  .tile[data-accent="red"] { border-left: 4px solid var(--accent-red); } .tile[data-accent="purple"] { border-left: 4px solid var(--accent-purple); }
+  .tile[data-palette="dark"] { --color-surface: var(--palette-dark-surface); --color-text: var(--palette-dark-text); --color-text-muted: var(--palette-dark-text-muted); --color-border: var(--palette-dark-border); --color-surface-raised: var(--palette-dark-surface-raised); }
+  .tile[data-palette="light"] { --color-surface: var(--palette-light-surface); --color-text: var(--palette-light-text); --color-text-muted: var(--palette-light-text-muted); --color-border: var(--palette-light-border); --color-surface-raised: var(--palette-light-surface-raised); }
+  .tile[data-palette="accent-teal"] { background: color-mix(in srgb, var(--accent-teal) 8%, transparent); border-color: var(--color-primary); }
+  .tile[data-palette="accent-red"] { background: color-mix(in srgb, var(--accent-red) 8%, transparent); border-color: var(--color-err); }
+  .tile[data-palette="accent-green"] { background: color-mix(in srgb, var(--accent-green) 8%, transparent); border-color: var(--color-ok); }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .title { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icon-btn { background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; border-radius: var(--radius-sm, 4px); }

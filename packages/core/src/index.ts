@@ -581,3 +581,24 @@ export {
   type BoardDoc,
 } from './boards.js';
 export { applyBoardOps, boardOpSchema, describeBoardDoc, type BoardOp, type BoardNodeSpec } from './board-tree.js';
+export {
+  BRAND_COLOR_TOKENS,
+  BRAND_ACCENTS,
+  BRAND_PRESETS,
+  BRAND_PRESET_DEFS,
+  DEFAULT_ACCENTS,
+  DEFAULT_BRAND_THEME,
+  brandThemeSchema,
+  resolveBrandTheme,
+  brandThemeCss,
+  brandGuideText,
+  brandThemePath,
+  brandThemeVersion,
+  loadBrandTheme,
+  saveBrandTheme,
+  restoreBrandThemeBackup,
+  BrandThemeError,
+  type BrandTheme,
+  type BrandPreset,
+  type BrandColorToken,
+} from './brand-theme.js';
