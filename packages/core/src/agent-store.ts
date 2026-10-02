@@ -384,11 +384,11 @@ export class AgentStore {
     } catch { /* no memories table yet */ }
     // Its webhook secret (webhooks.ts).
     try { this.db.prepare(`DELETE FROM webhooks WHERE agent_id = ?`).run(id); } catch { /* no webhooks table yet */ }
-    // And its conversations (sessions.ts).
+    // And its conversations (sessions.ts: inbox threads with source `conversation`).
     try {
-      this.db.prepare(`DELETE FROM session_turns WHERE session_id IN (SELECT id FROM sessions WHERE agent_id = ?)`).run(id);
-      this.db.prepare(`DELETE FROM sessions WHERE agent_id = ?`).run(id);
-    } catch { /* no sessions table yet */ }
+      this.db.prepare(`DELETE FROM inbox_responses WHERE message_id IN (SELECT id FROM inbox_messages WHERE agent_id = ? AND source = 'conversation')`).run(id);
+      this.db.prepare(`DELETE FROM inbox_messages WHERE agent_id = ? AND source = 'conversation'`).run(id);
+    } catch { /* no inbox tables yet */ }
   }
 
   close(): void {

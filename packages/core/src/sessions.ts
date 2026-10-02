@@ -16,6 +16,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
+import { InboxStore } from './inbox-store.js';
 import { budgetTranscript, droppedNote } from './transcript.js';
 import { executeAgentDag, type DagExecuteOptions, type DagExecutorDeps } from './dag-executor.js';
 import type { Agent } from './agent-v2-types.js';
@@ -68,6 +69,15 @@ export class SessionNotFoundError extends Error {
   }
 }
 
+/**
+ * Conversations live in the inbox store (ADR-0048): a session is an
+ * `inbox_messages` row with source `conversation` and the agent in
+ * `agent_id`; each turn is an `inbox_responses` row (role `user` or `agent`,
+ * `{runId, failed}` in meta_json). The API here is unchanged, so the CLI,
+ * MCP, the Chat tab and the socket don't know the storage moved. The old
+ * `sessions` / `session_turns` tables are copied over once and kept as
+ * `*_legacy`.
+ */
 export class SessionStore {
   private db: DatabaseSync;
   private readonly ownsConnection: boolean;
@@ -87,69 +97,63 @@ export class SessionStore {
   }
 
   private ensureSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        agent_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id, updated_at DESC);
-      CREATE TABLE IF NOT EXISTS session_turns (
-        session_id TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        role TEXT NOT NULL,
-        text TEXT NOT NULL,
-        run_id TEXT,
-        failed INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY (session_id, seq)
-      );
-    `);
+    // The inbox owns the tables; this creates them on a fresh database.
+    InboxStore.fromHandle(this.db);
+    migrateLegacySessions(this.db);
   }
 
   create(agentId: string, title: string): Session {
-    const now = new Date().toISOString();
+    const now = Date.now();
     const id = randomUUID().slice(0, 8);
     const clean = title.replace(/\s+/g, ' ').trim().slice(0, 80) || 'Conversation';
-    this.db.prepare('INSERT INTO sessions (id, agent_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, agentId, clean, now, now);
-    return { id, agentId, title: clean, createdAt: now, updatedAt: now };
+    insertConversation(this.db, { id, agentId, title: clean, createdAt: now });
+    const iso = new Date(now).toISOString();
+    return { id, agentId, title: clean, createdAt: iso, updatedAt: iso };
   }
 
   get(id: string): Session | undefined {
-    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    const row = this.db.prepare(`SELECT ${SESSION_COLUMNS} FROM inbox_messages WHERE id = ? AND source = 'conversation'`)
+      .get(id) as Record<string, unknown> | undefined;
     return row ? toSession(row) : undefined;
   }
 
   /** Most recently active first. */
   list(agentId: string, limit = 50): Session[] {
-    return (this.db.prepare('SELECT * FROM sessions WHERE agent_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?')
-      .all(agentId, limit) as Record<string, unknown>[]).map(toSession);
+    return (this.db.prepare(`
+      SELECT ${SESSION_COLUMNS} FROM inbox_messages
+      WHERE agent_id = ? AND source = 'conversation'
+      ORDER BY updated_at DESC, rowid DESC LIMIT ?
+    `).all(agentId, limit) as Record<string, unknown>[]).map(toSession);
   }
 
   turns(sessionId: string): SessionTurn[] {
-    return (this.db.prepare('SELECT * FROM session_turns WHERE session_id = ? ORDER BY seq')
-      .all(sessionId) as Record<string, unknown>[]).map(toTurn);
+    return (this.db.prepare(`
+      SELECT * FROM inbox_responses WHERE message_id = ? AND role IN ('user', 'agent')
+      ORDER BY created_at, rowid
+    `).all(sessionId) as Record<string, unknown>[]).map((r, i) => toTurn(sessionId, i + 1, r));
   }
 
   appendTurn(input: { sessionId: string; role: 'user' | 'agent'; text: string; runId?: string; failed?: boolean }): SessionTurn {
-    const now = new Date().toISOString();
-    const row = this.db.prepare('SELECT COALESCE(MAX(seq), 0) AS n FROM session_turns WHERE session_id = ?')
-      .get(input.sessionId) as { n: number };
-    const seq = Number(row.n) + 1;
-    this.db.prepare(`
-      INSERT INTO session_turns (session_id, seq, role, text, run_id, failed, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(input.sessionId, seq, input.role, input.text, input.runId ?? null, input.failed ? 1 : 0, now);
-    this.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, input.sessionId);
-    return { sessionId: input.sessionId, seq, role: input.role, text: input.text, runId: input.runId, failed: Boolean(input.failed), createdAt: now };
+    const last = this.db.prepare('SELECT COALESCE(MAX(created_at), 0) AS t, COUNT(*) AS n FROM inbox_responses WHERE message_id = ?')
+      .get(input.sessionId) as { t: number; n: number };
+    // Never earlier than the turn before, so order holds if the clock steps back.
+    const now = Math.max(Date.now(), Number(last.t));
+    insertTurn(this.db, { sessionId: input.sessionId, role: input.role, text: input.text, runId: input.runId, failed: input.failed, createdAt: now });
+    return {
+      sessionId: input.sessionId,
+      seq: Number(last.n) + 1,
+      role: input.role,
+      text: input.text,
+      runId: input.runId,
+      failed: Boolean(input.failed),
+      createdAt: new Date(now).toISOString(),
+    };
   }
 
   delete(id: string): boolean {
-    this.db.prepare('DELETE FROM session_turns WHERE session_id = ?').run(id);
-    return Number(this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id).changes ?? 0) > 0;
+    if (!this.get(id)) return false;
+    this.db.prepare('DELETE FROM inbox_responses WHERE message_id = ?').run(id);
+    return Number(this.db.prepare(`DELETE FROM inbox_messages WHERE id = ? AND source = 'conversation'`).run(id).changes ?? 0) > 0;
   }
 
   close(): void {
@@ -157,25 +161,117 @@ export class SessionStore {
   }
 }
 
+/** Placeholder body, as on a manual inbox thread: the turns are the content. */
+const CONVERSATION_BODY = '(empty)';
+
+const SESSION_COLUMNS = `id, agent_id, title, created_at, COALESCE(
+  (SELECT MAX(created_at) FROM inbox_responses WHERE inbox_responses.message_id = inbox_messages.id),
+  created_at
+) AS updated_at`;
+
+function insertConversation(db: DatabaseSync, c: { id: string; agentId: string; title: string; createdAt: number }): void {
+  db.prepare(`
+    INSERT INTO inbox_messages (id, created_at, priority, source, agent_id, title, body, status)
+    VALUES (?, ?, 'low', 'conversation', ?, ?, ?, 'open')
+  `).run(c.id, c.createdAt, c.agentId, c.title, CONVERSATION_BODY);
+}
+
+function insertTurn(db: DatabaseSync, t: { sessionId: string; role: 'user' | 'agent'; text: string; runId?: string; failed?: boolean; createdAt: number }): void {
+  const meta: Record<string, unknown> = {};
+  if (t.runId) meta.runId = t.runId;
+  if (t.role === 'agent') meta.failed = Boolean(t.failed);
+  db.prepare(`
+    INSERT INTO inbox_responses (id, message_id, created_at, role, body, meta_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(randomUUID(), t.sessionId, t.createdAt, t.role, t.text, Object.keys(meta).length ? JSON.stringify(meta) : null);
+}
+
+function tableExists(db: DatabaseSync, name: string): boolean {
+  return db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined;
+}
+
+function isoToMs(value: unknown, fallback: number): number {
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : fallback;
+}
+
+/**
+ * Copy pre-0.30 `sessions` / `session_turns` into the inbox tables, once.
+ * Ids are kept, so `--session <id>` and Chat tab links still work. A session
+ * already copied is skipped, which makes it safe to re-run, including when an
+ * older build on the same database recreated the tables after a migration.
+ * The originals end up as `sessions_legacy` / `session_turns_legacy`.
+ */
+export function migrateLegacySessions(db: DatabaseSync): number {
+  if (!tableExists(db, 'sessions')) return 0;
+  let copied = 0;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // Another process may have finished while we waited for the lock.
+    if (tableExists(db, 'sessions')) {
+      const hasTurns = tableExists(db, 'session_turns');
+      const sessions = db.prepare('SELECT * FROM sessions ORDER BY created_at, rowid').all() as Record<string, unknown>[];
+      const exists = db.prepare('SELECT 1 FROM inbox_messages WHERE id = ?');
+      const turnsOf = hasTurns ? db.prepare('SELECT * FROM session_turns WHERE session_id = ? ORDER BY seq') : undefined;
+      for (const s of sessions) {
+        const id = String(s.id);
+        if (exists.get(id) !== undefined) continue;
+        const createdAt = isoToMs(s.created_at, Date.now());
+        insertConversation(db, { id, agentId: String(s.agent_id), title: String(s.title), createdAt });
+        let prev = createdAt;
+        for (const t of (turnsOf?.all(id) ?? []) as Record<string, unknown>[]) {
+          prev = Math.max(prev, isoToMs(t.created_at, prev));
+          insertTurn(db, {
+            sessionId: id,
+            role: t.role === 'agent' ? 'agent' : 'user',
+            text: String(t.text),
+            runId: (t.run_id as string | null) ?? undefined,
+            failed: Number(t.failed) === 1,
+            createdAt: prev,
+          });
+        }
+        copied++;
+      }
+      for (const [table, legacy] of [['sessions', 'sessions_legacy'], ['session_turns', 'session_turns_legacy']] as const) {
+        if (!tableExists(db, table)) continue;
+        if (tableExists(db, legacy)) {
+          db.exec(`INSERT OR IGNORE INTO ${legacy} SELECT * FROM ${table}`);
+          db.exec(`DROP TABLE ${table}`);
+        } else {
+          db.exec(`ALTER TABLE ${table} RENAME TO ${legacy}`);
+        }
+      }
+      db.exec('DROP INDEX IF EXISTS idx_sessions_agent');
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return copied;
+}
+
 function toSession(r: Record<string, unknown>): Session {
   return {
     id: String(r.id),
     agentId: String(r.agent_id),
     title: String(r.title),
-    createdAt: String(r.created_at),
-    updatedAt: String(r.updated_at),
+    createdAt: new Date(Number(r.created_at)).toISOString(),
+    updatedAt: new Date(Number(r.updated_at)).toISOString(),
   };
 }
 
-function toTurn(r: Record<string, unknown>): SessionTurn {
+function toTurn(sessionId: string, seq: number, r: Record<string, unknown>): SessionTurn {
+  let meta: { runId?: unknown; failed?: unknown } = {};
+  try { meta = r.meta_json ? JSON.parse(String(r.meta_json)) : {}; } catch { /* malformed: no run link */ }
   return {
-    sessionId: String(r.session_id),
-    seq: Number(r.seq),
+    sessionId,
+    seq,
     role: r.role === 'agent' ? 'agent' : 'user',
-    text: String(r.text),
-    runId: (r.run_id as string | null) ?? undefined,
-    failed: Number(r.failed) === 1,
-    createdAt: String(r.created_at),
+    text: String(r.body),
+    runId: typeof meta.runId === 'string' ? meta.runId : undefined,
+    failed: meta.failed === true,
+    createdAt: new Date(Number(r.created_at)).toISOString(),
   };
 }
 
