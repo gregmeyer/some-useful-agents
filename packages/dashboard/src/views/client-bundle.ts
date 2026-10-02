@@ -43,6 +43,7 @@ import { APP_ASK_JS } from './app-ask.js.js';
 import { MINI_DAG_TIP_JS } from './mini-dag-tip.js.js';
 import { AGENT_ID_SLUG_JS } from './agent-id-slug.js.js';
 import { CHAT_SOCKET_JS } from './chat-socket.js.js';
+import { THREAD_JS } from './thread.js.js';
 import { A2UI_LOADER_JS } from './a2ui-loader.js.js';
 import { AGENT_CHAT_JS } from './agent-chat.js.js';
 
@@ -50,8 +51,8 @@ export const CLIENT_BUNDLE_JS: string =
   // SESSION_GUARD_JS first: it wraps window.fetch, and installing the wrapper
   // before anything else runs keeps the coverage total.
   // CHAT_SOCKET_JS next: window.suaSocket must exist before any page code
-  // (the inbox modal, agent chat) looks for it.
-  SESSION_GUARD_JS + CHAT_SOCKET_JS + DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS
+  // (the inbox modal, agent chat) looks for it; THREAD_JS (window.suaThread) likewise.
+  SESSION_GUARD_JS + CHAT_SOCKET_JS + THREAD_JS + DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + PULSE_LAYOUT_JS
   + PULSE_MASONRY_JS + HOME_LAYOUT_JS + DASHBOARDS_LAYOUT_JS + BUILD_FROM_GOAL_JS
   + IMPROVE_LAYOUT_JS + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS
   + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS

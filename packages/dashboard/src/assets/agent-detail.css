@@ -205,7 +205,8 @@
   white-space: nowrap;
 }
 .agent-chat__session-meta { display: block; font-size: var(--font-size-xs); }
-.agent-chat__transcript { list-style: none; padding: 0; margin: 0 0 var(--space-4); }
+/* The shared thread list (views/thread.ts), with room above the composer. */
+.inbox-timeline.agent-chat__transcript { margin: 0 0 var(--space-4); }
 @media (max-width: 720px) {
   .agent-chat { grid-template-columns: 1fr; }
 }

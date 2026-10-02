@@ -1,3 +1,4 @@
+import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
 import type { HumanQuestion } from '@some-useful-agents/core';
 import {
   renderMarkdownSafe,
@@ -350,16 +351,12 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     </details>
   `;
 
-  const timeline = responses.map((r, i) => {
-    // Group consecutive same-role conversation turns (Claude/Slack-style): the
-    // speaker sigil shows once per run. Actions always break a group (they're
-    // tool calls, not speech).
-    const prev = responses[i - 1];
-    const grouped = !!prev && prev.role === r.role && r.role !== 'action';
-    return html`
-      <li class="inbox-timeline__entry">${renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust, grouped, runBehaviors)}</li>
-    `;
-  });
+  // Group consecutive same-role conversation turns (Claude/Slack-style): the
+  // speaker sigil shows once per run. Actions always break a group (they're
+  // tool calls, not speech).
+  const timeline = responses.map((r, i) =>
+    renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
+      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors));
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by
@@ -369,7 +366,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <section class="inbox-modal__timeline-section">
       ${responses.length === 0 && !triagePending
         ? (opts.question ? html`` : html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Write below and sua will reply here.</p>`)
-        : html`<ul class="inbox-timeline">${timeline as unknown as SafeHtml[]}</ul>`}
+        : renderThread(timeline)}
       ${triagePending ? renderThinkingIndicator(message.id) : html``}
     </section>
   `;
@@ -589,34 +586,20 @@ function renderConversationEntry(
     : verifyKind === 'verify-failed'
       ? html`<span class="inbox-verify inbox-verify--fail">⚠ Not verified</span>`
       : html``;
-  // Terminal-native speaker: a mono `triage ›` sigil (colored per role) instead
-  // of a round avatar; hidden on grouped continuations so a run of same-role
-  // turns reads as one block. The avatar element stays (grouping/streaming JS
-  // and the CSS `::after` sigil rely on the class), just restyled.
-  const classes = [
-    'inbox-msg',
-    `inbox-msg--${r.role}`,
-    grouped ? 'inbox-msg--grouped' : '',
-    verifyKind ? `inbox-msg--verify inbox-msg--${verifyKind}` : '',
-  ].filter(Boolean).join(' ');
-  return html`
-    <div class="${classes}" data-msg-id="${r.id}">
-      <div class="inbox-msg__avatar inbox-msg__avatar--${r.role}" aria-label="${role}">${sigil}</div>
-      <div class="inbox-msg__body">
-        <div class="inbox-msg__meta">
-          ${verifyBadge}
-          <span class="inbox-msg__time">${formatAge(new Date(r.createdAt).toISOString())}</span>
-          <button type="button" class="inbox-msg__copy" data-inbox-copy
-            aria-label="Copy ${role} message"
-            title="Copy this message">
-            <span data-inbox-copy-label>Copy</span>
-          </button>
-        </div>
-        <div class="inbox-msg__text" data-inbox-copy-source>${mdBody(r.body)}</div>
-        ${r.role === 'triage' ? renderTriageLinks(r.metaJson) : html``}
-      </div>
-    </div>
-  `;
+  // Terminal-native speaker: a mono `triage ›` sigil, hidden on grouped
+  // continuations (thread.ts, shared with the agent Chat tab).
+  return renderThreadMessage({
+    id: r.id,
+    role: r.role,
+    sigil,
+    label: role,
+    createdAt: r.createdAt,
+    grouped,
+    classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
+    metaBefore: verifyBadge,
+    body: mdBody(r.body),
+    after: r.role === 'triage' ? renderTriageLinks(r.metaJson) : undefined,
+  });
 }
 
 /**

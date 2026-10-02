@@ -32,6 +32,7 @@
 .inbox-msg__avatar::after { content: '\00a0›'; color: var(--color-text-subtle); }
 .inbox-msg__avatar--user { color: var(--color-primary, #2dd4bf); }
 .inbox-msg__avatar--triage { color: var(--color-info, #60a5fa); }
+.inbox-msg__avatar--agent { color: var(--color-info, #60a5fa); }
 .inbox-msg__avatar--system { color: var(--color-text-muted); }
 .inbox-msg__avatar--action { color: var(--color-warn, #f59e0b); }
 .inbox-msg__avatar--learning { color: var(--color-primary, #2dd4bf); }

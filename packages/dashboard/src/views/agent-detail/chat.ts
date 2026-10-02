@@ -2,6 +2,7 @@ import type { HumanQuestion, Session, SessionTurn } from '@some-useful-agents/co
 import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import { formatAge } from '../components.js';
 import { mdBody } from '../inbox-detail.js';
+import { renderThreadMessage, renderThread, isGrouped } from '../thread.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 
 export interface AgentChatArgs extends AgentDetailArgs {
@@ -23,8 +24,9 @@ export interface AgentChatArgs extends AgentDetailArgs {
 
 /**
  * Chat tab: a conversation with this agent. Each message is one run; the
- * agent sees the conversation so far (docs/conversations.md). Reuses the
- * inbox thread's message and chat-bar styles.
+ * agent sees the conversation so far (docs/conversations.md). Messages use
+ * the shared thread component (thread.ts); the composer reuses the inbox
+ * chat bar.
  */
 export function renderAgentChat(args: AgentChatArgs): string {
   const { agent, chat } = args;
@@ -120,48 +122,45 @@ export function renderAgentChat(args: AgentChatArgs): string {
  * when a turn ends.
  */
 export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentChatArgs['chat']): SafeHtml {
-  const turnRow = (t: SessionTurn, prev: SessionTurn | undefined): SafeHtml => {
-    const grouped = !!prev && prev.role === t.role;
-    const who = t.role === 'user' ? 'you' : 'agent';
-    return html`
-      <li class="inbox-msg ${grouped ? 'inbox-msg--grouped' : ''}">
-        <span class="inbox-msg__avatar ${t.role === 'user' ? 'inbox-msg__avatar--user' : 'inbox-msg__avatar--triage'}">${who}</span>
-        <div class="inbox-msg__body">
-          <div class="inbox-msg__meta">
-            <span class="inbox-msg__time">${formatAge(t.createdAt)}</span>
-            ${t.role === 'agent' && t.runId ? html`<a href="/runs/${encodeURIComponent(t.runId)}" class="mono">run ${t.runId.slice(0, 8)}</a>` : html``}
-          </div>
-          ${t.role === 'agent' && t.failed
-            ? html`<p class="inbox-msg__text" style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`
-            : t.role === 'agent'
-              ? (t.runId && chat.views?.[t.runId] && String(chat.views[t.runId]).includes('data-a2ui-surface')
-                // The widget is the reply; the raw text stays one click away.
-                ? html`${chat.views[t.runId]}<details class="agent-chat__raw"><summary class="dim">Show the raw reply</summary>${mdBody(t.text)}</details>`
-                : html`${mdBody(t.text)}${t.runId && chat.views?.[t.runId] ? chat.views[t.runId] : html``}`)
-              : html`<p class="inbox-msg__text" style="margin: 0;">${t.text}</p>`}
-        </div>
-      </li>`;
+  const runLink = (runId: string, label: string) =>
+    html`<a href="/runs/${encodeURIComponent(runId)}" class="mono">${label} ${runId.slice(0, 8)}</a>`;
+  const agentBody = (t: SessionTurn): SafeHtml => {
+    if (t.failed) return html`<p style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`;
+    const view = t.runId ? chat.views?.[t.runId] : undefined;
+    // A rendered widget is the reply; the raw text stays one click away.
+    if (view && String(view).includes('data-a2ui-surface')) {
+      return html`${view}<details class="agent-chat__raw"><summary class="dim">Show the raw reply</summary>${mdBody(t.text)}</details>`;
+    }
+    return html`${mdBody(t.text)}${view ?? html``}`;
   };
+  const rows = chat.turns.map((t, i) => renderThreadMessage({
+    role: t.role,
+    sigil: t.role === 'user' ? 'you' : 'agent',
+    label: t.role === 'user' ? 'You' : agent.name,
+    createdAt: t.createdAt,
+    grouped: isGrouped(chat.turns, i, (x) => x.role),
+    metaAfter: t.role === 'agent' && t.runId ? runLink(t.runId, 'run') : undefined,
+    body: t.role === 'agent' ? agentBody(t) : mdBody(t.text),
+  }));
 
-  const lastUser = [...chat.turns].reverse().find((t) => t.role === 'user');
+  if (chat.pending) {
+    const lastUser = [...chat.turns].reverse().find((t) => t.role === 'user');
+    const q = chat.waitingQuestion;
+    rows.push(renderThreadMessage({
+      role: 'agent',
+      sigil: 'agent',
+      label: agent.name,
+      writing: q ? 'Waiting for an answer' : 'Working…',
+      metaAfter: lastUser?.runId ? runLink(lastUser.runId, 'watch run') : undefined,
+      body: q
+        ? html`${q.question}${q.inboxMessageId ? html` <a href="/inbox/${encodeURIComponent(q.inboxMessageId)}">Answer in the inbox</a>` : html``}`
+        : html`<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div>`,
+    }));
+  }
+
   return chat.turns.length === 0
     ? html`<p class="dim" style="font-size: var(--font-size-sm);">
         Ask ${agent.name} something. Each message is a run of this agent, and it sees the conversation so far${chat.chatInput ? html` (your message fills its <code>${chat.chatInput}</code> input)` : html``}.
       </p>`
-    : html`<ul class="agent-chat__transcript">
-        ${chat.turns.map((t, i) => turnRow(t, chat.turns[i - 1])) as unknown as SafeHtml[]}
-        ${chat.pending ? html`
-          <li class="inbox-msg">
-            <span class="inbox-msg__avatar inbox-msg__avatar--triage">agent</span>
-            <div class="inbox-msg__body">${chat.waitingQuestion
-              ? html`<span class="inbox-msg__writing">Waiting for an answer:</span> ${chat.waitingQuestion.question}
-                  ${chat.waitingQuestion.inboxMessageId ? html` <a href="/inbox/${encodeURIComponent(chat.waitingQuestion.inboxMessageId)}">Answer in the inbox</a>` : html``}`
-              : html`<span class="inbox-msg__writing">Working…</span>
-                  <ul class="agent-chat__live-tools" data-chat-live-tools></ul>
-                  <div class="agent-chat__live-text" data-chat-live-text></div>`}
-              ${lastUser?.runId ? html` <a href="/runs/${encodeURIComponent(lastUser.runId)}" class="mono dim" style="font-size: var(--font-size-xs);">watch run ${lastUser.runId.slice(0, 8)}</a>` : html``}
-            </div>
-          </li>` : html``}
-      </ul>`;
-
+    : renderThread(rows, { className: 'agent-chat__transcript' });
 }
