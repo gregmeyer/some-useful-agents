@@ -248,3 +248,51 @@ describe('arranging a canvas', () => {
   });
 
 });
+
+describe('brand theme', () => {
+  const form = (app: Parameters<typeof request>[0], p: string, body: Record<string, string>) =>
+    request(app).post(p).type('form').send(body).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+  it('is served as theme.css on every page, edited in Settings → Appearance, with undo and reset', async () => {
+    const app = await setup();
+    let css = await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`);
+    expect(css.status).toBe(200);
+    expect(css.headers['content-type']).toMatch(/text\/css/);
+    expect(css.text).toContain('--accent-teal: #2dd4bf;');
+    expect(css.text).not.toContain('--color-primary');
+    expect((await get(app, '/pulse')).text).toContain('href="/assets/theme.css"');
+
+    let page = await get(app, '/settings/appearance');
+    expect(page.text).toContain('action="/settings/appearance/brand"');
+    const version = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    let res = await form(app, '/settings/appearance/brand', {
+      version, preset: 'warm', name: 'Acme', 'dark.primary': '#ff0066', 'light.primary': '', 'fonts.sans': '"Inter", sans-serif', 'radius.md': '4', 'accents.teal': 'rgb(0, 128, 128)',
+    });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toMatch(/flash=Brand\+saved/);
+    css = await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`);
+    expect(css.text).toContain('--color-primary: #ff0066;');
+    expect(css.text).toContain('--color-bg: #1c1917;'); // from the warm preset
+    expect(css.text).toContain('--font-sans: "Inter", sans-serif;');
+    expect(css.text).toContain('--radius-md: 4px;');
+    expect(css.text).toContain('--accent-teal: rgb(0, 128, 128);');
+
+    // Anything that could break out of CSS is refused, and nothing changes.
+    page = await get(app, '/settings/appearance');
+    const v2 = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    res = await form(app, '/settings/appearance/brand', { version: v2, preset: 'warm', 'dark.primary': 'red; } body { display: none' });
+    expect(res.headers.location).toMatch(/error=/);
+    expect((await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text).toContain('--color-primary: #ff0066;');
+    // A stale form is refused.
+    res = await form(app, '/settings/appearance/brand', { version: 'stale', preset: 'neon' });
+    expect(decodeURIComponent(res.headers.location.replace(/\+/g, " "))).toMatch(/changed since you opened it/);
+
+    res = await form(app, '/settings/appearance/brand', { version: v2, reset: '1' });
+    expect((await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text).not.toContain('--color-primary');
+    page = await get(app, '/settings/appearance');
+    const v3 = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    expect(page.text).toContain('action="/settings/appearance/brand/undo"');
+    res = await form(app, '/settings/appearance/brand/undo', { version: v3 });
+    expect((await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text).toContain('--color-primary: #ff0066;');
+  });
+});

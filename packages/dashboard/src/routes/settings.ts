@@ -36,6 +36,14 @@ import {
   restorePolicyBackup,
   type PolicyDocument,
   type PolicyRule,
+  BRAND_ACCENTS,
+  BRAND_COLOR_TOKENS,
+  brandThemePath,
+  brandThemeVersion,
+  loadBrandTheme,
+  resolveBrandTheme,
+  restoreBrandThemeBackup,
+  saveBrandTheme,
 } from '@some-useful-agents/core';
 import { existsSync } from 'node:fs';
 import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
@@ -748,7 +756,13 @@ function pickFormValuesFromQuery(req: Request): Record<string, string> {
 
 settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const { flash } = readQueryBanners(req);
-  const body = renderSettingsAppearance({ a2uiWidgets: a2uiWidgetsEnabled(), boardPages: boardPagesEnabled() });
+  const ctx = getContext(req.app.locals);
+  const theme = loadBrandTheme(ctx.dataDir);
+  const body = renderSettingsAppearance({
+    a2uiWidgets: a2uiWidgetsEnabled(),
+    boardPages: boardPagesEnabled(),
+    brand: { theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme) },
+  });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
 
@@ -762,6 +776,55 @@ settingsRouter.post('/settings/appearance/a2ui', (req: Request, res: Response) =
       : 'Widgets draw with the previous renderer. It will be removed in a future release, so please report what looked wrong.');
   } catch (err) {
     redirectWith(res, '/settings/appearance#a2ui-widgets', 'error', (err as Error).message);
+  }
+});
+
+/**
+ * Settings → Appearance: save the brand theme (docs/brand.md). The form posts
+ * flat fields (`dark.primary`, `fonts.sans`, `radius.md`, `accents.teal`…);
+ * empty means "keep the preset's value". `reset=1` goes back to sua's default.
+ */
+settingsRouter.post('/settings/appearance/brand', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string).trim() : '');
+  const group = (prefix: string, keys: readonly string[], asNumber = false) => {
+    const out: Record<string, string | number> = {};
+    for (const k of keys) {
+      const v = str(`${prefix}.${k}`);
+      if (v === '') continue;
+      out[k] = asNumber ? Number(v) : v;
+    }
+    return out;
+  };
+  const doc = body.reset === '1'
+    ? { version: 1 }
+    : {
+      version: 1,
+      ...(str('name') ? { name: str('name') } : {}),
+      preset: str('preset') || 'default',
+      dark: group('dark', BRAND_COLOR_TOKENS),
+      light: group('light', BRAND_COLOR_TOKENS),
+      fonts: group('fonts', ['sans', 'mono']),
+      radius: group('radius', ['sm', 'md', 'lg'], true),
+      accents: group('accents', BRAND_ACCENTS),
+    };
+  try {
+    saveBrandTheme(ctx.dataDir, doc, { expectedVersion: str('version') });
+    redirectWith(res, '/settings/appearance#brand', 'flash', body.reset === '1' ? 'Back to sua\'s default theme.' : 'Brand saved. Every page and board uses it now.');
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
+  }
+});
+
+settingsRouter.post('/settings/appearance/brand/undo', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const version = typeof req.body?.version === 'string' ? req.body.version : undefined;
+  try {
+    restoreBrandThemeBackup(ctx.dataDir, { expectedVersion: version });
+    redirectWith(res, '/settings/appearance#brand', 'flash', 'The previous brand is back.');
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
   }
 });
 

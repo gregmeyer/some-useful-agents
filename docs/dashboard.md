@@ -231,6 +231,8 @@ Redirects to the board's page (`/pulse` or `/dashboards/<id>`). With boards swit
 
 ## `/settings`
 
+**Appearance → Brand** sets one theme for the whole dashboard (preset, colours for dark and light mode, fonts, corner radius, tile accents). See [Brand theme](brand.md).
+
 Tabs: Secrets, Variables, Claude Desktop, LLM, Usage, Policies, Temporal, Appearance, General. (MCP servers and integrations live under [Tools](#tools--tools-list).)
 
 ### Secrets

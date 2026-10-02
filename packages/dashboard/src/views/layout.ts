@@ -37,6 +37,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/dashboard.css">
+<link rel="stylesheet" href="/assets/theme.css">
 <script>
 (function(){var t=localStorage.getItem('sua-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light');})();
 // Buffer CSP img-src violations that fire DURING body parse (before the
@@ -49,7 +50,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 </script>
 </head>
 <body class="app" data-active-nav="${opts.activeNav ?? ''}">
-<script>(function(){var w=localStorage.getItem('sua-widget-theme');if(w&&w!=='default'&&w!=='light')document.body.setAttribute('data-widget-theme',w);})();</script>
+
 <header class="topbar">
   <a class="topbar__brand ${opts.activeNav === 'home' ? 'is-active' : ''}" href="/">sua</a>
   <nav class="topbar__nav">

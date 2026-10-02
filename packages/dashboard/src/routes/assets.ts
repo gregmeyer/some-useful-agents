@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_BRAND_THEME, brandThemeCss, loadBrandTheme } from '@some-useful-agents/core';
 import { CLIENT_BUNDLE_JS } from '../views/client-bundle.js';
 import { GRAPH_EDIT_JS } from '../views/graph-edit.js.js';
 
@@ -721,6 +722,14 @@ assetsRouter.get('/assets/graph-render.js', (_req: Request, res: Response) => {
   // land without a hard reload. The file is tiny; correctness beats caching it.
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(GRAPH_RENDER_JS);
+});
+
+// The brand theme (docs/brand.md): generated from <dataDir>/.sua/theme.json on
+// every request (it's tiny), after dashboard.css so its variables win.
+assetsRouter.get('/assets/theme.css', (req: Request, res: Response) => {
+  const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('text/css').send(brandThemeCss(dataDir ? loadBrandTheme(dataDir) : DEFAULT_BRAND_THEME));
 });
 
 assetsRouter.get('/assets/dashboard.css', (_req: Request, res: Response) => {
