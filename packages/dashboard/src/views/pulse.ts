@@ -328,7 +328,7 @@ export function renderPulseBoard(
   // Only render the dropdown when there's more than just the Default
   // entry — otherwise it's noise.
   const dropdown = dropdownOptions.length > 1
-    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/' })
+    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
     : html``;
 
   return html`

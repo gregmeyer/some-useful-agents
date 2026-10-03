@@ -97,3 +97,28 @@ describe('DashboardsStore', () => {
     expect(store.getDashboard('user:morning')).not.toBeNull();
   });
 });
+
+describe('archiving', () => {
+  it('hides an archived dashboard from lists, keeps it whole, restores it, and re-creating it un-archives it', () => {
+    store.upsertDashboard({ id: 'user:a', packId: null, name: 'Alpha', layout: { sections: [{ title: 'S', agentIds: ['x'] }] } });
+    store.upsertDashboard({ id: 'user:b', packId: null, name: 'Beta', layout: { sections: [] } });
+
+    expect(store.archiveDashboard('user:a')).toBe(true);
+    expect(store.archiveDashboard('user:a')).toBe(false);
+    expect(store.listDashboards().map((d) => d.id)).toEqual(['user:b']);
+    expect(store.listDashboards({ includeArchived: true }).map((d) => d.id)).toEqual(['user:a', 'user:b']);
+    expect(store.listArchived().map((d) => d.id)).toEqual(['user:a']);
+    const kept = store.getDashboard('user:a')!;
+    expect(kept.archivedAt).toEqual(expect.any(Number));
+    expect(kept.layout.sections[0].agentIds).toEqual(['x']);
+
+    expect(store.restoreDashboard('user:a')).toBe(true);
+    expect(store.restoreDashboard('user:a')).toBe(false);
+    expect(store.getDashboard('user:a')!.archivedAt).toBeUndefined();
+
+    store.archiveDashboard('user:b');
+    store.upsertDashboard({ id: 'user:b', packId: null, name: 'Beta again', layout: { sections: [] } });
+    expect(store.listArchived()).toEqual([]);
+    expect(store.archiveDashboard('missing')).toBe(false);
+  });
+});

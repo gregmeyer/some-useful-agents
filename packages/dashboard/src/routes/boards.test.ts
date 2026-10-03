@@ -371,3 +371,34 @@ describe('build a board from a request', { timeout: 30_000 }, () => {
     expect(empty.headers.location).toMatch(/^\/boards\/new\?error=/);
   });
 });
+
+describe('archiving a board', () => {
+  it('Archive hides it from the dashboards menu (under Archived instead); its page offers Restore; Restore brings it back', async () => {
+    const app = await setup();
+    const before = await get(app, '/dashboards/user:morning');
+    expect(before.text).toContain('action="/dashboards/user%3Amorning/archive"');
+    expect(before.text).toContain('href="/pulse"');
+
+    const archived = await post(app, '/dashboards/user:morning/archive', {});
+    expect(archived.status).toBe(303);
+    expect(decodeURIComponent(archived.headers.location)).toContain('Archived "Morning"');
+
+    ctx.dashboardsStore!.upsertDashboard({ id: 'user:evening', packId: null, name: 'Evening', layout: { sections: [] } } as never);
+    const pulse = await get(app, '/pulse');
+    expect(pulse.text).toContain('Archived (1)');
+    const fold = pulse.text.slice(pulse.text.indexOf('dashboards-dropdown__archived'));
+    expect(fold).toContain('href="/dashboards/user%3Amorning"');
+    expect(pulse.text.slice(0, pulse.text.indexOf('dashboards-dropdown__archived'))).not.toContain('href="/dashboards/user%3Amorning"');
+
+    const page = await get(app, '/dashboards/user:morning');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('This board is archived');
+    expect(page.text).toContain('action="/dashboards/user%3Amorning/restore"');
+    expect(page.text).not.toContain('action="/dashboards/user%3Amorning/archive"');
+
+    const restored = await post(app, '/dashboards/user:morning/restore', {});
+    expect(restored.headers.location).toMatch(/^\/dashboards\/user%3Amorning\?ok=/);
+    expect(ctx.dashboardsStore!.listArchived()).toEqual([]);
+    expect((await get(app, '/dashboards/user:morning')).text).not.toContain('This board is archived');
+  });
+});

@@ -20,6 +20,8 @@ export interface Dashboard {
   layout: DashboardLayout;
   createdAt: number;
   updatedAt: number;
+  /** Set when archived: hidden from lists and pickers, kept intact, restorable. */
+  archivedAt?: number;
 }
 
 /**
@@ -76,6 +78,8 @@ export class DashboardsStore {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_dashboards_pack_id ON dashboards(pack_id)
     `);
+    // Archived dashboards stay whole; lists leave them out until restored.
+    try { this.db.exec(`ALTER TABLE dashboards ADD COLUMN archived_at INTEGER`); } catch { /* column exists */ }
   }
 
   /**
@@ -98,7 +102,8 @@ export class DashboardsStore {
         pack_id = excluded.pack_id,
         name = excluded.name,
         layout_json = excluded.layout_json,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        archived_at = NULL
     `).run(
       args.id,
       args.packId,
@@ -122,9 +127,31 @@ export class DashboardsStore {
     return row ? this.rowToDashboard(row) : null;
   }
 
-  listDashboards(): Dashboard[] {
-    const rows = this.db.prepare(`SELECT * FROM dashboards ORDER BY name`).all() as Array<Record<string, unknown>>;
+  /** Dashboards in use, by name. Archived ones only with `includeArchived`. */
+  listDashboards(opts: { includeArchived?: boolean } = {}): Dashboard[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM dashboards ${opts.includeArchived ? '' : 'WHERE archived_at IS NULL'} ORDER BY name`,
+    ).all() as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToDashboard(r));
+  }
+
+  /** Archived dashboards, most recently archived first. */
+  listArchived(): Dashboard[] {
+    const rows = this.db.prepare(`SELECT * FROM dashboards WHERE archived_at IS NOT NULL ORDER BY archived_at DESC`)
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToDashboard(r));
+  }
+
+  /** Hide a dashboard from lists and pickers without deleting anything. Returns false if missing. */
+  archiveDashboard(id: string): boolean {
+    return Number(this.db.prepare(`UPDATE dashboards SET archived_at = ? WHERE id = ? AND archived_at IS NULL`)
+      .run(Date.now(), id).changes) > 0;
+  }
+
+  /** Bring an archived dashboard back. Returns false if missing or not archived. */
+  restoreDashboard(id: string): boolean {
+    return Number(this.db.prepare(`UPDATE dashboards SET archived_at = NULL WHERE id = ? AND archived_at IS NOT NULL`)
+      .run(id).changes) > 0;
   }
 
   /** Dashboards owned by a specific pack. */
@@ -165,6 +192,7 @@ export class DashboardsStore {
       layout: JSON.parse(row.layout_json as string) as DashboardLayout,
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
+      ...(typeof row.archived_at === 'number' ? { archivedAt: row.archived_at } : {}),
     };
   }
 }
