@@ -47,7 +47,7 @@ import { getContext } from '../context.js';
 import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { renderInboxPage } from '../views/inbox-page.js';
 import { render } from '../views/html.js';
-import { renderPanelHome, renderPanelList, renderPanelRows } from '../views/panel-home.js';
+import { renderPanelHome, renderPanelList, renderPanelNew, renderPanelRows } from '../views/panel-home.js';
 import { buildPanelList, panelFacets, parsePanelFilters, parsePanelTab } from '../lib/panel-inbox.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
@@ -202,6 +202,9 @@ inboxRouter.get('/panel/home', (req: Request, res: Response) => {
   if (!list) { res.status(404).type('html').send('<p>Inbox unavailable.</p>'); return; }
   const ctx = getContext(req.app.locals);
   res.type('html').send(render(renderPanelHome(list, list.wide && ctx.inboxStore ? panelFacets(ctx.inboxStore) : undefined)));
+});
+inboxRouter.get('/panel/new', (_req: Request, res: Response) => {
+  res.type('html').send(render(renderPanelNew()));
 });
 inboxRouter.get('/panel/list', (req: Request, res: Response) => {
   const list = panelListFor(req);

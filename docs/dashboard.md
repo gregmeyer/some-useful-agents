@@ -36,7 +36,8 @@ The top bar: `sua · Agents · Pulse · Settings · Help`. The `sua` brand is Ho
 
 Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K**, opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
 
-- With no thread open, the panel is your inbox: a box to ask sua, then **Needs you · Open · Conversations · Done** (with counts), a search and your threads, 25 at a time. It opens on Needs you when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
+- With no thread open, the panel is your inbox. One field searches as you type and asks sua when you press Enter. Below it, **Needs you · Open · Chats · Done** (with counts) and your threads, 25 at a time: on Needs you grouped into **Waiting on you** and **Keeps failing**, elsewhere into Today / This week / Earlier. Each row has a dot and a one-word tag for what it needs (**Approve**, **Answer**, **Failing**). It opens on Needs you when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
+- **+** starts a new conversation: a box to ask sua and a few starting points.
 - **↗** opens the thread in the inbox; **⤢** widens the panel and **⤡** puts it back; **–** minimizes it to a pill in the corner, which lights up when a reply lands.
 - On wide screens the page makes room for the panel; on narrower ones it slides over the page; on a phone it fills the screen. **Esc** closes it while you're in it.
 
