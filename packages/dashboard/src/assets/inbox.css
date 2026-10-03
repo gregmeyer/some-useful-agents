@@ -2506,3 +2506,54 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
   #inbox-modal[data-panel="page"][data-panel-view="thread"] .inbox-modal__panelbar { display: flex; padding: 0 var(--space-3); margin: 0; }
   #inbox-modal[data-panel="page"] .inbox-modal__panelbar > :not([data-panel-back]) { display: none; }
 }
+
+/* ---------- Home's full-width list: filters, stars, selection (phase 3b-2) ---------- */
+.panel-filters { border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.panel-filters__summary {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.panel-filters[open] .panel-filters__summary { border-bottom: 1px solid var(--color-border); }
+.panel-filters__body { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); padding: var(--space-2); }
+.panel-filters__field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.panel-filters__field select {
+  min-width: 8rem;
+  padding: var(--space-1);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.panel-filters__check { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.panel-bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+}
+.panel-bulk[hidden] { display: none; }
+.panel-bulk__spacer { flex: 1; }
+.panel-home__row { display: flex; align-items: flex-start; gap: var(--space-1); }
+.panel-home__row > .panel-home__thread { flex: 1; min-width: 0; }
+.panel-home__select { margin: var(--space-3) 0 0 var(--space-1); flex: none; }
+.panel-home__star {
+  flex: none;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+button.panel-home__star:hover { color: var(--color-text); }
+.panel-home__star.is-on { color: var(--color-warn); }
+span.panel-home__star { cursor: default; }

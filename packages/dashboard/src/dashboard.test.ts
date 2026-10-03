@@ -332,7 +332,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
   const sectionTabMatch = (res: { text: string }) =>
     res.text.match(/<nav class="tab-strip" aria-label="Agents section">[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  it('top row is Inbox · Agents · Settings · Help; the sua brand is the home link', async () => {
+  it('top row is Agents · Pulse · Settings · Help; the sua brand is the home link, and Home is the inbox', async () => {
     const app = await makeApp();
     const res = await authed(app, '/help');
     expect(res.status).toBe(200);
@@ -343,7 +343,8 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     // Pulse is a first-class page again (its own nav item); no redundant Home item.
     expect(nav).toContain('>Pulse<');
     expect(nav).not.toContain('>Home<');
-    expect(nav).toContain('>Inbox');
+    // Home is the inbox, so the brand covers it: no separate Inbox item.
+    expect(nav).not.toContain('>Inbox');
     expect(nav).toContain('>Agents<');
     // Top-level nav still doesn't surface the building blocks directly.
     expect(nav).not.toContain('href="/tools"');

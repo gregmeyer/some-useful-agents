@@ -1,6 +1,6 @@
 import { html, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
-import { PANEL_TABS, PANEL_TAB_LABEL, type PanelList, type PanelRow } from '../lib/panel-inbox.js';
+import { PANEL_TABS, PANEL_TAB_LABEL, type PanelFacets, type PanelFilters, type PanelList, type PanelRow } from '../lib/panel-inbox.js';
 
 /** Starting points when the inbox is empty. Clicking one fills the box; nothing sends until you do. */
 const SUGGESTIONS = [
@@ -23,7 +23,56 @@ const EMPTY: Record<PanelList['tab'], string> = {
  * back here (inbox-modal.js.ts). The list part is also served alone
  * (`GET /panel/list`) for tab switches, search and "Show more".
  */
-export function renderPanelHome(list: PanelList): SafeHtml {
+const SOURCE_LABEL: Record<string, string> = {
+  'run-failure': 'Run failures',
+  'outcome': 'Missed outcomes',
+  'permission-request': 'Permissions',
+  'cadence': 'Reminders',
+  'manual': 'Your questions',
+  'system-health': 'System health',
+  'question': 'Questions from agents',
+  'board': 'Boards',
+};
+
+/**
+ * Home's full-width list adds a filter menu (source, agent, tag, starred,
+ * sort) and a bar for acting on selected threads. Both sit outside the part
+ * that re-renders, so an open menu or a selection survives a refresh.
+ */
+function renderFilters(f: PanelFilters, facets: PanelFacets): SafeHtml {
+  const active = [f.source, f.agentId, f.tag, f.starred ? '1' : '', f.sort].filter(Boolean).length;
+  const opt = (value: string, label: string, current?: string) =>
+    html`<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+  return html`
+    <details class="panel-filters" data-panel-filters>
+      <summary class="panel-filters__summary">Filter and sort${active ? html` <span class="panel-tabs__count">${String(active)}</span>` : html``}</summary>
+      <div class="panel-filters__body">
+        <label class="panel-filters__field">From
+          <select data-panel-filter="source">${opt('', 'Anywhere', f.source ?? '')}${facets.sources.map((s) => opt(s, SOURCE_LABEL[s] ?? s, f.source)) as unknown as SafeHtml[]}</select>
+        </label>
+        <label class="panel-filters__field">Agent
+          <select data-panel-filter="agent">${opt('', 'Any agent', f.agentId ?? '')}${facets.agentIds.map((a) => opt(a, a, f.agentId)) as unknown as SafeHtml[]}</select>
+        </label>
+        ${facets.tags.length ? html`<label class="panel-filters__field">Tag
+          <select data-panel-filter="tag">${opt('', 'Any tag', f.tag ?? '')}${facets.tags.map((g) => opt(g, g, f.tag)) as unknown as SafeHtml[]}</select>
+        </label>` : html``}
+        <label class="panel-filters__field">Sort
+          <select data-panel-filter="sort">${opt('', 'Default', f.sort ?? '')}${opt('recent', 'Latest activity', f.sort)}${opt('oldest', 'Oldest first', f.sort)}${opt('priority', 'Priority', f.sort)}</select>
+        </label>
+        <label class="panel-filters__check"><input type="checkbox" data-panel-filter="starred" ${f.starred ? 'checked' : ''}> Starred only</label>
+        <button type="button" class="btn btn--xs btn--ghost" data-panel-filter-clear>Clear</button>
+      </div>
+    </details>
+    <div class="panel-bulk" data-panel-bulk hidden>
+      <label class="panel-filters__check"><input type="checkbox" data-panel-select-all> <span data-panel-bulk-count>0 selected</span></label>
+      <span class="panel-bulk__spacer"></span>
+      <button type="button" class="btn btn--xs" data-panel-bulk-action="resolve">Resolve</button>
+      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-action="dismiss">Dismiss</button>
+      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-clear>Clear</button>
+    </div>`;
+}
+
+export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml {
   const total = Object.values(list.counts).reduce((a, b) => a + b, 0);
   return html`
     <div class="panel-home" data-panel-home>
@@ -40,6 +89,7 @@ export function renderPanelHome(list: PanelList): SafeHtml {
         : html``}
       <input type="search" class="panel-home__search" placeholder="Search your inbox" aria-label="Search your inbox"
         value="${list.q}" data-panel-search autocomplete="off">
+      ${list.wide && facets ? renderFilters(list.filters, facets) : html``}
       <div data-panel-list>${renderPanelList(list)}</div>
     </div>`;
 }
@@ -56,16 +106,17 @@ export function renderPanelList(list: PanelList): SafeHtml {
     <ul class="panel-home__list" role="tabpanel" data-panel-rows data-tab="${list.tab}">
       ${list.rows.length === 0
         ? html`<li class="panel-home__empty">${list.q ? 'Nothing matches that search.' : EMPTY[list.tab]}</li>`
-        : renderPanelRows(list.rows)}
+        : renderPanelRows(list.rows, list.wide)}
     </ul>
     ${list.hasMore
       ? html`<button type="button" class="btn btn--xs btn--ghost panel-home__more" data-panel-more data-offset="${String(list.offset + list.rows.length)}">Show more</button>`
       : html``}`;
 }
 
-export function renderPanelRows(rows: PanelRow[]): SafeHtml {
+export function renderPanelRows(rows: PanelRow[], wide = false): SafeHtml {
   return html`${rows.map(({ message: m, latest }) => html`
-    <li>
+    <li class="${wide ? 'panel-home__row panel-home__row--wide' : 'panel-home__row'}">
+      ${wide ? html`<input type="checkbox" class="panel-home__select" data-panel-select value="${m.id}" aria-label="Select “${m.title}”">` : html``}
       <button type="button" class="panel-home__thread ${m.status === 'awaiting_user' ? 'panel-home__thread--yours' : ''}" data-panel-thread-id="${m.id}">
         <span class="panel-home__thread-top">
           <span class="panel-home__thread-title">${m.title}</span>
@@ -77,5 +128,9 @@ export function renderPanelRows(rows: PanelRow[]): SafeHtml {
           ${latest ? html`<span class="panel-home__latest"><span class="panel-home__who">${latest.who} ›</span> ${latest.text}</span>` : html``}
         </span>
       </button>
+      ${wide
+        ? html`<button type="button" class="panel-home__star ${m.starred ? 'is-on' : ''}" data-panel-star="${m.id}"
+            aria-pressed="${m.starred ? 'true' : 'false'}" aria-label="Star “${m.title}”">★</button>`
+        : m.starred ? html`<span class="panel-home__star is-on" title="Starred" aria-label="Starred">★</span>` : html``}
     </li>`) as unknown as SafeHtml[]}`;
 }
