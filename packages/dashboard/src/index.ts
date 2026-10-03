@@ -84,7 +84,7 @@ import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
-import { runTriageAgent } from './routes/inbox-engine.js';
+import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
@@ -502,6 +502,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
             publishInboxEvent(ctxForInboxKick, raised.message.id, 'message:created', {
               responseId: raised.response.id, role: 'system', body: raised.response.body, createdAt: raised.response.createdAt,
             });
+            // It keeps failing: once per thread, sua looks for a fix you approve.
+            maybeProposeFixForRepeatedFailures(ctxForInboxKick, raised.message.id);
           }
           return;
         }

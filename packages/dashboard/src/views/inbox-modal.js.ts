@@ -1283,6 +1283,24 @@ export const INBOX_MODAL_JS = `
     }
   });
 
+  // "Ask sua to fix this" (agent page): start the fix conversation and open it
+  // in the panel, beside the agent you're looking at.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-ask-fix')) return;
+    e.preventDefault();
+    var btn = form.querySelector('button');
+    if (btn) btn.disabled = true;
+    fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) {
+        var id = r.headers.get('X-Inbox-Id');
+        if (!r.ok || !id) throw new Error('ask-fix ' + r.status);
+        openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' });
+      })
+      .catch(function () { form.submit(); })
+      .then(function () { if (btn) btn.disabled = false; });
+  });
+
   window.suaPanel = {
     toggle: togglePanel,
     home: function () { openPanelHome(); },

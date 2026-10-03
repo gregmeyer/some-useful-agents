@@ -122,9 +122,11 @@ const LEARNING_MAX_CHARS = 600;
  * global override (`data/.sua/inbox-settings.json`) once a non-trivial
  * subset of operators want different defaults.
  */
+// `agent-editor` is NOT here: replacing an agent's definition always waits
+// for the operator to read the diff and approve it (an operator can still
+// opt it in with the per-agent trust toggle).
 const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'agent-analyzer',
-  'agent-editor',
   'agent-catalog-search',
   'agent-builder',
   'dashboard-editor',
@@ -1087,6 +1089,103 @@ export function showWidgetWouldDuplicate(
   return false;
 }
 
+/** After this many failures in one run-failure thread, sua looks for a fix. */
+export const REPEATED_FAILURE_THRESHOLD = 3;
+/** meta_json kind on the note that proposes a fix, so it's proposed once per thread. */
+const FIX_NOTE_KIND = 'propose-fix';
+
+/** Failures recorded in a run-failure thread: its own run plus each coalesced "Another run of …" note. */
+export function countThreadFailures(ctx: ReturnType<typeof getContext>, messageId: string): number {
+  const responses = ctx.inboxStore?.listResponses(messageId) ?? [];
+  return 1 + responses.filter((r) => r.role === 'system' && r.body.startsWith('Another run of ')).length;
+}
+
+/**
+ * Propose "find a fix for this agent" on a thread: a note saying why, then an
+ * agent-analyzer card for `agentId`. When the analyzer finishes, its drafted
+ * fix becomes an agent-editor card (maybeAutoProposeEditorAction), which
+ * always waits for your approval, diffs against the agent as it was, and is
+ * saved as a new version under the same id. The analyzer itself runs on its
+ * own when the trust policy allows (it only reads). Returns the card's id, or
+ * undefined when nothing was proposed (no agent, archived, at the action cap,
+ * or one already proposed on this thread).
+ */
+export function proposeAgentFix(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  agentId: string,
+  why: string,
+): string | undefined {
+  const store = ctx.inboxStore;
+  if (!store) return undefined;
+  const agent = ctx.agentStore.getAgent(agentId);
+  if (!agent || agent.status === 'archived') return undefined;
+  const responses = store.listResponses(messageId);
+  if (responses.some((r) => r.role === 'system' && r.metaJson?.includes(`"kind":"${FIX_NOTE_KIND}"`))) return undefined;
+  if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return undefined;
+
+  const note = store.addResponse(messageId, 'system', why, JSON.stringify({ kind: FIX_NOTE_KIND, agentId }));
+  publishInboxEvent(ctx, messageId, 'message:created', { responseId: note.id, role: 'system', body: note.body, createdAt: note.createdAt });
+  const action: InboxActionMeta = {
+    kind: 'action',
+    status: 'proposed',
+    agentId: 'agent-analyzer',
+    effect: 'read',
+    inputs: { AGENT_ID: agentId },
+    rationale: `Look at why \`${agentId}\` isn't working and draft a fix.`,
+    ctaLabel: 'Find a fix',
+  };
+  const resp = store.addResponse(messageId, 'action', action.rationale!, JSON.stringify(action));
+  publishInboxEvent(ctx, messageId, 'action:created', {
+    responseId: resp.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: resp.createdAt,
+  });
+  if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+    const startedAt = Date.now();
+    const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
+    if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
+      publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
+      const claimed = store.getResponse(resp.id) ?? resp;
+      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+        process.stderr.write(`[inbox] fix analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
+      });
+    }
+  }
+  return resp.id;
+}
+
+/**
+ * A failing agent's thread reached REPEATED_FAILURE_THRESHOLD failures: ask
+ * for a fix, once per thread. Not when the loop is switched off, the thread is
+ * paused, or the operator stopped sua on it.
+ */
+export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getContext>, messageId: string): boolean {
+  const store = ctx.inboxStore;
+  const message = store?.get(messageId);
+  if (!store || !message || message.source !== 'run-failure' || !message.agentId) return false;
+  if (store.getAutonomyMode() === 'off' || message.paused || ctx.inboxTriageStopped?.has(messageId)) return false;
+  const failures = countThreadFailures(ctx, messageId);
+  if (failures < REPEATED_FAILURE_THRESHOLD) return false;
+  return proposeAgentFix(ctx, messageId, message.agentId,
+    `**${message.agentId}** has failed ${failures} times. sua is looking at why and will draft a fix for you to approve; nothing changes until you do.`) !== undefined;
+}
+
+/**
+ * Stamp an agent-editor proposal with the target agent as it is now
+ * (`meta.base`), so the card's diff is against what was really there and
+ * applying it can refuse if the agent changed in between. A no-op for other
+ * actions and for agents that don't exist yet (an install).
+ */
+export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+  if (action.agentId !== 'agent-editor' || !action.inputs.AGENT_ID || action.base) return action;
+  const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
+  if (!target) return action;
+  try {
+    return { ...action, base: { version: target.version, yaml: exportAgent(target) } };
+  } catch {
+    return action;
+  }
+}
+
 /**
  * Apply a YAML change to an existing agent. Validates:
  *   - `AGENT_ID` input is present
@@ -1153,8 +1252,25 @@ export function executeAgentEditor(
   // weakening, and pretending otherwise would be security theatre. What this
   // closes is the silent path.
   const before = ctx.agentStore.getAgent(agentId);
+  // The agent moved on since this was proposed (someone edited it, or another
+  // fix landed): applying would silently undo that. Ask for a fresh proposal.
+  if (before && meta.base && before.version !== meta.base.version) {
+    return {
+      status: 'failed',
+      refusalReason: `\`${agentId}\` changed since this fix was proposed (v${meta.base.version} → v${before.version}). Ask sua to look again so the fix starts from the current version.`,
+    };
+  }
   const preserved: string[] = [];
   if (before) {
+    // A fix replaces what the agent does, not whether or when it runs. The
+    // schema defaults a missing \`status:\` to draft, which would quietly stop
+    // a scheduled agent, so status always carries over; a schedule carries
+    // over unless the fix sets one.
+    parsed.status = before.status;
+    if (before.schedule && !/^schedule\s*:/m.test(repairedYaml)) {
+      parsed.schedule = before.schedule;
+      preserved.push('schedule');
+    }
     if (before.outcome && !parsed.outcome) {
       parsed.outcome = before.outcome;
       preserved.push('outcome');
@@ -1277,7 +1393,7 @@ export function maybeAutoProposeEditorAction(
     messageId,
     'action',
     action.rationale!,
-    JSON.stringify(action),
+    JSON.stringify(withEditorBase(ctx, action)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -1336,7 +1452,7 @@ function maybeAutoProposeBuilderInstallAction(
     messageId,
     'action',
     rationale,
-    JSON.stringify(action),
+    JSON.stringify(withEditorBase(ctx, action)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -1984,7 +2100,7 @@ export async function runTriageAgent(
             : action.mode === 'resolve'
               ? 'Resolve this thread — nothing left to run or diagnose.'
               : `Run agent \`${action.agentId}\`.`);
-        const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(action));
+        const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(withEditorBase(ctx, action)));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,
           agentId: action.agentId,
