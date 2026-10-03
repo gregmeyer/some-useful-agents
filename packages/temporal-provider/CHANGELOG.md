@@ -1,5 +1,50 @@
 # @some-useful-agents/temporal-provider
 
+## 0.30.0
+
+### Minor Changes
+
+- e8cab95: Archived agents get out of the way, and come back with one click.
+  
+  Archiving an agent now takes it out of the default agents list (an **Archived (n)** link shows them), Pulse, the tile picker, and the agents sua suggests or may run. It can't be run by hand while archived, and a board that already places it keeps the tile, marked **archived**, with no Run button. An archived agent's page explains what archiving does and has **Restore**: it comes back active, or paused if it has a schedule, so nothing fires until you resume it.
+- bb8e769: Archive dashboards you're not using.
+  
+  An **Archive** button on a dashboard hides it from the dashboards menu, the pickers and sua's suggestions without deleting anything. Archived dashboards are listed under **Archived** at the bottom of the dashboards menu, and **Restore** on an archived dashboard brings it back. Also fixes the dashboards menu's "Default Dashboard" link, which pointed at Home instead of Pulse.
+- deb81df: Searchable agent picker and a tunable "Suggest a layout" when arranging a board.
+  
+  Arrange's **+ Agent tile** is now a searchable list instead of a long dropdown: search by name, id or what an agent does, filter to agents not yet on the board (or already on it), and page through 20 at a time. **+ Add** and **Wrap in** are grouped menus. **Suggest a layout** now asks how you want the board arranged before the layout planner runs. Agents whose tile title is a template no longer show up named like `{{inputs.SEARCH_QUERY}}`.
+- de8f0c9: A conversation panel beside every page.
+  
+  Asking sua now opens the answer in a panel docked beside the page instead of over it, and the panel follows you from page to page. Ask sua in the top bar, or Cmd/Ctrl+K, opens it (your last thread, or a box to start a new one with your recent threads) and closes it; a thread open in the centered inbox view moves into it with one click. You can widen it, or minimize it to a pill that lights up when a reply lands. Wide screens make room for it, narrower screens show it over the page, and phones show it full screen. Threads opened from the inbox list still open in the centered view.
+- 0dfb054: Agent conversations now live in the inbox store.
+  
+  A conversation with an agent is now an inbox thread (source `conversation`), and its turns are replies on that thread, so there is one conversation model for the coming side panel and inbox split view. Nothing changes in the Chat tab, `sua agent chat` or MCP `run-agent`. Existing conversations are copied over the first time sua opens the database, with the same ids; the old tables are kept as `sessions_legacy` and `session_turns_legacy`. Conversations aren't listed in the inbox yet.
+- 531962c: Home is your inbox on one canvas.
+  
+  `/` (and `/inbox`) now shows the inbox list and the open thread side by side: ask box, Needs you / Open / Conversations / Done, search, and the thread with its action cards, all live. `/inbox/:id` opens it with that thread selected. It's the same inbox the conversation panel shows beside other pages, so there's one inbox at two widths. The separate Home feed, the old inbox list page and the centered thread window are gone; threads linked from anywhere open on Home or in the panel. Filters, starring and bulk actions from the old list page return in a follow-up.
+- 2d6d251: Filter, star and act on many threads at once on Home.
+  
+  Home's inbox list gains Filter and sort (where a thread came from, its agent, a tag, starred only; latest activity, oldest first or priority), a star on each thread, and checkboxes to Resolve or Dismiss several threads together. Tab counts follow the filters. The top bar now has one link home, the sua brand, since Home is the inbox.
+- 66def61: The conversation panel is your inbox.
+  
+  With no thread open, the panel shows your inbox: a box to ask sua, tabs for Needs you, Open, Conversations and Done with counts, a search, and your threads 25 at a time. Pick one to read and reply in the panel, and "← Inbox" takes you back to the list where you left it; the list keeps up as threads change and remembers its tab and search as you move between pages. The inbox store gains `statuses`, `sources` and `count()` for this.
+
+### Patch Changes
+
+- a3af148: The inbox thread and the agent Chat tab share one thread component.
+  
+  Messages in an agent's Chat tab now look and behave like inbox messages: a Copy button on each reply, Markdown in your messages, consecutive replies grouped under one speaker, and timestamps on hover. The inbox thread looks the same as before. This is the groundwork for the side panel, which will show both kinds of conversation.
+- Updated dependencies [e8cab95]
+- Updated dependencies [bb8e769]
+- Updated dependencies [deb81df]
+- Updated dependencies [de8f0c9]
+- Updated dependencies [0dfb054]
+- Updated dependencies [531962c]
+- Updated dependencies [2d6d251]
+- Updated dependencies [66def61]
+- Updated dependencies [a3af148]
+  - @some-useful-agents/core@0.30.0
+
 ## 0.29.0
 
 ### Minor Changes
