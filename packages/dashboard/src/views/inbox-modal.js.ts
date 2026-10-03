@@ -52,10 +52,107 @@ export const INBOX_MODAL_JS = `
   // so 20s is comfortable headroom.
   var SSE_WATCHDOG_MS = 20000;
 
+  // ── Conversation panel ──
+  // The same modal, docked to the side instead of centered: Ask sua and
+  // Cmd-K open it there, and it follows you between pages (per tab, via
+  // sessionStorage). null = the centered modal; otherwise 'docked', 'wide'
+  // or 'min' (hidden behind the pill, still live).
+  var PANEL_KEY = 'sua-panel';
+  var panelMode = null;
+  var panelWantsFocus = false;
+  var pill = document.querySelector('[data-panel-restore]');
+  function loadPanel() {
+    try { return JSON.parse(sessionStorage.getItem(PANEL_KEY) || 'null'); } catch (_) { return null; }
+  }
+  function savePanel(id, mode) {
+    try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed' })); } catch (_) {}
+  }
+  function applyPanel() {
+    if (!modal) return;
+    var body = document.body;
+    body.classList.remove('has-sua-panel', 'has-sua-panel--docked', 'has-sua-panel--wide');
+    if (panelMode) {
+      modal.setAttribute('data-panel', panelMode);
+      modal.setAttribute('aria-modal', 'false');
+      modal.setAttribute('aria-label', 'Conversation');
+    } else {
+      modal.removeAttribute('data-panel');
+      modal.setAttribute('aria-modal', 'true');
+      modal.removeAttribute('aria-label');
+    }
+    if (panelMode === 'docked' || panelMode === 'wide') body.classList.add('has-sua-panel', 'has-sua-panel--' + panelMode);
+    if (pill) {
+      pill.hidden = panelMode !== 'min';
+      if (panelMode !== 'min') setPillUnread(false);
+    }
+    var open = panelMode === 'docked' || panelMode === 'wide';
+    var toggles = document.querySelectorAll('[data-panel-toggle]');
+    for (var ti = 0; ti < toggles.length; ti++) {
+      toggles[ti].classList.toggle('is-active', open);
+      toggles[ti].setAttribute('aria-pressed', open ? 'true' : 'false');
+    }
+    var link = modal.querySelector('[data-panel-inbox]');
+    if (link) link.setAttribute('href', currentId ? inboxThreadHref(currentId) : '/inbox');
+    var wide = modal.querySelector('[data-panel-wide]');
+    if (wide) {
+      var label = panelMode === 'wide' ? 'Back to the side' : 'Widen';
+      wide.textContent = panelMode === 'wide' ? '⤡' : '⤢';
+      wide.setAttribute('aria-label', label);
+      wide.setAttribute('title', label);
+    }
+  }
+  function setPillUnread(on) {
+    if (!pill) return;
+    pill.classList.toggle('is-unread', !!on);
+    var text = pill.querySelector('[data-panel-pill-text]');
+    if (text) text.textContent = on ? 'New reply' : 'Conversation';
+  }
+  function setPanelMode(mode) {
+    var from = panelMode;
+    panelMode = mode;
+    if (mode === 'docked' || mode === 'wide') easePanel(from === 'min' || !from);
+    applyPanel();
+    savePanel(currentId, mode);
+  }
+
+  // Motion (DESIGN.md): the panel slides in (ease-out), out (ease-in), and the
+  // page eases over to make room (ease-in-out), all under 200ms. Only for
+  // things you just did: a panel restored on page load appears in place.
+  var reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var easeTimer = null;
+  var closeTimer = null;
+  function easePanel(enter) {
+    if (!modal || reduceMotion) return;
+    document.body.classList.add('sua-panel-easing');
+    if (enter) {
+      modal.classList.remove('is-entering');
+      void modal.offsetWidth; // restart the slide-in
+      modal.classList.add('is-entering');
+    }
+    if (easeTimer) clearTimeout(easeTimer);
+    easeTimer = setTimeout(function () {
+      document.body.classList.remove('sua-panel-easing');
+      modal.classList.remove('is-entering');
+    }, 260);
+  }
+
+  /** The centered thread view → the panel, same thread, no reload. */
+  function dockCurrent() {
+    if (!modal || !currentId || panelMode) return;
+    document.body.style.overflow = '';
+    // Leave the /inbox/:id URL the centered view pushed.
+    if (window.history && window.history.state && window.history.state.inboxModalId === currentId) {
+      try { window.history.replaceState(null, '', modalBaseHref || '/inbox'); } catch (_) {}
+    }
+    setPanelMode('docked');
+  }
+
   function open() {
     if (!modal) return;
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; modal.classList.remove('is-closing'); }
     modal.hidden = false;
     modal.classList.add('is-open');
+    if (panelMode) { applyPanel(); return; }
     document.body.style.overflow = 'hidden';
   }
   function teardownModal() {
@@ -68,10 +165,26 @@ export const INBOX_MODAL_JS = `
     keepPollingUntil = 0;
     stopPoll();
     closeEventSource();
+    if (panelMode) { panelMode = null; applyPanel(); }
   }
   function close(opts) {
     if (!modal) return;
     opts = opts || {};
+    if (panelMode) {
+      // The panel remembers its thread so Cmd-K brings it back.
+      var keep = currentId;
+      savePanel(keep, 'closed');
+      if (panelMode === 'min' || reduceMotion) { teardownModal(); return; }
+      easePanel(false);
+      document.body.classList.remove('has-sua-panel', 'has-sua-panel--docked', 'has-sua-panel--wide');
+      modal.classList.add('is-closing');
+      closeTimer = setTimeout(function () {
+        closeTimer = null;
+        modal.classList.remove('is-closing');
+        teardownModal();
+      }, 150);
+      return;
+    }
     var fromHistory = !!opts.fromHistory;
     if (!fromHistory && currentId && window.history && window.history.state
       && window.history.state.inboxModalId === currentId) {
@@ -415,7 +528,10 @@ export const INBOX_MODAL_JS = `
     for (var i = 0; i < msgs.length; i++) {
       var el = msgs[i];
       var id = el.getAttribute('data-msg-id');
-      if (!firstRender && !seenMsgIds[id]) el.classList.add('inbox-msg--new');
+      if (!firstRender && !seenMsgIds[id]) {
+        el.classList.add('inbox-msg--new');
+        if (panelMode === 'min') setPillUnread(true);
+      }
       seenMsgIds[id] = true;
     }
     // Re-attach the waiting-label rotation in case the fragment refresh
@@ -514,7 +630,10 @@ export const INBOX_MODAL_JS = `
         } else {
           content.scrollTop = prevScrollTop;
         }
-        focusFirstInteractive();
+        // The panel sits beside a page you may be using: it takes focus only
+        // when you just opened it, not on every refresh or page restore.
+        if (!panelMode) focusFirstInteractive();
+        else if (panelWantsFocus && panelMode !== 'min') { panelWantsFocus = false; focusFirstInteractive(); }
         maybeSchedulePoll();
       })
       .catch(function () { /* swallow; user can close + retry */ });
@@ -583,20 +702,31 @@ export const INBOX_MODAL_JS = `
     if (!modal) return;
     opts = opts || {};
     var fromHistory = !!opts.fromHistory;
+    // Where it shows: an explicit panel mode, else wherever the thread
+    // view already is (a thread opened from the panel stays in the panel;
+    // from the minimized panel, it comes back docked).
+    var panelWasShowing = !modal.hidden && (panelMode === 'docked' || panelMode === 'wide') && !closeTimer;
+    if (opts.panel) panelMode = opts.panel;
+    else if (panelMode === 'min') panelMode = 'docked';
+    if ((panelMode === 'docked' || panelMode === 'wide') && !panelWasShowing && !opts.restore) easePanel(true);
     var wasOpen = !modal.hidden;
-    if (!wasOpen) {
-      modalBaseHref = currentLocationHref();
-    } else if (!modalBaseHref) {
-      modalBaseHref = currentLocationHref();
-    }
-    if (!fromHistory) {
-      syncModalHistory(id, wasOpen ? 'replace' : 'push');
-    } else if (window.history && window.history.state
-      && typeof window.history.state.inboxModalBaseHref === 'string'
-      && window.history.state.inboxModalBaseHref) {
-      modalBaseHref = window.history.state.inboxModalBaseHref;
+    if (!panelMode) {
+      if (!wasOpen) {
+        modalBaseHref = currentLocationHref();
+      } else if (!modalBaseHref) {
+        modalBaseHref = currentLocationHref();
+      }
+      if (!fromHistory) {
+        syncModalHistory(id, wasOpen ? 'replace' : 'push');
+      } else if (window.history && window.history.state
+        && typeof window.history.state.inboxModalBaseHref === 'string'
+        && window.history.state.inboxModalBaseHref) {
+        modalBaseHref = window.history.state.inboxModalBaseHref;
+      }
     }
     currentId = id;
+    if (panelMode) savePanel(id, panelMode);
+    panelWantsFocus = !opts.restore;
     seenMsgIds = Object.create(null);
     keepPollingUntil = 0;
     content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
@@ -758,7 +888,39 @@ export const INBOX_MODAL_JS = `
       return;
     }
 
-    if (e.target === modal || (e.target.closest && e.target.closest('[data-inbox-modal-close]'))) {
+    var panelToggle = e.target.closest && e.target.closest('[data-panel-toggle]');
+    if (panelToggle) { e.preventDefault(); togglePanel(); return; }
+    var panelDock = e.target.closest && e.target.closest('[data-panel-dock]');
+    if (panelDock) { e.preventDefault(); dockCurrent(); return; }
+
+    var panelCtl = e.target.closest && e.target.closest('[data-panel-wide], [data-panel-min], [data-panel-restore], [data-panel-new], [data-panel-thread-id], [data-panel-ask], [data-panel-inbox]');
+    if (panelCtl) {
+      if (panelCtl.hasAttribute('data-panel-inbox')) {
+        // Leaving for the thread's own page: close the panel so it doesn't
+        // show the same thread twice there. The link navigates as usual.
+        if (panelMode) close();
+        return;
+      }
+      e.preventDefault();
+      if (panelCtl.hasAttribute('data-panel-wide')) setPanelMode(panelMode === 'wide' ? 'docked' : 'wide');
+      else if (panelCtl.hasAttribute('data-panel-min')) setPanelMode('min');
+      else if (panelCtl.hasAttribute('data-panel-restore')) {
+        if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
+      }
+      else if (panelCtl.hasAttribute('data-panel-new')) openPanelHome();
+      else if (panelCtl.hasAttribute('data-panel-thread-id')) openFor(panelCtl.getAttribute('data-panel-thread-id'));
+      else if (panelCtl.hasAttribute('data-panel-ask')) {
+        var ta = content.querySelector('[data-panel-composer]');
+        if (ta) {
+          ta.value = panelCtl.getAttribute('data-panel-ask') || '';
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          ta.focus();
+        }
+      }
+      return;
+    }
+
+    if ((e.target === modal && !panelMode) || (e.target.closest && e.target.closest('[data-inbox-modal-close]'))) {
       close();
     }
   });
@@ -784,11 +946,14 @@ export const INBOX_MODAL_JS = `
   })();
 
   document.addEventListener('keydown', function (e) {
-    if (modal && e.key === 'Escape' && !modal.hidden) close();
+    if (!modal || e.key !== 'Escape' || modal.hidden) return;
+    // The panel isn't modal: Esc closes it only from inside it.
+    if (panelMode && (panelMode === 'min' || !modal.contains(document.activeElement))) return;
+    close();
   });
 
   window.addEventListener('popstate', function () {
-    if (!modal) return;
+    if (!modal || panelMode) return;
     var match = window.location.pathname.match(/^\\/inbox\\/([^/]+)$/);
     if (match) {
       openFor(decodeURIComponent(match[1]), { fromHistory: true });
@@ -924,7 +1089,8 @@ export const INBOX_MODAL_JS = `
         if (input) { input.value = ''; input.style.height = 'auto'; }
         // The ask landed as a thread — drop the persisted draft (see APP_ASK_JS).
         try { localStorage.removeItem('sua-ask-draft'); } catch (e) {}
-        if (newId) openFor(newId);
+        // Asking sua opens the answer in the panel, docked beside the page.
+        if (newId) openFor(newId, { panel: panelMode === 'wide' ? 'wide' : 'docked' });
       })
       .catch(function (err) { console.error('inbox /new failed', err); })
       .then(function () {
@@ -1164,5 +1330,71 @@ export const INBOX_MODAL_JS = `
     if (form && form.requestSubmit) form.requestSubmit();
     else if (form) form.submit();
   });
+  /** The panel with no thread: start one, or pick up a recent one. */
+  function openPanelHome(opts) {
+    if (!modal) return;
+    var restoring = !!(opts && opts.restore);
+    var panelWasShowing = !modal.hidden && (panelMode === 'docked' || panelMode === 'wide') && !closeTimer;
+    if (!panelMode || panelMode === 'min') panelMode = 'docked';
+    if (!panelWasShowing && !restoring) easePanel(true);
+    stopPoll();
+    closeEventSource();
+    currentId = null;
+    seenMsgIds = Object.create(null);
+    content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
+    open();
+    savePanel(null, panelMode);
+    fetch('/panel/home', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('panel home ' + r.status); return r.text(); })
+      .then(function (markup) {
+        if (currentId !== null || !panelMode) return;
+        content.innerHTML = markup;
+        var ta = content.querySelector('[data-panel-composer]');
+        if (ta && panelMode !== 'min' && !restoring) ta.focus();
+      })
+      .catch(function () {
+        content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Couldn’t load. Close the panel and try again.</p>';
+      });
+  }
+
+  /** Cmd-K: open the panel (its last thread, or a new one), or close it. */
+  function togglePanel() {
+    if (!modal) return;
+    if ((panelMode === 'docked' || panelMode === 'wide') && !closeTimer) { close(); return; }
+    if (panelMode === 'min') {
+      if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
+      return;
+    }
+    if (!modal.hidden && !panelMode) { dockCurrent(); return; } // the centered thread view moves beside the page
+    var saved = loadPanel();
+    if (saved && saved.id) openFor(saved.id, { panel: 'docked' });
+    else openPanelHome();
+  }
+
+  window.suaPanel = {
+    toggle: togglePanel,
+    home: function () { openPanelHome(); },
+    open: function (id) { openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' }); },
+    isPanel: function () { return !!panelMode; },
+  };
+
+  // The top-bar opener names the shortcut for this keyboard.
+  if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')) {
+    var keys = document.querySelectorAll('[data-panel-key]');
+    for (var ki = 0; ki < keys.length; ki++) keys[ki].textContent = 'Ctrl K';
+  }
+
+  // Bring the panel back as it was on the last page.
+  (function restorePanel() {
+    if (!modal) return;
+    var saved = loadPanel();
+    if (!saved || !saved.mode || saved.mode === 'closed') return;
+    if (saved.mode !== 'docked' && saved.mode !== 'wide' && saved.mode !== 'min') return;
+    // Its own page shows the thread already.
+    if (saved.id && window.location.pathname === inboxThreadHref(saved.id)) return;
+    if (saved.id) openFor(saved.id, { panel: saved.mode, restore: true });
+    else if (saved.mode === 'min') { panelMode = 'min'; applyPanel(); }
+    else { panelMode = saved.mode; openPanelHome({ restore: true }); }
+  })();
 })();
 `;
