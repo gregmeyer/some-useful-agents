@@ -11,63 +11,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { renderHomePage } from './home.js';
 import { pageIntro } from './page-intro.js';
 
-type Input = Parameters<typeof renderHomePage>[0];
-
-const emptyFeed = { needsYou: [], today: [], week: [], earlier: [], closed: [] };
-
-function home(over: Partial<Input> = {}): string {
-  return renderHomePage({
-    agentCount: 40,
-    feed: emptyFeed,
-    ...over,
-  } as Input);
-}
-
-describe('home orientation', () => {
-  it('puts Start here and the tutorial one click from the landing page', () => {
-    const out = home();
-    expect(out).toContain('href="/start"');
-    expect(out).toContain('href="/help/tutorial"');
-  });
-
-  it('says what sua is, rather than leaving the page unexplained', () => {
-    const out = home();
-    expect(out).toContain('page-intro');
-    expect(out).toContain('run here, on this machine');
-    // A way to the longer explanation that already exists on /help.
-    expect(out).toContain('What is sua?');
-  });
-
-  it('is dismissible, so it does not nag a daily user', () => {
-    // Onboarding chrome should have onboarding lifetime. Keyed for the
-    // existing PAGE_INTRO_JS localStorage handler.
-    expect(home()).toContain('data-intro-key="home"');
-    expect(home()).toContain('data-intro-dismiss');
-  });
-
-  it('still leads with the feed — orientation sits above it, not instead of it', () => {
-    const out = home();
-    expect(out).toContain('home-inbox');
-    expect(out.indexOf('page-intro')).toBeLessThan(out.indexOf('home-inbox'));
-  });
-
-  it('leaves the zero-agent onboarding state alone', () => {
-    // That branch already orients the reader and has its own three CTAs;
-    // it just never renders on a real install.
-    const out = home({ agentCount: 0 });
-    expect(out).toContain('No agents yet');
-    expect(out).not.toContain('data-intro-key="home"');
-  });
-});
-
-/**
- * `pageIntro` gained optional next-step buttons for the home page. Two things
- * are worth pinning: the buttons are additive (the one existing caller must be
- * unchanged), and an in-product link no longer opens in a new tab.
- */
 describe('pageIntro', () => {
   it('renders nothing extra when no actions are given', () => {
     const out = pageIntro({ key: 'k', text: 'hello' }).toString();

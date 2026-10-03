@@ -44,10 +44,8 @@ import {
   type AgentTrustLevel,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { renderInboxList, renderInboxRowsFragment } from '../views/inbox-list.js';
-import { renderHomeInboxFeed } from '../views/home.js';
-import { buildHomeFeedData } from '../lib/home-feed.js';
-import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
+import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
+import { renderInboxPage } from '../views/inbox-page.js';
 import { render } from '../views/html.js';
 import { renderPanelHome, renderPanelList, renderPanelRows } from '../views/panel-home.js';
 import { buildPanelList, parsePanelTab } from '../lib/panel-inbox.js';
@@ -59,7 +57,6 @@ import {
   addSystemMessage,
   summarizeInline,
   updateThreadAgentLink,
-  parseSort,
   parseFlash,
   isAjax,
   parseActionMeta,
@@ -95,119 +92,19 @@ const DEFAULT_NEW_CONVERSATION_TITLE = 'New conversation';
 // Read — list + thread views
 // ════════════════════════════════════════════════════════════════
 
-/**
- * Assemble everything the inbox list needs from the request's filter/sort
- * query params: the filtered rows, per-row preview payloads, tag list,
- * terminal count, and autonomy mode. Shared by `GET /inbox` (full page) and
- * `GET /inbox/rows` (the live-refresh / load-more fragment) so the two can
- * never drift on how they read filters or build previews.
- */
-function buildInboxListView(ctx: ReturnType<typeof getContext>, req: Request) {
-  const q = typeof req.query.q === 'string' ? req.query.q : '';
-  const starred = req.query.starred === '1' || req.query.starred === 'true';
-  const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
-  const source = typeof req.query.source === 'string' ? req.query.source : '';
-  const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : '';
-  const offsetRaw = Number(req.query.offset);
-  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
-  // Archive view: ?status=dismissed or ?status=resolved. Anything else
-  // falls through to the active inbox (the store's default filter).
-  const statusQ = typeof req.query.status === 'string' ? req.query.status : '';
-  const archiveView: 'dismissed' | 'resolved' | undefined =
-    statusQ === 'dismissed' ? 'dismissed' : statusQ === 'resolved' ? 'resolved' : undefined;
-  const { sort, dir } = parseSort(req);
-  // Coerce the dashboard's InboxSortKey union to the store's sort vocabulary.
-  // `source` is now a real store sort (C3); anything else the store doesn't
-  // know falls back to its default (priority semantics).
-  const STORE_SORT_KEYS: ReadonlySet<string> = new Set(['priority', 'status', 'age', 'title', 'agent', 'source']);
-  const storeSort = STORE_SORT_KEYS.has(sort) ? (sort as 'priority' | 'status' | 'age' | 'title' | 'agent' | 'source') : 'priority';
-  // Only accept a source value the store recognizes, else ignore the filter.
-  const sourceFilter = (INBOX_SOURCES as readonly string[]).includes(source) ? (source as (typeof INBOX_SOURCES)[number]) : undefined;
-  const PAGE_SIZE = 200;
-  const page = ctx.inboxStore ? ctx.inboxStore.listPage({
-    q: q || undefined,
-    starred: starred || undefined,
-    tag: tag || undefined,
-    source: sourceFilter,
-    agentId: agentId || undefined,
-    status: archiveView,
-    sort: storeSort,
-    dir,
-    limit: PAGE_SIZE,
-    offset,
-  }) : { rows: [], hasMore: false };
-  const rows = page.rows;
-  const allTags = ctx.inboxStore ? ctx.inboxStore.listAllTags() : [];
-  const allAgents = ctx.inboxStore ? ctx.inboxStore.listAllAgentIds() : [];
-  // Compute per-row preview payloads in a single pass. Each call to
-  // listResponses is a single SQLite roundtrip; for the default
-  // page-size (≤200 rows) the cost is negligible. If pagination
-  // grows the row count materially, fold this into a bulk store
-  // helper that joins inbox_responses once.
-  const previewPayloads = new Map<string, import('../views/inbox-list.js').InboxRowPreviewPayload>();
-  if (ctx.inboxStore && rows.length > 0) {
-    for (const r of rows) previewPayloads.set(r.id, buildRowPreview(ctx.inboxStore, r.id));
-  }
-  // terminalCount drives the "Inbox cleared" empty-state + the "View
-  // N dismissed / resolved" archive-footer link. Only computed for
-  // the active view — the archive view has its own header.
-  let terminalCount = 0;
-  if (!archiveView && ctx.inboxStore) {
-    try {
-      const dismissed = ctx.inboxStore.list({ status: 'dismissed' });
-      const resolved = ctx.inboxStore.list({ status: 'resolved' });
-      terminalCount = dismissed.length + resolved.length;
-    } catch { /* swallow — empty count is harmless */ }
-  }
-  let autonomyMode;
-  try { autonomyMode = ctx.inboxStore?.getAutonomyMode(); } catch { /* default in view */ }
-  return {
-    rows, sort, dir,
-    filter: { q, starred, tag, source: sourceFilter ?? '', agentId },
-    allTags, allAgents, terminalCount, archiveView, previewPayloads, autonomyMode,
-    hasMore: page.hasMore,
-    // The offset a subsequent "load more" starts at: everything loaded so far.
-    loadedCount: offset + rows.length,
-  };
+/** Home's inbox canvas: list + thread side by side (views/inbox-page.ts). Also served at `/`. */
+export function sendInboxPage(req: Request, res: Response, threadId?: string): void {
+  const ctx = getContext(req.app.locals);
+  let autonomyMode: AutonomyMode = 'full';
+  try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
+  const agentCount = ctx.agentStore.listAgents().length;
+  const availableDashboards = agentCount === 0 && ctx.dashboardsStore
+    ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
+    : [];
+  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards }));
 }
 
-inboxRouter.get('/inbox', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const view = buildInboxListView(ctx, req);
-  res.type('html').send(renderInboxList({ ...view, flash: parseFlash(req) }));
-});
-
-/**
- * Server-rendered rows fragment. Powers C1's live list refresh (the SSE
- * `inbox:changed` wake signal → refetch this with the current filters →
- * swap `.inbox-main`) and, later, C3's "load more" pagination (`offset>0`
- * → append bare rows). Honors the same filter/sort query params as
- * `GET /inbox`. Registered before `/inbox/:id` so the literal `rows`
- * segment can't be captured as an `:id`.
- */
-inboxRouter.get('/inbox/rows', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const view = buildInboxListView(ctx, req);
-  // offset>0 asks for the append-only window of bare rows (C3 pagination);
-  // absent/0 returns the whole `.inbox-main` inner block for a live swap.
-  const offset = Number(req.query.offset);
-  const mode: 'full' | 'rows' = Number.isFinite(offset) && offset > 0 ? 'rows' : 'full';
-  // The load-more client reads this to decide whether to keep the button.
-  res.setHeader('X-Inbox-Has-More', view.hasMore ? '1' : '0');
-  res.type('html').send(renderInboxRowsFragment({ ...view, mode }));
-});
-
-/**
- * Home inbox lead-in strips (C2), as a fragment the Home page live-refreshes
- * on an `inbox:changed` event — the "needs you" strip + the auto-resolved
- * "loop ticker". Same queries the `GET /` handler seeds the page with, so a
- * live swap matches a fresh page load. Registered before `/inbox/:id`.
- */
-inboxRouter.get('/inbox/home-strips', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const feed = buildHomeFeedData(ctx, Date.now());
-  res.type('html').send(render(renderHomeInboxFeed(feed)));
-});
+inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
 
 inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -227,25 +124,8 @@ inboxRouter.get('/inbox/:id', (req: Request, res: Response) => {
     }));
     return;
   }
-  const responses = ctx.inboxStore.listResponses(id);
-  const triagePending = isTriagePending(ctx, message, responses);
-  const currentTargetYaml = exportTargetAgentYaml(ctx, message.agentId);
-  const inlineActionWidgets = buildInlineActionWidgets(ctx, message.id, responses);
-  const runBehaviors = buildRunBehaviors(ctx, responses);
-  res.type('html').send(renderInboxDetail({
-    message,
-    responses,
-    question: questionForMessage(ctx, message),
-    flash: parseFlash(req),
-    triagePending,
-    currentTargetYaml,
-    inlineActionWidgets,
-    runBehaviors,
-    threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
-    forkableAgents: listForkableAgents(ctx),
-    pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
-    agentTrust: buildAgentTrustMap(ctx, responses),
-  }));
+  // The inbox canvas with this thread open beside the list.
+  sendInboxPage(req, res, message.id);
 });
 
 /**

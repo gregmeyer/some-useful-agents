@@ -1,30 +1,25 @@
 /**
- * Inbox modal — fluid in-page detail view with Slack-style live thread.
+ * The inbox's thread view (views/inbox-modal.ts), on every page.
+ *
+ * Where it shows (panelMode): beside a page as the conversation panel
+ * ('docked' | 'wide' | 'min', follows you between pages), or on Home
+ * ('page': moved into [data-inbox-split], list and thread side by side).
  *
  * Wires:
- *   - row click → fetch /inbox/:id/fragment → reveal modal
- *   - Reply / Dismiss / Ask-triage forms inside the modal → fetch POST
- *   - after every mutation: re-fetch the fragment so the DOM matches state
- *   - while [data-triage-pending="1"] OR within 30s of a user reply,
- *     poll the fragment every 1.5s so the agent's reply appears without
- *     user action
- *   - track conversation entries by data-msg-id; new ones get a
- *     `.inbox-msg--new` class so the CSS animation plays exactly once
- *   - auto-scroll the conversation to the bottom when new content lands
- *
- * Dismiss closes the modal and removes the row from the list locally so
- * the queue shrinks immediately (no full /inbox reload).
+ *   - the inbox list (GET /panel/home, /panel/list): tabs, search, Show more,
+ *     live refresh on inbox:changed; a row opens its thread
+ *   - the thread: fetch /inbox/:id/fragment; Reply / Dismiss / Ask-triage
+ *     forms post by fetch, then re-fetch the fragment so the DOM matches state
+ *   - live updates on the thread's channel (chat socket, else SSE), with a
+ *     fragment poll while sua is replying
+ *   - new entries (by data-msg-id) get `.inbox-msg--new` once; auto-scroll
+ *     only when you're already near the bottom
  */
-
 export const INBOX_MODAL_JS = `
 (function () {
   var modal = document.getElementById('inbox-modal');
-  var pageDetail = document.querySelector('[data-inbox-page-detail]');
-  var content = modal
-    ? document.getElementById('inbox-modal-content')
-    : pageDetail;
+  var content = modal && document.getElementById('inbox-modal-content');
   if (!content) return;
-  var isPageDetail = !modal && !!pageDetail;
 
   // Per-open state.
   var currentId = null;
@@ -36,9 +31,6 @@ export const INBOX_MODAL_JS = `
   // server hasn't yet attached a triageRunId to the message — the
   // dag-executor + run-store insertion is racy with our 200ms wait.
   var keepPollingUntil = 0;
-  // Preserve the inbox list URL we opened from so closing the modal
-  // returns to that exact filter/search view instead of a bare /inbox.
-  var modalBaseHref = '';
 
   // SSE state. eventSource carries the active connection; sseAliveAt
   // records the last event (or open) timestamp so the watchdog can
@@ -58,7 +50,12 @@ export const INBOX_MODAL_JS = `
   // sessionStorage). null = the centered modal; otherwise 'docked', 'wide'
   // or 'min' (hidden behind the pill, still live).
   var PANEL_KEY = 'sua-panel';
+  // null = closed; 'docked' | 'wide' | 'min' beside a page; 'page' = /inbox,
+  // where the same thing fills the page with the list and the thread side by side.
   var panelMode = null;
+  // The inbox list lives in its own column next to the thread (#inbox-modal-list).
+  var listHost = document.getElementById('inbox-modal-list') || content;
+  var pageHost = document.querySelector('[data-inbox-split]');
   var panelWantsFocus = false;
   var pill = document.querySelector('[data-panel-restore]');
   function loadPanel() {
@@ -68,6 +65,7 @@ export const INBOX_MODAL_JS = `
   var listState = { tab: '', q: '' };
   (function () { var s = loadPanel(); if (s && s.list) { listState.tab = s.list.tab || ''; listState.q = s.list.q || ''; } })();
   function savePanel(id, mode) {
+    if (mode === 'page' || panelMode === 'page') return; // /inbox isn't carried to other pages
     try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed', list: listState })); } catch (_) {}
   }
   function listQuery(extra) {
@@ -80,8 +78,8 @@ export const INBOX_MODAL_JS = `
   }
   var listPaged = false;
   function refreshPanelList() {
-    var host = content.querySelector('[data-panel-list]');
-    if (!host || currentId) return;
+    var host = listHost.querySelector('[data-panel-list]');
+    if (!host || (currentId && panelMode !== 'page')) return;
     fetch('/panel/list' + listQuery(), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) {
         if (!r.ok) throw new Error('panel list ' + r.status);
@@ -90,10 +88,11 @@ export const INBOX_MODAL_JS = `
         return r.text();
       })
       .then(function (markup) {
-        var now = content.querySelector('[data-panel-list]');
-        if (!now || currentId) return;
+        var now = listHost.querySelector('[data-panel-list]');
+        if (!now || (currentId && panelMode !== 'page')) return;
         now.innerHTML = markup;
         listPaged = false;
+        markSelected();
         savePanel(null, panelMode);
       })
       .catch(function () { /* keep what's shown */ });
@@ -107,7 +106,7 @@ export const INBOX_MODAL_JS = `
         return r.text().then(function (markup) { return { markup: markup, more: more }; });
       })
       .then(function (out) {
-        var rows = content.querySelector('[data-panel-rows]');
+        var rows = listHost.querySelector('[data-panel-rows]');
         if (!rows) return;
         var added = (rows.querySelectorAll('[data-panel-thread-id]').length);
         rows.insertAdjacentHTML('beforeend', out.markup);
@@ -117,6 +116,14 @@ export const INBOX_MODAL_JS = `
         else btn.remove();
       })
       .catch(function () { btn.disabled = false; });
+  }
+  /** On /inbox, the open thread's row is marked in the list. */
+  function markSelected() {
+    var rows = listHost.querySelectorAll('[data-panel-thread-id]');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-panel-thread-id') === currentId) rows[i].setAttribute('aria-current', 'true');
+      else rows[i].removeAttribute('aria-current');
+    }
   }
   function applyPanel() {
     if (!modal) return;
@@ -189,30 +196,17 @@ export const INBOX_MODAL_JS = `
     }, 260);
   }
 
-  /** The centered thread view → the panel, same thread, no reload. */
-  function dockCurrent() {
-    if (!modal || !currentId || panelMode) return;
-    document.body.style.overflow = '';
-    // Leave the /inbox/:id URL the centered view pushed.
-    if (window.history && window.history.state && window.history.state.inboxModalId === currentId) {
-      try { window.history.replaceState(null, '', modalBaseHref || '/inbox'); } catch (_) {}
-    }
-    setPanelMode('docked');
-  }
-
   function open() {
     if (!modal) return;
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; modal.classList.remove('is-closing'); }
     modal.hidden = false;
     modal.classList.add('is-open');
-    if (panelMode) { applyPanel(); return; }
-    document.body.style.overflow = 'hidden';
+    applyPanel();
   }
   function teardownModal() {
     if (!modal) return;
     modal.hidden = true;
     modal.classList.remove('is-open');
-    document.body.style.overflow = '';
     currentId = null;
     seenMsgIds = Object.create(null);
     keepPollingUntil = 0;
@@ -223,6 +217,7 @@ export const INBOX_MODAL_JS = `
   function close(opts) {
     if (!modal) return;
     opts = opts || {};
+    if (panelMode === 'page') { deselectPage(); return; }
     if (panelMode) {
       // The panel remembers its thread so Cmd-K brings it back.
       var keep = currentId;
@@ -238,43 +233,26 @@ export const INBOX_MODAL_JS = `
       }, 150);
       return;
     }
-    var fromHistory = !!opts.fromHistory;
-    if (!fromHistory && currentId && window.history && window.history.state
-      && window.history.state.inboxModalId === currentId) {
-      window.history.back();
-      return;
-    }
     teardownModal();
-    if (fromHistory && !isInboxThreadPath(window.location.pathname)) {
-      modalBaseHref = '';
-    }
   }
 
-  function currentLocationHref() {
-    return window.location.pathname + window.location.search + window.location.hash;
+  /** /inbox: put the thread away and show the list on its own. */
+  function deselectPage() {
+    stopPoll();
+    closeEventSource();
+    currentId = null;
+    seenMsgIds = Object.create(null);
+    content.innerHTML = pageEmpty();
+    markSelected();
+    applyPanel();
+    try { window.history.replaceState(null, '', '/inbox'); } catch (_) {}
+  }
+  function pageEmpty() {
+    return '<p class="inbox-split__empty">Pick a thread to read it here, or ask sua something.</p>';
   }
 
   function inboxThreadHref(id) {
     return '/inbox/' + encodeURIComponent(id);
-  }
-
-  function isInboxThreadPath(pathname) {
-    return /^\\/inbox\\/[^/]+$/.test(pathname || '');
-  }
-
-  function syncModalHistory(id, mode) {
-    if (!window.history || typeof window.history.pushState !== 'function') return;
-    var state = {
-      inboxModalId: id,
-      inboxModalBaseHref: modalBaseHref || '/inbox',
-    };
-    try {
-      if (mode === 'replace' && typeof window.history.replaceState === 'function') {
-        window.history.replaceState(state, '', inboxThreadHref(id));
-      } else {
-        window.history.pushState(state, '', inboxThreadHref(id));
-      }
-    } catch (_) { /* noop */ }
   }
 
   function closeEventSource() {
@@ -754,30 +732,18 @@ export const INBOX_MODAL_JS = `
   function openFor(id, opts) {
     if (!modal) return;
     opts = opts || {};
-    var fromHistory = !!opts.fromHistory;
     // Where it shows: an explicit panel mode, else wherever the thread
     // view already is (a thread opened from the panel stays in the panel;
     // from the minimized panel, it comes back docked).
     var panelWasShowing = !modal.hidden && (panelMode === 'docked' || panelMode === 'wide') && !closeTimer;
     if (opts.panel) panelMode = opts.panel;
-    else if (panelMode === 'min') panelMode = 'docked';
+    else if (!panelMode || panelMode === 'min') panelMode = 'docked';
     if ((panelMode === 'docked' || panelMode === 'wide') && !panelWasShowing && !opts.restore) easePanel(true);
-    var wasOpen = !modal.hidden;
-    if (!panelMode) {
-      if (!wasOpen) {
-        modalBaseHref = currentLocationHref();
-      } else if (!modalBaseHref) {
-        modalBaseHref = currentLocationHref();
-      }
-      if (!fromHistory) {
-        syncModalHistory(id, wasOpen ? 'replace' : 'push');
-      } else if (window.history && window.history.state
-        && typeof window.history.state.inboxModalBaseHref === 'string'
-        && window.history.state.inboxModalBaseHref) {
-        modalBaseHref = window.history.state.inboxModalBaseHref;
-      }
-    }
     currentId = id;
+    if (panelMode === 'page') {
+      markSelected();
+      try { window.history.replaceState(null, '', inboxThreadHref(id)); } catch (_) {}
+    }
     if (panelMode) savePanel(id, panelMode);
     panelWantsFocus = !opts.restore;
     seenMsgIds = Object.create(null);
@@ -848,103 +814,8 @@ export const INBOX_MODAL_JS = `
       return;
     }
 
-    // Row preview toggle (chevron on the gridded row).
-    var chev = e.target.closest && e.target.closest('[data-inbox-row-chevron]');
-    if (chev) {
-      e.preventDefault();
-      e.stopPropagation();
-      var rowEl = chev.closest('[data-inbox-row-id]');
-      if (rowEl) {
-        var expanded = rowEl.classList.toggle('inbox-row2--expanded');
-        chev.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      }
-      return;
-    }
-
-    // Rail entry → open the modal for that thread.
-    var railItem = e.target.closest && e.target.closest('[data-inbox-rail-id]');
-    if (railItem) {
-      e.preventDefault();
-      openFor(railItem.getAttribute('data-inbox-rail-id'));
-      return;
-    }
-
-    // Rail collapse / expand toggle.
-    var railToggle = e.target.closest && e.target.closest('[data-inbox-rail-toggle]');
-    if (railToggle) {
-      e.preventDefault();
-      var shell = document.getElementById('inbox-shell');
-      if (shell) {
-        var collapsed = shell.classList.toggle('inbox-shell--rail-collapsed');
-        try { localStorage.setItem('sua-inbox-rail', collapsed ? 'collapsed' : 'open'); } catch (_) {}
-        railToggle.textContent = collapsed ? '›' : '‹';
-      }
-      return;
-    }
-
-    // Suggested-actions banner collapse toggle.
-    var suggToggle = e.target.closest && e.target.closest('[data-inbox-suggest-toggle]');
-    if (suggToggle) {
-      e.preventDefault();
-      var suggest = document.getElementById('inbox-suggest');
-      if (suggest) {
-        var hidden = suggest.classList.toggle('inbox-suggest--collapsed');
-        try { localStorage.setItem('sua-inbox-suggest', hidden ? 'collapsed' : 'open'); } catch (_) {}
-        suggToggle.textContent = hidden ? 'Show' : 'Hide';
-        suggToggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
-      }
-      return;
-    }
-
-    // + New conversation: POST /inbox/new, open the returned id in-modal.
-    var newBtn = e.target.closest && e.target.closest('#inbox-new-conversation');
-    if (newBtn) {
-      e.preventDefault();
-      newBtn.disabled = true;
-      fetch('/inbox/new', {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: new URLSearchParams({ title: '' }).toString(),
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Requested-With': 'fetch',
-        },
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error('create failed: ' + r.status);
-          var newId = r.headers.get('X-Inbox-Id');
-          if (newId) openFor(newId);
-        })
-        .catch(function (err) {
-          // Surface failure inline; fall back to nothing.
-          console.error('inbox /new failed', err);
-        })
-        .then(function () { newBtn.disabled = false; });
-      return;
-    }
-
-    var stop = e.target.closest && e.target.closest('[data-inbox-row-stop]');
-    if (stop) return;
-
-    var titleLink = e.target.closest && e.target.closest('[data-inbox-row-link]');
-    if (titleLink) {
-      e.preventDefault();
-      var row1 = titleLink.closest('[data-inbox-row-id]');
-      if (row1) openFor(row1.getAttribute('data-inbox-row-id'));
-      return;
-    }
-
-    var row = e.target.closest && e.target.closest('[data-inbox-row-id]');
-    if (row) {
-      e.preventDefault();
-      openFor(row.getAttribute('data-inbox-row-id'));
-      return;
-    }
-
     var panelToggle = e.target.closest && e.target.closest('[data-panel-toggle]');
     if (panelToggle) { e.preventDefault(); togglePanel(); return; }
-    var panelDock = e.target.closest && e.target.closest('[data-panel-dock]');
-    if (panelDock) { e.preventDefault(); dockCurrent(); return; }
 
     var panelCtl = e.target.closest && e.target.closest('[data-panel-wide], [data-panel-min], [data-panel-restore], [data-panel-new], [data-panel-back], [data-panel-tab], [data-panel-more], [data-panel-thread-id], [data-panel-ask], [data-panel-inbox]');
     if (panelCtl) {
@@ -960,17 +831,18 @@ export const INBOX_MODAL_JS = `
       else if (panelCtl.hasAttribute('data-panel-restore')) {
         if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
       }
+      else if (panelCtl.hasAttribute('data-panel-back') && panelMode === 'page') deselectPage();
       else if (panelCtl.hasAttribute('data-panel-new') || panelCtl.hasAttribute('data-panel-back')) openPanelHome();
       else if (panelCtl.hasAttribute('data-panel-tab')) {
         listState.tab = panelCtl.getAttribute('data-panel-tab') || '';
-        var tabs = content.querySelectorAll('[data-panel-tab]');
+        var tabs = listHost.querySelectorAll('[data-panel-tab]');
         for (var ti2 = 0; ti2 < tabs.length; ti2++) tabs[ti2].setAttribute('aria-selected', tabs[ti2] === panelCtl ? 'true' : 'false');
         refreshPanelList();
       }
       else if (panelCtl.hasAttribute('data-panel-more')) morePanelRows(panelCtl);
       else if (panelCtl.hasAttribute('data-panel-thread-id')) openFor(panelCtl.getAttribute('data-panel-thread-id'));
       else if (panelCtl.hasAttribute('data-panel-ask')) {
-        var ta = content.querySelector('[data-panel-composer]');
+        var ta = listHost.querySelector('[data-panel-composer]');
         if (ta) {
           ta.value = panelCtl.getAttribute('data-panel-ask') || '';
           ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -980,46 +852,17 @@ export const INBOX_MODAL_JS = `
       return;
     }
 
-    if ((e.target === modal && !panelMode) || (e.target.closest && e.target.closest('[data-inbox-modal-close]'))) {
+    if (e.target.closest && e.target.closest('[data-inbox-modal-close]')) {
       close();
     }
   });
 
-  // Restore drawer + banner state on load.
-  (function restoreShellState() {
-    try {
-      var railState = localStorage.getItem('sua-inbox-rail');
-      var shell = document.getElementById('inbox-shell');
-      if (shell && railState === 'collapsed') {
-        shell.classList.add('inbox-shell--rail-collapsed');
-        var toggle = shell.querySelector('[data-inbox-rail-toggle]');
-        if (toggle) toggle.textContent = '›';
-      }
-      var suggState = localStorage.getItem('sua-inbox-suggest');
-      var suggest = document.getElementById('inbox-suggest');
-      if (suggest && suggState === 'collapsed') {
-        suggest.classList.add('inbox-suggest--collapsed');
-        var sToggle = suggest.querySelector('[data-inbox-suggest-toggle]');
-        if (sToggle) { sToggle.textContent = 'Show'; sToggle.setAttribute('aria-expanded', 'false'); }
-      }
-    } catch (_) {}
-  })();
 
   document.addEventListener('keydown', function (e) {
     if (!modal || e.key !== 'Escape' || modal.hidden) return;
     // The panel isn't modal: Esc closes it only from inside it.
-    if (panelMode && (panelMode === 'min' || !modal.contains(document.activeElement))) return;
+    if (panelMode === 'page' || panelMode === 'min' || !modal.contains(document.activeElement)) return;
     close();
-  });
-
-  window.addEventListener('popstate', function () {
-    if (!modal || panelMode) return;
-    var match = window.location.pathname.match(/^\\/inbox\\/([^/]+)$/);
-    if (match) {
-      openFor(decodeURIComponent(match[1]), { fromHistory: true });
-      return;
-    }
-    if (!modal.hidden) close({ fromHistory: true });
   });
 
   // Intercept Reply / Dismiss / Triage form submits inside the modal.
@@ -1096,12 +939,9 @@ export const INBOX_MODAL_JS = `
         // real persisted entry, so no manual cleanup needed.
         form.removeAttribute('data-inflight');
         if (dismissAfter) {
-          // Hard reload so the suggestion banner counts, priority
-          // group headers, AND favorited rail all stay in sync with
-          // the now-terminal row. The prior approach (remove row +
-          // close modal) left those counts stale until the operator
-          // manually refreshed.
-          window.location.assign(isPageDetail ? '/inbox' : (modalBaseHref || '/inbox'));
+          // The thread is finished: back to the list (it drops out of Open).
+          if (panelMode === 'page') { deselectPage(); refreshPanelList(); }
+          else openPanelHome();
         } else {
           refresh();
         }
@@ -1216,114 +1056,6 @@ export const INBOX_MODAL_JS = `
     });
   }
 
-  // ── Inbox list toolbar: autosubmit + search debounce + chip clear ──
-  (function setupInboxToolbar() {
-    var form = document.querySelector('[data-inbox-toolbar]');
-    if (!form) return;
-    var q = form.querySelector('[data-inbox-toolbar-q]');
-    var qTimer = null;
-    if (q) {
-      q.addEventListener('input', function () {
-        if (qTimer) clearTimeout(qTimer);
-        qTimer = setTimeout(function () { form.submit(); }, 350);
-      });
-      q.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (qTimer) clearTimeout(qTimer);
-          form.submit();
-        }
-      });
-    }
-    var clear = form.querySelector('[data-inbox-toolbar-clear]');
-    if (clear) {
-      clear.addEventListener('click', function () {
-        if (q) { q.value = ''; q.focus(); }
-        form.submit();
-      });
-    }
-    var autoEls = form.querySelectorAll('[data-inbox-toolbar-submit]');
-    for (var ai = 0; ai < autoEls.length; ai++) {
-      autoEls[ai].addEventListener('change', function () { form.submit(); });
-    }
-  })();
-
-  (function setupInboxBulkActions() {
-    // All state is queried fresh on each use and every control is delegated
-    // on document, so a live list refresh (C1) that swaps .inbox-main
-    // innerHTML never strands a cached element reference. The earlier version
-    // cached bar/idsInput/master + bound handlers directly to the buttons,
-    // which silently broke bulk selection after any live swap.
-    function getBar() { return document.querySelector('[data-inbox-bulkbar]'); }
-    function getBoxes() {
-      return Array.prototype.slice.call(document.querySelectorAll('[data-inbox-bulk-checkbox]'));
-    }
-
-    function sync() {
-      var bar = getBar();
-      if (!bar) return;
-      var idsInput = bar.querySelector('[data-inbox-bulk-ids]');
-      var countEl = bar.querySelector('[data-inbox-bulk-count]');
-      var master = document.querySelector('[data-inbox-bulk-toggle-all]');
-      var boxes = getBoxes();
-      var selected = [];
-      for (var i = 0; i < boxes.length; i++) {
-        var box = boxes[i];
-        var row = box.closest && box.closest('[data-inbox-row-id]');
-        if (row) row.classList.toggle('inbox-row2--selected', !!box.checked);
-        if (box.checked) selected.push(box.value);
-      }
-      if (idsInput) idsInput.value = selected.join(',');
-      if (countEl) countEl.textContent = selected.length === 1 ? '1 selected' : String(selected.length) + ' selected';
-      bar.hidden = selected.length === 0;
-      if (master) {
-        master.checked = boxes.length > 0 && selected.length === boxes.length;
-        master.indeterminate = selected.length > 0 && selected.length < boxes.length;
-      }
-    }
-
-    document.addEventListener('change', function (e) {
-      if (e.target.closest && e.target.closest('[data-inbox-bulk-checkbox]')) { sync(); return; }
-      var master = e.target.closest && e.target.closest('[data-inbox-bulk-toggle-all]');
-      if (master) {
-        var boxes = getBoxes();
-        for (var i = 0; i < boxes.length; i++) boxes[i].checked = !!master.checked;
-        sync();
-      }
-    });
-
-    document.addEventListener('click', function (e) {
-      if (e.target.closest && e.target.closest('[data-inbox-bulk-select-all]')) {
-        var boxes = getBoxes();
-        for (var i = 0; i < boxes.length; i++) boxes[i].checked = true;
-        sync();
-        return;
-      }
-      if (e.target.closest && e.target.closest('[data-inbox-bulk-clear]')) {
-        var boxes2 = getBoxes();
-        for (var j = 0; j < boxes2.length; j++) boxes2[j].checked = false;
-        sync();
-      }
-    });
-
-    // Any active selection? The live-refresh module checks this to avoid
-    // yanking the list out from under an in-progress bulk selection.
-    window.__inboxHasBulkSelection = function () {
-      var boxes = getBoxes();
-      for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) return true; }
-      return false;
-    };
-    sync();
-  })();
-  if (isPageDetail) {
-    currentId = pageDetail.getAttribute('data-inbox-message-id');
-    applyAnimations();
-    if (currentId) {
-      openEventSource(currentId);
-      maybeSchedulePoll();
-    }
-  }
-
   // ── Tag pills inside the modal (add / remove with quiet submit) ──
   // The remove buttons + the Add-tag input live in the rendered
   // fragment; we delegate on the modal element since the fragment
@@ -1401,33 +1133,39 @@ export const INBOX_MODAL_JS = `
     closeEventSource();
     currentId = null;
     seenMsgIds = Object.create(null);
-    content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
+    listHost.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
+    if (panelMode === 'page') content.innerHTML = pageEmpty();
     open();
     savePanel(null, panelMode);
     fetch('/panel/home' + listQuery(), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { if (!r.ok) throw new Error('panel home ' + r.status); return r.text(); })
       .then(function (markup) {
-        if (currentId !== null || !panelMode) return;
-        content.innerHTML = markup;
+        if (!panelMode || (currentId !== null && panelMode !== 'page')) return;
+        listHost.innerHTML = markup;
         listPaged = false;
+        markSelected();
         applyPanel();
-        var ta = content.querySelector('[data-panel-composer]');
+        var ta = listHost.querySelector('[data-panel-composer]');
         if (ta && panelMode !== 'min' && !restoring) ta.focus();
       })
       .catch(function () {
-        content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Couldn’t load. Close the panel and try again.</p>';
+        listHost.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Couldn’t load. Close the panel and try again.</p>';
       });
   }
 
   /** Cmd-K: open the panel (its last thread, or a new one), or close it. */
   function togglePanel() {
     if (!modal) return;
+    if (panelMode === 'page') {
+      var box = listHost.querySelector('[data-panel-composer]');
+      if (box) box.focus();
+      return;
+    }
     if ((panelMode === 'docked' || panelMode === 'wide') && !closeTimer) { close(); return; }
     if (panelMode === 'min') {
       if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
       return;
     }
-    if (!modal.hidden && !panelMode) { dockCurrent(); return; } // the centered thread view moves beside the page
     var saved = loadPanel();
     if (saved && saved.id) openFor(saved.id, { panel: 'docked' });
     else openPanelHome();
@@ -1445,7 +1183,7 @@ export const INBOX_MODAL_JS = `
   // inbox's change events). Not after "Show more", which would lose your place.
   var liveTimer = null;
   window.addEventListener('inbox:changed', function () {
-    if (!panelMode || panelMode === 'min' || currentId || listPaged) return;
+    if (!panelMode || panelMode === 'min' || (currentId && panelMode !== 'page') || listPaged) return;
     if (liveTimer) clearTimeout(liveTimer);
     liveTimer = setTimeout(refreshPanelList, 500);
   });
@@ -1463,9 +1201,19 @@ export const INBOX_MODAL_JS = `
     for (var ki = 0; ki < keys.length; ki++) keys[ki].textContent = 'Ctrl K';
   }
 
+  // /inbox: the inbox fills the page, list and thread side by side.
+  if (modal && pageHost) {
+    pageHost.appendChild(modal);
+    panelMode = 'page';
+    if (pill) pill.hidden = true;
+    var first = pageHost.getAttribute('data-initial-thread');
+    openPanelHome({ restore: true });
+    if (first) openFor(first, { panel: 'page', restore: true });
+  }
+
   // Bring the panel back as it was on the last page.
   (function restorePanel() {
-    if (!modal) return;
+    if (!modal || pageHost) return;
     var saved = loadPanel();
     if (!saved || !saved.mode || saved.mode === 'closed') return;
     if (saved.mode !== 'docked' && saved.mode !== 'wide' && saved.mode !== 'min') return;

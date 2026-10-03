@@ -99,105 +99,32 @@ afterEach(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('GET /inbox', () => {
-  it('renders empty state when no messages exist', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    // Redesigned inbox shows the "All clear" suggested-actions banner
-    // when the inbox is empty.
-    expect(res.text).toContain('All clear');
-    expect(res.text).toMatch(/<a href="\/inbox"[^>]*class="is-active"/);
-  });
-
-  it('renders gridded rows grouped by priority; rows carry data-inbox-row-id; modal shell is present + hidden', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'low', source: 'cadence', title: 'low-pri', body: 'x' });
-    const high = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'foo', title: 'high-pri', body: 'y' });
-    inboxStore.add({ priority: 'medium', source: 'permission-request', title: 'med-pri', body: 'z' });
-
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('class="inbox-list"');
-    expect(res.text).toContain(`data-inbox-row-id="${high.id}"`);
-    // High-priority group renders above low-priority group.
-    expect(res.text.indexOf('high-pri')).toBeLessThan(res.text.indexOf('low-pri'));
-    expect(res.text).toContain('id="inbox-modal"');
-    expect(res.text).toMatch(/id="inbox-modal"[^>]*hidden/);
-    // New header chrome.
-    expect(res.text).toContain('id="inbox-new-conversation"');
-    expect(res.text).toContain('id="inbox-shell"');
-  });
-
-  it('groups rows by priority and lists high → medium → low', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'high', source: 'run-failure', title: 'H', body: 'x' });
-    inboxStore.add({ priority: 'low', source: 'cadence', title: 'L', body: 'y' });
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text.indexOf('>H<')).toBeLessThan(res.text.indexOf('>L<'));
-  });
-
-  it('renders the favorited rail with starred messages', async () => {
-    const app = await makeApp();
-    const starred = inboxStore.add({ priority: 'medium', source: 'manual', title: 'pinned', body: 'b' });
-    inboxStore.setStarred(starred.id, true);
-    inboxStore.add({ priority: 'low', source: 'cadence', title: 'unpinned', body: 'b' });
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('class="inbox-rail"');
-    expect(res.text).toContain(`data-inbox-rail-id="${starred.id}"`);
-  });
-
-  it('shows an always-visible one-line preview with de-markdowned latest activity', async () => {
-    const app = await makeApp();
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'has reply', body: '(empty)' });
-    inboxStore.addResponse(m.id, 'triage', 'The newest agent is **Apple FM** — open [it](/agents/apple-fm).');
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('inbox-row2__preview-line');
-    // Snippet is plain text: markdown markers stripped, link unwrapped to label.
-    expect(res.text).toContain('The newest agent is Apple FM — open it.');
-    expect(res.text).not.toContain('**Apple FM**');
-    expect(res.text).not.toContain('](/agents/apple-fm)');
-  });
-
-  it('falls back to a muted hint when a thread has no replies', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'low', source: 'manual', title: 'empty thread', body: '(empty)' });
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('No replies yet');
-  });
-
-  it('pins awaiting_user threads in a "Needs you" section above the main list, not duplicated', async () => {
-    const app = await makeApp();
-    const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: 'awaiting-thread', body: 'b' });
-    inboxStore.updateStatus(waiting.id, 'awaiting_user');
-    inboxStore.add({ priority: 'high', source: 'run-failure', title: 'open-thread', body: 'b' });
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    // Section header present, and the awaiting row sits above the main list.
-    expect(res.text).toContain('inbox-needs-you');
-    expect(res.text).toContain('Needs you');
-    expect(res.text.indexOf('inbox-needs-you')).toBeLessThan(res.text.indexOf('inbox-list__header'));
-    // The awaiting row appears exactly once (in the section, not the main list).
-    const occurrences = res.text.split(`data-inbox-row-id="${waiting.id}"`).length - 1;
-    expect(occurrences).toBe(1);
-    // The redundant "Reply to triage" suggestion is gone.
-    expect(res.text).not.toContain('Reply to triage');
-  });
-});
-
 describe('GET /inbox/:id and /:id/fragment', () => {
-  it('full-page render includes badges, body, and the action forms', async () => {
+  it('/inbox/:id opens Home\'s inbox canvas with that thread selected; an unknown id is a 404', async () => {
     const app = await makeApp();
-    const m = inboxStore.add({
-      priority: 'high', source: 'run-failure', agentId: 'astro', runId: 'run-xyz',
-      title: 'Detail title', body: 'Detail body.', contextJson: JSON.stringify({ exit: 1 }),
-    });
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'astro', title: 'Detail title', body: 'Detail body.' });
     const res = await request(app).get(`/inbox/${m.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('Detail title');
-    expect(res.text).toContain(`data-inbox-page-detail data-inbox-message-id="${m.id}"`);
-    expect(res.text).toContain(`action="/inbox/${m.id}/respond"`);
-    expect(res.text).toContain(`action="/inbox/${m.id}/dismiss"`);
-    expect(res.text).toContain(`action="/inbox/${m.id}/triage"`);
+    expect(res.text).toContain(`data-inbox-split data-initial-thread="${m.id}"`);
+    expect(res.text).toContain('id="inbox-modal-list"');
+    const missing = await request(app).get('/inbox/nope').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(missing.status).toBe(404);
+  });
+
+  it('/ and /inbox are the same canvas: list + thread host, autonomy control, a way in for newcomers', async () => {
+    const app = await makeApp();
+    // With no agents yet, Home is onboarding.
+    const empty = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(empty.text).toContain('No agents yet');
+    expect(empty.text).not.toContain('data-inbox-split');
+    agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    for (const path of ['/', '/inbox']) {
+      const res = await request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('data-inbox-split data-initial-thread=""');
+      expect(res.text).toContain('action="/inbox/trust/mode"');
+      expect(res.text).toContain('href="/start"');
+    }
   });
 
   it('fragment is inner HTML only (no <html>, no top-nav)', async () => {
@@ -782,65 +709,6 @@ describe('POST /inbox/:id/triage/cancel — operator Stop halts the refire chain
   });
 });
 
-describe('GET /inbox/rows (live-refresh fragment)', () => {
-  it('returns the rows block without the full page chrome', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'high', source: 'run-failure', title: 'rows-frag-msg', body: 'b' });
-    const res = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('text/html');
-    expect(res.text).toContain('rows-frag-msg');
-    // Fragment only — no <html>/layout chrome, no page header.
-    expect(res.text).not.toContain('<html');
-    expect(res.text).not.toContain('New conversation');
-  });
-
-  it('honors the same filter params as GET /inbox', async () => {
-    const app = await makeApp();
-    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-starred', body: 'x' });
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-plain', body: 'y' });
-    inboxStore.setStarred(a.id, true);
-    const res = await request(app).get('/inbox/rows?starred=1').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('frag-starred');
-    expect(res.text).not.toContain('frag-plain');
-  });
-
-  it('is not shadowed by /inbox/:id (literal "rows" resolves to the fragment)', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    // A /inbox/:id detail page would render the not-found page for id="rows".
-    expect(res.text).not.toContain('No inbox message with id');
-  });
-
-  it('sets X-Inbox-Has-More and paginates via ?offset (append window)', async () => {
-    const app = await makeApp();
-    // 201 active threads → past the 200 page size.
-    for (let i = 0; i < 201; i++) inboxStore.add({ priority: 'medium', source: 'manual', title: `pg-${i}`, body: 'b' });
-    const page1 = await request(app).get('/inbox/rows').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(page1.status).toBe(200);
-    expect(page1.headers['x-inbox-has-more']).toBe('1');
-    const page2 = await request(app).get('/inbox/rows?offset=200').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(page2.status).toBe(200);
-    expect(page2.headers['x-inbox-has-more']).toBe('0');
-    // Bare rows only (no bulk bar / header chrome) in append mode.
-    expect(page2.text).not.toContain('data-inbox-bulkbar');
-  });
-
-  it('filters by ?source and ?agentId', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag-manual', body: 'x' });
-    inboxStore.add({ priority: 'medium', source: 'run-failure', title: 'frag-failure', body: 'y', agentId: 'agent-x' });
-    const bySource = await request(app).get('/inbox/rows?source=run-failure').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(bySource.text).toContain('frag-failure');
-    expect(bySource.text).not.toContain('frag-manual');
-    const byAgent = await request(app).get('/inbox/rows?agentId=agent-x').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(byAgent.text).toContain('frag-failure');
-    expect(byAgent.text).not.toContain('frag-manual');
-  });
-});
-
 describe('POST /inbox/bulk-resolve', () => {
   it('resolves the selected threads and honors returnTo', async () => {
     const app = await makeApp();
@@ -869,71 +737,6 @@ describe('POST /inbox/bulk-resolve', () => {
       .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
       .send({ ids: '' });
     expect(res.status).toBe(400);
-  });
-});
-
-describe('GET /inbox with filters', () => {
-  it('filters by ?starred=1', async () => {
-    const app = await makeApp();
-    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'starred-msg', body: 'x' });
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'plain-msg', body: 'y' });
-    inboxStore.setStarred(a.id, true);
-    const res = await request(app).get('/inbox?starred=1').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('starred-msg');
-    expect(res.text).not.toContain('plain-msg');
-  });
-
-  it('filters by ?tag=auth (exact match, not substring)', async () => {
-    const app = await makeApp();
-    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'auth-msg', body: 'x' });
-    const b = inboxStore.add({ priority: 'medium', source: 'manual', title: 'authentication-msg', body: 'y' });
-    inboxStore.setTags(a.id, ['auth']);
-    inboxStore.setTags(b.id, ['authentication']);
-    const res = await request(app).get('/inbox?tag=auth').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('auth-msg');
-    expect(res.text).not.toContain('authentication-msg');
-  });
-
-  it('filters by ?q across title/body/agent/conversation', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'apple-fruit', body: 'fruit' });
-    const c = inboxStore.add({ priority: 'medium', source: 'manual', title: 'cherry-fruit', body: 'red' });
-    inboxStore.addResponse(c.id, 'triage', 'mentions apple in the thread');
-    const res = await request(app).get('/inbox?q=apple').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('apple-fruit');
-    expect(res.text).toContain('cherry-fruit');
-  });
-
-  it('filters by multi-word ?q across normalized agent names and tags', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'other', body: 'body' });
-    const tagged = inboxStore.add({ priority: 'medium', source: 'manual', title: 'tagged-thread', body: 'body', agentId: 'joke-judge-two' });
-    inboxStore.setTags(tagged.id, ['auth']);
-    const byAgent = await request(app).get('/inbox?q=joke%20judge').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(byAgent.text).toContain('tagged-thread');
-    const byTag = await request(app).get('/inbox?q=auth').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(byTag.text).toContain('tagged-thread');
-  });
-
-  it('renders the toolbar with current search value and a Reset link', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/inbox?q=hello').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('class="inbox-toolbar"');
-    expect(res.text).toContain('value="hello"');
-    expect(res.text).toContain('Search titles, replies, agents, tags…');
-    expect(res.text).toMatch(/href="\/inbox"[^>]*>Reset</);
-    // Apply button replaced by autosubmit.
-    expect(res.text).not.toContain('>Apply<');
-  });
-
-  it('renders bulk dismiss controls on the active inbox', async () => {
-    const app = await makeApp();
-    inboxStore.add({ priority: 'medium', source: 'manual', title: 'row-one', body: 'x' });
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('data-inbox-bulkbar');
-    expect(res.text).toContain('data-inbox-bulk-checkbox');
-    expect(res.text).toContain('Dismiss selected');
   });
 });
 
@@ -984,16 +787,6 @@ describe('POST /inbox/:id/tags', () => {
 });
 
 describe('Row + fragment rendering for star + tags', () => {
-  it('list row renders the star button + tag chips', async () => {
-    const app = await makeApp();
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', agentId: 'foo', title: 't', body: 'b' });
-    inboxStore.setStarred(m.id, true);
-    inboxStore.setTags(m.id, ['auth', 'network']);
-    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.text).toContain('inbox-star inbox-star--on');
-    expect(res.text).toContain('inbox-tag-chip');
-  });
-
   it('modal fragment renders sticky header, star button, and tag editor input', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'frag', body: 'b' });

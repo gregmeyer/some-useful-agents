@@ -116,7 +116,7 @@ describe('drafting the missing agents behind one approval', { timeout: 30_000 },
     const ask = ctx.inboxStore!.list({ source: 'board' }).find((m) => m.title.startsWith('Approve'))!;
     expect(ask.title).toBe('Approve 1 new agent for your board "Morning view"?');
     expect(ask.body).toContain('/agents/calendar-today');
-    const detail = await get(app, `/inbox/${ask.id}`);
+    const detail = await get(app, `/inbox/${ask.id}/fragment`);
     expect(detail.text).toContain(`action="/boards/builds/${build.id}/approve"`);
     expect((await get(app, page)).text).toContain('waiting for your approval');
 

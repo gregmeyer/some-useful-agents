@@ -2,6 +2,7 @@ import { type Request } from 'express';
 import {
   type InboxActionMeta,
   type InboxResponse,
+  type InboxResponseRole,
   type InboxStore,
   type TriageLearning,
   budgetTranscript,
@@ -10,15 +11,14 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
-import {
-  type InboxSortKey,
-  type InboxSortDir,
-  type InboxRowPreviewPayload,
-  INBOX_DEFAULT_SORT,
-} from '../views/inbox-list.js';
 
-export const SORT_KEYS = new Set<InboxSortKey>(['priority', 'source', 'agent', 'title', 'age', 'status']);
-export const SORT_DIRS = new Set<InboxSortDir>(['asc', 'desc']);
+/** A thread's latest reply and proposed actions, for one-line previews. */
+export interface InboxRowPreviewPayload {
+  /** Most recent non-action response, or undefined when none exists. */
+  latestResponse?: { role: InboxResponseRole; body: string; createdAt: number };
+  /** Count + first agent of the thread's proposed action cards. */
+  proposedActions?: { count: number; firstAgentId?: string };
+}
 
 export const PENDING_USER_REPLY_WINDOW_MS = 30_000;
 
@@ -229,14 +229,6 @@ export function updateThreadAgentLink(
     agentId,
     contextJson: JSON.stringify({ ...context, linkedAgentId: agentId, linkedAt: Date.now() }),
   });
-}
-
-export function parseSort(req: Request): { sort: InboxSortKey; dir: InboxSortDir } {
-  const sortRaw = typeof req.query.sort === 'string' ? req.query.sort : '';
-  const dirRaw = typeof req.query.dir === 'string' ? req.query.dir : '';
-  const sort = SORT_KEYS.has(sortRaw as InboxSortKey) ? (sortRaw as InboxSortKey) : INBOX_DEFAULT_SORT.sort;
-  const dir = SORT_DIRS.has(dirRaw as InboxSortDir) ? (dirRaw as InboxSortDir) : INBOX_DEFAULT_SORT.dir;
-  return { sort, dir };
 }
 
 export function parseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
