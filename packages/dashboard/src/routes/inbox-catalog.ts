@@ -100,6 +100,7 @@ export function getSubAgentAllowlist(ctx: ReturnType<typeof getContext>): string
 
   for (const agent of ctx.agentStore.listAgents()) {
     if (!agent.permissions?.inboxRunnable) continue;
+    if (agent.status === 'archived') continue;
     // Trust rings that may be inbox-run: local + community (user-installed) and
     // examples (bundled, first-party). The SYSTEM_AGENT_IDS check below is what
     // keeps the triage scaffolding out — NOT the source, so a legit examples
@@ -126,6 +127,7 @@ export function getRunnableCandidates(ctx: ReturnType<typeof getContext>): strin
   const candidates: string[] = [];
   for (const agent of ctx.agentStore.listAgents()) {
     if (agent.permissions?.inboxRunnable) continue;        // already runnable
+    if (agent.status === 'archived') continue;
     // Same trust rings as the allowlist: local + community + examples. An
     // examples agent that hasn't opted into inboxRunnable is a valid
     // "Enable & run" candidate — triage proposes it, the operator approves.
@@ -154,7 +156,8 @@ export function getRunnableCandidates(ctx: ReturnType<typeof getContext>): strin
 export function buildAgentCatalogJson(ctx: ReturnType<typeof getContext>): string {
   try {
     const catalog = ctx.agentStore.listAgents()
-      .filter((a) => !SYSTEM_AGENT_IDS.has(a.id))
+      // Archived agents aren't offered to sua; restoring one brings it back.
+      .filter((a) => !SYSTEM_AGENT_IDS.has(a.id) && a.status !== 'archived')
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
       .map((a) => ({
         id: a.id,
@@ -297,7 +300,7 @@ export function buildStrongCandidateHint(
   currentRequest = '',
 ): string {
   try {
-    const agents = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id));
+    const agents = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id) && a.status !== 'archived');
     const candidate = strongestReuseCandidate(agents, currentRequest);
     return candidate ? JSON.stringify({ id: candidate.id, name: candidate.name }) : '';
   } catch {
@@ -317,7 +320,7 @@ export function buildTriageCatalogJson(
   currentRequest = '',
 ): string {
   try {
-    const all = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id));
+    const all = ctx.agentStore.listAgents().filter((a) => !SYSTEM_AGENT_IDS.has(a.id) && a.status !== 'archived');
     const lastUsedAt = ctx.runStore.latestRunAtByAgent();
     const selected = selectTriageCatalog(all, lastUsedAt, currentRequest);
     const shown = selected.map((a) => ({

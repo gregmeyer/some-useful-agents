@@ -48,9 +48,14 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
   // Honor dashboardVisible:false at the source so counts stay consistent with
   // what the list actually shows. Hidden agents are still reachable by direct
   // URL, MCP, scheduler, and the runs page.
+  // Archived agents stay out of the default view; "Archived (n)" (or the
+  // status filter) shows them.
   const allAgentsForCounts = ctx.agentStore
     .listAgents(Object.keys(storeFilter).length > 0 ? storeFilter : undefined)
-    .filter((a) => a.dashboardVisible !== false);
+    .filter((a) => a.dashboardVisible !== false)
+    .filter((a) => storeFilter.status !== undefined || a.status !== 'archived');
+  const archivedCount = storeFilter.status !== undefined ? 0
+    : ctx.agentStore.listAgents({ status: 'archived' }).filter((a) => a.dashboardVisible !== false).length;
   // Relevance WIDENS and reorders; it never removes. Everything the old
   // substring match found still matches — the ranker only adds agents whose
   // tags / entryConditions / sampleQuestions hit, which is how
@@ -206,6 +211,7 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     calleeCounts,
     composedCount,
     composedOnly: qComposed,
+    archivedCount,
     // `q` raw so the box echoes what was typed; `sort` raw (possibly
     // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
     // only drives which dropdown option shows as selected.

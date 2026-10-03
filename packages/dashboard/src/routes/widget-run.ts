@@ -23,6 +23,10 @@ widgetRunRouter.post('/agents/:name/widget-run', (req: Request, res: Response) =
     res.status(404).json({ error: `Agent "${name}" not found.` });
     return;
   }
+  if (v2Agent.status === 'archived') {
+    res.status(409).json({ error: 'This agent is archived. Restore it on its page to run it.' });
+    return;
+  }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const inputs: Record<string, string> = {};

@@ -119,6 +119,7 @@ boardsRouter.get('/boards/:id.json', (req: Request, res: Response) => {
 /** Agents that can go on a board (they have a tile), for the editor's Add menu. */
 function placeableAgents(ctx: ReturnType<typeof getContext>): Array<{ id: string; name: string; description: string; size: string }> {
   return ctx.agentStore.listAgents()
+    .filter((a) => a.status !== 'archived')
     .map(withTileSignal)
     .filter((a): a is NonNullable<typeof a> => Boolean(a?.signal))
     .map((a) => ({

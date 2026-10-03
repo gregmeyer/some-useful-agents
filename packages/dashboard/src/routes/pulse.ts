@@ -153,7 +153,8 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
 } {
   autoImportSignalExamples(ctx);
 
-  const agents = ctx.agentStore.listAgents().map(withTileSignal);
+  // Archived agents leave Pulse; a board that places one shows it marked "archived".
+  const agents = ctx.agentStore.listAgents().filter((a) => a.status !== 'archived').map(withTileSignal);
   const tiles: PulseTile[] = [];
   const hiddenTiles: PulseTile[] = [];
 
