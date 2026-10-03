@@ -1960,6 +1960,7 @@ describe('conversation panel', () => {
     expect((await panel(app, '/panel/list?wide=1&tab=open&tag=net')).text).toContain(fail.id);
     expect((await panel(app, '/panel/list?wide=1&tab=open&agent=weather')).text).not.toContain(ask.id);
     // Starred threads lead any sort; below them, priority puts the high one first.
+    await new Promise((r) => setTimeout(r, 5)); // a later millisecond, so "latest activity" can't tie
     const later = inboxStore.add({ priority: 'low', source: 'cadence', title: 'a reminder', body: 'x' });
     const recent = (await panel(app, '/panel/list?wide=1&tab=open&sort=recent')).text;
     expect(recent.indexOf(later.id)).toBeLessThan(recent.indexOf(fail.id));
@@ -1994,5 +1995,90 @@ describe('conversation panel', () => {
     expect(res.text).toContain('class="inbox-modal__panelbar"');
     expect(res.text).toContain('data-panel-wide');
     expect(res.text).toMatch(/class="sua-panel-pill" data-panel-restore hidden/);
+  });
+});
+
+describe('replacing a failing agent in place', () => {
+  const yaml = (extra = '') => `id: flaky
+name: Flaky
+${extra}nodes:
+  - id: n
+    type: shell
+    command: echo fixed
+`;
+  const seed = () => agentStore.createAgent({
+    id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, schedule: '0 7 * * *',
+    nodes: [{ id: 'n', type: 'shell', command: 'echo broken' }],
+  } as never, 'cli');
+
+  it('a drafted fix always waits for approval, keeps status and schedule, diffs against the proposed-from version, and refuses if the agent moved on', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const engine = await import('./inbox-engine.js');
+    expect(inboxStore.getAutonomyMode()).toBe('full');
+    expect(engine.isAutoApproved(ctx, 'agent-editor')).toBe(false);
+    expect(engine.isAutoApproved(ctx, 'agent-analyzer')).toBe(true);
+
+    seed();
+    const v1 = agentStore.getAgent('flaky')!.version;
+    const card = engine.withEditorBase(ctx, { kind: 'action', status: 'proposed', agentId: 'agent-editor', effect: 'write', inputs: { AGENT_ID: 'flaky', NEW_YAML: yaml() } });
+    expect(card.base?.version).toBe(v1);
+    expect(card.base?.yaml).toContain('echo broken');
+
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const ok = engine.executeAgentEditor(ctx, m.id, card);
+    expect(ok.status).toBe('completed');
+    const after = agentStore.getAgent('flaky')!;
+    expect(after.version).toBeGreaterThan(v1);
+    expect(after.nodes[0]).toMatchObject({ command: 'echo fixed' });
+    // The YAML said nothing about status or schedule: neither changed (status would have defaulted to draft).
+    expect(after.status).toBe('active');
+    expect(after.schedule).toBe('0 7 * * *');
+
+    // The same card again is stale now: the agent moved past its base version.
+    const stale = engine.executeAgentEditor(ctx, m.id, card);
+    expect(stale.status).toBe('failed');
+    expect(stale.refusalReason).toContain('changed since this fix was proposed');
+
+    // A fix that sets a schedule is honoured; status still isn't changed by a fix.
+    const card2 = engine.withEditorBase(ctx, { kind: 'action', status: 'proposed', agentId: 'agent-editor', effect: 'write', inputs: { AGENT_ID: 'flaky', NEW_YAML: yaml('status: draft\nschedule: "0 9 * * *"\n') } });
+    expect(engine.executeAgentEditor(ctx, m.id, card2).status).toBe('completed');
+    expect(agentStore.getAgent('flaky')).toMatchObject({ status: 'active', schedule: '0 9 * * *' });
+
+    // The card renders its diff against the base it was proposed from.
+    inboxStore.addResponse(m.id, 'action', 'fix', JSON.stringify({ ...card2, inputs: { ...card2.inputs, NEW_YAML: yaml() }, base: { version: 1, yaml: 'id: flaky\nname: Old name\n' } }));
+    const frag = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('Old name');
+  });
+
+  it('after 3 failures in a thread, sua proposes finding a fix once; not before, not when switched off; Ask sua to fix this starts the same in a new thread', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const engine = await import('./inbox-engine.js');
+    inboxStore.setAutonomyMode('propose-only'); // the analyzer card waits instead of running here
+    seed();
+    const thread = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'flaky', title: 'Run failed: flaky', body: 'x' });
+    inboxStore.addResponse(thread.id, 'system', 'Another run of **flaky** failed: [aaaa](/runs/a)');
+    expect(engine.maybeProposeFixForRepeatedFailures(ctx, thread.id)).toBe(false);
+    inboxStore.addResponse(thread.id, 'system', 'Another run of **flaky** failed: [bbbb](/runs/b)');
+    inboxStore.setAutonomyMode('off');
+    expect(engine.maybeProposeFixForRepeatedFailures(ctx, thread.id)).toBe(false);
+    inboxStore.setAutonomyMode('propose-only');
+    expect(engine.maybeProposeFixForRepeatedFailures(ctx, thread.id)).toBe(true);
+    const cards = inboxStore.listResponses(thread.id).filter((r) => r.role === 'action').map((r) => JSON.parse(r.metaJson!));
+    expect(cards).toEqual([expect.objectContaining({ agentId: 'agent-analyzer', status: 'proposed', inputs: { AGENT_ID: 'flaky' }, ctaLabel: 'Find a fix' })]);
+    expect(inboxStore.listResponses(thread.id).some((r) => r.body.startsWith('**flaky** has failed 3 times'))).toBe(true);
+    inboxStore.addResponse(thread.id, 'system', 'Another run of **flaky** failed: [cccc](/runs/c)');
+    expect(engine.maybeProposeFixForRepeatedFailures(ctx, thread.id)).toBe(false);
+
+    const res = await request(app).post('/agents/flaky/ask-fix').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    expect(inboxStore.get(id)).toMatchObject({ title: 'Fix Flaky', agentId: 'flaky', source: 'manual' });
+    const roles = inboxStore.listResponses(id).map((r) => r.role);
+    expect(roles).toEqual(['user', 'system', 'action']);
+    expect(inboxStore.listResponses(id).every((r) => !r.body.includes('<!--'))).toBe(true);
+    const page = await request(app).get('/agents/flaky').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('action="/agents/flaky/ask-fix" data-ask-fix');
   });
 });

@@ -160,6 +160,12 @@ export interface InboxActionMeta {
    * label ("auto-ran" vs "you approved") in the thread view.
    */
   approvedBy?: 'policy' | 'operator';
+  /**
+   * agent-editor only: the target agent as it was when this change was
+   * proposed. The card diffs against it (so the diff stays true after the
+   * write), and applying refuses if the agent has moved past `version`.
+   */
+  base?: { version: number; yaml: string };
 }
 
 export interface InboxMessage {

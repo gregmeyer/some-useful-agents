@@ -131,6 +131,9 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
         sourceBadge(source),
       ],
       cta: html`<span style="display: inline-flex; gap: var(--space-2);">
+        ${agent.status === 'archived' ? html`` : html`<form method="POST" action="/agents/${agent.id}/ask-fix" data-ask-fix style="display: inline; margin: 0;">
+          <button type="submit" class="btn btn--ghost btn--sm" title="sua looks at why this agent isn't working and drafts a fix you approve, in the panel">Ask sua to fix this</button>
+        </form>`}
         <button type="button" class="btn btn--ghost btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
         <a class="btn btn--ghost btn--sm" href="/agents/${agent.id}/versions">Versions</a>
         ${agent.status === 'archived' ? html`` : runNowButton}
