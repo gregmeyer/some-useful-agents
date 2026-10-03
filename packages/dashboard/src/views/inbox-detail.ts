@@ -773,7 +773,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   const cardInner = html`
     ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
     ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
-      ? renderYamlDiff(currentTargetYaml ?? '', meta.inputs.NEW_YAML)
+      // Against the agent as it was when the fix was proposed (older cards: as it is now).
+      ? renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)
       : inputsRendered}
     ${detailBlock}
     ${trustBlock}

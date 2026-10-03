@@ -76,6 +76,7 @@ import {
   resetTriageCrashRetries,
   isTriagePending,
   isAutoApprovable,
+  proposeAgentFix,
 } from './inbox-engine.js';
 
 export const inboxRouter: Router = Router();
@@ -252,6 +253,43 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
 // ════════════════════════════════════════════════════════════════
 // Thread lifecycle — create, close, bulk
 // ════════════════════════════════════════════════════════════════
+
+/**
+ * "Ask sua to fix this" on an agent's page: a conversation about the agent,
+ * started with sua looking at why it isn't working and drafting a fix you
+ * approve (proposeAgentFix). Fetch callers get `X-Inbox-Id` and open it in
+ * the panel; a plain form post lands on the thread.
+ */
+inboxRouter.post('/agents/:id/ask-fix', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const agentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const agent = ctx.agentStore.getAgent(agentId);
+  if (!ctx.inboxStore || !agent) {
+    if (isAjax(req)) { res.status(404).json({ error: 'No such agent.' }); return; }
+    res.redirect(303, '/agents');
+    return;
+  }
+  const created = ctx.inboxStore.add({
+    priority: 'medium',
+    source: 'manual',
+    agentId: agent.id,
+    title: `Fix ${agent.name || agent.id}`,
+    body: '(empty)',
+  });
+  const ask = ctx.inboxStore.addResponse(created.id, 'user', `\`${agent.id}\` isn't working well. Look at why and propose a fix.`);
+  publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
+  const proposed = proposeAgentFix(ctx, created.id, agent.id,
+    `Looking at **${agent.id}**: what it does and how its recent runs went. sua will draft a fix for you to approve; nothing changes until you do.`);
+  // Archived or otherwise not fixable this way: let sua answer the request itself.
+  if (!proposed) void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  publishInboxChanged(ctx, created.id, created.status);
+  if (isAjax(req)) {
+    res.setHeader('X-Inbox-Id', created.id);
+    res.status(204).end();
+    return;
+  }
+  res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
+});
 
 inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
