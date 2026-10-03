@@ -3,10 +3,11 @@
  * chrome on every page). Two things, both document-delegated so they cover the
  * single band regardless of which page rendered it:
  *
- *   1. Focus hotkey — Cmd/Ctrl+K (primary, command-palette convention) or a
- *      bare "/" focuses the band. "/" is suppressed while you're typing in
- *      another field or while the thread modal is open, so it never steals a
- *      keystroke; Esc blurs the band when it's focused and empty.
+ *   1. Hotkeys — Cmd/Ctrl+K opens or closes the conversation panel (its last
+ *      thread, or a new one); a bare "/" focuses the band. "/" is suppressed
+ *      while you're typing in another field or while the thread modal is
+ *      open, so it never steals a keystroke; Esc blurs the band when it's
+ *      focused and empty.
  *   2. Draft persistence — the in-progress ask is mirrored to localStorage and
  *      restored on the next page, so navigating away doesn't lose what you
  *      typed. Cleared on a successful submit by the composer handler in
@@ -47,6 +48,7 @@ export const APP_ASK_JS = `
   document.addEventListener('input', function (e) {
     var t = e.target;
     if (!t || !t.hasAttribute || !t.hasAttribute('data-home-ask-input')) return;
+    if (t.hasAttribute('data-panel-composer')) return; // the panel's own box keeps no draft
     try { localStorage.setItem(DRAFT_KEY, t.value || ''); } catch (er) {}
   });
 
@@ -92,7 +94,8 @@ export const APP_ASK_JS = `
   }
   function modalOpen() {
     var m = document.getElementById('inbox-modal');
-    return !!(m && !m.hasAttribute('hidden'));
+    // The docked panel isn't a modal: the page stays usable beside it.
+    return !!(m && !m.hasAttribute('hidden') && !m.hasAttribute('data-panel'));
   }
 
   document.addEventListener('keydown', function (e) {
@@ -102,6 +105,13 @@ export const APP_ASK_JS = `
     if (isK || isSlash) {
       // Never hijack a keystroke while a modal is up, and "/" only when the
       // operator isn't already typing somewhere.
+      // Cmd-K works everywhere, including from the centered thread view
+      // (it moves that thread into the panel).
+      if (isK && window.suaPanel) {
+        e.preventDefault();
+        window.suaPanel.toggle();
+        return;
+      }
       if (modalOpen()) return;
       if (isSlash && isEditable(document.activeElement)) return;
       var el = band();

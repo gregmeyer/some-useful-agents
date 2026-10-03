@@ -66,6 +66,9 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
       <span data-inbox-count></span><span data-inbox-label>&nbsp;need your reply</span>
       <span class="topbar__needs-arrow" aria-hidden="true">→</span>
     </a>
+    <button type="button" class="topbar__ask" data-panel-toggle aria-pressed="false" title="Ask sua (Cmd/Ctrl+K)">
+      Ask sua <kbd class="topbar__ask-key" data-panel-key>⌘K</kbd>
+    </button>
     <button class="topbar__theme-toggle" onclick="(function(){var h=document.documentElement;var c=h.getAttribute('data-theme');var n=c==='light'?null:'light';if(n)h.setAttribute('data-theme',n);else h.removeAttribute('data-theme');localStorage.setItem('sua-theme',n||'dark');})();" aria-label="Toggle theme">
       <span class="topbar__theme-icon"></span>
     </button>

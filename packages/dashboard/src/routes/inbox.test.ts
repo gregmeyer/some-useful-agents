@@ -2079,3 +2079,34 @@ describe('POST /inbox/trust/* — operator-tunable trust policy (B2)', () => {
       .expect(400);
   });
 });
+
+describe('conversation panel', () => {
+  it('GET /panel/home offers a box to ask sua and your recent open threads, newest activity first', async () => {
+    const app = await makeApp();
+    const older = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
+    const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: '<b>my question</b>', body: '(empty)' });
+    inboxStore.updateStatus(waiting.id, 'awaiting_user');
+    const done = inboxStore.add({ priority: 'medium', source: 'manual', title: 'all done', body: 'x' });
+    inboxStore.updateStatus(done.id, 'resolved');
+    inboxStore.addResponse(waiting.id, 'user', 'later activity');
+
+    const res = await request(app).get('/panel/home').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('action="/inbox/new" data-home-ask');
+    expect(res.text).toContain('data-panel-composer');
+    expect(res.text).toContain('data-panel-ask="What failed overnight?"');
+    expect(res.text).toContain('&lt;b&gt;my question&lt;/b&gt;');
+    expect(res.text).not.toContain('all done');
+    expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeGreaterThan(-1);
+    expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${older.id}"`));
+    expect(res.text).toContain('Your turn');
+  });
+
+  it('every page carries the panel controls and the minimized pill, hidden until used', async () => {
+    const app = await makeApp();
+    const res = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.text).toContain('class="inbox-modal__panelbar"');
+    expect(res.text).toContain('data-panel-wide');
+    expect(res.text).toMatch(/class="sua-panel-pill" data-panel-restore hidden/);
+  });
+});
