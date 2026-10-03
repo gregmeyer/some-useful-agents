@@ -49,6 +49,7 @@ import { renderHomeInboxFeed } from '../views/home.js';
 import { buildHomeFeedData } from '../lib/home-feed.js';
 import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
+import { renderPanelHome } from '../views/panel-home.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
   deriveTitleFromBody,
@@ -294,6 +295,13 @@ function buildAgentTrustMap(
   }
   return map;
 }
+
+/** The conversation panel with no thread open: ask box + recent threads (views/panel-home.ts). */
+inboxRouter.get('/panel/home', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const recent = ctx.inboxStore ? ctx.inboxStore.list({ sort: 'age', dir: 'desc', limit: 6 }) : [];
+  res.type('html').send(render(renderPanelHome({ recent })));
+});
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);

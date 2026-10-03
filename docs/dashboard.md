@@ -32,6 +32,16 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 The top bar: `sua · Inbox · Agents · Pulse · Settings · Help`. The `sua` brand is the home link (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. An amber **"N need your reply →"** toast in the top bar (every page) appears when inbox threads are waiting for you. The **Ask sua** bar under the top bar starts a conversation with the triage agent from anywhere.
 
+### The conversation panel
+
+Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K**, opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
+
+- **New** starts another conversation and lists your recent threads, with "Your turn" on the ones waiting for you.
+- **↗** opens the thread in the inbox; **⤢** widens the panel and **⤡** puts it back; **–** minimizes it to a pill in the corner, which lights up when a reply lands.
+- On wide screens the page makes room for the panel; on narrower ones it slides over the page; on a phone it fills the screen. **Esc** closes it while you're in it.
+
+Threads opened from the inbox list still open in the centered view; **⇥** (or Cmd/Ctrl+K) moves that thread into the panel. Every conversation is kept in the inbox either way.
+
 ## `/` — Home (your inbox)
 
 The front door is the inbox, organised by cadence: **Needs you** (questions from agents, failures, things to review), then **Today**, **This week** and **Earlier**, plus a ticker of what sua closed on its own. Each row carries a tag for what kind of work it is (scheduled or ad hoc, deterministic or not). Open a thread to see the conversation, action cards and inline widgets; replies stream in over the chat WebSocket. With no agents installed the page is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
