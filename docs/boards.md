@@ -26,6 +26,10 @@ A dashboard you haven't arranged is shown laid out from its sections: each becom
 
 **Save as pack** exports the board: each section (or tab) becomes a pack section, in reading order, with its tiles' sizes.
 
+## Archiving a board
+
+**Archive** (on a dashboard's toolbar) hides the board from the dashboards menu, the pickers and sua's suggestions. Nothing on it is deleted. Archived boards sit under **Archived** at the bottom of the dashboards menu; open one and press **Restore** to bring it back. Building or installing a board with the same id brings it back too. Pulse can't be archived.
+
 ## Build a board from a request
 
 Ask for one any of three ways:

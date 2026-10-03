@@ -220,10 +220,12 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   const isPulse = id === PULSE_BOARD_ID;
   const returnTo = boardPageUrl(id);
   const installed = ctx.dashboardsStore?.listDashboards() ?? [];
+  const archived = ctx.dashboardsStore?.listArchived() ?? [];
   const options = buildDashboardOptions(installed);
-  const dropdown = options.length > 1
-    ? renderDashboardsDropdown({ options, activeHref: isPulse ? '/' : `/dashboards/${encodeURIComponent(id)}` })
+  const dropdown = options.length > 1 || archived.length > 0
+    ? renderDashboardsDropdown({ options, archived, activeHref: isPulse ? '/pulse' : `/dashboards/${encodeURIComponent(id)}` })
     : html``;
+  const archivedAt = isPulse ? undefined : ctx.dashboardsStore?.getDashboard(id)?.archivedAt;
   const doc = currentDoc(ctx, r);
   const canvas = canvasFor(ctx, r, doc);
   const tileCount = boardDocAgentIds(canvas.doc).length + boardDocSystemTileIds(canvas.doc).length;
@@ -313,12 +315,20 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   };
   return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
     ${header}
+    ${archivedAt !== undefined ? html`
+      <div class="flash flash--info board-archived" role="status">
+        <span>This board is archived: it's hidden from your lists and pickers, and nothing on it was deleted.</span>
+        <form method="POST" action="/dashboards/${encodeURIComponent(id)}/restore" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Restore</button></form>
+      </div>` : html``}
     ${buildBanner}
     <div class="board-toolbar" data-canvas-toolbar>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>✎ Arrange</button>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
+      ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">
+        <button type="submit" class="btn btn--ghost btn--sm" title="Hide this board from your lists; restore it any time">Archive</button>
+      </form>` : html``}
     </div>
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>

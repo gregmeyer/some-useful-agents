@@ -205,6 +205,32 @@ dashboardsEditRouter.post('/dashboards/:id/delete', (req: Request, res: Response
   res.redirect(303, '/pulse?ok=Dashboard+deleted.');
 });
 
+// ── Archive / restore: hide a board from lists and pickers, keep everything ─
+
+dashboardsEditRouter.post('/dashboards/:id/archive', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = pickId(req);
+  const dashboard = ctx.dashboardsStore?.getDashboard(id);
+  if (!ctx.dashboardsStore || !dashboard) {
+    res.redirect(303, '/pulse?error=' + encodeURIComponent('No such dashboard.'));
+    return;
+  }
+  ctx.dashboardsStore.archiveDashboard(id);
+  res.redirect(303, '/pulse?ok=' + encodeURIComponent(`Archived "${dashboard.name}". Find it under Archived in the dashboards menu to restore it.`));
+});
+
+dashboardsEditRouter.post('/dashboards/:id/restore', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = pickId(req);
+  const dashboard = ctx.dashboardsStore?.getDashboard(id);
+  if (!ctx.dashboardsStore || !dashboard) {
+    res.redirect(303, '/pulse?error=' + encodeURIComponent('No such dashboard.'));
+    return;
+  }
+  ctx.dashboardsStore.restoreDashboard(id);
+  res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=` + encodeURIComponent(`Restored "${dashboard.name}".`));
+});
+
 // ── Create new user dashboard ──────────────────────────────────────────────
 
 dashboardsEditRouter.post('/dashboards', (req: Request, res: Response) => {

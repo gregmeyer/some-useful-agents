@@ -8,7 +8,7 @@ import type { Dashboard } from '@some-useful-agents/core';
 import { html, type SafeHtml } from './html.js';
 
 export interface DashboardOption {
-  /** Stable URL — '/' for the Default (home) board, '/dashboards/<id>' for installed packs. */
+  /** Stable URL: '/pulse' for the Default board, '/dashboards/<id>' for the others. */
   href: string;
   label: string;
   /** Optional secondary label (e.g. pack id) shown muted. */
@@ -21,7 +21,7 @@ export interface DashboardOption {
  */
 export function buildDashboardOptions(installed: Dashboard[]): DashboardOption[] {
   const opts: DashboardOption[] = [
-    { href: '/', label: 'Default Dashboard', hint: 'pulseVisible' },
+    { href: '/pulse', label: 'Default Dashboard', hint: 'pulseVisible' },
   ];
   const sorted = [...installed].sort((a, b) => {
     const ap = a.packId ?? 'user';
@@ -43,7 +43,10 @@ export function buildDashboardOptions(installed: Dashboard[]): DashboardOption[]
 export function renderDashboardsDropdown(args: {
   options: DashboardOption[];
   activeHref: string;
+  /** Archived dashboards, listed under their own fold so they're findable, not in the way. */
+  archived?: Dashboard[];
 }): SafeHtml {
+  const archived = args.archived ?? [];
   const active = args.options.find((o) => o.href === args.activeHref) ?? args.options[0];
   return html`
     <details class="dashboards-dropdown" style="position: relative;">
@@ -62,6 +65,12 @@ export function renderDashboardsDropdown(args: {
             </a>
           `;
         })}
+        ${archived.length ? html`
+          <details class="dashboards-dropdown__archived">
+            <summary class="dim" style="cursor: pointer; padding: var(--space-2) var(--space-3); font-size: var(--font-size-xs);">Archived (${String(archived.length)})</summary>
+            ${archived.map((d) => html`
+              <a href="/dashboards/${encodeURIComponent(d.id)}" class="dim" style="display: block; padding: var(--space-1) var(--space-3) var(--space-1) var(--space-6); text-decoration: none; font-size: var(--font-size-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${d.name}">${d.name}</a>`) as unknown as SafeHtml[]}
+          </details>` : html``}
         <form method="POST" action="/dashboards" style="display: flex; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-border); margin-top: var(--space-1); padding-top: var(--space-2);">
           <input type="text" name="name" placeholder="New dashboard name" required style="flex: 1; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font-size: var(--font-size-xs);">
           <button type="submit" class="btn btn--ghost btn--sm" style="font-size: var(--font-size-xs);">Create</button>
