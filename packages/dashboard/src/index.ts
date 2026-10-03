@@ -72,7 +72,7 @@ import { settingsTemporalRouter } from './routes/settings-temporal.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
-import { inboxRouter } from './routes/inbox.js';
+import { inboxRouter, sendInboxPage } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
@@ -83,7 +83,6 @@ import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
-import { buildHomeFeedData } from './lib/home-feed.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -262,31 +261,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       }
     }
 
-    // Dynamic import to avoid circular deps at module load.
-    Promise.all([import('./views/home.js'), import('./routes/pulse.js')])
-      .then(([{ renderHomePage }, { parsePulseFlash }]) => {
-        const ctx = getContext(req.app.locals);
-        const agents = ctx.agentStore.listAgents();
-
-        // Inbox-as-front-door: the cadence-organized feed IS the home body now.
-        // Signals moved to /pulse and recent activity lives at /runs; the `sua ›`
-        // ask prompt is global chrome (layout.ts). Reads only existing store
-        // queries (no new producers) — see home-feed.ts.
-        const feed = buildHomeFeedData(ctx, Date.now());
-
-        const availableDashboards = ctx.dashboardsStore
-          ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
-          : [];
-
-        res.type('html').send(renderHomePage({
-          agentCount: agents.length,
-          availableDashboards,
-          feed,
-          flash: parsePulseFlash(req),
-        }));
-      }).catch(() => {
-        res.redirect(302, '/agents');
-      });
+    // Home is the inbox canvas (conversations phase 3b): what needs you and
+    // every conversation, list and thread side by side. Its top becomes the
+    // Home surface (~/.claude/plans/goal-surfaces.md).
+    sendInboxPage(req, res);
   });
 
   app.use(connectModelRouter);

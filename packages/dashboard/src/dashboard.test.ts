@@ -5042,7 +5042,7 @@ describe('Ask a person (ask nodes)', () => {
     expect(runPage.text).toContain(`href="/inbox/${q.inboxMessageId}"`);
     expect(runPage.text).toContain('>waiting</span>');
 
-    const thread = await get(app, `/inbox/${q.inboxMessageId}`);
+    const thread = await get(app, `/inbox/${q.inboxMessageId}/fragment`);
     expect(thread.status).toBe(200);
     expect(thread.text).toContain('<input type="hidden" name="answer" value="Ship">');
     expect(thread.text).toContain(`action="/inbox/${q.inboxMessageId}/answer"`);
@@ -5056,7 +5056,7 @@ describe('Ask a person (ask nodes)', () => {
 
     const again = await post(app, `/inbox/${q.inboxMessageId}/answer`).send('answer=Hold');
     expect(decodeURIComponent(again.headers.location)).toContain('already answered');
-    const after = (await get(app, `/inbox/${q.inboxMessageId}`)).text;
+    const after = (await get(app, `/inbox/${q.inboxMessageId}/fragment`)).text;
     expect(after).toContain('The run carried on.');
     expect(after).not.toContain('data-triage-pending="1"');
   });

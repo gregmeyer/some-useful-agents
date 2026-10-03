@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from './html.js';
 import { renderInboxDetailFragment } from './inbox-detail.js';
-import { renderInboxList } from './inbox-list.js';
 import type { InboxActionMeta, InboxMessage, InboxResponse } from '@some-useful-agents/core';
 
 const baseMessage = (over: Partial<InboxMessage> = {}): InboxMessage => ({
@@ -71,18 +70,5 @@ describe('verify-verdict badge (B3)', () => {
     const out = fragment([systemNote('s1', 'Just a normal note.')]);
     expect(out).not.toContain('inbox-msg--verify');
     expect(out).not.toContain('Not verified');
-  });
-});
-
-describe('list-row source chip (B3)', () => {
-  it('renders a source chip for a run-failure row', () => {
-    const out = renderInboxList({ rows: [baseMessage({ source: 'run-failure', title: 'boom' })], sort: 'priority', dir: 'desc' });
-    expect(out).toContain('inbox-row2__source--run-failure');
-    expect(out).toContain('Run failure');
-  });
-
-  it('renders no source chip for a manual row', () => {
-    const out = renderInboxList({ rows: [baseMessage({ source: 'manual', title: 'note' })], sort: 'priority', dir: 'desc' });
-    expect(out).not.toContain('inbox-row2__source');
   });
 });

@@ -40,11 +40,15 @@ Asking sua opens the answer in a panel beside the page, not over it, so you can 
 - **↗** opens the thread in the inbox; **⤢** widens the panel and **⤡** puts it back; **–** minimizes it to a pill in the corner, which lights up when a reply lands.
 - On wide screens the page makes room for the panel; on narrower ones it slides over the page; on a phone it fills the screen. **Esc** closes it while you're in it.
 
-Threads opened from the inbox list still open in the centered view; **⇥** (or Cmd/Ctrl+K) moves that thread into the panel. Every conversation is kept in the inbox either way.
+On Home the same inbox fills the page instead (below), so it's one inbox at two widths.
 
 ## `/` — Home (your inbox)
 
-The front door is the inbox, organised by cadence: **Needs you** (questions from agents, failures, things to review), then **Today**, **This week** and **Earlier**, plus a ticker of what sua closed on its own. Each row carries a tag for what kind of work it is (scheduled or ad hoc, deterministic or not). Open a thread to see the conversation, action cards and inline widgets; replies stream in over the chat WebSocket. With no agents installed the page is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
+Home is your inbox on one canvas: the list on the left (ask box, **Needs you · Open · Conversations · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox` is the same page, and `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. The **Autonomy** control (Full / Approve first / Off) sits above it. It's the same inbox the conversation panel shows beside other pages.
+
+With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
+
+Filters by source, agent and tag, sort, starring and bulk resolve/dismiss from the old list page come back on this list in a follow-up.
 
 ## `/agents` — Agents list
 

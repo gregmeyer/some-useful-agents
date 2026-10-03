@@ -201,7 +201,7 @@ describe('inbox thread — conditioning chip', () => {
     seedRun(THREAD_RUN, ['declare-blind-spots', 'cite-evidence-before-claiming']);
     const id = seedThread(THREAD_RUN);
 
-    const res = await get(app, `/inbox/${id}`);
+    const res = await get(app, `/inbox/${id}/fragment`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('2 behaviors');
     // Names stay reachable on hover rather than cluttering the conversation.
@@ -214,7 +214,7 @@ describe('inbox thread — conditioning chip', () => {
     seedRun(THREAD_RUN, ['only-one']);
     const id = seedThread(THREAD_RUN);
 
-    const res = await get(app, `/inbox/${id}`);
+    const res = await get(app, `/inbox/${id}/fragment`);
     expect(res.text).toContain('1 behavior<');
   });
 
@@ -225,7 +225,7 @@ describe('inbox thread — conditioning chip', () => {
     seedRun(THREAD_RUN);
     const id = seedThread(THREAD_RUN);
 
-    const res = await get(app, `/inbox/${id}`);
+    const res = await get(app, `/inbox/${id}/fragment`);
     expect(res.status).toBe(200);
     expect(res.text).not.toMatch(/\d+ behaviors?</);
   });

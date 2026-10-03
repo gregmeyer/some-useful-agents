@@ -275,8 +275,6 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const permalinkControl = html`
     <a href="/inbox/${message.id}" class="inbox-modal__hicon inbox-modal__permalink"
       aria-label="Open full page" title="Open full page">⤢</a>
-    <button type="button" class="inbox-modal__hicon inbox-modal__dock" data-panel-dock
-      aria-label="Move beside the page" title="Move beside the page">⇥</button>
   `;
 
   // Body lands without a heading — it IS the content, no label needed.

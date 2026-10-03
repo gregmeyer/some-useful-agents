@@ -1,16 +1,13 @@
 import { html, type SafeHtml } from './html.js';
 
 /**
- * The modal shell lives once on /inbox and stays empty until the
- * inbox-modal.js bundle opens it. Click a row → fetch the fragment
- * → inject into `#inbox-modal-content` → reveal.
- *
- * The full-page `/inbox/:id` route still works as a fallback for
- * right-click "open in new tab" and no-JS users.
- *
- * The same shell is the conversation panel: Ask sua and Cmd-K open it docked
- * to the side (`data-panel` on the backdrop), and it follows you between
- * pages. The panel bar and the minimized pill only show in that mode.
+ * The inbox's thread view, on every page (layout.ts). It shows as:
+ *   - the conversation panel beside a page (`data-panel` docked | wide | min
+ *     on the backdrop): Ask sua, the top-bar button and Cmd-K open it, and it
+ *     follows you between pages; the list and a thread take turns in it.
+ *   - Home (`/`, `/inbox`, `/inbox/:id`, `data-panel="page"`): moved into the
+ *     page, with the list and the thread side by side.
+ * inbox-modal.js.ts drives both; the panel bar and the pill only show beside a page.
  */
 export function renderInboxModalShell(): SafeHtml {
   return html`
@@ -25,8 +22,12 @@ export function renderInboxModalShell(): SafeHtml {
           <button type="button" class="inbox-modal__panelbar-btn" data-panel-min aria-label="Minimize" title="Minimize">–</button>
         </div>
         <button type="button" class="inbox-modal__close" data-inbox-modal-close aria-label="Close">×</button>
-        <div id="inbox-modal-content" style="flex: 1; overflow-y: auto; min-height: 0;">
-          <p class="dim" style="margin: 0; padding: var(--space-4) 0; text-align: center;">Loading…</p>
+        <div class="inbox-modal__panes">
+          ${/* The inbox list; beside the thread on Home, in place of it in the panel. */ ''}
+          <div class="inbox-modal__list" id="inbox-modal-list"></div>
+          <div id="inbox-modal-content">
+            <p class="dim" style="margin: 0; padding: var(--space-4) 0; text-align: center;">Loading…</p>
+          </div>
         </div>
       </div>
     </div>
