@@ -29,6 +29,8 @@ export interface AgentsListInput {
   calleeCounts?: Map<string, number>;
   /** Total agents that call at least one other agent, across the whole store. */
   composedCount?: number;
+  /** Archived agents hidden from the default view; links to them when > 0. */
+  archivedCount?: number;
   /** Whether the list is currently narrowed to those agents. */
   composedOnly?: boolean;
   filter?: {
@@ -188,6 +190,9 @@ function renderFilterBar(input: AgentsListInput): SafeHtml {
       </select>
       <button type="submit" class="btn btn--sm">Filter</button>
       ${composedChip(input)}
+      ${(input.archivedCount ?? 0) > 0
+        ? html`<a href="${agentBuildUrl({ ...(input.filter ?? {}), status: 'archived' }, input.limit ?? 12, 0, input.tab ?? 'user')}" class="badge badge--muted" style="text-decoration: none;" title="Archived agents are hidden here; open one to restore it">Archived (${String(input.archivedCount)})</a>`
+        : html``}
       ${(f.q || f.status || f.sort || input.composedOnly) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
     </form>
   `;

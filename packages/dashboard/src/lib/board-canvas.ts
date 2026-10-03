@@ -46,6 +46,8 @@ export interface CanvasTileEntry {
   autoPalette?: string;
   /** signal.accent: a coloured left edge (teal, blue, green, orange, red, purple). */
   accent?: string;
+  /** The agent is archived: its tile stays, marked, with no Run (it won't run on a schedule either). */
+  archived?: boolean;
 }
 
 /** `5m`, `2h`, `30s` → ms (0 = none). Same forms as the classic auto-refresh. */
@@ -69,7 +71,8 @@ export function canvasTileEntry(tile: PulseTile, opts: { isPulse: boolean }): Ca
     ...(tile.signal.icon ? { icon: tile.signal.icon } : {}),
     age: tile.lastRun ? formatAge(tile.lastRun.completedAt ?? tile.lastRun.startedAt) : isSystem ? '' : 'never',
     ...(tile.lastRun ? { runHref: `/runs/${encodeURIComponent(tile.lastRun.id)}` } : {}),
-    run: isSystem || tileRendersOwnRunControl(tile) ? 'none' : needsInput ? 'link' : 'button',
+    run: isSystem || tileRendersOwnRunControl(tile) || tile.agent.status === 'archived' ? 'none' : needsInput ? 'link' : 'button',
+    ...(tile.agent.status === 'archived' ? { archived: true } : {}),
     ...body,
     ...(isSystem ? {} : {
       configure: {

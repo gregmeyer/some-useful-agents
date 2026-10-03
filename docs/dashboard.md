@@ -58,6 +58,8 @@ Each card shows: status badge, source, optional `mcp` badge, **"used by N"** if 
 
 **Filters** — search (id/name/description), status (active/paused/draft/archived), sort (name / status / recently run / starred first). Pagination with 12/24/48/100 page sizes.
 
+**Archived agents** are left out of the list unless you filter for them; **Archived (n)** beside the filters shows them. To archive an agent, set its status to `archived` from the status menu on its page. An archived agent doesn't run on its schedule or by hand (Run now and tile runs say to restore it first), can't be called by other agents, and leaves Pulse, the tile picker and sua's suggestions; a board that already places it keeps the tile, marked **archived**, without a Run button. Its page says so and has **Restore**, which brings it back active, or paused if it has a schedule, so nothing fires until you resume it. Runs and versions are kept throughout.
+
 **Calls other agents (N)** — a chip beside the filters narrows the list to agents that run other agents as part of their job. The count is scoped to the current tab and search, so it predicts what clicking returns. Agents calling agents is the multi-agent story: sua ships `agent-invoke` and `loop`-over-agent node types, and its own Build-from-goal is one of these — `goal-surveyor` → parallel `agent-drafter`s → `dashboard-designer`.
 
 **Build from goal** — describe what you want in plain English; an orchestrator runs goal-surveyor → agent-drafter(s) → dashboard-designer to design the full YAML and tiles. Opens a modal. See [Build from a goal](build-from-goal.md).

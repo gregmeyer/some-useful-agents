@@ -402,3 +402,44 @@ describe('archiving a board', () => {
     expect((await get(app, '/dashboards/user:morning')).text).not.toContain('This board is archived');
   });
 });
+
+describe('archiving an agent', () => {
+  it('leaves the default agents list, the tile picker and sua\'s catalog; its tile is marked; Restore brings it back (paused when scheduled)', async () => {
+    const app = await setup();
+    ctx.agentStore.updateAgentMeta('weather', { status: 'archived' });
+
+    const list = await get(app, '/agents');
+    expect(list.text).not.toContain('href="/agents/weather"');
+    expect(list.text).toMatch(/Archived \(1\)/);
+    expect((await get(app, '/agents?status=archived')).text).toContain('/agents/weather');
+
+    const data = editorData((await get(app, '/dashboards/user:morning')).text);
+    expect((data.agents as Array<{ id: string }>).map((a) => a.id)).not.toContain('weather');
+    const tiles = registry((await get(app, '/dashboards/user:morning')).text) as Record<string, { archived?: boolean; run: string }>;
+    expect(tiles.weather).toMatchObject({ archived: true, run: 'none' });
+    expect(tiles.news.archived).toBeUndefined();
+
+    const { buildTriageCatalogJson, buildAgentCatalogJson } = await import('./inbox-catalog.js');
+    expect(buildTriageCatalogJson(ctx)).not.toContain('"weather"');
+    expect(buildAgentCatalogJson(ctx)).not.toContain('"weather"');
+
+    // It can't be run by hand while archived (tile Run, Run now).
+    const tileRun = await post(app, '/agents/weather/widget-run', {});
+    expect(tileRun.status).toBe(409);
+    expect(tileRun.body.error).toContain('archived');
+    const runNow = await post(app, '/agents/weather/run', {});
+    expect(decodeURIComponent(runNow.headers.location)).toContain('Restore it to run it');
+
+    const page = await get(app, '/agents/weather');
+    expect(page.text).toContain('This agent is archived');
+    expect(page.text).toContain('action="/agents/weather/restore"');
+    const back = await post(app, '/agents/weather/restore', {});
+    expect(decodeURIComponent(back.headers.location)).toContain('Restored.');
+    expect(ctx.agentStore.getAgent('weather')!.status).toBe('active');
+
+    ctx.agentStore.updateAgentMeta('news', { status: 'archived', schedule: '0 7 * * *' });
+    const paused = await post(app, '/agents/news/restore', {});
+    expect(decodeURIComponent(paused.headers.location)).toContain('paused so its schedule');
+    expect(ctx.agentStore.getAgent('news')!.status).toBe('paused');
+  });
+});

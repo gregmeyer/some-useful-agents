@@ -38,6 +38,10 @@ runNowRouter.post('/agents/:name/run', async (req: Request, res: Response) => {
 
   // Prefer v2 agents (post-migration).
   const v2Agent = ctx.agentStore.getAgent(name);
+  if (v2Agent?.status === 'archived') {
+    res.redirect(303, `/agents/${encodeURIComponent(v2Agent.id)}?flash=${encodeURIComponent('This agent is archived. Restore it to run it.')}`);
+    return;
+  }
   if (v2Agent) {
     const needsConfirm = v2Agent.source === 'community' && v2Agent.nodes.some((n) => n.type === 'shell');
     if (needsConfirm && !confirmed) {

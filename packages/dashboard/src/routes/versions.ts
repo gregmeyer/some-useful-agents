@@ -137,6 +137,27 @@ versionsRouter.post('/agents/:id/status', (req: Request, res: Response) => {
 });
 
 /**
+ * POST /agents/:id/restore — bring an archived agent back. One with a
+ * schedule comes back paused, so it doesn't start firing until you resume it.
+ */
+versionsRouter.post('/agents/:id/restore', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const agent = ctx.agentStore.getAgent(id);
+  if (!agent) { res.redirect(303, '/agents'); return; }
+  const back = `/agents/${encodeURIComponent(id)}`;
+  if (agent.status !== 'archived') {
+    res.redirect(303, `${back}?flash=${encodeURIComponent('This agent isn\'t archived.')}`);
+    return;
+  }
+  const next = agent.schedule ? 'paused' : 'active';
+  ctx.agentStore.updateAgentMeta(id, { status: next });
+  res.redirect(303, `${back}?flash=${encodeURIComponent(next === 'paused'
+    ? 'Restored, paused so its schedule doesn\'t fire yet. Set it to active when you\'re ready.'
+    : 'Restored.')}`);
+});
+
+/**
  * POST /agents/:id/mcp — toggle MCP exposure on/off.
  *
  * Body: { enabled: 'true' | 'false' }. The form on the Config tab posts

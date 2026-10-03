@@ -54,7 +54,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
       },
       { cmd: 'sua workflow import agents/ --apply', desc: 'Bring agents written in the older format up to date.' },
       { cmd: 'sua workflow export <id>', desc: 'Emit an agent\u2019s YAML to stdout (lossless round-trip).' },
-      { cmd: 'sua workflow status <id> <newStatus>', desc: 'Set active | paused | archived | draft. No dashboard equivalent yet.' },
+      { cmd: 'sua workflow status <id> <newStatus>', desc: 'Set active | paused | archived | draft. In the dashboard: the status menu on an agent\u2019s page.' },
       {
         cmd: 'sua workflow logs <runId>',
         desc: 'Per-node records for a run.',

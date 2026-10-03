@@ -100,9 +100,14 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
     ? html`<button type="button" class="btn btn--primary" id="run-with-inputs-btn">Run now</button>`
     : html`<form method="POST" action="/agents/${agent.id}/run" style="display: inline;" data-run-form="${agent.id}">${fromHidden}<button type="submit" class="btn btn--primary">Run now</button></form>`;
 
-  const warningBanner = source === 'community'
-    ? html`<div class="community-banner"><strong>Community agent.</strong> Read the DAG before running.</div>`
-    : html``;
+  const warningBanner = agent.status === 'archived'
+    ? html`<div class="flash flash--info agent-archived" role="status" style="display: flex; align-items: center; gap: var(--space-3);">
+        <span style="flex: 1;">This agent is archived: it doesn't run on its schedule, other agents can't call it, and it's left out of lists and pickers. Its runs and versions are kept.</span>
+        <form method="POST" action="/agents/${agent.id}/restore" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Restore</button></form>
+      </div>`
+    : source === 'community'
+      ? html`<div class="community-banner"><strong>Community agent.</strong> Read the DAG before running.</div>`
+      : html``;
 
   const body = html`
     ${pageHeader({
@@ -128,7 +133,7 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
       cta: html`<span style="display: inline-flex; gap: var(--space-2);">
         <button type="button" class="btn btn--ghost btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
         <a class="btn btn--ghost btn--sm" href="/agents/${agent.id}/versions">Versions</a>
-        ${runNowButton}
+        ${agent.status === 'archived' ? html`` : runNowButton}
       </span>`,
       description: agent.description ?? undefined,
       back,

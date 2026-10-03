@@ -844,8 +844,8 @@ describe('Dashboard help + tutorial', () => {
     // The two that shipped now link to where they actually live.
     expect(res.text).toContain('/settings/secrets');
     expect(res.text).toContain('Replay on run detail');
-    // The two that did not ship say so honestly instead of naming a version.
-    expect(res.text).toContain('No dashboard equivalent yet');
+    // Archiving an agent did ship (the status menu); help points there now.
+    expect(res.text).toContain('the status menu on an agent');
   });
 
   it('GET /help/tutorial marks step 1 done when agents exist, step 2 not done with no runs', async () => {

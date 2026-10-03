@@ -296,6 +296,7 @@ const tileStyles = css`
   .tile[data-palette="accent-red"] { background: color-mix(in srgb, var(--accent-red) 8%, transparent); border-color: var(--color-err); }
   .tile[data-palette="accent-green"] { background: color-mix(in srgb, var(--accent-green) 8%, transparent); border-color: var(--color-ok); }
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .archived { flex: none; font-size: var(--font-size-xs); color: var(--color-warn); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; text-decoration: none; }
   .title { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icon-btn { background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; border-radius: var(--radius-sm, 4px); }
   .icon-btn:hover, .icon-btn:focus-visible { color: var(--color-text); background: var(--color-surface-raised); outline: none; }
@@ -348,6 +349,7 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
       <header>
         ${t.icon ? html`<span aria-hidden="true">${t.icon}</span>` : nothing}
         <span class="title" title=${t.title}>${t.title}</span>
+        ${t.archived ? html`<a class="archived" href=${href} title="This agent is archived; open it to restore">archived</a>` : nothing}
         ${t.configure ? html`<button type="button" class="icon-btn" title="Configure tile" aria-label="Configure ${t.title}" @click=${() => this.configure(p.agentId, t)}>⚙</button>` : nothing}
         ${t.hideAction ? html`<form method="POST" action=${t.hideAction}><button type="submit" class="icon-btn" title="Hide from Pulse (restore it from the hidden section)" aria-label="Hide ${t.title} from Pulse">×</button></form>` : nothing}
       </header>
