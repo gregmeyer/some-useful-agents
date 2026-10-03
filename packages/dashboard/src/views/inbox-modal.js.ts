@@ -64,8 +64,59 @@ export const INBOX_MODAL_JS = `
   function loadPanel() {
     try { return JSON.parse(sessionStorage.getItem(PANEL_KEY) || 'null'); } catch (_) { return null; }
   }
+  // Which inbox tab and search the panel's list shows (kept across pages).
+  var listState = { tab: '', q: '' };
+  (function () { var s = loadPanel(); if (s && s.list) { listState.tab = s.list.tab || ''; listState.q = s.list.q || ''; } })();
   function savePanel(id, mode) {
-    try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed' })); } catch (_) {}
+    try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed', list: listState })); } catch (_) {}
+  }
+  function listQuery(extra) {
+    var p = new URLSearchParams();
+    if (listState.tab) p.set('tab', listState.tab);
+    if (listState.q) p.set('q', listState.q);
+    for (var k in (extra || {})) p.set(k, extra[k]);
+    var s = p.toString();
+    return s ? '?' + s : '';
+  }
+  var listPaged = false;
+  function refreshPanelList() {
+    var host = content.querySelector('[data-panel-list]');
+    if (!host || currentId) return;
+    fetch('/panel/list' + listQuery(), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('panel list ' + r.status);
+        var tab = r.headers.get('X-Panel-Tab');
+        if (tab && !listState.tab) listState.tab = tab;
+        return r.text();
+      })
+      .then(function (markup) {
+        var now = content.querySelector('[data-panel-list]');
+        if (!now || currentId) return;
+        now.innerHTML = markup;
+        listPaged = false;
+        savePanel(null, panelMode);
+      })
+      .catch(function () { /* keep what's shown */ });
+  }
+  function morePanelRows(btn) {
+    btn.disabled = true;
+    fetch('/panel/list' + listQuery({ rows: '1', offset: btn.getAttribute('data-offset') || '0' }), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('panel rows ' + r.status);
+        var more = r.headers.get('X-Panel-Has-More') === '1';
+        return r.text().then(function (markup) { return { markup: markup, more: more }; });
+      })
+      .then(function (out) {
+        var rows = content.querySelector('[data-panel-rows]');
+        if (!rows) return;
+        var added = (rows.querySelectorAll('[data-panel-thread-id]').length);
+        rows.insertAdjacentHTML('beforeend', out.markup);
+        listPaged = true;
+        var next = rows.querySelectorAll('[data-panel-thread-id]').length;
+        if (out.more && next > added) { btn.setAttribute('data-offset', String(Number(btn.getAttribute('data-offset') || '0') + (next - added))); btn.disabled = false; }
+        else btn.remove();
+      })
+      .catch(function () { btn.disabled = false; });
   }
   function applyPanel() {
     if (!modal) return;
@@ -91,6 +142,8 @@ export const INBOX_MODAL_JS = `
       toggles[ti].classList.toggle('is-active', open);
       toggles[ti].setAttribute('aria-pressed', open ? 'true' : 'false');
     }
+    // The bar shows "← Inbox" over a thread and "Inbox" over the list.
+    modal.setAttribute('data-panel-view', currentId ? 'thread' : 'home');
     var link = modal.querySelector('[data-panel-inbox]');
     if (link) link.setAttribute('href', currentId ? inboxThreadHref(currentId) : '/inbox');
     var wide = modal.querySelector('[data-panel-wide]');
@@ -893,7 +946,7 @@ export const INBOX_MODAL_JS = `
     var panelDock = e.target.closest && e.target.closest('[data-panel-dock]');
     if (panelDock) { e.preventDefault(); dockCurrent(); return; }
 
-    var panelCtl = e.target.closest && e.target.closest('[data-panel-wide], [data-panel-min], [data-panel-restore], [data-panel-new], [data-panel-thread-id], [data-panel-ask], [data-panel-inbox]');
+    var panelCtl = e.target.closest && e.target.closest('[data-panel-wide], [data-panel-min], [data-panel-restore], [data-panel-new], [data-panel-back], [data-panel-tab], [data-panel-more], [data-panel-thread-id], [data-panel-ask], [data-panel-inbox]');
     if (panelCtl) {
       if (panelCtl.hasAttribute('data-panel-inbox')) {
         // Leaving for the thread's own page: close the panel so it doesn't
@@ -907,7 +960,14 @@ export const INBOX_MODAL_JS = `
       else if (panelCtl.hasAttribute('data-panel-restore')) {
         if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
       }
-      else if (panelCtl.hasAttribute('data-panel-new')) openPanelHome();
+      else if (panelCtl.hasAttribute('data-panel-new') || panelCtl.hasAttribute('data-panel-back')) openPanelHome();
+      else if (panelCtl.hasAttribute('data-panel-tab')) {
+        listState.tab = panelCtl.getAttribute('data-panel-tab') || '';
+        var tabs = content.querySelectorAll('[data-panel-tab]');
+        for (var ti2 = 0; ti2 < tabs.length; ti2++) tabs[ti2].setAttribute('aria-selected', tabs[ti2] === panelCtl ? 'true' : 'false');
+        refreshPanelList();
+      }
+      else if (panelCtl.hasAttribute('data-panel-more')) morePanelRows(panelCtl);
       else if (panelCtl.hasAttribute('data-panel-thread-id')) openFor(panelCtl.getAttribute('data-panel-thread-id'));
       else if (panelCtl.hasAttribute('data-panel-ask')) {
         var ta = content.querySelector('[data-panel-composer]');
@@ -1344,11 +1404,13 @@ export const INBOX_MODAL_JS = `
     content.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
     open();
     savePanel(null, panelMode);
-    fetch('/panel/home', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+    fetch('/panel/home' + listQuery(), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { if (!r.ok) throw new Error('panel home ' + r.status); return r.text(); })
       .then(function (markup) {
         if (currentId !== null || !panelMode) return;
         content.innerHTML = markup;
+        listPaged = false;
+        applyPanel();
         var ta = content.querySelector('[data-panel-composer]');
         if (ta && panelMode !== 'min' && !restoring) ta.focus();
       })
@@ -1370,6 +1432,23 @@ export const INBOX_MODAL_JS = `
     if (saved && saved.id) openFor(saved.id, { panel: 'docked' });
     else openPanelHome();
   }
+
+  // Search the panel's inbox as you type.
+  var searchTimer = null;
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-panel-search')) return;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { listState.q = String(el.value || '').trim(); refreshPanelList(); }, 250);
+  });
+  // Keep the list current while it's showing (inbox-stream.js.ts relays the
+  // inbox's change events). Not after "Show more", which would lose your place.
+  var liveTimer = null;
+  window.addEventListener('inbox:changed', function () {
+    if (!panelMode || panelMode === 'min' || currentId || listPaged) return;
+    if (liveTimer) clearTimeout(liveTimer);
+    liveTimer = setTimeout(refreshPanelList, 500);
+  });
 
   window.suaPanel = {
     toggle: togglePanel,

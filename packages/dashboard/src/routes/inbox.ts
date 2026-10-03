@@ -49,7 +49,8 @@ import { renderHomeInboxFeed } from '../views/home.js';
 import { buildHomeFeedData } from '../lib/home-feed.js';
 import { renderInboxDetail, renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { render } from '../views/html.js';
-import { renderPanelHome } from '../views/panel-home.js';
+import { renderPanelHome, renderPanelList, renderPanelRows } from '../views/panel-home.js';
+import { buildPanelList, parsePanelTab } from '../lib/panel-inbox.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
   deriveTitleFromBody,
@@ -296,11 +297,33 @@ function buildAgentTrustMap(
   return map;
 }
 
-/** The conversation panel with no thread open: ask box + recent threads (views/panel-home.ts). */
-inboxRouter.get('/panel/home', (req: Request, res: Response) => {
+/**
+ * The conversation panel with no thread open is your inbox (views/panel-home.ts):
+ * `/panel/home` is the whole thing, `/panel/list` just the tabs + rows for a
+ * tab switch, search or "Show more" (`?rows=1` returns only the rows).
+ * Query: tab (needs | open | conversations | done), q, offset.
+ */
+function panelListFor(req: Request) {
   const ctx = getContext(req.app.locals);
-  const recent = ctx.inboxStore ? ctx.inboxStore.list({ sort: 'age', dir: 'desc', limit: 6 }) : [];
-  res.type('html').send(render(renderPanelHome({ recent })));
+  if (!ctx.inboxStore) return undefined;
+  const offset = Number.parseInt(String(req.query.offset ?? '0'), 10);
+  return buildPanelList(ctx.inboxStore, {
+    tab: parsePanelTab(req.query.tab),
+    q: typeof req.query.q === 'string' ? req.query.q : '',
+    offset: Number.isFinite(offset) ? offset : 0,
+  });
+}
+inboxRouter.get('/panel/home', (req: Request, res: Response) => {
+  const list = panelListFor(req);
+  if (!list) { res.status(404).type('html').send('<p>Inbox unavailable.</p>'); return; }
+  res.type('html').send(render(renderPanelHome(list)));
+});
+inboxRouter.get('/panel/list', (req: Request, res: Response) => {
+  const list = panelListFor(req);
+  if (!list) { res.status(404).type('html').send('<p>Inbox unavailable.</p>'); return; }
+  res.setHeader('X-Panel-Tab', list.tab);
+  res.setHeader('X-Panel-Has-More', list.hasMore ? '1' : '0');
+  res.type('html').send(render(req.query.rows === '1' ? renderPanelRows(list.rows) : renderPanelList(list)));
 });
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {

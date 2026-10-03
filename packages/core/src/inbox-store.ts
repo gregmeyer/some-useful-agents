@@ -286,6 +286,10 @@ export interface AddMessageInput {
 
 export interface ListMessagesOpts {
   status?: InboxStatus;
+  /** Any of these statuses, search or not (wins over `status`). The panel's tabs use it. */
+  statuses?: InboxStatus[];
+  /** Any of these sources (wins over `source`); include `conversation` to see agent chats. */
+  sources?: InboxSource[];
   priority?: InboxPriority;
   limit?: number;
   /** Zero-based row offset for pagination. Default 0. */
@@ -620,7 +624,11 @@ export class InboxStore {
     const where: string[] = [];
     const params: (string | number | null)[] = [];
     const hasSearch = typeof opts.q === 'string' && opts.q.trim().length > 0;
-    if (opts.status !== undefined) {
+    if (opts.statuses && opts.statuses.length > 0) {
+      for (const s of opts.statuses) this.validateStatus(s);
+      where.push(`status IN (${opts.statuses.map(() => '?').join(', ')})`);
+      params.push(...opts.statuses);
+    } else if (opts.status !== undefined) {
       this.validateStatus(opts.status);
       where.push('status = ?');
       params.push(opts.status);
@@ -635,7 +643,11 @@ export class InboxStore {
       where.push('priority = ?');
       params.push(opts.priority);
     }
-    if (typeof opts.source === 'string' && opts.source) {
+    if (opts.sources && opts.sources.length > 0) {
+      for (const s of opts.sources) this.validateSource(s);
+      where.push(`source IN (${opts.sources.map(() => '?').join(', ')})`);
+      params.push(...opts.sources);
+    } else if (typeof opts.source === 'string' && opts.source) {
       where.push('source = ?');
       params.push(opts.source);
     } else {
@@ -697,6 +709,13 @@ export class InboxStore {
       LIMIT ? OFFSET ?
     `).all(...params, limit, offset) as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToMessage(r));
+  }
+
+  /** How many rows `list(opts)` would match, without limit or offset. */
+  count(opts: ListMessagesOpts = {}): number {
+    const { whereSql, params } = this.buildListWhere(opts);
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM inbox_messages WHERE ${whereSql}`).get(...params) as { n: number };
+    return Number(row.n);
   }
 
   list(opts: ListMessagesOpts = {}): InboxMessage[] {
