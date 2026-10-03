@@ -35,8 +35,6 @@ import { INSTALL_PACKS_MODAL_JS } from './install-packs-modal.js.js';
 import { INBOX_MODAL_JS } from './inbox-modal.js.js';
 import { INBOX_BADGE_JS } from './inbox-badge.js.js';
 import { INBOX_STREAM_JS } from './inbox-stream.js.js';
-import { INBOX_LIST_JS } from './inbox-list.js.js';
-import { HOME_INBOX_JS } from './home-inbox.js.js';
 import { ALLOWED_SUB_AGENTS_PICKLIST_JS } from './allowed-sub-agents-picklist.js.js';
 import { NODE_DISCOVERY_JS } from './node-discovery.js.js';
 import { APP_ASK_JS } from './app-ask.js.js';
@@ -58,6 +56,6 @@ export const CLIENT_BUNDLE_JS: string =
   + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS
   + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS
   + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + INBOX_BADGE_JS
-  + INBOX_STREAM_JS + INBOX_LIST_JS + HOME_INBOX_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS
+  + INBOX_STREAM_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS
   + NODE_DISCOVERY_JS + APP_ASK_JS + MINI_DAG_TIP_JS + AGENT_ID_SLUG_JS
   + AGENT_CHAT_JS + A2UI_LOADER_JS;

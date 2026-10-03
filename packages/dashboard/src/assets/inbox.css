@@ -2276,9 +2276,6 @@ h3.inbox-modal__title {
 #inbox-modal[data-panel] .inbox-modal__close { top: calc((var(--topbar-height) - 28px) / 2); }
 /* The panel bar has its own "open in the inbox"; the thread's full-page link would repeat it. */
 #inbox-modal[data-panel] .inbox-modal__permalink { display: none; }
-/* "Move beside the page" belongs to the centered thread view only. */
-.inbox-modal__hicon.inbox-modal__dock { display: none; }
-#inbox-modal:not([data-panel]) .inbox-modal__hicon.inbox-modal__dock { display: inline-flex; }
 
 /* Motion (DESIGN.md): enter ease-out, exit ease-in, move ease-in-out, under 200ms.
  * inbox-modal.js.ts adds these classes only for things you just did. */
@@ -2444,3 +2441,68 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 .panel-home__yours { flex: none; color: var(--color-warn); }
 .panel-home__empty { padding: var(--space-4) var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .panel-home__more { align-self: center; }
+
+/* ---------- The list column and the thread, beside each other or in turn ----------
+ * #inbox-modal-list holds the inbox (views/panel-home.ts); #inbox-modal-content
+ * the open thread. In the panel they take turns (data-panel-view home | thread);
+ * on Home (data-panel="page") they sit side by side. */
+.inbox-modal__panes { flex: 1; min-height: 0; display: flex; }
+.inbox-modal__list { display: none; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+#inbox-modal-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+#inbox-modal[data-panel]:not([data-panel="page"])[data-panel-view="home"] .inbox-modal__list { display: block; flex: 1; }
+#inbox-modal[data-panel]:not([data-panel="page"])[data-panel-view="home"] #inbox-modal-content { display: none; }
+
+/* Home: the inbox canvas fills the page under its header. */
+.inbox-split {
+  height: calc(100vh - 16rem);
+  min-height: 30rem;
+  margin-top: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+}
+#inbox-modal[data-panel="page"] {
+  position: static;
+  display: flex;
+  flex: 1;
+  width: auto;
+  height: auto;
+  background: none;
+  z-index: auto;
+  animation: none;
+}
+#inbox-modal[data-panel="page"] .modal.inbox-modal {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  resize: none;
+}
+#inbox-modal[data-panel="page"] .inbox-modal__panelbar,
+#inbox-modal[data-panel="page"] .inbox-modal__close,
+#inbox-modal[data-panel="page"] .inbox-modal__permalink { display: none; }
+#inbox-modal[data-panel="page"] .inbox-modal__list {
+  display: block;
+  flex: 0 0 min(400px, 40%);
+  padding: var(--space-3);
+  border-right: 1px solid var(--color-border);
+}
+#inbox-modal[data-panel="page"] #inbox-modal-content { padding: 0 var(--space-4); }
+#inbox-modal[data-panel="page"] .inbox-composer { background: var(--color-surface); }
+.panel-home__thread[aria-current="true"] { background: var(--color-surface-raised); }
+.inbox-split__empty { margin: 0; padding: var(--space-8) var(--space-4); text-align: center; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+/* Narrow screens: list or thread, with "← Inbox" to go back. */
+@media (max-width: 900px) {
+  .inbox-split { height: calc(100vh - 12rem); }
+  #inbox-modal[data-panel="page"][data-panel-view="thread"] .inbox-modal__list { display: none; }
+  #inbox-modal[data-panel="page"][data-panel-view="home"] #inbox-modal-content { display: none; }
+  #inbox-modal[data-panel="page"][data-panel-view="home"] .inbox-modal__list { flex: 1; border-right: 0; }
+  #inbox-modal[data-panel="page"][data-panel-view="thread"] .inbox-modal__panelbar { display: flex; padding: 0 var(--space-3); margin: 0; }
+  #inbox-modal[data-panel="page"] .inbox-modal__panelbar > :not([data-panel-back]) { display: none; }
+}
