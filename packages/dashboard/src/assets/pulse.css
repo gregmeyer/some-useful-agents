@@ -1212,7 +1212,6 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .board-toolbar__status { font-size: var(--font-size-xs); }
 .board-toolbar__status--error { color: var(--color-err); }
 .board-toolbar__text { min-width: 14rem; padding: var(--space-1) var(--space-2); font: inherit; font-size: var(--font-size-sm); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
-.board-toolbar__select { font: inherit; font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm, 4px); }
 .board-toolbar [hidden] { display: none !important; }
 
 /* Board pages (/pulse, /dashboards/:id as boards). */

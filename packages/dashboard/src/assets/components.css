@@ -1691,3 +1691,88 @@
   color: var(--color-text);
 }
 .a2ui-host--error { font-size: var(--font-size-xs); color: var(--color-err); }
+
+/* ---------- Pickers (assets/picker.js): menu, searchable list, prompt ---------- */
+.picker { position: relative; display: inline-block; }
+.picker__button { display: inline-flex; align-items: center; gap: var(--space-2); }
+.picker__caret { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.picker__button[aria-expanded="true"] { border-color: var(--color-primary); color: var(--color-text); }
+.picker__pop {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 14rem;
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  animation: picker-in 120ms ease-out;
+}
+.picker__pop[hidden] { display: none; }
+.picker__pop--search { width: min(28rem, 90vw); }
+.picker__pop--prompt { width: min(26rem, 90vw); }
+.picker__pop:focus { outline: none; }
+@keyframes picker-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .picker__pop { animation: none; } }
+.picker__search,
+.picker__prompt-text {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.picker__prompt-text { resize: vertical; min-height: 4.5rem; }
+.picker__search:focus,
+.picker__prompt-text:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--shadow-focus); }
+.picker__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.picker__chip {
+  padding: 2px var(--space-2);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.picker__chip:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.picker__chip[aria-pressed="true"] { color: var(--color-primary); border-color: var(--color-primary); background: var(--color-primary-soft); }
+.picker__list { list-style: none; margin: 0; padding: 0; max-height: 20rem; overflow-y: auto; scrollbar-width: thin; }
+.picker__group {
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+.picker__option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.picker__pop--menu .picker__option { flex-direction: row; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.picker__option.is-active { background: var(--color-primary-soft); }
+.picker__option-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.picker__option-label { color: var(--color-text); font-size: var(--font-size-sm); }
+.picker__option-sub { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.picker__option-detail { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker__tag { font-size: var(--font-size-xs); color: var(--color-primary); }
+.picker__empty { padding: var(--space-3) var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.picker__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.picker__count { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.picker__prompt { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+.picker__prompt-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }

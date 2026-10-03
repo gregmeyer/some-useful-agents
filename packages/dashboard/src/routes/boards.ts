@@ -117,13 +117,15 @@ boardsRouter.get('/boards/:id.json', (req: Request, res: Response) => {
 });
 
 /** Agents that can go on a board (they have a tile), for the editor's Add menu. */
-function placeableAgents(ctx: ReturnType<typeof getContext>): Array<{ id: string; name: string; size: string }> {
+function placeableAgents(ctx: ReturnType<typeof getContext>): Array<{ id: string; name: string; description: string; size: string }> {
   return ctx.agentStore.listAgents()
     .map(withTileSignal)
     .filter((a): a is NonNullable<typeof a> => Boolean(a?.signal))
     .map((a) => ({
       id: a.id,
-      name: a.signal!.title || a.name || a.id,
+      // A tile title can be a template ("{{inputs.SEARCH_QUERY}}") filled per run; it isn't a name.
+      name: (a.signal!.title && !a.signal!.title.includes('{{') ? a.signal!.title : '') || a.name || a.id,
+      description: (a.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
       size: a.signal!.size ?? TEMPLATE_REGISTRY[normalizeSignal(a.signal!).template]?.defaultSize ?? '1x1',
     }))
     .sort((a, b) => a.name.localeCompare(b.name));

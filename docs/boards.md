@@ -51,7 +51,7 @@ New agents never run before you approve them. If some tiles didn't run cleanly, 
 
 Press **✎ Arrange** on Pulse or a dashboard (on a wide screen). An outline of the board appears on the left; pick something there, or click a tile or a section title on the board.
 
-- **+ Add…** a section, heading, note, grid, row, tabs, card or health tile; **+ Agent tile…** any agent with a tile. New things go *into* the selection when it holds things (a section, grid, row, tabs, card), otherwise just after it.
+- **+ Add** a section, grid, row, tabs, card, heading, note or health tile; **+ Agent tile** any agent with a tile. The agent list searches by name, id or what the agent does, starts on the agents not yet on this board (**All** and **On this board** are a click away), and shows 20 at a time. New things go *into* the selection when it holds things (a section, grid, row, tabs, card), otherwise just after it.
 - **Wrap in…** puts the selection inside a section, card, row, column or tabs (tabs turn a section into a tab you can add others beside). **Unwrap** puts a container's contents back where it was.
 - **Move**: drag in the outline (onto a container to move into it, onto anything else to move before it), or Alt+↑/↓ to move within its parent.
 - **Settings** for the selection sit under the outline: a section's title, a heading's or note's text, a grid's tile width, tab titles, and a tile's palette and how many columns and rows it takes in its grid.
@@ -62,7 +62,7 @@ Every change is applied by the dashboard with the same rules agents use, so the 
 
 ## Suggest a layout
 
-**✨ Suggest a layout** asks the layout planner to arrange the board. Its suggestion opens in Arrange mode as unsaved changes, with the planner's summary above the board: adjust it, then **Save**, or **Cancel** to keep the board as it was.
+**✨ Suggest a layout** asks how you want the board arranged ("what needs attention first", "group by topic", or your own words), then has the layout planner arrange it that way. Leave the box empty for its best guess. Its suggestion opens in Arrange mode as unsaved changes, with the planner's summary above the board: adjust it, then **Save**, or **Cancel** to keep the board as it was.
 
 ## Agents and MCP clients
 
