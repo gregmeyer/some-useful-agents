@@ -16,9 +16,9 @@ export function renderInboxModalShell(): SafeHtml {
         ${/* Conversation panel controls (shown only when the modal is docked as the panel). */ ''}
         <div class="inbox-modal__panelbar">
           <button type="button" class="inbox-modal__panelbar-back" data-panel-back>← Inbox</button>
-          <span class="inbox-modal__panelbar-title">Inbox</span>
-          <a class="inbox-modal__panelbar-btn" href="/inbox" data-panel-inbox aria-label="Open in the inbox" title="Open in the inbox">↗</a>
-          <button type="button" class="inbox-modal__panelbar-btn" data-panel-wide aria-label="Widen" title="Widen">⤢</button>
+          <span class="inbox-modal__panelbar-title" data-panel-title>Inbox</span>
+          <button type="button" class="inbox-modal__panelbar-btn inbox-modal__panelbar-btn--new" data-panel-new aria-label="New conversation" title="New conversation">+</button>
+          <button type="button" class="inbox-modal__panelbar-btn" data-panel-wide aria-label="Widen" title="Widen"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"></path></svg></button>
           <button type="button" class="inbox-modal__panelbar-btn" data-panel-min aria-label="Minimize" title="Minimize">–</button>
         </div>
         <button type="button" class="inbox-modal__close" data-inbox-modal-close aria-label="Close">×</button>
@@ -32,8 +32,9 @@ export function renderInboxModalShell(): SafeHtml {
       </div>
     </div>
     <button type="button" class="sua-panel-pill" data-panel-restore hidden>
-      <span class="sua-panel-pill__dot" aria-hidden="true"></span>
+      <span class="sua-panel-pill__avatar" aria-hidden="true">s</span>
       <span data-panel-pill-text>Conversation</span>
+      <span class="sua-panel-pill__dot" aria-hidden="true"></span>
     </button>
   `;
 }

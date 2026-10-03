@@ -1877,7 +1877,7 @@ describe('conversation panel', () => {
   const panel = (app: Parameters<typeof request>[0], path: string) =>
     request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
-  it('GET /panel/home is your inbox: an ask box, tabs with counts, and the Needs you threads first', async () => {
+  it('GET /panel/home is your inbox: one search-or-ask field, tabs with counts, Needs you threads grouped and tagged', async () => {
     const app = await makeApp();
     const failure = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
     const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: '<b>my question</b>', body: '(empty)' });
@@ -1888,16 +1888,16 @@ describe('conversation panel', () => {
 
     const res = await panel(app, '/panel/home');
     expect(res.status).toBe(200);
-    expect(res.text).toContain('action="/inbox/new" data-home-ask');
-    expect(res.text).toContain('data-panel-search');
+    expect(res.text).toContain('placeholder="Search or ask sua…"');
+    expect(res.text).toContain('data-panel-askrow hidden');
+    expect(res.text).toContain('Waiting on you');
+    expect(res.text).toContain('panel-row__tag--answer">Answer');
+    expect(res.text).toContain('Open full inbox');
     expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Needs you[\s\S]*?>1</);
     expect(res.text).toContain(`data-panel-thread-id="${waiting.id}"`);
     expect(res.text).not.toContain(`data-panel-thread-id="${failure.id}"`);
     expect(res.text).toContain('&lt;b&gt;my question&lt;/b&gt;');
-    expect(res.text).toContain('sua ›</span> Here is the answer.');
-    expect(res.text).toContain('Your turn');
-    // Starter chips only when there's nothing in the inbox.
-    expect(res.text).not.toContain('data-panel-ask=');
+    expect(res.text).toContain('sua: Here is the answer.');
 
     const open = await panel(app, '/panel/list?tab=open');
     expect(open.headers['x-panel-tab']).toBe('open');
@@ -1982,11 +1982,14 @@ describe('conversation panel', () => {
     expect(res.text).not.toMatch(/<a href="\/inbox" class="[^"]*">Inbox<\/a>/);
   });
 
-  it('starts empty with a few things to ask', async () => {
+  it('an empty inbox says so; "+" (GET /panel/new) offers a box to ask sua and a few starting points', async () => {
     const app = await makeApp();
     const res = await panel(app, '/panel/home');
-    expect(res.text).toContain('data-panel-ask="What failed overnight?"');
     expect(res.text).toContain('No open threads.');
+    const fresh = await panel(app, '/panel/new');
+    expect(fresh.text).toContain('What should sua do?');
+    expect(fresh.text).toContain('action="/inbox/new" data-home-ask');
+    expect(fresh.text).toContain('data-panel-ask="What failed overnight?"');
   });
 
   it('every page carries the panel controls and the minimized pill, hidden until used', async () => {

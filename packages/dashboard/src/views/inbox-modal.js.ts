@@ -53,6 +53,8 @@ export const INBOX_MODAL_JS = `
   // null = closed; 'docked' | 'wide' | 'min' beside a page; 'page' = /inbox,
   // where the same thing fills the page with the list and the thread side by side.
   var panelMode = null;
+  // With no thread open, the list column shows the inbox ('home') or a fresh conversation ('new').
+  var listView = 'home';
   // The inbox list lives in its own column next to the thread (#inbox-modal-list).
   var listHost = document.getElementById('inbox-modal-list') || content;
   var pageHost = document.querySelector('[data-inbox-split]');
@@ -157,13 +159,16 @@ export const INBOX_MODAL_JS = `
       toggles[ti].setAttribute('aria-pressed', open ? 'true' : 'false');
     }
     // The bar shows "← Inbox" over a thread and "Inbox" over the list.
-    modal.setAttribute('data-panel-view', currentId ? 'thread' : 'home');
+    var view = currentId ? 'thread' : listView;
+    modal.setAttribute('data-panel-view', view);
+    var titleEl = modal.querySelector('[data-panel-title]');
+    if (titleEl) titleEl.textContent = view === 'new' ? 'New conversation' : 'Inbox';
     var link = modal.querySelector('[data-panel-inbox]');
     if (link) link.setAttribute('href', currentId ? inboxThreadHref(currentId) : '/inbox');
     var wide = modal.querySelector('[data-panel-wide]');
     if (wide) {
       var label = panelMode === 'wide' ? 'Back to the side' : 'Widen';
-      wide.textContent = panelMode === 'wide' ? '⤡' : '⤢';
+      wide.classList.toggle('is-on', panelMode === 'wide');
       wide.setAttribute('aria-label', label);
       wide.setAttribute('title', label);
     }
@@ -839,7 +844,8 @@ export const INBOX_MODAL_JS = `
         if (currentId) { setPanelMode('docked'); focusFirstInteractive(); } else openPanelHome();
       }
       else if (panelCtl.hasAttribute('data-panel-back') && panelMode === 'page') deselectPage();
-      else if (panelCtl.hasAttribute('data-panel-new') || panelCtl.hasAttribute('data-panel-back')) openPanelHome();
+      else if (panelCtl.hasAttribute('data-panel-new')) openPanelNew();
+      else if (panelCtl.hasAttribute('data-panel-back')) openPanelHome();
       else if (panelCtl.hasAttribute('data-panel-tab')) {
         listState.tab = panelCtl.getAttribute('data-panel-tab') || '';
         var tabs = listHost.querySelectorAll('[data-panel-tab]');
@@ -867,6 +873,9 @@ export const INBOX_MODAL_JS = `
 
   document.addEventListener('keydown', function (e) {
     if (!modal || e.key !== 'Escape' || modal.hidden) return;
+    // Esc in a search with text clears the search first (handled below), not the drawer.
+    var ae = document.activeElement;
+    if (ae && ae.hasAttribute && ae.hasAttribute('data-panel-search') && ae.value) return;
     // The panel isn't modal: Esc closes it only from inside it.
     if (panelMode === 'page' || panelMode === 'min' || !modal.contains(document.activeElement)) return;
     close();
@@ -1139,6 +1148,7 @@ export const INBOX_MODAL_JS = `
     stopPoll();
     closeEventSource();
     currentId = null;
+    listView = 'home';
     seenMsgIds = Object.create(null);
     listHost.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Loading…</p>';
     if (panelMode === 'page') content.innerHTML = pageEmpty();
@@ -1152,8 +1162,9 @@ export const INBOX_MODAL_JS = `
         listPaged = false;
         markSelected();
         applyPanel();
-        var ta = listHost.querySelector('[data-panel-composer]');
-        if (ta && panelMode !== 'min' && !restoring) ta.focus();
+        labelKeys();
+        var field = listHost.querySelector('[data-panel-search]');
+        if (field && panelMode !== 'min' && panelMode !== 'page' && !restoring) field.focus();
       })
       .catch(function () {
         listHost.innerHTML = '<p class="dim" style="margin:0;padding:var(--space-4) 0;text-align:center;">Couldn’t load. Close the panel and try again.</p>';
@@ -1164,7 +1175,7 @@ export const INBOX_MODAL_JS = `
   function togglePanel() {
     if (!modal) return;
     if (panelMode === 'page') {
-      var box = listHost.querySelector('[data-panel-composer]');
+      var box = listHost.querySelector('[data-panel-search]');
       if (box) box.focus();
       return;
     }
@@ -1301,6 +1312,75 @@ export const INBOX_MODAL_JS = `
       .then(function () { if (btn) btn.disabled = false; });
   });
 
+  /** Shortcut labels name this keyboard's key (lists load after page load, so call again then). */
+  function labelKeys() {
+    if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')) return;
+    var keys = document.querySelectorAll('[data-panel-key]');
+    for (var ki = 0; ki < keys.length; ki++) keys[ki].textContent = 'Ctrl K';
+  }
+
+  /** "+": a fresh conversation in the list column (GET /panel/new). */
+  function openPanelNew() {
+    if (!modal) return;
+    if (!panelMode || panelMode === 'min') panelMode = 'docked';
+    stopPoll();
+    closeEventSource();
+    currentId = null;
+    listView = 'new';
+    open();
+    fetch('/panel/new', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('panel new ' + r.status); return r.text(); })
+      .then(function (markup) {
+        if (currentId !== null || listView !== 'new') return;
+        listHost.innerHTML = markup;
+        applyPanel();
+        var box = listHost.querySelector('[data-panel-composer]');
+        if (box) box.focus();
+      })
+      .catch(function () { openPanelHome(); });
+  }
+
+  /** The search field asks sua on Enter: a new conversation with that text, opened here. */
+  function askFromSearch(text) {
+    text = String(text || '').trim();
+    if (!text) return;
+    fetch('/inbox/new', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+      body: new URLSearchParams({ body: text }).toString(),
+    })
+      .then(function (r) { var id = r.headers.get('X-Inbox-Id'); if (!r.ok || !id) throw new Error('ask ' + r.status); return id; })
+      .then(function (id) {
+        listState.q = '';
+        openFor(id, panelMode === 'page' ? { panel: 'page' } : {});
+      })
+      .catch(function () { /* the text stays in the field to retry */ });
+  }
+  function syncAskRow(text) {
+    var row = listHost.querySelector('[data-panel-askrow]');
+    if (!row) return;
+    var t = String(text || '').trim();
+    row.hidden = !t;
+    var slot = row.querySelector('[data-panel-askrow-text]');
+    if (slot) slot.textContent = t;
+  }
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el && el.hasAttribute && el.hasAttribute('data-panel-search')) syncAskRow(el.value);
+  });
+  document.addEventListener('keydown', function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute('data-panel-search')) return;
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); askFromSearch(el.value); }
+    else if (e.key === 'Escape' && el.value) { e.stopPropagation(); el.value = ''; syncAskRow(''); listState.q = ''; refreshPanelList(); }
+  });
+  document.addEventListener('click', function (e) {
+    var row = e.target.closest && e.target.closest('[data-panel-askrow]');
+    if (!row) return;
+    var field = listHost.querySelector('[data-panel-search]');
+    askFromSearch(field ? field.value : '');
+  });
+
   window.suaPanel = {
     toggle: togglePanel,
     home: function () { openPanelHome(); },
@@ -1309,10 +1389,7 @@ export const INBOX_MODAL_JS = `
   };
 
   // The top-bar opener names the shortcut for this keyboard.
-  if (!/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '')) {
-    var keys = document.querySelectorAll('[data-panel-key]');
-    for (var ki = 0; ki < keys.length; ki++) keys[ki].textContent = 'Ctrl K';
-  }
+  labelKeys();
 
   // /inbox: the inbox fills the page, list and thread side by side.
   if (modal && pageHost) {

@@ -32,8 +32,12 @@ export function parsePanelTab(raw: unknown): PanelTab | undefined {
   return typeof raw === 'string' && (PANEL_TABS as readonly string[]).includes(raw) ? raw as PanelTab : undefined;
 }
 
+/** What a thread needs from you, for its row's dot and one-word tag. */
+export type PanelRowKind = 'approve' | 'answer' | 'fail';
+
 export interface PanelRow {
   message: InboxMessage;
+  kind?: PanelRowKind;
   /** The latest reply, as one line of plain text. */
   latest?: { who: 'you' | 'sua' | 'system'; text: string };
 }
@@ -129,9 +133,17 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
     // An empty "New conversation" stub isn't worth a row.
     .filter((m) => !(m.source === 'manual' && m.body === '(empty)' && m.title === 'New conversation' && !m.lastActivityAt))
     .map((message) => {
-      const latest = buildRowPreview(store, message.id).latestResponse;
+      const preview = buildRowPreview(store, message.id);
+      const latest = preview.latestResponse;
+      const kind: PanelRowKind | undefined =
+        message.status === 'resolved' || message.status === 'dismissed' ? undefined
+        : message.source === 'run-failure' || message.source === 'outcome' ? 'fail'
+        : preview.proposedActions || (message.source === 'board' && message.status === 'awaiting_user') ? 'approve'
+        : message.source === 'question' || message.status === 'awaiting_user' ? 'answer'
+        : undefined;
       return {
         message,
+        ...(kind ? { kind } : {}),
         latest: latest ? { who: latest.role === 'user' ? 'you' as const : latest.role === 'triage' ? 'sua' as const : 'system' as const, text: oneLine(latest.body) } : undefined,
       };
     });
