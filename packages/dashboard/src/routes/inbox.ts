@@ -48,7 +48,7 @@ import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-d
 import { renderInboxPage } from '../views/inbox-page.js';
 import { render } from '../views/html.js';
 import { renderPanelHome, renderPanelList, renderPanelRows } from '../views/panel-home.js';
-import { buildPanelList, parsePanelTab } from '../lib/panel-inbox.js';
+import { buildPanelList, panelFacets, parsePanelFilters, parsePanelTab } from '../lib/panel-inbox.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import {
   deriveTitleFromBody,
@@ -191,19 +191,23 @@ function panelListFor(req: Request) {
     tab: parsePanelTab(req.query.tab),
     q: typeof req.query.q === 'string' ? req.query.q : '',
     offset: Number.isFinite(offset) ? offset : 0,
+    // Home's full-width list (`wide=1`) adds filters, stars and selection.
+    wide: req.query.wide === '1',
+    filters: parsePanelFilters(req.query as Record<string, unknown>),
   });
 }
 inboxRouter.get('/panel/home', (req: Request, res: Response) => {
   const list = panelListFor(req);
   if (!list) { res.status(404).type('html').send('<p>Inbox unavailable.</p>'); return; }
-  res.type('html').send(render(renderPanelHome(list)));
+  const ctx = getContext(req.app.locals);
+  res.type('html').send(render(renderPanelHome(list, list.wide && ctx.inboxStore ? panelFacets(ctx.inboxStore) : undefined)));
 });
 inboxRouter.get('/panel/list', (req: Request, res: Response) => {
   const list = panelListFor(req);
   if (!list) { res.status(404).type('html').send('<p>Inbox unavailable.</p>'); return; }
   res.setHeader('X-Panel-Tab', list.tab);
   res.setHeader('X-Panel-Has-More', list.hasMore ? '1' : '0');
-  res.type('html').send(render(req.query.rows === '1' ? renderPanelRows(list.rows) : renderPanelList(list)));
+  res.type('html').send(render(req.query.rows === '1' ? renderPanelRows(list.rows, list.wide) : renderPanelList(list)));
 });
 
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {

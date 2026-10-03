@@ -30,7 +30,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar: `sua · Inbox · Agents · Pulse · Settings · Help`. The `sua` brand is the home link (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. An amber **"N need your reply →"** toast in the top bar (every page) appears when inbox threads are waiting for you. The **Ask sua** bar under the top bar starts a conversation with the triage agent from anywhere.
+The top bar: `sua · Agents · Pulse · Settings · Help`. The `sua` brand is Home, which is your inbox (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. An amber **"N need your reply →"** toast in the top bar (every page) appears when inbox threads are waiting for you. The **Ask sua** bar under the top bar starts a conversation with the triage agent from anywhere.
 
 ### The conversation panel
 
@@ -48,7 +48,7 @@ Home is your inbox on one canvas: the list on the left (ask box, **Needs you · 
 
 With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
 
-Filters by source, agent and tag, sort, starring and bulk resolve/dismiss from the old list page come back on this list in a follow-up.
+On Home the list also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
 
 ## `/agents` — Agents list
 

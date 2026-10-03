@@ -68,10 +68,16 @@ export const INBOX_MODAL_JS = `
     if (mode === 'page' || panelMode === 'page') return; // /inbox isn't carried to other pages
     try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed', list: listState })); } catch (_) {}
   }
+  // Home's full-width list also filters and sorts (not kept across pages).
+  var pageFilters = { source: '', agent: '', tag: '', starred: '', sort: '' };
   function listQuery(extra) {
     var p = new URLSearchParams();
     if (listState.tab) p.set('tab', listState.tab);
     if (listState.q) p.set('q', listState.q);
+    if (panelMode === 'page') {
+      p.set('wide', '1');
+      for (var fk in pageFilters) if (pageFilters[fk]) p.set(fk, pageFilters[fk]);
+    }
     for (var k in (extra || {})) p.set(k, extra[k]);
     var s = p.toString();
     return s ? '?' + s : '';
@@ -93,6 +99,7 @@ export const INBOX_MODAL_JS = `
         now.innerHTML = markup;
         listPaged = false;
         markSelected();
+        syncBulk();
         savePanel(null, panelMode);
       })
       .catch(function () { /* keep what's shown */ });
@@ -1183,9 +1190,97 @@ export const INBOX_MODAL_JS = `
   // inbox's change events). Not after "Show more", which would lose your place.
   var liveTimer = null;
   window.addEventListener('inbox:changed', function () {
-    if (!panelMode || panelMode === 'min' || (currentId && panelMode !== 'page') || listPaged) return;
+    if (!panelMode || panelMode === 'min' || (currentId && panelMode !== 'page') || listPaged || selectedIds().length) return;
     if (liveTimer) clearTimeout(liveTimer);
     liveTimer = setTimeout(refreshPanelList, 500);
+  });
+
+  // ── Home's full-width list: filters, stars, selection + bulk actions ──
+  function selectedIds() {
+    var boxes = listHost.querySelectorAll('[data-panel-select]:checked');
+    var ids = [];
+    for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].value);
+    return ids;
+  }
+  function syncBulk() {
+    var bar = listHost.querySelector('[data-panel-bulk]');
+    if (!bar) return;
+    var n = selectedIds().length;
+    var all = listHost.querySelectorAll('[data-panel-select]').length;
+    bar.hidden = n === 0;
+    var count = bar.querySelector('[data-panel-bulk-count]');
+    if (count) count.textContent = n + ' selected';
+    var master = bar.querySelector('[data-panel-select-all]');
+    if (master) { master.checked = n > 0 && n === all; master.indeterminate = n > 0 && n < all; }
+  }
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+      body: new URLSearchParams(body).toString(),
+    });
+  }
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (!el || !listHost.contains(el)) return;
+    var key = el.getAttribute && el.getAttribute('data-panel-filter');
+    if (key) {
+      pageFilters[key] = el.type === 'checkbox' ? (el.checked ? '1' : '') : String(el.value || '');
+      refreshPanelList();
+      return;
+    }
+    if (el.hasAttribute('data-panel-select-all')) {
+      var boxes = listHost.querySelectorAll('[data-panel-select]');
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = el.checked;
+      syncBulk();
+      return;
+    }
+    if (el.hasAttribute('data-panel-select')) syncBulk();
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest || !listHost.contains(t)) return;
+    var clear = t.closest('[data-panel-filter-clear]');
+    if (clear) {
+      pageFilters = { source: '', agent: '', tag: '', starred: '', sort: '' };
+      var fields = listHost.querySelectorAll('[data-panel-filter]');
+      for (var i = 0; i < fields.length; i++) { if (fields[i].type === 'checkbox') fields[i].checked = false; else fields[i].value = ''; }
+      refreshPanelList();
+      return;
+    }
+    var star = t.closest('button[data-panel-star]');
+    if (star) {
+      e.preventDefault();
+      var on = star.getAttribute('aria-pressed') !== 'true';
+      star.setAttribute('aria-pressed', on ? 'true' : 'false');
+      star.classList.toggle('is-on', on);
+      post('/inbox/' + encodeURIComponent(star.getAttribute('data-panel-star')) + '/star', { starred: on ? '1' : '0' })
+        .then(function (r) { if (!r.ok) throw new Error('star ' + r.status); })
+        .catch(function () { star.setAttribute('aria-pressed', on ? 'false' : 'true'); star.classList.toggle('is-on', !on); });
+      return;
+    }
+    if (t.closest('[data-panel-bulk-clear]')) {
+      var boxes2 = listHost.querySelectorAll('[data-panel-select]');
+      for (var j = 0; j < boxes2.length; j++) boxes2[j].checked = false;
+      syncBulk();
+      return;
+    }
+    var act = t.closest('[data-panel-bulk-action]');
+    if (act) {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      var kind = act.getAttribute('data-panel-bulk-action') === 'dismiss' ? 'dismiss' : 'resolve';
+      act.disabled = true;
+      post('/inbox/bulk-' + kind, { ids: ids.join(',') })
+        .then(function () {
+          if (currentId && ids.indexOf(currentId) !== -1 && panelMode === 'page') deselectPage();
+          var bar = listHost.querySelector('[data-panel-bulk]');
+          if (bar) bar.hidden = true;
+          refreshPanelList();
+        })
+        .catch(function () { /* the list stays as it was */ })
+        .then(function () { act.disabled = false; });
+    }
   });
 
   window.suaPanel = {

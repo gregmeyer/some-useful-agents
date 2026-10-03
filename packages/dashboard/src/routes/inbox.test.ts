@@ -1930,6 +1930,57 @@ describe('conversation panel', () => {
     expect(rest.text).not.toContain('data-panel-tab');
   });
 
+  it('Home\'s full-width list (wide=1) filters by source, agent, tag and stars, sorts, and counts every tab the same way', async () => {
+    const app = await makeApp();
+    const fail = inboxStore.add({ priority: 'high', source: 'run-failure', agentId: 'weather', title: 'weather failed', body: 'x' });
+    const ask = inboxStore.add({ priority: 'low', source: 'manual', title: 'my question', body: 'x' });
+    inboxStore.setStarred(ask.id, true);
+    inboxStore.setTags(fail.id, ['net']);
+    const done = inboxStore.add({ priority: 'low', source: 'run-failure', agentId: 'weather', title: 'old failure', body: 'x' });
+    inboxStore.updateStatus(done.id, 'resolved');
+
+    const home = await panel(app, '/panel/home?wide=1&tab=open');
+    expect(home.text).toContain('data-panel-filters');
+    expect(home.text).toContain('<option value="run-failure" >Run failures</option>');
+    expect(home.text).toContain('<option value="weather" >weather</option>');
+    expect(home.text).toContain('data-panel-bulk hidden');
+    expect(home.text).toContain(`data-panel-select value="${ask.id}"`);
+    expect(home.text).toContain(`data-panel-star="${ask.id}"`);
+
+    const failures = await panel(app, '/panel/list?wide=1&tab=open&source=run-failure');
+    expect(failures.text).toContain(fail.id);
+    expect(failures.text).not.toContain(ask.id);
+    expect(failures.text).toMatch(/data-panel-tab="done"[^>]*>[\s\S]*?>1</);
+    // A source that isn't a conversation empties Conversations instead of erroring.
+    const convo = await panel(app, '/panel/list?wide=1&tab=conversations&source=run-failure');
+    expect(convo.status).toBe(200);
+    expect(convo.text).not.toContain('data-panel-thread-id=');
+
+    expect((await panel(app, '/panel/list?wide=1&tab=open&starred=1')).text.match(/data-panel-thread-id=/g)).toHaveLength(1);
+    expect((await panel(app, '/panel/list?wide=1&tab=open&tag=net')).text).toContain(fail.id);
+    expect((await panel(app, '/panel/list?wide=1&tab=open&agent=weather')).text).not.toContain(ask.id);
+    // Starred threads lead any sort; below them, priority puts the high one first.
+    const later = inboxStore.add({ priority: 'low', source: 'cadence', title: 'a reminder', body: 'x' });
+    const recent = (await panel(app, '/panel/list?wide=1&tab=open&sort=recent')).text;
+    expect(recent.indexOf(later.id)).toBeLessThan(recent.indexOf(fail.id));
+    const byPriority = (await panel(app, '/panel/list?wide=1&tab=open&sort=priority')).text;
+    expect(byPriority.indexOf(fail.id)).toBeLessThan(byPriority.indexOf(later.id));
+    expect(byPriority.indexOf(ask.id)).toBeLessThan(byPriority.indexOf(fail.id));
+    // Unknown values are ignored, and the panel (no wide) ignores filters entirely.
+    expect((await panel(app, '/panel/list?wide=1&tab=open&source=nope')).text).toContain(ask.id);
+    const narrow = (await panel(app, '/panel/list?tab=open&source=run-failure')).text;
+    expect(narrow).toContain(ask.id);
+    expect(narrow).not.toContain('data-panel-select');
+    expect(narrow).toContain('title="Starred"');
+  });
+
+  it('the top bar has one way home: the sua brand, marked current on the inbox', async () => {
+    const app = await makeApp();
+    const res = await panel(app, '/inbox');
+    expect(res.text).toMatch(/class="topbar__brand is-active" href="\/" title="Home: your inbox" aria-current="page"/);
+    expect(res.text).not.toMatch(/<a href="\/inbox" class="[^"]*">Inbox<\/a>/);
+  });
+
   it('starts empty with a few things to ask', async () => {
     const app = await makeApp();
     const res = await panel(app, '/panel/home');

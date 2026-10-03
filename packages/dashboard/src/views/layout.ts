@@ -52,9 +52,9 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
 <body class="app" data-active-nav="${opts.activeNav ?? ''}">
 
 <header class="topbar">
-  <a class="topbar__brand ${opts.activeNav === 'home' ? 'is-active' : ''}" href="/">sua</a>
+  ${/* The brand is Home, and Home is the inbox: one link, not two. */ ''}
+  <a class="topbar__brand ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? 'is-active' : ''}" href="/" title="Home: your inbox" ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? html`aria-current="page"` : html``}>sua</a>
   <nav class="topbar__nav">
-    <a href="/inbox" class="${opts.activeNav === 'inbox' ? 'is-active' : ''}">Inbox</a>
     <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>
