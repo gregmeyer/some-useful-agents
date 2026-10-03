@@ -701,6 +701,13 @@ assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
 });
 
+// Toolbar pickers (menu, searchable list, prompt), imported by the canvas editor.
+const PICKER_JS = readAsset('picker.js');
+assetsRouter.get('/assets/picker.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(PICKER_JS);
+});
+
 // Canvas editor (docs/boards.md): a plain ES module, loaded only on a board's canvas page.
 const BOARD_CANVAS_EDITOR_JS = readAsset('board-canvas-editor.js');
 assetsRouter.get('/assets/board-canvas-editor.js', (_req: Request, res: Response) => {

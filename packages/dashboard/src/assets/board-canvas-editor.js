@@ -11,6 +11,7 @@
 // the canvas. Outline keys: ↑/↓ select, Alt+↑/↓ move within the parent,
 // Delete removes, Enter focuses the selection's settings.
 import { boardEdit, remountBoard } from '/assets/a2ui-sua.js';
+import { menuButton, searchPicker, promptPopover } from '/assets/picker.js';
 
 const dataEl = document.getElementById('board-canvas-data');
 const host = document.querySelector('[data-board-canvas]');
@@ -213,19 +214,23 @@ function init(data) {
 
   // ── Toolbar ──────────────────────────────────────────────────────────
   const btn = (text, cls = 'btn--ghost') => Object.assign(document.createElement('button'), { type: 'button', className: `btn btn--sm ${cls}`, textContent: text });
-  const menu = (labelText, options, onPick) => {
-    const s = document.createElement('select');
-    s.className = 'board-toolbar__select';
-    s.setAttribute('aria-label', labelText);
-    s.append(new Option(labelText, ''));
-    for (const [v, t] of options) s.append(new Option(t, v));
-    s.addEventListener('change', () => { const v = s.value; s.value = ''; if (v) onPick(v); });
-    return s;
-  };
-  const addMenu = menu('+ Add…', [
-    ['section', 'Section'], ['heading', 'Heading'], ['note', 'Note'], ['grid', 'Grid of tiles'], ['row', 'Row'], ['tabs', 'Tabs'], ['card', 'Card'],
-    ...(data.systemTiles.length ? [['system', 'Health tile…']] : []),
-  ], (kind) => {
+  const addMenu = menuButton({
+    label: '+ Add',
+    groups: [
+      { title: 'Structure', items: [
+        { value: 'section', label: 'Section', hint: 'titled group' },
+        { value: 'grid', label: 'Grid of tiles' },
+        { value: 'row', label: 'Row' },
+        { value: 'tabs', label: 'Tabs' },
+        { value: 'card', label: 'Card' },
+      ] },
+      { title: 'Text', items: [
+        { value: 'heading', label: 'Heading' },
+        { value: 'note', label: 'Note' },
+      ] },
+      { title: 'Tiles', items: data.systemTiles.length ? [{ value: 'system', label: 'Health tile', hint: 'runs, failures, scheduler' }] : [] },
+    ],
+    onPick: (kind) => {
     const t = target();
     if (kind === 'section') return apply([{ op: 'insert', ...t, node: { type: 'section', title: 'New section' } }]);
     if (kind === 'heading') return apply([{ op: 'insert', ...t, node: { type: 'heading', text: 'Heading' } }]);
@@ -237,12 +242,37 @@ function init(data) {
       return apply([{ op: 'insert', ...t, node: { type: 'system', tileId: free.id } }]);
     }
     return apply([{ op: 'insert', ...t, node: { type: kind } }]);
-  });
-  const tileMenu = menu('+ Agent tile…', data.agents.map((a) => [a.id, a.name]), (agentId) => apply([{ op: 'insert', ...target(), node: { type: 'tile', agentId } }]));
-  const wrapMenu = menu('Wrap in…', [['section', 'Section'], ['card', 'Card'], ['row', 'Row'], ['column', 'Column'], ['tabs', 'Tabs']], (kind) => {
-    if (selected === 'root') { say('Pick something inside the board to wrap.', true); return; }
-    apply([{ op: 'wrap', id: selected, in: kind, ...(kind === 'section' ? { title: 'New section' } : {}) }], { keep: true });
-  });
+    },
+  }).el;
+  // Agents already on the board, from the doc being edited.
+  const onBoard = () => new Set(doc.components.filter((c) => c.component === 'AgentTile').map((c) => c.agentId));
+  const tileMenu = searchPicker({
+    label: '+ Agent tile',
+    placeholder: 'Search agents by name, id or what they do',
+    items: () => {
+      const placed = onBoard();
+      return data.agents.map((a) => ({ value: a.id, label: a.name, sub: a.name === a.id ? '' : a.id, detail: a.description || '', tags: placed.has(a.id) ? ['on this board'] : [], placed: placed.has(a.id) }));
+    },
+    filters: [
+      { id: 'free', label: 'Not on this board', test: (it) => !it.placed },
+      { id: 'all', label: 'All', test: () => true },
+      { id: 'placed', label: 'On this board', test: (it) => it.placed },
+    ],
+    pageSize: 20,
+    empty: 'No agents match. Agents show up here once they have a tile view.',
+    onPick: (agentId) => apply([{ op: 'insert', ...target(), node: { type: 'tile', agentId } }]),
+  }).el;
+  const wrapMenu = menuButton({
+    label: 'Wrap in',
+    groups: [{ items: [
+      { value: 'section', label: 'Section' }, { value: 'card', label: 'Card' }, { value: 'row', label: 'Row' },
+      { value: 'column', label: 'Column' }, { value: 'tabs', label: 'Tabs' },
+    ] }],
+    onPick: (kind) => {
+      if (selected === 'root') { say('Pick something inside the board to wrap.', true); return; }
+      apply([{ op: 'wrap', id: selected, in: kind, ...(kind === 'section' ? { title: 'New section' } : {}) }], { keep: true });
+    },
+  }).el;
   const unwrapBtn = btn('Unwrap');
   unwrapBtn.title = 'Put this container’s contents where it is';
   unwrapBtn.addEventListener('click', () => apply([{ op: 'unwrap', id: selected }]));
@@ -299,13 +329,23 @@ function init(data) {
   });
 
   // ── Suggest a layout: the layout planner's plan, opened as unsaved changes ─
+  // Asks what you want first (an empty answer is fine), so the suggestion is tuned, not a guess.
   const suggestBtn = toolbar.querySelector('[data-canvas-suggest]');
-  suggestBtn?.addEventListener('click', async () => {
+  if (suggestBtn) promptPopover({
+    button: suggestBtn,
+    title: 'How should this board be arranged?',
+    placeholder: 'e.g. failures and alerts first, then the morning reads; keep it to two columns',
+    suggestions: ['What needs attention first', 'Group by topic', 'Compact: fit it on one screen', 'Big tiles for the important ones'],
+    submitLabel: 'Suggest',
+    hint: 'Leave it empty for sua’s best guess. You review it before saving.',
+    onSubmit: suggestLayout,
+  });
+  async function suggestLayout(focus) {
     if (dirty) { say('Save or cancel your changes first.', true); return; }
     suggestBtn.disabled = true;
-    say('Asking the layout planner…');
+    say(focus ? `Asking the layout planner: “${focus}”…` : 'Asking the layout planner…');
     try {
-      const start = await post(data.plannerUrl, { focus: '' });
+      const start = await post(data.plannerUrl, { focus });
       if (!start.ok || !start.json.ok) throw new Error(start.json.error || 'The layout planner didn’t start.');
       let plan = null;
       for (let i = 0; i < 150 && !plan; i++) {
@@ -331,7 +371,7 @@ function init(data) {
     } catch (err) {
       say(err && err.message ? err.message : 'Couldn’t suggest a layout.', true);
     } finally { suggestBtn.disabled = false; }
-  });
+  }
 
   // ── One-time: start Pulse from the old Pulse's arrangement in this browser ─
   if (data.offerImport) {

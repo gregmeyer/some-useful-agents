@@ -138,6 +138,17 @@ describe('boards are canvases', () => {
 });
 
 describe('arranging a canvas', () => {
+  it('lists agents for the tile picker with what they do, and never names one by an unfilled template title', async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'job-search', name: 'Job Search', description: 'Finds\n  roles   on job boards.', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: '{{inputs.SEARCH_QUERY}}', template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+    const data = editorData((await get(app, '/dashboards/user:morning')).text);
+    const agents = data.agents as Array<{ id: string; name: string; description: string }>;
+    expect(agents.find((a) => a.id === 'job-search')).toMatchObject({ name: 'Job Search', description: 'Finds roles on job boards.' });
+    expect(agents.find((a) => a.id === 'news')).toMatchObject({ name: 'news', description: '' });
+    expect(agents.some((a) => a.name.includes('{{'))).toBe(false);
+  });
+
   it('applies tree operations to a working copy (nothing saved), then saves with a version and undoes', async () => {
     const app = await setup();
     const data = editorData((await get(app, '/dashboards/user:morning')).text);
