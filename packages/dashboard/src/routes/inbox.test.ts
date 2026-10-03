@@ -2081,25 +2081,67 @@ describe('POST /inbox/trust/* — operator-tunable trust policy (B2)', () => {
 });
 
 describe('conversation panel', () => {
-  it('GET /panel/home offers a box to ask sua and your recent open threads, newest activity first', async () => {
+  const panel = (app: Parameters<typeof request>[0], path: string) =>
+    request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+
+  it('GET /panel/home is your inbox: an ask box, tabs with counts, and the Needs you threads first', async () => {
     const app = await makeApp();
-    const older = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
+    const failure = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
     const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: '<b>my question</b>', body: '(empty)' });
     inboxStore.updateStatus(waiting.id, 'awaiting_user');
+    inboxStore.addResponse(waiting.id, 'triage', 'Here is **the** answer.');
     const done = inboxStore.add({ priority: 'medium', source: 'manual', title: 'all done', body: 'x' });
     inboxStore.updateStatus(done.id, 'resolved');
-    inboxStore.addResponse(waiting.id, 'user', 'later activity');
 
-    const res = await request(app).get('/panel/home').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const res = await panel(app, '/panel/home');
     expect(res.status).toBe(200);
     expect(res.text).toContain('action="/inbox/new" data-home-ask');
-    expect(res.text).toContain('data-panel-composer');
-    expect(res.text).toContain('data-panel-ask="What failed overnight?"');
+    expect(res.text).toContain('data-panel-search');
+    expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Needs you[\s\S]*?>1</);
+    expect(res.text).toContain(`data-panel-thread-id="${waiting.id}"`);
+    expect(res.text).not.toContain(`data-panel-thread-id="${failure.id}"`);
     expect(res.text).toContain('&lt;b&gt;my question&lt;/b&gt;');
-    expect(res.text).not.toContain('all done');
-    expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeGreaterThan(-1);
-    expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${older.id}"`));
+    expect(res.text).toContain('sua ›</span> Here is the answer.');
     expect(res.text).toContain('Your turn');
+    // Starter chips only when there's nothing in the inbox.
+    expect(res.text).not.toContain('data-panel-ask=');
+
+    const open = await panel(app, '/panel/list?tab=open');
+    expect(open.headers['x-panel-tab']).toBe('open');
+    expect(open.text).toContain(`data-panel-thread-id="${failure.id}"`);
+    expect(open.text).not.toContain(`data-panel-thread-id="${done.id}"`);
+    const finished = await panel(app, '/panel/list?tab=done');
+    expect(finished.text).toContain(`data-panel-thread-id="${done.id}"`);
+    const mine = await panel(app, '/panel/list?tab=conversations');
+    expect(mine.text).toContain(`data-panel-thread-id="${waiting.id}"`);
+    expect(mine.text).toContain(`data-panel-thread-id="${done.id}"`);
+    expect(mine.text).not.toContain(`data-panel-thread-id="${failure.id}"`);
+  });
+
+  it('search stays inside the tab, and pages come 25 at a time', async () => {
+    const app = await makeApp();
+    const finished = inboxStore.add({ priority: 'medium', source: 'manual', title: 'digest from monday', body: 'x' });
+    inboxStore.updateStatus(finished.id, 'resolved');
+    for (let i = 0; i < 27; i++) inboxStore.add({ priority: 'low', source: 'cadence', title: `digest ${i}`, body: 'x' });
+
+    const first = await panel(app, '/panel/list?tab=open&q=digest');
+    expect(first.text.match(/data-panel-thread-id=/g)).toHaveLength(25);
+    expect(first.text).not.toContain(finished.id);
+    expect(first.text).toMatch(/data-panel-tab="open"[^>]*>[\s\S]*?>27</);
+    expect(first.text).toMatch(/data-panel-tab="done"[^>]*>[\s\S]*?>1</);
+    expect(first.text).toContain('data-panel-more data-offset="25"');
+
+    const rest = await panel(app, '/panel/list?tab=open&q=digest&rows=1&offset=25');
+    expect(rest.headers['x-panel-has-more']).toBe('0');
+    expect(rest.text.match(/data-panel-thread-id=/g)).toHaveLength(2);
+    expect(rest.text).not.toContain('data-panel-tab');
+  });
+
+  it('starts empty with a few things to ask', async () => {
+    const app = await makeApp();
+    const res = await panel(app, '/panel/home');
+    expect(res.text).toContain('data-panel-ask="What failed overnight?"');
+    expect(res.text).toContain('No open threads.');
   });
 
   it('every page carries the panel controls and the minimized pill, hidden until used', async () => {

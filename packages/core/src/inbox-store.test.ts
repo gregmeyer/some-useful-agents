@@ -844,3 +844,22 @@ describe('InboxStore triage learnings', () => {
     s2.close();
   });
 });
+
+describe('InboxStore statuses / sources filters + count', () => {
+  it('filters by a set of statuses and sources, searches inside them, and counts the same rows', () => {
+    const open = store.add({ priority: 'low', source: 'manual', title: 'alpha open', body: 'x' });
+    const done = store.add({ priority: 'low', source: 'manual', title: 'alpha done', body: 'x' });
+    store.updateStatus(done.id, 'resolved');
+    const failure = store.add({ priority: 'high', source: 'run-failure', title: 'alpha failure', body: 'x' });
+
+    expect(store.list({ statuses: ['resolved'] }).map((m) => m.id)).toEqual([done.id]);
+    // A search normally spans every status; `statuses` keeps it inside the set.
+    expect(store.list({ q: 'alpha' })).toHaveLength(3);
+    expect(store.list({ q: 'alpha', statuses: ['open'] }).map((m) => m.id).sort()).toEqual([open.id, failure.id].sort());
+    expect(store.list({ sources: ['manual'], statuses: ['open', 'resolved'] }).map((m) => m.id).sort()).toEqual([open.id, done.id].sort());
+    expect(store.count({ sources: ['manual'], statuses: ['open', 'resolved'] })).toBe(2);
+    expect(store.count({ q: 'alpha' })).toBe(3);
+    expect(store.count()).toBe(2);
+    expect(() => store.list({ statuses: ['nope' as never] })).toThrow(/invalid status/);
+  });
+});

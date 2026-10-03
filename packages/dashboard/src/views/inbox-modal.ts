@@ -18,8 +18,8 @@ export function renderInboxModalShell(): SafeHtml {
       <div class="modal inbox-modal">
         ${/* Conversation panel controls (shown only when the modal is docked as the panel). */ ''}
         <div class="inbox-modal__panelbar">
-          <span class="inbox-modal__panelbar-title">Conversation</span>
-          <button type="button" class="btn btn--xs btn--ghost" data-panel-new>New</button>
+          <button type="button" class="inbox-modal__panelbar-back" data-panel-back>← Inbox</button>
+          <span class="inbox-modal__panelbar-title">Inbox</span>
           <a class="inbox-modal__panelbar-btn" href="/inbox" data-panel-inbox aria-label="Open in the inbox" title="Open in the inbox">↗</a>
           <button type="button" class="inbox-modal__panelbar-btn" data-panel-wide aria-label="Widen" title="Widen">⤢</button>
           <button type="button" class="inbox-modal__panelbar-btn" data-panel-min aria-label="Minimize" title="Minimize">–</button>
