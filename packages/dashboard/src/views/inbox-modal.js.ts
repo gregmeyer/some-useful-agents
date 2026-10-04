@@ -260,7 +260,7 @@ export const INBOX_MODAL_JS = `
     try { window.history.replaceState(null, '', '/inbox'); } catch (_) {}
   }
   function pageEmpty() {
-    return '<p class="inbox-split__empty">Pick a thread to read it here, or ask sua something.</p>';
+    return '<p class="inbox-split__empty">Pick something on the left to see it here. A conversation opens as a conversation; a failing agent, a draft or a board build shows what happened and what you can do.</p>';
   }
 
   function inboxThreadHref(id) {
