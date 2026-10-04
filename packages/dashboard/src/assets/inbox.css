@@ -2490,7 +2490,7 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
   cursor: pointer;
 }
 .panel-row__main:hover { background: var(--color-surface-raised); }
-.panel-row__main[aria-current="true"] { background: var(--color-surface-raised); box-shadow: inset 2px 0 0 var(--color-primary); }
+.panel-row__main[aria-current="true"] { background: var(--color-surface-raised); }
 .panel-row__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-border-strong); align-self: center; }
 .panel-row__dot--approve { background: var(--color-warn); }
 .panel-row__dot--answer { background: var(--color-info); }
@@ -2722,6 +2722,24 @@ button.panel-home__star:hover { color: var(--color-text); }
 .panel-row--wide:hover button.panel-home__star,
 .panel-row--wide:focus-within button.panel-home__star { opacity: 1; }
 .panel-home__star { align-self: center; margin-top: 0; }
+/* Home's wide rows: the whole row (box, text, star) is one highlight, and the
+ * select box sits where the status dot is instead of reserving a gutter. */
+.panel-row--wide { position: relative; border-radius: var(--radius-md); }
+.panel-row--wide:hover,
+.panel-row--wide:has(.panel-row__main[aria-current="true"]) { background: var(--color-surface-raised); }
+.panel-row--wide .panel-row__main:hover,
+.panel-row--wide .panel-row__main[aria-current="true"] { background: none; }
+.panel-row--wide .panel-row__select {
+  position: absolute;
+  left: var(--space-2);
+  top: 50%;
+  margin: 0;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+.panel-row--wide:hover .panel-row__dot,
+.panel-row--wide:focus-within .panel-row__dot,
+.panel-home:has(.panel-row__select:checked) .panel-row--wide .panel-row__dot { visibility: hidden; }
 .panel-home__star.is-on { color: var(--color-warn); }
 span.panel-home__star { cursor: default; }
 
