@@ -1333,10 +1333,19 @@ export const INBOX_MODAL_JS = `
     e.preventDefault();
     var btn = form.querySelector('button');
     if (btn) btn.disabled = true;
-    fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+    // The form's own fields (e.g. what to change) go along as a normal form post.
+    var askBody = new URLSearchParams(new FormData(form)).toString();
+    fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: askBody
+    })
       .then(function (r) {
         var id = r.headers.get('X-Inbox-Id');
         if (!r.ok || !id) throw new Error('ask-fix ' + r.status);
+        var text = form.querySelector('textarea, input[type=text]');
+        if (text) text.value = '';
         openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' });
       })
       .catch(function () { form.submit(); })

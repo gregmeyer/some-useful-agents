@@ -293,6 +293,13 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         ${SETTINGS_SECTIONS.map((s) => html`<a class="settings-nav__link" href="#settings-${s.id}" data-settings-nav="${s.id}">${s.label}<span class="settings-nav__dot" aria-hidden="true"></span><span class="settings-nav__sr" data-settings-nav-changed></span></a>`) as unknown as SafeHtml[]}
       </nav>
       <div class="settings-main">
+        <form method="POST" action="/agents/${id}/ask-change" class="settings-ask" data-ask-fix>
+          <span class="settings-ask__avatar" aria-hidden="true">s</span>
+          <label class="settings-ask__label" for="settings-ask-text">Ask sua to change this agent</label>
+          <input type="text" id="settings-ask-text" name="text" class="settings-ask__input" required autocomplete="off"
+            placeholder="e.g. run it weekdays at 9 on my local model, and let Claude Desktop call it">
+          <button type="submit" class="btn btn--sm">Ask sua</button>
+        </form>
         ${inputsSection}
         ${modelSection}
         ${whenSection}

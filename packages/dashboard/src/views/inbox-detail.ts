@@ -184,7 +184,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'dashboard-editor',
+  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -753,6 +753,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           data-inbox-modal-form style="margin:0;">
           <button type="submit" class="btn btn--sm btn--ghost">Not now</button>
         </form>
+        ${meta.agentId === 'agent-settings' && meta.inputs.AGENT_ID
+          ? html`<a class="act-card__aside" href="/agents/${encodeURIComponent(meta.inputs.AGENT_ID)}/config">Open in Settings</a>`
+          : html``}
       </div>
     `
     : html``;
@@ -788,13 +791,20 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           ? html`Resolved this thread`
           : meta.agentId === 'agent-editor'
             ? html`Update <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
-            : html`Run <span class="mono">${meta.agentId}</span>`}
+            : meta.agentId === 'agent-settings'
+              ? html`Change ${String(meta.settingsChanges?.length || '')} setting${meta.settingsChanges?.length === 1 ? '' : 's'} · <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
+              : meta.agentId === 'agent-schedule'
+                ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
+                : html`Run <span class="mono">${meta.agentId}</span>`}
   `;
 
   const hasInputs = Object.keys(meta.inputs ?? {}).length > 0;
   const cardInner = html`
     ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
-    ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+    ${meta.agentId === 'agent-settings' && meta.settingsChanges?.length
+      ? html`<ul class="act-card__changes">${meta.settingsChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span><del class="act-card__before">${c.before}</del> → <ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">Saved together; a change to what it does becomes a new version you can roll back from Versions.</p>` : html``}`
+      : html``}
+    ${meta.agentId === 'agent-settings' ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed' ? html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>` : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
       : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
@@ -853,7 +863,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="act-card__head">
             <span class="inbox-action__headline">${headline}</span>
             ${isDispatched && meta.status === 'proposed'
-              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' ? 'changes the agent' : 'changes something') : 'reads only'}</span>`
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : 'changes something') : 'reads only'}</span>`
               : provenance}
           </div>
           ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}

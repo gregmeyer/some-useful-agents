@@ -299,6 +299,40 @@ inboxRouter.post('/agents/:id/ask-fix', (req: Request, res: Response) => {
   res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
 });
 
+/**
+ * "Ask sua to change this agent" on its Settings page: a conversation about
+ * the agent that starts with what you asked for. sua answers with a
+ * "Change N settings" card (agent-settings) you Apply, or asks what you mean.
+ */
+inboxRouter.post('/agents/:id/ask-change', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const agentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const agent = ctx.agentStore.getAgent(agentId);
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 4000) : '';
+  if (!ctx.inboxStore || !agent || !text) {
+    if (isAjax(req)) { res.status(agent ? 400 : 404).json({ error: agent ? 'Say what to change.' : 'No such agent.' }); return; }
+    res.redirect(303, agent ? `/agents/${encodeURIComponent(agent.id)}/config` : '/agents');
+    return;
+  }
+  const created = ctx.inboxStore.add({
+    priority: 'medium',
+    source: 'manual',
+    agentId: agent.id,
+    title: `Change ${agent.name || agent.id}`,
+    body: '(empty)',
+  });
+  const ask = ctx.inboxStore.addResponse(created.id, 'user', text);
+  publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
+  void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  publishInboxChanged(ctx, created.id, created.status);
+  if (isAjax(req)) {
+    res.setHeader('X-Inbox-Id', created.id);
+    res.status(204).end();
+    return;
+  }
+  res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
+});
+
 inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.inboxStore) {

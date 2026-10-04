@@ -55,6 +55,7 @@ export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'inbox-learning-extractor',
   'agent-analyzer',
   'agent-editor',
+  'agent-settings',
   'agent-catalog-search',
   'agent-builder',
 ]);

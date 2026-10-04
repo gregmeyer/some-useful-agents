@@ -2124,3 +2124,65 @@ describe('the conversation view, redesigned', () => {
     expect(home.text).toContain('data-panel-refresh');
   });
 });
+
+describe('sua changes an agent\'s settings (agent-settings)', () => {
+  const seed = () => agentStore.createAgent({
+    id: 'tuned', name: 'Tuned', status: 'active', source: 'local', mcp: false,
+    nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }],
+  }, 'cli');
+
+  it('parses a proposal, lists it as before → after, applies it as one version, and refuses a stale one', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    seed();
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+
+    // CHANGES may arrive as an object; unknown fields are refused.
+    const parsed = parseProposedActions([
+      { type: 'agent-settings', rationale: 'r', inputs: { AGENT_ID: 'tuned', CHANGES: { schedule: '0 9 * * 1-5', mcp: true, provider: 'codex' } } },
+    ], []);
+    expect(parsed.accepted).toEqual([expect.objectContaining({ agentId: 'agent-settings', effect: 'write', ctaLabel: 'Apply' })]);
+    expect(parseProposedActions([{ type: 'agent-settings', inputs: { AGENT_ID: 'tuned', CHANGES: '{"nodes":[]}' } }], []).rejected[0].reason).toContain('Not a setting');
+
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.base?.version).toBe(1);
+    expect(card.settingsChanges?.map((c) => c.what)).toEqual(['Model', 'When it runs', 'Let AI apps call it']);
+
+    // The card in the thread.
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', agentId: 'tuned', title: 'Change Tuned', body: '(empty)' });
+    inboxStore.addResponse(m.id, 'action', 'settings', JSON.stringify(card));
+    const frag = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('Change 3 settings');
+    expect(frag.text).toContain('<del class="act-card__before">Only when asked</del>');
+    expect(frag.text).toContain('href="/agents/tuned/config">Open in Settings</a>');
+    expect(frag.text).toContain('changes the agent');
+
+    const ok = engine.executeAgentSettings(ctx, card);
+    expect(ok).toMatchObject({ status: 'completed' });
+    expect(ok.summary).toContain('Saved as v2: Model, When it runs, Let AI apps call it.');
+    expect(agentStore.getAgent('tuned')).toMatchObject({ version: 2, provider: 'codex', schedule: '0 9 * * 1-5', mcp: true, status: 'active' });
+
+    // Proposed against v1, the agent is on v2 now: a versioned change is refused.
+    const again = engine.withEditorBase(ctx, { ...parsed.accepted[0], base: { version: 1, yaml: '' }, inputs: { AGENT_ID: 'tuned', CHANGES: '{"provider":""}' } });
+    const stale = engine.executeAgentSettings(ctx, again);
+    expect(stale.status).toBe('failed');
+    expect(stale.refusalReason).toContain('changed since this was proposed');
+  });
+
+  it('Ask sua to change this agent starts a conversation with what you asked', async () => {
+    const app = await makeApp();
+    seed();
+    const page = await request(app).get('/agents/tuned/config').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('action="/agents/tuned/ask-change" class="settings-ask" data-ask-fix');
+    const res = await request(app).post('/agents/tuned/ask-change').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send({ text: 'run it weekdays at 9' });
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    expect(inboxStore.get(id)).toMatchObject({ title: 'Change Tuned', agentId: 'tuned', source: 'manual' });
+    expect(inboxStore.listResponses(id)[0]).toMatchObject({ role: 'user', body: 'run it weekdays at 9' });
+    const empty = await request(app).post('/agents/tuned/ask-change').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send({ text: ' ' });
+    expect(empty.status).toBe(400);
+  });
+});

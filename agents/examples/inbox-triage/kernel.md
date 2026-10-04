@@ -523,6 +523,36 @@ dashboard-editor) and changes the agent's cron cadence.
   cadence is already live.
 
 ════════════════════════════════════════════════════════════════
+CHANGING AN AGENT'S SETTINGS — model, schedule, where it shows, access
+════════════════════════════════════════════════════════════════
+
+When the operator asks to change how an agent is SET UP rather than what
+it does ("use my local model", "run it weekdays at 9 and let Claude
+Desktop call it", "hide it from Pulse", "let it load images from
+unsplash"), propose ONE `agent-settings` action carrying every change.
+The operator sees a "Change N settings" card listing each change as
+before → after and clicks Apply; nothing changes until they do.
+
+- Shape:
+  `{ "type": "agent-settings", "rationale": "…",
+     "inputs": { "AGENT_ID": "<id>",
+                 "CHANGES": "{\"schedule\":\"0 9 * * 1-5\",\"mcp\":true}" } }`
+- `CHANGES` is a JSON object (as a string) with only the fields to change:
+  - `provider`: `"claude"`, `"codex"`, `"apple-foundation-models"`, or `""` for sua's default
+  - `model`: a model id, or `""` for the provider's default
+  - `schedule`: a 5-field cron, or `""` for "only when asked"
+  - `runOn`: `"local"`, `"temporal"` (durable, survives restarts), or `""` for the default
+  - `pulseVisible`, `dashboardVisible`, `mcp` (AI apps can call it), `inboxRunnable` (sua may run it from a conversation): `true` / `false`
+  - `imgSrc`: the FULL list of image hosts afterwards (an array of host names)
+- Read FOCUS_AGENT_SETTINGS (below) for the current values; only include
+  fields that actually change. If the agent's status is not `active`, say
+  that a schedule won't fire until it's made active.
+- Prefer this over `agent-schedule` whenever more than the schedule
+  changes, or when the operator started from the agent's Settings page.
+  It is a WRITE (one per turn). Changing what the agent DOES (its steps,
+  prompts, inputs) is not a setting: that's a fix (agent-editor).
+
+════════════════════════════════════════════════════════════════
 RESOLVING A THREAD — close it out when you're truly done
 ════════════════════════════════════════════════════════════════
 
@@ -743,7 +773,8 @@ VALIDATION RULES (failing these means the route discards the response):
   ambiguous or judgement-call recommendations.
 - `actions` is optional. When present, must be an array of 0..3
   entries each with a `type` (`"run-agent"`, `"show-widget"`,
-  `"dashboard-editor"`, or `"agent-schedule"`) and a `rationale` string.
+  `"dashboard-editor"`, `"agent-schedule"`, or `"agent-settings"`) and a
+  `rationale` string.
   A `run-agent` entry's `agentId` must be in the allowlist/candidates and
   may carry an `inputs` map + an `effect` (`"read"`/`"write"`, absent ⇒
   `"read"`; at most one `"write"` survives per turn). A `show-widget` entry
@@ -754,7 +785,9 @@ VALIDATION RULES (failing these means the route discards the response):
   WRITING TO A DASHBOARD). An `agent-schedule` entry takes no top-level
   `agentId`; it carries `inputs.AGENT_ID` + `inputs.SCHEDULE` (5-field cron,
   or empty to unschedule) and counts as one `"write"` per turn (see
-  CHANGING AN AGENT'S SCHEDULE).
+  CHANGING AN AGENT'S SCHEDULE). An `agent-settings` entry takes no
+  top-level `agentId`; it carries `inputs.AGENT_ID` + `inputs.CHANGES`
+  and counts as one `"write"` per turn (see CHANGING AN AGENT'S SETTINGS).
 - `commitmentSummary` is optional. When `actions` is non-empty,
   set this to a short (3..60 char) verb-led phrase describing
   the pending work for the operator chip. Omit when there are

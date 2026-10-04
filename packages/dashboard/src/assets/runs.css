@@ -220,6 +220,45 @@
 .settings-nav__link.is-changed .settings-nav__dot { background: var(--color-warn); }
 .settings-nav__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .settings-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.settings-ask {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  grid-template-areas: "avatar label label" "avatar input button";
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.settings-ask__avatar {
+  grid-area: avatar;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+.settings-ask__label { grid-area: label; font-size: var(--font-size-sm); font-weight: 600; }
+.settings-ask__input {
+  grid-area: input;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+.settings-ask__input:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--shadow-focus); }
+.settings-ask .btn { grid-area: button; }
 
 .settings-section {
   display: flex;

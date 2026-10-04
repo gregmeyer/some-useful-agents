@@ -161,11 +161,16 @@ export interface InboxActionMeta {
    */
   approvedBy?: 'policy' | 'operator';
   /**
-   * agent-editor only: the target agent as it was when this change was
-   * proposed. The card diffs against it (so the diff stays true after the
+   * agent-editor / agent-settings: the target agent as it was when this change was
+   * proposed (agent-settings leaves `yaml` empty). The card diffs against it (so the diff stays true after the
    * write), and applying refuses if the agent has moved past `version`.
    */
   base?: { version: number; yaml: string };
+  /**
+   * agent-settings only: the proposed changes in plain words, read against
+   * the agent at `base.version` when proposed. The card lists them.
+   */
+  settingsChanges?: Array<{ what: string; before: string; after: string }>;
 }
 
 export interface InboxMessage {
