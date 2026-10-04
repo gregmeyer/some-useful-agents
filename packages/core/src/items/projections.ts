@@ -73,8 +73,9 @@ export function threadItem(message: InboxMessage, responses: readonly InboxRespo
     id: `thread:${message.id}`,
     kind: attention === 'approve' ? 'decision' : attention === 'answer' ? 'question' : 'alert',
     title: message.title,
-    ...(latest ? { summary: oneLine(latest.body) } : {}),
-    urgency: message.priority === 'high' || attention === 'approve' ? 'high' : message.priority === 'low' ? 'low' : 'normal',
+    ...(latest ? { summary: `${latest.role === 'triage' ? 'sua: ' : ''}${oneLine(latest.body)}` } : {}),
+    // Waiting on you is never low urgency, whatever the thread's priority.
+    urgency: message.priority === 'high' || attention === 'approve' ? 'high' : 'normal',
     state: 'open',
     subject: { threadId: message.id, ...(message.agentId ? { agentId: message.agentId } : {}), ...(message.runId ? { runId: message.runId } : {}) },
     ...(cards.length > 1 ? { value: cards.length } : {}),

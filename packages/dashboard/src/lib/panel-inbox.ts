@@ -1,5 +1,6 @@
 import { INBOX_SOURCES, markdownToText, threadAttention, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
 import { buildRowPreview } from '../routes/inbox-shared.js';
+import type { HomeSurface } from './home-surface.js';
 
 /**
  * The inbox as the conversation panel shows it (phase 3, conversations plan):
@@ -11,7 +12,7 @@ export type PanelTab = typeof PANEL_TABS[number];
 export const PANEL_PAGE_SIZE = 25;
 
 export const PANEL_TAB_LABEL: Record<PanelTab, string> = {
-  needs: 'Needs you',
+  needs: 'Today',
   open: 'Open',
   conversations: 'Conversations',
   done: 'Done',
@@ -68,6 +69,11 @@ export interface PanelList {
   wide: boolean;
   counts: Record<PanelTab, number>;
   rows: PanelRow[];
+  /**
+   * The Today tab, drawn from Home's surface (goal surfaces, S3) instead of
+   * rows. Absent while searching or filtering: those list matching threads.
+   */
+  today?: HomeSurface;
   offset: number;
   hasMore: boolean;
 }
@@ -113,7 +119,7 @@ export function panelFacets(store: InboxStore): PanelFacets {
   };
 }
 
-export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: string; offset?: number; filters?: PanelFilters; wide?: boolean }): PanelList {
+export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: string; offset?: number; filters?: PanelFilters; wide?: boolean; today?: HomeSurface }): PanelList {
   const q = (args.q ?? '').trim().slice(0, 200);
   const filters = args.wide ? (args.filters ?? {}) : {};
   const query = (t: PanelTab): ListMessagesOpts | null => {
@@ -124,9 +130,14 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
     const qy = query(t);
     return [t, qy ? store.count(qy) : 0];
   })) as Record<PanelTab, number>;
-  // No tab asked for: Needs you when something is waiting, else Open.
+  const narrowed = Boolean(q) || Object.values(filters).some(Boolean);
+  if (args.today && !narrowed) counts.needs = args.today.needsCount;
+  // No tab asked for: Today when something is waiting, else Open.
   const tab = args.tab ?? (counts.needs > 0 ? 'needs' : 'open');
   const offset = Math.max(0, Math.floor(args.offset ?? 0));
+  if (tab === 'needs' && args.today && !narrowed) {
+    return { tab, q, filters, wide: Boolean(args.wide), counts, rows: [], offset: 0, hasMore: false, today: args.today };
+  }
   const tabQ = query(tab);
   const page = tabQ ? store.listPage({ ...tabQ, limit: PANEL_PAGE_SIZE, offset }) : { rows: [], hasMore: false };
   const rows = page.rows

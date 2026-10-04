@@ -114,3 +114,43 @@ describe('GET /api/items', () => {
     expect(anon.status).toBe(401);
   });
 });
+
+describe('Home\'s surface, drawn (S3)', () => {
+  const node = [{ id: 'n', type: 'shell' as const, command: 'echo hi', dependsOn: [] }];
+
+  it('an item pane: what it is, evidence, actions in place, and why it is on Home', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
+    for (const id of ['r1', 'r2']) runStore.createRun({ id: `${id}-0000-aaaa`, agentName: 'flaky', status: 'failed', startedAt: `2026-10-03T0${id.slice(1)}:00:00Z`, triggeredBy: 'schedule', error: 'exit 1' });
+    const get = (id: string) => request(app).get(`/items/${encodeURIComponent(id)}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const pane = await get('agent:flaky:failing');
+    expect(pane.status).toBe(200);
+    expect(pane.text).toContain('Flaky is failing');
+    expect(pane.text).toContain('2 runs in a row failed: exit 1');
+    expect(pane.text).toContain('action="/agents/flaky/run" data-item-act');
+    expect(pane.text).toContain('action="/agents/flaky/ask-fix" data-ask-fix');
+    expect(pane.text).toContain('href="/runs/r2-0000-aaaa"');
+    expect(pane.text).toContain('In Needs you: normal urgency, waiting on you');
+    expect((await get('agent:nope:failing')).text).toContain("This isn't on Home any more");
+  });
+
+  it('Today: regions as rows, drafts folded into one line, All good as a quiet line', async () => {
+    await makeApp(); // the shared afterEach closes what makeApp opens
+    const { renderToday, rowTarget } = await import('../views/home-surface.js');
+    const { render } = await import('../views/html.js');
+    const { compileSurface, DEFAULT_HOME_SURFACE } = await import('@some-useful-agents/core');
+    const base = { subject: {}, actions: [], evidence: [], href: '/', provenance: { source: 'agents' as const, producedBy: 'system', at: '2026-10-03T00:00:00Z' } };
+    const items = [
+      { ...base, id: 'thread:t1', kind: 'question' as const, title: 'A question', urgency: 'normal' as const, state: 'open' as const, subject: { threadId: 't1' } },
+      { ...base, id: 'agent:a:draft', kind: 'decision' as const, title: 'A is a draft', urgency: 'low' as const, state: 'open' as const },
+      { ...base, id: 'agent:b:draft', kind: 'decision' as const, title: 'B is a draft', urgency: 'low' as const, state: 'open' as const },
+      { ...base, id: 'system:scheduler', kind: 'status' as const, title: 'The scheduler', summary: 'Running 2 scheduled agents', urgency: 'low' as const, state: 'ok' as const },
+    ];
+    const out = render(renderToday({ compiled: compileSurface(DEFAULT_HOME_SURFACE, items), version: 0, goal: 'g', needsCount: 1 }, true));
+    expect(out).toContain('data-panel-thread-id="t1"');
+    expect(out).toContain('2 draft agents waiting to be made active');
+    expect(out).toContain('data-panel-thread-id="item:agent:a:draft"');
+    expect(out).toMatch(/All good:<\/span> Running 2 scheduled agents/);
+    expect(rowTarget({ ...items[0], id: 'question:q1', subject: { threadId: 't9' } })).toBe('t9');
+  });
+});

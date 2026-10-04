@@ -3,8 +3,8 @@
 sua's Home (and later boards, Notebooks and canvases in a conversation) is moving to **goal surfaces**: what you see is chosen by a goal and rules you can change, not fixed per page. The design is [ADR-0049](adr/0049-goal-surfaces.md). It has three layers that never mix:
 
 1. **Items**: what is true. Typed objects read from what sua already stores. *(Shipped: the item index, below.)*
-2. **Surfaces**: what is emphasized now. A versioned document per surface holds a goal, rules and your pins, and every change records who made it and why. *(Shipped: the surface model, below. Nothing draws it yet.)*
-3. **Presentation**: a renderer turns a surface plus its items into the page. *(Next: S3, Home.)*
+2. **Surfaces**: what is emphasized now. A versioned document per surface holds a goal, rules and your pins, and every change records who made it and why. *(Shipped: the surface model, below.)*
+3. **Presentation**: a renderer turns a surface plus its items into the page. *(Shipped for Home: its **Today** tab, below.)*
 
 ## Items
 
@@ -75,3 +75,22 @@ The actor is `user` (you, directly), `user-conversation` (you, by applying sua's
 - **Each entry** also carries its group, whether it's collapsed, and the primitive to draw.
 - **Left-out items** are listed with why ("Hidden by the rule …", "Not shown in Needs you: …").
 - **Region limits** count the overflow as "N more". Pins are never cut.
+
+## Home's Today tab
+
+Home's first tab, **Today**, in Home itself and in the sua drawer, is Home's surface drawn. Under the description, a goal line says what Home is arranged for, and whether by the defaults or by your rules (with the version).
+
+- **Needs you** and **Happening now** show their items as rows, in the compiled order.
+  - A conversation opens as a conversation.
+  - Any other item (a failing agent, a missed outcome, a draft, a board build) opens a pane beside the list. The pane shows what it is, the evidence (the runs behind it), what you can do, and **why it's here**.
+- **Actions work in place.** **Run it again** starts a run and links to it. **Make it active** activates a draft. **Ask sua to fix it** opens a conversation about the agent. The list refreshes afterwards, so a handled item moves or goes.
+- **All good** items, like the scheduler when it's fine, are one quiet line at the bottom.
+- **Folded groups** (by default, your draft agents) are one line you can open: "43 draft agents waiting to be made active".
+- **Searching or filtering** lists matching conversations, as the tab did before.
+
+Home's defaults are version 0 of its surface: three regions, plus three rules marked "by default":
+- questions and approvals first;
+- draft agents grouped together;
+- drafts folded.
+
+Pinning, moving and hiding items by hand comes next (S4), then changing the rules by asking sua (S5).

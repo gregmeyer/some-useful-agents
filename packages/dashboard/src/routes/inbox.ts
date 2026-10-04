@@ -32,6 +32,8 @@
  */
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
+import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
+import { renderHomeGoal } from '../views/home-surface.js';
 import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
@@ -102,7 +104,8 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
   const availableDashboards = agentCount === 0 && ctx.dashboardsStore
     ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
     : [];
-  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards }));
+  const today = readHomeSurfaceSafe(ctx);
+  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today) } : {}) }));
 }
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
@@ -195,7 +198,17 @@ function panelListFor(req: Request) {
     // Home's full-width list (`wide=1`) adds filters, stars and selection.
     wide: req.query.wide === '1',
     filters: parsePanelFilters(req.query as Record<string, unknown>),
+    // Today is Home's surface (goal surfaces, S3).
+    today: readHomeSurfaceSafe(ctx),
   });
+}
+
+/** Home's surface, or undefined if reading it fails (the tab falls back to threads waiting on you). */
+function readHomeSurfaceSafe(ctx: ReturnType<typeof getContext>): HomeSurface | undefined {
+  try { return readHomeSurface(ctx); } catch (err) {
+    process.stderr.write(`[home-surface] ${err instanceof Error ? err.message : String(err)}\n`);
+    return undefined;
+  }
 }
 inboxRouter.get('/panel/home', (req: Request, res: Response) => {
   const list = panelListFor(req);

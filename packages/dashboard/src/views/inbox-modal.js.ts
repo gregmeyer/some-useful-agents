@@ -310,8 +310,12 @@ export const INBOX_MODAL_JS = `
     };
   }
 
+  /** Rows on Home's surface that aren't conversations open as \`item:<id>\`. */
+  function isItemId(id) { return typeof id === 'string' && id.indexOf('item:') === 0; }
+
   function openEventSource(messageId) {
     closeEventSource();
+    if (isItemId(messageId)) return;
     var es;
     if (window.suaSocket) {
       es = socketSource(messageId);
@@ -644,7 +648,11 @@ export const INBOX_MODAL_JS = `
   function refresh() {
     if (!currentId) return;
     var id = currentId;
-    fetch('/inbox/' + encodeURIComponent(id) + '/fragment', { credentials: 'same-origin' })
+    // An item from Home's surface (\`item:<item id>\`) has its own pane; a thread its conversation.
+    var fragUrl = isItemId(id)
+      ? '/items/' + encodeURIComponent(id.slice(5)) + '/fragment'
+      : '/inbox/' + encodeURIComponent(id) + '/fragment';
+    fetch(fragUrl, { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('fragment fetch failed'); return r.text(); })
       .then(function (text) {
         if (currentId !== id) return; // user opened a different message
@@ -770,7 +778,7 @@ export const INBOX_MODAL_JS = `
     currentId = id;
     if (panelMode === 'page') {
       markSelected();
-      try { window.history.replaceState(null, '', inboxThreadHref(id)); } catch (_) {}
+      if (!isItemId(id)) { try { window.history.replaceState(null, '', inboxThreadHref(id)); } catch (_) {} }
     }
     if (panelMode) savePanel(id, panelMode);
     panelWantsFocus = !opts.restore;
@@ -1430,6 +1438,38 @@ export const INBOX_MODAL_JS = `
     if (!row) return;
     var field = listHost.querySelector('[data-panel-search]');
     askFromSearch(field ? field.value : '');
+  });
+
+  // An item pane's actions (Run it again, Make it active): post in place,
+  // say what happened, and refresh the list so the item moves or goes.
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-item-act')) return;
+    e.preventDefault();
+    var btn = form.querySelector('button');
+    var pane = form.closest('[data-item-pane]');
+    var status = pane && pane.querySelector('[data-item-status]');
+    if (btn) btn.disabled = true;
+    fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('act ' + r.status);
+        if (status) {
+          status.textContent = form.getAttribute('data-item-done') || 'Done.';
+          // A run: link to it.
+          var at = r.url.indexOf('/runs/');
+          if (at >= 0) {
+            var a = document.createElement('a');
+            a.href = r.url.slice(at);
+            a.textContent = ' See the run';
+            status.appendChild(a);
+          }
+        }
+        refreshPanelList();
+      })
+      .catch(function () {
+        if (status) status.textContent = 'That didn\u2019t work. Try again, or open the page from the links above.';
+        if (btn) btn.disabled = false;
+      });
   });
 
   window.suaPanel = {

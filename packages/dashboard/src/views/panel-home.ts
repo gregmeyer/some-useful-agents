@@ -1,5 +1,6 @@
 import { html, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
+import { renderToday } from './home-surface.js';
 import { PANEL_TABS, PANEL_TAB_LABEL, type PanelFacets, type PanelFilters, type PanelList, type PanelRow } from '../lib/panel-inbox.js';
 
 /** Starting points for a new conversation. Clicking one fills the box; nothing sends until you do. */
@@ -16,7 +17,7 @@ const EMPTY: Record<PanelList['tab'], string> = {
   done: 'Nothing finished yet.',
 };
 
-const TAB_SHORT: Record<PanelList['tab'], string> = { needs: 'Needs you', open: 'Open', conversations: 'Chats', done: 'Done' };
+const TAB_SHORT: Record<PanelList['tab'], string> = { needs: 'Today', open: 'Open', conversations: 'Chats', done: 'Done' };
 const KIND_TAG: Record<NonNullable<PanelRow['kind']>, string> = { approve: 'Approve', answer: 'Answer', fail: 'Failing' };
 
 const SEARCH_ICON = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>`;
@@ -135,7 +136,7 @@ export function renderPanelList(list: PanelList): SafeHtml {
         </button>`) as unknown as SafeHtml[]}
     </div>
     <div class="panel-home__groups" role="tabpanel" data-panel-rows data-tab="${list.tab}">
-      ${list.rows.length === 0
+      ${list.today ? renderToday(list.today, list.wide) : list.rows.length === 0
         ? html`<p class="panel-home__empty">${list.q ? 'Nothing matches. Press Enter to ask sua instead.' : EMPTY[list.tab]}</p>`
         : renderPanelRows(list.rows, list.wide, list.offset === 0 ? list.tab : undefined)}
     </div>

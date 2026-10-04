@@ -15,7 +15,8 @@ import { SurfaceStore, SurfaceVersionConflict } from './store.js';
 import type { SurfaceDoc } from './schema.js';
 
 const NOW = new Date('2026-10-03T12:00:00Z');
-const home = (): SurfaceDoc => structuredClone(DEFAULT_HOME_SURFACE);
+/** Home's regions without its default rules, so each test sets only what it means. */
+const home = (): SurfaceDoc => ({ ...structuredClone(DEFAULT_HOME_SURFACE), rules: [] });
 
 let seq = 0;
 function item(id: string, over: Partial<Item> = {}): Item {
@@ -183,6 +184,20 @@ describe('compileSurface', () => {
     const doc = applySurfaceOps(home(), [{ op: 'addRule', rule: { id: 'g', type: 'group', match: {}, groupBy: 'kind' } }], 'user', { now: NOW });
     const items = [item('a', { kind: 'question' }), item('b'), item('c', { kind: 'question' }), item('d')];
     expect(compileSurface(doc, items)).toEqual(compileSurface(structuredClone(doc), structuredClone(items)));
+  });
+
+  it('Home by default: questions and approvals first, drafts folded together', () => {
+    const items = [
+      item('agent:x:failing', { urgency: 'high' }),
+      item('agent:d1:draft', { kind: 'decision', urgency: 'low' }),
+      item('thread:q', { kind: 'question' }),
+      item('agent:d2:draft', { kind: 'decision', urgency: 'low' }),
+    ];
+    const entries = compileSurface(DEFAULT_HOME_SURFACE, items).regions[0].entries;
+    expect(entries.map((e) => [e.item.id, e.group ?? null, e.collapsed])).toEqual([
+      ['thread:q', null, false], ['agent:x:failing', null, false], ['agent:d1:draft', 'Decisions', true], ['agent:d2:draft', 'Decisions', true],
+    ]);
+    expect(entries[0].reasons[0]).toBe('First because: questions and approvals first (by default)');
   });
 
   it('whoWhen says who in plain words', () => {

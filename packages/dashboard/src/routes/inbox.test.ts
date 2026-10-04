@@ -1877,7 +1877,7 @@ describe('conversation panel', () => {
   const panel = (app: Parameters<typeof request>[0], path: string) =>
     request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
-  it('GET /panel/home is your inbox: one search-or-ask field, tabs with counts, Needs you threads grouped and tagged', async () => {
+  it('GET /panel/home is your inbox: one search-or-ask field, tabs with counts, Today drawn from Home\'s surface', async () => {
     const app = await makeApp();
     const failure = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
     const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: '<b>my question</b>', body: '(empty)' });
@@ -1890,12 +1890,13 @@ describe('conversation panel', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('placeholder="Search or ask sua…"');
     expect(res.text).toContain('data-panel-askrow hidden');
-    expect(res.text).toContain('Waiting on you');
+    // Today = Home's surface: your question first (questions and approvals first), then the open failure.
+    expect(res.text).toContain('data-surface-region="needs-you"');
     expect(res.text).toContain('panel-row__tag--answer">Answer');
     expect(res.text).toContain('Open full inbox');
-    expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Needs you[\s\S]*?>1</);
-    expect(res.text).toContain(`data-panel-thread-id="${waiting.id}"`);
-    expect(res.text).not.toContain(`data-panel-thread-id="${failure.id}"`);
+    expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Today[\s\S]*?>2</);
+    expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${failure.id}"`));
+    expect(res.text).toContain('title="First because: questions and approvals first (by default)"');
     expect(res.text).toContain('&lt;b&gt;my question&lt;/b&gt;');
     expect(res.text).toContain('sua: Here is the answer.');
 
