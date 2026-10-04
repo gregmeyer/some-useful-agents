@@ -221,11 +221,11 @@ function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[
   const name = r.name ?? ctx.dashboardsStore?.getDashboard(build.boardId)?.name ?? build.boardId;
   const link = `/dashboards/${encodeURIComponent(build.boardId)}`;
   const lines = failedBuild
-    ? [`Your request: "${build.request}"`, '', `What went wrong: ${r.error}`, '', `The empty board is at ${link}; delete it, or try again with a different request.`]
+    ? [`Your request: "${build.request}"`, '', `What went wrong: ${r.error}`, '', `The empty board is [${name}](${link}); delete it, or try again with a different request.`]
     : [
       r.summary || '',
       '',
-      `Open it: ${link}`,
+      `Open it: [${name}](${link})`,
       `${done.placed.length} tile${done.placed.length === 1 ? '' : 's'} from your agents${done.failed.length ? `; ${done.failed.length} didn't run cleanly (${done.failed.join(', ')}) — their tiles show what happened` : ', all run'}.`,
       ...(done.missing.length ? ['', 'Not covered by any of your agents yet:', ...done.missing.map((m) => `- ${m.purpose}${m.suggestedName ? ` (${m.suggestedName})` : ''}`), '', r.drafting
         ? 'sua is drafting agents for these now. They won\'t run until you approve them; you\'ll be asked here in your inbox.'

@@ -98,6 +98,11 @@ describe('humanizeTimestamps', () => {
 });
 
 describe('linkifyRefs', () => {
+  it('links an encoded dashboard id whole, labelled with the decoded slug', () => {
+    expect(linkifyRefs('Open it: /dashboards/user%3Amorning-dashboard'))
+      .toBe('Open it: [morning-dashboard](/dashboards/user%3Amorning-dashboard)');
+    expect(linkifyRefs('see /dashboards/user:morning-brief')).toBe('see [morning-brief](/dashboards/user:morning-brief)');
+  });
   it('linkifies a bare /agents ref with the id as the label', () => {
     expect(linkifyRefs('see /agents/foo for details')).toBe('see [foo](/agents/foo) for details');
   });
