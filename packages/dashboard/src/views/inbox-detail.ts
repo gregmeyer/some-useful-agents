@@ -374,6 +374,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
             <button type="submit" class="inbox-modal__menu-item">Reopen</button>
           </form>
         ` : html``}
+        <button type="button" class="inbox-modal__menu-item" data-inbox-copy-link="/inbox/${message.id}">Copy link</button>
         <a href="/inbox/${message.id}" class="inbox-modal__menu-item inbox-modal__menu-link">Open full page</a>
       </div>
     </details>
@@ -818,7 +819,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     : html``;
 
   const glyph = ACTION_SUMMARY_GLYPH[meta.status];
-  const collapsible = !!glyph && isDispatched && meta.mode !== 'show-widget';
+  // A finished run with a widget stays open: the widget is the answer, not a detail.
+  const collapsible = !!glyph && isDispatched && meta.mode !== 'show-widget' && !(meta.status === 'completed' && inlineWidget);
   if (collapsible) {
     const dur = formatDuration(meta);
     return html`

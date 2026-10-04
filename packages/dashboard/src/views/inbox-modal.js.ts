@@ -666,7 +666,15 @@ export const INBOX_MODAL_JS = `
         // position instead of yanking them back down on every poll refresh.
         var prevScrollTop = content.scrollTop;
         var wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
+        // Keep what the operator expanded (Details, a diff, the summary) expanded.
+        var openKeys = {};
+        var wasOpen = content.querySelectorAll('details[open]');
+        for (var oi = 0; oi < wasOpen.length; oi++) openKeys[detailsKey(wasOpen[oi])] = true;
         content.innerHTML = text;
+        var nowDetails = content.querySelectorAll('details');
+        for (var ni = 0; ni < nowDetails.length; ni++) {
+          if (openKeys[detailsKey(nowDetails[ni])]) nowDetails[ni].setAttribute('open', '');
+        }
         applyAnimations();
         if (wasNearBottom) {
           scrollToBottom();
@@ -696,7 +704,15 @@ export const INBOX_MODAL_JS = `
    * appear, and the operator would be staring at a stale modal
    * wondering if anything happened.
    */
+  /** Identifies a <details> across a fragment swap: the message it belongs to + its class. */
+  function detailsKey(d) {
+    var msg = d.closest && d.closest('[data-msg-id]');
+    return (msg ? msg.getAttribute('data-msg-id') : '') + '|' + (d.className || '');
+  }
+
   function userIsInteracting() {
+    // An open ⋯ menu is a choice in progress: a swap would close it under the pointer.
+    if (content.querySelector('details[data-inbox-menu][open]')) return true;
     var active = document.activeElement;
     if (content.contains(active)) {
       // Empty input fields don't count — the operator hasn't started
@@ -787,6 +803,21 @@ export const INBOX_MODAL_JS = `
     // Copy-message button on a conversation entry. Reads the
     // sibling .inbox-msg__text textContent so we copy what the
     // operator actually sees (newlines preserved, HTML stripped).
+    // ⋯ → Copy link: the thread's full address, for pasting elsewhere.
+    var linkBtn = e.target.closest && e.target.closest('[data-inbox-copy-link]');
+    if (linkBtn) {
+      e.preventDefault();
+      var url = window.location.origin + linkBtn.getAttribute('data-inbox-copy-link');
+      var said = function (ok) {
+        linkBtn.textContent = ok ? 'Link copied' : 'Copy failed';
+        setTimeout(function () { linkBtn.textContent = 'Copy link'; var m = linkBtn.closest('details'); if (m) m.removeAttribute('open'); }, 900);
+      };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function () { said(true); }, function () { said(false); });
+        else said(false);
+      } catch (_) { said(false); }
+      return;
+    }
     var copyBtn = e.target.closest && e.target.closest('[data-inbox-copy]');
     if (copyBtn) {
       e.preventDefault();
