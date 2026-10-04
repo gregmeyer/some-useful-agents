@@ -62,9 +62,11 @@ export function applySurfaceOps(
         break;
       case 'addRule': {
         if (op.rule.type === 'filter' && op.rule.region) regionIndex(op.rule.region);
-        // Same id replaces: re-sending a rule is how you edit it.
-        next.rules = next.rules.filter((r) => r.id !== op.rule.id);
-        next.rules.push({ ...op.rule, ...stamp });
+        // Same id replaces in place (re-sending a rule is how you edit it); a new
+        // rule goes first, so the rule you made last wins over older ones.
+        const at = next.rules.findIndex((r) => r.id === op.rule.id);
+        if (at >= 0) next.rules[at] = { ...op.rule, ...stamp };
+        else next.rules.unshift({ ...op.rule, ...stamp });
         break;
       }
       case 'removeRule':

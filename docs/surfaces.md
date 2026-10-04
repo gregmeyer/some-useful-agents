@@ -43,7 +43,7 @@ A surface document (`packages/core/src/surfaces/`) holds:
 
 - **goal**: one line, e.g. "only things that could change what I do today".
 - **regions**: named places that stay where they are unless you move them (stable anchors). Home starts with **Needs you** (open items), **Happening now** (in progress or waiting) and **All good** (healthy context). An item lands in the first region whose match fits.
-- **rules**, evaluated against items. Each matches on kind, urgency, state, source, agent, or item id or prefix.
+- **rules**, evaluated against items, newest first: the rule you made last wins over older ones. Each matches on kind, urgency, state, source, agent, or item id or prefix.
   - `hide` leaves matching items out.
   - `filter` shows only matching items in a region.
   - `promote` puts them first.
@@ -93,4 +93,21 @@ Home's defaults are version 0 of its surface: three regions, plus three rules ma
 - draft agents grouped together;
 - drafts folded.
 
-Pinning, moving and hiding items by hand comes next (S4), then changing the rules by asking sua (S5).
+### Changing Today by hand
+
+Each row on Today has a **⋯** menu, which shows when you point at the row:
+- **Pin to top** (and **Unpin**);
+- **Move up** and **Move down**;
+- **Hide from Home**.
+
+You can also **drag** a row within its region. Each change is saved as your change to Home's surface (`POST /surfaces/home/ops`, actor `user`), so the reason under an item says "Pinned by you, Oct 4".
+
+After a change, a bar at the bottom of the list offers:
+- **Undo** (`POST /surfaces/home/restore`), which restores the version before your change;
+- when there's a clear one, **the rule that does the same for everything like it**. For example, pinning a failing agent offers "Always put failing agents first?". **Make it a rule** adds the rule, and a rule you make goes ahead of older ones.
+
+Hiding one conversation never offers to hide all conversations of its kind. Hide suggestions are only for things agents make: everything from one agent, drafts, board builds.
+
+Hidden items are listed at the end of Today ("2 hidden from Home"), each with the way back: **Show** if you hid it, or **Stop this rule** if a rule hid it.
+
+Next: changing Home's goal and rules by asking sua (S5).

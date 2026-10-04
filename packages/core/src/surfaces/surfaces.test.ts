@@ -41,6 +41,16 @@ describe('applySurfaceOps', () => {
     expect(after.rules[0]).toMatchObject({ id: 'approvals-first', by: 'user', at: NOW.toISOString() });
   });
 
+  it('a new rule goes first (the latest wins); re-sending a rule edits it in place', () => {
+    let doc = applySurfaceOps(home(), [
+      { op: 'addRule', rule: { id: 'a', type: 'promote', match: { kinds: ['question'] } } },
+      { op: 'addRule', rule: { id: 'b', type: 'promote', match: { kinds: ['alert'] } } },
+    ], 'user');
+    expect(doc.rules.map((r) => r.id)).toEqual(['b', 'a']);
+    doc = applySurfaceOps(doc, [{ op: 'addRule', rule: { id: 'a', type: 'promote', match: { kinds: ['decision'] } } }], 'user');
+    expect(doc.rules.map((r) => [r.id, r.match.kinds?.[0]])).toEqual([['b', 'alert'], ['a', 'decision']]);
+  });
+
   it('refuses bad ops with a plain reason', () => {
     expect(() => applySurfaceOps(home(), [{ op: 'explode' }], 'user')).toThrow(SurfaceOpError);
     expect(() => applySurfaceOps(home(), [], 'user')).toThrow('No ops');
@@ -138,12 +148,13 @@ describe('compileSurface', () => {
     ], 'user', { now: NOW });
     const out = compileSurface(doc, [item('a'), item('agent:x:draft', { kind: 'decision' }), item('b'), item('c', { urgency: 'high' }), item('s', { state: 'ok' })], { timeZone: 'UTC' });
     expect(out.regions[0].entries.map((e) => e.item.id)).toEqual(['c']);
-    expect(out.hidden).toEqual([
-      { itemId: 'a', reason: 'Hidden by you, Oct 3' },
-      { itemId: 'agent:x:draft', reason: 'Hidden by the rule "no drafts here" (by you, Oct 3)' },
-      { itemId: 'b', reason: 'Not shown in Needs you: it doesn\'t match "only urgent"' },
-      { itemId: 's', reason: 'No region shows this kind of item' },
+    expect(out.hidden.map(({ itemId, reason, by }) => ({ itemId, reason, by }))).toEqual([
+      { itemId: 'a', reason: 'Hidden by you, Oct 3', by: { override: true } },
+      { itemId: 'agent:x:draft', reason: 'Hidden by the rule "no drafts here" (by you, Oct 3)', by: { ruleId: 'no-drafts' } },
+      { itemId: 'b', reason: 'Not shown in Needs you: it doesn\'t match "only urgent"', by: undefined },
+      { itemId: 's', reason: 'No region shows this kind of item', by: undefined },
     ]);
+    expect(out.hidden[0].item?.id).toBe('a');
   });
 
   it('groups gather at the first member; yours win over rules; a one-item group dissolves', () => {

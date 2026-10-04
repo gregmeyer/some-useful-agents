@@ -32,8 +32,11 @@ export interface CompiledRegion {
 export interface CompiledSurface {
   goal: string;
   regions: CompiledRegion[];
-  /** Items left out, and why (for "why isn't X here?"). */
-  hidden: Array<{ itemId: string; reason: string }>;
+  /**
+   * Items left out, and why (for "why isn't X here?"). `by` says how to bring
+   * one back: your hide (a `show` op) or a rule (remove the rule).
+   */
+  hidden: Array<{ itemId: string; reason: string; item?: Item; by?: { override: true } | { ruleId: string } }>;
 }
 
 export function matches(item: Item, m: ItemMatch): boolean {
@@ -86,16 +89,16 @@ export function compileSurface(doc: SurfaceDoc, items: readonly Item[], opts: { 
   const byRegion = new Map<string, Item[]>(doc.regions.map((r) => [r.id, []]));
   for (const item of items) {
     const hide = hides.get(item.id);
-    if (hide) { hidden.push({ itemId: item.id, reason: `Hidden ${whoWhen(hide.by, hide.at)}` }); continue; }
+    if (hide) { hidden.push({ itemId: item.id, reason: `Hidden ${whoWhen(hide.by, hide.at)}`, item, by: { override: true } }); continue; }
     const hideRule = rules('hide').find((r) => matches(item, r.match));
-    if (hideRule) { hidden.push({ itemId: item.id, reason: `Hidden by the rule "${ruleName(hideRule)}" (${whoWhen(hideRule.by, hideRule.at)})` }); continue; }
+    if (hideRule) { hidden.push({ itemId: item.id, reason: `Hidden by the rule "${ruleName(hideRule)}" (${whoWhen(hideRule.by, hideRule.at)})`, item, by: { ruleId: hideRule.id } }); continue; }
     const pin = pins.find((p) => p.itemId === item.id);
     const region = (pin?.region && doc.regions.find((r) => r.id === pin.region)) || doc.regions.find((r) => matches(item, r.match));
-    if (!region) { hidden.push({ itemId: item.id, reason: 'No region shows this kind of item' }); continue; }
+    if (!region) { hidden.push({ itemId: item.id, reason: 'No region shows this kind of item', item }); continue; }
     // 3. Filter rules: in a region with any, an item must match one of them.
     const filters = rules('filter').filter((r) => r.type === 'filter' && (!r.region || r.region === region.id));
     if (!pin && filters.length > 0 && !filters.some((r) => matches(item, r.match))) {
-      hidden.push({ itemId: item.id, reason: `Not shown in ${region.title}: it doesn't match "${filters.map(ruleName).join('" or "')}"` });
+      hidden.push({ itemId: item.id, reason: `Not shown in ${region.title}: it doesn't match "${filters.map(ruleName).join('" or "')}"`, item });
       continue;
     }
     byRegion.get(region.id)!.push(item);

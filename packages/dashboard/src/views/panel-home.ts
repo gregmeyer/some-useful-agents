@@ -103,6 +103,7 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
         <span class="panel-askrow__label">Ask sua</span><span class="panel-askrow__text">“<span data-panel-askrow-text></span>”</span><kbd>↵</kbd>
       </button>
       <div data-panel-list>${renderPanelList(list)}</div>
+      <div class="surface-toast" data-surface-toast role="status" aria-live="polite" hidden></div>
       ${list.wide ? html`` : html`<footer class="panel-home__foot"><span>Kept in your inbox · follows you between pages</span><a href="/">Open full inbox</a></footer>`}
     </div>`;
 }
