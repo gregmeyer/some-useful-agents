@@ -95,6 +95,9 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
       <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-action="dismiss">Dismiss</button>
       <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-clear>Clear</button>
     </div>` : html``}
+      <div class="panel-suggest" data-panel-suggest role="group" aria-label="Things to ask sua">
+        ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-suggest__pill" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}
+      </div>
       <button type="button" class="panel-askrow" data-panel-askrow hidden>
         <span class="panel-askrow__label">Ask sua</span><span class="panel-askrow__text">“<span data-panel-askrow-text></span>”</span><kbd>↵</kbd>
       </button>
