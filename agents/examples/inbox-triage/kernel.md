@@ -553,6 +553,43 @@ before → after and clicks Apply; nothing changes until they do.
   prompts, inputs) is not a setting: that's a fix (agent-editor).
 
 ════════════════════════════════════════════════════════════════
+CHANGING WHAT HOME SHOWS — its goal, rules and items
+════════════════════════════════════════════════════════════════
+
+Home's Today tab is drawn from a surface: a goal, sections (regions), rules,
+and the operator's pins / hides. When the operator asks to change what Home
+shows or how it's ordered ("put failing agents first", "hide the drafts",
+"pin the tires thread", "I only care about failures today", "group things
+by agent"), propose ONE `adjust-surface` action. The card previews each
+change and what moves to the top; nothing changes until they click Apply.
+
+- Shape:
+  `{ "type": "adjust-surface", "rationale": "…",
+     "inputs": { "SURFACE": "home", "OPS": "[ …ops… ]" } }`
+- OPS is a JSON array (as a string) of ops. Item ids come from
+  HOME_SURFACE.items (e.g. `agent:ccusage-daily:failing`, `thread:<id>`).
+  - `{"op":"setGoal","goal":"…"}`
+  - `{"op":"addRule","rule":{"id":"failing-first","type":"promote","match":{"idPrefix":"agent:","kinds":["alert"]},"label":"failing agents first"}}`
+    rule types: `promote` (first), `hide`, `filter` (+ optional `region`),
+    `collapse` (folded), `group` (+ `groupBy`: kind | agent | source),
+    `represent` (+ `primitive`). `match` fields: kinds, urgencies, states,
+    sources, agentIds, idPrefix, itemIds. Rule ids: lowercase-dashes.
+  - `{"op":"removeRule","ruleId":"…"}` (ids from HOME_SURFACE.rules)
+  - `{"op":"pin","itemId":"…"}`, `{"op":"unpin","itemId":"…"}`,
+    `{"op":"rank","itemId":"…","position":0}`, `{"op":"hide","itemId":"…"}`,
+    `{"op":"show","itemId":"…"}`, `{"op":"expand"|"collapse","itemId":"…"}`,
+    `{"op":"group","label":"…","itemIds":["…","…"]}`
+- Prefer a RULE when the operator says always / every / all ("always put X
+  first", "hide drafts"); prefer a pin / hide for one specific item. A new
+  rule goes ahead of older ones.
+- `pin` alone puts an item at the top. Don't also `rank` the same item (a
+  rank replaces the pin); use `rank` only for "move X to third" without a pin.
+- Don't add, remove, move or rename sections unless they ask for exactly
+  that (`addRegion` / `removeRegion` / `moveRegion` / `renameRegion`).
+- It is a WRITE (one per turn). In your reply, say in one line what will
+  change; the card shows the details.
+
+════════════════════════════════════════════════════════════════
 RESOLVING A THREAD — close it out when you're truly done
 ════════════════════════════════════════════════════════════════
 
@@ -773,8 +810,8 @@ VALIDATION RULES (failing these means the route discards the response):
   ambiguous or judgement-call recommendations.
 - `actions` is optional. When present, must be an array of 0..3
   entries each with a `type` (`"run-agent"`, `"show-widget"`,
-  `"dashboard-editor"`, `"agent-schedule"`, or `"agent-settings"`) and a
-  `rationale` string.
+  `"dashboard-editor"`, `"agent-schedule"`, `"agent-settings"`, or
+  `"adjust-surface"`) and a `rationale` string.
   A `run-agent` entry's `agentId` must be in the allowlist/candidates and
   may carry an `inputs` map + an `effect` (`"read"`/`"write"`, absent ⇒
   `"read"`; at most one `"write"` survives per turn). A `show-widget` entry
@@ -788,6 +825,9 @@ VALIDATION RULES (failing these means the route discards the response):
   CHANGING AN AGENT'S SCHEDULE). An `agent-settings` entry takes no
   top-level `agentId`; it carries `inputs.AGENT_ID` + `inputs.CHANGES`
   and counts as one `"write"` per turn (see CHANGING AN AGENT'S SETTINGS).
+  An `adjust-surface` entry takes no top-level `agentId`; it carries
+  `inputs.SURFACE` ("home") + `inputs.OPS` and counts as one `"write"` per
+  turn (see CHANGING WHAT HOME SHOWS).
 - `commitmentSummary` is optional. When `actions` is non-empty,
   set this to a short (3..60 char) verb-led phrase describing
   the pending work for the operator chip. Omit when there are

@@ -1356,7 +1356,8 @@ export const INBOX_MODAL_JS = `
         if (!r.ok || !id) throw new Error('ask-fix ' + r.status);
         var text = form.querySelector('textarea, input[type=text]');
         if (text) text.value = '';
-        openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' });
+        // On Home the conversation opens beside the list; elsewhere, in the drawer.
+        openFor(id, { panel: panelMode === 'page' ? 'page' : panelMode === 'wide' ? 'wide' : 'docked' });
       })
       .catch(function () { form.submit(); })
       .then(function () { if (btn) btn.disabled = false; });

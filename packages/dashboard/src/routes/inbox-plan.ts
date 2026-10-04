@@ -5,6 +5,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { settingsBodyFromChanges } from '../lib/agent-settings.js';
+import { parseSurfaceOps } from '../lib/surface-adjust.js';
 import {
   stableStringifyInputs,
   parseActionMeta,
@@ -391,6 +392,37 @@ export function parseProposedActions(
         kind: 'action',
         status: 'proposed',
         agentId: 'agent-settings',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: 'Apply',
+      });
+      continue;
+    }
+    // `adjust-surface` changes what Home shows (goal surfaces S5): `inputs.OPS` is
+    // a JSON array of surface ops. Shape here; the card previews, Apply applies.
+    if (type === 'adjust-surface') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (k === 'OPS' && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+        }
+      }
+      inputs.SURFACE = inputs.SURFACE || 'home';
+      if (inputs.SURFACE !== 'home' || !inputs.OPS) {
+        rejected.push({ agentId: 'adjust-surface', reason: 'adjust-surface needs inputs.OPS (and SURFACE "home")' });
+        continue;
+      }
+      const parsedOps = parseSurfaceOps(inputs.OPS);
+      if (parsedOps.error) {
+        rejected.push({ agentId: 'adjust-surface', reason: parsedOps.error });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'adjust-surface',
         inputs,
         rationale: rationaleRaw || undefined,
         effect: 'write',

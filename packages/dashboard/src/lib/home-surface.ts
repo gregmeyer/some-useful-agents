@@ -5,7 +5,7 @@
  */
 import {
   collectItems, itemSourcesFromHandle, compileSurface, SurfaceStore,
-  type CompiledSurface, type CompiledEntry, type Item,
+  type CompiledSurface, type CompiledEntry, type Item, type SurfaceDoc,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 
@@ -16,6 +16,9 @@ export interface HomeSurface {
   goal: string;
   /** What the Today tab counts: entries waiting on you in Needs you. */
   needsCount: number;
+  /** The document and items it was compiled from (for previews of a change). */
+  doc: SurfaceDoc;
+  items: Item[];
 }
 
 export const HOME_SURFACE_ID = 'home';
@@ -31,6 +34,8 @@ export function readHomeSurface(ctx: ReturnType<typeof getContext>): HomeSurface
     version: cur.version,
     goal: cur.doc.goal,
     needsCount: needs ? needs.entries.filter((e) => !e.collapsed).length + needs.more : 0,
+    doc: cur.doc,
+    items,
   };
 }
 

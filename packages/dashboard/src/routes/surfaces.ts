@@ -13,6 +13,8 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { suggestRule } from '../lib/surface-suggest.js';
+import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
+import { runTriageAgent } from './inbox-engine.js';
 
 export const surfacesRouter: Router = Router();
 
@@ -57,4 +59,25 @@ surfacesRouter.post('/surfaces/:id/restore', (req: Request, res: Response) => {
   } catch (err) {
     res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+/**
+ * "Ask sua to change Home" (goal surfaces S5): a conversation that starts with
+ * what you asked; sua answers with a "Change Home" card you Apply.
+ */
+surfacesRouter.post('/surfaces/home/ask', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 4000) : '';
+  if (!ctx.inboxStore || !text) {
+    if (isAjax(req)) { res.status(400).json({ error: 'Say what to change.' }); return; }
+    res.redirect(303, '/');
+    return;
+  }
+  const created = ctx.inboxStore.add({ priority: 'medium', source: 'manual', title: 'Change Home', body: '(empty)' });
+  const ask = ctx.inboxStore.addResponse(created.id, 'user', `On Home: ${text}`);
+  publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
+  void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  publishInboxChanged(ctx, created.id, created.status);
+  if (isAjax(req)) { res.setHeader('X-Inbox-Id', created.id); res.status(204).end(); return; }
+  res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
 });

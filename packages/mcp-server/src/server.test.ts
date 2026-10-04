@@ -508,4 +508,27 @@ describe('MCP board tools', () => {
       await c.close();
     }
   });
+
+  it('surface-read shows Home; surface-apply changes it as this app, but not its sections', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent({ ...parseAgent(`id: sketch\nname: Sketch\nnodes:\n  - id: n\n    type: shell\n    command: echo hi\n`), status: 'draft' }, 'cli');
+    agents.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const read = text(await c.callTool({ name: 'surface-read', arguments: {} }));
+      expect(read).toContain('Home v0. Goal:');
+      expect(read).toContain('agent:sketch:draft · decision · Sketch is a draft');
+      const ok = await c.callTool({ name: 'surface-apply', arguments: { ops: [{ op: 'pin', itemId: 'agent:sketch:draft' }], reason: 'Keep the draft in view', expectedVersion: 0 } });
+      expect(ok.isError).toBeFalsy();
+      expect(text(ok)).toContain('Home is now v1');
+      expect(text(await c.callTool({ name: 'surface-read', arguments: {} }))).toContain('Pinned by agent mcp');
+      const refused = await c.callTool({ name: 'surface-apply', arguments: { ops: [{ op: 'removeRegion', regionId: 'all-good' }], reason: 'tidier' } });
+      expect(refused.isError).toBe(true);
+      expect(text(refused)).toContain("changes Home's sections");
+    } finally {
+      await c.close();
+    }
+  });
 });

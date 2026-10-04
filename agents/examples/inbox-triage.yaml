@@ -114,6 +114,14 @@ inputs:
       complete cleanly and still miss its outcome — when this says NO or
       PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
       healthy. Empty when the agent declares no `outcome:` block.
+  HOME_SURFACE:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Home as it is now, as JSON: its goal, sections (regions), rules, pins,
+      hidden items, and the items on it with their ids (use these ids in an
+      adjust-surface action's OPS).
   FOCUS_AGENT_SETTINGS:
     type: string
     required: false
@@ -323,6 +331,9 @@ nodes:
 
       Its current settings (may be empty; see CHANGING AN AGENT'S SETTINGS):
       {{inputs.FOCUS_AGENT_SETTINGS}}
+
+      Home as it is now (see CHANGING WHAT HOME SHOWS):
+      {{inputs.HOME_SURFACE}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

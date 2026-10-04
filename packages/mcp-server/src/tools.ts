@@ -31,7 +31,7 @@ import {
   getBuiltinTool,
   evaluatePolicy,
   resolvePolicyDocument,
-  policyResource, collectItems, itemSourcesFromHandle, ITEM_KINDS
+  policyResource, collectItems, itemSourcesFromHandle, ITEM_KINDS, SurfaceStore, SurfaceNeedsApproval, compileSurface
 } from '@some-useful-agents/core';
 
 /**
@@ -491,6 +491,60 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         const lines = items.map((i) => `[${i.urgency}] ${i.kind} · ${i.title}${i.summary ? ` — ${i.summary}` : ''} (${i.id}; ${i.actions.map((a) => a.label).join(' / ')})`);
         return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (err) {
+        return errorResult((err as Error).message);
+      }
+    },
+  );
+  const homeNow = () => {
+    const db = opts.runStore!.databaseHandle();
+    const items = collectItems(itemSourcesFromHandle(db, opts.agentStore!, opts.runStore!, opts.dataRoot));
+    const store = SurfaceStore.fromHandle(db);
+    const cur = store.current('home');
+    return { store, cur, compiled: compileSurface(cur.doc, items) };
+  };
+  server.registerTool(
+    'surface-read',
+    {
+      description: 'How sua\'s Home is arranged right now: its goal, sections in order with the items in each (ids, kind, title, why each is where it is), its rules, and what is hidden. Use the item and rule ids with surface-apply.',
+      inputSchema: {},
+    },
+    async () => {
+      if (!opts.runStore || !opts.agentStore) return errorResult('Home is not available on this server.');
+      try {
+        const { cur, compiled } = homeNow();
+        const lines = [`Home v${String(cur.version)}. Goal: ${cur.doc.goal}`];
+        for (const r of compiled.regions) {
+          lines.push(`## ${r.title} (${r.id})${r.more ? ` +${String(r.more)} more` : ''}`);
+          for (const e of r.entries.slice(0, 25)) lines.push(`- ${e.item.id} · ${e.item.kind} · ${e.item.title}${e.collapsed ? ' (folded)' : ''} — ${e.reasons[0] ?? ''}`);
+        }
+        lines.push(`Rules (newest first): ${cur.doc.rules.map((x) => `${x.id} [${x.type}] ${x.label ?? ''}`).join('; ') || 'none'}`);
+        if (compiled.hidden.length) lines.push(`Hidden: ${compiled.hidden.filter((h) => h.by).map((h) => h.itemId).join(', ') || 'none'}`);
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      } catch (err) {
+        return errorResult((err as Error).message);
+      }
+    },
+  );
+  server.registerTool(
+    'surface-apply',
+    {
+      description: 'Change how sua\'s Home is arranged with surface ops (the same ones its Today tab uses): setGoal, addRule / removeRule (promote, hide, filter, collapse, group, represent), pin / unpin, rank, hide / show, expand / collapse, group / ungroup. Saved as a new version marked as made by this app; the person can undo it. Changes to Home\'s sections themselves (addRegion, removeRegion, moveRegion, renameRegion) are refused: the person makes those.',
+      inputSchema: {
+        ops: z.array(z.record(z.string(), z.unknown())).min(1).max(20).describe('Surface ops, e.g. [{"op":"pin","itemId":"agent:news:failing"}] or [{"op":"addRule","rule":{"id":"failing-first","type":"promote","match":{"idPrefix":"agent:","kinds":["alert"]},"label":"failing agents first"}}]. Read item and rule ids with surface-read.'),
+        reason: z.string().max(280).describe('Why, in a few words; shown in Home\'s history.'),
+        expectedVersion: z.number().int().min(0).optional().describe('The version surface-read showed; refuses if Home changed since.'),
+      },
+    },
+    async ({ ops, reason, expectedVersion }) => {
+      const denied = policyAllows('surface-apply');
+      if (denied) return errorResult(denied);
+      if (!opts.runStore || !opts.agentStore) return errorResult('Home is not available on this server.');
+      try {
+        const { store } = homeNow();
+        const saved = store.apply('home', ops, 'agent:mcp', reason, expectedVersion !== undefined ? { expectedVersion } : {});
+        return { content: [{ type: 'text' as const, text: `Saved. Home is now v${String(saved.version)}. The person sees the change on Home and can undo it.` }] };
+      } catch (err) {
+        if (err instanceof SurfaceNeedsApproval) return errorResult('That changes Home\'s sections, which the person does themselves (on Home, or by asking sua). Rules, pins and hides within sections are fine.');
         return errorResult((err as Error).message);
       }
     },
