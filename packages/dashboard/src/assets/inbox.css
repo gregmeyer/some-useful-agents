@@ -2672,3 +2672,148 @@ textarea.panel-composer__input { flex: 1; min-width: 0; padding: 0; resize: none
 button.panel-home__star:hover { color: var(--color-text); }
 .panel-home__star.is-on { color: var(--color-warn); }
 span.panel-home__star { cursor: default; }
+
+/* ---------- The conversation view, redesigned (mockup screens 16, 17) ----------
+ * One-line title + ⋯ menu; a quiet meta line; messages as avatar + name + text;
+ * action cards as bordered cards with a footer; one rounded reply box. Shared
+ * by the drawer and Home's thread pane. */
+.panel-search-row { display: flex; align-items: center; gap: var(--space-2); }
+.panel-search-row .panel-search { flex: 1; }
+.panel-refresh {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+.panel-refresh:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+
+.inbox-detail h3.inbox-modal__title {
+  min-width: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+.inbox-detail .inbox-modal__title-row { align-items: center; padding-right: var(--space-6); }
+.inbox-detail .inbox-modal__meta { gap: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.thread-status {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+.thread-status--awaiting_user { background: var(--color-warn-soft); color: var(--color-warn); }
+.thread-status--triaged, .thread-status--verifying { background: var(--color-info-soft); color: var(--color-info); }
+.thread-status--resolved { background: var(--color-ok-soft); color: var(--color-ok); }
+.thread-with { display: inline-flex; align-items: center; gap: var(--space-1); }
+.thread-starred { color: var(--color-warn); }
+.thread-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
+.inbox-modal__menu-tags { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-block: 1px solid var(--color-border); }
+.inbox-modal__menu-label { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.inbox-modal__menu-link { display: block; text-decoration: none; color: var(--color-text); }
+
+/* Messages: a small avatar, the speaker's name and time, then the text. */
+.inbox-msg { gap: var(--space-3); }
+.inbox-msg__avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+.inbox-msg__avatar::after { content: none; }
+.inbox-msg__avatar--user { background: var(--color-primary-soft); color: var(--color-primary); }
+.inbox-msg__avatar--triage { color: var(--color-info); }
+.inbox-msg__avatar--agent { color: var(--color-text); }
+.inbox-msg__who { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-text); }
+.inbox-msg--grouped .inbox-msg__who { display: none; }
+.inbox-msg__meta { align-items: baseline; }
+.inbox-msg__time { opacity: 1; color: var(--color-text-subtle); }
+/* System notes are status lines, not speakers. */
+.inbox-msg--system .inbox-msg__avatar { visibility: hidden; }
+.inbox-msg--system .inbox-msg__who { display: none; }
+.inbox-msg--system .inbox-msg__text { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+/* Actions aren't speakers: the card sits in the text column. */
+.inbox-msg--action .inbox-msg__avatar { visibility: hidden; }
+
+/* Action cards (shadcn Card, our tokens). */
+.inbox-action__card.act-card {
+  margin-top: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+.inbox-action--proposed .act-card--write { border-color: var(--color-warn-border); }
+.act-card > * { margin-left: var(--space-3); margin-right: var(--space-3); }
+.act-card__head { display: flex; align-items: baseline; gap: var(--space-2); padding-top: var(--space-3); }
+.act-card__head .inbox-action__headline { flex: 1; min-width: 0; font-weight: 600; font-size: var(--font-size-sm); }
+.act-card__effect {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+}
+.act-card__effect--write { border-color: var(--color-warn-border); color: var(--color-warn); }
+.act-card__run { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.act-card .inbox-action__rationale { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-top: var(--space-1); }
+.act-card__note { margin: var(--space-2) var(--space-3) 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.act-card__details { margin-top: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.act-card__details > summary { cursor: pointer; }
+.act-card .inbox-action__diff { margin-top: var(--space-2); }
+.act-card .inbox-action__diff-header { display: inline-flex; gap: var(--space-2); align-items: baseline; cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.act-card .inbox-action__diff-toggle::after { content: " · show"; }
+.act-card .inbox-action__diff[open] .inbox-action__diff-toggle::after { content: " · hide"; }
+.act-card__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0 !important;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+.act-card__foot .inbox-action__controls { display: flex; gap: var(--space-2); margin: 0; }
+.act-card__spacer { flex: 1; }
+.act-card__foot .inbox-trust { margin: 0; font-size: var(--font-size-xs); }
+.act-card > :last-child:not(.act-card__foot) { margin-bottom: var(--space-3); }
+
+/* The reply box: one rounded field with a round send button. */
+.inbox-chatbar.thread-composer { align-items: flex-end; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); border-radius: var(--radius-lg); background: var(--color-bg); }
+.thread-composer__send {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-bg);
+  cursor: pointer;
+}
+.thread-composer__send:disabled { opacity: 0.4; cursor: default; }
+.inbox-composer__aux { justify-content: flex-end; }
+
+/* sua is working. */
+.inbox-thinking__avatar { width: 24px; height: 24px; background: var(--color-surface-raised); color: var(--color-info); font-family: var(--font-mono); font-size: var(--font-size-xs); }

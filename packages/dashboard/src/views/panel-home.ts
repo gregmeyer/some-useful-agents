@@ -81,12 +81,15 @@ function renderFilters(f: PanelFilters, facets: PanelFacets): SafeHtml {
 export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml {
   return html`
     <div class="panel-home" data-panel-home>
-      <label class="panel-search">
-        ${SEARCH_ICON}
-        <input type="search" placeholder="Search or ask sua…" aria-label="Search your inbox, or press Enter to ask sua"
-          value="${list.q}" data-panel-search autocomplete="off" enterkeyhint="send">
-        <kbd class="panel-search__key" data-panel-key>⌘K</kbd>
-      </label>
+      <div class="panel-search-row">
+        <label class="panel-search">
+          ${SEARCH_ICON}
+          <input type="search" placeholder="Search or ask sua…" aria-label="Search your inbox, or press Enter to ask sua"
+            value="${list.q}" data-panel-search autocomplete="off" enterkeyhint="send">
+          <kbd class="panel-search__key" data-panel-key>⌘K</kbd>
+        </label>
+        <button type="button" class="panel-refresh" data-panel-refresh aria-label="Refresh the list" title="Refresh (the list also updates by itself)">↻</button>
+      </div>
       <button type="button" class="panel-askrow" data-panel-askrow hidden>
         <span class="panel-askrow__label">Ask sua</span><span class="panel-askrow__text">“<span data-panel-askrow-text></span>”</span><kbd>↵</kbd>
       </button>

@@ -2085,3 +2085,35 @@ ${extra}nodes:
     expect(page.text).toContain('action="/agents/flaky/ask-fix" data-ask-fix');
   });
 });
+
+describe('the conversation view, redesigned', () => {
+  it('has a one-line header with the ⋯ menu holding star, tags, ask-again and open full page; plain action cards; one reply box', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', agentId: 'flaky', title: 'Fix Flaky', body: '(empty)' });
+    inboxStore.addResponse(m.id, 'triage', 'Here is a fix.');
+    inboxStore.addResponse(m.id, 'action', 'fix', JSON.stringify({
+      kind: 'action', status: 'proposed', agentId: 'agent-editor', effect: 'write',
+      inputs: { AGENT_ID: 'flaky', NEW_YAML: 'id: flaky\nname: New\n' }, rationale: 'Give it a fetch tool.',
+      base: { version: 2, yaml: 'id: flaky\nname: Old\n' },
+    }));
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const menu = res.text.slice(res.text.indexOf('inbox-modal__menu-panel'), res.text.indexOf('</details>', res.text.indexOf('inbox-modal__menu-panel')));
+    expect(menu).toContain('☆ Star');
+    expect(menu).toContain('data-inbox-tag-add');
+    expect(menu).toContain('Ask sua to look again');
+    expect(menu).toContain('Open full page');
+    expect(res.text).toContain('thread-status thread-status--open');
+    expect(res.text).toContain('<span class="inbox-msg__who">sua</span>');
+    expect(res.text).not.toContain('Triage agent');
+    expect(res.text).not.toContain('Ask triage');
+    expect(res.text).toMatch(/Update <span class="mono">flaky<\/span>/);
+    expect(res.text).toContain('changes the agent');
+    expect(res.text).toContain('Apply fix');
+    expect(res.text).toContain('Not now');
+    expect(res.text).toMatch(/<details class="inbox-action__diff">/);
+    expect(res.text).toContain('class="thread-composer__send"');
+
+    const home = await request(app).get('/panel/home').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(home.text).toContain('data-panel-refresh');
+  });
+});

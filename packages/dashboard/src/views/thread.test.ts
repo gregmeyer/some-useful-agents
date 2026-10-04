@@ -46,7 +46,8 @@ describe('shared thread component', () => {
       turn(2, 'agent', 'hello', { runId: 'run-aaaaaaaa1' }),
       turn(3, 'agent', 'and more', { runId: 'run-bbbbbbbb2' }),
     ]);
-    expect(out).toContain('inbox-msg__avatar inbox-msg__avatar--agent" aria-label="Helper">agent');
+    expect(out).toContain('inbox-msg__avatar inbox-msg__avatar--agent" aria-hidden="true">H');
+    expect(out).toContain('<span class="inbox-msg__who">Helper</span>');
     expect(out).toContain('href="/runs/run-aaaaaaaa1"');
     expect(out.match(/inbox-msg--grouped/g)).toHaveLength(1);
     expect(out.match(/data-inbox-copy\s/g)).toHaveLength(3);
