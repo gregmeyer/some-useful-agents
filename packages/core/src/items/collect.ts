@@ -11,8 +11,9 @@ import { BoardBuildStore } from '../board-build.js';
 import { AgentStore } from '../agent-store.js';
 import { RunStore } from '../run-store.js';
 import { getSchedulerStatus } from '../scheduler-heartbeat.js';
+import { NotebookStore } from '../notebooks.js';
 import {
-  threadItem, questionItem, failingAgentItem, outcomeItem, draftAgentItem, boardBuildItem, schedulerItem,
+  threadItem, questionItem, failingAgentItem, outcomeItem, draftAgentItem, boardBuildItem, schedulerItem, notebookItem,
 } from './projections.js';
 import { URGENCY_ORDER, type Item, type ItemKind } from './types.js';
 
@@ -21,6 +22,7 @@ export interface ItemSources {
   questions?: HumanQuestionStore;
   outcomes?: OutcomeStore;
   boardBuilds?: BoardBuildStore;
+  notebooks?: NotebookStore;
   agents: AgentStore;
   runs: RunStore;
   /** Where the scheduler's heartbeat lives; no scheduler item without it. */
@@ -34,6 +36,7 @@ export function itemSourcesFromHandle(db: DatabaseSync, agents: AgentStore, runs
     questions: HumanQuestionStore.fromHandle(db),
     outcomes: OutcomeStore.fromHandle(db),
     boardBuilds: new BoardBuildStore(db),
+    notebooks: NotebookStore.fromHandle(db),
     agents,
     runs,
     ...(dataDir ? { dataDir } : {}),
@@ -112,6 +115,12 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
       const item = boardBuildItem(b);
       if (item) items.push(item);
     }
+  }
+
+  // Active notebooks.
+  for (const nb of src.notebooks?.list({ status: 'active' }) ?? []) {
+    const item = notebookItem(nb, src.notebooks!.entries(nb.id, 500).length);
+    if (item) items.push(item);
   }
 
   // The scheduler.

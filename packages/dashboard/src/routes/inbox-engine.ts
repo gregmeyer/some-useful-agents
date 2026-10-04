@@ -40,6 +40,7 @@ import {
   type LearningScope,
   SurfaceStore,
   SurfaceVersionConflict,
+  NotebookStore,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -1970,6 +1971,18 @@ export async function runTriageAgent(
           FOCUS_AGENT: focusAgentId ?? '',
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
+          // Notebooks: goals kept over time ("where's my used car goal?").
+          NOTEBOOKS: (() => {
+            try {
+              const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+              return JSON.stringify(nbs.list().slice(0, 20).map((n) => ({
+                id: n.id, title: n.title, for: n.statement, status: n.status,
+                criteriaMet: `${String(n.criteria.filter((c) => c.met).length)}/${String(n.criteria.length)}`,
+                entries: nbs.entries(n.id, 500).length, ...(n.decision ? { decision: n.decision } : {}),
+                link: `/notebooks/${encodeURIComponent(n.id)}`,
+              })));
+            } catch { return '[]'; }
+          })(),
           // Home as it is now (goal, rules, items with their ids), for adjust-surface.
           HOME_SURFACE: (() => { try { return describeHomeForTriage(readHomeSurface(ctx)); } catch { return ''; } })(),
           // Its current settings, in the field names an agent-settings CHANGES uses.

@@ -14,6 +14,7 @@ export * from './transcript.js';
 export * from './usage.js';
 export * from './spend-limits.js';
 export * from './human-questions.js';
+export * from './notebooks.js';
 export * from './webhooks.js';
 export * from './run-orphan-reaper.js';
 export * from './agent-executor.js';

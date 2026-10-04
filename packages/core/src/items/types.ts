@@ -23,7 +23,7 @@ export const URGENCY_ORDER: Record<ItemUrgency, number> = { critical: 0, high: 1
 export type ItemState = 'open' | 'waiting' | 'in-progress' | 'ok';
 
 /** Which store the item was read from. */
-export type ItemSource = 'inbox' | 'questions' | 'runs' | 'outcomes' | 'scheduler' | 'board-builds' | 'agents';
+export type ItemSource = 'inbox' | 'questions' | 'runs' | 'outcomes' | 'scheduler' | 'board-builds' | 'agents' | 'notebooks';
 
 /**
  * What you can do about an item. Typed, and carried out by the store that owns

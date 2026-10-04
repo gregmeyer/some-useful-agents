@@ -22,8 +22,26 @@ export const DEFAULT_HOME_SURFACE: SurfaceDoc = {
   overrides: [],
 };
 
+/**
+ * A notebook before you change it: its options, then notes and decisions
+ * (decisions first), then evidence. Items are its entries (notebooks.ts).
+ */
+export const DEFAULT_NOTEBOOK_SURFACE: SurfaceDoc = {
+  goal: '',
+  regions: [
+    { id: 'options', title: 'Options', match: { kinds: ['collection'] } },
+    { id: 'notes', title: 'Notes and decisions', match: { kinds: ['fact', 'decision'] } },
+    { id: 'evidence', title: 'Evidence', match: { kinds: ['evidence'] } },
+  ],
+  rules: [
+    { id: 'decisions-first', type: 'promote', match: { kinds: ['decision'] }, label: 'decisions first' },
+  ],
+  overrides: [],
+};
+
 /** The default for a surface id, before its first change. */
 export function defaultSurface(surfaceId: string): SurfaceDoc {
   if (surfaceId === 'home') return structuredClone(DEFAULT_HOME_SURFACE);
+  if (surfaceId.startsWith('notebook:')) return structuredClone(DEFAULT_NOTEBOOK_SURFACE);
   return { goal: '', regions: [{ id: 'main', title: 'Main', match: {} }], rules: [], overrides: [] };
 }

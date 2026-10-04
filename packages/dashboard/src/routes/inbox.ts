@@ -34,6 +34,7 @@
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal } from '../views/home-surface.js';
+import { renderHomeNotebooksLine } from '../views/notebooks.js';
 import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
@@ -44,6 +45,7 @@ import {
   type InboxResponse,
   type AutonomyMode,
   type AgentTrustLevel,
+  NotebookStore,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
@@ -105,7 +107,7 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
     ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
     : [];
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today) } : {}) }));
+  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
 }
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
@@ -201,6 +203,13 @@ function panelListFor(req: Request) {
     // Today is Home's surface (goal surfaces, S3).
     today: readHomeSurfaceSafe(ctx),
   });
+}
+
+function notebooksLineFor(ctx: ReturnType<typeof getContext>) {
+  try {
+    const all = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list();
+    return renderHomeNotebooksLine(all.filter((n) => n.status === 'active').length, all.length);
+  } catch { return undefined; }
 }
 
 /** Home's surface, or undefined if reading it fails (the tab falls back to threads waiting on you). */

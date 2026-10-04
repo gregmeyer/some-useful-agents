@@ -24,6 +24,8 @@ export function renderInboxPage(opts: {
   availableDashboards?: Array<{ id: string; name: string }>;
   /** Home's surface goal line (goal surfaces, S3). */
   goalLine?: SafeHtml;
+  /** The Notebooks line under it (G1; no nav item until notebooks prove themselves). */
+  notebooksLine?: SafeHtml;
 }): string {
   if (opts.agentCount === 0 && !opts.threadId) {
     return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
@@ -51,6 +53,7 @@ export function renderInboxPage(opts: {
           <strong>Today</strong> is what needs you now: conversations waiting on you, agents that keep failing, drafts and builds, in the order your rules set. Open, Chats and Done are your conversations. Ask sua (⌘K) brings this beside any page.
         </p>
         ${opts.goalLine ?? html``}
+        ${opts.notebooksLine ?? html``}
       </div>
     </div>
     ${pageIntro({

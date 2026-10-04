@@ -1,6 +1,6 @@
 # Surfaces and items
 
-sua's Home (and later boards, Notebooks and canvases in a conversation) is moving to **goal surfaces**: what you see is chosen by a goal and rules you can change, not fixed per page. The design is [ADR-0049](adr/0049-goal-surfaces.md). It has three layers that never mix:
+sua's Home and each [notebook](notebooks.md) (and later boards and canvases in a conversation) is moving to **goal surfaces**: what you see is chosen by a goal and rules you can change, not fixed per page. The design is [ADR-0049](adr/0049-goal-surfaces.md). It has three layers that never mix:
 
 1. **Items**: what is true. Typed objects read from what sua already stores. *(Shipped: the item index, below.)*
 2. **Surfaces**: what is emphasized now. A versioned document per surface holds a goal, rules and your pins, and every change records who made it and why. *(Shipped: the surface model, below.)*
