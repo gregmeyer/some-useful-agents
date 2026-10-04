@@ -2078,8 +2078,15 @@ ${extra}nodes:
     expect(res.status).toBe(204);
     const id = res.headers['x-inbox-id'];
     expect(inboxStore.get(id)).toMatchObject({ title: 'Fix Flaky', agentId: 'flaky', source: 'manual' });
+    // sua asks first; its analysis waits for a click even with autonomy on Full.
+    inboxStore.setAutonomyMode('full');
     const roles = inboxStore.listResponses(id).map((r) => r.role);
-    expect(roles).toEqual(['user', 'system', 'action']);
+    expect(roles).toEqual(['triage', 'action']);
+    expect(inboxStore.listResponses(id)[0].body).toContain("What's going wrong with **flaky**?");
+    expect(inboxStore.get(id)!.status).toBe('awaiting_user');
+    const full = await request(app).post('/agents/flaky/ask-fix').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    const card = inboxStore.listResponses(full.headers['x-inbox-id']).find((r) => r.role === 'action')!;
+    expect(JSON.parse(card.metaJson!)).toMatchObject({ status: 'proposed', agentId: 'agent-analyzer', ctaLabel: 'Look at its recent runs' });
     expect(inboxStore.listResponses(id).every((r) => !r.body.includes('<!--'))).toBe(true);
     const page = await request(app).get('/agents/flaky').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(page.text).toContain('action="/agents/flaky/ask-fix" data-ask-fix');

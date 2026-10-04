@@ -279,12 +279,17 @@ inboxRouter.post('/agents/:id/ask-fix', (req: Request, res: Response) => {
     title: `Fix ${agent.name || agent.id}`,
     body: '(empty)',
   });
-  const ask = ctx.inboxStore.addResponse(created.id, 'user', `\`${agent.id}\` isn't working well. Look at why and propose a fix.`);
-  publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
+  // sua asks first: what you saw is the best lead. Its analysis waits for a
+  // click, and replying instead hands sua your description with the agent attached.
   const proposed = proposeAgentFix(ctx, created.id, agent.id,
-    `Looking at **${agent.id}**: what it does and how its recent runs went. sua will draft a fix for you to approve; nothing changes until you do.`);
+    `What's going wrong with **${agent.id}**? Tell me what you saw (an error, a wrong answer, too slow), or I can look at its recent runs first. Nothing changes until you approve a fix.`,
+    { asks: true });
+  if (proposed) ctx.inboxStore.updateStatus(created.id, 'awaiting_user');
   // Archived or otherwise not fixable this way: let sua answer the request itself.
-  if (!proposed) void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  else {
+    ctx.inboxStore.addResponse(created.id, 'user', `\`${agent.id}\` isn't working well. What can I do about it?`);
+    void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  }
   publishInboxChanged(ctx, created.id, created.status);
   if (isAjax(req)) {
     res.setHeader('X-Inbox-Id', created.id);
