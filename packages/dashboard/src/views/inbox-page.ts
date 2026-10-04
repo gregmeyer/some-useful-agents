@@ -43,12 +43,12 @@ export function renderInboxPage(opts: {
       ${buildFromGoalModal({ availableDashboards: opts.availableDashboards })}
     `));
   }
-  return render(layout({ title: 'Inbox', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
+  return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
     <div class="inbox-page-head">
       <div>
-        <h1 style="margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl);">Inbox</h1>
+        <h1 style="margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl);">Home</h1>
         <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
-          Everything sua and your agents need from you, and every conversation. Pick one to read and reply; Ask sua (⌘K) brings this beside any page.
+          <strong>Today</strong> is what needs you now: conversations waiting on you, agents that keep failing, drafts and builds, in the order your rules set. Open, Chats and Done are your conversations. Ask sua (⌘K) brings this beside any page.
         </p>
         ${opts.goalLine ?? html``}
       </div>
