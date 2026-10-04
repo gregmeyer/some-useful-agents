@@ -235,7 +235,7 @@ dashboard; that link carries the token in its fragment, so it is a credential.
 
 `POST /hooks/<agent>` is the one dashboard path that takes no session cookie
 and no loopback `Host` check, so a service on the internet can reach it
-through a tunnel. It is **off per agent** until you turn it on (Config tab or
+through a tunnel. It is **off per agent** until you turn it on (Settings tab or
 `sua agent webhook <agent> --on`), which creates a random per-agent secret
 (`whk_…`, 192 bits). Every request must present that secret (bearer token,
 `X-Sua-Token`, or `?token=`), or, for `webhook.signature: github`, carry a
@@ -247,7 +247,7 @@ paused agents and community shell agents are refused, and the run is still
 bound by the agent's spend limits and tool policy. Treat the secret like a
 password: anyone holding it can run the agent with inputs of their choosing,
 so don't expose shell agents that interpolate raw inputs. Rotate it from the
-Config tab. Only `/hooks/*` is reachable through a tunnel; every other path
+Settings tab. Only `/hooks/*` is reachable through a tunnel; every other path
 still requires a loopback `Host` and a session.
 
 ## What sua does NOT defend against

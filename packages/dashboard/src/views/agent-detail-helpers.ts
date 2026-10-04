@@ -1268,7 +1268,7 @@ export function providerOption(value: string, current?: string): SafeHtml {
   return html`<option value="${value}"${selected}>${value}</option>`;
 }
 
-interface ModelEntry { id: string; label: string; desc: string }
+export interface ModelEntry { id: string; label: string; desc: string }
 
 const CLAUDE_MODELS: ModelEntry[] = [
   { id: '', label: 'default', desc: 'Uses the Claude CLI default model' },
@@ -1285,6 +1285,12 @@ const CODEX_MODELS: ModelEntry[] = [
   { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', desc: 'Compact GPT-4.1. Fast, lower cost' },
   { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', desc: 'Smallest GPT-4.1. Very fast, simple tasks' },
 ];
+
+/** Known models per provider, for the Settings page's model suggestions. */
+export const MODEL_SUGGESTIONS: Record<string, readonly ModelEntry[]> = {
+  claude: CLAUDE_MODELS.filter((m) => m.id),
+  codex: CODEX_MODELS.filter((m) => m.id),
+};
 
 export function renderModelOptions(provider?: string, currentModel?: string): SafeHtml {
   const models = (provider === 'codex') ? CODEX_MODELS : CLAUDE_MODELS;

@@ -116,16 +116,17 @@ Talk to the agent. Each message is a run (linked under the reply), and the agent
 ### Nodes
 Edit / delete / add nodes inline. Template palette autocomplete for upstream fields + inputs + vars. Per-node timeout, env, secrets, onlyIf predicates. **Goal nodes** are added and edited here too (goal, tools, budget); llm and goal nodes pick the tools their model may call from a searchable checklist that shows policy blocks. See [goal-agents.md](goal-agents.md#editing-in-the-dashboard).
 
-### Config
-Settings grouped by area:
+### Settings
+One page, with a section menu on the left. Each section has a one-line summary of where things stand:
 
-- **Status** — active / paused / archived / draft
-- **LLM defaults** — agent-level provider (claude/codex) and model, inherited by `llm-prompt` nodes; per-node overrides for `model` / `maxTurns` / `allowedTools` live on the Nodes tab
-- **Schedule** — cron expression, humanized preview
-- **Signal** — Pulse tile config (title, icon, template, mapping)
-- **Variables** — agent inputs: name, type (string/number/boolean/enum), required, default, description. Enum types get a values column
-- **Output Widget** — see [Output Widget editor](#output-widget-editor) below
-- **Secrets** — declared secrets list + set/missing status
+- **Inputs**: what you can pass when it runs. **Edit inputs** opens the editor (name, type, default, description; enum types get a values column).
+- **Model**: the provider and model every prompt step uses. A step can still pick its own model in the YAML.
+- **When it runs**: preset chips (Only when asked, Hourly, Daily 8am, Weekdays 9am, Mondays 9am), or a custom five-field schedule; whether runs are durable (Temporal).
+- **Where it shows**: Pulse, the agents list, AI apps (MCP); the output widget (see [Output widget editor](#output-widget-editor)).
+- **Connections**: the inbound webhook and notify-when-finished.
+- **Access**: whether sua can run it from a conversation, which hosts its widgets may load images from, which agents it can hand work to, and its secrets.
+
+Model, When it runs, Where it shows, and the first two Access settings save together. As you change them, the changed sections are marked, and a bar at the bottom says how many changes are unsaved, with **Discard**, **Review** (each change as before → after) and **Save**. Saving applies them all at once; if any changes what the agent does, they become one new version (**Save as vN**), which you can roll back from Versions. A new schedule takes effect when the scheduler restarts (`sua daemon restart --service schedule`). Inputs, the webhook, notify and hand-off agents save on their own, and their sections say so.
 
 ### Runs
 Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs.

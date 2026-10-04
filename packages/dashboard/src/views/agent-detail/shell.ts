@@ -74,7 +74,7 @@ export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {
     { id: 'overview', label: 'Overview', href: `/agents/${agentId}` },
     { id: 'chat', label: 'Chat', href: `/agents/${agentId}/chat` },
     { id: 'nodes', label: 'Nodes', href: `/agents/${agentId}/nodes` },
-    { id: 'config', label: 'Config', href: `/agents/${agentId}/config` },
+    { id: 'config', label: 'Settings', href: `/agents/${agentId}/config` },
     { id: 'runs', label: 'Runs', href: `/agents/${agentId}/runs` },
     { id: 'yaml', label: 'YAML', href: `/agents/${agentId}/yaml` },
   ];

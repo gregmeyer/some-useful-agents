@@ -1820,8 +1820,8 @@ describe('Dashboard version history + status toggle (PR 2)', () => {
     expect(res.text).toContain('class="status-select');
     // No "Status" h3 — that section was removed from Config.
     expect(res.text).not.toMatch(/<h3[^>]*>\s*Status\s*<\/h3>/);
-    // Two-column layout wraps the remaining cards.
-    expect(res.text).toContain('class="config-grid"');
+    // The Settings layout: a section menu beside the sections.
+    expect(res.text).toContain('class="settings-nav"');
     // Version history link is on the Overview tab.
     const overviewRes = await request(app).get('/agents/detail-ver')
       .set('Host', `127.0.0.1:${PORT}`)
