@@ -8,6 +8,10 @@
 import { Router, type Request, type Response } from 'express';
 import { collectItems, itemSourcesFromHandle, ITEM_KINDS, type ItemKind } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { readHomeSurface, findSurfaceEntry } from '../lib/home-surface.js';
+import { renderItemPane } from '../views/home-surface.js';
+import { render } from '../views/html.js';
+import type { CompiledEntry } from '@some-useful-agents/core';
 
 export const itemsRouter: Router = Router();
 
@@ -24,4 +28,12 @@ itemsRouter.get('/api/items', (req: Request, res: Response) => {
     limit,
   });
   res.json({ items, generatedAt: new Date().toISOString() });
+});
+
+/** GET /items/:id/fragment: one item on Home, for the panel's right pane (S3). */
+itemsRouter.get('/items/:id/fragment', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const entry = findSurfaceEntry(readHomeSurface(ctx), id) as CompiledEntry | undefined;
+  res.type('html').send(render(renderItemPane(entry, id)));
 });

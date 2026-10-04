@@ -22,6 +22,8 @@ export function renderInboxPage(opts: {
   /** With no agents yet, Home is onboarding instead (an empty inbox teaches nothing). */
   agentCount?: number;
   availableDashboards?: Array<{ id: string; name: string }>;
+  /** Home's surface goal line (goal surfaces, S3). */
+  goalLine?: SafeHtml;
 }): string {
   if (opts.agentCount === 0 && !opts.threadId) {
     return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
@@ -48,6 +50,7 @@ export function renderInboxPage(opts: {
         <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
           Everything sua and your agents need from you, and every conversation. Pick one to read and reply; Ask sua (⌘K) brings this beside any page.
         </p>
+        ${opts.goalLine ?? html``}
       </div>
     </div>
     ${pageIntro({

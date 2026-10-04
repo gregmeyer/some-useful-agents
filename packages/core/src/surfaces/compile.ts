@@ -121,6 +121,7 @@ export function compileSurface(doc: SurfaceDoc, items: readonly Item[], opts: { 
 
     // 5. Groups: yours first, then group rules; members gather at the first member's place.
     const groupOf = new Map<string, string>();
+    const groupRuleOf = new Map<string, SurfaceRule>();
     for (const g of userGroups) for (const id of g.itemIds) if (baseIndex.has(id)) groupOf.set(id, g.label);
     for (const r of rules('group')) {
       if (r.type !== 'group') continue;
@@ -128,6 +129,7 @@ export function compileSurface(doc: SurfaceDoc, items: readonly Item[], opts: { 
         if (groupOf.has(it.id) || !matches(it, r.match)) continue;
         const label = r.groupBy === 'kind' ? KIND_PLURAL[it.kind] : r.groupBy === 'agent' ? (it.subject.agentId ?? 'Other') : it.provenance.source;
         groupOf.set(it.id, label);
+        groupRuleOf.set(it.id, r);
       }
     }
     // A group needs two members to be a group.
@@ -153,7 +155,12 @@ export function compileSurface(doc: SurfaceDoc, items: readonly Item[], opts: { 
       const promote = rules('promote').find((r) => matches(item, r.match));
       if (promote && !pin && !rank) reasons.push(`First because: ${ruleName(promote)} (${whoWhen(promote.by, promote.at)})`);
       const userGroup = userGroups.find((g) => g.itemIds.includes(item.id));
-      if (groupOf.has(item.id)) reasons.push(userGroup ? `In your group "${userGroup.label}"` : `Grouped by ${groupOf.get(item.id)}`);
+      const groupRule = groupRuleOf.get(item.id);
+      if (groupOf.has(item.id)) {
+        reasons.push(userGroup
+          ? `In your group "${userGroup.label}"`
+          : groupRule ? `Grouped by the rule "${ruleName(groupRule)}" (${whoWhen(groupRule.by, groupRule.at)})` : `Grouped by ${groupOf.get(item.id)}`);
+      }
       const collapseRule = rules('collapse').find((r) => matches(item, r.match));
       const collapsed = collapsedByYou.has(item.id) || (!!collapseRule && !expanded.has(item.id));
       if (collapsed && collapseRule && !collapsedByYou.has(item.id)) reasons.push(`Folded by "${ruleName(collapseRule)}"`);
