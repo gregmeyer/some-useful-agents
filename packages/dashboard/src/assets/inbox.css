@@ -2626,17 +2626,58 @@ textarea.panel-composer__input { flex: 1; min-width: 0; padding: 0; resize: none
 }
 
 /* ---------- Home's full-width list: filters, stars, selection (phase 3b-2) ---------- */
-.panel-filters { border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.panel-filters { position: relative; flex: none; }
+/* An icon button beside refresh; its menu floats over the list instead of pushing it down. */
 .panel-filters__summary {
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-xs);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
+  list-style: none;
   cursor: pointer;
 }
-.panel-filters[open] .panel-filters__summary { border-bottom: 1px solid var(--color-border); }
-.panel-filters__body { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); padding: var(--space-2); }
+.panel-filters__summary::-webkit-details-marker { display: none; }
+.panel-filters > .panel-filters__summary::before { content: none; }
+.panel-filters__summary:hover,
+.panel-filters[open] .panel-filters__summary { color: var(--color-text); border-color: var(--color-border-strong); }
+.panel-filters__count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.panel-filters__body {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 5;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
 .panel-filters__field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .panel-filters__field select {
+  width: 100%;
   min-width: 8rem;
   padding: var(--space-1);
   background: var(--color-bg);
@@ -2670,6 +2711,17 @@ textarea.panel-composer__input { flex: 1; min-width: 0; padding: 0; resize: none
   cursor: pointer;
 }
 button.panel-home__star:hover { color: var(--color-text); }
+/* Select boxes and unset stars show on the row you point at; checked boxes,
+ * set stars, and every box once a selection has started stay visible. */
+.panel-row--wide .panel-row__select,
+.panel-row--wide button.panel-home__star:not(.is-on) { opacity: 0; transition: opacity 120ms ease; }
+.panel-row--wide:hover .panel-row__select,
+.panel-row--wide:focus-within .panel-row__select,
+.panel-row--wide .panel-row__select:checked,
+.panel-home:has(.panel-row__select:checked) .panel-row__select,
+.panel-row--wide:hover button.panel-home__star,
+.panel-row--wide:focus-within button.panel-home__star { opacity: 1; }
+.panel-home__star { align-self: center; margin-top: 0; }
 .panel-home__star.is-on { color: var(--color-warn); }
 span.panel-home__star { cursor: default; }
 

@@ -51,7 +51,10 @@ function renderFilters(f: PanelFilters, facets: PanelFacets): SafeHtml {
     html`<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
   return html`
     <details class="panel-filters" data-panel-filters>
-      <summary class="panel-filters__summary">Filter and sort${active ? html` <span class="panel-tabs__count">${String(active)}</span>` : html``}</summary>
+      <summary class="panel-filters__summary" aria-label="Filter and sort${active ? ` (${String(active)} on)` : ''}" title="Filter and sort">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M7 12h10M10 18h4"/></svg>
+        ${active ? html`<span class="panel-filters__count">${String(active)}</span>` : html``}
+      </summary>
       <div class="panel-filters__body">
         <label class="panel-filters__field">From
           <select data-panel-filter="source">${opt('', 'Anywhere', f.source ?? '')}${facets.sources.map((s) => opt(s, SOURCE_LABEL[s] ?? s, f.source)) as unknown as SafeHtml[]}</select>
@@ -68,14 +71,7 @@ function renderFilters(f: PanelFilters, facets: PanelFacets): SafeHtml {
         <label class="panel-filters__check"><input type="checkbox" data-panel-filter="starred" ${f.starred ? 'checked' : ''}> Starred only</label>
         <button type="button" class="btn btn--xs btn--ghost" data-panel-filter-clear>Clear</button>
       </div>
-    </details>
-    <div class="panel-bulk" data-panel-bulk hidden>
-      <label class="panel-filters__check"><input type="checkbox" data-panel-select-all> <span data-panel-bulk-count>0 selected</span></label>
-      <span class="panel-bulk__spacer"></span>
-      <button type="button" class="btn btn--xs" data-panel-bulk-action="resolve">Resolve</button>
-      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-action="dismiss">Dismiss</button>
-      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-clear>Clear</button>
-    </div>`;
+    </details>`;
 }
 
 export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml {
@@ -88,12 +84,20 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
             value="${list.q}" data-panel-search autocomplete="off" enterkeyhint="send">
           <kbd class="panel-search__key" data-panel-key>⌘K</kbd>
         </label>
+        ${list.wide && facets ? renderFilters(list.filters, facets) : html``}
         <button type="button" class="panel-refresh" data-panel-refresh aria-label="Refresh the list" title="Refresh (the list also updates by itself)">↻</button>
       </div>
+      ${list.wide && facets ? html`
+    <div class="panel-bulk" data-panel-bulk hidden>
+      <label class="panel-filters__check"><input type="checkbox" data-panel-select-all> <span data-panel-bulk-count>0 selected</span></label>
+      <span class="panel-bulk__spacer"></span>
+      <button type="button" class="btn btn--xs" data-panel-bulk-action="resolve">Resolve</button>
+      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-action="dismiss">Dismiss</button>
+      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-clear>Clear</button>
+    </div>` : html``}
       <button type="button" class="panel-askrow" data-panel-askrow hidden>
         <span class="panel-askrow__label">Ask sua</span><span class="panel-askrow__text">“<span data-panel-askrow-text></span>”</span><kbd>↵</kbd>
       </button>
-      ${list.wide && facets ? renderFilters(list.filters, facets) : html``}
       <div data-panel-list>${renderPanelList(list)}</div>
       ${list.wide ? html`` : html`<footer class="panel-home__foot"><span>Kept in your inbox · follows you between pages</span><a href="/">Open full inbox</a></footer>`}
     </div>`;
