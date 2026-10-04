@@ -37,6 +37,15 @@ export function rowTarget(item: Item): string {
   return `item:${item.id}`;
 }
 
+/**
+ * Why a row is where it is, shown on the row when something put it there
+ * (a pin, a move, a rule), not when it's simply in urgency order.
+ */
+function shownWhy(e: CompiledEntry): string {
+  const r = e.reasons[0] ?? '';
+  return r.startsWith('In ') || r.startsWith('Folded by') ? '' : r;
+}
+
 /** A row's ⋯ menu: change where it sits on Home, by hand (S4). */
 function rowMenu(e: CompiledEntry): SafeHtml {
   const op = (name: string, label: string) => html`<button type="button" class="inbox-modal__menu-item" data-surface-op="${name}">${label}</button>`;
@@ -51,7 +60,7 @@ function rowMenu(e: CompiledEntry): SafeHtml {
     </details>`;
 }
 
-function row(e: CompiledEntry, wide: boolean): SafeHtml {
+function row(e: CompiledEntry, wide: boolean, why = shownWhy(e)): SafeHtml {
   const { item } = e;
   const dot = dotOf(item);
   return html`
@@ -62,6 +71,7 @@ function row(e: CompiledEntry, wide: boolean): SafeHtml {
         <span class="panel-row__age">${formatAge(item.provenance.at)}</span>
         <span class="panel-row__latest">${item.summary ?? ''}</span>
         <span class="panel-row__tag ${dot ? `panel-row__tag--${dot}` : ''}">${e.pinned ? html`<span class="panel-row__pin">Pinned</span>` : html``}${tagOf(item)}</span>
+        ${why ? html`<span class="panel-row__why">${why}</span>` : html``}
       </button>
       ${rowMenu(e)}
     </li>`;
@@ -74,9 +84,13 @@ function foldLabel(entries: CompiledEntry[]): string {
   return `${String(n)} × ${entries[0].group ?? 'more'}`;
 }
 
-/** Entries, with runs of folded group members drawn as one disclosure. */
+/**
+ * Entries, with runs of folded group members drawn as one disclosure. A
+ * reason shows on the first row of a run that shares it, not on every row.
+ */
 function regionRows(entries: CompiledEntry[], wide: boolean): SafeHtml[] {
   const out: SafeHtml[] = [];
+  let lastWhy = '';
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (e.group && e.collapsed) {
@@ -90,9 +104,12 @@ function regionRows(entries: CompiledEntry[], wide: boolean): SafeHtml[] {
             <ul class="panel-group__rows">${run.map((x) => row(x, wide)) as unknown as SafeHtml[]}</ul>
           </details>
         </li>`);
+      lastWhy = '';
       continue;
     }
-    out.push(row(e, wide));
+    const why = shownWhy(e);
+    out.push(row(e, wide, why && why !== lastWhy ? why : ''));
+    lastWhy = why;
   }
   return out;
 }
@@ -207,10 +224,45 @@ export function renderItemPane(entry: CompiledEntry | undefined, itemId: string)
     </article>`;
 }
 
+/** "· arranged by the defaults" / "· arranged by your rules, v3". The client keeps it current. */
+export function arrangedBy(version: number): string {
+  return version === 0 ? '· arranged by the defaults' : `· arranged by your rules, v${String(version)}`;
+}
+
+/** Home's history, newest first: who changed what and why, with the way back. */
+export function renderSurfaceHistory(versions: Array<{ version: number; who: string; reason: string; changes: string[] }>, current: number): SafeHtml {
+  if (current === 0) {
+    return html`<p class="home-history__empty">Home is arranged by the defaults; nothing has changed yet. Pin, move or hide on Today, or ask sua to change Home.</p>`;
+  }
+  return html`
+    <ol class="home-history__list">
+      ${versions.map((v) => html`
+        <li class="home-history__row">
+          <div class="home-history__head">
+            <span class="home-history__v mono">v${String(v.version)}</span>
+            <span class="home-history__who">${v.who}</span>
+            ${v.version === current
+              ? html`<button type="button" class="btn btn--xs btn--ghost" data-surface-restore="${String(v.version - 1)}">Undo</button>`
+              : html`<button type="button" class="btn btn--xs btn--ghost" data-surface-restore="${String(v.version)}">Go back to this</button>`}
+          </div>
+          <p class="home-history__reason">${v.reason}</p>
+          ${v.changes.length ? html`<ul class="home-history__changes">${v.changes.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+        </li>`) as unknown as SafeHtml[]}
+      <li class="home-history__row home-history__row--base">
+        <div class="home-history__head">
+          <span class="home-history__v mono">v0</span><span class="home-history__who">The defaults</span>
+          <button type="button" class="btn btn--xs btn--ghost" data-surface-restore="0">Go back to the defaults</button>
+        </div>
+      </li>
+    </ol>`;
+}
+
 /** The goal line over Home's list. */
 export function renderHomeGoal(today: HomeSurface): SafeHtml {
   return html`
-    <p class="home-goal"><span class="home-goal__label">Goal:</span> ${today.goal}${unsafeHtml(' ')}<span class="home-goal__by">${today.version === 0 ? '· arranged by the defaults' : `· arranged by your rules, v${String(today.version)}`}</span></p>
+    <p class="home-goal"><span class="home-goal__label">Goal:</span> ${today.goal}${unsafeHtml(' ')}<span class="home-goal__by" data-surface-by>${arrangedBy(today.version)}</span>
+      <button type="button" class="home-goal__history" data-surface-history aria-expanded="false">What changed</button></p>
+    <div class="home-history" data-surface-history-panel hidden></div>
     <form method="POST" action="/surfaces/home/ask" class="home-change" data-ask-fix>
       <label class="home-change__label" for="home-change-text">Ask sua to change Home</label>
       <input type="text" id="home-change-text" name="text" class="home-change__input" required autocomplete="off"

@@ -102,6 +102,58 @@ export const SURFACE_GESTURES_JS = `
       }
     });
 
+    // ── Home's goal line and "What changed" (S6) ──────────────────────
+    function arrangedBy(v) { return v ? '\u00b7 arranged by your rules, v' + v : '\u00b7 arranged by the defaults'; }
+    function historyPanel() { return document.querySelector('[data-surface-history-panel]'); }
+    function loadHistory() {
+      var panel = historyPanel();
+      if (!panel || panel.hidden) return;
+      fetch('/surfaces/home/history', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+        .then(function (markup) { panel.innerHTML = markup; })
+        .catch(function () { panel.innerHTML = '<p class="home-history__empty">Couldn\u2019t load what changed. Try again.</p>'; });
+    }
+    document.addEventListener('sua:panel-list', function () {
+      var s = document.querySelector('[data-surface]');
+      var by = document.querySelector('[data-surface-by]');
+      if (s && by) by.textContent = arrangedBy(Number(s.getAttribute('data-surface-version')) || 0);
+      loadHistory();
+    });
+    document.addEventListener('click', function (e) {
+      var toggle = e.target.closest && e.target.closest('[data-surface-history]');
+      if (toggle) {
+        var panel = historyPanel();
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+        if (!panel.hidden) { panel.innerHTML = '<p class="home-history__empty">Loading\u2026</p>'; loadHistory(); }
+        return;
+      }
+      var back = e.target.closest && e.target.closest('[data-surface-restore]');
+      if (back) {
+        back.disabled = true;
+        post('/surfaces/home/restore', { toVersion: Number(back.getAttribute('data-surface-restore')) }).then(function (res) {
+          refreshList();
+          toast(null, res.ok ? 'Home is back the way it was. That\u2019s a new version too, so you can redo it from here.' : esc(res.body.error || 'Couldn\u2019t go back.'));
+        });
+      }
+    });
+
+    // ── Today keeps itself current (S6) ─────────────────────────────────
+    // Items come from runs, questions and builds as well as conversations, so
+    // re-read Today every minute while it's on screen, unless you're in the
+    // middle of something (a menu open, a drag, typing in the list).
+    setInterval(function () {
+      if (document.visibilityState !== 'visible' || dragging) return;
+      var s = document.querySelector('[data-surface]');
+      if (!s || !s.offsetParent) return;
+      var list = s.closest('[data-panel-list]') || s;
+      if (list.querySelector('details[open]')) return;
+      var ae = document.activeElement;
+      if (ae && list.contains(ae) && ae.tagName !== 'BUTTON') return;
+      refreshList();
+    }, 60000);
+
     // Drag a row within its region to rank it there.
     var dragging = null;
     document.addEventListener('dragstart', function (e) {

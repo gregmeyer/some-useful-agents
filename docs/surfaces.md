@@ -122,3 +122,15 @@ sua sees Home as it is (goal, sections, rules, pins, hidden items, and the items
 
 - `surface-read`: Home's goal, sections with their items (ids, kind, title, why each is there), rules, and hidden items.
 - `surface-apply`: `{ ops, reason, expectedVersion? }`. Changes are saved as made by the app (`agent:mcp`), and you can undo them. Changes to Home's sections are refused: you make those yourself. The tool policy applies.
+
+### What changed, and why things are where they are
+
+- **What changed** (next to Home's goal) lists every version of Home, newest first. Each version shows:
+  - who changed it: you, you through sua, an app, or the defaults;
+  - when, and the reason given;
+  - each change in plain words ("Pin: “AQI + Smoke Inbox Reporter is failing” at the top").
+
+  The latest change has **Undo**; older ones have **Go back to this**, and there's **Go back to the defaults**. Going back saves a new version, so it can be undone too.
+- **The goal line** ("arranged by your rules, v3") stays current as Home changes, with no reload.
+- **Rows show why**: when a pin, a move or a rule put a row where it is, the reason shows under it, once for a run of rows that share it. Hover any row for its reason, or open it for all of them.
+- **Today keeps itself current**: while it's on screen, it re-reads every minute, so new failures, finished builds and answered questions move or go. It waits while you have a menu open, are dragging, or are typing in the list.

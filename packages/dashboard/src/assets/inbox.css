@@ -3063,3 +3063,38 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
   font-size: var(--font-size-sm);
 }
 .home-change__input:focus { outline: none; border-color: var(--color-primary); box-shadow: var(--shadow-focus); }
+
+/* ---------- Home's history and reasons on rows (goal surfaces S6) ---------- */
+.home-goal__history {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.home-goal__history:hover { text-decoration: underline; }
+.home-history {
+  margin: var(--space-2) 0 0;
+  max-width: 760px;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.home-history[hidden] { display: none; }
+.home-history__empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.home-history__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.home-history__row { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-border); }
+.home-history__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.home-history__head { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); }
+.home-history__head .btn { margin-left: auto; }
+.home-history__v { color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+.home-history__who { color: var(--color-text); }
+.home-history__reason { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.home-history__changes { margin: 0; padding-left: var(--space-4); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.panel-row__why { grid-column: 2 / -1; font-size: var(--font-size-xs); color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

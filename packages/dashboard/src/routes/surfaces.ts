@@ -9,10 +9,14 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  SurfaceStore, SurfaceOpError, SurfaceVersionConflict, collectItems, itemSourcesFromHandle,
+  SurfaceStore, SurfaceOpError, SurfaceVersionConflict, collectItems, itemSourcesFromHandle, whoWhen,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { suggestRule } from '../lib/surface-suggest.js';
+import { readHomeSurface } from '../lib/home-surface.js';
+import { describeOps } from '../lib/surface-adjust.js';
+import { renderSurfaceHistory } from '../views/home-surface.js';
+import { render } from '../views/html.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
 
@@ -80,4 +84,18 @@ surfacesRouter.post('/surfaces/home/ask', (req: Request, res: Response) => {
   publishInboxChanged(ctx, created.id, created.status);
   if (isAjax(req)) { res.setHeader('X-Inbox-Id', created.id); res.status(204).end(); return; }
   res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
+});
+
+/** GET /surfaces/home/history: Home's versions, newest first, for the "What changed" list (S6). */
+surfacesRouter.get('/surfaces/home/history', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const store = SurfaceStore.fromHandle(ctx.runStore.databaseHandle());
+  const home = readHomeSurface(ctx);
+  const versions = store.history('home', 30).map((v) => ({
+    version: v.version,
+    who: whoWhen(v.actor === 'default' ? undefined : v.actor, v.at).replace(/^by /, '').replace(/^you/, 'You').replace(/^sua/, 'sua').replace(/^agent /, 'Agent '),
+    reason: v.reason,
+    changes: v.ops.length ? describeOps(v.ops, home.items, '') : [`Went back to an earlier version`],
+  }));
+  res.type('html').send(render(renderSurfaceHistory(versions, home.version)));
 });
