@@ -2724,14 +2724,16 @@ button.panel-home__star:hover { color: var(--color-text); }
 .panel-home__star { align-self: center; margin-top: 0; }
 /* Home's wide rows: the whole row (box, text, star) is one highlight, and the
  * select box sits where the status dot is instead of reserving a gutter. */
-.panel-row--wide { position: relative; border-radius: var(--radius-md); }
+.panel-row--wide { position: relative; border-radius: var(--radius-sm); }
+/* Room between the highlight's edge and the dot, so the corner doesn't crowd it. */
+.panel-row--wide .panel-row__main { padding-left: var(--space-4); }
 .panel-row--wide:hover,
 .panel-row--wide:has(.panel-row__main[aria-current="true"]) { background: var(--color-surface-raised); }
 .panel-row--wide .panel-row__main:hover,
 .panel-row--wide .panel-row__main[aria-current="true"] { background: none; }
 .panel-row--wide .panel-row__select {
   position: absolute;
-  left: var(--space-2);
+  left: calc(var(--space-4) - 3px);
   top: 50%;
   margin: 0;
   transform: translateY(-50%);
