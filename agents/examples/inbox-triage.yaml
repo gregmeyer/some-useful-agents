@@ -114,6 +114,15 @@ inputs:
       complete cleanly and still miss its outcome — when this says NO or
       PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
       healthy. Empty when the agent declares no `outcome:` block.
+  FOCUS_AGENT_SETTINGS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      FOCUS_AGENT's current settings as JSON, in the field names an
+      `agent-settings` action's CHANGES uses (provider, model, schedule,
+      runOn, pulseVisible, dashboardVisible, mcp, inboxRunnable, imgSrc),
+      plus its status and version. Empty when the thread isn't about an agent.
   ALLOWED_SUB_AGENTS:
     type: string
     required: false
@@ -311,6 +320,9 @@ nodes:
       outcome, and when it says NO or PARTIAL the agent is NOT working —
       report the failed check and the evidence, do not call it healthy:
       {{inputs.FOCUS_AGENT_OUTCOME}}
+
+      Its current settings (may be empty; see CHANGING AN AGENT'S SETTINGS):
+      {{inputs.FOCUS_AGENT_SETTINGS}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

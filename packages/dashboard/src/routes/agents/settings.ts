@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { getContext } from '../../context.js';
 import { isAjax } from '../inbox-shared.js';
-import { readSettingsForm, settingsMetaPatch } from '../../lib/agent-settings.js';
+import { readSettingsForm, applySettings } from '../../lib/agent-settings.js';
 
 /**
  * POST /agents/:name/settings: the Settings page's one Save. Applies every
@@ -50,27 +50,15 @@ agentSettingsRouter.post('/agents/:name/settings', (req: Request, res: Response)
     return;
   }
 
-  const whats = [...new Set(read.changes.map((c) => c.what))];
-  let version = agent.version;
+  let saved: { version: number; message: string };
   try {
-    if (read.versioned) {
-      const saved = ctx.agentStore.upsertAgent(read.next, 'dashboard', `Settings: ${whats.join(', ')}`);
-      version = saved.version;
-    }
-    // createNewVersion syncs schedule + mcp but not visibility; write the row-level part explicitly.
-    const patch = settingsMetaPatch(read);
-    if (Object.keys(patch).length > 0) ctx.agentStore.updateAgentMeta(agent.id, patch);
+    saved = applySettings(ctx.agentStore, agent, read);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (ajax) { res.status(500).json({ errors: [`Save failed: ${msg}`] }); return; }
     res.redirect(303, back(`Save failed: ${msg}`));
     return;
   }
-
-  const lead = read.versioned ? `Saved as v${String(version)}: ${whats.join(', ')}.` : `Saved: ${whats.join(', ')}.`;
-  const scheduleNote = read.changes.some((c) => c.field === 'schedule')
-    ? ' The scheduler picks up the new schedule when it restarts (sua daemon restart --service schedule).'
-    : '';
-  if (ajax) { res.json({ ok: true, version, changes: read.changes, flash: lead + scheduleNote }); return; }
-  res.redirect(303, back(lead + scheduleNote));
+  if (ajax) { res.json({ ok: true, version: saved.version, changes: read.changes, flash: saved.message }); return; }
+  res.redirect(303, back(saved.message));
 });

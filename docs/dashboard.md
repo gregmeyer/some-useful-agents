@@ -128,6 +128,8 @@ One page, with a section menu on the left. Each section has a one-line summary o
 
 Model, When it runs, Where it shows, and the first two Access settings save together. As you change them, the changed sections are marked, and a bar at the bottom says how many changes are unsaved, with **Discard**, **Review** (each change as before → after) and **Save**. Saving applies them all at once; if any changes what the agent does, they become one new version (**Save as vN**), which you can roll back from Versions. A new schedule takes effect when the scheduler restarts (`sua daemon restart --service schedule`). Inputs, the webhook, notify and hand-off agents save on their own, and their sections say so.
 
+**Ask sua to change this agent** (top of Settings) opens a conversation in the panel with what you typed. sua answers with a **Change N settings** card that lists each change as before → after. **Apply** saves them the same way Save does (one new version if any change affects what the agent does). **Not now** skips it, and **Open in Settings** jumps back to the page. sua can propose the same card in any conversation about an agent ("run it weekdays at 9 and let Claude Desktop call it").
+
 ### Runs
 Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs.
 

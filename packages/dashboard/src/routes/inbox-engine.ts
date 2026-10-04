@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readSettingsForm, applySettings, settingsBodyFromChanges, describeSettings } from '../lib/agent-settings.js';
 import {
   executeAgentDag,
   extractPlanJson,
@@ -174,7 +175,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -824,6 +825,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'agent-schedule') {
     return executeAgentSchedule(ctx, meta);
   }
+  if (meta.agentId === 'agent-settings') {
+    return executeAgentSettings(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1021,6 +1025,30 @@ export function executeAgentSchedule(
 }
 
 /**
+ * Apply sua's "Change N settings" card: the same read, validation and save as
+ * the Settings page's one Save (lib/agent-settings.ts). Refuses when the agent
+ * got a new version since the card was proposed and the change is versioned.
+ */
+export function executeAgentSettings(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const agentId = (meta.inputs.AGENT_ID ?? '').trim();
+  const agent = agentId ? ctx.agentStore.getAgent(agentId) : null;
+  if (!agent) return { status: 'failed', refusalReason: agentId ? `Agent "${agentId}" is not installed.` : 'agent-settings requires AGENT_ID.' };
+  const { body, error } = settingsBodyFromChanges(meta.inputs.CHANGES ?? '');
+  if (!body) return { status: 'failed', refusalReason: error };
+  const read = readSettingsForm(agent, body);
+  if (read.errors.length > 0) return { status: 'failed', refusalReason: read.errors.join(' ') };
+  if (meta.base && meta.base.version !== agent.version && read.versioned) {
+    return { status: 'failed', refusalReason: `${agentId} changed since this was proposed (it's on v${String(agent.version)} now). Ask again to get changes against the current version.` };
+  }
+  if (read.changes.length === 0) return { status: 'completed', summary: `Nothing to change: ${agentId} already has these settings.` };
+  const saved = applySettings(ctx.agentStore, agent, read);
+  return { status: 'completed', summary: `${agentId}: ${saved.message}` };
+}
+
+/**
  * Resolve a `show-widget` action: point it at the target agent's LATEST
  * COMPLETED run so the existing inline-widget render path
  * (`buildInlineActionWidgets`) displays that run's output widget. Pure lookup —
@@ -1185,6 +1213,17 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+  if (action.agentId === 'agent-settings' && action.inputs.AGENT_ID && !action.base) {
+    const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
+    const { body } = settingsBodyFromChanges(action.inputs.CHANGES ?? '');
+    if (!target || !body) return action;
+    const read = readSettingsForm(target, body);
+    return {
+      ...action,
+      base: { version: target.version, yaml: '' },
+      settingsChanges: read.changes.map(({ what, before, after }) => ({ what, before, after })),
+    };
+  }
   if (action.agentId !== 'agent-editor' || !action.inputs.AGENT_ID || action.base) return action;
   const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
   if (!target) return action;
@@ -1599,7 +1638,7 @@ export function verifyResolveEvidence(
   if (since !== undefined && Number.isFinite(startedAtMs) && startedAtMs <= since) {
     return {
       verdict: 'pending',
-      evidence: `\`${focusAgentId}\` hasn't run since the fix was applied — its latest run (${shortId}) predates the change, so it can't confirm anything`,
+      evidence: `\`${focusAgentId}\` hasn't run since the change was applied — its latest run (${shortId}) predates the change, so it can't confirm anything`,
     };
   }
 
@@ -1890,6 +1929,8 @@ export async function runTriageAgent(
           FOCUS_AGENT: focusAgentId ?? '',
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
+          // Its current settings, in the field names an agent-settings CHANGES uses.
+          FOCUS_AGENT_SETTINGS: focusAgentId ? (() => { const a = ctx.agentStore.getAgent(focusAgentId); return a ? describeSettings(a) : ''; })() : '',
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           RUNNABLE_CANDIDATES: candidates.join(', '),
@@ -2060,7 +2101,11 @@ export async function runTriageAgent(
     const planHasResolve = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'resolve-thread',
     );
-    if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve) {
+    // agent-settings is route-handled too: a settings request needs no runnable agents.
+    const planHasSettings = rawActionList.some(
+      (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'agent-settings',
+    );
+    if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
       // Targets whose analyze→fix loop has exhausted its budget this turn. Each

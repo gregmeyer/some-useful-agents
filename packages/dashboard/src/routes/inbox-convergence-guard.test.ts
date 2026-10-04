@@ -255,7 +255,7 @@ describe('verifyResolveEvidence — evidence must post-date the fix', () => {
     const fixAt = Date.parse('2026-01-01T12:00:00Z');
     const v = verifyResolveEvidence(ctxWith([runAt('2026-01-01T11:00:00Z')]), 'checker', fixAt);
     expect(v.verdict).toBe('pending');
-    expect(v.evidence).toContain("hasn't run since the fix");
+    expect(v.evidence).toContain("hasn't run since the change");
   });
 
   it('is pending for a run that started at the exact moment of the fix', () => {

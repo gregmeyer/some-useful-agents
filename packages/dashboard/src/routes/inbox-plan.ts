@@ -4,6 +4,7 @@ import {
   type InboxResponse,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { settingsBodyFromChanges } from '../lib/agent-settings.js';
 import {
   stableStringifyInputs,
   parseActionMeta,
@@ -362,6 +363,38 @@ export function parseProposedActions(
         rationale: rationaleRaw || undefined,
         effect: 'write',
         ctaLabel: hasSchedule ? 'Set schedule' : 'Unschedule',
+      });
+      continue;
+    }
+    // `agent-settings` changes several of an agent's settings at once (model,
+    // schedule, where it shows…): `inputs.CHANGES` is a JSON object of fields.
+    // Shape only here; the card reads it against the agent, the executor validates.
+    if (type === 'agent-settings') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          // Models often send CHANGES as an object rather than a JSON string.
+          else if (k === 'CHANGES' && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.AGENT_ID || !inputs.CHANGES) {
+        rejected.push({ agentId: 'agent-settings', reason: 'agent-settings requires inputs.AGENT_ID and inputs.CHANGES' });
+        continue;
+      }
+      const shape = settingsBodyFromChanges(inputs.CHANGES);
+      if (shape.error) {
+        rejected.push({ agentId: 'agent-settings', reason: shape.error });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'agent-settings',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: 'Apply',
       });
       continue;
     }

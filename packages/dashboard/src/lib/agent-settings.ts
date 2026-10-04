@@ -15,6 +15,7 @@ import {
   LLM_PROVIDERS,
   PROVIDERS,
   type Agent,
+  type AgentStore,
   type LlmProvider,
 } from '@some-useful-agents/core';
 import { cronToHuman } from '../views/components.js';
@@ -206,4 +207,70 @@ export function settingsMetaPatch(read: SettingsRead): Partial<Pick<Agent, 'sche
     if (c.field === 'dashboardVisible') patch.dashboardVisible = read.next.dashboardVisible;
   }
   return patch;
+}
+
+/**
+ * Save a read form: one new version when anything versioned changed, then the
+ * row-level fields. Returns the version and the confirmation line. Shared by
+ * the Settings page's Save and sua's "Change N settings" card.
+ */
+export function applySettings(
+  store: Pick<AgentStore, 'upsertAgent' | 'updateAgentMeta'>,
+  agent: Agent,
+  read: SettingsRead,
+): { version: number; message: string } {
+  const whats = [...new Set(read.changes.map((c) => c.what))];
+  let version = agent.version;
+  if (read.versioned) {
+    version = store.upsertAgent(read.next, 'dashboard', `Settings: ${whats.join(', ')}`).version;
+  }
+  // createNewVersion syncs schedule + mcp but not visibility; write the row-level part explicitly.
+  const patch = settingsMetaPatch(read);
+  if (Object.keys(patch).length > 0) store.updateAgentMeta(agent.id, patch);
+  const lead = read.versioned ? `Saved as v${String(version)}: ${whats.join(', ')}.` : `Saved: ${whats.join(', ')}.`;
+  const scheduleNote = read.changes.some((c) => c.field === 'schedule')
+    ? ' The scheduler picks up the new schedule when it restarts (sua daemon restart --service schedule).'
+    : '';
+  return { version, message: lead + scheduleNote };
+}
+
+/**
+ * sua proposes settings as `inputs.CHANGES`: a JSON object of form fields
+ * (`{"schedule":"0 9 * * 1-5","mcp":true}`). Returns the form body to read
+ * (switches as '1' / ''), or why it can't be used.
+ */
+export function settingsBodyFromChanges(raw: string): { body?: Record<string, string>; error?: string } {
+  let obj: unknown;
+  try { obj = JSON.parse(raw); } catch { return { error: 'CHANGES is not JSON.' }; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { error: 'CHANGES must be an object of setting: value.' };
+  const body: Record<string, string> = {};
+  const unknown: string[] = [];
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (!(SETTINGS_FIELDS as readonly string[]).includes(k)) { unknown.push(k); continue; }
+    if (typeof v === 'boolean') body[k] = v ? '1' : '';
+    else if (Array.isArray(v)) body[k] = v.map(String).join('\n');
+    else if (v === null || v === undefined) body[k] = '';
+    else body[k] = String(v);
+  }
+  if (unknown.length > 0) return { error: `Not a setting sua can change: ${unknown.join(', ')}.` };
+  if (Object.keys(body).length === 0) return { error: 'CHANGES is empty.' };
+  body._fields = Object.keys(body).join(',');
+  return { body };
+}
+
+/** The agent's current settings, as the field names CHANGES uses (for sua's prompt). */
+export function describeSettings(agent: Agent): string {
+  return JSON.stringify({
+    provider: agent.provider ?? '',
+    model: agent.model ?? '',
+    schedule: agent.schedule ?? '',
+    runOn: agent.runOn ?? '',
+    pulseVisible: agent.pulseVisible !== false,
+    dashboardVisible: agent.dashboardVisible !== false,
+    mcp: !!agent.mcp,
+    inboxRunnable: !!agent.permissions?.inboxRunnable,
+    imgSrc: agent.permissions?.imgSrc ?? [],
+    status: agent.status,
+    version: agent.version,
+  });
 }
