@@ -154,3 +154,38 @@ describe('Home\'s surface, drawn (S3)', () => {
     expect(rowTarget({ ...items[0], id: 'question:q1', subject: { threadId: 't9' } })).toBe('t9');
   });
 });
+
+describe('changing Home by hand (S4)', () => {
+  const node = [{ id: 'n', type: 'shell' as const, command: 'echo hi', dependsOn: [] }];
+  const post = (app: Awaited<ReturnType<typeof makeApp>>, path: string, body: unknown) => request(app).post(path)
+    .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+    .set('X-Requested-With', 'fetch').send(body as object);
+
+  it('pins as you, offers the rule for everything like it, refuses stale or bad ops, and undoes', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
+    agentStore.createAgent({ id: 'sketch', name: 'Sketch', status: 'draft', source: 'local', mcp: false, nodes: node }, 'cli');
+    runStore.createRun({ id: 'r1-0000', agentName: 'flaky', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule', error: 'exit 1' });
+
+    const pinned = await post(app, '/surfaces/home/ops', { ops: [{ op: 'pin', itemId: 'agent:flaky:failing' }], reason: 'Pinned Flaky', expectedVersion: 0, itemId: 'agent:flaky:failing', gesture: 'pin' });
+    expect(pinned.status).toBe(200);
+    expect(pinned.body).toMatchObject({ version: 1, undoTo: 0, suggestion: { question: 'Always put failing agents first?', op: { op: 'addRule', rule: { id: 'failing-first', type: 'promote' } } } });
+    const pane = await request(app).get(`/items/${encodeURIComponent('agent:flaky:failing')}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(pane.text).toMatch(/Pinned by you, \w{3} \d+/);
+
+    expect((await post(app, '/surfaces/home/ops', { ops: [{ op: 'hide', itemId: 'x' }], expectedVersion: 0 })).status).toBe(409);
+    expect((await post(app, '/surfaces/home/ops', { ops: [{ op: 'explode' }] })).status).toBe(400);
+    expect((await post(app, '/surfaces/home/ops', { ops: 'pin' })).status).toBe(400);
+
+    // Hiding a draft offers "hide draft agents"; hiding is never generalized from a conversation (see surface-suggest).
+    const hid = await post(app, '/surfaces/home/ops', { ops: [{ op: 'hide', itemId: 'agent:sketch:draft' }], itemId: 'agent:sketch:draft', gesture: 'hide' });
+    expect(hid.body.suggestion?.question).toBe('Always hide draft agents?');
+
+    const undone = await post(app, '/surfaces/home/restore', { toVersion: 0 });
+    expect(undone.status).toBe(200);
+    expect(undone.body.version).toBe(3);
+    const after = await request(app).get(`/items/${encodeURIComponent('agent:flaky:failing')}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(after.text).not.toContain('Pinned by you');
+    expect((await post(app, '/surfaces/home/restore', { toVersion: 99 })).status).toBe(404);
+  });
+});

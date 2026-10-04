@@ -1474,6 +1474,8 @@ export const INBOX_MODAL_JS = `
 
   window.suaPanel = {
     toggle: togglePanel,
+    // Re-read the list (Home's Today tab after a gesture changed its surface).
+    refreshList: function () { refreshPanelList(); },
     home: function () { openPanelHome(); },
     open: function (id) { openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' }); },
     isPanel: function () { return !!panelMode; },

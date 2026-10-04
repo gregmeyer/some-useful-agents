@@ -37,18 +37,33 @@ export function rowTarget(item: Item): string {
   return `item:${item.id}`;
 }
 
+/** A row's ⋯ menu: change where it sits on Home, by hand (S4). */
+function rowMenu(e: CompiledEntry): SafeHtml {
+  const op = (name: string, label: string) => html`<button type="button" class="inbox-modal__menu-item" data-surface-op="${name}">${label}</button>`;
+  return html`
+    <details class="panel-row__menu" data-inbox-menu>
+      <summary class="panel-row__menu-btn" aria-label="Move or hide “${e.item.title}”" title="Move or hide">⋯</summary>
+      <div class="inbox-modal__menu-panel panel-row__menu-list">
+        ${e.pinned ? op('unpin', 'Unpin') : op('pin', 'Pin to top')}
+        ${e.pinned ? html`` : html`${op('up', 'Move up')}${op('down', 'Move down')}`}
+        ${op('hide', 'Hide from Home')}
+      </div>
+    </details>`;
+}
+
 function row(e: CompiledEntry, wide: boolean): SafeHtml {
   const { item } = e;
   const dot = dotOf(item);
   return html`
-    <li class="panel-row ${wide ? 'panel-row--wide' : ''}">
+    <li class="panel-row ${wide ? 'panel-row--wide' : ''} ${e.pinned ? 'is-pinned' : ''}" data-item-id="${item.id}" data-item-title="${item.title}"${e.pinned ? unsafeHtml(' data-pinned') : unsafeHtml('')} draggable="true">
       <button type="button" class="panel-row__main" data-panel-thread-id="${rowTarget(item)}" title="${e.reasons[0] ?? ''}">
         <span class="panel-row__dot ${dot ? `panel-row__dot--${dot}` : ''}" aria-hidden="true"></span>
         <span class="panel-row__title ${dot && !e.collapsed ? 'is-strong' : ''}">${item.title}</span>
         <span class="panel-row__age">${formatAge(item.provenance.at)}</span>
         <span class="panel-row__latest">${item.summary ?? ''}</span>
-        <span class="panel-row__tag ${dot ? `panel-row__tag--${dot}` : ''}">${tagOf(item)}</span>
+        <span class="panel-row__tag ${dot ? `panel-row__tag--${dot}` : ''}">${e.pinned ? html`<span class="panel-row__pin">Pinned</span>` : html``}${tagOf(item)}</span>
       </button>
+      ${rowMenu(e)}
     </li>`;
 }
 
@@ -82,8 +97,31 @@ function regionRows(entries: CompiledEntry[], wide: boolean): SafeHtml[] {
   return out;
 }
 
+/** Things you (or your rules) hid, with the way back. */
+function hiddenList(today: HomeSurface): SafeHtml {
+  const hidden = today.compiled.hidden.filter((h) => h.by && h.item);
+  if (hidden.length === 0) return html``;
+  return html`
+    <details class="panel-hidden">
+      <summary>${String(hidden.length)} hidden from Home</summary>
+      <ul class="panel-hidden__list">
+        ${hidden.map((h) => html`
+          <li class="panel-hidden__row" data-item-id="${h.itemId}" data-item-title="${h.item!.title}">
+            <span class="panel-hidden__title">${h.item!.title}<span class="panel-hidden__why">${h.reason}</span></span>
+            ${h.by && 'ruleId' in h.by
+              ? html`<button type="button" class="btn btn--xs btn--ghost" data-surface-op="remove-rule" data-rule-id="${h.by.ruleId}">Stop this rule</button>`
+              : html`<button type="button" class="btn btn--xs btn--ghost" data-surface-op="show">Show</button>`}
+          </li>`) as unknown as SafeHtml[]}
+      </ul>
+    </details>`;
+}
+
 /** The Today tab: Needs you and Happening now as rows, All good as quiet lines. */
 export function renderToday(today: HomeSurface, wide: boolean): SafeHtml {
+  return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide)}${hiddenList(today)}</div>`;
+}
+
+function todayBody(today: HomeSurface, wide: boolean): SafeHtml {
   const regions = today.compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.every((r) => r.id === 'all-good')) {
     return html`<p class="panel-home__empty">Nothing needs you right now.</p>${allGood(regions.find((r) => r.id === 'all-good')?.entries ?? [])}`;
