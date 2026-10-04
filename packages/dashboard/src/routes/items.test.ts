@@ -189,3 +189,31 @@ describe('changing Home by hand (S4)', () => {
     expect((await post(app, '/surfaces/home/restore', { toVersion: 99 })).status).toBe(404);
   });
 });
+
+describe('Home\'s history and reasons (S6)', () => {
+  it('lists versions newest first with who, why, what, and the way back; reasons show once per run', async () => {
+    const app = await makeApp();
+    const get = () => request(app).get('/surfaces/home/history').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect((await get()).text).toContain('Home is arranged by the defaults; nothing has changed yet.');
+    const { SurfaceStore, compileSurface, DEFAULT_HOME_SURFACE, applySurfaceOps } = await import('@some-useful-agents/core');
+    const store = SurfaceStore.fromHandle(runStore.databaseHandle());
+    store.apply('home', [{ op: 'pin', itemId: 'system:scheduler' }], 'user', 'Pinned the scheduler');
+    store.apply('home', [{ op: 'setGoal', goal: 'Only failures' }], 'user-conversation', 'You asked sua to focus on failures');
+    const out = (await get()).text;
+    expect(out.indexOf('v2')).toBeLessThan(out.indexOf('v1'));
+    expect(out).toContain('data-surface-restore="1">Undo');
+    expect(out).toContain('data-surface-restore="1">Go back to this');
+    expect(out).toContain('data-surface-restore="0">Go back to the defaults');
+    expect(out).toContain('You, through sua');
+    expect(out).toContain('Goal: Only failures');
+    expect(out).toContain('Pin: “The scheduler”');
+
+    const { renderToday } = await import('../views/home-surface.js');
+    const { render } = await import('../views/html.js');
+    const base = { kind: 'alert' as const, urgency: 'high' as const, state: 'open' as const, subject: {}, actions: [], evidence: [], href: '/', provenance: { source: 'runs' as const, producedBy: 'system', at: '2026-10-03T00:00:00Z' } };
+    const items = ['a', 'b', 'c'].map((id) => ({ ...base, id: `agent:${id}:failing`, title: id }));
+    const doc = applySurfaceOps({ ...DEFAULT_HOME_SURFACE, rules: [] }, [{ op: 'addRule', rule: { id: 'f', type: 'promote', match: { kinds: ['alert'] }, label: 'failures first' } }], 'user');
+    const html = render(renderToday({ compiled: compileSurface(doc, items), version: 1, goal: 'g', needsCount: 3, doc, items }, true));
+    expect(html.match(/panel-row__why/g)?.length).toBe(1);
+  });
+});

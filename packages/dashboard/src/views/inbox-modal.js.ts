@@ -103,6 +103,8 @@ export const INBOX_MODAL_JS = `
         markSelected();
         syncBulk();
         savePanel(null, panelMode);
+        // Home's goal line and history follow the surface version the list shows.
+        try { document.dispatchEvent(new CustomEvent('sua:panel-list')); } catch (_) {}
       })
       .catch(function () { /* keep what's shown */ });
   }

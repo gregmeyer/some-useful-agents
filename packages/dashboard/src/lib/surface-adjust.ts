@@ -55,6 +55,17 @@ function describeOp(op: SurfaceOp, title: (id: string) => string, goal: string):
   }
 }
 
+/** A version's ops in plain words ("Pin: “X” at the top"), for Home's history. */
+export function describeOps(ops: SurfaceOp[], items: readonly Item[], goal = ''): string[] {
+  const titles = new Map(items.map((i) => [i.id, i.title]));
+  return ops.map((op) => {
+    // Without the earlier goal, a new goal is just the new goal (not "(none) → …").
+    if (op.op === 'setGoal' && !goal) return `Goal: ${op.goal}`;
+    const d = describeOp(op, (id) => titles.get(id) ?? id, goal);
+    return d.before && d.before !== '—' ? `${d.what}: ${d.before} → ${d.after}` : `${d.what}: ${d.after}`;
+  });
+}
+
 /** The first few of a region, as titles. */
 function top(c: CompiledSurface, regionId: string, n = 3): string {
   const r = c.regions.find((x) => x.id === regionId);
