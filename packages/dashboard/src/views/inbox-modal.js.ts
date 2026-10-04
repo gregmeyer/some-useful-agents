@@ -886,7 +886,9 @@ export const INBOX_MODAL_JS = `
       else if (panelCtl.hasAttribute('data-panel-more')) morePanelRows(panelCtl);
       else if (panelCtl.hasAttribute('data-panel-thread-id')) openFor(panelCtl.getAttribute('data-panel-thread-id'));
       else if (panelCtl.hasAttribute('data-panel-ask')) {
-        var ta = listHost.querySelector('[data-panel-composer]');
+        // In a new conversation the pill fills the reply box; in the list it
+        // fills the search field as an ask (Enter or the ask row sends it).
+        var ta = listHost.querySelector('[data-panel-composer]') || listHost.querySelector('[data-panel-search]');
         if (ta) {
           ta.value = panelCtl.getAttribute('data-panel-ask') || '';
           ta.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1401,6 +1403,9 @@ export const INBOX_MODAL_JS = `
     if (!row) return;
     var t = String(text || '').trim();
     row.hidden = !t;
+    // The suggestions make way while you type.
+    var suggest = listHost.querySelector('[data-panel-suggest]');
+    if (suggest) suggest.hidden = !!t;
     var slot = row.querySelector('[data-panel-askrow-text]');
     if (slot) slot.textContent = t;
   }
