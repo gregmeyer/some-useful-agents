@@ -2,65 +2,58 @@ import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import {
   renderVariablesEditor,
   renderNotifyEditor,
-  providerOption,
-  renderModelOptions,
+  MODEL_SUGGESTIONS,
 } from '../agent-detail-helpers.js';
-import { cronToHuman } from '../components.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import { formatAge } from '../components.js';
-import type { Agent, Webhook } from '@some-useful-agents/core';
+import { LLM_PROVIDERS, PROVIDERS, type Agent, type Webhook } from '@some-useful-agents/core';
+import { SETTINGS_SECTIONS, whenLabel, runOnLabel } from '../../lib/agent-settings.js';
 
-/**
- * One Config-tab section as a `.card` with a standardised header.
- * Folds the repeated `style="margin: 0 0 var(--space-3);"` heading
- * pattern into one place.
- */
-function configCard(title: string, body: SafeHtml): SafeHtml {
+/** Schedule presets on the "When it runs" chips. `''` = only when asked. */
+const SCHEDULE_PRESETS: ReadonlyArray<{ cron: string; label: string }> = [
+  { cron: '', label: 'Only when asked' },
+  { cron: '0 * * * *', label: 'Hourly' },
+  { cron: '0 8 * * *', label: 'Daily 8am' },
+  { cron: '0 9 * * 1-5', label: 'Weekdays 9am' },
+  { cron: '0 9 * * 1', label: 'Mondays 9am' },
+];
+
+/** The batched form's fields; the server applies only these. */
+const BATCHED_FIELDS = 'provider,model,schedule,runOn,pulseVisible,dashboardVisible,mcp,inboxRunnable,imgSrc';
+
+/** One Settings section: title + a plain one-line summary, then its controls. */
+function settingsSection(id: string, title: string, summary: SafeHtml | string, body: SafeHtml, opts: { ownSave?: boolean } = {}): SafeHtml {
   return html`
-    <section class="card">
-      <h3 style="margin: 0 0 var(--space-3);">${title}</h3>
+    <section class="settings-section" id="settings-${id}" data-settings-section="${id}" aria-labelledby="settings-${id}-title">
+      <header class="settings-section__head">
+        <h2 class="settings-section__title" id="settings-${id}-title">${title}</h2>
+        <p class="settings-section__summary">${summary}</p>
+        ${opts.ownSave ? html`<p class="settings-section__own">Each part here saves on its own.</p>` : html``}
+      </header>
       ${body}
     </section>
   `;
 }
 
-/**
- * Wrap a heavyweight editor (Output Widget, Notify) in a collapsed
- * `<details>` when the agent already has the feature configured. When
- * not configured, render a small "Set up" CTA that opens the editor.
- * This keeps the Config tab roughly one viewport tall by default.
- */
-function collapsibleSection(args: {
-  title: string;
-  configured: boolean;
-  emptyCta: SafeHtml;
-  editor: SafeHtml;
-}): SafeHtml {
-  if (!args.configured) {
-    return html`
-      <section class="card">
-        <h3 style="margin: 0 0 var(--space-3);">${args.title}</h3>
-        ${args.emptyCta}
-      </section>
-    `;
-  }
+/** A switch-styled checkbox that belongs to the batched form. */
+function settingsSwitch(name: string, label: string, hint: string, on: boolean, versioned = false): SafeHtml {
   return html`
-    <details class="card config-collapsible">
-      <summary>
-        <h3 style="margin: 0; display: inline;">${args.title}</h3>
-        <span class="dim" style="margin-left: var(--space-2); font-size: var(--font-size-xs);">configured — click to edit</span>
-      </summary>
-      <div style="padding: var(--space-3) 0 0;">
-        ${args.editor}
-      </div>
-    </details>
+    <label class="settings-switch">
+      <input type="checkbox" role="switch" name="${name}" value="1" form="agent-settings"${on ? unsafeHtml(' checked') : unsafeHtml('')}${versioned ? unsafeHtml(' data-versioned') : unsafeHtml('')}>
+      <span class="settings-switch__track" aria-hidden="true"></span>
+      <span class="settings-switch__text">
+        <span>${label}</span>
+        ${hint ? html`<span class="settings-switch__hint">${hint}</span>` : html``}
+      </span>
+    </label>
   `;
 }
 
 export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> {
   const { agent, secretsStore } = args;
+  const id = agent.id;
 
-  // Secret counts for the Secrets summary line
+  // Secret counts for the Access summary
   let secretsSet = 0;
   let secretsMissing = 0;
   const allSecrets = new Set<string>();
@@ -71,384 +64,250 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
     try { if (await secretsStore.has(name)) secretsSet++; else secretsMissing++; } catch { /* unknown */ }
   }
 
-  // ── Left column: lightweight controls ──────────────────────────────
-
-  // Visibility: two independent toggles. Both default to true (visible).
-  // `pulseVisible` = master switch for the Pulse tile. Hides the tile
-  // even if a signal is declared. `dashboardVisible` = hide from /agents
-  // list (still reachable by direct URL, MCP, scheduler, runs page).
-  const pulseOn = agent.pulseVisible !== false;
-  const dashOn = agent.dashboardVisible !== false;
-  const visibilityCard = configCard('Visibility', html`
-    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-      Where this agent shows up in the dashboard.
-    </p>
-    <div style="display: flex; flex-direction: column; gap: var(--space-2);">
-      <form method="POST" action="/agents/${agent.id}/visibility" style="display: flex; gap: var(--space-2); align-items: center;">
-        <input type="hidden" name="field" value="pulse">
-        <input type="hidden" name="enabled" value="${pulseOn ? 'false' : 'true'}">
-        <span style="flex: 1; font-size: var(--font-size-sm);">Show on Pulse</span>
-        ${pulseOn
-          ? html`<span class="badge badge--ok">on</span><button type="submit" class="btn btn--sm">Hide</button>`
-          : html`<span class="badge badge--muted">off</span><button type="submit" class="btn btn--sm">Show</button>`}
-      </form>
-      <form method="POST" action="/agents/${agent.id}/visibility" style="display: flex; gap: var(--space-2); align-items: center;">
-        <input type="hidden" name="field" value="dashboard">
-        <input type="hidden" name="enabled" value="${dashOn ? 'false' : 'true'}">
-        <span style="flex: 1; font-size: var(--font-size-sm);">Show in /agents list</span>
-        ${dashOn
-          ? html`<span class="badge badge--ok">on</span><button type="submit" class="btn btn--sm">Hide</button>`
-          : html`<span class="badge badge--muted">off</span><button type="submit" class="btn btn--sm">Show</button>`}
-      </form>
-    </div>
-    ${agent.pulseVisible === false || agent.dashboardVisible === false
-      ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">Hidden agents are still reachable by direct URL, MCP, scheduler, and the runs page.</p>`
-      : html``}
-  `);
-
-  const scheduleCard = (() => {
-    // The scheduler watches the `schedule` column on the agents row;
-    // editing it here is metadata-only (no version bump). Empty input
-    // disables the schedule. Validation lives server-side — we don't
-    // try to gate keystrokes here because the cron-validator messages
-    // are more useful than what we'd hand-roll in JS.
-    const current = agent.schedule ?? '';
-    const human = current ? cronToHuman(current) : null;
-    return configCard('Schedule', html`
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">
-        Pick a preset or type a five-field cron expression. Empty disables.
-      </p>
-      <div class="schedule-presets" style="display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-2);">
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="*/5 * * * *">Every 5m</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="*/15 * * * *">Every 15m</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 * * * *">Hourly</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 8 * * *">Daily 8am</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 9 * * 1-5">Weekdays 9am</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="0 9 * * 1">Mon 9am</button>
-        <button type="button" class="btn btn--ghost btn--sm schedule-preset" data-cron="">Disable</button>
-      </div>
-      <form method="POST" action="/agents/${agent.id}/schedule" style="display: flex; flex-direction: column; gap: var(--space-2);" data-schedule-form>
-        <div style="display: flex; gap: var(--space-2); align-items: center;">
-          <input type="text" name="schedule" value="${current}" placeholder="0 8 * * *"
-                 class="form-field mono schedule-input"
-                 style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);" />
-          <button type="submit" class="btn btn--sm">Save</button>
-        </div>
-        ${current
-          ? html`<div class="dim" style="font-size: var(--font-size-xs);">${human ? html`Currently: <strong>${human}</strong>` : html`<span style="color: var(--color-danger);">Currently set, but not parseable as cron.</span>`}</div>`
-          : html`<div class="dim" style="font-size: var(--font-size-xs);">No schedule. The agent only fires on demand (run-now / MCP).</div>`}
-        ${current && agent.allowHighFrequency
-          ? html`<div class="dim" style="font-size: var(--font-size-xs); color: var(--color-warn);">allowHighFrequency: true — sub-minute schedules permitted.</div>`
-          : html``}
-      </form>
-      ${unsafeHtml(`<script>
-        (function () {
-          var form = document.querySelector('[data-schedule-form]');
-          if (!form) return;
-          var input = form.querySelector('.schedule-input');
-          var chips = document.querySelectorAll('.schedule-preset');
-          function sync() {
-            for (var i = 0; i < chips.length; i++) {
-              chips[i].classList.toggle('is-active', chips[i].getAttribute('data-cron') === input.value.trim());
-            }
-          }
-          for (var i = 0; i < chips.length; i++) {
-            chips[i].addEventListener('click', function () {
-              input.value = this.getAttribute('data-cron') || '';
-              sync();
-              input.focus();
-            });
-          }
-          input.addEventListener('input', sync);
-          sync();
-        })();
-      </script>`)}
+  // ── Inputs (own editor, saves on its own) ──────────────────────────
+  const inputs = Object.entries(agent.inputs ?? {});
+  const inputsSection = settingsSection('inputs', 'Inputs',
+    inputs.length === 0 ? 'None. It runs the same way every time.' : `${String(inputs.length)} input${inputs.length === 1 ? '' : 's'} · what you can pass when it runs`,
+    html`
+      ${inputs.length > 0 ? html`<ul class="settings-inputs">
+        ${inputs.map(([name, spec]) => html`<li class="settings-inputs__row">
+          <span class="settings-inputs__name">${name}</span>
+          <span class="settings-inputs__type">${spec.type}</span>
+          <span class="settings-inputs__desc">${spec.description ?? ''}${spec.default !== undefined ? html` <span class="settings-inputs__def">· default ${String(spec.default)}</span>` : html``}</span>
+        </li>`) as unknown as SafeHtml[]}
+      </ul>` : html``}
+      <details class="settings-more" id="variables"${args.flash && /input|default|enum/i.test(args.flash.message) ? unsafeHtml(' open') : unsafeHtml('')}>
+        <summary>${inputs.length > 0 ? 'Edit inputs' : 'Add an input'} <span class="settings-more__note">saves on its own</span></summary>
+        <div class="settings-more__body">${renderVariablesEditor(agent)}</div>
+      </details>
     `);
-  })();
 
-  const mcpCard = configCard('MCP exposure', html`
-    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-      Lets MCP clients (Claude Desktop, Claude Code, Cursor) call this agent via <a href="/settings/mcp">sua's MCP server</a>.
-    </p>
-    <form method="POST" action="/agents/${agent.id}/mcp" style="display: flex; gap: var(--space-2); align-items: center;">
-      <input type="hidden" name="enabled" value="${agent.mcp ? 'false' : 'true'}">
-      ${agent.mcp
-        ? html`<span class="badge badge--ok">exposed</span><button type="submit" class="btn btn--sm btn--warn">Stop exposing</button>`
-        : html`<span class="badge badge--muted">not exposed</span><button type="submit" class="btn btn--sm">Expose via MCP</button>`}
-    </form>
+  // ── Model ──────────────────────────────────────────────────────────
+  const providerOpts = [
+    html`<option value=""${!agent.provider ? unsafeHtml(' selected') : unsafeHtml('')}>Default (sua's default)</option>`,
+    ...LLM_PROVIDERS.map((p) => html`<option value="${p}"${agent.provider === p ? unsafeHtml(' selected') : unsafeHtml('')}>${PROVIDERS[p].displayName}</option>`),
+  ];
+  const modelSection = settingsSection('model', 'Model', 'Which model answers, for every prompt in this agent', html`
+    <div class="settings-fields">
+      <label class="settings-field">
+        <span class="settings-field__label">Provider</span>
+        <select name="provider" form="agent-settings" class="form-field" data-versioned data-settings-provider>${providerOpts as unknown as SafeHtml[]}</select>
+      </label>
+      <label class="settings-field">
+        <span class="settings-field__label">Model</span>
+        <input type="text" name="model" form="agent-settings" class="form-field mono" value="${agent.model ?? ''}" placeholder="its default model" list="settings-models" autocomplete="off" data-versioned>
+      </label>
+    </div>
+    <datalist id="settings-models"></datalist>
+    <script type="application/json" data-settings-model-suggestions>${unsafeHtml(JSON.stringify(MODEL_SUGGESTIONS).replace(/</g, '\\u003c'))}</script>
+    <p class="settings-hint">A prompt step can still pick its own model in the YAML.</p>
   `);
 
-  const webhookCard = args.webhook ? renderWebhookCard(agent, args.webhook.hook, args.webhook.baseUrl) : html``;
+  // ── When it runs ───────────────────────────────────────────────────
+  const schedule = agent.schedule ?? '';
+  const isPreset = SCHEDULE_PRESETS.some((p) => p.cron === schedule);
+  const notLive = schedule && agent.status !== 'active'
+    ? html`<p class="settings-hint settings-hint--warn">It's ${agent.status}, so the schedule won't fire until it's active.</p>`
+    : html``;
+  const runOnValue = agent.runOn ?? '';
+  const runOnOption = (val: string) =>
+    html`<option value="${val}"${runOnValue === val ? unsafeHtml(' selected') : unsafeHtml('')}>${runOnLabel(val || undefined)}</option>`;
+  const whenSection = settingsSection('when', 'When it runs', whenLabel(agent.schedule), html`
+    <div class="settings-chips" role="group" aria-label="Schedule presets">
+      ${SCHEDULE_PRESETS.map((p) => html`<button type="button" class="settings-chip" data-cron="${p.cron}" aria-pressed="${p.cron === schedule ? 'true' : 'false'}">${p.label}</button>`) as unknown as SafeHtml[]}
+    </div>
+    ${notLive}
+    <details class="settings-more"${!isPreset || runOnValue ? unsafeHtml(' open') : unsafeHtml('')}>
+      <summary>More: a custom schedule, or run durably</summary>
+      <div class="settings-more__body settings-fields">
+        <label class="settings-field">
+          <span class="settings-field__label">Custom schedule</span>
+          <input type="text" name="schedule" form="agent-settings" class="form-field mono" value="${schedule}" placeholder="0 9 * * 1-5" autocomplete="off" data-settings-schedule>
+          <span class="settings-hint">Five fields: minute hour day month weekday. Empty means only when asked.</span>
+        </label>
+        <label class="settings-field">
+          <span class="settings-field__label">Runs</span>
+          <select name="runOn" form="agent-settings" class="form-field" data-versioned>${runOnOption('')}${runOnOption('local')}${runOnOption('temporal')}</select>
+          <span class="settings-hint">Durable runs survive a restart; they need the dashboard on Temporal and a worker.</span>
+        </label>
+      </div>
+    </details>
+  `);
 
+  // ── Where it shows ─────────────────────────────────────────────────
+  const where: string[] = [];
+  if (agent.pulseVisible !== false) where.push('Pulse');
+  if (agent.dashboardVisible !== false) where.push('the agents list');
+  if (agent.mcp) where.push('AI apps');
+  const widget = agent.outputWidget;
+  const whereSection = settingsSection('where', 'Where it shows',
+    where.length > 0 ? `On ${where.join(', ')}` : 'Hidden. Still reachable by its link, the scheduler and the runs page.',
+    html`
+    <div class="settings-switches">
+      ${settingsSwitch('pulseVisible', 'Show on Pulse', 'its latest result as a tile', agent.pulseVisible !== false)}
+      ${settingsSwitch('dashboardVisible', 'Show in the agents list', '', agent.dashboardVisible !== false)}
+      ${settingsSwitch('mcp', 'Let AI apps call it', "Claude Desktop, Cursor and others, through sua's MCP server", !!agent.mcp)}
+    </div>
+    <div class="settings-row">
+      <span class="settings-row__label">Output widget</span>
+      <span class="settings-row__value">${widget
+        ? (widget.type === 'ai-template' ? 'An AI-made layout' : `${String(widget.fields?.length ?? 0)} field${(widget.fields?.length ?? 0) === 1 ? '' : 's'}${widget.interactive ? ', runs in place' : ''}`)
+        : 'None: runs show as text'}</span>
+      <a class="btn btn--ghost btn--sm" href="/agents/${id}/output-widget">${widget ? 'Edit' : 'Set up'}</a>
+    </div>
+  `);
+
+  // ── Connections (own saves) ────────────────────────────────────────
+  const notifyBlock = agent.notify
+    ? html`<details class="settings-more"><summary>Notify when a run finishes <span class="settings-more__note">set up</span></summary><div class="settings-more__body">${renderNotifyEditor(agent, { integrations: args.availableIntegrations })}</div></details>`
+    : html`<details class="settings-more"><summary>Notify when a run finishes <span class="settings-more__note">off</span></summary><div class="settings-more__body"><p class="settings-hint">Send a Slack message or a webhook when a run finishes.</p>${renderNotifyEditor(agent, { integrations: args.availableIntegrations })}</div></details>`;
+  const hookOn = !!args.webhook?.hook?.enabled;
+  const connectSection = settingsSection('connect', 'Connections',
+    `Webhook ${hookOn ? 'on' : 'off'} · notify ${agent.notify ? 'on' : 'off'}`,
+    html`
+      ${args.webhook ? html`<div class="settings-sub"><h3 class="settings-sub__title">Webhook</h3>${renderWebhookBody(agent, args.webhook.hook, args.webhook.baseUrl)}</div>` : html``}
+      ${notifyBlock}
+    `, { ownSave: true });
+
+  // ── Access ─────────────────────────────────────────────────────────
   const permImgSrc = agent.permissions?.imgSrc ?? [];
   const inboxRunnable = agent.permissions?.inboxRunnable ?? false;
 
   // Recently-blocked img-src pills. The CSP-violation listener
   // (csp-img-report.js.ts) reports blocks server-side; this surfaces them
   // as one-click "Allow" buttons that POST to /permissions/allow-host and
-  // also clear the underlying suggestion so the pill doesn't linger. The
-  // backing `data-blocked-host-list` div is re-rendered after each allow
-  // by csp-img-report-pills.js.ts so the panel updates without a full
-  // page reload.
+  // also clear the underlying suggestion so the pill doesn't linger.
   const blockedHostsBlock = (() => {
     const blocked = (args.blockedImgHosts ?? []).filter((b) => !permImgSrc.includes(b.host));
     if (blocked.length === 0) {
       return html`
-        <div data-blocked-host-list="${agent.id}" hidden></div>
+        <div data-blocked-host-list="${id}" hidden></div>
       `;
     }
     const pills = blocked.map((b) => html`
-      <form method="POST" action="/agents/${agent.id}/permissions/allow-host" data-blocked-host-form
+      <form method="POST" action="/agents/${id}/permissions/allow-host" data-blocked-host-form
         style="display: inline-flex; margin: 0;">
         <input type="hidden" name="host" value="${b.host}">
-        <input type="hidden" name="redirect" value="/agents/${agent.id}/config">
-        <button type="submit" class="btn btn--sm btn--ghost" title="Allow ${b.host} for this agent"
-          style="font-family: var(--font-mono); font-size: var(--font-size-xs);">
+        <input type="hidden" name="redirect" value="/agents/${id}/config">
+        <button type="submit" class="btn btn--sm btn--ghost mono" title="Allow ${b.host} for this agent">
           + ${b.host}${b.count > 1 ? html` <span class="dim">(${String(b.count)})</span>` : html``}
         </button>
       </form>
     `);
     return html`
-      <div data-blocked-host-list="${agent.id}"
-        style="margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised);">
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
-          <strong style="font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted);">
-            Recently blocked
-          </strong>
-          <form method="POST" action="/api/img-blocks/${agent.id}/dismiss" data-blocked-host-dismiss style="margin: 0;">
-            <input type="hidden" name="redirect" value="/agents/${agent.id}/config">
-            <button type="submit" class="btn btn--xs btn--ghost" title="Dismiss all">Dismiss all</button>
+      <div data-blocked-host-list="${id}" class="settings-blocked">
+        <div class="settings-blocked__head">
+          <strong>Recently blocked</strong>
+          <form method="POST" action="/api/img-blocks/${id}/dismiss" data-blocked-host-dismiss style="margin: 0;">
+            <input type="hidden" name="redirect" value="/agents/${id}/config">
+            <button type="submit" class="btn btn--xs btn--ghost">Dismiss all</button>
           </form>
         </div>
-        <div style="display: flex; flex-wrap: wrap; gap: var(--space-1);">
-          ${pills as unknown as SafeHtml[]}
-        </div>
-        <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0;">
-          Click a host to add it to this agent's <code>img-src</code> allowlist.
-        </p>
+        <div class="settings-chips">${pills as unknown as SafeHtml[]}</div>
+        <p class="settings-hint">Allowing one saves right away.</p>
       </div>
     `;
   })();
 
-  const permissionsCard = configCard('Permissions', html`
-    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-      Hosts this agent's widgets can load images from. Each line widens the
-      page CSP <code>img-src</code> directive (prefixed with <code>https://</code>).
-      Wildcards like <code>*.unsplash.com</code> are allowed. Saving creates a
-      new agent version.
-    </p>
-    ${blockedHostsBlock}
-    <form method="POST" action="/agents/${agent.id}/permissions" style="display: flex; flex-direction: column; gap: var(--space-2);">
-      <label style="display: flex; align-items: flex-start; gap: var(--space-2); margin-bottom: var(--space-1);">
-        <input type="checkbox" name="inboxRunnable" value="1" ${inboxRunnable ? 'checked' : ''} style="margin-top: 2px;">
-        <span>
-          <span style="display: block; font-size: var(--font-size-sm); color: var(--color-text);">Runnable from inbox triage</span>
-          <span class="dim" style="display: block; font-size: var(--font-size-xs);">Allows inbox triage to propose this agent as a runnable action in threads. User agents remain manual-run from inbox.</span>
-        </span>
-      </label>
-      <label style="font-size: var(--font-size-xs); color: var(--color-text-muted);">img-src hosts (one per line)</label>
-      <textarea name="imgSrc" rows="3" placeholder="images.unsplash.com&#10;*.unsplash.com"
-        class="form-field mono"
-        style="padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm); resize: vertical;">${permImgSrc.join('\n')}</textarea>
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <span class="dim" style="font-size: var(--font-size-xs);">
-          ${permImgSrc.length === 0
-            ? html`No hosts declared.`
-            : html`${String(permImgSrc.length)} host${permImgSrc.length === 1 ? '' : 's'} declared.`}
-        </span>
-        <button type="submit" class="btn btn--sm">Save</button>
-      </div>
-    </form>
-  `);
-
-  const llmCard = configCard('LLM defaults', html`
-    <form method="POST" action="/agents/${agent.id}/llm" id="llm-form" style="display: flex; flex-direction: column; gap: var(--space-2);">
-      <div style="display: flex; gap: var(--space-2); align-items: center;">
-        <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Provider</label>
-        <select name="provider" id="llm-provider" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);">
-          ${providerOption('claude', agent.provider)}
-          ${providerOption('codex', agent.provider)}
-          ${providerOption('apple-foundation-models', agent.provider)}
-        </select>
-      </div>
-      <div style="display: flex; gap: var(--space-2); align-items: center;">
-        <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Model</label>
-        <select name="model" id="llm-model" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm); font-family: var(--font-mono);">
-          ${renderModelOptions(agent.provider, agent.model)}
-        </select>
-      </div>
-      <div id="llm-model-desc" class="dim" style="font-size: var(--font-size-xs); min-height: 1.2em;"></div>
-      <div style="display: flex; justify-content: flex-end;">
-        <button type="submit" class="btn btn--sm">Save</button>
-      </div>
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Applies to all llm-prompt nodes. Individual nodes can override in YAML.</p>
-    </form>
-  `);
-
-  // Execution backend (B2). Where this agent's runs orchestrate: in-process
-  // (local) or as a durable Temporal workflow that survives a crash and
-  // resumes. Default follows the dashboard's provider.
-  const runOnValue = agent.runOn ?? '';
-  const runOnOption = (val: string, label: string) =>
-    html`<option value="${val}" ${runOnValue === val ? 'selected' : ''}>${label}</option>`;
-  const backendCard = configCard('Execution backend', html`
-    <form method="POST" action="/agents/${agent.id}/run-on" style="display: flex; flex-direction: column; gap: var(--space-2);">
-      <div style="display: flex; gap: var(--space-2); align-items: center;">
-        <label style="font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 55px;">Runs on</label>
-        <select name="runOn" class="form-field" style="flex: 1; padding: var(--space-1) var(--space-2); font-size: var(--font-size-sm);">
-          ${runOnOption('', 'Default (follow provider)')}
-          ${runOnOption('local', 'Local (in-process)')}
-          ${runOnOption('temporal', 'Temporal (durable)')}
-        </select>
-      </div>
-      <div style="display: flex; justify-content: flex-end;">
-        <button type="submit" class="btn btn--sm">Save</button>
-      </div>
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Durable runs execute as a Temporal workflow that survives a crash and resumes — needs the dashboard on <code>--provider temporal</code> and a worker. Only the run-now and scheduler paths honor this.</p>
-    </form>
-  `);
-
-  // Allowed sub-agents card. Lists the operator-picked sub-agent
-  // allowlist (or "platform default" when unset). Pills are removable;
-  // "Add agent…" opens the picklist modal at the bottom of the page.
-  // Inbox-triage is the only consumer today; the field is on the base
-  // Agent type so future agent-invoke / loop dispatchers can adopt it
-  // without a schema migration.
-  const allowedSubAgentsCard = (() => {
+  // Allowed sub-agents: pills are removable; "Add agent…" opens the
+  // picklist (allowed-sub-agents-picklist.js.ts). Saves on its own.
+  const subAgentsBlock = (() => {
     const list = agent.allowedSubAgents;
     const usingDefault = list === undefined;
     const installedMap = new Map((args.installedAgents ?? []).map((a) => [a.id, a]));
     const pills = (list ?? []).map((aid) => {
       const installed = installedMap.has(aid);
       return html`
-        <span class="inbox-pill ${installed ? '' : 'inbox-pill--warn'}" data-sub-agent="${aid}" title="${installed ? '' : 'Not installed — entry has no effect until the agent is imported.'}">
+        <span class="inbox-pill ${installed ? '' : 'inbox-pill--warn'}" data-sub-agent="${aid}" title="${installed ? '' : 'Not installed: this entry does nothing until the agent is imported.'}">
           ${aid}
           <button type="button" class="inbox-pill__remove" data-sub-agent-remove="${aid}" aria-label="Remove ${aid}">×</button>
         </span>
       `;
     });
     const missingCount = (list ?? []).filter((aid) => !installedMap.has(aid)).length;
-    const body = html`
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">
-        Agent ids this agent may propose as sub-agent actions. Honored at dispatch time by inbox-triage; future flow-control nodes will follow.
-      </p>
-      ${usingDefault
-        ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">Using platform default (hardcoded system agents).</p>`
-        : html`
-          <form method="POST" action="/agents/${agent.id}/allowed-sub-agents" id="allowed-sub-agents-form" style="margin: 0 0 var(--space-2);">
-            <input type="hidden" name="agentIds" id="allowed-sub-agents-input" value="${(list ?? []).join(',')}">
-          </form>
-          <div class="inbox-pills" data-allowed-sub-agents-pills>
-            ${pills as unknown as SafeHtml[]}
-            ${list && list.length === 0 ? html`<span class="dim" style="font-size: var(--font-size-xs);">Empty — sub-agents are disabled.</span>` : html``}
-          </div>
-          ${missingCount > 0
-            ? html`<p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-2) 0 0; color: var(--color-warn, #f59e0b);">${String(missingCount)} entry/entries not installed (highlighted).</p>`
-            : html``}
-        `}
-      <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3);">
-        <button type="button" class="btn btn--sm" id="allowed-sub-agents-add" data-allowed-sub-agents-open>${usingDefault ? 'Pick agents…' : 'Add agent…'}</button>
+    return html`
+      <div class="settings-sub">
+        <h3 class="settings-sub__title">Agents it can hand work to <span class="settings-more__note">saves on its own</span></h3>
         ${usingDefault
-          ? html``
+          ? html`<p class="settings-hint">sua's built-in helpers (the default).</p>`
           : html`
-            <form method="POST" action="/agents/${agent.id}/allowed-sub-agents" style="display:inline;">
-              <input type="hidden" name="clear" value="1">
-              <button type="submit" class="btn btn--sm btn--ghost">Revert to default</button>
+            <form method="POST" action="/agents/${id}/allowed-sub-agents" id="allowed-sub-agents-form" style="margin: 0;">
+              <input type="hidden" name="agentIds" id="allowed-sub-agents-input" value="${(list ?? []).join(',')}">
             </form>
+            <div class="inbox-pills" data-allowed-sub-agents-pills>
+              ${pills as unknown as SafeHtml[]}
+              ${list && list.length === 0 ? html`<span class="settings-hint">None: it can't hand work off.</span>` : html``}
+            </div>
+            ${missingCount > 0 ? html`<p class="settings-hint settings-hint--warn">${String(missingCount)} not installed (highlighted).</p>` : html``}
           `}
+        <div class="settings-actions">
+          <button type="button" class="btn btn--sm" id="allowed-sub-agents-add" data-allowed-sub-agents-open>${usingDefault ? 'Pick agents…' : 'Add agent…'}</button>
+          ${usingDefault ? html`` : html`
+            <form method="POST" action="/agents/${id}/allowed-sub-agents" style="display:inline;">
+              <input type="hidden" name="clear" value="1">
+              <button type="submit" class="btn btn--sm btn--ghost">Back to the default</button>
+            </form>`}
+        </div>
       </div>
     `;
-    return configCard('Allowed sub-agents', body);
   })();
 
-  // Picklist modal data (rendered once below the page-grid). The modal
-  // is a sibling of the cards so it can overlay the whole tab without
-  // grid-cell containment quirks. Data attributes carry the agent id +
-  // the catalog payload as JSON for the inline JS to consume.
   const picklistPayload = (args.installedAgents ?? [])
-    .filter((a) => a.id !== agent.id)
+    .filter((a) => a.id !== id)
     .map((a) => ({ id: a.id, name: a.name, description: a.description ?? '' }));
   const allowedSubAgentsPicklist = html`
-    <div id="allowed-sub-agents-picklist" hidden data-agent-id="${agent.id}" data-current="${(agent.allowedSubAgents ?? []).join(',')}">
+    <div id="allowed-sub-agents-picklist" hidden data-agent-id="${id}" data-current="${(agent.allowedSubAgents ?? []).join(',')}">
       <script type="application/json" id="allowed-sub-agents-catalog">${JSON.stringify(picklistPayload)}</script>
     </div>
   `;
 
-  const variablesCard = configCard('Variables', renderVariablesEditor(agent));
-
-  const secretsCard = configCard('Secrets', html`
-    <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-2);">
-      ${String(allSecrets.size)} declared. ${String(secretsSet)} set, ${String(secretsMissing)} missing.
-    </p>
-    <a href="/settings/secrets" class="btn btn--sm">Manage secrets</a>
+  const accessSummary = [
+    inboxRunnable ? 'sua can run it' : 'sua asks before running it',
+    permImgSrc.length > 0 ? `images from ${String(permImgSrc.length)} host${permImgSrc.length === 1 ? '' : 's'}` : '',
+    allSecrets.size > 0 ? `${String(allSecrets.size)} secret${allSecrets.size === 1 ? '' : 's'}${secretsMissing > 0 ? ` (${String(secretsMissing)} missing)` : ''}` : '',
+  ].filter(Boolean).join(' · ');
+  const accessSection = settingsSection('access', 'Access', accessSummary, html`
+    <div class="settings-switches">
+      ${settingsSwitch('inboxRunnable', 'sua can run it from a conversation', 'without asking you first, when your autonomy setting allows', inboxRunnable, true)}
+    </div>
+    <label class="settings-field">
+      <span class="settings-field__label">Images its widgets may load, one host per line</span>
+      ${blockedHostsBlock}
+      <textarea name="imgSrc" rows="3" form="agent-settings" class="form-field mono" placeholder="images.unsplash.com&#10;*.unsplash.com" data-versioned>${permImgSrc.join('\n')}</textarea>
+    </label>
+    ${subAgentsBlock}
+    <div class="settings-row">
+      <span class="settings-row__label">Secrets</span>
+      <span class="settings-row__value">${allSecrets.size === 0 ? 'None needed' : `${String(secretsSet)} set, ${String(secretsMissing)} missing`}</span>
+      <a class="btn btn--ghost btn--sm" href="/settings/secrets">Manage</a>
+    </div>
   `);
 
-  // ── Right column: heavyweight collapsibles ─────────────────────────
-  // Output Widget editor lives on its own page — `/agents/<id>/output-widget`
-  // — because the editor is large enough to deserve a focused surface
-  // with sub-tabs (Type / Fields / Interactive / Preview). On the Config
-  // tab we just summarise + link.
-  const outputWidgetSection = (() => {
-    if (!agent.outputWidget) {
-      return configCard('Output Widget', html`
-        <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-          Render run output as a widget on the agent overview and the Pulse tile.
-        </p>
-        <a class="btn btn--sm" href="/agents/${agent.id}/output-widget">Set up output widget</a>
-      `);
-    }
-    const fieldCount = agent.outputWidget.fields?.length ?? 0;
-    const summary = agent.outputWidget.type === 'ai-template'
-      ? 'AI-generated HTML template'
-      : `${String(fieldCount)} field${fieldCount === 1 ? '' : 's'}`;
-    return configCard('Output Widget', html`
-      <dl class="kv" style="margin: 0 0 var(--space-3); font-size: var(--font-size-xs);">
-        <dt>Type</dt><dd class="mono">${agent.outputWidget.type}</dd>
-        <dt>Layout</dt><dd>${summary}</dd>
-        ${agent.outputWidget.interactive ? html`<dt>Interactive</dt><dd>yes — runs in place</dd>` : html``}
-      </dl>
-      <a class="btn btn--sm" href="/agents/${agent.id}/output-widget">Edit output widget</a>
-    `);
-  })();
-
-  const notifySection = collapsibleSection({
-    title: 'Notify',
-    configured: !!agent.notify,
-    emptyCta: html`
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
-        Send a Slack message or webhook when a run finishes.
-      </p>
-      <details class="config-empty-cta">
-        <summary><span class="btn btn--sm">Set up notify</span></summary>
-        <div style="margin-top: var(--space-3);">
-          ${renderNotifyEditor(agent, { integrations: args.availableIntegrations })}
-        </div>
-      </details>
-    `,
-    editor: renderNotifyEditor(agent, { integrations: args.availableIntegrations }),
-  });
-
-  // Variables runs full-width because its editor is a 5-column table that
-  // doesn't compress gracefully into half a viewport. Keeping it above the
-  // two-column grid puts the most-frequently-edited control where the eye
-  // lands first and avoids horizontal overflow into the right column.
   const content = html`
-    ${variablesCard}
-    <div class="config-grid" style="margin-top: var(--space-4);">
-      <div class="config-grid__col">
-        ${llmCard}
-        ${backendCard}
-        ${scheduleCard}
-        ${visibilityCard}
-        ${mcpCard}
-        ${webhookCard}
-        ${permissionsCard}
-        ${secretsCard}
-      </div>
-      <div class="config-grid__col">
-        ${outputWidgetSection}
-        ${allowedSubAgentsCard}
-        ${notifySection}
+    <form id="agent-settings" method="POST" action="/agents/${id}/settings" data-settings-form hidden>
+      <input type="hidden" name="_fields" value="${BATCHED_FIELDS}">
+      <input type="hidden" name="baseVersion" value="${String(agent.version)}">
+    </form>
+    <div class="settings">
+      <nav class="settings-nav" aria-label="Settings sections">
+        ${SETTINGS_SECTIONS.map((s) => html`<a class="settings-nav__link" href="#settings-${s.id}" data-settings-nav="${s.id}">${s.label}<span class="settings-nav__dot" aria-hidden="true"></span><span class="settings-nav__sr" data-settings-nav-changed></span></a>`) as unknown as SafeHtml[]}
+      </nav>
+      <div class="settings-main">
+        ${inputsSection}
+        ${modelSection}
+        ${whenSection}
+        ${whereSection}
+        ${connectSection}
+        ${accessSection}
+        <div class="settings-bar" data-settings-bar hidden role="region" aria-label="Unsaved changes">
+          <div class="settings-bar__review" data-settings-review-list hidden></div>
+          <div class="settings-bar__row">
+            <span class="settings-bar__count" data-settings-count aria-live="polite"></span>
+            <button type="button" class="btn btn--ghost btn--sm" data-settings-discard>Discard</button>
+            <button type="button" class="btn btn--sm" data-settings-review aria-expanded="false">Review</button>
+            <button type="submit" form="agent-settings" class="btn btn--primary btn--sm" data-settings-save data-next-version="${String(agent.version + 1)}">Save</button>
+          </div>
+        </div>
       </div>
     </div>
     ${allowedSubAgentsPicklist}
@@ -461,26 +320,26 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
  * Inbound webhook: off by default. On, it shows the URL, the secret (behind
  * a disclosure), a curl example, the last delivery, and rotate / turn off.
  */
-function renderWebhookCard(agent: Agent, hook: Webhook | undefined, baseUrl: string): SafeHtml {
+function renderWebhookBody(agent: Agent, hook: Webhook | undefined, baseUrl: string): SafeHtml {
   const action = `/agents/${encodeURIComponent(agent.id)}/webhook`;
   const intro = html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
     Lets another service (GitHub, Stripe, Zapier, a script) start this agent with a POST. The request needs this agent's secret; a JSON body's fields fill inputs of the same name, or map them with <code>webhook:</code> in the YAML (see docs/webhooks.md).
   </p>`;
   if (!hook || !hook.enabled) {
-    return configCard('Webhook', html`
+    return html`
       ${intro}
       <form method="POST" action="${action}" style="display: flex; gap: var(--space-2); align-items: center;">
         <input type="hidden" name="op" value="enable">
         <span class="badge badge--muted">off</span>
         <button type="submit" class="btn btn--sm">Turn on webhook</button>
-      </form>`);
+      </form>`;
   }
   const url = `${baseUrl.replace(/\/+$/, '')}/hooks/${encodeURIComponent(agent.id)}`;
   const signed = agent.webhook?.signature === 'github';
   const example = signed
     ? `GitHub: Settings → Webhooks → Payload URL ${url}, Content type application/json, Secret = the secret above.`
     : `curl -X POST ${url} \\\n  -H "Authorization: Bearer <secret>" \\\n  -H "Content-Type: application/json" \\\n  -d '{${Object.keys(agent.inputs ?? {}).slice(0, 2).map((k) => `"${k}": "…"`).join(', ')}}'`;
-  return configCard('Webhook', html`
+  return html`
     ${intro}
     <dl class="kv" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-3);">
       <dt>Status</dt><dd><span class="badge badge--ok">on</span>${signed ? html` <span class="dim">GitHub-signed deliveries only</span>` : html``}</dd>
@@ -497,5 +356,5 @@ function renderWebhookCard(agent: Agent, hook: Webhook | undefined, baseUrl: str
     <div style="display: flex; gap: var(--space-2); flex-wrap: wrap;">
       <form method="POST" action="${action}" style="margin: 0;"><input type="hidden" name="op" value="rotate"><button type="submit" class="btn btn--sm">Rotate secret</button></form>
       <form method="POST" action="${action}" style="margin: 0;"><input type="hidden" name="op" value="disable"><button type="submit" class="btn btn--sm btn--warn">Turn off</button></form>
-    </div>`);
+    </div>`;
 }

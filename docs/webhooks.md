@@ -4,7 +4,7 @@ Any agent can take a webhook: another service (GitHub, Stripe, Zapier, IFTTT, a 
 
 ## Turn it on
 
-- **Dashboard:** the agent's **Config** tab → **Webhook** → **Turn on webhook**. It shows the URL, the secret, a `curl` example and the last delivery, with **Rotate secret** and **Turn off**.
+- **Dashboard:** the agent's **Settings** tab → **Connections** → **Webhook** → **Turn on webhook**. It shows the URL, the secret, a `curl` example and the last delivery, with **Rotate secret** and **Turn off**.
 - **Terminal:** `sua agent webhook <agent> --on` (also `--off`, `--rotate`; no flag shows the current state).
 
 Webhooks are off until you turn them on, one agent at a time. Turning one on creates a secret for that agent.

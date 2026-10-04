@@ -199,6 +199,151 @@
   min-width: 0;
 }
 
+/* ---------- Agent Settings tab (views/agent-detail/config.ts, agent-settings.js.ts) ----------
+ * A section menu on the left; sections with a title + plain summary; one
+ * sticky bar for the batched Save. Changed sections get an amber edge. */
+.settings { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.settings-nav { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: 2px; }
+.settings-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+.settings-nav__link:hover { background: var(--color-surface-raised); color: var(--color-text); }
+.settings-nav__dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: transparent; }
+.settings-nav__link.is-changed { color: var(--color-text); }
+.settings-nav__link.is-changed .settings-nav__dot { background: var(--color-warn); }
+.settings-nav__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.settings-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  scroll-margin-top: var(--space-4);
+}
+.settings-section.is-changed { border-color: var(--color-warn); box-shadow: inset 3px 0 0 var(--color-warn); }
+.settings-section__head { display: flex; flex-direction: column; gap: 2px; }
+.settings-section__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-md); font-weight: 700; }
+.settings-section__summary { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.settings-section__own { margin: 0; color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+
+.settings-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.settings-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.settings-field__label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.settings-field .form-field { width: 100%; padding: var(--space-2); font-size: var(--font-size-sm); }
+.settings-field textarea.form-field { resize: vertical; }
+.settings-hint { margin: 0; color: var(--color-text-subtle); font-size: var(--font-size-xs); line-height: 1.5; }
+.settings-hint--warn { color: var(--color-warn); }
+
+.settings-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.settings-chip {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.settings-chip:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+.settings-chip[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary); }
+
+.settings-more { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.settings-more > summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.settings-more > summary:hover { color: var(--color-text); }
+.settings-more__note { margin-left: var(--space-2); color: var(--color-text-subtle); font-size: var(--font-size-xs); font-weight: 400; }
+.settings-more__body { padding-top: var(--space-3); }
+
+.settings-switches { display: flex; flex-direction: column; gap: var(--space-3); }
+.settings-switch { display: flex; align-items: flex-start; gap: var(--space-3); cursor: pointer; }
+.settings-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.settings-switch__track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--color-border-strong);
+  transition: background 120ms ease;
+}
+.settings-switch__track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  transition: transform 120ms ease;
+}
+.settings-switch input:checked + .settings-switch__track { background: var(--color-primary); }
+.settings-switch input:checked + .settings-switch__track::after { transform: translateX(16px); }
+.settings-switch input:focus-visible + .settings-switch__track { box-shadow: var(--shadow-focus); }
+.settings-switch__text { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-sm); }
+.settings-switch__hint { color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+
+.settings-row { display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); }
+.settings-row__label { min-width: 110px; color: var(--color-text-muted); }
+.settings-row__value { flex: 1; min-width: 0; }
+
+.settings-inputs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.settings-inputs__row { display: grid; grid-template-columns: minmax(120px, auto) 70px 1fr; gap: var(--space-3); align-items: baseline; font-size: var(--font-size-sm); }
+.settings-inputs__name { font-family: var(--font-mono); font-weight: 600; }
+.settings-inputs__type { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.settings-inputs__desc { color: var(--color-text-muted); min-width: 0; }
+.settings-inputs__def { color: var(--color-text-subtle); }
+
+.settings-sub { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.settings-sub__title { margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+.settings-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.settings-blocked { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px dashed var(--color-warn); border-radius: var(--radius-md); background: var(--color-warn-soft); }
+.settings-blocked__head { display: flex; justify-content: space-between; align-items: center; font-size: var(--font-size-xs); }
+
+/* The one Save. Sticks to the bottom of the viewport while there's something to save. */
+.settings-bar {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-warn);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.settings-bar[hidden] { display: none; }
+.settings-bar__row { display: flex; align-items: center; gap: var(--space-2); }
+.settings-bar__count { flex: 1; font-size: var(--font-size-sm); font-weight: 600; }
+.settings-bar__review { padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); }
+.settings-bar__review[hidden] { display: none; }
+.settings-review { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.settings-review__row { display: grid; grid-template-columns: 180px 1fr; gap: var(--space-3); font-size: var(--font-size-sm); }
+.settings-review__what { color: var(--color-text-muted); }
+.settings-review__before { color: var(--color-err); }
+.settings-review__after { color: var(--color-ok); text-decoration: none; }
+.settings-review__error { margin: 0 0 var(--space-2); color: var(--color-err); font-size: var(--font-size-sm); }
+
+@media (max-width: 900px) {
+  .settings { grid-template-columns: 1fr; gap: var(--space-3); }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .settings-inputs__row, .settings-review__row { grid-template-columns: 1fr; gap: 0; }
+}
+
 /* Inline status dropdown that lives in the agent page header. Looks like
  * a chip when idle (matches the badges around it) but acts like a select.
  * Color is keyed off the chosen status so the read affordance survives. */
