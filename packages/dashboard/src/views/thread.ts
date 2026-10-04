@@ -49,9 +49,10 @@ export function renderThreadMessage(m: ThreadMessage): SafeHtml {
       : html``;
   return html`
     <div class="${classes}"${m.id ? html` data-msg-id="${m.id}"` : html``}>
-      <div class="inbox-msg__avatar inbox-msg__avatar--${m.role}" aria-label="${m.label}">${m.sigil}</div>
+      <div class="inbox-msg__avatar inbox-msg__avatar--${m.role}" aria-hidden="true">${initialOf(m)}</div>
       <div class="inbox-msg__body">
         <div class="inbox-msg__meta">
+          <span class="inbox-msg__who">${m.label}</span>
           ${m.metaBefore ?? html``}
           ${time}
           ${m.metaAfter ?? html``}
@@ -66,6 +67,14 @@ export function renderThreadMessage(m: ThreadMessage): SafeHtml {
       </div>
     </div>
   `;
+}
+
+/** One letter for the avatar: Y for you, s for sua, else the speaker's first letter. */
+function initialOf(m: ThreadMessage): string {
+  if (m.role === 'user') return 'Y';
+  if (m.role === 'triage') return 's';
+  const name = (m.label || m.sigil || '?').trim();
+  return name.charAt(0).toUpperCase();
 }
 
 /** Rows into the thread list. Each item is a rendered row (a message or a card). */

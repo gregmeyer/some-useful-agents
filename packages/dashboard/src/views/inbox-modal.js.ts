@@ -444,7 +444,7 @@ export const INBOX_MODAL_JS = `
     if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
 
     var li = window.suaThread.entry({
-      role: 'triage', sigil: 'triage', label: 'Triage agent', writing: 'Writing…', classes: 'inbox-msg--new',
+      role: 'triage', sigil: 'triage', label: 'sua', writing: 'Writing…', classes: 'inbox-msg--new',
       attrs: { 'data-streaming': '1', 'data-streaming-bubble': '1' },
     });
     var text = li.querySelector('.inbox-msg__text');
@@ -1375,6 +1375,12 @@ export const INBOX_MODAL_JS = `
     else if (e.key === 'Escape' && el.value) { e.stopPropagation(); el.value = ''; syncAskRow(''); listState.q = ''; refreshPanelList(); }
   });
   document.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('[data-panel-refresh]')) {
+      // An explicit refresh starts the list over (back to the first page).
+      listPaged = false;
+      refreshPanelList();
+      return;
+    }
     var row = e.target.closest && e.target.closest('[data-panel-askrow]');
     if (!row) return;
     var field = listHost.querySelector('[data-panel-search]');

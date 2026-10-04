@@ -130,9 +130,21 @@ const SOURCE_LABEL: Record<string, string> = {
   'conversation': 'Conversation',
 };
 
+/** The thread's state in words (header pill). */
+const THREAD_STATUS: Record<string, string> = {
+  open: 'Open',
+  triaged: 'sua replied',
+  awaiting_user: 'Your turn',
+  verifying: 'Checking',
+  resolved: 'Resolved',
+  dismissed: 'Dismissed',
+};
+
+const SEND_ARROW = html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>`;
+
 const ROLE_LABEL: Record<InboxResponseRole, string> = {
   user: 'You',
-  triage: 'Triage agent',
+  triage: 'sua',
   system: 'System',
   action: 'Proposed action',
   agent: 'Agent',
@@ -142,7 +154,7 @@ const ROLE_LABEL: Record<InboxResponseRole, string> = {
  *  `›` added in CSS so the JS-built optimistic bubbles match. */
 const ROLE_AVATAR: Record<InboxResponseRole, string> = {
   user: 'you',
-  triage: 'triage',
+  triage: 'sua',
   system: 'system',
   action: 'action',
   agent: 'agent',
@@ -252,16 +264,19 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // Tight meta band: priority dot + status + agent chips + run link + tags,
   // with age pushed to the right. Tags share this band (one fewer vertical
   // band); the row wraps on narrow widths.
+  // One quiet line under the title (mockup screen 16): what state it's in,
+  // who it's with, when. Tags show only when there are some; adding one,
+  // starring and the rest live in the ⋯ menu.
   const headerMeta = html`
     <div class="inbox-modal__meta">
-      <span class="inbox-modal__priority inbox-modal__priority--${message.priority}" title="${message.priority} priority"></span>
-      <span class="badge ${STATUS_BADGE[message.status] ?? 'badge--muted'}">${STATUS_LABEL[message.status] ?? message.status}</span>
-      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="Triage is working on a proposed action">${pendingCommitment}…</span>` : html``}
-      ${agentChips}
-      ${message.runId ? html`<span class="inbox-modal__sep">·</span><a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
-      ${tagsBlock}
-      <span class="inbox-modal__age">${formatAge(new Date(message.createdAt).toISOString())}</span>
+      <span class="thread-status thread-status--${message.status}">${THREAD_STATUS[message.status] ?? message.status}</span>
+      ${pendingCommitment ? html`<span class="inbox-modal__commitment" title="sua is working on it">${pendingCommitment}…</span>` : html``}
+      ${referencedAgents.length > 0 ? html`<span class="thread-with">with ${agentChips}</span>` : html``}
+      ${message.runId ? html`<a href="/runs/${message.runId}" class="inbox-modal__link mono">run ${message.runId.slice(0, 8)}</a>` : html``}
+      <span class="inbox-modal__age">· ${formatAge(new Date(message.createdAt).toISOString())}</span>
+      ${message.starred ? html`<span class="thread-starred" title="Starred">★</span>` : html``}
     </div>
+    ${message.tags.length > 0 ? html`<div class="thread-tags">${message.tags.map((t) => html`<span class="inbox-pill">${t}</span>`) as unknown as SafeHtml[]}</div>` : html``}
   `;
 
   // Star control sits in the title row, top-right (mirrors the
@@ -331,6 +346,18 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <details class="inbox-modal__menu" data-inbox-menu>
       <summary class="inbox-modal__hicon inbox-modal__menu-trigger" role="button" aria-haspopup="menu" aria-label="More actions" title="More actions">⋯</summary>
       <div class="inbox-modal__menu-panel" role="menu">
+        <form method="POST" action="/inbox/${message.id}/star" data-inbox-modal-form class="inbox-modal__menu-form">
+          <input type="hidden" name="starred" value="${message.starred ? '0' : '1'}">
+          <button type="submit" class="inbox-modal__menu-item">${message.starred ? '★ Unstar' : '☆ Star'}</button>
+        </form>
+        <div class="inbox-modal__menu-tags">
+          <span class="inbox-modal__menu-label">Tags</span>
+          ${tagsBlock}
+        </div>
+        ${!isTerminal ? html`
+          <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-modal__menu-form">
+            <button type="submit" class="inbox-modal__menu-item" ${triagePending ? 'disabled' : ''}>Ask sua to look again</button>
+          </form>` : html``}
         <form method="POST" action="/inbox/${message.id}/summarize" data-inbox-modal-form class="inbox-modal__menu-form">
           <button type="submit" class="inbox-modal__menu-item" title="Pin a derived goal/status/next-step summary into the thread">Summarize</button>
         </form>
@@ -347,6 +374,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
             <button type="submit" class="inbox-modal__menu-item">Reopen</button>
           </form>
         ` : html``}
+        <a href="/inbox/${message.id}" class="inbox-modal__menu-item inbox-modal__menu-link">Open full page</a>
       </div>
     </details>
   `;
@@ -387,25 +415,17 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     : html`
       <div class="inbox-composer">
         <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
-          data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar">
-          <span class="inbox-chatbar__prompt" aria-hidden="true">you&nbsp;›</span>
+          data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar thread-composer">
           <textarea name="body" rows="1" required maxlength="8192"
             ${triagePending ? 'disabled' : ''}
-            placeholder="Reply, ask a follow-up, or note a decision…"
+            placeholder="${triagePending ? 'sua is replying…' : 'Reply to sua…'}"
             class="inbox-chatbar__input" data-inbox-autogrow data-inbox-chat-enter
             aria-label="Reply to this thread"></textarea>
-          <button type="submit" class="btn btn--sm btn--primary inbox-chatbar__send"
-            title="Enter to send" ${triagePending ? 'disabled' : ''}>
-            ${triagePending ? 'Waiting…' : 'Send ↵'}
-          </button>
+          <button type="submit" class="thread-composer__send"
+            title="Send (Enter)" aria-label="Send" ${triagePending ? 'disabled' : ''}>${SEND_ARROW}</button>
         </form>
         <div class="inbox-composer__aux">
-          <form method="POST" action="/inbox/${message.id}/triage" data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin: 0;">
-            <button type="submit" class="btn btn--xs btn--ghost" ${triagePending ? 'disabled' : ''}>
-              ${triagePending ? 'Triaging…' : 'Ask triage'}
-            </button>
-          </form>
-          <span class="inbox-composer__hint" aria-hidden="true">↵ send · ⇧↵ newline</span>
+          <span class="inbox-composer__hint" aria-hidden="true">↵ send · ⇧↵ new line · Esc closes</span>
         </div>
       </div>
     `;
@@ -419,8 +439,6 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         <header class="inbox-modal__title-row">
           <h3 id="inbox-modal-title" class="inbox-modal__title">${message.title}</h3>
           <div class="inbox-modal__title-actions">
-            ${permalinkControl}
-            ${starControl}
             ${actionsMenu}
           </div>
         </header>
@@ -728,11 +746,11 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       <div class="inbox-action__controls">
         <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/run"
           data-inbox-modal-form data-inbox-modal-keeps-triage="1" style="margin:0;">
-          <button type="submit" class="btn btn--xs btn--primary">${meta.ctaLabel || 'Run'}</button>
+          <button type="submit" class="btn btn--sm btn--primary">${meta.ctaLabel || (meta.agentId === 'agent-editor' ? 'Apply fix' : 'Run it')}</button>
         </form>
         <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/skip"
           data-inbox-modal-form style="margin:0;">
-          <button type="submit" class="btn btn--xs btn--ghost">Skip</button>
+          <button type="submit" class="btn btn--sm btn--ghost">Not now</button>
         </form>
       </div>
     `
@@ -767,18 +785,20 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ? html`Latest <span class="mono">${meta.agentId}</span> output`
         : meta.mode === 'resolve'
           ? html`Resolved this thread`
-          : html`Run agent <span class="mono">${meta.agentId}</span>`}
+          : meta.agentId === 'agent-editor'
+            ? html`Update <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
+            : html`Run <span class="mono">${meta.agentId}</span>`}
   `;
 
+  const hasInputs = Object.keys(meta.inputs ?? {}).length > 0;
   const cardInner = html`
     ${meta.rationale ? html`<div class="inbox-action__rationale">${mdBody(meta.rationale)}</div>` : html``}
     ${meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
-      ? renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)
-      : inputsRendered}
+      ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed' ? html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>` : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
+      : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
     ${detailBlock}
-    ${trustBlock}
-    ${controlsBlock}
+    ${meta.status === 'proposed' ? html`<div class="act-card__foot">${controlsBlock}<span class="act-card__spacer"></span>${trustBlock}</div>` : trustBlock}
   `;
 
   // Progressive disclosure: a *finished* dispatched run is signal-complete at a
@@ -827,18 +847,16 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     <div class="inbox-msg inbox-msg--action inbox-action inbox-action--${meta.status}" data-msg-id="${r.id}" ${runningAttr as unknown as SafeHtml}>
       <div class="inbox-msg__avatar inbox-msg__avatar--action" aria-hidden="true"></div>
       <div class="inbox-msg__body">
-        <div class="inbox-msg__meta">
-          ${provenance}
-          <span class="inbox-msg__time">${formatAge(new Date(r.createdAt).toISOString())}</span>
-        </div>
-        <div class="inbox-action__card">
-          <div class="inbox-action__headline">
-            ${headline}
-            ${meta.runId ? html` · <a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>` : html``}
-            ${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}
+        <section class="inbox-action__card act-card ${meta.effect === 'write' && meta.status === 'proposed' ? 'act-card--write' : ''}" aria-label="Proposed action">
+          <div class="act-card__head">
+            <span class="inbox-action__headline">${headline}</span>
+            ${isDispatched && meta.status === 'proposed'
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' ? 'changes the agent' : 'changes something') : 'reads only'}</span>`
+              : provenance}
           </div>
+          ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}
           ${cardInner}
-        </div>
+        </section>
       </div>
     </div>
   `;
@@ -997,13 +1015,13 @@ function renderYamlDiff(oldYaml: string, newYaml: string): SafeHtml {
   while (j < n) { rows.push(diffLine('+', b[j++])); plus++; }
 
   return html`
-    <div class="inbox-action__diff">
-      <div class="inbox-action__diff-header">
-        Proposed YAML change — <span class="inbox-action__diff-add">+${plus}</span> /
-        <span class="inbox-action__diff-del">-${minus}</span>
-      </div>
+    <details class="inbox-action__diff">
+      <summary class="inbox-action__diff-header">
+        <span class="mono"><span class="inbox-action__diff-add">+${plus}</span> <span class="inbox-action__diff-del">−${minus}</span></span>
+        <span class="inbox-action__diff-toggle">changes to the agent</span>
+      </summary>
       <pre class="inbox-action__diff-body mono">${rows as unknown as SafeHtml[]}</pre>
-    </div>
+    </details>
   `;
 }
 
@@ -1037,14 +1055,14 @@ function renderThinkingIndicator(messageId: string): SafeHtml {
   // refresh path the rest of the modal uses.
   return html`
     <div class="inbox-thinking" data-triage-pending="1" data-thinking-phase="triage">
-      <div class="inbox-thinking__avatar">Tri</div>
+      <div class="inbox-thinking__avatar">s</div>
       <div class="inbox-thinking__body">
-        <span class="inbox-thinking__label" data-thinking-label>Triage agent is thinking</span>
+        <span class="inbox-thinking__label" data-thinking-label>sua is working</span>
         <span class="inbox-thinking__dots"><span></span><span></span><span></span></span>
       </div>
       <form method="POST" action="/inbox/${messageId}/triage/cancel"
         data-inbox-modal-form data-inbox-triage-stop="1" class="inbox-thinking__stop-form">
-        <button type="submit" class="inbox-thinking__stop" aria-label="Stop triage">
+        <button type="submit" class="inbox-thinking__stop" aria-label="Stop sua" title="Stop">
           <span aria-hidden="true" class="inbox-thinking__stop-icon"></span>
         </button>
       </form>

@@ -29,12 +29,16 @@ export const THREAD_JS = `
     Object.keys(attrs).forEach(function (k) { msg.setAttribute(k, attrs[k]); });
     var avatar = document.createElement('div');
     avatar.className = 'inbox-msg__avatar inbox-msg__avatar--' + o.role;
-    avatar.setAttribute('aria-label', o.label || o.sigil);
-    avatar.textContent = o.sigil;
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = o.role === 'user' ? 'Y' : o.role === 'triage' ? 's' : String(o.label || o.sigil || '?').charAt(0).toUpperCase();
     var body = document.createElement('div');
     body.className = 'inbox-msg__body';
     var meta = document.createElement('div');
     meta.className = 'inbox-msg__meta';
+    var who = document.createElement('span');
+    who.className = 'inbox-msg__who';
+    who.textContent = o.label || o.sigil;
+    meta.appendChild(who);
     if (o.writing) {
       var w = document.createElement('span');
       w.className = 'inbox-msg__writing';
