@@ -75,6 +75,7 @@ import { imgBlockReportRouter } from './routes/img-block-report.js';
 import { inboxRouter, sendInboxPage } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
+import { itemsRouter } from './routes/items.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
@@ -297,6 +298,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Count endpoint first so `/inbox/needs-you-count` isn't shadowed by
   // the inbox router's `/inbox/:id`.
   app.use(inboxCountRouter);
+  app.use(itemsRouter);
   app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);

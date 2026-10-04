@@ -1,4 +1,4 @@
-import { INBOX_SOURCES, markdownToText, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
+import { INBOX_SOURCES, markdownToText, threadAttention, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
 import { buildRowPreview } from '../routes/inbox-shared.js';
 
 /**
@@ -135,12 +135,8 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
     .map((message) => {
       const preview = buildRowPreview(store, message.id);
       const latest = preview.latestResponse;
-      const kind: PanelRowKind | undefined =
-        message.status === 'resolved' || message.status === 'dismissed' ? undefined
-        : message.source === 'run-failure' || message.source === 'outcome' ? 'fail'
-        : preview.proposedActions || (message.source === 'board' && message.status === 'awaiting_user') ? 'approve'
-        : message.source === 'question' || message.status === 'awaiting_user' ? 'answer'
-        : undefined;
+      // The same rule the item index uses (core items/projections.ts).
+      const kind: PanelRowKind | undefined = threadAttention(message, preview.proposedActions?.count ?? 0);
       return {
         message,
         ...(kind ? { kind } : {}),

@@ -441,38 +441,42 @@ export class OutcomeStore {
     };
   }
 
-  private rowToOutcome = (r: Record<string, unknown>): OutcomeRow => ({
-    runId: r.run_id as string,
-    agentId: r.agent_id as string,
-    agentVersion: r.agent_version as number,
-    satisfied: r.satisfied as OutcomeVerdict,
-    basis: r.basis as OutcomeRecord['evaluation']['basis'],
-    confidence: r.confidence as OutcomeRecord['evaluation']['confidence'],
-    evidenceCount: r.evidence_count as number,
-    unknownCount: r.unknown_count as number,
-    detectedAt: r.detected_at as string,
-    record: JSON.parse(r.record_json as string) as OutcomeRecord,
-  });
+  private rowToOutcome(r: Record<string, unknown>): OutcomeRow {
+    return {
+      runId: r.run_id as string,
+      agentId: r.agent_id as string,
+      agentVersion: r.agent_version as number,
+      satisfied: r.satisfied as OutcomeVerdict,
+      basis: r.basis as OutcomeRecord['evaluation']['basis'],
+      confidence: r.confidence as OutcomeRecord['evaluation']['confidence'],
+      evidenceCount: r.evidence_count as number,
+      unknownCount: r.unknown_count as number,
+      detectedAt: r.detected_at as string,
+      record: JSON.parse(r.record_json as string) as OutcomeRecord,
+    };
+  }
 
-  private rowToEvaluation = (r: Record<string, unknown>): OutcomeEvaluationRecord => ({
-    evaluationId: r.evaluation_id as string,
-    runId: r.run_id as string,
-    evaluatedAt: r.evaluated_at as string,
-    inputFingerprint: r.input_fingerprint as string,
-    contractHash: r.contract_hash as string,
-    contractSnapshot: JSON.parse(r.contract_json as string) as OutcomeExpectation,
-    evidenceIds: JSON.parse(r.evidence_ids_json as string) as string[],
-    evaluator: JSON.parse(r.evaluator_json as string) as OutcomeEvaluationRecord['evaluator'],
-    criteriaEngineVersion: r.criteria_engine_version as string,
-    verdict: r.verdict as OutcomeVerdict,
-    basis: r.basis as OutcomeRecord['evaluation']['basis'],
-    confidence: r.confidence as OutcomeConfidence,
-    unknowns: JSON.parse(r.unknowns_json as string) as UnknownItem[],
-    ...(r.criteria_results_json
-      ? { criteriaResults: JSON.parse(r.criteria_results_json as string) as NonNullable<OutcomeEvaluationRecord['criteriaResults']> }
-      : {}),
-    record: JSON.parse(r.record_json as string) as OutcomeRecord,
-  });
+  private rowToEvaluation(r: Record<string, unknown>): OutcomeEvaluationRecord {
+    return {
+      evaluationId: r.evaluation_id as string,
+      runId: r.run_id as string,
+      evaluatedAt: r.evaluated_at as string,
+      inputFingerprint: r.input_fingerprint as string,
+      contractHash: r.contract_hash as string,
+      contractSnapshot: JSON.parse(r.contract_json as string) as OutcomeExpectation,
+      evidenceIds: JSON.parse(r.evidence_ids_json as string) as string[],
+      evaluator: JSON.parse(r.evaluator_json as string) as OutcomeEvaluationRecord['evaluator'],
+      criteriaEngineVersion: r.criteria_engine_version as string,
+      verdict: r.verdict as OutcomeVerdict,
+      basis: r.basis as OutcomeRecord['evaluation']['basis'],
+      confidence: r.confidence as OutcomeConfidence,
+      unknowns: JSON.parse(r.unknowns_json as string) as UnknownItem[],
+      ...(r.criteria_results_json
+        ? { criteriaResults: JSON.parse(r.criteria_results_json as string) as NonNullable<OutcomeEvaluationRecord['criteriaResults']> }
+        : {}),
+      record: JSON.parse(r.record_json as string) as OutcomeRecord,
+    };
+  }
 }
 
 function normalizeAttachedEvidence(input: {

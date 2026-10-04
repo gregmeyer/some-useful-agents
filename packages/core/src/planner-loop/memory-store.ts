@@ -121,15 +121,17 @@ export class PlannerMemoryStore {
     if (this.ownsConnection) this.db.close();
   }
 
-  private rowToMemory = (r: Record<string, unknown>): PlannerMemoryRow => ({
-    id: r.id as number,
-    runId: r.run_id as string,
-    goal: r.goal as string,
-    goalTokens: r.goal_tokens as string,
-    intent: r.intent as string,
-    plan: JSON.parse(r.plan_json as string) as BuildPlan,
-    committedAt: r.committed_at as string,
-    outcome: r.outcome as 'committed',
-    attempts: r.attempts as number,
-  });
+  private rowToMemory(r: Record<string, unknown>): PlannerMemoryRow {
+    return {
+      id: r.id as number,
+      runId: r.run_id as string,
+      goal: r.goal as string,
+      goalTokens: r.goal_tokens as string,
+      intent: r.intent as string,
+      plan: JSON.parse(r.plan_json as string) as BuildPlan,
+      committedAt: r.committed_at as string,
+      outcome: r.outcome as 'committed',
+      attempts: r.attempts as number,
+    };
+  }
 }

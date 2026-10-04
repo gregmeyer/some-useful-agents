@@ -92,15 +92,17 @@ export class AgentMemoryStore {
     if (this.ownsConnection) this.db.close();
   }
 
-  private rowToMemory = (r: Record<string, unknown>): AgentMemoryRow => ({
-    agentId: r.agent_id as string,
-    rootRunId: r.root_run_id as string,
-    iteration: r.iteration as number,
-    runId: r.run_id as string,
-    inputsJson: (r.inputs_json as string | null) ?? null,
-    observationsJson: (r.observations_json as string | null) ?? null,
-    evalStatus: r.eval_status as AgentMemoryEvalStatus,
-    evalFailuresJson: (r.eval_failures_json as string | null) ?? null,
-    createdAt: r.created_at as string,
-  });
+  private rowToMemory(r: Record<string, unknown>): AgentMemoryRow {
+    return {
+      agentId: r.agent_id as string,
+      rootRunId: r.root_run_id as string,
+      iteration: r.iteration as number,
+      runId: r.run_id as string,
+      inputsJson: (r.inputs_json as string | null) ?? null,
+      observationsJson: (r.observations_json as string | null) ?? null,
+      evalStatus: r.eval_status as AgentMemoryEvalStatus,
+      evalFailuresJson: (r.eval_failures_json as string | null) ?? null,
+      createdAt: r.created_at as string,
+    };
+  }
 }
