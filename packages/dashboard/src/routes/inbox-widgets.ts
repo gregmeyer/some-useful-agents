@@ -1,3 +1,4 @@
+import { markdownToText } from '@some-useful-agents/core';
 /**
  * Inbox view-data + in-thread widget boundary.
  *
@@ -51,6 +52,11 @@ export function listForkableAgents(ctx: ReturnType<typeof getContext>): { id: st
   }
 }
 
+/** One line of plain text for the summary: Markdown stripped first, so shortening never leaves a half-open `**`. */
+function plainSummary(text: string | undefined, max: number): string | undefined {
+  return summarizeInline(text ? markdownToText(text) : text, max);
+}
+
 /**
  * Derive a thread summary (goal / latest result / next step) purely from the
  * thread's existing responses — no LLM call. The goal is the latest real user
@@ -62,14 +68,14 @@ export function buildThreadSummary(
   message: { title: string; status: string; body: string },
   responses: readonly InboxResponse[],
 ): { currentGoal: string; latestResult?: string; currentStatus: string; nextStep?: string } {
-  let currentGoal = summarizeInline(message.title, 140)
-    ?? summarizeInline(message.body, 140)
+  let currentGoal = plainSummary(message.title, 140)
+    ?? plainSummary(message.body, 140)
     ?? 'Continue the thread';
   for (let i = responses.length - 1; i >= 0; i -= 1) {
     const response = responses[i];
     if (response.role !== 'user') continue;
     if (response.body.trim() === '(Asked triage to take another look.)') continue;
-    currentGoal = summarizeInline(response.body, 140) ?? currentGoal;
+    currentGoal = plainSummary(response.body, 140) ?? currentGoal;
     break;
   }
 
@@ -79,13 +85,13 @@ export function buildThreadSummary(
     const response = responses[i];
     const action = parseActionMeta(response);
     if (!latestResult && action?.status === 'completed') {
-      latestResult = summarizeInline(action.resultSummary ?? response.body, 180);
+      latestResult = plainSummary(action.resultSummary ?? response.body, 180);
     }
     if (!latestResult && (response.role === 'triage' || response.role === 'system')) {
-      latestResult = summarizeInline(response.body, 180);
+      latestResult = plainSummary(response.body, 180);
     }
     if (!nextStep && action?.status === 'proposed') {
-      nextStep = summarizeInline(action.rationale ?? `Run ${action.agentId}`, 160);
+      nextStep = plainSummary(action.rationale ?? `Run ${action.agentId}`, 160);
     }
     if (latestResult && nextStep) break;
   }
