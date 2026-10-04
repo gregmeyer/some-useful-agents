@@ -171,6 +171,8 @@ export interface InboxActionMeta {
    * the agent at `base.version` when proposed. The card lists them.
    */
   settingsChanges?: Array<{ what: string; before: string; after: string }>;
+  /** adjust-surface only: what the change does to the surface, read when proposed. */
+  surfaceChanges?: Array<{ what: string; before: string; after: string }>;
 }
 
 export interface InboxMessage {

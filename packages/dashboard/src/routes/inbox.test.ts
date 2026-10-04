@@ -2187,3 +2187,48 @@ describe('sua changes an agent\'s settings (agent-settings)', () => {
     expect(empty.status).toBe(400);
   });
 });
+
+describe('sua changes Home (adjust-surface)', () => {
+  it('parses ops, previews what moves, applies as you through sua, refuses a stale card; Ask sua to change Home starts it', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const node = [{ id: 'n', type: 'shell' as const, command: 'echo hi', dependsOn: [] }];
+    agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
+    ctx.runStore.createRun({ id: 'fr1', agentName: 'flaky', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule', error: 'exit 1' });
+    const q = inboxStore.add({ priority: 'medium', source: 'manual', title: 'A question for you', body: 'x' });
+    inboxStore.updateStatus(q.id, 'awaiting_user');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+
+    const rule = { op: 'addRule', rule: { id: 'failing-first', type: 'promote', match: { idPrefix: 'agent:', kinds: ['alert'] }, label: 'failing agents first' } };
+    const parsed = parseProposedActions([{ type: 'adjust-surface', rationale: 'You asked for failures first', inputs: { OPS: [rule] } }], []);
+    expect(parsed.accepted).toEqual([expect.objectContaining({ agentId: 'adjust-surface', effect: 'write', ctaLabel: 'Apply', inputs: expect.objectContaining({ SURFACE: 'home' }) })]);
+    expect(parseProposedActions([{ type: 'adjust-surface', inputs: { OPS: '[{"op":"explode"}]' } }], []).rejected[0].reason).toContain("isn't valid");
+
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.base?.version).toBe(0);
+    expect(card.surfaceChanges).toEqual([
+      { what: 'New rule', before: '—', after: 'failing agents first (first)' },
+      { what: 'Top of Needs you', before: 'A question for you · Flaky is failing', after: 'Flaky is failing · A question for you' },
+    ]);
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'Change Home', body: '(empty)' });
+    inboxStore.addResponse(m.id, 'action', 'surface', JSON.stringify(card));
+    const frag = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('Change Home');
+    expect(frag.text).toContain('changes Home');
+    expect(frag.text).toContain('<a class="act-card__aside" href="/">Open Home</a>');
+
+    expect(engine.executeAdjustSurface(ctx, card)).toMatchObject({ status: 'completed', summary: expect.stringContaining('Home updated (v1)') });
+    const { SurfaceStore } = await import('@some-useful-agents/core');
+    const home = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current('home');
+    expect(home).toMatchObject({ version: 1, actor: 'user-conversation', reason: 'You asked for failures first' });
+    expect(engine.executeAdjustSurface(ctx, card)).toMatchObject({ status: 'failed', refusalReason: expect.stringContaining('Home changed since') });
+
+    const asked = await request(app).post('/surfaces/home/ask').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send({ text: 'hide the drafts' });
+    expect(asked.status).toBe(204);
+    expect(inboxStore.listResponses(asked.headers['x-inbox-id'])[0]).toMatchObject({ role: 'user', body: 'On Home: hide the drafts' });
+    const page = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('action="/surfaces/home/ask" class="home-change" data-ask-fix');
+  });
+});

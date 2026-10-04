@@ -110,4 +110,15 @@ Hiding one conversation never offers to hide all conversations of its kind. Hide
 
 Hidden items are listed at the end of Today ("2 hidden from Home"), each with the way back: **Show** if you hid it, or **Stop this rule** if a rule hid it.
 
-Next: changing Home's goal and rules by asking sua (S5).
+### Asking sua to change Home
+
+Under Home's goal, **Ask sua to change Home** takes plain words, e.g. "put failing agents first and hide the draft agents" or "pin the Claude Code Usage Tracker failure". The conversation opens beside the list.
+
+sua answers with a **Change Home** card that lists each change (new rules, pins, hides) and its effect: what will lead **Needs you**, and how many items will be hidden. **Apply** saves the changes as a new version of Home, marked "by you, through sua". Nothing changes before you apply. If Home changed in between, Apply refuses and you ask again. You can ask the same way in any conversation.
+
+sua sees Home as it is (goal, sections, rules, pins, hidden items, and the items with their ids), so it can pin or hide a specific item. It prefers a rule when you say "always" or "all". It changes Home's sections only when you ask for exactly that.
+
+### From AI apps (MCP)
+
+- `surface-read`: Home's goal, sections with their items (ids, kind, title, why each is there), rules, and hidden items.
+- `surface-apply`: `{ ops, reason, expectedVersion? }`. Changes are saved as made by the app (`agent:mcp`), and you can undo them. Changes to Home's sections are refused: you make those yourself. The tool policy applies.

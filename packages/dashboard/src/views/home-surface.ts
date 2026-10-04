@@ -209,5 +209,12 @@ export function renderItemPane(entry: CompiledEntry | undefined, itemId: string)
 
 /** The goal line over Home's list. */
 export function renderHomeGoal(today: HomeSurface): SafeHtml {
-  return html`<p class="home-goal"><span class="home-goal__label">Goal:</span> ${today.goal}${unsafeHtml(' ')}<span class="home-goal__by">${today.version === 0 ? '· arranged by the defaults' : `· arranged by your rules, v${String(today.version)}`}</span></p>`;
+  return html`
+    <p class="home-goal"><span class="home-goal__label">Goal:</span> ${today.goal}${unsafeHtml(' ')}<span class="home-goal__by">${today.version === 0 ? '· arranged by the defaults' : `· arranged by your rules, v${String(today.version)}`}</span></p>
+    <form method="POST" action="/surfaces/home/ask" class="home-change" data-ask-fix>
+      <label class="home-change__label" for="home-change-text">Ask sua to change Home</label>
+      <input type="text" id="home-change-text" name="text" class="home-change__input" required autocomplete="off"
+        placeholder="e.g. put failing agents first, hide the drafts, pin the tires thread">
+      <button type="submit" class="btn btn--sm">Ask sua</button>
+    </form>`;
 }

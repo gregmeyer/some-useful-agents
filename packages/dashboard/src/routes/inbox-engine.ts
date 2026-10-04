@@ -10,6 +10,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
+import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
 import { readSettingsForm, applySettings, settingsBodyFromChanges, describeSettings } from '../lib/agent-settings.js';
 import {
   executeAgentDag,
@@ -36,6 +38,8 @@ import {
   type InboxResponse,
   type LearningCategory,
   type LearningScope,
+  SurfaceStore,
+  SurfaceVersionConflict,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -175,7 +179,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -828,6 +832,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'agent-settings') {
     return executeAgentSettings(ctx, meta);
   }
+  if (meta.agentId === 'adjust-surface') {
+    return executeAdjustSurface(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1025,6 +1032,30 @@ export function executeAgentSchedule(
 }
 
 /**
+ * Apply sua's "Change Home" card (goal surfaces S5): the ops go through the one
+ * mutation path as you-through-sua, and refuse if Home changed since the card
+ * was proposed (its preview would be wrong).
+ */
+export function executeAdjustSurface(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const { ops, error } = parseSurfaceOps(meta.inputs.OPS ?? '');
+  if (!ops) return { status: 'failed', refusalReason: error };
+  try {
+    const saved = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).apply(
+      HOME_SURFACE_ID, ops, 'user-conversation',
+      (meta.rationale ?? 'You asked sua to change Home').replace(/\s+/g, ' ').slice(0, 280),
+      meta.base ? { expectedVersion: meta.base.version } : {},
+    );
+    return { status: 'completed', summary: `Home updated (v${String(saved.version)}). Each change is kept; pin, move or hide by hand from Today.` };
+  } catch (err) {
+    if (err instanceof SurfaceVersionConflict) return { status: 'failed', refusalReason: 'Home changed since this was proposed. Ask again to get a change against what it shows now.' };
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Apply sua's "Change N settings" card: the same read, validation and save as
  * the Settings page's one Save (lib/agent-settings.ts). Refuses when the agent
  * got a new version since the card was proposed and the change is versioned.
@@ -1213,6 +1244,16 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+  if (action.agentId === 'adjust-surface' && !action.base) {
+    try {
+      const home = readHomeSurface(ctx);
+      const { ops } = parseSurfaceOps(action.inputs.OPS ?? '');
+      if (!ops) return action;
+      return { ...action, base: { version: home.version, yaml: '' }, surfaceChanges: previewSurfaceChange(home, ops) };
+    } catch {
+      return action;
+    }
+  }
   if (action.agentId === 'agent-settings' && action.inputs.AGENT_ID && !action.base) {
     const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
     const { body } = settingsBodyFromChanges(action.inputs.CHANGES ?? '');
@@ -1929,6 +1970,8 @@ export async function runTriageAgent(
           FOCUS_AGENT: focusAgentId ?? '',
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
+          // Home as it is now (goal, rules, items with their ids), for adjust-surface.
+          HOME_SURFACE: (() => { try { return describeHomeForTriage(readHomeSurface(ctx)); } catch { return ''; } })(),
           // Its current settings, in the field names an agent-settings CHANGES uses.
           FOCUS_AGENT_SETTINGS: focusAgentId ? (() => { const a = ctx.agentStore.getAgent(focusAgentId); return a ? describeSettings(a) : ''; })() : '',
           ALLOWED_SUB_AGENTS: allowlist.join(', '),
@@ -2103,7 +2146,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'agent-settings',
+      (a) => a && typeof a === 'object' && ((a as { type?: unknown }).type === 'agent-settings' || (a as { type?: unknown }).type === 'adjust-surface'),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

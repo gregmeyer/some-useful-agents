@@ -146,7 +146,7 @@ describe('Home\'s surface, drawn (S3)', () => {
       { ...base, id: 'agent:b:draft', kind: 'decision' as const, title: 'B is a draft', urgency: 'low' as const, state: 'open' as const },
       { ...base, id: 'system:scheduler', kind: 'status' as const, title: 'The scheduler', summary: 'Running 2 scheduled agents', urgency: 'low' as const, state: 'ok' as const },
     ];
-    const out = render(renderToday({ compiled: compileSurface(DEFAULT_HOME_SURFACE, items), version: 0, goal: 'g', needsCount: 1 }, true));
+    const out = render(renderToday({ compiled: compileSurface(DEFAULT_HOME_SURFACE, items), version: 0, goal: 'g', needsCount: 1, doc: DEFAULT_HOME_SURFACE, items }, true));
     expect(out).toContain('data-panel-thread-id="t1"');
     expect(out).toContain('2 draft agents waiting to be made active');
     expect(out).toContain('data-panel-thread-id="item:agent:a:draft"');
