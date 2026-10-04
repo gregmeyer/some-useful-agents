@@ -615,3 +615,6 @@ export {
 
 // Items: the canonical layer of goal surfaces (ADR-0049, S1).
 export * from './items/index.js';
+
+// Surfaces: what a surface emphasizes (ADR-0049, S2).
+export * from './surfaces/index.js';
