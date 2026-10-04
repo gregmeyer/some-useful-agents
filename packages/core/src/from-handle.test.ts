@@ -29,12 +29,13 @@ import { AgentMemoryStore } from './agent-loop/memory-store.js';
 import { OutcomeStore } from './outcome/outcome-store.js';
 import { PlannerMemoryStore } from './planner-loop/memory-store.js';
 import { PlannerLoopStepLogStore } from './planner-loop/step-log-store.js';
+import { SurfaceStore } from './surfaces/store.js';
 
 type HandleStore = { new (path: string): object; fromHandle(db: DatabaseSync): object; name: string };
 const STORES = [
   InboxStore, BlockedImgHostsStore, MemoryStore, WebhookStore, PlannerTelemetryStore, IntegrationsStore,
   LayoutHintsStore, ToolStore, PacksStore, HumanQuestionStore, RunStore, AgentStore, DashboardsStore,
-  SessionStore, AgentMemoryStore, OutcomeStore, PlannerMemoryStore, PlannerLoopStepLogStore,
+  SessionStore, AgentMemoryStore, OutcomeStore, PlannerMemoryStore, PlannerLoopStepLogStore, SurfaceStore,
 ] as unknown as HandleStore[];
 
 describe('stores built from a shared handle', () => {
