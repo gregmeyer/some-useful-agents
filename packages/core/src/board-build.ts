@@ -183,6 +183,10 @@ export class BoardBuildStore {
     const r = this.db.prepare('SELECT * FROM board_builds WHERE board_id = ? ORDER BY created_at DESC LIMIT 1').get(boardId) as Record<string, unknown> | undefined;
     return r ? this.row(r) : undefined;
   }
+  /** Builds that failed since `sinceMs` (newest first). */
+  failedSince(sinceMs: number): BoardBuild[] {
+    return (this.db.prepare("SELECT * FROM board_builds WHERE phase = 'failed' AND updated_at >= ? ORDER BY updated_at DESC").all(sinceMs) as Array<Record<string, unknown>>).map((r) => this.row(r));
+  }
   /** Builds a restart interrupted (still planning/arranging/running/drafting; not queued ones, which simply wait). */
   unfinished(): BoardBuild[] {
     return (this.db.prepare("SELECT * FROM board_builds WHERE phase IN ('planning','arranging','running','drafting')").all() as Array<Record<string, unknown>>).map((r) => this.row(r));

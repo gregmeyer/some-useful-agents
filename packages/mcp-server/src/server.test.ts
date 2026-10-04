@@ -488,4 +488,24 @@ describe('MCP board tools', () => {
       await c.close();
     }
   });
+
+  it('items-read lists what needs attention, filtered, as text or JSON', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent({ ...parseAgent(`id: sketch\nname: Sketch\nnodes:\n  - id: n\n    type: shell\n    command: echo hi\n`), status: 'draft' }, 'cli');
+    agents.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const res = await c.callTool({ name: 'items-read', arguments: {} });
+      expect(res.isError).toBeFalsy();
+      expect(text(res)).toContain('[low] decision · Sketch is a draft');
+      expect(text(res)).toContain('(agent:sketch:draft; Make it active / Look at it)');
+      const json = JSON.parse(text(await c.callTool({ name: 'items-read', arguments: { kind: ['decision'], format: 'json' } }))) as Array<{ id: string }>;
+      expect(json.map((i) => i.id)).toEqual(['agent:sketch:draft']);
+      expect(text(await c.callTool({ name: 'items-read', arguments: { kind: ['question'] } }))).toBe('Nothing needs attention right now.');
+    } finally {
+      await c.close();
+    }
+  });
 });

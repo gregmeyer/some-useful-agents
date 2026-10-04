@@ -31,7 +31,7 @@ import {
   getBuiltinTool,
   evaluatePolicy,
   resolvePolicyDocument,
-  policyResource,
+  policyResource, collectItems, itemSourcesFromHandle, ITEM_KINDS
 } from '@some-useful-agents/core';
 
 /**
@@ -459,6 +459,37 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
       try {
         const { boardId, build } = queueBoardBuild(opts.runStore.databaseHandle(), opts.dashboardsStore, { request, ...(name ? { name } : {}), queued: true, origin: 'mcp' });
         return { content: [{ type: 'text' as const, text: `Queued the board "${name?.trim() || boardId.replace(/^user:/, '')}" (board ${boardId}, build ${build.id}). The sua dashboard builds it now: open /dashboards/${encodeURIComponent(boardId)} there. Check progress with board-build-status; the person's inbox says when it's ready.` }] };
+      } catch (err) {
+        return errorResult((err as Error).message);
+      }
+    },
+  );
+  server.registerTool(
+    'items-read',
+    {
+      description: 'What needs the person\'s attention in sua right now, most urgent first: threads waiting on them (approvals, answers, failures), questions runs are waiting on, agents that keep failing or missed their declared outcome, draft agents, board builds, and the scheduler\'s health. Each item has a stable id, a kind (decision, question, alert, status, progress…), what it\'s about, and the actions it supports.',
+      inputSchema: {
+        kind: z.array(z.enum(ITEM_KINDS)).optional().describe('Only these kinds, e.g. ["decision","question"].'),
+        agent: z.string().optional().describe('Only items about this agent id.'),
+        includeOk: z.boolean().optional().describe('Include healthy context items (e.g. the scheduler when it is running). Default false.'),
+        limit: z.number().int().min(1).max(200).optional().describe('At most this many (default 50).'),
+        format: z.enum(['text', 'json']).optional().describe('text (default): one line per item. json: the full items.'),
+      },
+    },
+    async ({ kind, agent, includeOk, limit, format }) => {
+      if (!opts.runStore || !opts.agentStore) return errorResult('Items are not available on this server.');
+      try {
+        const sources = itemSourcesFromHandle(opts.runStore.databaseHandle(), opts.agentStore, opts.runStore, opts.dataRoot);
+        const items = collectItems(sources, {
+          ...(kind?.length ? { kinds: kind } : {}),
+          ...(agent ? { agentId: agent } : {}),
+          includeOk: includeOk ?? false,
+          limit: limit ?? 50,
+        });
+        if (format === 'json') return { content: [{ type: 'text' as const, text: JSON.stringify(items, null, 2) }] };
+        if (items.length === 0) return { content: [{ type: 'text' as const, text: 'Nothing needs attention right now.' }] };
+        const lines = items.map((i) => `[${i.urgency}] ${i.kind} · ${i.title}${i.summary ? ` — ${i.summary}` : ''} (${i.id}; ${i.actions.map((a) => a.label).join(' / ')})`);
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       } catch (err) {
         return errorResult((err as Error).message);
       }
