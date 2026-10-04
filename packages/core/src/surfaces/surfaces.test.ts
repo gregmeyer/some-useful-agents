@@ -250,6 +250,7 @@ describe('SurfaceStore', () => {
     // A second store on the same file sees the same history; other surfaces are separate.
     const again = new SurfaceStore(join(dir, 'runs.db'));
     expect(again.current('home').version).toBe(3);
-    expect(again.current('notebook:taxes')).toMatchObject({ version: 0, doc: { regions: [{ id: 'main' }] } });
+    expect(again.current('notebook:taxes')).toMatchObject({ version: 0, doc: { regions: [{ id: 'options' }, { id: 'notes' }, { id: 'evidence' }] } });
+    expect(again.current('board:evenings')).toMatchObject({ version: 0, doc: { regions: [{ id: 'main' }] } });
   });
 });

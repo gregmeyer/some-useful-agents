@@ -112,7 +112,7 @@ function loadDashboardCss(): string {
     'tokens.css', 'base.css', 'components.css',
     'shell.css', 'agent-detail.css', 'runs.css', 'settings.css',
     'connect-model.css', 'start-here.css',
-    'pulse.css', 'inbox.css',
+    'pulse.css', 'inbox.css', 'notebooks.css',
     'themes.css',
   ];
   const parts: string[] = [];

@@ -9,6 +9,7 @@ import type { BoardBuild } from '../board-build.js';
 import type { SchedulerStatus } from '../scheduler-heartbeat.js';
 import type { Run } from '../types.js';
 import type { Agent } from '../agent-v2-types.js';
+import type { Notebook } from '../notebooks.js';
 import type { Item, ItemAction, ItemRef } from './types.js';
 
 const iso = (ms: number): string => new Date(ms).toISOString();
@@ -241,5 +242,33 @@ export function schedulerItem(status: SchedulerStatus, scheduledAgents: number, 
     evidence: [],
     provenance: { source: 'scheduler', producedBy: 'system', at },
     href: '/scheduled',
+  };
+}
+
+/**
+ * An active notebook, on Home in Happening now: what it's for and how far
+ * along it is. (G4 makes "something new since you looked" an open item.)
+ */
+export function notebookItem(nb: Notebook, entryCount: number): Item | undefined {
+  if (nb.status !== 'active') return undefined;
+  const met = nb.criteria.filter((c) => c.met).length;
+  const parts = [
+    nb.criteria.length ? `${String(met)} of ${String(nb.criteria.length)} criteria met` : '',
+    `${String(entryCount)} entr${entryCount === 1 ? 'y' : 'ies'}`,
+  ].filter(Boolean);
+  const href = `/notebooks/${encodeURIComponent(nb.id)}`;
+  return {
+    id: `notebook:${nb.id}`,
+    kind: 'progress',
+    title: `Notebook: ${nb.title}`,
+    summary: parts.join(' · '),
+    urgency: 'low',
+    state: 'in-progress',
+    subject: {},
+    value: nb.criteria.length ? `${String(met)}/${String(nb.criteria.length)}` : String(entryCount),
+    actions: [{ type: 'open', label: 'Open the notebook', href }],
+    evidence: [],
+    provenance: { source: 'notebooks', producedBy: 'system', at: nb.updatedAt },
+    href,
   };
 }

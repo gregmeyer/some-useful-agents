@@ -26,6 +26,7 @@ function tagOf(item: Item): string {
   if (item.id.endsWith(':outcome')) return 'Missed';
   if (item.id.endsWith(':draft')) return 'Draft';
   if (item.id.startsWith('question:')) return 'Answer';
+  if (item.id.startsWith('notebook:')) return String(item.value ?? '');
   if (item.kind === 'progress') return 'Building';
   return '';
 }
@@ -163,7 +164,7 @@ const shortRef = (kind: string, id: string): string => (kind === 'run' || kind =
 
 const SOURCE_LABEL: Record<Item['provenance']['source'], string> = {
   inbox: 'from your inbox', questions: 'a run is waiting on you', runs: 'from its runs', outcomes: 'from its outcome check',
-  scheduler: 'the scheduler', 'board-builds': 'a board build', agents: 'your agents',
+  scheduler: 'the scheduler', 'board-builds': 'a board build', agents: 'your agents', notebooks: 'a notebook',
 };
 
 function actionControl(a: ItemAction, primary: boolean, item: Item): SafeHtml {

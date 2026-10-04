@@ -77,6 +77,7 @@ import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
 import { itemsRouter } from './routes/items.js';
 import { surfacesRouter } from './routes/surfaces.js';
+import { notebooksRouter } from './routes/notebooks.js';
 import { InboxEventBus } from './lib/inbox-event-bus.js';
 import { seedInboxDemoIfRequested } from './inbox-demo-seed.js';
 import { raiseRunFailureInbox } from './lib/run-failure-inbox.js';
@@ -301,6 +302,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(inboxCountRouter);
   app.use(itemsRouter);
   app.use(surfacesRouter);
+  app.use(notebooksRouter);
   app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);

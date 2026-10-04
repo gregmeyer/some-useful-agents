@@ -10,7 +10,7 @@ import { ITEM_KINDS } from '../items/types.js';
 
 const URGENCIES = ['critical', 'high', 'normal', 'low'] as const;
 const STATES = ['open', 'waiting', 'in-progress', 'ok'] as const;
-const SOURCES = ['inbox', 'questions', 'runs', 'outcomes', 'scheduler', 'board-builds', 'agents'] as const;
+const SOURCES = ['inbox', 'questions', 'runs', 'outcomes', 'scheduler', 'board-builds', 'agents', 'notebooks'] as const;
 
 /** Which items a region or rule applies to. Every given field must match; an empty match is everything. */
 export const itemMatchSchema = z.object({

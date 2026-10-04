@@ -114,6 +114,13 @@ inputs:
       complete cleanly and still miss its outcome — when this says NO or
       PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
       healthy. Empty when the agent declares no `outcome:` block.
+  NOTEBOOKS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      The operator's notebooks (goals they keep over time) as JSON: id,
+      title, what it's for, status, criteria met, entries, and its link.
   HOME_SURFACE:
     type: string
     required: false
@@ -334,6 +341,9 @@ nodes:
 
       Home as it is now (see CHANGING WHAT HOME SHOWS):
       {{inputs.HOME_SURFACE}}
+
+      Their notebooks (see GOALS AND NOTEBOOKS):
+      {{inputs.NOTEBOOKS}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as
