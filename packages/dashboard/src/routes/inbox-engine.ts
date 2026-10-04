@@ -1115,31 +1115,40 @@ export function proposeAgentFix(
   messageId: string,
   agentId: string,
   why: string,
+  /**
+   * `asks`: sua opens the conversation with a question (its own message, not a
+   * system note) and the analysis card waits for a click, whatever the trust
+   * policy: the operator may want to say what they saw first.
+   */
+  opts: { asks?: boolean } = {},
 ): string | undefined {
   const store = ctx.inboxStore;
   if (!store) return undefined;
   const agent = ctx.agentStore.getAgent(agentId);
   if (!agent || agent.status === 'archived') return undefined;
   const responses = store.listResponses(messageId);
-  if (responses.some((r) => r.role === 'system' && r.metaJson?.includes(`"kind":"${FIX_NOTE_KIND}"`))) return undefined;
+  if (responses.some((r) => r.metaJson?.includes(`"kind":"${FIX_NOTE_KIND}"`))) return undefined;
   if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return undefined;
 
-  const note = store.addResponse(messageId, 'system', why, JSON.stringify({ kind: FIX_NOTE_KIND, agentId }));
-  publishInboxEvent(ctx, messageId, 'message:created', { responseId: note.id, role: 'system', body: note.body, createdAt: note.createdAt });
+  const noteRole = opts.asks ? 'triage' : 'system';
+  const note = store.addResponse(messageId, noteRole, why, JSON.stringify({ kind: FIX_NOTE_KIND, agentId }));
+  publishInboxEvent(ctx, messageId, 'message:created', { responseId: note.id, role: noteRole, body: note.body, createdAt: note.createdAt });
   const action: InboxActionMeta = {
     kind: 'action',
     status: 'proposed',
     agentId: 'agent-analyzer',
     effect: 'read',
     inputs: { AGENT_ID: agentId },
-    rationale: `Look at why \`${agentId}\` isn't working and draft a fix.`,
-    ctaLabel: 'Find a fix',
+    rationale: opts.asks
+      ? `Look at \`${agentId}\` and its recent runs, then draft a fix for you to approve.`
+      : `Look at why \`${agentId}\` isn't working and draft a fix.`,
+    ctaLabel: opts.asks ? 'Look at its recent runs' : 'Find a fix',
   };
   const resp = store.addResponse(messageId, 'action', action.rationale!, JSON.stringify(action));
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: resp.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: resp.createdAt,
   });
-  if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+  if (!opts.asks && isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
     const startedAt = Date.now();
     const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
     if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
