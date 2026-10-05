@@ -149,6 +149,36 @@ describe('notebooks pages', () => {
 });
 
 describe('notebook pipeline (G2–G3)', () => {
+  it('the keeper sets fields once, records option facts, and refreshes an option found again', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Buy a used car for Nadia' });
+    const block = (o: unknown) => `<notebook>${JSON.stringify(o)}</notebook>`;
+    const fields = [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' },
+      { key: 'miles', label: 'Miles', type: 'number', unit: 'mi', role: 'measure' },
+      { key: 'listing_url', label: 'Listing', type: 'url', role: 'link' },
+    ];
+    const rav4 = { kind: 'option', title: '2010 Toyota RAV4 Sport 4WD', body: 'Best fit.', data: { price: 4023, miles: 149652, listing_url: 'https://www.cargurus.com/l/123' } };
+
+    const first = applyKeeperResult(store, nb, 'sweep', 'run-1', block({ fields, entries: [rav4, { kind: 'note', title: 'Edmunds blocked page reads' }] }));
+    expect(first).toMatchObject({ added: 2, skipped: 0 });
+    expect(store.get(nb.id)!.fields.map((f) => f.key)).toEqual(['price', 'miles', 'listing_url']);
+
+    // Next run: the same car, cheaper, reworded; and a keeper that tries to change the fields.
+    const second = applyKeeperResult(store, store.get(nb.id)!, 'sweep', 'run-2', block({
+      fields: [{ key: 'rent', type: 'money' }],
+      entries: [{ ...rav4, title: 'RAV4 Sport, Lynnwood', data: { price: '$3,900', listing_url: 'https://cargurus.com/l/123/' } }],
+    }));
+    expect(second).toMatchObject({ added: 0, refreshed: 1 });
+    expect(store.get(nb.id)!.fields.map((f) => f.key)).toEqual(['price', 'miles', 'listing_url']);
+    const options = store.entries(nb.id).filter((e) => e.kind === 'option');
+    expect(options).toHaveLength(1);
+    expect(options[0]).toMatchObject({ title: '2010 Toyota RAV4 Sport 4WD', runId: 'run-2', data: { price: 3900, miles: 149652 } });
+  });
+
   it('the keeper adds new entries with provenance, skips what the notebook has, and ticks criteria with a reason', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -204,7 +234,7 @@ describe('the talk box follows the notebook', () => {
   it('suggests the next useful thing to tell sua, step by step', async () => {
     await makeApp();
     const { nextStep } = await import('../views/notebooks.js');
-    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
+    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
     const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
     expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
     const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };

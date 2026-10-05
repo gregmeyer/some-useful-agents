@@ -20,7 +20,8 @@ inputs:
     required: true
     description: >
       The notebook as JSON: title, what it's for (statement), parameters,
-      criteria (with index and whether met).
+      criteria (with index and whether met), and fields (what each option
+      records; empty until set).
   SOURCE_AGENT:
     type: string
     required: true
@@ -34,8 +35,8 @@ inputs:
     required: false
     default: ""
     description: >
-      Titles of the notebook's entries so far, one per line with their kind,
-      so you add only what's new.
+      Titles of the notebook's entries so far, one per line with their kind
+      (options also show their fingerprint), so you add only what's new.
 
 nodes:
   - id: keep
@@ -75,7 +76,27 @@ nodes:
         ("Ruled out: 2019 Outback, CVT recall not done"). Options that break
         the parameters become decisions like this when they're notable.
       Titles are one line (under 120 characters); put details in "body"
-      (1–3 sentences). At most 8 entries. If it was a search that found
+      (1–3 sentences). At most 12 entries.
+
+      Options carry their facts as data, so they can be compared, charted
+      and shown as cards:
+      - "data": one value per field key from the notebook's fields (numbers
+        as numbers: 4023, not "$4,023"; addresses as full https links). Leave
+        out what the output doesn't say; never guess a value.
+      - "fingerprint": what makes it the same option next time, in order of
+        preference: a VIN or listing id, else the listing's address, else
+        "year make model miles seller". An option already listed above
+        (same fingerprint) that this run found again goes in again with that
+        fingerprint and its current facts, so the notebook updates it
+        instead of adding a copy.
+      If the notebook has no fields yet and this run found options, also
+      return "fields": the 4–8 facts that matter for comparing them, each
+      {"key": lowercase_snake, "label", "type": money|number|text|url|image|date,
+      "unit"?, "role"?}. Roles, at most one each: "price" (what it costs),
+      "measure" (the main number to compare: miles, sq ft, commute minutes),
+      "place", "link" (the listing), "image" (a photo of it), "when". For
+      cars: price, miles, year, make_model, location, seller, listing_url,
+      photo. If it was a search that found
       nothing that fits, add ONE note saying so, with where it looked
       ("Searched Craigslist Seattle for Foresters/RAV4s under $5k: nothing
       that fits yet"), so the notebook remembers it was tried. If the output
@@ -86,7 +107,9 @@ nodes:
 
       Reply with only this, as valid JSON:
       <notebook>
-      {"entries": [{"kind": "option", "title": "…", "body": "…"}],
+      {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"price": 4023}, "fingerprint": "…"},
+                   {"kind": "note", "title": "…", "body": "…"}],
+       "fields": [],
        "criteriaMet": [{"index": 0, "why": "…"}],
        "summary": "one line: what this run added"}
       </notebook>

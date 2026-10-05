@@ -17,6 +17,30 @@ export type NotebookStatus = 'active' | 'decided' | 'stopped';
 export const NOTEBOOK_ENTRY_KINDS = ['note', 'option', 'evidence', 'decision'] as const;
 export type NotebookEntryKind = typeof NOTEBOOK_ENTRY_KINDS[number];
 
+/** What a field holds, so widgets can format it ($4,023 · 149,652 mi · a link). */
+export const NOTEBOOK_FIELD_TYPES = ['money', 'number', 'text', 'url', 'image', 'date'] as const;
+export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
+/**
+ * What a field means across notebooks, so a widget can be reused: a shortlist
+ * shows the `price` big, a map plots `price` against `measure`, a card shows
+ * the `image`, a button opens the `link`.
+ */
+export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when'] as const;
+export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
+
+/** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
+export interface NotebookField {
+  /** lowercase_snake, e.g. `price`, `miles`, `listing_url`. */
+  key: string;
+  label: string;
+  type: NotebookFieldType;
+  /** For numbers: "mi", "sq ft". */
+  unit?: string;
+  role?: NotebookFieldRole;
+}
+
+export type NotebookFieldValue = string | number;
+
 export interface NotebookCriterion {
   text: string;
   met: boolean;
@@ -33,6 +57,8 @@ export interface Notebook {
   criteria: NotebookCriterion[];
   /** Agent ids that gather for it, in order. */
   pipeline: string[];
+  /** What each option records (empty until sua or you set them). */
+  fields: NotebookField[];
   /** Five-field cron for the pipeline, or empty for "only when asked". */
   cadence: string;
   status: NotebookStatus;
@@ -58,7 +84,23 @@ export interface NotebookEntry {
   by: string;
   /** The run it came from, when an agent added it. */
   runId?: string;
+  /** An option's facts, by field key. */
+  data?: Record<string, NotebookFieldValue>;
+  /** What makes an option the same one next time (a listing address, a VIN). */
+  fingerprint?: string;
+  /** The last run that found it again (first seen is `createdAt`). */
+  lastSeenAt?: string;
   createdAt: string;
+}
+
+/** An option an agent found: new, or one the notebook already has, seen again. */
+export interface NewOption {
+  title: string;
+  body?: string;
+  data?: Record<string, unknown>;
+  fingerprint?: string;
+  by: string;
+  runId?: string;
 }
 
 export interface NewNotebook {
@@ -124,9 +166,70 @@ export class NotebookStore {
       CREATE INDEX IF NOT EXISTS notebook_entries_by_notebook ON notebook_entries (notebook_id, created_at);
     `);
     // G2 columns, added to tables created before them.
-    for (const [table, col] of [['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'conversation_id TEXT']] as const) {
+    for (const [table, col] of [
+      ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'conversation_id TEXT'],
+      ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
+    ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
+  }
+
+  /** Replace what options record. Invalid fields are dropped; at most 12. */
+  setFields(id: string, fields: readonly unknown[]): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET fields_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(cleanFields(fields)), new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /**
+   * Add an option, or, when one with the same fingerprint is already here,
+   * refresh its facts and when it was last seen instead of adding it twice.
+   */
+  upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean } {
+    const nb = this.mustGet(notebookId);
+    const data = cleanData(input.data, nb.fields);
+    const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
+    const now = new Date().toISOString();
+    if (fingerprint) {
+      const row = this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint) as Record<string, unknown> | undefined;
+      // An option kept before fingerprints existed: the same title, or its text holds this listing's address.
+      const legacy = row ? undefined : (this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint IS NULL").all(notebookId) as Array<Record<string, unknown>>)
+        .find((r) => entryKey(String(r.title)) === entryKey(input.title) || String(r.body ?? '').toLowerCase().replace(/https?:\/\/(www\.)?/g, '').includes(fingerprint));
+      if (legacy) this.db.prepare('UPDATE notebook_entries SET fingerprint = ? WHERE id = ?').run(fingerprint, String(legacy.id));
+      const match = row ?? legacy;
+      if (match) {
+        const prev = this.toEntry(match);
+        const merged = { ...(prev.data ?? {}), ...data };
+        this.db.prepare('UPDATE notebook_entries SET data_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
+          .run(JSON.stringify(merged), now, input.runId ?? null, prev.id);
+        return { entry: { ...prev, data: merged, lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true };
+      }
+    }
+    const entry = this.addEntry(notebookId, { kind: 'option', title: input.title, body: input.body, by: input.by, runId: input.runId });
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ?, last_seen_at = ? WHERE id = ?')
+      .run(Object.keys(data).length ? JSON.stringify(data) : null, fingerprint ?? null, now, entry.id);
+    return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now }, seenAgain: false };
+  }
+
+  /**
+   * Options kept before the notebook had fields: read what's unambiguous in
+   * their text (price, the main measure, the year, the listing link) into
+   * data, so they compare and chart with the rest. Returns how many changed.
+   */
+  backfillOptions(id: string): number {
+    const nb = this.mustGet(id);
+    if (nb.fields.length === 0) return 0;
+    let n = 0;
+    for (const e of this.entries(id, 1000)) {
+      if (e.kind !== 'option' || (e.data && Object.keys(e.data).length > 0)) continue;
+      const data = readOptionText(`${e.title}\n${e.body}`, nb.fields);
+      if (Object.keys(data).length === 0) continue;
+      const fp = e.fingerprint ?? optionFingerprint(undefined, data, nb.fields);
+      this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = COALESCE(fingerprint, ?) WHERE id = ?').run(JSON.stringify(data), fp ?? null, e.id);
+      n++;
+    }
+    return n;
   }
 
   /** Link the notebook to its conversation with sua. */
@@ -273,6 +376,7 @@ export class NotebookStore {
       params: parse<string[]>(r.params_json, []),
       criteria: parse<NotebookCriterion[]>(r.criteria_json, []),
       pipeline: parse<string[]>(r.pipeline_json, []),
+      fields: parse<NotebookField[]>(r.fields_json, []),
       cadence: String(r.cadence ?? ''),
       status: String(r.status) as NotebookStatus,
       ...(r.decision ? { decision: String(r.decision) } : {}),
@@ -289,7 +393,11 @@ export class NotebookStore {
     return {
       id: String(r.id), notebookId: String(r.notebook_id), kind: String(r.kind) as NotebookEntryKind,
       title: String(r.title), body: String(r.body ?? ''), by: String(r.by),
-      ...(r.run_id ? { runId: String(r.run_id) } : {}), createdAt: String(r.created_at),
+      ...(r.run_id ? { runId: String(r.run_id) } : {}),
+      ...(r.data_json ? { data: (() => { try { return JSON.parse(String(r.data_json)) as Record<string, NotebookFieldValue>; } catch { return {}; } })() } : {}),
+      ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
+      ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
+      createdAt: String(r.created_at),
     };
   }
 }
@@ -322,4 +430,187 @@ export function notebookEntryItems(nb: Notebook, entries: readonly NotebookEntry
 /** A title reduced for "have we seen this?": lowercase letters and digits only. */
 export function entryKey(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+const FIELD_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+/** Keep only well-formed fields, one per key and at most one per role. */
+export function cleanFields(list: readonly unknown[]): NotebookField[] {
+  const out: NotebookField[] = [];
+  const roles = new Set<string>();
+  for (const f of list) {
+    const x = f as Partial<Record<keyof NotebookField, unknown>>;
+    const key = typeof x.key === 'string' ? x.key.trim() : '';
+    if (!FIELD_KEY_RE.test(key) || out.some((o) => o.key === key)) continue;
+    const type = (NOTEBOOK_FIELD_TYPES as readonly string[]).includes(String(x.type)) ? x.type as NotebookFieldType : 'text';
+    const role = (NOTEBOOK_FIELD_ROLES as readonly string[]).includes(String(x.role)) && !roles.has(String(x.role)) ? x.role as NotebookFieldRole : undefined;
+    if (role) roles.add(role);
+    const label = typeof x.label === 'string' && x.label.trim() ? x.label.trim().slice(0, 40) : key.replace(/_/g, ' ');
+    const unit = typeof x.unit === 'string' && x.unit.trim() ? x.unit.trim().slice(0, 12) : undefined;
+    out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}) });
+    if (out.length === 12) break;
+  }
+  return out;
+}
+
+/** "$4,023" → 4023, "149,652 mi" → 149652; anything else as trimmed text. */
+function toValue(v: unknown, type: NotebookFieldType): NotebookFieldValue | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  if (!s) return undefined;
+  if (type === 'money' || type === 'number') {
+    const m = /-?\d[\d,]*(?:\.\d+)?/.exec(s.replace(/\s/g, ''));
+    if (!m) return undefined;
+    let n = Number(m[0].replace(/,/g, ''));
+    if (/^\$?\d+(?:\.\d+)?k$/i.test(s.replace(/[\s,]/g, ''))) n *= 1000;
+    return Number.isFinite(n) ? n : undefined;
+  }
+  if (type === 'url' || type === 'image') return /^https?:\/\//i.test(s) ? s.slice(0, 2000) : undefined;
+  return s.slice(0, 200);
+}
+
+/** An option's facts, keyed and typed by the notebook's fields (unknown keys dropped). */
+export function cleanData(data: Record<string, unknown> | undefined, fields: readonly NotebookField[]): Record<string, NotebookFieldValue> {
+  const out: Record<string, NotebookFieldValue> = {};
+  if (!data || typeof data !== 'object') return out;
+  for (const f of fields) {
+    const v = toValue(data[f.key], f.type);
+    if (v !== undefined) out[f.key] = v;
+  }
+  return out;
+}
+
+/**
+ * What makes an option the same one next run: the fingerprint the agent gave
+ * (a VIN, a listing id), else the option's link without tracking bits.
+ */
+export function optionFingerprint(given: string | undefined, data: Record<string, NotebookFieldValue>, fields: readonly NotebookField[]): string | undefined {
+  const g = typeof given === 'string' ? given.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  if (g) return g;
+  const link = fields.find((f) => f.role === 'link');
+  const url = link ? data[link.key] : undefined;
+  if (typeof url !== 'string') return undefined;
+  try {
+    const u = new URL(url);
+    return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+  } catch { return undefined; }
+}
+
+/** An option as widgets see it: its facts by key, plus the role-mapped ones. */
+export interface NotebookViewOption {
+  id: string;
+  title: string;
+  body: string;
+  /** The option's facts by field key. */
+  fields: Record<string, NotebookFieldValue>;
+  price?: number;
+  measure?: number;
+  place?: string;
+  link?: string;
+  image?: string;
+  when?: string;
+  by: string;
+  runId?: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface NotebookViewEntry { id: string; kind: NotebookEntryKind; title: string; body: string; by: string; runId?: string; at: string }
+
+/**
+ * The data a notebook's widgets bind to, under `/notebook`: the same shape for
+ * every notebook, so a shortlist or a price map built for one works on any.
+ */
+export interface NotebookViewData {
+  notebook: {
+    id: string;
+    title: string;
+    statement: string;
+    status: NotebookStatus;
+    decision?: string;
+    limits: string[];
+    criteria: NotebookCriterion[];
+    progress: { met: number; total: number };
+    fields: NotebookField[];
+    options: NotebookViewOption[];
+    notes: NotebookViewEntry[];
+    evidence: NotebookViewEntry[];
+    decisions: NotebookViewEntry[];
+    /** Everything, newest first. */
+    history: NotebookViewEntry[];
+    lastRunAt?: string;
+    lastRunNote?: string;
+  };
+}
+
+export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]): NotebookViewData {
+  const byRole = new Map(nb.fields.filter((f) => f.role).map((f) => [f.role!, f.key]));
+  const pick = (data: Record<string, NotebookFieldValue>, role: NotebookFieldRole) => {
+    const key = byRole.get(role);
+    return key === undefined ? undefined : data[key];
+  };
+  const view = (e: NotebookEntry): NotebookViewEntry => ({ id: e.id, kind: e.kind, title: e.title, body: e.body, by: e.by, ...(e.runId ? { runId: e.runId } : {}), at: e.createdAt });
+  const options = entries.filter((e) => e.kind === 'option').map((e): NotebookViewOption => {
+    const data = e.data ?? {};
+    const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+    const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+    const price = num(pick(data, 'price'));
+    const measure = num(pick(data, 'measure'));
+    const place = str(pick(data, 'place'));
+    const link = str(pick(data, 'link'));
+    const image = str(pick(data, 'image'));
+    const when = pick(data, 'when');
+    return {
+      id: e.id, title: e.title, body: e.body, fields: data,
+      ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
+      ...(place ? { place } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}),
+      ...(when !== undefined ? { when: String(when) } : {}),
+      by: e.by, ...(e.runId ? { runId: e.runId } : {}),
+      firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
+    };
+  });
+  return {
+    notebook: {
+      id: nb.id, title: nb.title, statement: nb.statement, status: nb.status,
+      ...(nb.decision ? { decision: nb.decision } : {}),
+      limits: nb.params, criteria: nb.criteria, progress: notebookProgress(nb), fields: nb.fields,
+      options,
+      notes: entries.filter((e) => e.kind === 'note').map(view),
+      evidence: entries.filter((e) => e.kind === 'evidence').map(view),
+      decisions: entries.filter((e) => e.kind === 'decision').map(view),
+      history: entries.map(view),
+      ...(nb.lastRunAt ? { lastRunAt: nb.lastRunAt } : {}),
+      ...(nb.lastRunNote ? { lastRunNote: nb.lastRunNote } : {}),
+    },
+  };
+}
+
+/**
+ * The unambiguous facts in an option's text, for the notebook's fields: a
+ * dollar amount for the price, a number with the measure's unit ("157k mi"),
+ * a leading year for a `year` field, the first web address for the link.
+ */
+export function readOptionText(text: string, fields: readonly NotebookField[]): Record<string, NotebookFieldValue> {
+  const out: Record<string, NotebookFieldValue> = {};
+  const num = (s: string) => { const k = /k$/i.test(s); const v = Number(s.replace(/[k,]/gi, '')); return Number.isFinite(v) ? (k ? v * 1000 : v) : undefined; };
+  for (const f of fields) {
+    if (f.role === 'price' && f.type === 'money') {
+      const m = /\$\s?(\d[\d,]*(?:\.\d+)?k?)/i.exec(text);
+      const v = m ? num(m[1]) : undefined;
+      if (v !== undefined) out[f.key] = v;
+    } else if (f.role === 'measure' && f.unit) {
+      const unit = f.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = new RegExp(`(\\d[\\d,]*(?:\\.\\d+)?k?)\\s*${unit}\\b`, 'i').exec(text);
+      const v = m ? num(m[1]) : undefined;
+      if (v !== undefined) out[f.key] = v;
+    } else if (f.key === 'year' && f.type === 'number') {
+      const m = /^\s*((?:19|20)\d{2})\b/.exec(text);
+      if (m) out[f.key] = Number(m[1]);
+    } else if (f.role === 'link') {
+      const m = /https?:\/\/[^\s<>"'()]+/.exec(text);
+      if (m) out[f.key] = m[0].replace(/[.,;:!?]+$/, '');
+    }
+  }
+  return out;
 }
