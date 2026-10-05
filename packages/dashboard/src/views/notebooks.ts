@@ -219,7 +219,8 @@ function priceChangeChip(nb: Notebook, c: { from: number; to: number; since: str
 
 function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): SafeHtml {
   return html`
-    <li class="nb-entry nb-entry--${e.kind}${e.ruledOut ? ' nb-entry--out' : ''}" id="entry-${e.id}">
+    <li class="nb-entry nb-entry--${e.kind}${e.ruledOut ? ' nb-entry--out' : ''}${v?.image ? ' nb-entry--photo' : ''}" id="entry-${e.id}">
+      ${v?.image ? html`<img class="nb-entry__photo" src="${v.image}" alt="" loading="lazy" width="132" height="99">` : html``}
       <div class="nb-entry__head">
         <span class="nb-entry__kind">${KIND_LABEL[e.kind]}</span>
         <strong class="nb-entry__title">${e.title}</strong>
@@ -237,6 +238,7 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
 function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
   const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
+  const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link');
   const regions = compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.length === 0) {
     return html`
@@ -250,7 +252,8 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
   const out = (id: string) => (byId.get(id)?.ruledOut ? 1 : 0);
   return html`${funnelStrip(nb, entries)}${regions.map((r) => html`
     <section class="nb-region" data-surface-region="${r.id}">
-      <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span></h2>
+      <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span>
+        ${canPhoto && r.entries.some((ce) => byId.get(ce.item.id)?.kind === 'option') ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/photos" class="nb-region__act"><button type="submit" class="btn btn--sm btn--ghost" title="Keep a copy of each option's photo, from its listing">Get photos</button></form>` : html``}</h2>
       <ul class="nb-region__list">${[...r.entries].sort((a, b) => out(a.item.id) - out(b.item.id)).map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e, views.get(e.id)) : html``; }) as unknown as SafeHtml[]}</ul>
     </section>`) as unknown as SafeHtml[]}`;
 }

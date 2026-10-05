@@ -14,6 +14,7 @@ import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
+import { keepPhotos } from './notebook-photos.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -154,7 +155,10 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   }
   const run = ctx.runStore.getRun(keepRunId);
   if (!run || run.status !== 'completed' || !run.result) return { added: 0, skipped: 0, criteriaMet: 0, error: run?.error ?? 'The keeper did not finish.' };
-  return applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, run.result);
+  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, run.result);
+  // Photos for what it found; a slow or failing site never fails the keep.
+  try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
+  return out;
 }
 
 export function pipelineRunning(ctx: Ctx, notebookId: string) {

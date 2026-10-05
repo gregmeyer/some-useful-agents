@@ -208,6 +208,16 @@ export class NotebookStore {
         found INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS notebook_searches_by_notebook ON notebook_searches (notebook_id, agent_id, at);
+      -- A copy of each option's photo (listings disappear; the page never loads from the seller's site).
+      CREATE TABLE IF NOT EXISTS notebook_photos (
+        entry_id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        content_type TEXT,
+        bytes BLOB,
+        fetched_at TEXT NOT NULL,
+        error TEXT
+      );
     `);
     // G2 columns, added to tables created before them.
     for (const [table, col] of [
@@ -304,6 +314,49 @@ export class NotebookStore {
     const r = this.db.prepare('SELECT COUNT(*) AS n FROM notebook_searches WHERE notebook_id = ? AND agent_id = ? AND at > ? AND found > 0')
       .get(notebookId, e.by.slice('agent:'.length), e.lastSeenAt ?? e.createdAt) as { n: number };
     return Number(r.n);
+  }
+
+  /** An option's kept photo, if there is one. */
+  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string } | undefined {
+    const r = this.db.prepare('SELECT * FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as Record<string, unknown> | undefined;
+    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url) } : undefined;
+  }
+
+  hasPhoto(entryId: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId);
+  }
+
+  /** Keep a photo (or remember that this address didn't give one, so it isn't tried again). */
+  savePhoto(notebookId: string, entryId: string, sourceUrl: string, result: { contentType: string; bytes: Uint8Array } | { error: string }): void {
+    const ok = 'bytes' in result;
+    this.db.prepare(`INSERT INTO notebook_photos (entry_id, notebook_id, source_url, content_type, bytes, fetched_at, error) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(entry_id) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, fetched_at = excluded.fetched_at, error = excluded.error`)
+      .run(entryId, notebookId, sourceUrl, ok ? result.contentType : null, ok ? result.bytes : null, new Date().toISOString(), ok ? null : result.error.slice(0, 200));
+  }
+
+  /**
+   * Options worth a photo try: no photo yet, and not already tried at this
+   * address (its image field, else its listing). Ruled-out options are skipped.
+   */
+  photoCandidates(notebookId: string, limit = 12): Array<{ entry: NotebookEntry; image?: string; link?: string }> {
+    const nb = this.mustGet(notebookId);
+    const imageKey = nb.fields.find((f) => f.role === 'image')?.key;
+    const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
+    const tried = new Map((this.db.prepare('SELECT entry_id, source_url, bytes IS NOT NULL AS ok FROM notebook_photos WHERE notebook_id = ?').all(notebookId) as Array<{ entry_id: string; source_url: string; ok: number }>)
+      .map((r) => [r.entry_id, r]));
+    const out: Array<{ entry: NotebookEntry; image?: string; link?: string }> = [];
+    for (const e of this.entries(notebookId, 1000)) {
+      if (e.kind !== 'option' || e.ruledOut) continue;
+      const image = imageKey && typeof e.data?.[imageKey] === 'string' ? String(e.data[imageKey]) : undefined;
+      const link = linkKey && typeof e.data?.[linkKey] === 'string' ? String(e.data[linkKey]) : undefined;
+      const source = image ?? link;
+      if (!source) continue;
+      const t = tried.get(e.id);
+      if (t && (t.ok || t.source_url === source)) continue;
+      out.push({ entry: e, ...(image ? { image } : {}), ...(link ? { link } : {}) });
+      if (out.length === limit) break;
+    }
+    return out;
   }
 
   /** Bring a ruled-out option back, at the stage it was at. */
@@ -512,7 +565,10 @@ export class NotebookStore {
 
   removeEntry(notebookId: string, entryId: string): boolean {
     const r = this.db.prepare('DELETE FROM notebook_entries WHERE id = ? AND notebook_id = ?').run(entryId, notebookId);
-    if (Number(r.changes) === 1) this.db.prepare('DELETE FROM notebook_sightings WHERE entry_id = ?').run(entryId);
+    if (Number(r.changes) === 1) {
+      this.db.prepare('DELETE FROM notebook_sightings WHERE entry_id = ?').run(entryId);
+      this.db.prepare('DELETE FROM notebook_photos WHERE entry_id = ?').run(entryId);
+    }
     return Number(r.changes) === 1;
   }
 
@@ -697,6 +753,8 @@ export interface NotebookViewOption {
   runId?: string;
   firstSeenAt: string;
   lastSeenAt: string;
+  /** The seller's photo address, when the kept copy (`image`) came from one. */
+  imageSource?: string;
   /** The price over time (oldest first), and how it moved since first seen. */
   priceHistory: Array<{ at: string; value: number }>;
   priceChange?: { from: number; to: number; since: string };
@@ -760,6 +818,12 @@ export const NOT_SEEN_AFTER_MISSES = 2;
 export interface NotebookViewHistory {
   sightings(entryId: string): Array<{ at: string; data: Record<string, NotebookFieldValue> }>;
   missedSearches(notebookId: string, e: NotebookEntry): number;
+  hasPhoto?(entryId: string): boolean;
+}
+
+/** Where the dashboard serves an option's kept photo. */
+export function notebookPhotoPath(notebookId: string, entryId: string): string {
+  return `/notebooks/${encodeURIComponent(notebookId)}/entries/${encodeURIComponent(entryId)}/photo`;
 }
 
 export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookViewHistory): NotebookViewData {
@@ -777,12 +841,14 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const org = str(pick(data, 'org'));
     const place = str(pick(data, 'place'));
     const link = str(pick(data, 'link'));
-    const image = str(pick(data, 'image'));
+    // The kept copy when there is one; never the seller's address directly.
+    const imageSource = str(pick(data, 'image'));
+    const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, body: e.body, fields: data,
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
-      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}),
+      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
@@ -864,4 +930,34 @@ function priceTrend(e: NotebookEntry, priceKey: string | undefined, history?: No
   const first = priceHistory[0];
   const last = priceHistory[priceHistory.length - 1];
   return { priceHistory, ...(first && last && first.value !== last.value ? { priceChange: { from: first.value, to: last.value, since: first.at } } : {}) };
+}
+
+const TITLE_STOP = new Set(['the', 'and', 'for', 'with', 'used', 'sale', 'new', 'near', 'from', 'car', 'cars', 'listing', 'listings', 'search', 'results']);
+
+/**
+ * Is this page about this option? A listing's own page names it; a results
+ * page ("Used Subaru Forester for sale in Seattle") usually doesn't carry the
+ * year and model together. A year in the option's title must appear, and so
+ * must one other distinctive word.
+ */
+export function previewMatchesOption(pageTitle: string, optionTitle: string): boolean {
+  const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w.length >= 3 && !TITLE_STOP.has(w));
+  const page = new Set(words(pageTitle));
+  const opt = words(optionTitle);
+  const years = opt.filter((w) => /^(19|20)\d{2}$/.test(w));
+  if (years.length && !years.some((y) => page.has(y))) return false;
+  const rest = opt.filter((w) => !/^\d+$/.test(w));
+  return rest.some((w) => page.has(w)) && (years.length > 0 || rest.filter((w) => page.has(w)).length >= 2);
+}
+
+/**
+ * Does this address look like one listing (it carries an id: five or more
+ * digits in its path or query) rather than a page of search results?
+ */
+export function looksLikeOneListing(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (/\/l-used-|searchresults|\/search\b|\/results\b/i.test(u.pathname)) return false;
+    return /\d{5,}/.test(u.pathname + u.search);
+  } catch { return false; }
 }

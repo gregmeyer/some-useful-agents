@@ -15,7 +15,7 @@ import { renderWithBrowser } from './browser.js';
 import type { WebFetchOptions, WebFetchResult } from './types.js';
 
 export * from './types.js';
-export { WebFetchError } from './fetch.js';
+export { WebFetchError, fetchImage, pagePreview, type FetchedImage } from './fetch.js';
 
 /** Below this many chars of extracted text, `auto` escalates to the browser. */
 const MIN_USEFUL_CHARS = 200;

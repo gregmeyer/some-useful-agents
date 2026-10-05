@@ -13,6 +13,7 @@ import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning } from '../lib/notebook-pipeline.js';
+import { keepPhotos } from '../lib/notebook-photos.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
@@ -81,6 +82,26 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/remove', (req: Request, res:
   const id = String(req.params.id);
   const removed = store(req).removeEntry(id, String(req.params.entry));
   res.redirect(303, back(id, removed ? 'Removed.' : 'That entry was already gone.'));
+});
+
+// An option's kept photo. Served as an image only: never sniffed, never run.
+notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: Response) => {
+  const photo = store(req).photo(String(req.params.entry));
+  if (!photo) { res.status(404).end(); return; }
+  res.setHeader('Content-Type', photo.contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.end(Buffer.from(photo.bytes));
+});
+
+// Look for photos now (they're also fetched after each search).
+notebooksRouter.post('/notebooks/:id/photos', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  if (!s.get(id)) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  const { kept, tried } = await keepPhotos(s, id);
+  res.redirect(303, back(id, tried === 0 ? 'No options with a photo or listing left to try.' : `Found ${String(kept)} photo${kept === 1 ? '' : 's'} for ${String(tried)} option${tried === 1 ? '' : 's'}.`));
 });
 
 // An option's stage, ruling it out (it stays, with why), and bringing it back.

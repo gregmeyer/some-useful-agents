@@ -185,7 +185,7 @@ describe('notebook option fields', () => {
     s.upsertOption(nb.id, { title: '2010 RAV4', by: 'agent:sweep', runId: 'r1', data: { price: 4023, miles: 149652, location: 'Lynnwood', listing_url: 'https://cargurus.com/l/1', photo: 'https://img.example/1.jpg' } });
     s.addEntry(nb.id, { kind: 'note', title: 'Craigslist had nothing', by: 'agent:sweep' });
     const { notebook: v } = notebookViewData(s.get(nb.id)!, s.entries(nb.id));
-    expect(v.options[0]).toMatchObject({ title: '2010 RAV4', price: 4023, measure: 149652, place: 'Lynnwood', link: 'https://cargurus.com/l/1', image: 'https://img.example/1.jpg', fields: { price: 4023 } });
+    expect(v.options[0]).toMatchObject({ title: '2010 RAV4', price: 4023, measure: 149652, place: 'Lynnwood', link: 'https://cargurus.com/l/1', imageSource: 'https://img.example/1.jpg', fields: { price: 4023 } });
     expect(v).toMatchObject({ limits: ['AWD'], progress: { met: 0, total: 1 } });
     expect(v.notes.map((n) => n.title)).toEqual(['Craigslist had nothing']);
     expect(v.history).toHaveLength(2);
@@ -277,5 +277,49 @@ describe('option history and not seen lately', () => {
     // Seen again clears it.
     await search('r6', [['b', 4400]]);
     expect(view().get('Car b')).toMatchObject({ missedSearches: 0, notSeenLately: false, priceChange: { from: 4500, to: 4400 } });
+  });
+});
+
+describe('option photos', () => {
+  it('only trusts a page photo when the page is that listing', async () => {
+    const { previewMatchesOption, looksLikeOneListing } = await import('./notebooks.js');
+    expect(looksLikeOneListing('https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle')).toBe(true);
+    expect(looksLikeOneListing('https://www.cargurus.com/Cars/l-Used-Toyota-RAV4-2006-2012-Seattle-mg108_L37788')).toBe(false);
+    expect(looksLikeOneListing('https://www.edmunds.com/used-subaru-forester-seattle-wa/')).toBe(false);
+    expect(looksLikeOneListing('https://cars.example/search?q=rav4&id=1234567')).toBe(false);
+    expect(looksLikeOneListing('not a url')).toBe(false);
+    const title = '2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood';
+    expect(previewMatchesOption('2010 Toyota RAV4 Sport for sale in Lynnwood, WA', title)).toBe(true);
+    expect(previewMatchesOption('2012 Toyota RAV4 Sport for sale', title)).toBe(false); // wrong year
+    expect(previewMatchesOption('Used cars for sale near Seattle', title)).toBe(false);
+    expect(previewMatchesOption('Staff Engineer, Payments - Stripe', 'Staff Engineer, Stripe')).toBe(true);
+  });
+
+  it('keeps one photo per option, remembers addresses that failed, and serves the copy in the view', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [
+      { key: 'photo', label: 'Photo', type: 'image', role: 'image' },
+      { key: 'url', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    const a = s.upsertOption(nb.id, { title: 'A', by: 'agent:x', data: { photo: 'https://img.example/a.jpg', url: 'https://cars.example/listing/12345' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'B', by: 'agent:x', data: { url: 'https://cars.example/listing/67890' } }).entry;
+    s.upsertOption(nb.id, { title: 'C', by: 'agent:x' }); // nothing to fetch
+    expect(s.photoCandidates(nb.id).map((c) => `${c.entry.title}:${c.image ?? '-'}:${c.link ?? '-'}`)).toEqual(['B:-:https://cars.example/listing/67890', 'A:https://img.example/a.jpg:https://cars.example/listing/12345']);
+
+    s.savePhoto(nb.id, a.id, 'https://img.example/a.jpg', { contentType: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, 1]) });
+    s.savePhoto(nb.id, b.id, 'https://cars.example/listing/67890', { error: 'HTTP 403' });
+    expect(s.photoCandidates(nb.id)).toEqual([]); // A has one; B's address already failed
+    expect(s.photo(a.id)).toMatchObject({ contentType: 'image/jpeg', sourceUrl: 'https://img.example/a.jpg' });
+    expect(s.hasPhoto(b.id)).toBe(false);
+
+    const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options;
+    expect(v.find((o) => o.title === 'A')).toMatchObject({ image: `/notebooks/car/entries/${a.id}/photo`, imageSource: 'https://img.example/a.jpg' });
+    expect(v.find((o) => o.title === 'B')!.image).toBeUndefined();
+    // Ruled out: no photo tries; removed: photo gone.
+    s.ruleOut(nb.id, b.id, 'no');
+    s.removeEntry(nb.id, a.id);
+    expect(s.photo(a.id)).toBeUndefined();
   });
 });

@@ -175,3 +175,96 @@ export async function httpFetch(
     clearTimeout(timer);
   }
 }
+
+/** Image types a notebook keeps: never SVG (it can carry script). */
+const IMAGE_TYPES: Record<string, (b: Uint8Array) => boolean> = {
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  'image/png': (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  'image/gif': (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46,
+  'image/webp': (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+};
+
+export interface FetchedImage { bytes: Uint8Array; contentType: string; finalUrl: string }
+
+/**
+ * Fetch one image with the same guards as pages (every redirect hop checked
+ * against private and reserved addresses, a timeout), plus: JPEG, PNG, GIF or
+ * WebP only, the bytes must match the type, and an image over `maxBytes` is
+ * refused rather than cut off.
+ */
+export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBytes?: number } = {}): Promise<FetchedImage> {
+  const timeoutMs = (opts.timeoutSec ?? 15) * 1000;
+  const maxBytes = opts.maxBytes ?? 3 * 1024 * 1024;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let current = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      await guard(current);
+      let res: Response;
+      try {
+        res = await fetch(current, { redirect: 'manual', signal: controller.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' } });
+      } catch (err) {
+        if (controller.signal.aborted) throw new WebFetchError('timeout', `Request timed out after ${timeoutMs / 1000}s.`);
+        throw new WebFetchError('network', err instanceof Error ? err.message : String(err));
+      }
+      if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+        current = new URL(res.headers.get('location')!, current).toString();
+        continue;
+      }
+      if (res.status >= 400) throw new WebFetchError('http_status', `HTTP ${res.status}`, res.status);
+      const contentType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+      const check = IMAGE_TYPES[contentType];
+      if (!check) throw new WebFetchError('content_type', `Not a photo sua keeps ("${contentType || 'unknown'}").`, res.status);
+      const declared = Number(res.headers.get('content-length') ?? 0);
+      if (declared > maxBytes) throw new WebFetchError('content_type', 'The image is too large.', res.status);
+      const bytes = await readBytes(res, maxBytes);
+      if (!bytes) throw new WebFetchError('content_type', 'The image is too large.', res.status);
+      if (bytes.length < 12 || !check(bytes)) throw new WebFetchError('content_type', `The file isn't really ${contentType}.`, res.status);
+      return { bytes, contentType, finalUrl: current };
+    }
+    throw new WebFetchError('too_many_redirects', `Exceeded ${MAX_REDIRECTS} redirects.`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The whole body, or undefined when it's over the cap. */
+async function readBytes(res: Response, maxBytes: number): Promise<Uint8Array | undefined> {
+  if (!res.body) { const b = new Uint8Array(await res.arrayBuffer()); return b.length > maxBytes ? undefined : b; }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.length;
+        if (total > maxBytes) return undefined;
+        chunks.push(value);
+      }
+    }
+  } finally {
+    try { await reader.cancel(); } catch { /* already closed */ }
+  }
+  return concat(chunks, total);
+}
+
+/**
+ * The page's own preview photo (og:image / twitter:image) and title, for a
+ * listing that didn't come with a photo. Read from the first part of the page.
+ */
+export async function pagePreview(url: string): Promise<{ image?: string; title?: string }> {
+  const page = await httpFetch(url, { timeoutSec: 15, maxBytes: 512 * 1024 });
+  const meta = (name: string) => {
+    const re = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*>`, 'i');
+    const tag = re.exec(page.html)?.[0];
+    return tag ? /content=["']([^"']+)["']/i.exec(tag)?.[1] : undefined;
+  };
+  const raw = meta('og:image') ?? meta('og:image:url') ?? meta('twitter:image');
+  let image: string | undefined;
+  try { image = raw ? new URL(raw.replace(/&amp;/g, '&'), page.finalUrl).toString() : undefined; } catch { image = undefined; }
+  const title = meta('og:title') ?? /<title[^>]*>([^<]{1,300})<\/title>/i.exec(page.html)?.[1];
+  return { ...(image && /^https?:/i.test(image) ? { image } : {}), ...(title ? { title: title.replace(/&amp;/g, '&').trim() } : {}) };
+}
