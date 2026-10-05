@@ -19,7 +19,7 @@
     "@types/express": "5.0.6",
     "@types/supertest": "7.2.1",
     "@types/ws": "^8.18.2",
-    "supertest": "7.3.0",
+    "supertest": "7.3.1",
     "typescript": "7.0.2"
   },
   "license": "MIT",
