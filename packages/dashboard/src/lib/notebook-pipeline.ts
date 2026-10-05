@@ -15,6 +15,7 @@ import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { keepPhotos } from './notebook-photos.js';
+import { startNotebookPictures } from './notebook-pictures.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -174,6 +175,8 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, run.result);
   // Photos for what it found; a slow or failing site never fails the keep.
   try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
+  // Options still without one get a representative picture or a drawing, in the background.
+  try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
   return out;
 }
 

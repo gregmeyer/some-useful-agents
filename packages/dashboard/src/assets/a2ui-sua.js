@@ -261,6 +261,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .pic { background: radial-gradient(120% 90% at 50% 75%, color-mix(in srgb, var(--color-primary) 22%, transparent), color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-raised))); }
     .nophoto { display: flex; flex-direction: column; align-items: center; gap: 6px; color: color-mix(in srgb, var(--color-primary) 70%, var(--color-text-muted)); font-size: var(--font-size-xs); }
     .gone-why { color: var(--color-text-muted); }
+    .pic img.drawn { object-fit: contain; padding: 8px; box-sizing: border-box; }
+    .pickind { position: absolute; bottom: 8px; left: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); border: 1px solid var(--color-border); }
     .menu .btn.gone { border-color: var(--color-text-muted); }
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
     .best .rank { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); }
@@ -357,7 +359,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     }
     return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''}">
       <div class="pic">
-        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy">`
+        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : ''}">${o.imageKind && o.imageKind !== 'listing' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
           : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
         ${o === best ? html`<span class="ribbon">best ${priceBetter === 'higher' ? 'pay' : 'price'}</span>` : nothing}

@@ -14,6 +14,7 @@ import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
+import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
@@ -57,6 +58,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);
   // Facts that contradict an option's own text (mixed up by a model) are repaired from the text.
   s.reconcileOptionFacts(nb.id);
+  // Options with no picture yet get a representative one or a drawing (tried once each).
+  if (nb.fields.length) startNotebookPictures(ctx, nb.id);
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   const compiled = compileSurface(surface.doc, notebookEntryItems(nb, entries));
@@ -108,7 +111,9 @@ notebooksRouter.post('/notebooks/:id/photos', async (req: Request, res: Response
   const s = store(req);
   if (!s.get(id)) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
   const { kept, tried } = await keepPhotos(s, id);
-  res.redirect(303, back(id, tried === 0 ? 'No options with a photo or listing left to try.' : `Found ${String(kept)} photo${kept === 1 ? '' : 's'} for ${String(tried)} option${tried === 1 ? '' : 's'}.`));
+  // Anything still without a picture: sua finds a representative one or draws it.
+  const drawing = startNotebookPictures(getContext(req.app.locals), id);
+  res.redirect(303, back(id, `${tried === 0 ? 'No listing photos left to try.' : `Found ${String(kept)} listing photo${kept === 1 ? '' : 's'}.`}${drawing ? ' sua is finding or drawing pictures for the rest; they appear here when ready.' : ''}`));
 });
 
 // An option's stage, ruling it out (it stays, with why), and bringing it back.

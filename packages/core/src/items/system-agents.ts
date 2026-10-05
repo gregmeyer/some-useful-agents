@@ -14,6 +14,7 @@ export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'notebook-add',
   'notebook-pipeline',
   'notebook-keeper',
+  'notebook-picture',
   'agent-catalog-search',
   'agent-builder',
 ]);
