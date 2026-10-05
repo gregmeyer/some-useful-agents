@@ -121,6 +121,14 @@ nodes:
       that fits yet"), so the notebook remembers it was tried. If the output
       is an error or unrelated, return no entries.
 
+      SETTING UP A NOTEBOOK: when the agent is `notebook-setup`, nothing was
+      searched. Return NO entries. Instead return "fields" and "stages" that
+      fit this notebook's goal (as above; even with no options yet), and
+      "facts": for each option already listed (each shows its [id: …]),
+      {"id": "<that id>", "data": {…}, "fingerprint"?: "…"} with the facts
+      its title and text state, by the fields you're returning. Leave out
+      what they don't say; never guess a value.
+
       Criteria: if the output clearly shows a criterion is now met, list its
       index with a short reason. Never mark a criterion met on a guess.
 
@@ -130,6 +138,7 @@ nodes:
                    {"kind": "note", "title": "…", "body": "…"}],
        "fields": [],
        "stages": [],
+       "facts": [],
        "criteriaMet": [{"index": 0, "why": "…"}],
        "summary": "one line: what this run added"}
       </notebook>

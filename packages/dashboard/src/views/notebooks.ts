@@ -237,7 +237,14 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
     </li>`;
 }
 
-function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
+function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): SafeHtml {
+  const note = settingUp
+    ? html`<p class="nb-setup" role="status"><span class="nb-setup__dot" aria-hidden="true"></span>sua is setting up what to track for this notebook (what each option records, and the stages they go through). This page updates when it's done.</p>`
+    : html``;
+  return html`${note}${surfaceColumnBody(nb, compiled, entries, history)}`;
+}
+
+function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
   const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
   const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link');
@@ -360,21 +367,21 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     </details>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${hero(args.nb, args.stages, args.running)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord)}</aside>
     </div>
   `));
 }
 
 /** The notebook's sections alone (GET /notebooks/:id/main), for live updates. */
-export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): string {
-  return render(surfaceColumn(nb, compiled, entries, history));
+export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): string {
+  return render(surfaceColumn(nb, compiled, entries, history, settingUp));
 }
 
 export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; entries: number }>; openNew?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {

@@ -622,7 +622,11 @@ ask them to fill in a form.
   CHANGES is JSON with any of:
   - "entries": [{"kind": "note"|"option"|"evidence"|"decision", "title": "one line", "body": "1–2 sentences"}]
     note = a preference, constraint or context ("She's a new driver: safety
-    ratings matter most"); option = a specific candidate they mention;
+    ratings matter most"); option = a specific candidate they mention, with
+    "data": its facts by the notebook's field keys (see NOTEBOOK_FOCUS
+    fields; numbers as numbers: {"price": 6200, "miles": 141000}) and, when
+    there's one, "fingerprint" (a VIN, listing id or link); if the notebook
+    has no fields yet, give the title and text and sua sets it up;
     evidence = a fact about one; decision = only for ruling something out,
     with why ("Ruled out: anything with a salvage title").
   - "params": bounds to add ("under $8,000", "AWD").

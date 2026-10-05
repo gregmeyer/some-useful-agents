@@ -18,7 +18,8 @@ const strList = (v: unknown, max: number): string[] =>
   (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean).slice(0, max);
 
 export interface NotebookAdd {
-  entries: Array<{ kind: NotebookEntryKind; title: string; body: string }>;
+  /** Options may carry their facts (by the notebook's field keys) and a fingerprint. */
+  entries: Array<{ kind: NotebookEntryKind; title: string; body: string; data?: Record<string, unknown>; fingerprint?: string }>;
   params: string[];
   criteria: string[];
   statement?: string;
@@ -49,9 +50,13 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
       .map((x) => ({ option: String(x.option).trim(), [key]: String(x[key]).trim() }) as { option: string } & Record<K, string>);
   const entries: NotebookAdd['entries'] = [];
   for (const e of Array.isArray(o.entries) ? o.entries.slice(0, 12) : []) {
-    const x = e as { kind?: unknown; title?: unknown; body?: unknown };
+    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown };
     if (typeof x.title !== 'string' || !x.title.trim() || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) continue;
-    entries.push({ kind: x.kind as NotebookEntryKind, title: x.title.trim(), body: typeof x.body === 'string' ? x.body : '' });
+    entries.push({
+      kind: x.kind as NotebookEntryKind, title: x.title.trim(), body: typeof x.body === 'string' ? x.body : '',
+      ...(x.kind === 'option' && x.data && typeof x.data === 'object' && !Array.isArray(x.data) ? { data: x.data as Record<string, unknown> } : {}),
+      ...(x.kind === 'option' && typeof x.fingerprint === 'string' && x.fingerprint.trim() ? { fingerprint: x.fingerprint } : {}),
+    });
   }
   const add: NotebookAdd = {
     entries,
@@ -80,7 +85,13 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     const k = entryKey(e.title);
     if (!k || seen.has(k)) { skipped++; continue; }
     seen.add(k);
-    store.addEntry(nb.id, { kind: e.kind, title: e.title, body: e.body, by });
+    // An option with facts is filed as data (and found again by its fingerprint).
+    if (e.kind === 'option') {
+      const r = store.upsertOption(nb.id, { title: e.title, body: e.body, by, ...(e.data ? { data: e.data } : {}), ...(e.fingerprint ? { fingerprint: e.fingerprint } : {}) });
+      if (r.seenAgain) { skipped++; continue; }
+    } else {
+      store.addEntry(nb.id, { kind: e.kind, title: e.title, body: e.body, by });
+    }
     added.push(`${e.kind}: ${e.title}`);
   }
   if (add.replaceParams && add.params.length) {
@@ -170,6 +181,7 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook): string {
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+    fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
   });
 }
