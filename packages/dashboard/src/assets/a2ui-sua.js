@@ -461,15 +461,17 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
 const mono = css`font-family: var(--font-mono);`;
 
 const Columns = define('Columns', 'sua-a2ui-columns',
-  Common.extend({ children: CommonSchemas.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional() }).strict(),
+  Common.extend({ children: CommonSchemas.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional(), align: z.enum(['stretch', 'start']).optional() }).strict(),
   css`
     :host { display: block; }
     .cols { display: grid; gap: var(--space-4, 16px); align-items: stretch; }
+    .cols.start { align-items: start; }
+    .cols.start > * { height: auto; }
     @media (max-width: 760px) { .cols { grid-template-columns: 1fr !important; } }`,
   function (p) {
     const kids = Array.isArray(p.children) ? p.children : [];
     const w = kids.map((_, i) => Number(p.widths?.[i] ?? 1));
-    return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${n}fr)`).join(' ')}">${kids.map((c) => this.renderNode(c))}</div>`;
+    return html`<div class="cols ${p.align === 'start' ? 'start' : ''}" style="grid-template-columns: ${w.map((n) => `minmax(0, ${n}fr)`).join(' ')}">${kids.map((c) => this.renderNode(c))}</div>`;
   });
 
 const Panel = define('Panel', 'sua-a2ui-panel',
@@ -569,7 +571,8 @@ const Coverage = define('Coverage', 'sua-a2ui-coverage',
 const Checklist = define('Checklist', 'sua-a2ui-checklist',
   Common.extend({ groups: CommonSchemas.DynamicValue, actions: z.boolean().optional() }).strict(),
   css`
-    .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 16px; }
+    .g + .g { padding-top: 0; }
     .g h4 { margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
     label { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: var(--font-size-sm); color: var(--color-text); cursor: pointer; }
     label.done span { color: var(--color-text-muted); text-decoration: line-through; }

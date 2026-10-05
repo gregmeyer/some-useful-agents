@@ -153,9 +153,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Columns',
-    summary: 'Children side by side with relative widths (e.g. [3, 2]); they stack on a narrow screen.',
+    summary: 'Children side by side with relative widths (e.g. [3, 2]); they stack on a narrow screen. `align: start` lets each keep its own height (default: stretch to the tallest).',
     example: { id: 'cols', component: 'Columns', children: ['cols_a', 'cols_b'], widths: [3, 2] },
-    schema: Common.extend({ children: CS.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional() }).strict(),
+    schema: Common.extend({ children: CS.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional(), align: z.enum(['stretch', 'start']).optional() }).strict(),
   },
   {
     name: 'Panel',

@@ -8,7 +8,7 @@
  *   Where it stands + stats        | Done when (ring + steps)
  *   Where they sit (price map)     | How far they got (funnel)
  *   Shortlist (cards / table)
- *   Before you decide (checklists) | How we got here (timeline)
+ *   Before you decide (1/3)        | How we got here (timeline, 2/3)
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import {
@@ -271,7 +271,8 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
   c.push(
     panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
     { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: 'price', actions: true },
-    { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 1] },
+    // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
+    { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
     { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
     panel('time_panel', 'How we got here', 'timeline', 'newest first'),
