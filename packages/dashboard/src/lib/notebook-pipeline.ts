@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, executeAgentDag, extractTaggedJson, entryKey, cleanData, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -67,7 +67,7 @@ export interface KeeperOutcome {
 export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
-  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown };
+  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
   const searchAt = new Date().toISOString();
   // A notebook's fields are set once, by the first run that finds options.
@@ -78,6 +78,9 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   // Stages too, once; existing options start at the first.
   if (nb.stages.length === 0 && Array.isArray(parsed.stages) && parsed.stages.length > 0) {
     nb = store.setStages(nb.id, parsed.stages);
+  }
+  if (nb.checks.length === 0 && Array.isArray(parsed.checks) && parsed.checks.length > 0) {
+    nb = store.setChecks(nb.id, parsed.checks);
   }
   // Setup: facts for options the notebook already has, by id.
   let factsSet = 0;
@@ -114,7 +117,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   }
   // The search counts even when everything it found was known: that's how a
   // later "not in the last 2 searches" knows someone looked.
-  if (agentId !== NOTEBOOK_SETUP) store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt);
+  if (agentId !== NOTEBOOK_SETUP) store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt, cleanSources(parsed.sources));
   let criteriaMet = 0;
   for (const c of Array.isArray(parsed.criteriaMet) ? parsed.criteriaMet : []) {
     const x = c as { index?: unknown; why?: unknown };

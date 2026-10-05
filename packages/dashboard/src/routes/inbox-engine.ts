@@ -1340,6 +1340,7 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
           ...add.moves.map((m) => ({ what: 'move', before: m.option, after: m.stage })),
           ...add.ruleOut.map((r) => ({ what: 'rule out', before: r.option, after: r.reason })),
           ...add.reinstate.map((r) => ({ what: 'bring back', before: '—', after: r })),
+          ...add.gone.map((r) => ({ what: 'no longer available', before: '—', after: r })),
           ...add.met.map((c) => ({ what: 'done when, met', before: '—', after: c })),
         ];
         return { ...action, inputs: named, surfaceChanges: changes };

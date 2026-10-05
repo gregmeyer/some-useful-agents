@@ -77,15 +77,21 @@ Options record their facts as data, not only as text, so they can be compared, s
 
 ## Widgets
 
-Once a notebook has fields and options, the top of its page is drawn as A2UI widgets (see [A2UI views](a2ui-views.md)), the same components for a car, a job or a product:
+Once a notebook has fields and options, its page is drawn as A2UI widgets (see [A2UI views](a2ui-views.md)), the same for a car, a job or a product:
 
-- **A summary line:** how many options are in the running and ruled out, the best price (or pay), the furthest stage reached, and the next done-when.
-- **Stats:** in the running, best price, furthest along, ruled out.
-- **How far they got:** the funnel, per stage, with how many were ruled out there and why (hover).
-- **Where they sit:** price against the main measure (miles, sq ft, commute). Your limits are shaded, read from their text ("$3k-$5k budget", "135k-180k miles"). The best option in the running and inside your limits is highlighted; ruled-out options are hollow.
-- **Shortlist:** cards with the photo, rank, price, facts, stage, price move and "not seen lately", or a table (your Grid / Table choice is remembered in this browser). **Listing ↗**, **<next stage> →**, **Rule out…** (quick reasons or your words) and **Bring back** work right on the cards and redraw the widgets.
+- **Where it stands:** a short paragraph (how many are in the running, the best lead and the next best, the furthest stage) with **Next:**, e.g. "check still listed and clean title on the top two before you contact anyone". Beside it, **Done when** shows a progress ring and the steps, with the current one highlighted.
+- **Stats:** in the running, best price (or pay), furthest along, ruled out.
+- **Where they sit:** price against the main measure (miles, sq ft, commute). Your limits are shaded, the best lead in the running is highlighted, and ruled-out options are hollow. **How far they got** shows the funnel per stage, with ruled-out counts (hover for why).
+- **Shortlist:** cards (photo or "No photo yet", rank, a short name, price, facts, stage, price move) or a table. Ruled-out options are **hidden by default**; **Show ruled out (N)** brings them back, and your choice is remembered in this browser. Each card has **Listing ↗**, **<next stage> →** and **Rule out…**, whose first choice is **No longer available** (sold, filled, out of stock), followed by quick reasons or your own words. "Not seen lately" cards also offer **Mark gone**.
+- **Before you decide:** a checklist for the top two (the notebook's checks, e.g. Still listed, Clean title). Tick boxes right there.
+- **How we got here:** a timeline of searches (with which sites they reached), notes, decisions, moves and rulings, newest first.
+- **Where sua looked:** the latest search's sites: how many it found on each, and which were blocked or skipped. **Limits:** your limits, with ones that disagree (two different budgets, two mileage ranges) flagged.
 
-Notes, evidence and decisions stay as cards below. A notebook without fields shows its options as cards too. The widgets bind to the notebook's data (`/notebook/...`, the same as `data.json`), so they can later be rearranged or placed on a board.
+A notebook without fields shows cards instead. The widgets bind to the notebook's data (`/notebook/...`, the same as `data.json`), so they can be rearranged or placed on a board later.
+
+**No longer available** is not a ruling: the option leaves the running and reads "No longer available", not your reason. Tell sua too ("the RAV4 sold", "they filled the Stripe role").
+
+**Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. Facts stored before this check are repaired when you open the notebook. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
 
 ## Stages and ruling out: the funnel
 

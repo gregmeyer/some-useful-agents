@@ -323,3 +323,34 @@ describe('option photos', () => {
     expect(s.photo(a.id)).toBeUndefined();
   });
 });
+
+describe('fields without roles, and facts that belong to another option', () => {
+  it('infers roles and units from field names', () => {
+    const f = cleanFields([
+      { key: 'price', label: 'Price', type: 'money' }, { key: 'miles', label: 'Miles', type: 'number' },
+      { key: 'listing_url', label: 'Listing', type: 'url' }, { key: 'photo', label: 'Photo', type: 'text' },
+      { key: 'location', label: 'Where', type: 'text' }, { key: 'seller', label: 'Seller', type: 'text' }, { key: 'year', label: 'Year', type: 'number' },
+    ]);
+    expect(f.map((x) => `${x.key}:${x.type}:${x.role ?? ''}:${x.unit ?? ''}`)).toEqual([
+      'price:money:price:', 'miles:number:measure:mi', 'listing_url:url:link:', 'photo:image:image:', 'location:text:place:', 'seller:text:org:', 'year:number::',
+    ]);
+  });
+
+  it('keeps only what an option\'s own text says when given facts contradict it, and repairs stored ones', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'price', type: 'money' }, { key: 'miles', type: 'number' }, { key: 'year', type: 'number' }]);
+    const a = s.addEntry(nb.id, { kind: 'option', title: '2006 Subaru Forester 2.5X, 162k mi, $4,995, Ascend Motors', by: 'agent:x' });
+    // Setup mixed up ids: the 2007's numbers.
+    s.setOptionFacts(nb.id, a.id, { price: 4699, miles: 178630, year: 2007 });
+    expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
+    // Stored before this check: repaired on read.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ price: 4699, miles: 178630, year: 2007 }), a.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
+    // Rounded text still agrees: no change.
+    s.setOptionFacts(nb.id, a.id, { price: 4995, miles: 161870, year: 2006 });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+});

@@ -111,7 +111,17 @@ nodes:
       location, remote, level, posted (when), posting_url. For products:
       price, rating (measure, better higher), store (org), in_stock,
       product_url, photo.
-      With the fields, also return "stages": the 3–6 steps an option goes
+      Where it looked: when the output is a search that names the sites or
+      sources it tried, return "sources": [{"name": "CarGurus", "found": 2,
+      "status": "found" | "none" | "blocked" | "skipped", "note"?: "why"}],
+      one per site, from what the output says (a site that refused or
+      errored is "blocked"; one it chose not to search is "skipped").
+
+      With the fields, also return "checks": the 3–5 things to confirm on an
+      option before deciding (cars: Still listed, Clean title (VIN),
+      Accident history, Pre-purchase inspection; jobs: Salary confirmed,
+      Remote policy, Talked to the team; products: In stock, Return
+      policy). And "stages": the 3–6 steps an option goes
       through on the way to a decision, starting with where new ones land.
       For cars: Found, Checked, Test drive, Offer, Bought. For jobs: Found,
       Applied, Screen, Interview, Offer. For products: Found, Shortlist,
@@ -138,6 +148,8 @@ nodes:
                    {"kind": "note", "title": "…", "body": "…"}],
        "fields": [],
        "stages": [],
+       "checks": [],
+       "sources": [],
        "facts": [],
        "criteriaMet": [{"index": 0, "why": "…"}],
        "summary": "one line: what this run added"}

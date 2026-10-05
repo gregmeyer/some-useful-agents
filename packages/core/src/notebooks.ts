@@ -29,6 +29,29 @@ export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
 export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org'] as const;
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
+/** One site or source a search reached, and what it got there. */
+export interface NotebookSearchSource {
+  name: string;
+  found: number;
+  status: 'found' | 'none' | 'blocked' | 'skipped';
+  note?: string;
+}
+
+/** Keep only well-formed sources (at most 12). */
+export function cleanSources(list: unknown): NotebookSearchSource[] {
+  const out: NotebookSearchSource[] = [];
+  for (const s of Array.isArray(list) ? list : []) {
+    const x = s as Partial<Record<keyof NotebookSearchSource, unknown>>;
+    const name = typeof x.name === 'string' ? x.name.trim().slice(0, 40) : '';
+    if (!name) continue;
+    const found = Math.max(0, Math.round(Number(x.found) || 0));
+    const status = (['found', 'none', 'blocked', 'skipped'] as const).find((v) => v === x.status) ?? (found > 0 ? 'found' : 'none');
+    out.push({ name, found, status, ...(typeof x.note === 'string' && x.note.trim() ? { note: x.note.trim().slice(0, 160) } : {}) });
+    if (out.length === 12) break;
+  }
+  return out;
+}
+
 /** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
 export interface NotebookField {
   /** lowercase_snake, e.g. `price`, `miles`, `listing_url`. */
@@ -82,6 +105,8 @@ export interface Notebook {
   stages: string[];
   /** When sua last set up its fields and stages (so it's tried once, not on every visit). */
   setupAt?: string;
+  /** What to check on an option before deciding ("Still listed", "Clean title"). */
+  checks: string[];
   /** Five-field cron for the pipeline, or empty for "only when asked". */
   cadence: string;
   status: NotebookStatus;
@@ -117,7 +142,9 @@ export interface NotebookEntry {
   stage?: string;
   stageAt?: string;
   /** Set when it's out: why, when, by whom, and at which stage. It stays in the notebook. */
-  ruledOut?: { reason: string; at: string; by: string; stage?: string };
+  ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
+  /** The notebook's checks ticked for this option. */
+  checked?: string[];
   createdAt: string;
 }
 
@@ -227,7 +254,8 @@ export class NotebookStore {
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
-      ['notebooks', 'setup_at TEXT'],
+      ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
+      ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -275,17 +303,21 @@ export class NotebookStore {
     if (!to) throw new Error(`"${stage}" isn't one of this notebook's stages${nb.stages.length ? ` (${nb.stages.join(', ')})` : ''}.`);
     const e = this.mustGetOption(notebookId, entryId);
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE notebook_entries SET stage = ?, stage_at = ?, ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(to, now, e.id);
+    this.db.prepare('UPDATE notebook_entries SET stage = ?, stage_at = ?, ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL, ruled_out_gone = NULL WHERE id = ?').run(to, now, e.id);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
     return this.mustGetOption(notebookId, entryId);
   }
 
-  /** Rule an option out, with why. It stays (for the funnel and the history); searches won't bring it back. */
-  ruleOut(notebookId: string, entryId: string, reason: string, by = 'you'): NotebookEntry {
+  /**
+   * Rule an option out, with why. It stays (for the funnel and the history);
+   * searches won't bring it back. `gone`: it isn't available any more (sold,
+   * filled, taken down), rather than turned down.
+   */
+  ruleOut(notebookId: string, entryId: string, reason: string, by = 'you', opts: { gone?: boolean } = {}): NotebookEntry {
     const e = this.mustGetOption(notebookId, entryId);
-    const why = reason.replace(/\s+/g, ' ').trim().slice(0, 200) || 'ruled out';
+    const why = reason.replace(/\s+/g, ' ').trim().slice(0, 200) || (opts.gone ? 'No longer available' : 'ruled out');
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = ?, ruled_out_reason = ?, ruled_out_by = ?, ruled_out_stage = ? WHERE id = ?').run(now, why, by, e.stage ?? null, e.id);
+    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = ?, ruled_out_reason = ?, ruled_out_by = ?, ruled_out_stage = ?, ruled_out_gone = ? WHERE id = ?').run(now, why, by, e.stage ?? null, opts.gone ? 1 : null, e.id);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
     return this.mustGetOption(notebookId, entryId);
   }
@@ -294,10 +326,42 @@ export class NotebookStore {
    * Record that a search ran and how many options it found, so an option a
    * later search didn't find can be told apart from one nobody looked for.
    */
-  recordSearch(notebookId: string, agentId: string, runId: string | undefined, found: number, at = new Date().toISOString()): void {
+  recordSearch(notebookId: string, agentId: string, runId: string | undefined, found: number, at = new Date().toISOString(), sources?: readonly NotebookSearchSource[]): void {
     // `at` is when the search's results arrived, before its options were updated, so it never counts as a miss for them.
-    this.db.prepare('INSERT INTO notebook_searches (notebook_id, agent_id, run_id, at, found) VALUES (?, ?, ?, ?, ?)')
-      .run(notebookId, agentId, runId ?? null, at, found);
+    this.db.prepare('INSERT INTO notebook_searches (notebook_id, agent_id, run_id, at, found, sources_json) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(notebookId, agentId, runId ?? null, at, found, sources?.length ? JSON.stringify(sources) : null);
+  }
+
+  /** Searches that went into the notebook, newest first. */
+  searches(notebookId: string, limit = 20): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }> {
+    return (this.db.prepare('SELECT * FROM notebook_searches WHERE notebook_id = ? ORDER BY at DESC LIMIT ?').all(notebookId, limit) as Array<Record<string, unknown>>).map((r) => ({
+      agentId: String(r.agent_id), ...(r.run_id ? { runId: String(r.run_id) } : {}), at: String(r.at), found: Number(r.found),
+      sources: (() => { try { return r.sources_json ? JSON.parse(String(r.sources_json)) as NotebookSearchSource[] : []; } catch { return []; } })(),
+    }));
+  }
+
+  /** What to check on each option before deciding (at most 8). */
+  setChecks(id: string, list: readonly unknown[]): Notebook {
+    this.mustGet(id);
+    const checks: string[] = [];
+    for (const c of list) {
+      const s = typeof c === 'string' ? c.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      if (s && !checks.some((x) => x.toLowerCase() === s.toLowerCase())) checks.push(s);
+      if (checks.length === 8) break;
+    }
+    this.db.prepare('UPDATE notebooks SET checks_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(checks), new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /** Tick (or untick) one of the notebook's checks for an option. */
+  checkOption(notebookId: string, entryId: string, item: string, done: boolean): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    const set = new Set(e.checked ?? []);
+    if (done) set.add(item); else set.delete(item);
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET checked_json = ? WHERE id = ?').run(JSON.stringify([...set]), e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    return this.mustGetOption(notebookId, entryId);
   }
 
   /** What searches said about an option over time, oldest first. */
@@ -365,7 +429,7 @@ export class NotebookStore {
   /** Bring a ruled-out option back, at the stage it was at. */
   reinstate(notebookId: string, entryId: string): NotebookEntry {
     const e = this.mustGetOption(notebookId, entryId);
-    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(e.id);
+    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL, ruled_out_gone = NULL WHERE id = ?').run(e.id);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), notebookId);
     return this.mustGetOption(notebookId, entryId);
   }
@@ -404,12 +468,36 @@ export class NotebookStore {
     const row = this.db.prepare("SELECT * FROM notebook_entries WHERE id = ? AND notebook_id = ? AND kind = 'option'").get(entryId, notebookId) as Record<string, unknown> | undefined;
     if (!row) return undefined;
     const e = this.toEntry(row);
-    const clean = cleanData(data, nb.fields);
+    // Facts that contradict what the option's own text says belong to another
+    // option (a model can mix up ids): keep only what the text states.
+    const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
+    const given = cleanData(data, nb.fields);
+    const clean = contradicts(given, stated) ? stated : { ...given, ...stated };
     const merged = { ...(e.data ?? {}), ...clean };
     const fp = e.fingerprint ?? optionFingerprint(fingerprint, merged, nb.fields);
     this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ? WHERE id = ?')
       .run(Object.keys(merged).length ? JSON.stringify(merged) : null, fp ?? null, e.id);
     return { ...e, ...(Object.keys(merged).length ? { data: merged } : {}), ...(fp ? { fingerprint: fp } : {}) };
+  }
+
+  /**
+   * Repair options whose facts contradict their own text (the year, price or
+   * measure it states): the text wins. Returns how many were repaired.
+   */
+  reconcileOptionFacts(notebookId: string): number {
+    const nb = this.mustGet(notebookId);
+    if (nb.fields.length === 0) return 0;
+    let n = 0;
+    for (const e of this.entries(notebookId, 1000)) {
+      if (e.kind !== 'option' || !e.data) continue;
+      const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
+      if (!contradicts(e.data, stated)) continue;
+      const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
+      const keep = linkKey && stated[linkKey] === undefined && e.data[linkKey] !== undefined && typeof e.data[linkKey] === 'string' && `${e.title} ${e.body}`.includes(String(e.data[linkKey])) ? { [linkKey]: e.data[linkKey] } : {};
+      this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ ...keep, ...stated }), e.id);
+      n++;
+    }
+    return n;
   }
 
   /** Replace what options record. Invalid fields are dropped; at most 12. */
@@ -622,9 +710,10 @@ export class NotebookStore {
       params: parse<string[]>(r.params_json, []),
       criteria: parse<NotebookCriterion[]>(r.criteria_json, []),
       pipeline: parse<string[]>(r.pipeline_json, []),
-      fields: parse<NotebookField[]>(r.fields_json, []),
+      fields: cleanFields(parse<NotebookField[]>(r.fields_json, [])),
       stages: parse<string[]>(r.stages_json, []),
       ...(r.setup_at ? { setupAt: String(r.setup_at) } : {}),
+      checks: parse<string[]>(r.checks_json, []),
       cadence: String(r.cadence ?? ''),
       status: String(r.status) as NotebookStatus,
       ...(r.decision ? { decision: String(r.decision) } : {}),
@@ -646,8 +735,9 @@ export class NotebookStore {
       ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
       ...(r.stage ? { stage: String(r.stage) } : {}),
+      ...(r.checked_json ? { checked: (() => { try { return JSON.parse(String(r.checked_json)) as string[]; } catch { return []; } })() } : {}),
       ...(r.stage_at ? { stageAt: String(r.stage_at) } : {}),
-      ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}) } } : {}),
+      ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}), ...(r.ruled_out_gone ? { gone: true } : {}) } } : {}),
       createdAt: String(r.created_at),
     };
   }
@@ -685,6 +775,22 @@ export function entryKey(title: string): string {
 
 const FIELD_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
+/** Units read from a field's name when it has none ("miles" → "mi"). */
+const UNIT_FROM_KEY: Array<[RegExp, string]> = [[/^(miles|mileage|odometer)$/, 'mi'], [/^(km|kilometers|kilometres)$/, 'km'], [/^(sq_?ft|square_feet|size_sqft)$/, 'sq ft'], [/^(commute|commute_min(utes)?)$/, 'min']];
+
+/** The role a field without one most likely plays, from its key and type. */
+function inferRole(key: string, type: NotebookFieldType): NotebookFieldRole | undefined {
+  if (type === 'money' && /^(price|cost|asking(_price)?|salary|pay|rent|total(_cost)?)$/.test(key)) return 'price';
+  if (type === 'number' && UNIT_FROM_KEY.some(([re]) => re.test(key))) return 'measure';
+  if (type === 'number' && /^(rating|stars|score)$/.test(key)) return 'measure';
+  if (type === 'url' && /(listing|posting|product|url|link)/.test(key)) return 'link';
+  if (type === 'image' || /^(photo|image|picture|logo)(_url)?$/.test(key)) return 'image';
+  if (/^(location|city|place|neighborhood|area)$/.test(key)) return 'place';
+  if (/^(seller|dealer|company|employer|store|retailer|org)$/.test(key)) return 'org';
+  if (type === 'date' && /^(posted|listed|date|when|deadline)/.test(key)) return 'when';
+  return undefined;
+}
+
 /** Keep only well-formed fields, one per key and at most one per role. */
 export function cleanFields(list: readonly unknown[]): NotebookField[] {
   const out: NotebookField[] = [];
@@ -693,11 +799,14 @@ export function cleanFields(list: readonly unknown[]): NotebookField[] {
     const x = f as Partial<Record<keyof NotebookField, unknown>>;
     const key = typeof x.key === 'string' ? x.key.trim() : '';
     if (!FIELD_KEY_RE.test(key) || out.some((o) => o.key === key)) continue;
-    const type = (NOTEBOOK_FIELD_TYPES as readonly string[]).includes(String(x.type)) ? x.type as NotebookFieldType : 'text';
-    const role = (NOTEBOOK_FIELD_ROLES as readonly string[]).includes(String(x.role)) && !roles.has(String(x.role)) ? x.role as NotebookFieldRole : undefined;
+    let type = (NOTEBOOK_FIELD_TYPES as readonly string[]).includes(String(x.type)) ? x.type as NotebookFieldType : 'text';
+    if (type === 'text' && /^(photo|image|picture|logo)(_url)?$/.test(key)) type = 'image';
+    // A field without a role gets the one its name implies (price, miles, listing_url…).
+    const asked = (NOTEBOOK_FIELD_ROLES as readonly string[]).includes(String(x.role)) ? x.role as NotebookFieldRole : inferRole(key, type);
+    const role = asked && !roles.has(asked) ? asked : undefined;
     if (role) roles.add(role);
     const label = typeof x.label === 'string' && x.label.trim() ? x.label.trim().slice(0, 40) : key.replace(/_/g, ' ');
-    const unit = typeof x.unit === 'string' && x.unit.trim() ? x.unit.trim().slice(0, 12) : undefined;
+    const unit = typeof x.unit === 'string' && x.unit.trim() ? x.unit.trim().slice(0, 12) : (type === 'number' ? UNIT_FROM_KEY.find(([re]) => re.test(key))?.[1] : undefined);
     const numeric = type === 'money' || type === 'number';
     // A price is better lower unless the notebook says otherwise (a salary is a price that's better higher).
     const better = numeric && (x.better === 'higher' || x.better === 'lower') ? x.better : numeric && role === 'price' ? 'lower' as const : undefined;
@@ -773,6 +882,10 @@ export function optionFingerprint(given: string | undefined, data: Record<string
 export interface NotebookViewOption {
   id: string;
   title: string;
+  /** A short name for cards: the title up to its first comma ("2010 Toyota RAV4 Sport 4WD"). */
+  name: string;
+  /** The notebook's checks ticked for it. */
+  checked: string[];
   body: string;
   /** The option's facts by field key. */
   fields: Record<string, NotebookFieldValue>;
@@ -800,7 +913,7 @@ export interface NotebookViewOption {
   /** Its stage, and that stage's position (0 = the first). */
   stage?: string;
   stageIndex: number;
-  ruledOut?: { reason: string; at: string; by: string; stage?: string };
+  ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -881,7 +994,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
     const when = pick(data, 'when');
     return {
-      id: e.id, title: e.title, body: e.body, fields: data,
+      id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
       ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
@@ -995,4 +1108,26 @@ export function looksLikeOneListing(url: string): boolean {
     if (/\/l-used-|searchresults|\/search\b|\/results\b/i.test(u.pathname)) return false;
     return /\d{5,}/.test(u.pathname + u.search);
   } catch { return false; }
+}
+
+/** "2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood" → "2010 Toyota RAV4 Sport 4WD". */
+export function shortName(title: string): string {
+  const head = title.split(/,|\s[—–-]\s/)[0].trim();
+  return head.length >= 4 ? head : title;
+}
+
+/** Do two sets of facts disagree on a number both state (year, price, the measure)? */
+function contradicts(a: Record<string, NotebookFieldValue>, b: Record<string, NotebookFieldValue>): boolean {
+  for (const [k, v] of Object.entries(b)) {
+    const x = a[k];
+    if (x === undefined) continue;
+    const nx = fieldNumber(x); const nv = fieldNumber(v);
+    if (nx !== undefined && nv !== undefined) {
+      // Rounded text ("157k mi") still agrees with 157,000 or 156,870.
+      if (Math.abs(nx - nv) > Math.max(1, Math.abs(nv) * 0.01)) return true;
+    } else if (typeof x === 'string' && typeof v === 'string' && x !== v) {
+      return true;
+    }
+  }
+  return false;
 }

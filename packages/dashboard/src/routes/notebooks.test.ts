@@ -234,7 +234,7 @@ describe('the talk box follows the notebook', () => {
   it('suggests the next useful thing to tell sua, step by step', async () => {
     await makeApp();
     const { nextStep } = await import('../views/notebooks.js');
-    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], stages: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
+    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], stages: [] as string[], checks: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
     const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
     expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
     const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };

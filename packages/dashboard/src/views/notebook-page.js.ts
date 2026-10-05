@@ -22,9 +22,11 @@ export const NOTEBOOK_PAGE_JS = `
       var d = e.detail || {};
       if (d.name !== 'notebook-option' || !d.context || !d.context.id) return;
       var c = d.context;
-      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : '';
+      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' || c.op === 'gone' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : c.op === 'check' ? 'check' : '';
       if (!path) return;
       var body = new URLSearchParams();
+      if (c.op === 'check') { body.set('item', c.item || ''); body.set('done', c.done ? '1' : '0'); }
+      if (c.op === 'gone') body.set('gone', '1');
       if (c.stage) body.set('stage', c.stage);
       if (c.reason) body.set('reason', c.reason);
       fetch(base + encodeURIComponent(c.id) + '/' + path, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })

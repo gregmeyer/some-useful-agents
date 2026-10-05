@@ -643,6 +643,9 @@ ask them to fill in a form.
   - "moves": [{"option": "…", "stage": "<one of the notebook's stages>"}]
     when an option moves along ("I applied to Stripe" → Applied; "we test
     drove the RAV4" → Test drive).
+  - "gone": ["…"] when an option isn't available any more ("the RAV4
+    sold", "they filled the Stripe role", "it's out of stock"). That's not a
+    rejection: use "gone", not "ruleOut".
   - "reinstate": ["…"] to bring a ruled-out option back.
   - "met": ["<a done-when line, or a distinctive part: 'clean title'>"]
     when what they said shows a criterion is now met. Only on their word or

@@ -33,6 +33,8 @@ export interface NotebookAdd {
   ruleOut: Array<{ option: string; reason: string }>;
   /** Ruled-out options to bring back. */
   reinstate: string[];
+  /** Options that aren't available any more (sold, filled, taken down). */
+  gone: string[];
   /** Done-when criteria now met, by their text (or part of it). */
   met: string[];
 }
@@ -69,8 +71,9 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     ruleOut: refs(o.ruleOut, 'reason'),
     reinstate: strList(o.reinstate, 20),
     met: strList((o as { met?: unknown }).met, 10),
+    gone: strList((o as { gone?: unknown }).gone, 20),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -124,6 +127,12 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     if (!o) continue;
     store.ruleOut(nb.id, o.id, r.reason, by);
     added.push(`ruled out: ${o.title} (${r.reason})`);
+  }
+  for (const ref of add.gone) {
+    const o = option(ref);
+    if (!o) continue;
+    store.ruleOut(nb.id, o.id, 'No longer available', by, { gone: true });
+    added.push(`no longer available: ${o.title}`);
   }
   for (const ref of add.reinstate) {
     const o = option(ref);

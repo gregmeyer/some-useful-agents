@@ -55,6 +55,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // A notebook with options but no fields (kept before fields existed, or
   // filled by talking): set it up once, in the background; the page redraws.
   if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);
+  // Facts that contradict an option's own text (mixed up by a model) are repaired from the text.
+  s.reconcileOptionFacts(nb.id);
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   const compiled = compileSurface(surface.doc, notebookEntryItems(nb, entries));
@@ -123,8 +125,22 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/stage', (req: Request, res: 
 notebooksRouter.post('/notebooks/:id/entries/:entry/rule-out', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
-    const e = store(req).ruleOut(id, String(req.params.entry), str(req.body?.reason).trim() || str(req.body?.quick), 'you');
-    res.redirect(303, back(id, `Ruled out: ${e.title}. Searches won't suggest it again.`, `#entry-${e.id}`));
+    const gone = req.body?.gone === '1';
+    const e = store(req).ruleOut(id, String(req.params.entry), str(req.body?.reason).trim() || str(req.body?.quick), 'you', { gone });
+    res.redirect(303, back(id, gone ? `${e.title}: no longer available.` : `Ruled out: ${e.title}. Searches won't suggest it again.`, `#entry-${e.id}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// Tick (or untick) one of the notebook's checks for an option.
+notebooksRouter.post('/notebooks/:id/entries/:entry/check', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const item = str(req.body?.item).trim();
+    if (!item) throw new Error('Which check?');
+    store(req).checkOption(id, String(req.params.entry), item, req.body?.done === '1' || req.body?.done === 'true');
+    res.redirect(303, back(id, 'Saved.'));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
