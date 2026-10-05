@@ -44,6 +44,25 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **Edit this notebook** changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule. Editing the criteria keeps the ticks on the ones you didn't change.
 - **Decide…** records what you decided and why. The decision is also kept as an entry, and the notebook closes. **Reopen** any time; **Stop** pauses a notebook without deciding.
 
+## Option facts
+
+Options record their facts as data, not only as text, so they can be compared, sorted and charted.
+
+- **Each notebook has fields:** what every option records, e.g. price, miles, year, location and listing for a car; rent, sq ft and neighborhood for a flat. The keeper sets them the first time a run finds options. Each field has a type (money, number, text, link, image, date) and, optionally, a role. The roles are what let one widget work for any notebook:
+  - `price`: what it costs;
+  - `measure`: the main number to compare;
+  - `place`;
+  - `link`: the listing;
+  - `image`;
+  - `when`.
+- **Options kept before the notebook had fields** get filled in from their text when the fields are set. Only unambiguous facts are read: a dollar amount, a number with the measure's unit, a leading year, a web address.
+- **The same option is one entry.** Each option has a fingerprint: a VIN or listing id when the agent gives one, else its listing's address. When a later run finds it again, its facts are refreshed and the card says "seen again". It isn't added a second time.
+- **On the page**, an option shows its facts as chips (the price highlighted) and its listing as a link.
+- **For widgets:** `GET /notebooks/<id>/data.json` returns the notebook as data, the same shape for every notebook:
+  - `limits`, `criteria`, `progress` and `fields`;
+  - `options`, each with its facts by key, plus `price`, `measure`, `place`, `link` and `image` picked out by role, and `firstSeenAt` / `lastSeenAt`;
+  - `notes`, `evidence`, `decisions` and `history`.
+
 ## The pipeline
 
 Under **Edit**, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
@@ -54,7 +73,7 @@ Under **Edit**, list the agents that gather for the notebook, one id per line, i
   - **evidence** about them;
   - **notes**;
   - **ruled-out decisions** with the reason, e.g. "Ruled out: 2018 CR-V, over the mileage limit".
-- **Nothing is added twice.** It skips anything whose title the notebook already has, and adds at most 8 entries per agent per run.
+- **Nothing is added twice.** It skips anything whose title the notebook already has, and adds at most 12 entries per agent per run. An option it finds again (see [Option facts](#option-facts)) is updated instead.
 - **Each entry links back** to the agent and run it came from.
 - **Criteria:** if an agent's output clearly shows a criterion is met, the keeper ticks it and adds a "Met: …" note saying why. It doesn't tick on a guess.
 - **The last run's summary** shows under the diagram, e.g. "8 new entries · listings: 8 new". A failed agent or a missing one is noted there too, and the rest of the pipeline still runs. A notebook runs one pipeline at a time.

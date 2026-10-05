@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, executeAgentDag, extractTaggedJson, entryKey, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, executeAgentDag, extractTaggedJson, entryKey, cleanData, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -19,7 +19,7 @@ type Ctx = ReturnType<typeof getContext>;
 
 export const NOTEBOOK_KEEPER_ID = 'notebook-keeper';
 const OUTPUT_CAP = 12_000;
-const MAX_ENTRIES_PER_RUN = 8;
+const MAX_ENTRIES_PER_RUN = 12;
 
 /** The notebook in a few lines, for an agent's goal-like inputs. */
 export function notebookBrief(nb: Notebook): string {
@@ -46,6 +46,8 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook): Reco
 
 export interface KeeperOutcome {
   added: number;
+  /** Options the notebook already had, found again and refreshed. */
+  refreshed?: number;
   skipped: number;
   criteriaMet: number;
   summary?: string;
@@ -60,18 +62,34 @@ export interface KeeperOutcome {
 export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
-  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown };
+  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
+  // A notebook's fields are set once, by the first run that finds options.
+  if (nb.fields.length === 0 && Array.isArray(parsed.fields) && parsed.fields.length > 0) {
+    nb = store.setFields(nb.id, parsed.fields);
+    store.backfillOptions(nb.id);
+  }
   const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
   let added = 0;
+  let refreshed = 0;
   let skipped = 0;
   for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, MAX_ENTRIES_PER_RUN)) {
-    const x = e as { kind?: unknown; title?: unknown; body?: unknown };
+    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
+    const body = typeof x.body === 'string' ? x.body : '';
     const key = entryKey(x.title);
+    if (x.kind === 'option') {
+      const data = x.data && typeof x.data === 'object' ? x.data as Record<string, unknown> : undefined;
+      const fingerprint = typeof x.fingerprint === 'string' ? x.fingerprint : undefined;
+      // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
+      if (!optionFingerprint(fingerprint, cleanData(data, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
+      const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId });
+      if (r.seenAgain) refreshed++; else { added++; seen.add(key); }
+      continue;
+    }
     if (!key || seen.has(key)) { skipped++; continue; }
     seen.add(key);
-    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body: typeof x.body === 'string' ? x.body : '', by: `agent:${agentId}`, runId });
+    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId });
     added++;
   }
   let criteriaMet = 0;
@@ -84,7 +102,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, ...(refreshed ? { refreshed } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
@@ -96,7 +114,7 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
   const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
   if (!keeper) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
-  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}`).join('\n');
+  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}`).join('\n');
   const keepRunId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(keepRunId, ac);
@@ -107,7 +125,7 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
       runId: keepRunId,
       signal: ac.signal,
       inputs: {
-        NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })) }),
+        NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })), fields: nb.fields }),
         SOURCE_AGENT: agentId,
         RUN_OUTPUT: output.length > OUTPUT_CAP ? `${output.slice(0, OUTPUT_CAP)}\n(truncated)` : output,
         EXISTING: existing || '(nothing yet)',
@@ -162,7 +180,7 @@ async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook): Promis
       if (run.status !== 'completed') { notes.push(`${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`); continue; }
       const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
       total += out.added;
-      notes.push(out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}`);
+      notes.push(out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}`);
     } catch (err) {
       notes.push(`${agentId}: ${err instanceof Error ? err.message.slice(0, 80) : 'failed'}`);
     }

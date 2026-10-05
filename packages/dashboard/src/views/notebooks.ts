@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, type CompiledSurface, type Notebook, type NotebookEntry } from '@some-useful-agents/core';
+import { notebookProgress, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { cronToHuman, formatAge } from './components.js';
@@ -131,6 +131,32 @@ export function bodyWithLinks(text: string): SafeHtml {
   })}`;
 }
 
+/** "$4,023", "149,652 mi", "2010": one field's value as people read it. */
+export function formatFieldValue(f: NotebookField, v: NotebookFieldValue): string {
+  if (typeof v === 'number') {
+    const n = v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    if (f.type === 'money') return `$${n}`;
+    // Years and ids read without separators.
+    if (f.type === 'number' && !f.unit && Number.isInteger(v) && v >= 1900 && v <= 2100) return String(v);
+    return f.unit ? `${n} ${f.unit}` : n;
+  }
+  return v;
+}
+
+/** An option's facts as chips, in the notebook's field order; its listing as a link. */
+function optionFacts(nb: Notebook, e: NotebookEntry): SafeHtml {
+  const data = e.data ?? {};
+  const facts = nb.fields.filter((f) => data[f.key] !== undefined && f.type !== 'image' && f.type !== 'url');
+  const link = nb.fields.find((f) => f.role === 'link' && typeof data[f.key] === 'string');
+  if (facts.length === 0 && !link) return html``;
+  const seenAgain = e.lastSeenAt && e.lastSeenAt.slice(0, 16) !== e.createdAt.slice(0, 16);
+  return html`<div class="nb-facts">
+    ${facts.map((f) => html`<span class="nb-fact${f.role === 'price' ? ' nb-fact--price' : ''}" title="${f.label}">${formatFieldValue(f, data[f.key])}</span>`)}
+    ${link ? bodyWithLinks(String(data[link.key])) : html``}
+    ${seenAgain ? html`<span class="nb-fact nb-fact--seen" title="first seen ${formatAge(e.createdAt)}">seen again ${formatAge(e.lastSeenAt!)}</span>` : html``}
+  </div>`;
+}
+
 function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
   return html`
     <li class="nb-entry nb-entry--${e.kind}" id="entry-${e.id}">
@@ -141,6 +167,7 @@ function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
           <button type="submit" class="btn btn--xs btn--ghost" aria-label="Remove “${e.title}”" title="Remove">×</button>
         </form>
       </div>
+      ${e.kind === 'option' ? optionFacts(nb, e) : html``}
       ${e.body ? html`<p class="nb-entry__body">${bodyWithLinks(e.body)}</p>` : html``}
       <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}${e.runId ? html` · <a href="/runs/${encodeURIComponent(e.runId)}" class="mono">run ${e.runId.slice(0, 8)}</a>` : html``}</span>
     </li>`;

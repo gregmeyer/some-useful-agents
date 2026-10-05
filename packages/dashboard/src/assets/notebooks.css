@@ -244,3 +244,7 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-talk__who { display: block; margin-bottom: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-entry__link { color: var(--color-primary); font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: nowrap; }
 .nb-entry__link:hover { text-decoration: underline; }
+.nb-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: var(--space-1) 0 var(--space-2); }
+.nb-fact { font-family: var(--font-mono); font-size: var(--font-size-xs); padding: 1px var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-text); }
+.nb-fact--price { font-weight: var(--weight-semibold); color: var(--color-primary); border-color: var(--color-primary); }
+.nb-fact--seen { color: var(--color-text-muted); border-style: dashed; }

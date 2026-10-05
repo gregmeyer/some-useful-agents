@@ -6,7 +6,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, notebookViewData, validateScheduleInterval, markdownToText,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -175,6 +175,14 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
 });
 
 /** The notebook's sections alone, so its page can update as sua files things. */
+// The data a notebook's widgets bind to (`/notebook/...`), the same shape for every notebook.
+notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) => {
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).json({ error: 'No such notebook.' }); return; }
+  res.json(notebookViewData(nb, s.entries(nb.id, 500)));
+});
+
 notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const s = store(req);
