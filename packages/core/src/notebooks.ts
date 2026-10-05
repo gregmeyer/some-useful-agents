@@ -78,6 +78,8 @@ export interface Notebook {
   pipeline: string[];
   /** What each option records (empty until sua or you set them). */
   fields: NotebookField[];
+  /** The steps an option goes through, in order: Found → Applied → Interview → Offer. */
+  stages: string[];
   /** Five-field cron for the pipeline, or empty for "only when asked". */
   cadence: string;
   status: NotebookStatus;
@@ -109,6 +111,11 @@ export interface NotebookEntry {
   fingerprint?: string;
   /** The last run that found it again (first seen is `createdAt`). */
   lastSeenAt?: string;
+  /** An option's stage (one of the notebook's stages) and when it got there. */
+  stage?: string;
+  stageAt?: string;
+  /** Set when it's out: why, when, by whom, and at which stage. It stays in the notebook. */
+  ruledOut?: { reason: string; at: string; by: string; stage?: string };
   createdAt: string;
 }
 
@@ -188,9 +195,81 @@ export class NotebookStore {
     for (const [table, col] of [
       ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'conversation_id TEXT'],
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
+      ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
+      ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
+  }
+
+  /**
+   * Set the stages an option moves through. Options at a stage that's gone
+   * move to the first one (matched by name, ignoring case).
+   */
+  setStages(id: string, list: readonly unknown[]): Notebook {
+    this.mustGet(id);
+    const stages: string[] = [];
+    for (const s of list) {
+      const name = typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, 30) : '';
+      if (name && !stages.some((x) => x.toLowerCase() === name.toLowerCase())) stages.push(name);
+      if (stages.length === 8) break;
+    }
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebooks SET stages_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(stages), now, id);
+    for (const e of this.entries(id, 1000)) {
+      if (e.kind !== 'option') continue;
+      const same = stages.find((s) => s.toLowerCase() === (e.stage ?? '').toLowerCase());
+      const to = same ?? stages[0] ?? null;
+      if (to !== (e.stage ?? null)) this.db.prepare('UPDATE notebook_entries SET stage = ?, stage_at = COALESCE(stage_at, ?) WHERE id = ?').run(to, now, e.id);
+    }
+    return this.mustGet(id);
+  }
+
+  /** An option by id, fingerprint, or title (exact, then the only one containing it). */
+  findOption(notebookId: string, ref: string): NotebookEntry | undefined {
+    const options = this.entries(notebookId, 1000).filter((e) => e.kind === 'option');
+    const r = ref.trim();
+    const key = entryKey(r);
+    if (!key) return undefined;
+    const hit = options.find((e) => e.id === r || e.fingerprint === r.toLowerCase() || entryKey(e.title) === key);
+    if (hit) return hit;
+    const partial = options.filter((e) => entryKey(e.title).includes(key));
+    return partial.length === 1 ? partial[0] : undefined;
+  }
+
+  /** Move an option to one of the notebook's stages (reinstating it if it was ruled out). */
+  moveOption(notebookId: string, entryId: string, stage: string): NotebookEntry {
+    const nb = this.mustGet(notebookId);
+    const to = nb.stages.find((s) => s.toLowerCase() === stage.trim().toLowerCase());
+    if (!to) throw new Error(`"${stage}" isn't one of this notebook's stages${nb.stages.length ? ` (${nb.stages.join(', ')})` : ''}.`);
+    const e = this.mustGetOption(notebookId, entryId);
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET stage = ?, stage_at = ?, ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(to, now, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    return this.mustGetOption(notebookId, entryId);
+  }
+
+  /** Rule an option out, with why. It stays (for the funnel and the history); searches won't bring it back. */
+  ruleOut(notebookId: string, entryId: string, reason: string, by = 'you'): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    const why = reason.replace(/\s+/g, ' ').trim().slice(0, 200) || 'ruled out';
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = ?, ruled_out_reason = ?, ruled_out_by = ?, ruled_out_stage = ? WHERE id = ?').run(now, why, by, e.stage ?? null, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    return this.mustGetOption(notebookId, entryId);
+  }
+
+  /** Bring a ruled-out option back, at the stage it was at. */
+  reinstate(notebookId: string, entryId: string): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    this.db.prepare('UPDATE notebook_entries SET ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(e.id);
+    return this.mustGetOption(notebookId, entryId);
+  }
+
+  private mustGetOption(notebookId: string, entryId: string): NotebookEntry {
+    const row = this.db.prepare("SELECT * FROM notebook_entries WHERE id = ? AND notebook_id = ? AND kind = 'option'").get(entryId, notebookId) as Record<string, unknown> | undefined;
+    if (!row) throw new Error('No such option in this notebook.');
+    return this.toEntry(row);
   }
 
   /** Replace what options record. Invalid fields are dropped; at most 12. */
@@ -205,7 +284,7 @@ export class NotebookStore {
    * Add an option, or, when one with the same fingerprint is already here,
    * refresh its facts and when it was last seen instead of adding it twice.
    */
-  upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean } {
+  upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
     const nb = this.mustGet(notebookId);
     const data = cleanData(input.data, nb.fields);
     const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
@@ -222,13 +301,15 @@ export class NotebookStore {
         const merged = { ...(prev.data ?? {}), ...data };
         this.db.prepare('UPDATE notebook_entries SET data_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
           .run(JSON.stringify(merged), now, input.runId ?? null, prev.id);
-        return { entry: { ...prev, data: merged, lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true };
+        // Ruled out stays ruled out: a search finding it again only notes when it was seen.
+        return { entry: { ...prev, data: merged, lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(prev.ruledOut ? { ruledOut: true } : {}) };
       }
     }
     const entry = this.addEntry(notebookId, { kind: 'option', title: input.title, body: input.body, by: input.by, runId: input.runId });
-    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ?, last_seen_at = ? WHERE id = ?')
-      .run(Object.keys(data).length ? JSON.stringify(data) : null, fingerprint ?? null, now, entry.id);
-    return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now }, seenAgain: false };
+    const stage = nb.stages[0];
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ?, last_seen_at = ?, stage = ?, stage_at = ? WHERE id = ?')
+      .run(Object.keys(data).length ? JSON.stringify(data) : null, fingerprint ?? null, now, stage ?? null, stage ? now : null, entry.id);
+    return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now, ...(stage ? { stage, stageAt: now } : {}) }, seenAgain: false };
   }
 
   /**
@@ -396,6 +477,7 @@ export class NotebookStore {
       criteria: parse<NotebookCriterion[]>(r.criteria_json, []),
       pipeline: parse<string[]>(r.pipeline_json, []),
       fields: parse<NotebookField[]>(r.fields_json, []),
+      stages: parse<string[]>(r.stages_json, []),
       cadence: String(r.cadence ?? ''),
       status: String(r.status) as NotebookStatus,
       ...(r.decision ? { decision: String(r.decision) } : {}),
@@ -416,6 +498,9 @@ export class NotebookStore {
       ...(r.data_json ? { data: (() => { try { return JSON.parse(String(r.data_json)) as Record<string, NotebookFieldValue>; } catch { return {}; } })() } : {}),
       ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
+      ...(r.stage ? { stage: String(r.stage) } : {}),
+      ...(r.stage_at ? { stageAt: String(r.stage_at) } : {}),
+      ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}) } } : {}),
       createdAt: String(r.created_at),
     };
   }
@@ -556,6 +641,19 @@ export interface NotebookViewOption {
   runId?: string;
   firstSeenAt: string;
   lastSeenAt: string;
+  /** Its stage, and that stage's position (0 = the first). */
+  stage?: string;
+  stageIndex: number;
+  ruledOut?: { reason: string; at: string; by: string; stage?: string };
+}
+
+/** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
+export interface NotebookFunnelStage {
+  stage: string;
+  reached: number;
+  here: number;
+  ruledOut: number;
+  reasons: Array<{ reason: string; count: number }>;
 }
 
 export interface NotebookViewEntry { id: string; kind: NotebookEntryKind; title: string; body: string; by: string; runId?: string; at: string }
@@ -575,7 +673,13 @@ export interface NotebookViewData {
     criteria: NotebookCriterion[];
     progress: { met: number; total: number };
     fields: NotebookField[];
+    stages: string[];
+    /** Options still in the running, then the ruled-out ones. */
     options: NotebookViewOption[];
+    /** Per stage, in order; empty when the notebook has no stages. */
+    funnel: NotebookFunnelStage[];
+    active: number;
+    ruledOutCount: number;
     notes: NotebookViewEntry[];
     evidence: NotebookViewEntry[];
     decisions: NotebookViewEntry[];
@@ -610,14 +714,32 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
+      ...(e.stage ? { stage: e.stage } : {}),
+      stageIndex: Math.max(0, nb.stages.findIndex((s) => s === (e.ruledOut?.stage ?? e.stage))),
+      ...(e.ruledOut ? { ruledOut: e.ruledOut } : {}),
+    };
+  });
+  options.sort((a, b) => Number(!!a.ruledOut) - Number(!!b.ruledOut));
+  const funnel: NotebookFunnelStage[] = nb.stages.map((stage, i) => {
+    const out = options.filter((o) => o.ruledOut && o.stageIndex === i);
+    const reasons = new Map<string, number>();
+    for (const o of out) { const r = o.ruledOut!.reason.toLowerCase(); reasons.set(r, (reasons.get(r) ?? 0) + 1); }
+    return {
+      stage,
+      reached: options.filter((o) => o.stageIndex >= i).length,
+      here: options.filter((o) => !o.ruledOut && o.stageIndex === i).length,
+      ruledOut: out.length,
+      reasons: [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => ({ reason, count })),
     };
   });
   return {
     notebook: {
       id: nb.id, title: nb.title, statement: nb.statement, status: nb.status,
       ...(nb.decision ? { decision: nb.decision } : {}),
-      limits: nb.params, criteria: nb.criteria, progress: notebookProgress(nb), fields: nb.fields,
-      options,
+      limits: nb.params, criteria: nb.criteria, progress: notebookProgress(nb), fields: nb.fields, stages: nb.stages,
+      options, funnel,
+      active: options.filter((o) => !o.ruledOut).length,
+      ruledOutCount: options.filter((o) => o.ruledOut).length,
       notes: entries.filter((e) => e.kind === 'note').map(view),
       evidence: entries.filter((e) => e.kind === 'evidence').map(view),
       decisions: entries.filter((e) => e.kind === 'decision').map(view),

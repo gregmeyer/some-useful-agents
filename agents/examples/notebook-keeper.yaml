@@ -36,7 +36,8 @@ inputs:
     default: ""
     description: >
       Titles of the notebook's entries so far, one per line with their kind
-      (options also show their fingerprint), so you add only what's new.
+      (options also show their fingerprint, and whether they're ruled out
+      and why), so you add only what's new.
 
 nodes:
   - id: keep
@@ -89,6 +90,11 @@ nodes:
         (same fingerprint) that this run found again goes in again with that
         fingerprint and its current facts, so the notebook updates it
         instead of adding a copy.
+      An option marked RULED OUT was turned down (by the person or for a
+      reason that still holds): never suggest it again, reworded or not,
+      and don't suggest others that fail for the same reason (if three cars
+      were ruled out for high mileage, skip high-mileage ones).
+
       If the notebook has no fields yet and this run found options, also
       return "fields": the 4–8 facts that matter for comparing them, each
       {"key": lowercase_snake, "label", "type": money|number|text|url|image|date,
@@ -104,7 +110,12 @@ nodes:
       (money, price role, better higher, range), title, company (org),
       location, remote, level, posted (when), posting_url. For products:
       price, rating (measure, better higher), store (org), in_stock,
-      product_url, photo. If it was a search that found
+      product_url, photo.
+      With the fields, also return "stages": the 3–6 steps an option goes
+      through on the way to a decision, starting with where new ones land.
+      For cars: Found, Checked, Test drive, Offer, Bought. For jobs: Found,
+      Applied, Screen, Interview, Offer. For products: Found, Shortlist,
+      Bought. If it was a search that found
       nothing that fits, add ONE note saying so, with where it looked
       ("Searched Craigslist Seattle for Foresters/RAV4s under $5k: nothing
       that fits yet"), so the notebook remembers it was tried. If the output
@@ -118,6 +129,7 @@ nodes:
       {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"price": 4023}, "fingerprint": "…"},
                    {"kind": "note", "title": "…", "body": "…"}],
        "fields": [],
+       "stages": [],
        "criteriaMet": [{"index": 0, "why": "…"}],
        "summary": "one line: what this run added"}
       </notebook>

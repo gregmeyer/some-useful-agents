@@ -192,3 +192,51 @@ describe('notebook option fields', () => {
     expect(v.fields.map((f) => f.key)).toContain('photo');
   });
 });
+
+describe('notebook stages and ruling out (a funnel)', () => {
+  it('moves options through stages, rules them out with a reason, keeps them out, and counts the funnel', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    let nb = s.create({ title: 'Find a staff role' });
+    s.setFields(nb.id, [{ key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    nb = s.setStages(nb.id, ['Found', 'Applied', ' applied ', 'Screen', 'Interview', 'Offer', '']);
+    expect(nb.stages).toEqual(['Found', 'Applied', 'Screen', 'Interview', 'Offer']);
+
+    const add = (title: string, n: number) => s.upsertOption(nb.id, { title, by: 'agent:jobs', data: { posting_url: `https://boards.greenhouse.io/x/jobs/${String(n)}` } }).entry;
+    const stripe = add('Staff Engineer, Stripe', 1);
+    const plaid = add('Staff Engineer, Plaid', 2);
+    const ramp = add('Staff Engineer, Ramp', 3);
+    add('Staff Engineer, Brex', 4);
+    expect(stripe.stage).toBe('Found');
+
+    s.moveOption(nb.id, stripe.id, 'interview');
+    s.moveOption(nb.id, plaid.id, 'Applied');
+    s.moveOption(nb.id, ramp.id, 'Applied');
+    expect(() => s.moveOption(nb.id, ramp.id, 'Hired')).toThrow("isn't one of this notebook's stages");
+    const out = s.ruleOut(nb.id, plaid.id, '  No callback ', 'you');
+    expect(out.ruledOut).toMatchObject({ reason: 'No callback', by: 'you', stage: 'Applied' });
+    s.ruleOut(nb.id, ramp.id, 'no callback');
+
+    // A later search finds Plaid again: it stays ruled out.
+    const again = s.upsertOption(nb.id, { title: 'Staff Engineer (Plaid)', by: 'agent:jobs', data: { posting_url: 'https://boards.greenhouse.io/x/jobs/2' } });
+    expect(again).toMatchObject({ seenAgain: true, ruledOut: true });
+    expect(s.findOption(nb.id, 'plaid')?.ruledOut?.reason).toBe('No callback');
+    expect(s.findOption(nb.id, 'Staff Engineer')).toBeUndefined(); // ambiguous
+
+    const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook;
+    expect(v).toMatchObject({ active: 2, ruledOutCount: 2 });
+    expect(v.options.slice(-2).every((o) => o.ruledOut)).toBe(true); // ruled out last
+    expect(v.funnel.map((f) => `${f.stage}:${f.reached}/${f.here}/${f.ruledOut}`)).toEqual(['Found:4/1/0', 'Applied:3/0/2', 'Screen:1/0/0', 'Interview:1/1/0', 'Offer:0/0/0']);
+    expect(v.funnel[1].reasons).toEqual([{ reason: 'no callback', count: 2 }]);
+
+    // Reinstate, and moving an option reinstates it too.
+    expect(s.reinstate(nb.id, ramp.id).ruledOut).toBeUndefined();
+    expect(s.moveOption(nb.id, plaid.id, 'Screen').ruledOut).toBeUndefined();
+
+    // Renaming stages: a stage that's gone sends its options to the first.
+    s.setStages(nb.id, ['Found', 'Applied', 'Offer']);
+    expect(s.findOption(nb.id, 'stripe')?.stage).toBe('Found');
+    expect(s.findOption(nb.id, 'ramp')?.stage).toBe('Applied');
+  });
+});
