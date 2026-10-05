@@ -324,8 +324,11 @@ function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false):
     <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/ask" class="nb-talk__form ${big ? 'nb-talk__form--big' : ''}" data-ask-fix>
       <label class="nb-talk__next" for="nb-talk-${big ? 'big' : 'side'}">${step.hint}</label>
       <textarea id="nb-talk-${big ? 'big' : 'side'}" name="text" required rows="${big ? '4' : '3'}" class="form-field"
-        placeholder="${step.placeholder}"></textarea>
-      <button type="submit" class="btn btn--primary btn--sm">Tell sua</button>
+        placeholder="${step.placeholder}" data-enter-sends aria-describedby="nb-talk-keys-${big ? 'big' : 'side'}"></textarea>
+      <div class="nb-talk__send">
+        <span class="nb-talk__keys" id="nb-talk-keys-${big ? 'big' : 'side'}"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
+        <button type="submit" class="btn btn--primary btn--sm">Tell sua</button>
+      </div>
     </form>`;
 }
 

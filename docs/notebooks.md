@@ -33,6 +33,8 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
 
+- **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
+
 ## A notebook's page
 
 - **The cover** shows the title, status, what it's for, the parameters, and the cadence. The pipeline is drawn as connected agents, each with its last run (ran, failed, not run yet, not installed). A ring shows how many criteria are met; click a criterion to tick it.
