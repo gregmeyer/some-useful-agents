@@ -114,6 +114,14 @@ inputs:
       complete cleanly and still miss its outcome — when this says NO or
       PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
       healthy. Empty when the agent declares no `outcome:` block.
+  BOARD_OUTLINE:
+    type: string
+    required: false
+    default: ""
+    description: >
+      When the conversation was started from a board: its outline (sections,
+      grids, tiles) with the ids an arrange-board action's OPS uses, and its
+      version. Empty otherwise.
   NOTEBOOKS:
     type: string
     required: false
@@ -344,6 +352,9 @@ nodes:
 
       Their notebooks (see GOALS AND NOTEBOOKS):
       {{inputs.NOTEBOOKS}}
+
+      The board they're on, when they asked from one (see WHERE THE OPERATOR IS):
+      {{inputs.BOARD_OUTLINE}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

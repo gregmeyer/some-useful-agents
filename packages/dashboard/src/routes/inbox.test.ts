@@ -2258,3 +2258,52 @@ describe('a conversation knows the page it was started from', () => {
     expect(inboxStore.get(plain.headers['x-inbox-id'])!.contextJson).toBeUndefined();
   });
 });
+
+describe('sua arranges the board you\'re on (arrange-board)', () => {
+  it('previews which tiles go, applies as one board version, refuses a stale card; triage sees the outline', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const node = [{ id: 'n', type: 'shell' as const, command: 'echo hi', dependsOn: [] }];
+    for (const id of ['hn-top', 'hn-rich']) agentStore.createAgent({ id, name: id === 'hn-top' ? 'HN Top 3' : 'HN Rich', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
+    const { BoardsStore, boardDocFromItems, boardDocAgentIds } = await import('@some-useful-agents/core');
+    const boards = new BoardsStore(ctx.runStore.databaseHandle());
+    boards.saveDoc({ id: 'user:hn', name: 'Hacker News', doc: boardDocFromItems([
+      { id: 'a', kind: 'agent', agentId: 'hn-top', x: 0, y: 0, w: 4, h: 4 },
+      { id: 'b', kind: 'agent', agentId: 'hn-rich', x: 4, y: 0, w: 4, h: 4 },
+    ]) });
+    const start = boards.loadDocOrDerive('user:hn')!;
+    const topTileId = String(start.doc.components.find((c) => (c as { agentId?: string }).agentId === 'hn-top')!.id);
+
+    const { boardOutlineFor } = await import('../lib/board-arrange.js');
+    expect(await boardOutlineFor(ctx, 'user:hn')).toContain(topTileId);
+
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+    const parsed = parseProposedActions([{ type: 'arrange-board', rationale: 'Top 3 repeats the rich tile', inputs: { BOARD: 'user:hn', OPS: [{ op: 'remove', id: topTileId }] } }], []);
+    expect(parsed.accepted[0]).toMatchObject({ agentId: 'arrange-board', effect: 'write', ctaLabel: 'Apply' });
+    expect(parseProposedActions([{ type: 'arrange-board', inputs: { BOARD: 'user:hn', OPS: '[{"op":"explode"}]' } }], []).rejected[0].reason).toContain("isn't valid");
+
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.base?.version).toBe(start.version);
+    expect(card.surfaceChanges).toEqual([
+      { what: 'Remove', before: '—', after: expect.stringContaining('tile') },
+      { what: 'Tiles', before: '2', after: '1' },
+    ]);
+    expect(card.inputs.BOARD_NAME).toBe('Hacker News');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'fix this dashboard', body: '(empty)' });
+    inboxStore.addResponse(m.id, 'action', 'arrange', JSON.stringify(card));
+    const frag = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('Arrange <span class="mono">Hacker News</span>');
+    expect(frag.text).toContain('changes the board');
+    expect(frag.text).toContain('href="/dashboards/user%3Ahn">Open the board</a>');
+
+    const done = await engine.executeArrangeBoard(ctx, card);
+    expect(done).toMatchObject({ status: 'completed' });
+    const after = boards.loadDocOrDerive('user:hn')!;
+    expect(after.version).toBe(start.version + 1);
+    expect(boardDocAgentIds(after.doc)).toEqual(['hn-rich']);
+    const stale = await engine.executeArrangeBoard(ctx, card);
+    expect(stale.status).toBe('failed');
+    expect(stale.refusalReason).toContain('The board changed since this was proposed');
+  });
+});

@@ -97,3 +97,7 @@ Agent views can't use these: they belong to boards. A board document is checked 
 ## Related
 - [Dashboard](dashboard.md) — Pulse and named dashboards
 - [A2UI views](a2ui-views.md) — how each tile is drawn
+
+## Arranging a board by asking sua
+
+From a board (or Pulse), ask sua in the drawer, e.g. "fix this dashboard so it doesn't duplicate everything" or "put the weather first and make the news tile wider". sua sees the board's outline and answers with an **Arrange <board>** card. The card lists each change in plain words (remove, move, add, resize, retitle) and the tile count before and after. **Apply** saves it as one new version of the board through the same path as ✎ Arrange, so you can undo it there. If the board changed after the card was made, Apply refuses and you ask again.

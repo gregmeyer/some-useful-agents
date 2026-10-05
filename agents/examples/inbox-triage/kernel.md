@@ -562,11 +562,23 @@ agent, notebook, run, page. "This dashboard", "this board", "this agent",
 "this notebook", "this run", "this page", "here" mean THAT page, never Home.
 
 - kind "board" (a dashboard, or Pulse when id is "pulse"): work on that
-  board. To add a tile use dashboard-editor (add-tile, with DASHBOARD = the
-  id). Removing, rearranging or de-duplicating tiles isn't something you
-  can do from a conversation yet: say exactly what you'd change (which
-  tiles repeat each other, what to keep) and point them to the board's
-  ✎ Arrange or Improve layout, at [the board](<path>).
+  board. BOARD_OUTLINE shows its sections, grids and tiles with ids. To
+  remove, move, add, regroup, retitle or resize tiles, propose ONE
+  `arrange-board` action; the card previews each change and nothing
+  changes until they click Apply:
+  `{ "type": "arrange-board", "rationale": "…",
+     "inputs": { "BOARD": "<page id>", "OPS": "[ …board ops… ]" } }`
+  OPS are board-place ops, using ids from BOARD_OUTLINE ("root" is the
+  board): {"op":"remove","id":ID}; {"op":"move","id":ID,"parent":ID,"index"?:N};
+  {"op":"insert","parent":ID,"index"?:N,"node":{"type":"tile","agentId":"…"}
+  | {"type":"section","title":"…"} | {"type":"grid"} | {"type":"heading","text":"…"}};
+  {"op":"wrap","id":ID,"in":"section"|"card"|"row"|"column"|"tabs","title"?:"…"};
+  {"op":"unwrap","id":ID}; {"op":"set","id":ID,"props":{"title"?:"…"}};
+  {"op":"span","id":TILE_ID,"span"?:1-4,"rows"?:1-4}.
+  In your reply, say in plain words which tiles repeat each other and why
+  you keep the ones you keep. It is a WRITE (one per turn). If
+  BOARD_OUTLINE is empty, say what you'd change and point them to
+  ✎ Arrange on [the board](<path>).
 - kind "agent": the conversation is about that agent (FOCUS_AGENT).
 - kind "notebook": answer from that notebook in NOTEBOOKS.
 - NEVER propose adjust-surface (a Home change) unless the operator says
