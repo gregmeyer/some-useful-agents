@@ -46,6 +46,9 @@ const INPUT_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
  * Match `{{upstream.<nodeId>.result}}` anywhere in a string. Captures the
  * node id so we can cross-check against the declared node set.
  */
+/** {{nodes.X}}, {{node.X.result}}, {{steps.X}}, {{upstream.X}}: node refs the executor won't substitute. */
+const MISWRITTEN_NODE_REF_RE = /\{\{\s*(nodes|node|steps|step|upstream)\.([a-z0-9][a-z0-9_-]*)(\.[a-zA-Z0-9_.]+)?\s*\}\}/g;
+
 /** Matches both {{upstream.nodeId.result}} and {{upstream.nodeId.fieldPath}} */
 const UPSTREAM_REF_RE = /\{\{upstream\.([a-z0-9][a-z0-9_-]*)\.([a-zA-Z0-9_.]+)\}\}/g;
 
@@ -713,6 +716,19 @@ export const agentV2Schema = z.object({
             message: `Template references {{inputs.${ref}}} but "${ref}" is not declared in this agent's inputs block.`,
           });
         }
+      }
+      // Look-alike refs to another node ({{nodes.X}}, {{steps.X}}, {{upstream.X}}
+      // with no field) aren't substituted; they'd reach the prompt as literal text.
+      for (const m of text.matchAll(MISWRITTEN_NODE_REF_RE)) {
+        const ref = m[2];
+        if (!nodeIds.has(ref) || (m[1] === 'upstream' && m[3])) continue;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: basePath,
+          message:
+            `Template "${m[0]}" is not substituted: refer to another node's output as ` +
+            `{{upstream.${ref}.result}} (and list "${ref}" in dependsOn).`,
+        });
       }
       const upstreamRefs = extractUpstreamReferences(text);
       for (const ref of upstreamRefs) {
