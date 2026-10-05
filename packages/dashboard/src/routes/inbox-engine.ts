@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
 import { readSettingsForm, applySettings, settingsBodyFromChanges, describeSettings } from '../lib/agent-settings.js';
@@ -180,7 +181,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -836,6 +837,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'adjust-surface') {
     return executeAdjustSurface(ctx, meta);
   }
+  if (meta.agentId === 'arrange-board') {
+    return executeArrangeBoard(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1030,6 +1034,27 @@ export function executeAgentSchedule(
     status: 'completed',
     summary: `Set "${label}" to run ${cronToHuman(schedule)} (\`${schedule}\`). ${restart}`,
   };
+}
+
+/**
+ * Apply sua's "Arrange <board>" card: through board-place, as one new board
+ * version (undo from the board), refused if the board changed since.
+ */
+export async function executeArrangeBoard(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const { ops, error } = parseBoardOps(meta.inputs.OPS ?? '');
+  if (!ops) return { status: 'failed', refusalReason: error };
+  const board = meta.inputs.BOARD ?? '';
+  // Check the version first: after another change, the ops may not even apply.
+  const now = boardsOf(ctx).loadDocOrDerive(board);
+  if (meta.base && now && now.version !== meta.base.version) {
+    return { status: 'failed', refusalReason: `The board changed since this was proposed (it's on version ${String(now.version)} now). Ask again to get changes against what it shows now.` };
+  }
+  const out = await applyBoardChange(ctx, board, ops, meta.base?.version);
+  if (!out.ok) return { status: 'failed', refusalReason: out.text.replace(/^Nothing was changed: /, '') };
+  return { status: 'completed', summary: `Saved ${meta.inputs.BOARD_NAME ?? board} as a new version. Open [the board](${boardHref(board)}) to see it; undo from its ✎ Arrange.` };
 }
 
 /**
@@ -1245,6 +1270,16 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+  if (action.agentId === 'arrange-board' && !action.base) {
+    try {
+      const { ops } = parseBoardOps(action.inputs.OPS ?? '');
+      if (!ops) return action;
+      const p = previewBoardChange(boardsOf(ctx), action.inputs.BOARD ?? '', ops);
+      return { ...action, base: { version: p.version, yaml: '' }, surfaceChanges: p.changes, inputs: { ...action.inputs, BOARD_NAME: p.name } };
+    } catch {
+      return action;
+    }
+  }
   if (action.agentId === 'adjust-surface' && !action.base) {
     try {
       const home = readHomeSurface(ctx);
@@ -1911,6 +1946,9 @@ export async function runTriageAgent(
   // including a "MOST RECENT RUN FAILED" block — so triage can REPORT a failure
   // (node + error) directly instead of telling the operator to "run it and see".
   const focusAgentId = resolveFocusAgentId(ctx, message.agentId, responsesSnapshot);
+  // Asked from a board: its outline (with ids) so sua can propose arrange-board.
+  const askedFromBoard = (() => { try { const p = (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; id?: string } }).page; return p?.kind === 'board' ? p.id : undefined; } catch { return undefined; } })();
+  const boardOutline = askedFromBoard ? await boardOutlineFor(ctx, askedFromBoard).catch(() => '') : '';
   const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
   // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
   // it did. Run output alone can't answer that — a clean run with an empty
@@ -1971,6 +2009,7 @@ export async function runTriageAgent(
           FOCUS_AGENT: focusAgentId ?? '',
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
+          BOARD_OUTLINE: boardOutline,
           // Notebooks: goals kept over time ("where's my used car goal?").
           NOTEBOOKS: (() => {
             try {
@@ -2159,7 +2198,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ((a as { type?: unknown }).type === 'agent-settings' || (a as { type?: unknown }).type === 'adjust-surface'),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

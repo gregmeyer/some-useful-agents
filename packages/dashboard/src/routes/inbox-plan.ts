@@ -6,6 +6,7 @@ import {
 import { getContext } from '../context.js';
 import { settingsBodyFromChanges } from '../lib/agent-settings.js';
 import { parseSurfaceOps } from '../lib/surface-adjust.js';
+import { parseBoardOps } from '../lib/board-arrange.js';
 import {
   stableStringifyInputs,
   parseActionMeta,
@@ -423,6 +424,36 @@ export function parseProposedActions(
         kind: 'action',
         status: 'proposed',
         agentId: 'adjust-surface',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'write',
+        ctaLabel: 'Apply',
+      });
+      continue;
+    }
+    // `arrange-board` rearranges the board the operator is on: inputs.BOARD (id)
+    // + inputs.OPS (board-place ops). Shape here; the card previews, Apply saves.
+    if (type === 'arrange-board') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (k === 'OPS' && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.BOARD || !inputs.OPS) {
+        rejected.push({ agentId: 'arrange-board', reason: 'arrange-board needs inputs.BOARD and inputs.OPS' });
+        continue;
+      }
+      const parsedOps = parseBoardOps(inputs.OPS);
+      if (parsedOps.error) {
+        rejected.push({ agentId: 'arrange-board', reason: parsedOps.error });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'arrange-board',
         inputs,
         rationale: rationaleRaw || undefined,
         effect: 'write',
