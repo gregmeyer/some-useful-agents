@@ -20,8 +20,21 @@ export const NOTEBOOK_PAGE_JS = `
       var ae = document.activeElement;
       if (ae && main.contains(ae) && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) return;
       fetch('/notebooks/' + encodeURIComponent(id) + '/main', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
-        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); var n = Number(r.headers.get('X-Notebook-Entries')) || 0; return r.text().then(function (t) { return { n: n, t: t }; }); })
+        .then(function (r) {
+          if (!r.ok) throw new Error(String(r.status));
+          var n = Number(r.headers.get('X-Notebook-Entries')) || 0;
+          var hint = r.headers.get('X-Notebook-Hint');
+          var ph = r.headers.get('X-Notebook-Placeholder');
+          return r.text().then(function (t) { return { n: n, t: t, hint: hint, ph: ph }; });
+        })
         .then(function (res) {
+          // The talk box's hint and ghost text follow the notebook's next step.
+          try {
+            var labels = document.querySelectorAll('.nb-talk__next');
+            for (var i = 0; i < labels.length; i++) if (res.hint) labels[i].textContent = decodeURIComponent(res.hint);
+            var boxes = document.querySelectorAll('.nb-talk__form textarea');
+            for (var j = 0; j < boxes.length; j++) if (res.ph) boxes[j].setAttribute('placeholder', decodeURIComponent(res.ph));
+          } catch (_) { /* keep what's shown */ }
           if (res.n === count) return;
           var wasEmpty = count === 0;
           count = res.n;
