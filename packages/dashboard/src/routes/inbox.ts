@@ -355,6 +355,29 @@ inboxRouter.post('/agents/:id/ask-change', (req: Request, res: Response) => {
   res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
 });
 
+/**
+ * Where a conversation was started from, so sua reads "this dashboard",
+ * "this agent" or "this notebook" as the one on screen. Only same-site paths.
+ */
+export function pageContextFrom(rawPath: unknown, rawTitle: unknown):
+  { path: string; title: string; kind: 'home' | 'board' | 'agent' | 'notebook' | 'run' | 'page'; id?: string } | undefined {
+  if (typeof rawPath !== 'string' || !rawPath.startsWith('/') || rawPath.startsWith('//') || rawPath.length > 300) return undefined;
+  const path = rawPath.split(/[?#]/)[0];
+  const title = typeof rawTitle === 'string' ? rawTitle.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+  const seg = (re: RegExp) => { const m = re.exec(path); if (!m) return undefined; try { return decodeURIComponent(m[1]); } catch { return m[1]; } };
+  if (path === '/' || path === '/inbox' || path.startsWith('/inbox/')) return { path, title, kind: 'home' };
+  if (path === '/pulse') return { path, title, kind: 'board', id: 'pulse' };
+  const board = seg(/^\/(?:dashboards|boards)\/([^/]+)/);
+  if (board) return { path, title, kind: 'board', id: board };
+  const agent = seg(/^\/agents\/([^/]+)/);
+  if (agent && agent !== 'new' && agent !== 'build') return { path, title, kind: 'agent', id: agent };
+  const notebook = seg(/^\/notebooks\/([^/]+)/);
+  if (notebook) return { path, title, kind: 'notebook', id: notebook };
+  const run = seg(/^\/runs\/([^/]+)/);
+  if (run) return { path, title, kind: 'run', id: run };
+  return { path, title, kind: 'page' };
+}
+
 inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.inboxStore) {
@@ -379,6 +402,7 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
       ? deriveTitleFromBody(bodyRaw)
       : DEFAULT_NEW_CONVERSATION_TITLE;
   try {
+    const page = pageContextFrom(req.body?.page, req.body?.pageTitle);
     const created = ctx.inboxStore.add({
       priority: 'medium',
       source: 'manual',
@@ -386,6 +410,9 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
       // The thread body stays a placeholder; the conversation lives in
       // responses (the detail view renders responses, not the body).
       body: '(empty)',
+      // Asked from an agent's page: the conversation is about that agent.
+      ...(page?.kind === 'agent' && page.id && ctx.agentStore.getAgent(page.id) ? { agentId: page.id } : {}),
+      ...(page ? { contextJson: JSON.stringify({ page }) } : {}),
     });
     if (bodyRaw) {
       const userResponse = ctx.inboxStore.addResponse(created.id, 'user', bodyRaw);
