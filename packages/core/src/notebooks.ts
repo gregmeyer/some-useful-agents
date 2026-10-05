@@ -42,6 +42,8 @@ export interface Notebook {
   /** When the pipeline last ran, and what it added (one line). */
   lastRunAt?: string;
   lastRunNote?: string;
+  /** Its conversation with sua (an inbox thread id). */
+  conversationId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -122,9 +124,27 @@ export class NotebookStore {
       CREATE INDEX IF NOT EXISTS notebook_entries_by_notebook ON notebook_entries (notebook_id, created_at);
     `);
     // G2 columns, added to tables created before them.
-    for (const [table, col] of [['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT']] as const) {
+    for (const [table, col] of [['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'conversation_id TEXT']] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
+  }
+
+  /** Link the notebook to its conversation with sua. */
+  setConversation(id: string, threadId: string): void {
+    this.db.prepare('UPDATE notebooks SET conversation_id = ? WHERE id = ?').run(threadId, id);
+  }
+
+  /** Add parameters / criteria (skipping ones it has), e.g. from the conversation. */
+  extend(id: string, add: { params?: readonly string[]; criteria?: readonly string[] }): Notebook {
+    const nb = this.mustGet(id);
+    const has = (list: readonly string[], s: string) => list.some((x) => x.toLowerCase() === s.toLowerCase());
+    const params = [...nb.params];
+    for (const p of clean(add.params)) if (!has(params, p)) params.push(p);
+    const criteria = [...nb.criteria];
+    for (const c of clean(add.criteria, 10)) if (!has(criteria.map((x) => x.text), c)) criteria.push({ text: c, met: false });
+    this.db.prepare('UPDATE notebooks SET params_json = ?, criteria_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(params.slice(0, 20)), JSON.stringify(criteria.slice(0, 10)), new Date().toISOString(), id);
+    return this.mustGet(id);
   }
 
   /** Record a pipeline run's outcome (one line) on the notebook. */
@@ -259,6 +279,7 @@ export class NotebookStore {
       ...(r.decided_at ? { decidedAt: String(r.decided_at) } : {}),
       ...(r.last_run_at ? { lastRunAt: String(r.last_run_at) } : {}),
       ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
+      ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };

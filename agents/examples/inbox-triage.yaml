@@ -114,6 +114,14 @@ inputs:
       complete cleanly and still miss its outcome — when this says NO or
       PARTIAL, the agent is not working even though FOCUS_AGENT_RUN looks
       healthy. Empty when the agent declares no `outcome:` block.
+  NOTEBOOK_FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: >
+      When this conversation belongs to a notebook: that notebook as JSON
+      (what it's for, parameters, criteria, pipeline, its entries). Empty
+      otherwise.
   BOARD_OUTLINE:
     type: string
     required: false
@@ -355,6 +363,9 @@ nodes:
 
       The board they're on, when they asked from one (see WHERE THE OPERATOR IS):
       {{inputs.BOARD_OUTLINE}}
+
+      The notebook this conversation belongs to (see IN A NOTEBOOK'S CONVERSATION):
+      {{inputs.NOTEBOOK_FOCUS}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

@@ -131,7 +131,12 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
   const regions = compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.length === 0) {
-    return html`<p class="nb-empty">Nothing here yet. Add a note, an option you're weighing, or evidence you found; agents in the pipeline will add theirs as they run.</p>`;
+    return html`
+      <section class="nb-start" aria-labelledby="nb-start-title">
+        <h2 class="nb-start__title" id="nb-start-title">Tell sua what you're looking for</h2>
+        <p class="nb-start__sub">Talk it through the way you would with a friend: who it's for, budget, must-haves, what you've already seen or ruled out. sua files it here as you go (notes, options, limits, what "done" means) and can set up agents to keep looking.</p>
+        ${talkForm(nb, true)}
+      </section>`;
   }
   return html`${regions.map((r) => html`
     <section class="nb-region" data-surface-region="${r.id}">
@@ -140,11 +145,29 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
     </section>`) as unknown as SafeHtml[]}`;
 }
 
-function sideForms(nb: Notebook): SafeHtml {
+/** The one box: tell sua, and it files it (opens the notebook's conversation beside the page). */
+function talkForm(nb: Notebook, big = false): SafeHtml {
+  return html`
+    <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/ask" class="nb-talk__form ${big ? 'nb-talk__form--big' : ''}" data-ask-fix>
+      <label class="nb-sr" for="nb-talk-${big ? 'big' : 'side'}">Tell sua</label>
+      <textarea id="nb-talk-${big ? 'big' : 'side'}" name="text" required rows="${big ? '4' : '3'}" class="form-field"
+        placeholder="e.g. It's for my daughter, she's 17. Budget $3–8k, mostly city driving, she likes Subarus and Hondas. We saw a 2012 Forester with 140k miles for $7,500."></textarea>
+      <button type="submit" class="btn btn--primary btn--sm">Tell sua</button>
+    </form>`;
+}
+
+function sideForms(nb: Notebook, hasEntries: boolean): SafeHtml {
   const id = encodeURIComponent(nb.id);
   return html`
-    <section class="nb-side__card" aria-labelledby="nb-add">
-      <h2 class="nb-side__title" id="nb-add">Add to this notebook</h2>
+    ${hasEntries || nb.conversationId ? html`
+      <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
+        <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
+        <p class="nb-talk__hint">What you tell sua lands here: notes, options, limits, what "done" means.</p>
+        ${talkForm(nb)}
+        ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
+      </section>` : html``}
+    <details class="nb-side__card nb-addself">
+      <summary class="nb-side__title">Add an entry yourself</summary>
       <form method="POST" action="/notebooks/${id}/entries" class="nb-form">
         <div class="nb-kinds" role="radiogroup" aria-label="What it is">
           ${(['note', 'option', 'evidence', 'decision'] as const).map((k, i) => html`
@@ -154,7 +177,7 @@ function sideForms(nb: Notebook): SafeHtml {
         <textarea name="body" rows="3" class="form-field" placeholder="Details (optional)"></textarea>
         <button type="submit" class="btn btn--sm">Add</button>
       </form>
-    </section>
+    </details>
     <details class="nb-side__card nb-edit">
       <summary class="nb-side__title">Edit this notebook</summary>
       <form method="POST" action="/notebooks/${id}/edit" class="nb-form">
@@ -176,10 +199,15 @@ export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[
     ${hero(args.nb, args.stages, args.running)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
-      <aside class="nb-body__side">${sideForms(args.nb)}</aside>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
+      <aside class="nb-body__side">${sideForms(args.nb, args.entries.length > 0)}</aside>
     </div>
   `));
+}
+
+/** The notebook's sections alone (GET /notebooks/:id/main), for live updates. */
+export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[]): string {
+  return render(surfaceColumn(nb, compiled, entries));
 }
 
 export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; entries: number }>; openNew?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {

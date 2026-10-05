@@ -10,6 +10,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage } from '../lib/notebook-chat.js';
+import { startNotebookPipeline } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
@@ -139,6 +141,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'dashboard-editor',
   'agent-schedule',
   'board-build',
+  // Additive and removable entry by entry: what you said goes into the notebook as you talk.
+  'notebook-add',
 ]);
 
 /**
@@ -181,7 +185,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -840,6 +844,12 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'arrange-board') {
     return executeArrangeBoard(ctx, meta);
   }
+  if (meta.agentId === 'notebook-add') {
+    return executeNotebookAdd(ctx, meta);
+  }
+  if (meta.agentId === 'notebook-pipeline') {
+    return executeNotebookPipeline(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1034,6 +1044,39 @@ export function executeAgentSchedule(
     status: 'completed',
     summary: `Set "${label}" to run ${cronToHuman(schedule)} (\`${schedule}\`). ${restart}`,
   };
+}
+
+/** What you said, into the notebook (applied as you talk; each entry can be removed). */
+export function executeNotebookAdd(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const { add, error } = parseNotebookAdd(meta.inputs.CHANGES ?? '');
+  if (!add) return { status: 'failed', refusalReason: error };
+  try {
+    const out = applyNotebookAdd(notebooksOf(ctx), meta.inputs.NOTEBOOK ?? '', add);
+    if (out.added.length === 0) return { status: 'completed', summary: 'The notebook already has all of that.' };
+    return { status: 'completed', summary: `Added ${String(out.added.length)} to the notebook${out.skipped ? ` (${String(out.skipped)} it already had)` : ''}.` };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Set the notebook's pipeline (and schedule), and run it once if asked. */
+export function executeNotebookPipeline(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const id = meta.inputs.NOTEBOOK ?? '';
+  const p = parseNotebookPipeline(ctx, meta.inputs.AGENTS ?? '', meta.inputs.CADENCE ?? '');
+  if (!p.agents) return { status: 'failed', refusalReason: p.error };
+  try {
+    notebooksOf(ctx).update(id, { pipeline: p.agents, ...(p.cadence !== undefined && meta.inputs.CADENCE !== undefined ? { cadence: p.cadence } : {}) });
+    const started = meta.inputs.RUN === '1' ? startNotebookPipeline(ctx, id) : undefined;
+    return { status: 'completed', summary: `Pipeline set: ${p.agents.join(' → ')}.${started?.started ? ' Running it now; new entries show up in the notebook as each agent finishes.' : ' Run it from the notebook any time.'}` };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
@@ -1270,6 +1313,27 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+  if ((action.agentId === 'notebook-add' || action.agentId === 'notebook-pipeline') && !action.surfaceChanges) {
+    try {
+      const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
+      const named = { ...action.inputs, ...(nb ? { NOTEBOOK_TITLE: nb.title } : {}) };
+      if (action.agentId === 'notebook-add') {
+        const { add } = parseNotebookAdd(action.inputs.CHANGES ?? '');
+        if (!add) return action;
+        const changes = [
+          ...add.entries.map((e) => ({ what: e.kind, before: '—', after: e.title })),
+          ...add.params.map((p) => ({ what: 'parameter', before: '—', after: p })),
+          ...add.criteria.map((c) => ({ what: 'done when', before: '—', after: c })),
+        ];
+        return { ...action, inputs: named, surfaceChanges: changes };
+      }
+      const p = parseNotebookPipeline(ctx, action.inputs.AGENTS ?? '', action.inputs.CADENCE ?? '');
+      if (!p.agents) return action;
+      return { ...action, inputs: named, surfaceChanges: describePipelineChange(nb, p.agents, p.cadence ?? '') };
+    } catch {
+      return action;
+    }
+  }
   if (action.agentId === 'arrange-board' && !action.base) {
     try {
       const { ops } = parseBoardOps(action.inputs.OPS ?? '');
@@ -1949,6 +2013,8 @@ export async function runTriageAgent(
   // Asked from a board: its outline (with ids) so sua can propose arrange-board.
   const askedFromBoard = (() => { try { const p = (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; id?: string } }).page; return p?.kind === 'board' ? p.id : undefined; } catch { return undefined; } })();
   const boardOutline = askedFromBoard ? await boardOutlineFor(ctx, askedFromBoard).catch(() => '') : '';
+  // The notebook this conversation is about (started on its page, or linked to it).
+  const threadNotebook = (() => { try { return notebookForThread(ctx, messageId, message.contextJson); } catch { return undefined; } })();
   const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
   // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
   // it did. Run output alone can't answer that — a clean run with an empty
@@ -2010,6 +2076,7 @@ export async function runTriageAgent(
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
+          NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook) : '',
           // Notebooks: goals kept over time ("where's my used car goal?").
           NOTEBOOKS: (() => {
             try {
@@ -2198,7 +2265,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
@@ -2260,7 +2327,9 @@ export async function runTriageAgent(
             : action.mode === 'resolve'
               ? 'Resolve this thread — nothing left to run or diagnose.'
               : `Run agent \`${action.agentId}\`.`);
-        const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(withEditorBase(ctx, action)));
+        // Stamp once (base version, preview, names) so an auto-run keeps it too.
+        const stamped = withEditorBase(ctx, action);
+        const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(stamped));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,
           agentId: action.agentId,
@@ -2367,7 +2436,7 @@ export async function runTriageAgent(
         // follow-up triage turn.
         if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
           const startedAt = Date.now();
-          const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
+          const runningMeta: InboxActionMeta = { ...stamped, status: 'running', startedAt, approvedBy: 'policy' };
           const claimed = ctx.inboxStore.transitionActionStatus(
             actionResp.id,
             'proposed',
