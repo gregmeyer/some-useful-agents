@@ -22,6 +22,8 @@ export interface NotebookAdd {
   params: string[];
   criteria: string[];
   statement?: string;
+  /** The params given are the whole new list (they replace limits they contradict). */
+  replaceParams?: boolean;
 }
 
 /** CHANGES as sua sends it: {entries?, params?, criteria?, statement?}. */
@@ -41,6 +43,7 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     params: strList(o.params, 10),
     criteria: strList(o.criteria, 10),
     ...(typeof o.statement === 'string' && o.statement.trim() ? { statement: o.statement.trim().slice(0, 500) } : {}),
+    ...((o as { replaceParams?: unknown }).replaceParams === true ? { replaceParams: true } : {}),
   };
   if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement) return { error: 'Nothing to add.' };
   return { add };
@@ -60,8 +63,16 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     store.addEntry(nb.id, { kind: e.kind, title: e.title, body: e.body, by });
     added.push(`${e.kind}: ${e.title}`);
   }
-  const before = { params: nb.params.length, criteria: nb.criteria.length };
-  const after = store.extend(nb.id, { params: add.params, criteria: add.criteria });
+  if (add.replaceParams && add.params.length) {
+    // The new list replaces the old: say what changed, not just what's new.
+    const was = new Set(nb.params.map((p) => p.toLowerCase()));
+    store.update(nb.id, { params: add.params });
+    for (const p of add.params) if (!was.has(p.toLowerCase())) added.push(`parameter: ${p}`);
+    const now = new Set(add.params.map((p) => p.toLowerCase()));
+    for (const p of nb.params) if (!now.has(p.toLowerCase())) added.push(`dropped parameter: ${p}`);
+  }
+  const before = { params: (add.replaceParams && add.params.length ? add.params : nb.params).length, criteria: nb.criteria.length };
+  const after = store.extend(nb.id, { params: add.replaceParams ? [] : add.params, criteria: add.criteria });
   for (const p of after.params.slice(before.params)) added.push(`parameter: ${p}`);
   for (const c of after.criteria.slice(before.criteria)) added.push(`done when: ${c.text}`);
   if (add.statement && !nb.statement) { store.update(nb.id, { statement: add.statement }); added.push(`what it's for: ${add.statement}`); }

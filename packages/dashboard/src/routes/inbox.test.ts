@@ -2385,3 +2385,28 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
     expect(frag.text).not.toContain('Context payload');
   });
 });
+
+describe('a notebook remembers its conversation', () => {
+  it('replaces limits that contradict, and shows sua\'s latest word on its page', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Car', params: ['125-175k miles', '3000-8000', 'AWD'] });
+    const { add } = parseNotebookAdd(JSON.stringify({ params: ['AWD', '135k-180k miles', '$3k-$5k'], replaceParams: true }));
+    const out = applyNotebookAdd(nbs, nb.id, add!);
+    expect(nbs.get(nb.id)!.params).toEqual(['AWD', '135k-180k miles', '$3k-$5k']);
+    expect(out.added).toEqual(['parameter: 135k-180k miles', 'parameter: $3k-$5k', 'dropped parameter: 125-175k miles', 'dropped parameter: 3000-8000']);
+    // Without replaceParams, params are only added.
+    applyNotebookAdd(nbs, nb.id, parseNotebookAdd(JSON.stringify({ params: ['Seattle area'] })).add!);
+    expect(nbs.get(nb.id)!.params).toHaveLength(4);
+
+    const t = inboxStore.add({ priority: 'medium', source: 'manual', title: 'Notebook: Car', body: '(empty)' });
+    nbs.setConversation(nb.id, t.id);
+    inboxStore.addResponse(t.id, 'triage', 'Seattle came back **empty**, so I drafted Used Car Coverage Sweep.');
+    const page = await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('class="nb-talk__last"');
+    expect(page.text).toContain('Seattle came back empty, so I drafted Used Car Coverage Sweep.');
+  });
+});

@@ -88,6 +88,10 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
+export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
+  return keep(ctx, NotebookStore.fromHandle(ctx.runStore.databaseHandle()), nb, agentId, runId, output);
+}
+
 async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
   if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
   const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
