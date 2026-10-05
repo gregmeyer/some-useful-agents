@@ -54,7 +54,7 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
   return unsafeHtml(`<svg class="nb-pipe" role="img" aria-label="${esc(label)}" width="100%" height="76" viewBox="0 0 ${String(w)} 76" preserveAspectRatio="xMidYMid meet">${line}${nodes}</svg>`);
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -69,7 +69,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         </div>
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
-          ${nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
+          ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}</span>
         </div>
         ${pipelineDiagram(stages)}
@@ -84,8 +84,8 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           </div>` : html``}
         ${nb.status === 'decided' && nb.decision ? html`<div class="nb-decided"><strong>Decided ${formatAge(nb.decidedAt ?? nb.updatedAt)}:</strong> ${nb.decision}</div>` : html``}
       </div>
-      <aside class="nb-hero__side" aria-label="Done when">
-        <div class="nb-progress">
+      <aside class="nb-hero__side${widgets ? ' nb-hero__side--slim' : ''}" aria-label="Done when">
+        ${widgets ? html`` : html`<div class="nb-progress">
           ${progressRing(met, total)}
           <div class="nb-progress__list">
             <span class="nb-progress__label">Done when</span>
@@ -97,7 +97,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
                 <span class="nb-crit__text ${c.met ? 'is-met' : ''}">${c.text}</span>
               </form>`) as unknown as SafeHtml[]}
           </div>
-        </div>
+        </div>`}
         ${nb.status === 'active' ? html`
           <details class="nb-decide">
             <summary class="btn btn--primary btn--sm">Decide…</summary>
@@ -175,7 +175,7 @@ function optionStage(nb: Notebook, e: NotebookEntry): SafeHtml {
   const base = `/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}`;
   if (e.ruledOut) {
     return html`<div class="nb-stage nb-stage--out">
-      <span class="nb-stage__out">Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}</span>
+      <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
       <form method="POST" action="${base}/reinstate"><button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
     </div>`;
   }
@@ -188,7 +188,7 @@ function optionStage(nb: Notebook, e: NotebookEntry): SafeHtml {
       <summary class="btn btn--sm btn--ghost">Rule out…</summary>
       <form method="POST" action="${base}/rule-out" class="nb-ruleout__form">
         <span class="nb-ruleout__label">Why? It stays here, and searches won't suggest it again.</span>
-        <div class="nb-ruleout__quick">${QUICK_REASONS.map((r) => html`<button type="submit" name="quick" value="${r}" class="btn btn--sm">${r}</button>`)}</div>
+        <div class="nb-ruleout__quick"><button type="submit" name="gone" value="1" class="btn btn--sm" title="Sold, filled or taken down">No longer available</button>${QUICK_REASONS.map((r) => html`<button type="submit" name="quick" value="${r}" class="btn btn--sm">${r}</button>`)}</div>
         <div class="nb-ruleout__row"><input type="text" name="reason" class="form-field" placeholder="or in your words: didn't like the color" aria-label="Reason"><button type="submit" class="btn btn--sm btn--primary">Rule out</button></div>
       </form>
     </details>
@@ -263,7 +263,8 @@ function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: Not
   // shortlist); the cards stay for notes, evidence and notebooks without fields.
   const widgets = notebookWidgetMessages(nb, entries, history);
   if (widgets) {
-    const rest = regions.filter((r) => r.id !== 'options');
+    // The widgets tell the whole story (the timeline has the notes and decisions): no second list.
+    const rest: typeof regions = [];
     return html`<div class="nb-widgets">
         ${canPhoto ? html`<div class="nb-widgets__tools"><form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/photos"><button type="submit" class="btn btn--sm btn--ghost" title="Keep a copy of each option's photo, from its listing">Get photos</button></form></div>` : html``}
         ${renderSurfaceHost(`notebook-${nb.id}`, widgets, { label: `${nb.title}: options` })}</div>
@@ -370,7 +371,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
 export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
-    ${hero(args.nb, args.stages, args.running)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'))}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>

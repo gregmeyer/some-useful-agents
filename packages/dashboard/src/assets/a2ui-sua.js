@@ -246,6 +246,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
   css`
     .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .bar .sp { flex: 1; }
+    .showout { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+    .showout input { margin: 0; accent-color: var(--color-primary); }
     .seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
     .seg button { all: unset; cursor: pointer; padding: 3px 10px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .seg button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-bg); }
@@ -256,6 +258,10 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .card.out { opacity: .55; }
     .pic { position: relative; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-raised)); display: grid; place-items: center; color: var(--color-text-subtle, var(--color-text-muted)); }
     .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pic { background: radial-gradient(120% 90% at 50% 75%, color-mix(in srgb, var(--color-primary) 22%, transparent), color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-raised))); }
+    .nophoto { display: flex; flex-direction: column; align-items: center; gap: 6px; color: color-mix(in srgb, var(--color-primary) 70%, var(--color-text-muted)); font-size: var(--font-size-xs); }
+    .gone-why { color: var(--color-text-muted); }
+    .menu .btn.gone { border-color: var(--color-text-muted); }
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
     .best .rank { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); }
     .ribbon { position: absolute; top: 8px; right: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; background: var(--color-surface); color: var(--color-primary); border: 1px solid var(--color-primary); }
@@ -289,7 +295,13 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const byRole = (r) => fields.find((f) => f.role === r);
     const priceF = byRole('price'); const measureF = byRole('measure');
     const priceBetter = priceF?.better ?? 'lower';
-    let opts = (Array.isArray(p.options) ? p.options : []).filter((o) => o && (p.ruledOut !== 'hide' || !o.ruledOut));
+    // Ruled out (and gone) options are hidden unless you ask to see them; your choice is kept in this browser.
+    const all = (Array.isArray(p.options) ? p.options : []).filter(Boolean);
+    const outCount = all.filter((o) => o.ruledOut).length;
+    let showOut; try { showOut = localStorage.getItem('sua-option-show-out') === '1'; } catch { showOut = false; }
+    if (this._showOut !== undefined) showOut = this._showOut;
+    if (p.ruledOut === 'show') showOut = true;
+    let opts = all.filter((o) => showOut || !o.ruledOut);
     // Sort: in the running first, then by the chosen field (price by default, the better way first).
     const [skey, sdir] = String(p.sort ?? 'price').trim().split(/\s+/);
     const sval = (o) => (skey === 'price' || skey === 'measure' ? o[skey] : getPath(o.fields ?? {}, skey));
@@ -297,7 +309,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     opts = opts.map((o, i) => [o, i]).sort((a, b) => (Number(!!a[0].ruledOut) - Number(!!b[0].ruledOut))
       || (sval(a[0]) == null) - (sval(b[0]) == null) || compare(sval(a[0]) ?? '', sval(b[0]) ?? '') * dir || a[1] - b[1]).map((x) => x[0]);
     if (p.maxItems) opts = opts.slice(0, p.maxItems);
-    if (!opts.length) return html`<p class="empty">No options yet.</p>`;
+    if (!all.length) return html`<p class="empty">No options yet.</p>`;
     // Grid or Table: your last choice, kept in this browser.
     let saved; try { saved = localStorage.getItem('sua-option-layout') ?? undefined; } catch { saved = undefined; }
     const layout = this._layout ?? (saved === 'grid' || saved === 'table' ? saved : undefined) ?? p.layout ?? 'grid';
@@ -312,6 +324,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       return html`<span class="chip ${good ? 'better' : 'worse'}" title="${fmtField(priceF, c.from)} → ${fmtField(priceF, c.to)}">${down ? '↓' : '↑'} ${fmtField(priceF, Math.abs(c.to - c.from))}</span>`;
     };
     const ruleMenu = (o) => (this._menu === o.id ? html`<div class="menu" role="group" aria-label="Why rule it out?">
+      <button type="button" class="btn gone" title="Sold, filled or taken down: not your call" @click=${() => { set('_menu', ''); act({ op: 'gone', id: o.id }); }}>No longer available</button>
       ${QUICK_REASONS.map((r) => html`<button type="button" class="btn" @click=${() => { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: r }); }}>${r}</button>`)}
       <input type="text" placeholder="or your words" aria-label="Reason" @keydown=${(e) => { if (e.key === 'Enter' && e.target.value.trim()) { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: e.target.value.trim() }); } }}>
     </div>` : nothing);
@@ -323,7 +336,10 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     </div>${ruleMenu(o)}`;
     const active = opts.filter((o) => !o.ruledOut);
     const best = active[0];
-    const toggle = html`<div class="bar"><span>${active.length} in the running${opts.length > active.length ? ` · ${opts.length - active.length} ruled out` : ''}</span><span class="sp"></span>
+    const toggleOut = () => { const v = !showOut; this._showOut = v; try { localStorage.setItem('sua-option-show-out', v ? '1' : '0'); } catch { /* not kept */ } this.requestUpdate(); };
+    const toggle = html`<div class="bar"><span>${active.length} in the running</span>
+      ${outCount ? html`<label class="showout"><input type="checkbox" .checked=${showOut} @change=${toggleOut}> Show ruled out (${outCount})</label>` : nothing}
+      <span class="sp"></span>
       <div class="seg" role="group" aria-label="Layout">
         <button type="button" aria-pressed=${layout === 'grid' ? 'true' : 'false'} @click=${() => set('_layout', 'grid')}>Grid</button>
         <button type="button" aria-pressed=${layout === 'table' ? 'true' : 'false'} @click=${() => set('_layout', 'table')}>Table</button>
@@ -333,7 +349,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
-          <td><div class="title">${o.title}</div>${o.ruledOut ? html`<div class="why">Ruled out: ${o.ruledOut.reason}</div>` : nothing}</td>
+          <td><div class="title">${o.name ?? o.title}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
           <td class="num">${priceF ? fmtField(priceF, o.fields?.[priceF.key]) : ''} ${change(o)}</td>
           <td class="num">${measureF ? fmtField(measureF, o.fields?.[measureF.key]) : ''}</td>
           <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
@@ -342,17 +358,17 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''}">
       <div class="pic">
         ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy">`
-          : html`<svg aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg>`}
+          : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
         ${o === best ? html`<span class="ribbon">best ${priceBetter === 'higher' ? 'pay' : 'price'}</span>` : nothing}
       </div>
       <div class="body">
-        <div class="title">${o.title}</div>
+        <div class="title" title=${o.title}>${o.name ?? o.title}</div>
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
         <div class="chips">${facts(o).map((f) => html`<span class="chip">${f}</span>`)}${change(o)}
-          ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span>` : nothing}</div>
+          ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>
         <div class="chips">${o.stage && !o.ruledOut ? html`<span class="chip stage">${o.stage}</span>` : nothing}</div>
-        ${o.ruledOut ? html`<div class="why">Ruled out${o.ruledOut.stage ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>` : nothing}
+        ${o.ruledOut ? (o.ruledOut.gone ? html`<div class="why gone-why">No longer available</div>` : html`<div class="why">Ruled out${o.ruledOut.stage ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>`) : nothing}
         ${actions(o)}
       </div></article>`)}</div>`;
   });
@@ -439,6 +455,167 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
       box.replaceChildren(svg);
     },
   });
+
+// ── Notebook story pieces (artboard 23): a titled frame, a callout, a stat
+// strip, progress steps, where a search looked, checklists, a timeline, chips.
+const mono = css`font-family: var(--font-mono);`;
+
+const Columns = define('Columns', 'sua-a2ui-columns',
+  Common.extend({ children: CommonSchemas.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional() }).strict(),
+  css`
+    :host { display: block; }
+    .cols { display: grid; gap: var(--space-4, 16px); align-items: stretch; }
+    @media (max-width: 760px) { .cols { grid-template-columns: 1fr !important; } }`,
+  function (p) {
+    const kids = Array.isArray(p.children) ? p.children : [];
+    const w = kids.map((_, i) => Number(p.widths?.[i] ?? 1));
+    return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${n}fr)`).join(' ')}">${kids.map((c) => this.renderNode(c))}</div>`;
+  });
+
+const Panel = define('Panel', 'sua-a2ui-panel',
+  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId }).strict(),
+  css`
+    :host { display: block; min-width: 0; height: 100%; }
+    .frame { box-sizing: border-box; height: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 14px); padding: var(--space-4, 16px); }
+    .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-3, 12px); }
+    h3 { margin: 0; font: 700 15px/1.2 var(--font-mono); color: var(--color-text); }
+    .note { margin-left: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); text-align: right; }`,
+  function (p) { return html`<section class="frame"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
+
+// **bold** only; everything else escaped (same rule as Text's markdown).
+const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+const Callout = define('Callout', 'sua-a2ui-callout',
+  Common.extend({ label: Str.optional(), text: Str, next: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .box { padding: var(--space-4, 16px); background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md, 10px); }
+    .label { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-primary); }
+    .text { margin: 8px 0 0; font-size: var(--font-size-lg, 17px); line-height: 1.45; color: var(--color-text); }
+    .text strong { font-weight: 600; }
+    .next { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .next b { color: var(--color-text); }`,
+  function () { return html`<div class="box">${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>Next:</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
+  { updated() { const el = this.renderRoot.querySelector('.text'); const v = this.controller?.props?.text ?? ''; if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
+
+const StatStrip = define('StatStrip', 'sua-a2ui-stat-strip',
+  Common.extend({ items: CommonSchemas.DynamicValue }).strict(),
+  css`
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: var(--space-3, 12px); }
+    .stat { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--radius-md, 10px); background: var(--color-surface); border: 1px solid var(--color-border); min-width: 0; }
+    b { font: 700 1.6rem/1 var(--font-mono); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    b.ok { color: var(--color-primary); } b.warn { color: var(--color-warn); } b.err { color: var(--color-err); }
+    span { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  (p) => html`<div class="row">${(Array.isArray(p.items) ? p.items : []).map((s) => html`<div class="stat"><b class="${tone(s?.tone)}">${s?.value ?? ''}</b><span>${s?.label ?? ''}${s?.sub ? html` · ${s.sub}` : nothing}</span></div>`)}</div>`);
+
+const Steps = define('Steps', 'sua-a2ui-steps',
+  Common.extend({ steps: CommonSchemas.DynamicValue, label: Str.optional() }).strict(),
+  css`
+    .top { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .ring-bg { fill: none; stroke: var(--color-border); stroke-width: 7; }
+    .ring { fill: none; stroke: var(--color-primary); stroke-width: 7; stroke-linecap: round; }
+    .ring-txt { fill: var(--color-text); font: 700 15px var(--font-mono); }
+    .label { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    .sub { margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    ol { list-style: none; margin: 0; padding: 0; }
+    li { position: relative; padding: 0 0 14px 28px; }
+    li:last-child { padding-bottom: 0; }
+    li::before { content: ""; position: absolute; left: 9px; top: 20px; bottom: 0; width: 2px; background: var(--color-border); }
+    li:last-child::before { display: none; }
+    .dot { position: absolute; left: 0; top: 0; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--color-border-strong, var(--color-border)); background: var(--color-surface); display: grid; place-items: center; font: 700 10px/1 var(--font-mono); color: var(--color-text-muted); }
+    .met .dot { background: var(--color-ok); border-color: var(--color-ok); color: var(--color-bg); }
+    .now .dot { border-color: var(--color-primary); color: var(--color-primary); box-shadow: 0 0 0 4px var(--color-primary-soft); }
+    .t { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+    .todo .t { color: var(--color-text-muted); font-weight: 500; }
+    .n { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  (p) => {
+    const steps = (Array.isArray(p.steps) ? p.steps : []).map((s) => ({ text: String(s?.text ?? s?.label ?? ''), met: !!s?.met, note: s?.note }));
+    const met = steps.filter((s) => s.met).length; const total = steps.length || 1;
+    const nowAt = steps.findIndex((s) => !s.met);
+    const C = 2 * Math.PI * 26; const dash = (met / total) * C;
+    return html`<div class="top">
+      <svg width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="${met} of ${steps.length} done">
+        <circle class="ring-bg" cx="32" cy="32" r="26"></circle>
+        <circle class="ring" cx="32" cy="32" r="26" stroke-dasharray="${dash} ${C}" transform="rotate(-90 32 32)"></circle>
+        <text class="ring-txt" x="32" y="37" text-anchor="middle">${met}/${steps.length}</text>
+      </svg>
+      <div><div class="label">${p.label ?? 'Done when'}</div><div class="sub">${steps.length - met ? `${steps.length - met} to go` : 'All done'}</div></div>
+    </div>
+    <ol>${steps.map((s, i) => html`<li class="${s.met ? 'met' : i === nowAt ? 'now' : 'todo'}"><span class="dot">${s.met ? '✓' : i + 1}</span><div class="t">${s.text}</div>${s.note ? html`<div class="n">${s.note}</div>` : nothing}</li>`)}</ol>`;
+  });
+
+const Coverage = define('Coverage', 'sua-a2ui-coverage',
+  Common.extend({ sources: CommonSchemas.DynamicValue, note: Str.optional() }).strict(),
+  css`
+    .src { display: grid; grid-template-columns: minmax(90px, 40%) 1fr auto; align-items: center; gap: 10px; font-size: var(--font-size-sm); margin-bottom: 10px; }
+    .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .track { height: 10px; border-radius: 5px; background: var(--color-surface-raised); overflow: hidden; }
+    .fill { height: 100%; border-radius: 5px; background: var(--color-primary); }
+    .blocked .track { background: repeating-linear-gradient(135deg, var(--color-warn-soft) 0 5px, transparent 5px 10px); border: 1px solid var(--color-warn-border, var(--color-warn)); }
+    .skipped .track { background: none; border: 1px dashed var(--color-border-strong, var(--color-border)); }
+    .val { font: var(--font-size-xs) var(--font-mono); white-space: nowrap; color: var(--color-text-muted); }
+    .found .val { color: var(--color-primary); } .blocked .val { color: var(--color-warn); }
+    .skipped .name, .skipped .val { color: var(--color-text-subtle, var(--color-text-muted)); }
+    .note { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 4px; }
+    .empty { font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  (p) => {
+    const src = (Array.isArray(p.sources) ? p.sources : []).map((s) => ({ name: String(s?.name ?? ''), found: Number(s?.found ?? 0), status: String(s?.status ?? (Number(s?.found) > 0 ? 'found' : 'none')), note: s?.note }));
+    if (!src.length) return html`<p class="empty">The next search will show which sites it reached here.</p>`;
+    const max = Math.max(1, ...src.map((s) => s.found));
+    const label = (s) => (s.status === 'found' ? `${s.found} found` : s.status === 'blocked' ? 'blocked' : s.status === 'skipped' ? 'skipped' : 'none');
+    return html`${src.map((s) => html`<div class="src ${s.status}" title=${s.note ?? nothing}><span class="name">${s.name}</span><span class="track">${s.status === 'found' ? html`<span class="fill" style="display:block;width:${Math.max(6, (s.found / max) * 100)}%"></span>` : nothing}</span><span class="val">${label(s)}</span></div>`)}
+      ${p.note ? html`<div class="note">${p.note}</div>` : nothing}`;
+  });
+
+const Checklist = define('Checklist', 'sua-a2ui-checklist',
+  Common.extend({ groups: CommonSchemas.DynamicValue, actions: z.boolean().optional() }).strict(),
+  css`
+    .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+    .g h4 { margin: 0 0 6px; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+    label { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: var(--font-size-sm); color: var(--color-text); cursor: pointer; }
+    label.done span { color: var(--color-text-muted); text-decoration: line-through; }
+    input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); }
+    .empty { font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  function (p) {
+    const groups = Array.isArray(p.groups) ? p.groups : [];
+    if (!groups.length) return html`<p class="empty">Nothing to check yet.</p>`;
+    const act = (id, item, done) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: { op: 'check', id, item, done } } }));
+    return html`<div class="groups">${groups.map((g) => html`<div class="g"><h4>${g?.title ?? ''}</h4>
+      ${(Array.isArray(g?.items) ? g.items : []).map((it) => html`<label class="${it?.done ? 'done' : ''}"><input type="checkbox" .checked=${!!it?.done} ?disabled=${!p.actions} @change=${(e) => act(g.id, it.text, e.target.checked)}><span>${it?.text ?? ''}</span></label>`)}</div>`)}</div>`;
+  });
+
+const Timeline = define('Timeline', 'sua-a2ui-timeline',
+  Common.extend({ events: CommonSchemas.DynamicValue, maxItems: z.number().int().min(1).max(50).optional() }).strict(),
+  css`
+    ol { list-style: none; margin: 0 0 0 6px; padding: 0 0 0 18px; border-left: 2px solid var(--color-border); display: grid; gap: 14px; }
+    li { position: relative; }
+    li::before { content: ""; position: absolute; left: -25px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface); border: 2px solid var(--color-primary); }
+    li.decision::before { border-color: var(--color-ok); } li.search::before { border-color: var(--accent-blue, var(--color-primary)); }
+    li.out::before { border-color: var(--color-warn); } li.faded::before { border-color: var(--color-border-strong, var(--color-border)); }
+    .when { font: var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
+    .when a { color: var(--color-primary); }
+    .t { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+    .b { margin-top: 2px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .faded .t, .faded .b { color: var(--color-text-subtle, var(--color-text-muted)); }
+    .tag { margin-left: 6px; font: var(--font-size-xs)/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; border: 1px dashed var(--color-border-strong, var(--color-border)); color: var(--color-text-muted); font-weight: 400; }
+    .empty { font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  (p) => {
+    const ev = (Array.isArray(p.events) ? p.events : []).slice(0, p.maxItems ?? 12);
+    if (!ev.length) return html`<p class="empty">Nothing yet.</p>`;
+    const when = (at) => { const d = new Date(at); return Number.isFinite(d.getTime()) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
+    return html`<ol>${ev.map((e) => html`<li class="${e?.kind ?? ''} ${e?.faded ? 'faded' : ''}"><div class="when">${when(e?.at)}${safeUrl(e?.link) ? html` · <a href=${safeUrl(e.link)}>${e.linkText ?? 'run'}</a>` : nothing}</div>
+      <div class="t">${e?.title ?? ''}${e?.tag ? html`<span class="tag">${e.tag}</span>` : nothing}</div>${e?.body ? html`<div class="b">${e.body}</div>` : nothing}</li>`)}</ol>`;
+  });
+
+const ChipList = define('ChipList', 'sua-a2ui-chip-list',
+  Common.extend({ items: CommonSchemas.DynamicValue }).strict(),
+  css`
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { font: var(--font-size-xs)/1.7 var(--font-mono); padding: 0 8px; border-radius: 6px; background: var(--color-surface-raised); border: 1px solid var(--color-border); color: var(--color-text); }
+    .chip.warn { background: var(--color-warn-soft); border-color: var(--color-warn-border, var(--color-warn)); color: var(--color-warn); }
+    .chip.ok { background: var(--color-ok-soft); color: var(--color-ok); }`,
+  (p) => html`<div class="chips">${(Array.isArray(p.items) ? p.items : []).map((c) => (typeof c === 'string'
+    ? html`<span class="chip">${c}</span>`
+    : html`<span class="chip ${tone(c?.tone)}" title=${c?.title ?? nothing}>${c?.text ?? ''}</span>`))}</div>`);
 
 // The server resolves and sanitizes SanitizedHtml's html (core
 // prepareViewForRender) before the view is sent, so what arrives is already
@@ -667,7 +844,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

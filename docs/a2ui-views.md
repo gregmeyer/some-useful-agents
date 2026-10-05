@@ -60,6 +60,15 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Funnel` | `stages` (array of `{label, value}`, or a notebook's funnel: `{stage, reached, ruledOut, reasons}`) | decreasing stages; ruled-out counts and reasons when given |
 | `OptionGrid` | `options` (array shaped like a notebook's options), `fields?`, `stages?`, `layout?` (grid / table), `sort?` ("price", a field key, "… desc"), `ruledOut?` (show / hide), `actions?`, `maxItems?` | candidates as cards (photo, rank, price, facts, stage, price move) or a table, with a Grid/Table switch; `actions` adds Move / Rule out, sent as `notebook-option` actions |
 | `Scatter` | `points`, `x`, `y` (keys, dotted for nested), `xLabel?`, `yLabel?`, `xFormat?` / `yFormat?` (number / money), `xBand?` / `yBand?` (`{min, max}` to shade), `xBetter?` / `yBetter?` | items on two axes with your ranges shaded and the best one highlighted |
+| `Columns` | `children`, `widths?` (e.g. `[3, 2]`) | side by side with relative widths; stacks on a narrow screen |
+| `Panel` | `title`, `note?`, `child` | a titled frame for a widget |
+| `Callout` | `label?`, `text` (`**bold**` allowed), `next?` | a highlighted paragraph, e.g. "Where it stands" |
+| `StatStrip` | `items` (`{label, value, tone?, sub?}`) | boxed stats in a row |
+| `Steps` | `steps` (`{text, met, note?}`), `label?` | a progress ring and a path of steps |
+| `Coverage` | `sources` (`{name, found, status: found / none / blocked / skipped, note?}`), `note?` | where a search looked |
+| `Checklist` | `groups` (`{id, title, items: [{text, done}]}`), `actions?` | checkboxes; ticking sends a `notebook-option` check action |
+| `Timeline` | `events` (`{at, title, body?, kind?, faded?, tag?, link?}`), `maxItems?` | events, newest first |
+| `ChipList` | `items` (strings or `{text, tone?, title?}`) | short chips; warn chips stand out |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.

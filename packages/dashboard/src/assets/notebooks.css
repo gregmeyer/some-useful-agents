@@ -300,3 +300,4 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-setup__dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--color-primary); animation: nb-setup-pulse 1.2s ease-in-out infinite; }
 @keyframes nb-setup-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .nb-setup__dot { animation: none; } }
+.nb-hero__side--slim { align-self: center; }
