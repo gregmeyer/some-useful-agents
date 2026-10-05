@@ -88,6 +88,32 @@ describe('notebook option fields', () => {
     ]);
   });
 
+  it('knows which way is better, takes ranges, and picks out the org (a job search)', () => {
+    const JOB_FIELDS = cleanFields([
+      { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'commute', label: 'Commute', type: 'number', unit: 'min', role: 'measure', better: 'lower' },
+      { key: 'title', label: 'Title', type: 'text', better: 'higher', range: true }, // not numeric: neither applies
+      { key: 'price', label: 'Price', type: 'money' },
+    ]);
+    expect(JOB_FIELDS.map((f) => `${f.key}:${f.better ?? ''}:${f.range ? 'range' : ''}`)).toEqual(['salary:higher:range', 'company::', 'commute:lower:', 'title::', 'price::']);
+    // A car's price, with no say, is better lower.
+    expect(cleanFields(CAR_FIELDS)[0]).toMatchObject({ key: 'price', better: 'lower' });
+
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Find a staff role' }).id, JOB_FIELDS);
+    const add = (title: string, salary: unknown) => s.upsertOption(nb.id, { title, by: 'agent:jobs', data: { salary, company: 'Stripe', commute: 25 } }).entry.data?.salary;
+    expect(add('Staff Engineer A', '$150k–$180k')).toEqual({ min: 150000, max: 180000 });
+    expect(add('Staff Engineer B', '150-180k')).toEqual({ min: 150000, max: 180000 });
+    expect(add('Staff Engineer C', '$210,000 - $190,000')).toEqual({ min: 190000, max: 210000 });
+    expect(add('Staff Engineer D', { min: 200000, max: 240000 })).toEqual({ min: 200000, max: 240000 });
+    expect(add('Staff Engineer E', '$175,000')).toBe(175000);
+    const opt = notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options.find((o) => o.title === 'Staff Engineer A')!;
+    expect(opt).toMatchObject({ price: 165000, org: 'Stripe', measure: 25, fields: { salary: { min: 150000, max: 180000 } } });
+  });
+
   it('types an option\'s facts and updates the same option when it is seen again', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));

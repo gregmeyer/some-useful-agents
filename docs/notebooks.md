@@ -54,13 +54,17 @@ Options record their facts as data, not only as text, so they can be compared, s
   - `place`;
   - `link`: the listing;
   - `image`;
-  - `when`.
+  - `when`;
+  - `org`: the company or seller, to group by.
+- **Money and number fields say which way is better.** A price is better lower, a salary or a rating higher. Ranking and charts use it, and a `price` field is better lower unless the notebook says otherwise.
+- **Ranges:** a money or number field can take a span ("$150k–$180k", shown as $150,000–$180,000). Sorting and charts use its midpoint.
+- **Any kind of search fits.** For a car: price, miles, year, location, listing. For a job: salary (a range, better higher), company (`org`), commute, posted date, posting. For a product: price, rating (better higher), store (`org`), photo.
 - **Options kept before the notebook had fields** get filled in from their text when the fields are set. Only unambiguous facts are read: a dollar amount, a number with the measure's unit, a leading year, a web address.
 - **The same option is one entry.** Each option has a fingerprint: a VIN or listing id when the agent gives one, else its listing's address. When a later run finds it again, its facts are refreshed and the card says "seen again". It isn't added a second time.
 - **On the page**, an option shows its facts as chips (the price highlighted) and its listing as a link.
 - **For widgets:** `GET /notebooks/<id>/data.json` returns the notebook as data, the same shape for every notebook:
   - `limits`, `criteria`, `progress` and `fields`;
-  - `options`, each with its facts by key, plus `price`, `measure`, `place`, `link` and `image` picked out by role, and `firstSeenAt` / `lastSeenAt`;
+  - `options`, each with its facts by key, plus `price`, `measure`, `place`, `org`, `link` and `image` picked out by role (a range's midpoint for `price` and `measure`), and `firstSeenAt` / `lastSeenAt`;
   - `notes`, `evidence`, `decisions` and `history`.
 
 ## The pipeline

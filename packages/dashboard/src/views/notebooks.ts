@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { notebookProgress, isRange, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { cronToHuman, formatAge } from './components.js';
@@ -133,6 +133,12 @@ export function bodyWithLinks(text: string): SafeHtml {
 
 /** "$4,023", "149,652 mi", "2010": one field's value as people read it. */
 export function formatFieldValue(f: NotebookField, v: NotebookFieldValue): string {
+  if (isRange(v)) {
+    if (v.min === v.max) return formatFieldValue(f, v.min);
+    // "$150,000–$180,000", "120–150 sq ft": the unit once, at the end.
+    const one = (n: number) => (f.type === 'money' ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+    return `${one(v.min)}–${one(v.max)}${f.unit && f.type !== 'money' ? ` ${f.unit}` : ''}`;
+  }
   if (typeof v === 'number') {
     const n = v.toLocaleString('en-US', { maximumFractionDigits: 2 });
     if (f.type === 'money') return `$${n}`;
