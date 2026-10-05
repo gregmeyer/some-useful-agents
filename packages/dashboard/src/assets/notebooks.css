@@ -301,3 +301,6 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 @keyframes nb-setup-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .nb-setup__dot { animation: none; } }
 .nb-hero__side--slim { align-self: center; }
+.nb-talk__send { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.nb-talk__keys { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-talk__keys kbd { font-family: var(--font-mono); font-size: var(--font-size-xs); padding: 0 4px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface-raised); }

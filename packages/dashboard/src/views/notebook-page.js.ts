@@ -14,6 +14,17 @@ export const NOTEBOOK_PAGE_JS = `
       e.preventDefault();
       window.suaPanel.open(btn.getAttribute('data-nb-continue'));
     });
+    // Tell sua: Enter sends (like the drawer's reply box), Shift+Enter is a new line;
+    // Cmd/Ctrl+Enter sends too.
+    document.addEventListener('keydown', function (e) {
+      var ta = e.target;
+      if (!ta || ta.tagName !== 'TEXTAREA' || !ta.hasAttribute('data-enter-sends')) return;
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      if (!ta.value.trim()) return;
+      var form = ta.form;
+      if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
+    });
     var count = Number(main.getAttribute('data-nb-count')) || 0;
     var changed = main.getAttribute('data-nb-changed') || '';
     // The widgets' Move / Rule out / Bring back: save it, then redraw.
