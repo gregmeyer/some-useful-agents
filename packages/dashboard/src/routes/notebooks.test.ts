@@ -354,7 +354,9 @@ describe('notebook photos', () => {
     expect(res.headers['content-security-policy']).toContain('sandbox');
     expect((await request(app).get('/notebooks/car/entries/nope/photo').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).status).toBe(404);
     const page = await request(app).get('/notebooks/car').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(page.text).toContain(`<img class="nb-entry__photo" src="/notebooks/car/entries/${e.id}/photo"`);
+    // With fields, options are drawn by the shortlist widget: the kept copy is its image.
+    expect(page.text).toContain('data-a2ui-surface');
+    expect(page.text).toContain(`"image":"/notebooks/car/entries/${e.id}/photo"`);
     expect(page.text).toContain('Get photos');
   });
 });
