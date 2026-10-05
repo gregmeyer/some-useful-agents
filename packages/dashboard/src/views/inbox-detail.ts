@@ -184,7 +184,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board',
+  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -310,7 +310,9 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       if (c.kind === 'board-agents-approval' && typeof c.buildId === 'string') approvalBlock = boardApprovalButtons(c.buildId);
     } catch { /* not JSON */ }
   }
-  const contextBlock = message.contextJson ? html`
+  // The page a conversation was started from is for sua, not worth showing.
+  const onlyPage = (() => { try { const c = JSON.parse(message.contextJson ?? '') as Record<string, unknown>; return Object.keys(c).length === 1 && 'page' in c; } catch { return false; } })();
+  const contextBlock = message.contextJson && !onlyPage ? html`
     <details class="inbox-modal__context">
       <summary>Context payload</summary>
       <pre class="mono">${pretty(message.contextJson)}</pre>
@@ -756,6 +758,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ${meta.agentId === 'agent-settings' && meta.inputs.AGENT_ID
           ? html`<a class="act-card__aside" href="/agents/${encodeURIComponent(meta.inputs.AGENT_ID)}/config">Open in Settings</a>`
           : meta.agentId === 'adjust-surface' ? html`<a class="act-card__aside" href="/">Open Home</a>`
+          : (meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline') && meta.inputs.NOTEBOOK ? html`<a class="act-card__aside" href="/notebooks/${encodeURIComponent(meta.inputs.NOTEBOOK)}">Open the notebook</a>`
           : meta.agentId === 'arrange-board' && meta.inputs.BOARD ? html`<a class="act-card__aside" href="${meta.inputs.BOARD === 'pulse' ? '/pulse' : `/dashboards/${encodeURIComponent(meta.inputs.BOARD)}`}">Open the board</a>` : html``}
       </div>
     `
@@ -798,6 +801,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                 ? html`Change Home`
                 : meta.agentId === 'arrange-board'
                   ? html`Arrange <span class="mono">${meta.inputs.BOARD_NAME ?? meta.inputs.BOARD ?? ''}</span>`
+                  : meta.agentId === 'notebook-add'
+                    ? html`${meta.status === 'completed' ? 'Added to' : 'Add to'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
+                    : meta.agentId === 'notebook-pipeline'
+                      ? html`Set up the pipeline · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -809,10 +816,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${meta.agentId === 'agent-settings' && meta.settingsChanges?.length
       ? html`<ul class="act-card__changes">${meta.settingsChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span><del class="act-card__before">${c.before}</del> → <ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">Saved together; a change to what it does becomes a new version you can roll back from Versions.</p>` : html``}`
       : html``}
-    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board') && meta.surfaceChanges?.length
-      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
+    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline') && meta.surfaceChanges?.length
+      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
-    ${meta.agentId === 'agent-settings' || meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(meta.agentId) ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed' ? html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>` : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
       : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
@@ -871,7 +878,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="act-card__head">
             <span class="inbox-action__headline">${headline}</span>
             ${isDispatched && meta.status === 'proposed'
-              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : 'changes something') : 'reads only'}</span>`
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
               : provenance}
           </div>
           ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}

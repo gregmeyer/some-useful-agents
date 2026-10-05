@@ -414,6 +414,14 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
       ...(page?.kind === 'agent' && page.id && ctx.agentStore.getAgent(page.id) ? { agentId: page.id } : {}),
       ...(page ? { contextJson: JSON.stringify({ page }) } : {}),
     });
+    // Started on a notebook's page with no conversation yet: this is it.
+    if (page?.kind === 'notebook' && page.id) {
+      try {
+        const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+        const nb = nbs.get(page.id);
+        if (nb && !nb.conversationId) nbs.setConversation(nb.id, created.id);
+      } catch { /* the conversation still works without the link */ }
+    }
     if (bodyRaw) {
       const userResponse = ctx.inboxStore.addResponse(created.id, 'user', bodyRaw);
       publishInboxEvent(ctx, created.id, 'message:created', {

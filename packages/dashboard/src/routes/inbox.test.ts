@@ -2307,3 +2307,70 @@ describe('sua arranges the board you\'re on (arrange-board)', () => {
     expect(stale.refusalReason).toContain('The board changed since this was proposed');
   });
 });
+
+describe('a notebook\'s conversation (sua files what you say)', () => {
+  it('starts and continues its conversation, files what you said, sets up a pipeline on approval, and updates the page', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Car for Nadia', params: ['AWD'], criteria: ['One fits'] });
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+
+    // Empty: the page leads with "Tell sua"; no form to fill in.
+    const empty = await get(`/notebooks/${nb.id}`);
+    expect(empty.text).toContain("Tell sua what you're looking for");
+    expect(empty.text).toContain(`action="/notebooks/${nb.id}/ask"`);
+    expect(empty.text).not.toContain('Talk to sua about this notebook');
+
+    const first = await post(`/notebooks/${nb.id}/ask`, { text: 'She is 17, likes Subarus' });
+    expect(first.status).toBe(204);
+    const thread = first.headers['x-inbox-id'];
+    expect(nbs.get(nb.id)!.conversationId).toBe(thread);
+    expect(JSON.parse(inboxStore.get(thread)!.contextJson!)).toMatchObject({ page: { kind: 'notebook', id: nb.id } });
+    const again = await post(`/notebooks/${nb.id}/ask`, { text: 'Budget is $8k' });
+    expect(again.headers['x-inbox-id']).toBe(thread);
+    expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').map((r) => r.body)).toEqual(['She is 17, likes Subarus', 'Budget is $8k']);
+
+    // What sua files, as an auto-applied action.
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+    const parsed = parseProposedActions([
+      { type: 'notebook-add', rationale: 'file it', inputs: { NOTEBOOK: nb.id, CHANGES: { entries: [{ kind: 'note', title: 'New 17-year-old driver' }, { kind: 'option', title: '2011 Forester, 150k, $7,200' }, { kind: 'bogus', title: 'x' }], params: ['AWD', 'under $8,000'], criteria: ['Inspection done'] } } },
+    ], []);
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.inputs.NOTEBOOK_TITLE).toBe('Car for Nadia');
+    expect(card.surfaceChanges?.map((c) => c.what)).toEqual(['note', 'option', 'parameter', 'parameter', 'done when']);
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed', summary: 'Added 4 to the notebook.' });
+    expect(nbs.get(nb.id)!.params).toEqual(['AWD', 'under $8,000']);
+    expect(nbs.get(nb.id)!.criteria.map((c) => c.text)).toEqual(['One fits', 'Inspection done']);
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ summary: 'The notebook already has all of that.' });
+
+    // The pipeline card: only installed agents; Set it up writes pipeline + schedule.
+    agentStore.createAgent({ id: 'listings', name: 'Listings', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }] }, 'cli');
+    const pipe = parseProposedActions([{ type: 'notebook-pipeline', inputs: { NOTEBOOK: nb.id, AGENTS: ['listings'], CADENCE: '0 7 * * *' } }], []).accepted[0];
+    const pipeCard = engine.withEditorBase(ctx, pipe);
+    expect(pipeCard.surfaceChanges).toEqual([
+      { what: 'Pipeline', before: '(none)', after: 'listings' },
+      { what: 'Runs', before: 'when you ask', after: 'Every day at 7:00 AM' },
+    ]);
+    expect(engine.executeNotebookPipeline(ctx, pipeCard)).toMatchObject({ status: 'completed' });
+    expect(nbs.get(nb.id)).toMatchObject({ pipeline: ['listings'], cadence: '0 7 * * *' });
+    expect(engine.executeNotebookPipeline(ctx, { ...pipeCard, inputs: { ...pipeCard.inputs, AGENTS: '["nope"]' } })).toMatchObject({ status: 'failed', refusalReason: 'Not installed: nope.' });
+
+    // The page now: the conversation box + Continue; the sections fragment for live updates.
+    const page = await get(`/notebooks/${nb.id}`);
+    expect(page.text).toContain('Talk to sua about this notebook');
+    expect(page.text).toContain(`data-nb-continue="${thread}"`);
+    expect(page.text).toContain('Add an entry yourself');
+    const main = await get(`/notebooks/${nb.id}/main`);
+    expect(main.headers['x-notebook-entries']).toBe('2');
+    expect(main.text).toContain('2011 Forester');
+
+    // A conversation's page-only context isn't shown as a raw payload.
+    const frag = await get(`/inbox/${thread}/fragment`);
+    expect(frag.text).not.toContain('Context payload');
+  });
+});

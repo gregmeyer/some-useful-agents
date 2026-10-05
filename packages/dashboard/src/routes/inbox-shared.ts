@@ -58,6 +58,8 @@ export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'agent-settings',
   'adjust-surface',
   'arrange-board',
+  'notebook-add',
+  'notebook-pipeline',
   'notebook-keeper',
   'agent-catalog-search',
   'agent-builder',

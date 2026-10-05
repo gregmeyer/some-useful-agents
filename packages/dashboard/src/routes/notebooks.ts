@@ -13,6 +13,9 @@ import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning } from '../lib/notebook-pipeline.js';
+import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
+import { runTriageAgent } from './inbox-engine.js';
+import { renderNotebookMain } from '../views/notebooks.js';
 
 export const notebooksRouter: Router = Router();
 
@@ -132,4 +135,50 @@ notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const out = startNotebookPipeline(getContext(req.app.locals), id);
   res.redirect(303, back(id, out.started ? 'Running the pipeline. New entries show up here as each agent finishes.' : out.reason ?? 'It could not start.'));
+});
+
+/**
+ * Talk to sua about this notebook: starts its conversation (or continues it)
+ * with what you said; sua files it into the notebook as you go.
+ */
+notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  const text = str(req.body?.text).trim().slice(0, 4000);
+  if (!nb || !ctx.inboxStore || !text) {
+    if (isAjax(req)) { res.status(nb ? 400 : 404).json({ error: nb ? 'Say something first.' : 'No such notebook.' }); return; }
+    res.redirect(303, nb ? back(nb.id, 'Say something first.') : '/notebooks');
+    return;
+  }
+  let threadId = nb.conversationId && ctx.inboxStore.get(nb.conversationId) ? nb.conversationId : undefined;
+  if (!threadId) {
+    const created = ctx.inboxStore.add({
+      priority: 'medium', source: 'manual', title: `Notebook: ${nb.title}`, body: '(empty)',
+      contextJson: JSON.stringify({ page: { path: `/notebooks/${encodeURIComponent(nb.id)}`, title: nb.title, kind: 'notebook', id: nb.id } }),
+    });
+    threadId = created.id;
+    s.setConversation(nb.id, threadId);
+  } else {
+    const cur = ctx.inboxStore.get(threadId);
+    if (cur && (cur.status === 'resolved' || cur.status === 'dismissed')) ctx.inboxStore.updateStatus(threadId, 'open');
+  }
+  const said = ctx.inboxStore.addResponse(threadId, 'user', text);
+  publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
+  void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
+  publishInboxChanged(ctx, threadId, 'open');
+  if (isAjax(req)) { res.setHeader('X-Inbox-Id', threadId); res.status(204).end(); return; }
+  res.redirect(303, `/inbox/${encodeURIComponent(threadId)}`);
+});
+
+/** The notebook's sections alone, so its page can update as sua files things. */
+notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).end(); return; }
+  const entries = s.entries(nb.id);
+  const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
+  res.setHeader('X-Notebook-Entries', String(entries.length));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries));
 });

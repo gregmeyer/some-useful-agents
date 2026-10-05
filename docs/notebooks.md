@@ -16,6 +16,21 @@ There's no top-nav item yet. Notebooks show up:
 - **at `/notebooks`:** the list, with a ring showing criteria met, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 
+## Talk to sua; it fills the notebook
+
+You don't fill in a notebook by hand. A new notebook opens with **Tell sua what you're looking for**. Talk it through: who it's for, budget, must-haves, what you've seen or ruled out. The conversation opens beside the page in the sua drawer.
+
+- **sua files what you say as you go**, and the page updates on its own:
+  - preferences and context become **notes**;
+  - specific candidates become **options**;
+  - facts about them become **evidence**;
+  - "skip anything with a salvage title" becomes a **ruled-out decision**;
+  - limits and "done when" lines are added to the notebook's parameters and criteria.
+
+  This follows your autonomy setting: under Full it applies right away, otherwise it waits as a card. Every entry can be removed.
+- **sua suggests a pipeline** when there isn't one, from agents you have (e.g. a listings search every morning). That's a **Set up the pipeline** card you approve, and it can run once right away.
+- **The notebook keeps its conversation.** **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
+
 ## A notebook's page
 
 - **The cover** shows the title, status, what it's for, the parameters, and the cadence. The pipeline is drawn as connected agents, each with its last run (ran, failed, not run yet, not installed). A ring shows how many criteria are met; click a criterion to tick it.
