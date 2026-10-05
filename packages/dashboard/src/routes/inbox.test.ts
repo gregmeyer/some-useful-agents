@@ -2232,3 +2232,29 @@ describe('sua changes Home (adjust-surface)', () => {
     expect(page.text).toContain('action="/surfaces/home/ask" class="home-change" data-ask-fix');
   });
 });
+
+describe('a conversation knows the page it was started from', () => {
+  it('reads the page into context (and the agent, on an agent\'s page)', async () => {
+    const app = await makeApp();
+    const { pageContextFrom } = await import('./inbox.js');
+    expect(pageContextFrom('/', 'Home')).toEqual({ path: '/', title: 'Home', kind: 'home' });
+    expect(pageContextFrom('/inbox/abc', '')).toMatchObject({ kind: 'home' });
+    expect(pageContextFrom('/dashboards/user%3Ahacker-news?x=1', 'Hacker News')).toEqual({ path: '/dashboards/user%3Ahacker-news', title: 'Hacker News', kind: 'board', id: 'user:hacker-news' });
+    expect(pageContextFrom('/pulse', 'Pulse')).toMatchObject({ kind: 'board', id: 'pulse' });
+    expect(pageContextFrom('/agents/flaky/config', 'flaky')).toMatchObject({ kind: 'agent', id: 'flaky' });
+    expect(pageContextFrom('/agents/new', '')).toMatchObject({ kind: 'page' });
+    expect(pageContextFrom('/notebooks/car', '')).toMatchObject({ kind: 'notebook', id: 'car' });
+    expect(pageContextFrom('//evil.example/x', '')).toBeUndefined();
+    expect(pageContextFrom(42, '')).toBeUndefined();
+
+    agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }] }, 'cli');
+    const ask = (body: Record<string, string>) => request(app).post('/inbox/new').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+    const onBoard = await ask({ body: 'fix this dashboard', page: '/dashboards/user%3Ahacker-news', pageTitle: 'Hacker News' });
+    expect(JSON.parse(inboxStore.get(onBoard.headers['x-inbox-id'])!.contextJson!)).toEqual({ page: { path: '/dashboards/user%3Ahacker-news', title: 'Hacker News', kind: 'board', id: 'user:hacker-news' } });
+    const onAgent = await ask({ body: 'why is this slow', page: '/agents/flaky', pageTitle: 'flaky' });
+    expect(inboxStore.get(onAgent.headers['x-inbox-id'])).toMatchObject({ agentId: 'flaky' });
+    const plain = await ask({ body: 'hello' });
+    expect(inboxStore.get(plain.headers['x-inbox-id'])!.contextJson).toBeUndefined();
+  });
+});

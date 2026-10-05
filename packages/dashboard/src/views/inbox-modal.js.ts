@@ -1040,7 +1040,7 @@ export const INBOX_MODAL_JS = `
     fetch('/inbox/new', {
       method: 'POST',
       credentials: 'same-origin',
-      body: new URLSearchParams({ body: bodyText }).toString(),
+      body: new URLSearchParams(withPage({ body: bodyText })).toString(),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
     })
       .then(function (r) { if (!r.ok) throw new Error('create failed: ' + r.status); return r.headers.get('X-Inbox-Id'); })
@@ -1393,6 +1393,16 @@ export const INBOX_MODAL_JS = `
       .catch(function () { openPanelHome(); });
   }
 
+  /**
+   * The page you're on goes with a new conversation, so "this dashboard" or
+   * "this agent" means the one you're looking at (server: pageContextFrom).
+   */
+  function withPage(fields) {
+    fields.page = window.location.pathname;
+    fields.pageTitle = (document.title || '').slice(0, 120);
+    return fields;
+  }
+
   /** The search field asks sua on Enter: a new conversation with that text, opened here. */
   function askFromSearch(text) {
     text = String(text || '').trim();
@@ -1400,7 +1410,7 @@ export const INBOX_MODAL_JS = `
     fetch('/inbox/new', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
-      body: new URLSearchParams({ body: text }).toString(),
+      body: new URLSearchParams(withPage({ body: text })).toString(),
     })
       .then(function (r) { var id = r.headers.get('X-Inbox-Id'); if (!r.ok || !id) throw new Error('ask ' + r.status); return id; })
       .then(function (id) {

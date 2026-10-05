@@ -2168,7 +2168,18 @@ export async function runTriageAgent(
       // triggers an escalation note instead of another fix, and suppresses the
       // recovery-refire so the thread halts on the operator rather than looping.
       const convergenceBlocked = new Set<string>();
+      // Asked from another page ("fix this dashboard"), a Home change is the
+      // wrong target unless they said Home / Today.
+      const askedFrom = (() => { try { return (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; title?: string; path?: string } }).page; } catch { return undefined; } })();
+      const saidHome = /\b(home|today)\b/i.test(latestUserRequest(ctx.inboxStore?.listResponses(messageId) ?? []) ?? '');
       for (const action of accepted) {
+        if (action.agentId === 'adjust-surface' && askedFrom && askedFrom.kind !== 'home' && !saidHome) {
+          rejected.push({
+            agentId: 'adjust-surface',
+            reason: `the operator is on ${askedFrom.title || askedFrom.path || 'another page'} (${askedFrom.kind}), not Home; "this" means that page. Change Home only when they say Home or Today`,
+          });
+          continue;
+        }
         if (action.mode === 'show-widget' && !ctx.agentStore.getAgent(action.agentId)) {
           rejected.push({ agentId: action.agentId, reason: 'agent is not installed' });
           continue;
