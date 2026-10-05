@@ -63,7 +63,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // sua's latest word in the notebook's conversation, so the page shows it remembers.
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
-  res.type('html').send(renderNotebookPage({ nb, entries, compiled, stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, entries, compiled, history: s, stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -212,7 +212,7 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).json({ error: 'No such notebook.' }); return; }
-  res.json(notebookViewData(nb, s.entries(nb.id, 500)));
+  res.json(notebookViewData(nb, s.entries(nb.id, 500), s));
 });
 
 notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
@@ -227,5 +227,5 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const step = nextStep(s.get(nb.id) ?? nb, entries);
   res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));
   res.setHeader('X-Notebook-Placeholder', encodeURIComponent(step.placeholder));
-  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, s));
 });

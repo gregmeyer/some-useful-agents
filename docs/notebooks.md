@@ -62,9 +62,11 @@ Options record their facts as data, not only as text, so they can be compared, s
 - **Options kept before the notebook had fields** get filled in from their text when the fields are set. Only unambiguous facts are read: a dollar amount, a number with the measure's unit, a leading year, a web address.
 - **The same option is one entry.** Each option has a fingerprint: a VIN or listing id when the agent gives one, else its listing's address. When a later run finds it again, its facts are refreshed and the card says "seen again". It isn't added a second time.
 - **On the page**, an option shows its facts as chips (the price highlighted) and its listing as a link.
+- **Price history:** each time a search finds an option, what it said is kept. A card shows how the price moved since it was first seen ("↓ $123 since Oct 5"): green when it moved the way that's better (lower for a price, higher for a salary), amber otherwise.
+- **Not seen lately:** each search is recorded, along with how many options it found. When the last 2 searches by the agent that found an option found other options but not this one, its card says "not in the last 2 searches". It may be sold, filled or taken down. A search that found nothing doesn't count, since web search results vary from run to run. Being found again clears it.
 - **For widgets:** `GET /notebooks/<id>/data.json` returns the notebook as data, the same shape for every notebook:
   - `limits`, `criteria`, `progress` and `fields`;
-  - `options`, each with its facts by key, plus `price`, `measure`, `place`, `org`, `link` and `image` picked out by role (a range's midpoint for `price` and `measure`), and `firstSeenAt` / `lastSeenAt`;
+  - `options`, each with its facts by key, `priceHistory` and `priceChange`, `missedSearches` and `notSeenLately`, plus `price`, `measure`, `place`, `org`, `link` and `image` picked out by role (a range's midpoint for `price` and `measure`), and `firstSeenAt` / `lastSeenAt`;
   - `notes`, `evidence`, `decisions` and `history`.
 
 ## Stages and ruling out: the funnel

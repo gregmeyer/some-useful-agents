@@ -64,6 +64,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
   let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
+  const searchAt = new Date().toISOString();
   // A notebook's fields are set once, by the first run that finds options.
   if (nb.fields.length === 0 && Array.isArray(parsed.fields) && parsed.fields.length > 0) {
     nb = store.setFields(nb.id, parsed.fields);
@@ -77,6 +78,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let added = 0;
   let refreshed = 0;
   let skipped = 0;
+  let ruledOutSeen = 0;
   for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, MAX_ENTRIES_PER_RUN)) {
     const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
@@ -88,7 +90,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
       if (!optionFingerprint(fingerprint, cleanData(data, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
       const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId });
-      if (r.ruledOut) skipped++;
+      if (r.ruledOut) { skipped++; ruledOutSeen++; }
       else if (r.seenAgain) refreshed++;
       else { added++; seen.add(key); }
       continue;
@@ -98,6 +100,9 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId });
     added++;
   }
+  // The search counts even when everything it found was known: that's how a
+  // later "not in the last 2 searches" knows someone looked.
+  store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt);
   let criteriaMet = 0;
   for (const c of Array.isArray(parsed.criteriaMet) ? parsed.criteriaMet : []) {
     const x = c as { index?: unknown; why?: unknown };

@@ -190,6 +190,24 @@ export class NotebookStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS notebook_entries_by_notebook ON notebook_entries (notebook_id, created_at);
+      -- Each time a search saw an option, with what it said then (price history).
+      CREATE TABLE IF NOT EXISTS notebook_sightings (
+        entry_id TEXT NOT NULL,
+        notebook_id TEXT NOT NULL,
+        run_id TEXT,
+        at TEXT NOT NULL,
+        data_json TEXT
+      );
+      CREATE INDEX IF NOT EXISTS notebook_sightings_by_entry ON notebook_sightings (entry_id, at);
+      -- Each search whose results went into the notebook: which agent, and how many options it found.
+      CREATE TABLE IF NOT EXISTS notebook_searches (
+        notebook_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        run_id TEXT,
+        at TEXT NOT NULL,
+        found INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS notebook_searches_by_notebook ON notebook_searches (notebook_id, agent_id, at);
     `);
     // G2 columns, added to tables created before them.
     for (const [table, col] of [
@@ -259,11 +277,46 @@ export class NotebookStore {
     return this.mustGetOption(notebookId, entryId);
   }
 
+  /**
+   * Record that a search ran and how many options it found, so an option a
+   * later search didn't find can be told apart from one nobody looked for.
+   */
+  recordSearch(notebookId: string, agentId: string, runId: string | undefined, found: number, at = new Date().toISOString()): void {
+    // `at` is when the search's results arrived, before its options were updated, so it never counts as a miss for them.
+    this.db.prepare('INSERT INTO notebook_searches (notebook_id, agent_id, run_id, at, found) VALUES (?, ?, ?, ?, ?)')
+      .run(notebookId, agentId, runId ?? null, at, found);
+  }
+
+  /** What searches said about an option over time, oldest first. */
+  sightings(entryId: string): Array<{ at: string; runId?: string; data: Record<string, NotebookFieldValue> }> {
+    return (this.db.prepare('SELECT * FROM notebook_sightings WHERE entry_id = ? ORDER BY at').all(entryId) as Array<Record<string, unknown>>).map((r) => ({
+      at: String(r.at), ...(r.run_id ? { runId: String(r.run_id) } : {}),
+      data: (() => { try { return JSON.parse(String(r.data_json ?? '{}')) as Record<string, NotebookFieldValue>; } catch { return {}; } })(),
+    }));
+  }
+
+  /**
+   * How many searches by the agent that found an option have run since it
+   * was last seen, and found other options but not this one.
+   */
+  missedSearches(notebookId: string, e: Pick<NotebookEntry, 'by' | 'lastSeenAt' | 'createdAt'>): number {
+    if (!e.by.startsWith('agent:')) return 0;
+    const r = this.db.prepare('SELECT COUNT(*) AS n FROM notebook_searches WHERE notebook_id = ? AND agent_id = ? AND at > ? AND found > 0')
+      .get(notebookId, e.by.slice('agent:'.length), e.lastSeenAt ?? e.createdAt) as { n: number };
+    return Number(r.n);
+  }
+
   /** Bring a ruled-out option back, at the stage it was at. */
   reinstate(notebookId: string, entryId: string): NotebookEntry {
     const e = this.mustGetOption(notebookId, entryId);
     this.db.prepare('UPDATE notebook_entries SET ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(e.id);
     return this.mustGetOption(notebookId, entryId);
+  }
+
+  private addSighting(entryId: string, notebookId: string, runId: string | undefined, at: string, data: Record<string, NotebookFieldValue>): void {
+    if (Object.keys(data).length === 0) return;
+    this.db.prepare('INSERT INTO notebook_sightings (entry_id, notebook_id, run_id, at, data_json) VALUES (?, ?, ?, ?, ?)')
+      .run(entryId, notebookId, runId ?? null, at, JSON.stringify(data));
   }
 
   private mustGetOption(notebookId: string, entryId: string): NotebookEntry {
@@ -301,6 +354,7 @@ export class NotebookStore {
         const merged = { ...(prev.data ?? {}), ...data };
         this.db.prepare('UPDATE notebook_entries SET data_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
           .run(JSON.stringify(merged), now, input.runId ?? null, prev.id);
+        this.addSighting(prev.id, notebookId, input.runId, now, data);
         // Ruled out stays ruled out: a search finding it again only notes when it was seen.
         return { entry: { ...prev, data: merged, lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(prev.ruledOut ? { ruledOut: true } : {}) };
       }
@@ -309,6 +363,7 @@ export class NotebookStore {
     const stage = nb.stages[0];
     this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ?, last_seen_at = ?, stage = ?, stage_at = ? WHERE id = ?')
       .run(Object.keys(data).length ? JSON.stringify(data) : null, fingerprint ?? null, now, stage ?? null, stage ? now : null, entry.id);
+    this.addSighting(entry.id, notebookId, input.runId, now, data);
     return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now, ...(stage ? { stage, stageAt: now } : {}) }, seenAgain: false };
   }
 
@@ -457,6 +512,7 @@ export class NotebookStore {
 
   removeEntry(notebookId: string, entryId: string): boolean {
     const r = this.db.prepare('DELETE FROM notebook_entries WHERE id = ? AND notebook_id = ?').run(entryId, notebookId);
+    if (Number(r.changes) === 1) this.db.prepare('DELETE FROM notebook_sightings WHERE entry_id = ?').run(entryId);
     return Number(r.changes) === 1;
   }
 
@@ -641,6 +697,13 @@ export interface NotebookViewOption {
   runId?: string;
   firstSeenAt: string;
   lastSeenAt: string;
+  /** The price over time (oldest first), and how it moved since first seen. */
+  priceHistory: Array<{ at: string; value: number }>;
+  priceChange?: { from: number; to: number; since: string };
+  /** Searches by the agent that found it, since it was last seen, that found others but not this one. */
+  missedSearches: number;
+  /** Missed the last 2 or more of those searches: likely sold, filled or taken down. */
+  notSeenLately: boolean;
   /** Its stage, and that stage's position (0 = the first). */
   stage?: string;
   stageIndex: number;
@@ -690,7 +753,16 @@ export interface NotebookViewData {
   };
 }
 
-export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]): NotebookViewData {
+/** Searches in a row an option can miss before it reads as "not seen lately". */
+export const NOT_SEEN_AFTER_MISSES = 2;
+
+/** History for the view, read from the store (omit for a view without it). */
+export interface NotebookViewHistory {
+  sightings(entryId: string): Array<{ at: string; data: Record<string, NotebookFieldValue> }>;
+  missedSearches(notebookId: string, e: NotebookEntry): number;
+}
+
+export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookViewHistory): NotebookViewData {
   const byRole = new Map(nb.fields.filter((f) => f.role).map((f) => [f.role!, f.key]));
   const pick = (data: Record<string, NotebookFieldValue>, role: NotebookFieldRole) => {
     const key = byRole.get(role);
@@ -714,6 +786,8 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
+      ...priceTrend(e, byRole.get('price'), history),
+      ...(() => { const m = history ? history.missedSearches(nb.id, e) : 0; return { missedSearches: m, notSeenLately: m >= NOT_SEEN_AFTER_MISSES }; })(),
       ...(e.stage ? { stage: e.stage } : {}),
       stageIndex: Math.max(0, nb.stages.findIndex((s) => s === (e.ruledOut?.stage ?? e.stage))),
       ...(e.ruledOut ? { ruledOut: e.ruledOut } : {}),
@@ -777,4 +851,17 @@ export function readOptionText(text: string, fields: readonly NotebookField[]): 
     }
   }
   return out;
+}
+
+/** An option's price over its sightings, and the change from the first to the latest. */
+function priceTrend(e: NotebookEntry, priceKey: string | undefined, history?: NotebookViewHistory): Pick<NotebookViewOption, 'priceHistory' | 'priceChange'> {
+  if (!priceKey || !history) return { priceHistory: [] };
+  const points = history.sightings(e.id)
+    .map((s) => ({ at: s.at, value: fieldNumber(s.data[priceKey]) }))
+    .filter((p): p is { at: string; value: number } => p.value !== undefined);
+  // Only changes count: the same price seen five times is one point.
+  const priceHistory = points.filter((p, i) => i === 0 || p.value !== points[i - 1].value);
+  const first = priceHistory[0];
+  const last = priceHistory[priceHistory.length - 1];
+  return { priceHistory, ...(first && last && first.value !== last.value ? { priceChange: { from: first.value, to: last.value, since: first.at } } : {}) };
 }

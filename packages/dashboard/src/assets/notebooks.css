@@ -274,3 +274,6 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-stage .btn--sm { padding: 2px var(--space-2); font-size: var(--font-size-xs); }
 .nb-ruleout[open] { flex-basis: 100%; }
 .nb-ruleout__form { max-width: 560px; }
+.nb-fact--better { color: var(--color-ok); border-color: var(--color-ok); background: var(--color-ok-soft); }
+.nb-fact--worse { color: var(--color-warn); border-color: var(--color-warn-border); background: var(--color-warn-soft); }
+.nb-fact--gone { color: var(--color-text-muted); border-style: dashed; }
