@@ -165,3 +165,12 @@ describe('webFetch — browser fallback', () => {
     expect(r.content).toContain('Main Heading');
   });
 });
+
+describe('fetchImage', () => {
+  it('refuses private addresses and non-http schemes before any request', async () => {
+    const { fetchImage } = await import('./fetch.js');
+    await expect(fetchImage('http://127.0.0.1:1/x.jpg')).rejects.toThrow(/private|reserved|Blocked/i);
+    await expect(fetchImage('http://169.254.169.254/latest/meta-data')).rejects.toThrow(/private|reserved|Blocked/i);
+    await expect(fetchImage('file:///etc/passwd')).rejects.toThrow(/scheme|Blocked/i);
+  });
+});

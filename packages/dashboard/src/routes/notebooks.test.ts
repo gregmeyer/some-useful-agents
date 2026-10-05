@@ -307,3 +307,54 @@ describe('the funnel on the page and in the conversation', () => {
     expect(parseNotebookAdd('{}').error).toBe('Nothing to add.');
   });
 });
+
+describe('notebook photos', () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+
+  it('keeps photos from the image field or a matching listing page, and remembers what failed', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { keepPhotos } = await import('../lib/notebook-photos.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Car' }).id, [
+      { key: 'photo', label: 'Photo', type: 'image', role: 'image' },
+      { key: 'url', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    const add = (title: string, data: Record<string, string>) => store.upsertOption(nb.id, { title, by: 'agent:x', data }).entry;
+    const given = add('2010 Toyota RAV4 Sport', { photo: 'https://img.example/rav4.jpg' });
+    const listing = add('2009 Subaru Forester 2.5X', { url: 'https://www.autotrader.com/cars-for-sale/inventory/767954639' });
+    const results = add('2007 Subaru Forester', { url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-Seattle-c8308' });
+    const wrongCar = add('2006 Subaru Forester 2.5X', { url: 'https://www.autotrader.com/cars-for-sale/inventory/772291286' });
+    const fetched: string[] = [];
+    const deps = {
+      fetchImage: async (u: string) => { fetched.push(u); if (u.includes('broken')) throw new Error('HTTP 404'); return { bytes: JPEG, contentType: 'image/jpeg' }; },
+      pagePreview: async (u: string) => (u.endsWith('767954639')
+        ? { image: 'https://images.autotrader.com/forester-09.jpg', title: '2009 Subaru Forester 2.5X for sale in Seattle' }
+        : { image: 'https://images.autotrader.com/other.jpg', title: '2014 Honda CR-V EX' }),
+    };
+    expect(await keepPhotos(store, nb.id, { deps })).toEqual({ kept: 2, tried: 4 });
+    expect(fetched.sort()).toEqual(['https://images.autotrader.com/forester-09.jpg', 'https://img.example/rav4.jpg']);
+    expect(store.hasPhoto(given.id) && store.hasPhoto(listing.id)).toBe(true);
+    expect(store.hasPhoto(results.id) || store.hasPhoto(wrongCar.id)).toBe(false);
+    // Tried once: not again.
+    expect(await keepPhotos(store, nb.id, { deps })).toEqual({ kept: 0, tried: 0 });
+  });
+
+  it('serves a kept photo as an image only, and the card shows it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Car' }).id, [{ key: 'photo', label: 'Photo', type: 'image', role: 'image' }]);
+    const e = store.upsertOption(nb.id, { title: 'RAV4', by: 'agent:x', data: { photo: 'https://img.example/a.jpg' } }).entry;
+    store.savePhoto(nb.id, e.id, 'https://img.example/a.jpg', { contentType: 'image/jpeg', bytes: JPEG });
+    const res = await request(app).get(`/notebooks/car/entries/${e.id}/photo`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['content-security-policy']).toContain('sandbox');
+    expect((await request(app).get('/notebooks/car/entries/nope/photo').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).status).toBe(404);
+    const page = await request(app).get('/notebooks/car').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain(`<img class="nb-entry__photo" src="/notebooks/car/entries/${e.id}/photo"`);
+    expect(page.text).toContain('Get photos');
+  });
+});

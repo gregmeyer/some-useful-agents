@@ -277,3 +277,14 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-fact--better { color: var(--color-ok); border-color: var(--color-ok); background: var(--color-ok-soft); }
 .nb-fact--worse { color: var(--color-warn); border-color: var(--color-warn-border); background: var(--color-warn-soft); }
 .nb-fact--gone { color: var(--color-text-muted); border-style: dashed; }
+
+/* Option photos: a kept copy, beside the facts */
+.nb-entry--photo { display: grid; grid-template-columns: 132px minmax(0, 1fr); column-gap: var(--space-4); align-items: start; }
+.nb-entry--photo > :not(.nb-entry__photo) { grid-column: 2; }
+.nb-entry__photo { grid-column: 1; grid-row: 1 / span 6; width: 132px; height: 99px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-raised); }
+.nb-region__act { display: inline; margin: 0 0 0 var(--space-2); }
+@media (max-width: 640px) {
+  .nb-entry--photo { grid-template-columns: 1fr; }
+  .nb-entry--photo > :not(.nb-entry__photo) { grid-column: 1; }
+  .nb-entry__photo { grid-row: auto; width: 100%; height: 180px; }
+}
