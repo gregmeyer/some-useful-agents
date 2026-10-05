@@ -15,7 +15,7 @@ import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../
 import { startNotebookPipeline, pipelineRunning } from '../lib/notebook-pipeline.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
-import { renderNotebookMain } from '../views/notebooks.js';
+import { renderNotebookMain, nextStep } from '../views/notebooks.js';
 
 export const notebooksRouter: Router = Router();
 
@@ -180,5 +180,9 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   res.setHeader('X-Notebook-Entries', String(entries.length));
+  // The talk box follows the notebook: its next-step hint and ghost text.
+  const step = nextStep(s.get(nb.id) ?? nb, entries);
+  res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));
+  res.setHeader('X-Notebook-Placeholder', encodeURIComponent(step.placeholder));
   res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries));
 });
