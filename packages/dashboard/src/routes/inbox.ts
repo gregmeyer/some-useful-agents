@@ -33,7 +33,7 @@
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
-import { renderHomeGoal } from '../views/home-surface.js';
+import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksLine } from '../views/notebooks.js';
 import { Router, type Request, type Response } from 'express';
 import {
@@ -108,7 +108,7 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
     ? ctx.dashboardsStore.listDashboards().filter((d) => !d.packId).map((d) => ({ id: d.id, name: d.name }))
     : [];
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
+  res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today), adjustMenu: renderHomeAdjust(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
 }
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));

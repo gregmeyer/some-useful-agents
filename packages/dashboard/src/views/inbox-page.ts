@@ -26,6 +26,8 @@ export function renderInboxPage(opts: {
   goalLine?: SafeHtml;
   /** The Notebooks line under it (G1; no nav item until notebooks prove themselves). */
   notebooksLine?: SafeHtml;
+  /** Adjust Home ▾: ask sua to change it, and what changed. */
+  adjustMenu?: SafeHtml;
 }): string {
   if (opts.agentCount === 0 && !opts.threadId) {
     return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
@@ -46,16 +48,17 @@ export function renderInboxPage(opts: {
     `));
   }
   return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
-    <div class="inbox-page-head">
-      <div>
-        <h1 style="margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl);">Home</h1>
-        <p class="dim" style="margin: var(--space-1) 0 0; font-size: var(--font-size-sm);">
-          <strong>Today</strong> is what needs you now: conversations waiting on you, agents that keep failing, drafts and builds, in the order your rules set. Open, Chats and Done are your conversations. Ask sua (⌘K) brings this beside any page.
-        </p>
+    <header class="home-head">
+      <div class="home-head__text">
+        <h1 class="home-head__title">Home</h1>
         ${opts.goalLine ?? html``}
-        ${opts.notebooksLine ?? html``}
       </div>
-    </div>
+      <div class="home-head__controls">
+        ${opts.notebooksLine ?? html``}
+        ${renderAutonomyControl(opts.autonomyMode, { compact: true })}
+        ${opts.adjustMenu ?? html``}
+      </div>
+    </header>
     ${pageIntro({
       key: 'home',
       text: 'Your agents run here, on this machine. This page is what needs your attention, and every conversation with sua.',
@@ -65,7 +68,6 @@ export function renderInboxPage(opts: {
         { href: '/help/tutorial', label: 'Tutorial' },
       ],
     })}
-    ${renderAutonomyControl(opts.autonomyMode)}
     <div class="inbox-split" data-inbox-split data-initial-thread="${opts.threadId ?? ''}">
       <noscript><p class="dim">The inbox needs JavaScript.</p></noscript>
     </div>
@@ -73,7 +75,7 @@ export function renderInboxPage(opts: {
 }
 
 /** How much sua may do on its own (POST /inbox/trust/mode). */
-export function renderAutonomyControl(mode: AutonomyMode): SafeHtml {
+export function renderAutonomyControl(mode: AutonomyMode, opts: { compact?: boolean } = {}): SafeHtml {
   const seg = (value: AutonomyMode, label: string): SafeHtml => html`
     <form method="POST" action="/inbox/trust/mode" style="margin: 0;">
       <input type="hidden" name="mode" value="${value}">
@@ -87,6 +89,14 @@ export function renderAutonomyControl(mode: AutonomyMode): SafeHtml {
       ? 'Triage still analyzes new items, but every action waits for your approval.'
       : 'Trusted agents run automatically; others wait for your approval.';
   const dotClass = mode === 'off' ? 'inbox-autonomy__dot--off' : mode === 'propose-only' ? 'inbox-autonomy__dot--warn' : 'inbox-autonomy__dot--on';
+  if (opts.compact) {
+    // In Home's header: the switch alone; what each setting means is its tooltip.
+    return html`
+      <div class="inbox-autonomy inbox-autonomy--compact" role="group" aria-label="Autonomy: ${caption}" title="${caption}">
+        <span class="inbox-autonomy__label"><span class="inbox-autonomy__dot ${dotClass}" aria-hidden="true"></span>Autonomy</span>
+        <div class="inbox-autonomy__segs">${seg('full', 'Full')}${seg('propose-only', 'Approve first')}${seg('off', 'Off')}</div>
+      </div>`;
+  }
   return html`
     <div class="inbox-autonomy" role="group" aria-label="Autonomy mode">
       <span class="inbox-autonomy__label">

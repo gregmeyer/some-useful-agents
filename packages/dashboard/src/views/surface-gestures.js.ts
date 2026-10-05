@@ -103,7 +103,7 @@ export const SURFACE_GESTURES_JS = `
     });
 
     // ── Home's goal line and "What changed" (S6) ──────────────────────
-    function arrangedBy(v) { return v ? '\u00b7 arranged by your rules, v' + v : '\u00b7 arranged by the defaults'; }
+    function arrangedBy(v) { return v ? 'Arranged by your rules, v' + v : 'Arranged by the defaults'; }
     function historyPanel() { return document.querySelector('[data-surface-history-panel]'); }
     function loadHistory() {
       var panel = historyPanel();

@@ -120,7 +120,7 @@ Hidden items are listed at the end of Today ("2 hidden from Home"), each with th
 
 ### Asking sua to change Home
 
-Under Home's goal, **Ask sua to change Home** takes plain words, e.g. "put failing agents first and hide the draft agents" or "pin the Claude Code Usage Tracker failure". The conversation opens beside the list.
+In Home's header, **Adjust Home** opens **Ask sua to change what Home shows**, which takes plain words, e.g. "put failing agents first and hide the draft agents" or "pin the Claude Code Usage Tracker failure". The conversation opens beside the list.
 
 sua answers with a **Change Home** card that lists each change (new rules, pins, hides) and its effect: what will lead **Needs you**, and how many items will be hidden. **Apply** saves the changes as a new version of Home, marked "by you, through sua". Nothing changes before you apply. If Home changed in between, Apply refuses and you ask again. You can ask the same way in any conversation.
 
@@ -133,7 +133,7 @@ sua sees Home as it is (goal, sections, rules, pins, hidden items, and the items
 
 ### What changed, and why things are where they are
 
-- **What changed** (next to Home's goal) lists every version of Home, newest first. Each version shows:
+- **What changed** (in **Adjust Home**) lists every version of Home, newest first. Each version shows:
   - who changed it: you, you through sua, an app, or the defaults;
   - when, and the reason given;
   - each change in plain words ("Pin: “AQI + Smoke Inbox Reporter is failing” at the top").
