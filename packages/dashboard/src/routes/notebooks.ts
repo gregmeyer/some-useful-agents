@@ -6,7 +6,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, validateScheduleInterval,
+  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, validateScheduleInterval, markdownToText,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -60,7 +60,10 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     if (!last) return { agentId, status: 'never', note: ctx.agentStore.getAgent(agentId) ? 'not run yet' : 'not installed' };
     return { agentId, status: last.status === 'failed' ? 'failed' : 'ok', note: last.status === 'failed' ? 'failed' : last.status === 'completed' ? 'ran' : last.status };
   });
-  res.type('html').send(renderNotebookPage({ nb, entries, compiled, stages, running: running ? { step: running.step, of: running.of } : undefined, flash: parseFlash(req) }));
+  // sua's latest word in the notebook's conversation, so the page shows it remembers.
+  const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
+  const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
+  res.type('html').send(renderNotebookPage({ nb, entries, compiled, stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {

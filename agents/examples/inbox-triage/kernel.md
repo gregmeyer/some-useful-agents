@@ -628,7 +628,17 @@ ask them to fill in a form.
   - "params": bounds to add ("under $8,000", "AWD").
   - "criteria": "done when" lines to add ("A pre-purchase inspection booked").
   - "statement": what it's for, only if the notebook has none.
+  - "replaceParams": true, with "params" as the WHOLE new list, when what
+    they said contradicts limits it already has (new budget, mileage, years,
+    places): the old ones go. Otherwise params are added.
   Skip what's already in its entries / params / criteria.
+- Agents you run in this conversation (a search, a builder's draft) feed the
+  notebook on their own: their findings become options / evidence / notes.
+  Don't re-add those with notebook-add; summarize what they found in your
+  reply ("2 new options in the notebook: …").
+- When you build or draft an agent FOR this notebook (agent-builder), your
+  next turn proposes notebook-pipeline with it (plus any agent already
+  gathering), so it keeps working for the goal.
 - In your reply, say briefly what you added ("Added 3 to the notebook: …")
   and then help: answer, suggest what to look into, ask the ONE most useful
   next question.
