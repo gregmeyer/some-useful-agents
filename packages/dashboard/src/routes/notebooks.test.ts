@@ -199,3 +199,24 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(decodeURIComponent((await post('/notebooks/car/run')).headers.location)).toContain('Reopen the notebook');
   });
 });
+
+describe('the talk box follows the notebook', () => {
+  it('suggests the next useful thing to tell sua, step by step', async () => {
+    await makeApp();
+    const { nextStep } = await import('../views/notebooks.js');
+    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
+    const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
+    expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
+    const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };
+    expect(nextStep(withWhy, []).hint).toBe('Next: the limits sua should hold to.');
+    expect(nextStep(withWhy, []).placeholder).toContain('"Find a reliable car for a new driver"');
+    const limited = { ...withWhy, params: ['AWD'] };
+    expect(nextStep(limited, []).hint).toContain('candidates');
+    expect(nextStep(limited, [opt]).hint).toBe('1 option so far. sua can keep looking for you.');
+    const piped = { ...limited, pipeline: ['craigslist-car-search'] };
+    expect(nextStep(piped, [opt])).toEqual({ hint: 'Next: “clean title”.', placeholder: 'e.g. what you know about “clean title” for the 2011 Subaru Forester, 150k, $7,200' });
+    const met = { ...piped, criteria: [{ text: 'clean title', met: true }] };
+    expect(nextStep(met, [opt]).hint).toBe('Every criterion is met. Ready to decide?');
+    expect(nextStep({ ...met, status: 'decided' }, [opt]).hint).toContain('Decided');
+  });
+});

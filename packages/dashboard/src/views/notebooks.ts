@@ -135,7 +135,7 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
       <section class="nb-start" aria-labelledby="nb-start-title">
         <h2 class="nb-start__title" id="nb-start-title">Tell sua what you're looking for</h2>
         <p class="nb-start__sub">Talk it through the way you would with a friend: who it's for, budget, must-haves, what you've already seen or ruled out. sua files it here as you go (notes, options, limits, what "done" means) and can set up agents to keep looking.</p>
-        ${talkForm(nb, true)}
+        ${talkForm(nb, entries, true)}
       </section>`;
   }
   return html`${regions.map((r) => html`
@@ -145,25 +145,61 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
     </section>`) as unknown as SafeHtml[]}`;
 }
 
+/**
+ * The next useful thing to tell sua, from where the notebook is: what it's
+ * for, then limits, then candidates, then the first unmet criterion, then a
+ * pipeline, then deciding. Drives the talk box's hint and ghost text.
+ */
+export function nextStep(nb: Notebook, entries: readonly NotebookEntry[]): { hint: string; placeholder: string } {
+  const options = entries.filter((e) => e.kind === 'option');
+  const notes = entries.filter((e) => e.kind === 'note');
+  const goal = (nb.statement || nb.title).replace(/[.!?]+$/, '');
+  const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  if (nb.status === 'decided') {
+    return { hint: 'Decided. Anything learned since is still worth keeping.', placeholder: `e.g. how the decision is working out, or anything that would change it` };
+  }
+  if (!nb.statement && notes.length === 0) {
+    return { hint: "Start with what it's for and what matters most.", placeholder: `e.g. what "${short(nb.title)}" is for, who it's for, and what matters most` };
+  }
+  if (nb.params.length === 0) {
+    return { hint: 'Next: the limits sua should hold to.', placeholder: `e.g. budget, size, must-haves and deal-breakers for "${short(goal)}"` };
+  }
+  if (options.length === 0) {
+    return { hint: "Next: candidates. Anything you've already seen?", placeholder: 'e.g. paste a link, or describe one you saw (what, price, where) and what you thought of it' };
+  }
+  const open = nb.criteria.find((c) => !c.met);
+  if (open && nb.pipeline.length > 0) {
+    return { hint: `Next: “${short(open.text, 60)}”.`, placeholder: `e.g. what you know about “${short(open.text)}” for the ${short(options[0].title, 40)}` };
+  }
+  if (nb.pipeline.length === 0) {
+    return { hint: `${String(options.length)} option${options.length === 1 ? '' : 's'} so far. sua can keep looking for you.`, placeholder: 'e.g. "keep looking every morning", or tell sua about another one you saw' };
+  }
+  if (open) {
+    return { hint: `Next: “${short(open.text, 60)}”.`, placeholder: `e.g. what you know about “${short(open.text)}”` };
+  }
+  return { hint: 'Every criterion is met. Ready to decide?', placeholder: `e.g. "go with the ${short(options[0].title, 40)}, because…"` };
+}
+
 /** The one box: tell sua, and it files it (opens the notebook's conversation beside the page). */
-function talkForm(nb: Notebook, big = false): SafeHtml {
+function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false): SafeHtml {
+  const step = nextStep(nb, entries);
   return html`
     <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/ask" class="nb-talk__form ${big ? 'nb-talk__form--big' : ''}" data-ask-fix>
-      <label class="nb-sr" for="nb-talk-${big ? 'big' : 'side'}">Tell sua</label>
+      <label class="nb-talk__next" for="nb-talk-${big ? 'big' : 'side'}">${step.hint}</label>
       <textarea id="nb-talk-${big ? 'big' : 'side'}" name="text" required rows="${big ? '4' : '3'}" class="form-field"
-        placeholder="e.g. It's for my daughter, she's 17. Budget $3–8k, mostly city driving, she likes Subarus and Hondas. We saw a 2012 Forester with 140k miles for $7,500."></textarea>
+        placeholder="${step.placeholder}"></textarea>
       <button type="submit" class="btn btn--primary btn--sm">Tell sua</button>
     </form>`;
 }
 
-function sideForms(nb: Notebook, hasEntries: boolean): SafeHtml {
+function sideForms(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const hasEntries = entries.length > 0;
   const id = encodeURIComponent(nb.id);
   return html`
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
-        <p class="nb-talk__hint">What you tell sua lands here: notes, options, limits, what "done" means.</p>
-        ${talkForm(nb)}
+        ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
       </section>` : html``}
     <details class="nb-side__card nb-addself">
@@ -200,7 +236,7 @@ export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
-      <aside class="nb-body__side">${sideForms(args.nb, args.entries.length > 0)}</aside>
+      <aside class="nb-body__side">${sideForms(args.nb, args.entries)}</aside>
     </div>
   `));
 }

@@ -231,3 +231,4 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-talk { border-color: var(--color-primary); }
 details.nb-addself > summary { cursor: pointer; margin: 0; font-weight: 400; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
+.nb-talk__next { font-size: var(--font-size-sm); color: var(--color-primary); }
