@@ -260,7 +260,7 @@ export async function awaitRunTerminal(
  * integration/tool/agent stores. Either way the experimental Apple gate is
  * read from this (reliable) process and threaded to wherever the run lands.
  */
-async function runDispatchedAgentToTerminal(
+export async function runDispatchedAgentToTerminal(
   ctx: ReturnType<typeof getContext>,
   agent: Agent,
   inputs: Record<string, string>,

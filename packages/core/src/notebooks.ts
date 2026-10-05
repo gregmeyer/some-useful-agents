@@ -39,6 +39,9 @@ export interface Notebook {
   /** Set when it closes with a decision. */
   decision?: string;
   decidedAt?: string;
+  /** When the pipeline last ran, and what it added (one line). */
+  lastRunAt?: string;
+  lastRunNote?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +54,8 @@ export interface NotebookEntry {
   body: string;
   /** `you`, or `agent:<id>` / `run:<id>`. */
   by: string;
+  /** The run it came from, when an agent added it. */
+  runId?: string;
   createdAt: string;
 }
 
@@ -116,6 +121,16 @@ export class NotebookStore {
       );
       CREATE INDEX IF NOT EXISTS notebook_entries_by_notebook ON notebook_entries (notebook_id, created_at);
     `);
+    // G2 columns, added to tables created before them.
+    for (const [table, col] of [['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT']] as const) {
+      try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
+    }
+  }
+
+  /** Record a pipeline run's outcome (one line) on the notebook. */
+  noteRun(id: string, note: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebooks SET last_run_at = ?, last_run_note = ?, updated_at = ? WHERE id = ?').run(now, note.slice(0, 300), now, id);
   }
 
   create(input: NewNotebook): Notebook {
@@ -196,16 +211,17 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string }): NotebookEntry {
+  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string; runId?: string }): NotebookEntry {
     this.mustGet(notebookId);
     if (!(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(input.kind)) throw new Error(`Not an entry kind: ${input.kind}.`);
     const title = input.title.replace(/\s+/g, ' ').trim().slice(0, 160);
     if (!title) throw new Error('An entry needs a line of text.');
     const entry: NotebookEntry = {
-      id: randomUUID(), notebookId, kind: input.kind, title, body: (input.body ?? '').trim().slice(0, 8000), by: input.by, createdAt: new Date().toISOString(),
+      id: randomUUID(), notebookId, kind: input.kind, title, body: (input.body ?? '').trim().slice(0, 8000), by: input.by,
+      ...(input.runId ? { runId: input.runId } : {}), createdAt: new Date().toISOString(),
     };
-    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.createdAt);
+    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.runId ?? null, entry.createdAt);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(entry.createdAt, notebookId);
     return entry;
   }
@@ -241,6 +257,8 @@ export class NotebookStore {
       status: String(r.status) as NotebookStatus,
       ...(r.decision ? { decision: String(r.decision) } : {}),
       ...(r.decided_at ? { decidedAt: String(r.decided_at) } : {}),
+      ...(r.last_run_at ? { lastRunAt: String(r.last_run_at) } : {}),
+      ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -249,7 +267,8 @@ export class NotebookStore {
   private toEntry(r: Record<string, unknown>): NotebookEntry {
     return {
       id: String(r.id), notebookId: String(r.notebook_id), kind: String(r.kind) as NotebookEntryKind,
-      title: String(r.title), body: String(r.body ?? ''), by: String(r.by), createdAt: String(r.created_at),
+      title: String(r.title), body: String(r.body ?? ''), by: String(r.by),
+      ...(r.run_id ? { runId: String(r.run_id) } : {}), createdAt: String(r.created_at),
     };
   }
 }
@@ -277,4 +296,9 @@ export function notebookEntryItems(nb: Notebook, entries: readonly NotebookEntry
     provenance: { source: 'agents' as const, producedBy: e.by === 'you' ? 'system' : e.by, at: e.createdAt },
     href: `/notebooks/${encodeURIComponent(nb.id)}#entry-${e.id}`,
   }));
+}
+
+/** A title reduced for "have we seen this?": lowercase letters and digits only. */
+export function entryKey(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }

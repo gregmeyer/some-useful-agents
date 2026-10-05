@@ -244,6 +244,11 @@ export interface DashboardContext {
    */
   inboxTriagePendingRefires: Set<string>;
   /**
+   * Notebook pipelines running now (goal surfaces G2), by notebook id: which
+   * agent is on, step N of M. One run per notebook at a time.
+   */
+  notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number }>;
+  /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage
    * turn and auto-approved actions will not auto-run — so the autonomous

@@ -198,3 +198,13 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
   .nb-hero, .nb-body { grid-template-columns: 1fr; }
   .nb-body__side { position: static; }
 }
+
+/* The pipeline's run control and last run (G2). */
+.nb-run { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.nb-run__form { margin: 0; }
+.nb-run__now { font-size: var(--font-size-sm); color: var(--color-primary); }
+.nb-run__last { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nb-pipe__node--running circle { stroke: var(--color-primary); stroke-dasharray: 4 3; animation: nb-spin 1.6s linear infinite; transform-box: fill-box; transform-origin: center; }
+.nb-pipe__node--running .nb-pipe__glyph { fill: var(--color-primary); }
+@keyframes nb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .nb-pipe__node--running circle { animation: none; } }

@@ -1,0 +1,89 @@
+# Notebook Keeper — turns one pipeline agent's run output into notebook
+# entries (goal surfaces G2–G3). Route-dispatched only, by the notebook
+# pipeline (dashboard lib/notebook-pipeline.ts); never proposed in triage.
+# Its <notebook> JSON is parsed with extractTaggedJson; entries are added with
+# the source agent + run as provenance, and titles already in the notebook
+# are skipped.
+
+id: notebook-keeper
+name: Notebook Keeper
+description: >
+  Reads what one agent in a notebook's pipeline found, against the notebook's
+  goal, parameters, criteria and existing entries, and writes the new options,
+  evidence, notes and ruled-out decisions worth keeping.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: >
+      The notebook as JSON: title, what it's for (statement), parameters,
+      criteria (with index and whether met).
+  SOURCE_AGENT:
+    type: string
+    required: true
+    description: The pipeline agent whose output this is.
+  RUN_OUTPUT:
+    type: string
+    required: true
+    description: That agent's output (may be truncated).
+  EXISTING:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Titles of the notebook's entries so far, one per line with their kind,
+      so you add only what's new.
+
+nodes:
+  - id: keep
+    type: llm-prompt
+    outputContract:
+      mustMatch: '<notebook>[\s\S]*?</notebook>'
+      description: a <notebook> JSON block
+    prompt: |
+      You keep a notebook: a goal someone is working toward over days or
+      weeks. An agent in its pipeline just ran. Decide what from its output
+      is worth adding to the notebook, and nothing else.
+
+      Do NOT use Bash, Read, Grep, Glob, web or any other tools. Work only
+      from the text below.
+
+      The notebook:
+      {{inputs.NOTEBOOK}}
+
+      Already in it (kind: title), so don't add these again, even reworded:
+      {{inputs.EXISTING}}
+
+      What `{{inputs.SOURCE_AGENT}}` found:
+      ----
+      {{inputs.RUN_OUTPUT}}
+      ----
+
+      Write entries of four kinds:
+      - "option": a concrete candidate for the goal (a specific car, job,
+        product, place), with its key facts in the title
+        ("2019 Toyota RAV4 XLE AWD, 54k mi, $24,900"). Only options that fit
+        the parameters.
+      - "evidence": a fact that supports or rules out an option, or bears on
+        a criterion ("Carfax: RAV4 clean, one owner").
+      - "note": a useful observation for the goal that isn't a candidate or a
+        fact about one (a market trend, a tip, a caution).
+      - "decision": ONLY for ruling an option out, with why
+        ("Ruled out: 2019 Outback, CVT recall not done"). Options that break
+        the parameters become decisions like this when they're notable.
+      Titles are one line (under 120 characters); put details in "body"
+      (1–3 sentences). At most 8 entries. If the output has nothing for this
+      goal (an error, unrelated content), return no entries.
+
+      Criteria: if the output clearly shows a criterion is now met, list its
+      index with a short reason. Never mark a criterion met on a guess.
+
+      Reply with only this, as valid JSON:
+      <notebook>
+      {"entries": [{"kind": "option", "title": "…", "body": "…"}],
+       "criteriaMet": [{"index": 0, "why": "…"}],
+       "summary": "one line: what this run added"}
+      </notebook>

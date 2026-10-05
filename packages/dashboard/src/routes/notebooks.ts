@@ -12,6 +12,7 @@ import {
 import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
+import { startNotebookPipeline, pipelineRunning } from '../lib/notebook-pipeline.js';
 
 export const notebooksRouter: Router = Router();
 
@@ -49,12 +50,14 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   const compiled = compileSurface(surface.doc, notebookEntryItems(nb, entries));
   // Each pipeline agent's last run, for the diagram.
-  const stages: PipelineStage[] = nb.pipeline.map((agentId) => {
+  const running = pipelineRunning(ctx, nb.id);
+  const stages: PipelineStage[] = nb.pipeline.map((agentId, i) => {
+    if (running && running.step === i + 1) return { agentId, status: 'running', note: 'running now' };
     const last = ctx.runStore.listRuns({ agentName: agentId, limit: 1 })[0];
     if (!last) return { agentId, status: 'never', note: ctx.agentStore.getAgent(agentId) ? 'not run yet' : 'not installed' };
     return { agentId, status: last.status === 'failed' ? 'failed' : 'ok', note: last.status === 'failed' ? 'failed' : last.status === 'completed' ? 'ran' : last.status };
   });
-  res.type('html').send(renderNotebookPage({ nb, entries, compiled, stages, flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, entries, compiled, stages, running: running ? { step: running.step, of: running.of } : undefined, flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -122,4 +125,11 @@ notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
+});
+
+/** Run the pipeline now (G2): each agent in order, then the keeper adds what's new. */
+notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = startNotebookPipeline(getContext(req.app.locals), id);
+  res.redirect(303, back(id, out.started ? 'Running the pipeline. New entries show up here as each agent finishes.' : out.reason ?? 'It could not start.'));
 });
