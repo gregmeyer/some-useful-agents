@@ -46,6 +46,7 @@ import {
   type AutonomyMode,
   type AgentTrustLevel,
   NotebookStore,
+  isFixThread,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
@@ -292,6 +293,24 @@ inboxRouter.post('/agents/:id/ask-fix', (req: Request, res: Response) => {
   if (!ctx.inboxStore || !agent) {
     if (isAjax(req)) { res.status(404).json({ error: 'No such agent.' }); return; }
     res.redirect(303, '/agents');
+    return;
+  }
+  // One problem, one conversation: continue the agent's open failure or fix
+  // conversation when there is one, instead of starting another.
+  const openForAgent = ctx.inboxStore.list({ statuses: ['open', 'triaged', 'awaiting_user', 'verifying'], agentId: agent.id, limit: 50 });
+  const existing = openForAgent.find((t) => t.source === 'run-failure')
+    ?? openForAgent.find((t) => isFixThread(t))
+    ?? openForAgent.find((t) => t.source === 'outcome');
+  if (existing) {
+    // Asks what's wrong unless this conversation already has that offer.
+    if (proposeAgentFix(ctx, existing.id, agent.id,
+      `What's going wrong with **${agent.id}**? Tell me what you saw (an error, a wrong answer, too slow), or I can look at its recent runs first. Nothing changes until you approve a fix.`,
+      { asks: true })) {
+      ctx.inboxStore.updateStatus(existing.id, 'awaiting_user');
+      publishInboxChanged(ctx, existing.id, 'awaiting_user');
+    }
+    if (isAjax(req)) { res.setHeader('X-Inbox-Id', existing.id); res.status(204).end(); return; }
+    res.redirect(303, `/inbox/${encodeURIComponent(existing.id)}`);
     return;
   }
   const created = ctx.inboxStore.add({

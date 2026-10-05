@@ -57,6 +57,11 @@ const THREAD_SCAN = 200;
 const RUNS_PER_AGENT = 10;
 const FAILED_BUILD_WINDOW_MS = 24 * 3600_000;
 
+/** A conversation started with "Ask sua to fix it" (or a failing agent's offer). */
+export function isFixThread(t: Pick<InboxMessage, 'source' | 'title' | 'agentId'>): boolean {
+  return t.source === 'manual' && !!t.agentId && /^Fix /.test(t.title);
+}
+
 export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
   const now = q.now ?? Date.now();
   const items: Item[] = [];
@@ -69,10 +74,13 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
     : [];
   const failureThreadFor = new Map<string, string>();
   const outcomeThreadFor = new Map<string, string>();
+  // "Ask sua to fix it" conversations: the same problem, so the same item.
+  const fixThreadFor = new Map<string, string>();
   for (const t of threads) {
     if (!t.agentId) continue;
     if (t.source === 'run-failure' && !failureThreadFor.has(t.agentId)) failureThreadFor.set(t.agentId, t.id);
     if (t.source === 'outcome' && !outcomeThreadFor.has(t.agentId)) outcomeThreadFor.set(t.agentId, t.id);
+    if (isFixThread(t) && !fixThreadFor.has(t.agentId)) fixThreadFor.set(t.agentId, t.id);
   }
 
   // Questions runs are waiting on.
@@ -88,19 +96,20 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
   const agentItemFor = new Set<string>();
   for (const agent of agents) {
     const runs = src.runs.listRuns({ agentName: agent.id, limit: RUNS_PER_AGENT });
-    const failing = failingAgentItem(agent, runs, failureThreadFor.get(agent.id));
-    if (failing) { items.push(failing); agentItemFor.add(`run-failure:${agent.id}`); }
+    const failing = failingAgentItem(agent, runs, failureThreadFor.get(agent.id) ?? fixThreadFor.get(agent.id));
+    if (failing) { items.push(failing); agentItemFor.add(agent.id); }
     const latestOutcome = src.outcomes?.list({ agentId: agent.id, limit: 1 })[0];
     // A failed latest run already says it; only report a missed outcome on a run that finished.
-    const outcome = failing ? undefined : outcomeItem(agent, latestOutcome, outcomeThreadFor.get(agent.id));
-    if (outcome) { items.push(outcome); agentItemFor.add(`outcome:${agent.id}`); }
+    const outcome = failing ? undefined : outcomeItem(agent, latestOutcome, outcomeThreadFor.get(agent.id) ?? fixThreadFor.get(agent.id));
+    if (outcome) { items.push(outcome); agentItemFor.add(agent.id); }
     if (agent.status === 'draft') items.push(draftAgentItem(agent, runs[0]?.startedAt ?? new Date(now).toISOString()));
   }
 
   // Remaining threads that need you.
   for (const t of threads) {
     if (questionThreads.has(t.id)) continue;
-    if (t.agentId && (t.source === 'run-failure' || t.source === 'outcome') && agentItemFor.has(`${t.source}:${t.agentId}`)) continue;
+    // An agent's failure / outcome / fix conversations are its problem item's conversation, not more items.
+    if (t.agentId && agentItemFor.has(t.agentId) && (t.source === 'run-failure' || t.source === 'outcome' || isFixThread(t))) continue;
     const item = threadItem(t, src.inbox!.listResponses(t.id));
     if (item) items.push(item);
   }

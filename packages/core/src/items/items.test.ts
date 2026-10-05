@@ -140,3 +140,32 @@ describe('collectItems', () => {
     expect(collectItems(src, { limit: 2 })).toHaveLength(2);
   });
 });
+
+describe('one problem, one item', () => {
+  let dir: string;
+  let agents: AgentStore;
+  let runs: RunStore;
+  afterEach(() => {
+    try { runs?.close(); } catch { /* ignore */ }
+    try { agents?.close(); } catch { /* ignore */ }
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a "Fix <agent>" conversation is the failing item\'s conversation, not a second item', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-items-fix-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    agents = new AgentStore(join(dir, 'runs.db'));
+    agents.createAgent({ id: 'apod', name: 'APOD', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'x', dependsOn: [] }] }, 'cli');
+    runs.createRun({ id: 'r1', agentName: 'apod', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule' });
+    const src = itemSourcesFromHandle(runs.databaseHandle(), agents, runs);
+    const fix = src.inbox!.add({ priority: 'medium', source: 'manual', agentId: 'apod', title: 'Fix APOD', body: '(empty)' });
+    src.inbox!.updateStatus(fix.id, 'awaiting_user');
+    const chat = src.inbox!.add({ priority: 'medium', source: 'manual', agentId: 'apod', title: 'What does APOD show?', body: '(empty)' });
+    src.inbox!.updateStatus(chat.id, 'awaiting_user');
+    const ids = collectItems(src).map((i) => i.id);
+    expect(ids).toContain('agent:apod:failing');
+    expect(ids).not.toContain(`thread:${fix.id}`);
+    expect(ids).toContain(`thread:${chat.id}`);
+    expect(collectItems(src).find((i) => i.id === 'agent:apod:failing')!.subject.threadId).toBe(fix.id);
+  });
+});

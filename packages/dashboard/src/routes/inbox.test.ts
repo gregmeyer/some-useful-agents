@@ -2075,17 +2075,28 @@ ${extra}nodes:
     inboxStore.addResponse(thread.id, 'system', 'Another run of **flaky** failed: [cccc](/runs/c)');
     expect(engine.maybeProposeFixForRepeatedFailures(ctx, thread.id)).toBe(false);
 
-    const res = await request(app).post('/agents/flaky/ask-fix').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    const askFix = () => request(app).post('/agents/flaky/ask-fix').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    // One problem, one conversation: with its failure thread open, Ask sua to fix it continues that thread.
+    const into = await askFix();
+    expect(into.headers['x-inbox-id']).toBe(thread.id);
+    expect(inboxStore.listResponses(thread.id).filter((r) => r.role === 'action')).toHaveLength(1);
+    inboxStore.updateStatus(thread.id, 'resolved');
+
+    const res = await askFix();
     expect(res.status).toBe(204);
     const id = res.headers['x-inbox-id'];
     expect(inboxStore.get(id)).toMatchObject({ title: 'Fix Flaky', agentId: 'flaky', source: 'manual' });
+    // Asking again continues this conversation instead of fanning out.
+    expect((await askFix()).headers['x-inbox-id']).toBe(id);
     // sua asks first; its analysis waits for a click even with autonomy on Full.
     inboxStore.setAutonomyMode('full');
     const roles = inboxStore.listResponses(id).map((r) => r.role);
     expect(roles).toEqual(['triage', 'action']);
     expect(inboxStore.listResponses(id)[0].body).toContain("What's going wrong with **flaky**?");
     expect(inboxStore.get(id)!.status).toBe('awaiting_user');
-    const full = await request(app).post('/agents/flaky/ask-fix').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    inboxStore.updateStatus(id, 'resolved');
+    const full = await askFix();
+    expect(full.headers['x-inbox-id']).not.toBe(id);
     const card = inboxStore.listResponses(full.headers['x-inbox-id']).find((r) => r.role === 'action')!;
     expect(JSON.parse(card.metaJson!)).toMatchObject({ status: 'proposed', agentId: 'agent-analyzer', ctaLabel: 'Look at its recent runs' });
     expect(inboxStore.listResponses(id).every((r) => !r.body.includes('<!--'))).toBe(true);
