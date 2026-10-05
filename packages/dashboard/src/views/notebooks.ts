@@ -8,6 +8,8 @@
 import { notebookProgress, notebookViewData, isRange, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { renderSurfaceHost } from '../lib/a2ui-surface.js';
+import { notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
@@ -250,6 +252,20 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
   }
   // Ruled-out options sink to the end of their section.
   const out = (id: string) => (byId.get(id)?.ruledOut ? 1 : 0);
+  // With fields, options are drawn as widgets (summary, stats, funnel, map,
+  // shortlist); the cards stay for notes, evidence and notebooks without fields.
+  const widgets = notebookWidgetMessages(nb, entries, history);
+  if (widgets) {
+    const rest = regions.filter((r) => r.id !== 'options');
+    return html`<div class="nb-widgets">
+        ${canPhoto ? html`<div class="nb-widgets__tools"><form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/photos"><button type="submit" class="btn btn--sm btn--ghost" title="Keep a copy of each option's photo, from its listing">Get photos</button></form></div>` : html``}
+        ${renderSurfaceHost(`notebook-${nb.id}`, widgets, { label: `${nb.title}: options` })}</div>
+      ${rest.map((r) => html`
+      <section class="nb-region" data-surface-region="${r.id}">
+        <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span></h2>
+        <ul class="nb-region__list">${r.entries.map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e, views.get(e.id)) : html``; }) as unknown as SafeHtml[]}</ul>
+      </section>`) as unknown as SafeHtml[]}`;
+  }
   return html`${funnelStrip(nb, entries)}${regions.map((r) => html`
     <section class="nb-region" data-surface-region="${r.id}">
       <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span>
@@ -350,7 +366,7 @@ export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[
     ${hero(args.nb, args.stages, args.running)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord)}</aside>
     </div>
   `));

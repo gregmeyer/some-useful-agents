@@ -57,7 +57,9 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Link` | `text`, `url` (http/https, or a dashboard path starting with `/`) | a link, opens in a new tab |
 | `Code` | `text`, `language?` | preformatted text |
 | `Sparkline` | `values` (array of numbers, or `{value}` objects), `label?`, `current?` | a small trend line |
-| `Funnel` | `stages` (array of `{label, value}`) | decreasing stages |
+| `Funnel` | `stages` (array of `{label, value}`, or a notebook's funnel: `{stage, reached, ruledOut, reasons}`) | decreasing stages; ruled-out counts and reasons when given |
+| `OptionGrid` | `options` (array shaped like a notebook's options), `fields?`, `stages?`, `layout?` (grid / table), `sort?` ("price", a field key, "… desc"), `ruledOut?` (show / hide), `actions?`, `maxItems?` | candidates as cards (photo, rank, price, facts, stage, price move) or a table, with a Grid/Table switch; `actions` adds Move / Rule out, sent as `notebook-option` actions |
+| `Scatter` | `points`, `x`, `y` (keys, dotted for nested), `xLabel?`, `yLabel?`, `xFormat?` / `yFormat?` (number / money), `xBand?` / `yBand?` (`{min, max}` to shade), `xBetter?` / `yBetter?` | items on two axes with your ranges shaded and the best one highlighted |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
