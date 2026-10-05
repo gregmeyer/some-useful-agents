@@ -2489,8 +2489,8 @@ export async function runTriageAgent(
         addSystemMessage(
           ctx,
           messageId,
-          `I've applied ${applied} fixes to \`${target}\` and it still isn't working, so I'm stopping automatic fixes to avoid looping. ` +
-          `Please review \`${target}\` directly (its /agents page shows the latest runs), or tell me a different approach to try.`,
+          `I've applied ${applied} fixes to \`${target}\` without a successful run, so I'm stopping automatic fixes to avoid looping. ` +
+          `Reply with what to try next and I'll keep going, or review \`${target}\` directly (its /agents page shows the latest runs).`,
         );
       }
       if (convergenceBlocked.size === 0

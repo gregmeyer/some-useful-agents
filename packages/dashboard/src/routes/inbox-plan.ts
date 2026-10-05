@@ -43,6 +43,8 @@ export const RESOLVE_THREAD_AGENT_ID = '_resolve-thread';
  * needed.
  */
 export const MAX_FIX_ATTEMPTS_PER_TARGET = 3;
+/** Words in the fix-loop hand-off note; a reply after it restarts the count. */
+export const FIX_LOOP_ESCALATION_MARK = 'stopping automatic fixes';
 
 /**
  * The agent a fix-oriented action targets, or undefined if the action isn't a
@@ -74,12 +76,27 @@ export function countAppliedFixes(
   targetAgentId: string,
 ): number {
   if (!ctx.inboxStore) return 0;
+  // Counts fixes that haven't been followed by evidence the loop is over. The
+  // count restarts when the target then runs to completion in this thread (it
+  // works, so further edits are new work, not a non-converging fix loop), or
+  // when you reply after the "stopping automatic fixes" hand-off (you were
+  // asked for direction and gave it). Other replies don't reset it, so a
+  // "please fix it" nudge can't push a broken loop past the budget.
   let n = 0;
+  let escalated = false;
   for (const response of ctx.inboxStore.listResponses(messageId)) {
+    if (response.role === 'system' && response.body.includes(FIX_LOOP_ESCALATION_MARK) && response.body.includes(`\`${targetAgentId}\``)) {
+      escalated = true;
+      continue;
+    }
+    if (response.role === 'user') {
+      if (escalated) { n = 0; escalated = false; }
+      continue;
+    }
     const meta = parseActionMeta(response);
-    if (!meta) continue;
+    if (!meta || meta.status !== 'completed') continue;
+    if (meta.agentId === targetAgentId) { n = 0; continue; }
     if (meta.agentId !== 'agent-editor') continue;
-    if (meta.status !== 'completed') continue;
     if ((meta.inputs.AGENT_ID?.trim() || undefined) !== targetAgentId) continue;
     n += 1;
   }

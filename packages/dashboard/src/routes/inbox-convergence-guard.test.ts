@@ -18,6 +18,7 @@ import {
   countAppliedFixes,
   fixLoopExhausted,
   MAX_FIX_ATTEMPTS_PER_TARGET,
+  FIX_LOOP_ESCALATION_MARK,
 } from './inbox-plan.js';
 import { writeActionExecuted, latestWriteActionAt, verifyResolveEvidence } from './inbox-engine.js';
 
@@ -107,7 +108,7 @@ describe('countAppliedFixes + fixLoopExhausted', () => {
     inboxStore.addResponse(m.id, 'action', 'fix 2', editorFix('checker'));
     inboxStore.addResponse(m.id, 'action', 'still running', editorFix('checker', 'running')); // not counted
     inboxStore.addResponse(m.id, 'action', 'other target', editorFix('other-agent'));          // different target
-    inboxStore.addResponse(m.id, 'user', 'please fix it');                                       // user reply does NOT reset
+    inboxStore.addResponse(m.id, 'user', 'please fix it');                                       // a plain reply does NOT reset
     const ctx = ctxWith();
     expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(2);
     expect(countAppliedFixes(ctx, m.id, 'other-agent')).toBe(1);
@@ -128,6 +129,34 @@ describe('countAppliedFixes + fixLoopExhausted', () => {
     expect(fixLoopExhausted(ctx, m.id, editor)).toBe(true);     // another fix of the exhausted target
     expect(fixLoopExhausted(ctx, m.id, otherTarget)).toBe(false); // a different target is fine
     expect(fixLoopExhausted(ctx, m.id, nonFix)).toBe(false);    // non-fix action never gated
+  });
+
+  it('restarts the count after the target runs successfully in the thread', () => {
+    freshStore();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b' });
+    for (let i = 0; i < MAX_FIX_ATTEMPTS_PER_TARGET; i++) inboxStore.addResponse(m.id, 'action', `fix ${i}`, editorFix('checker'));
+    const ctx = ctxWith();
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(MAX_FIX_ATTEMPTS_PER_TARGET);
+    inboxStore.addResponse(m.id, 'action', 'ran it', JSON.stringify({ kind: 'action', status: 'failed', agentId: 'checker', inputs: {} } satisfies InboxActionMeta));
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(MAX_FIX_ATTEMPTS_PER_TARGET); // a failed run doesn't
+    inboxStore.addResponse(m.id, 'action', 'ran it', JSON.stringify({ kind: 'action', status: 'completed', agentId: 'checker', inputs: {} } satisfies InboxActionMeta));
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(0);
+    inboxStore.addResponse(m.id, 'action', 'new feature', editorFix('checker'));
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(1);
+  });
+
+  it('restarts the count when you reply after the hand-off note, not before', () => {
+    freshStore();
+    const m = inboxStore.add({ priority: 'high', source: 'run-failure', title: 't', body: 'b' });
+    for (let i = 0; i < MAX_FIX_ATTEMPTS_PER_TARGET; i++) inboxStore.addResponse(m.id, 'action', `fix ${i}`, editorFix('checker'));
+    const ctx = ctxWith();
+    inboxStore.addResponse(m.id, 'system', `I've applied 3 fixes to \`other-agent\` without a successful run, so I'm ${FIX_LOOP_ESCALATION_MARK} to avoid looping.`);
+    inboxStore.addResponse(m.id, 'user', 'try again');
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(MAX_FIX_ATTEMPTS_PER_TARGET); // another target's note
+    inboxStore.addResponse(m.id, 'system', `I've applied 3 fixes to \`checker\` without a successful run, so I'm ${FIX_LOOP_ESCALATION_MARK} to avoid looping.`);
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(MAX_FIX_ATTEMPTS_PER_TARGET); // the note alone
+    inboxStore.addResponse(m.id, 'user', 'use agent-invoke for craigslist instead');
+    expect(countAppliedFixes(ctx, m.id, 'checker')).toBe(0);
   });
 
   it('does not trip below the budget', () => {
