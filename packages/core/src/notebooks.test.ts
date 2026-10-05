@@ -240,3 +240,42 @@ describe('notebook stages and ruling out (a funnel)', () => {
     expect(s.findOption(nb.id, 'ramp')?.stage).toBe('Applied');
   });
 });
+
+describe('option history and not seen lately', () => {
+  it('keeps each sighting, shows the price move, and flags an option two searches in a row passed over', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Buy a used car' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' },
+      { key: 'url', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    const tick = () => new Promise((r) => setTimeout(r, 3));
+    // A search: time first, then its options, then the search itself (as the keeper does).
+    const search = async (run: string, cars: Array<[string, number]>) => {
+      const at = new Date().toISOString();
+      await tick();
+      for (const [n, price] of cars) s.upsertOption(nb.id, { title: `Car ${n}`, by: 'agent:sweep', runId: run, data: { price, url: `https://cars.example/${n}` } });
+      s.recordSearch(nb.id, 'sweep', run, cars.length, at);
+      await tick();
+    };
+    await search('r1', [['a', 5000], ['b', 4500]]);
+    await search('r2', [['a', 4800], ['b', 4500]]);
+    await search('r3', [['a', 4700]]);           // b passed over once
+    s.recordSearch(nb.id, 'sweep', 'r4', 0);      // a search that found nothing doesn't count
+    await tick();
+    const view = () => new Map(notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options.map((o) => [o.title, o]));
+    expect(view().get('Car b')).toMatchObject({ missedSearches: 1, notSeenLately: false });
+    await search('r5', [['a', 4700]]);           // b passed over twice
+    const v = view();
+    expect(v.get('Car a')).toMatchObject({ missedSearches: 0, notSeenLately: false, priceChange: { from: 5000, to: 4700 } });
+    expect(v.get('Car a')!.priceHistory.map((p) => p.value)).toEqual([5000, 4800, 4700]); // repeats collapse
+    expect(v.get('Car b')).toMatchObject({ missedSearches: 2, notSeenLately: true });
+    expect(v.get('Car b')!.priceChange).toBeUndefined();
+    // Without the store, the view still works (no history).
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options[0]).toMatchObject({ priceHistory: [], missedSearches: 0 });
+    // Seen again clears it.
+    await search('r6', [['b', 4400]]);
+    expect(view().get('Car b')).toMatchObject({ missedSearches: 0, notSeenLately: false, priceChange: { from: 4500, to: 4400 } });
+  });
+});

@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, notebookViewData, isRange, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { notebookProgress, notebookViewData, isRange, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { cronToHuman, formatAge } from './components.js';
@@ -150,7 +150,7 @@ export function formatFieldValue(f: NotebookField, v: NotebookFieldValue): strin
 }
 
 /** An option's facts as chips, in the notebook's field order; its listing as a link. */
-function optionFacts(nb: Notebook, e: NotebookEntry): SafeHtml {
+function optionFacts(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): SafeHtml {
   const data = e.data ?? {};
   const facts = nb.fields.filter((f) => data[f.key] !== undefined && f.type !== 'image' && f.type !== 'url');
   const link = nb.fields.find((f) => f.role === 'link' && typeof data[f.key] === 'string');
@@ -159,7 +159,10 @@ function optionFacts(nb: Notebook, e: NotebookEntry): SafeHtml {
   return html`<div class="nb-facts">
     ${facts.map((f) => html`<span class="nb-fact${f.role === 'price' ? ' nb-fact--price' : ''}" title="${f.label}">${formatFieldValue(f, data[f.key])}</span>`)}
     ${link ? bodyWithLinks(String(data[link.key])) : html``}
-    ${seenAgain ? html`<span class="nb-fact nb-fact--seen" title="first seen ${formatAge(e.createdAt)}">seen again ${formatAge(e.lastSeenAt!)}</span>` : html``}
+    ${v?.priceChange ? priceChangeChip(nb, v.priceChange) : html``}
+    ${v?.notSeenLately && !e.ruledOut
+      ? html`<span class="nb-fact nb-fact--gone" title="The last ${String(v.missedSearches)} searches found other options but not this one. It may be sold or taken down.">not in the last ${String(v.missedSearches)} searches</span>`
+      : seenAgain ? html`<span class="nb-fact nb-fact--seen" title="first seen ${formatAge(e.createdAt)}">seen again ${formatAge(e.lastSeenAt!)}</span>` : html``}
   </div>`;
 }
 
@@ -203,7 +206,18 @@ function funnelStrip(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml 
   </ol>`;
 }
 
-function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
+/** "↓ $300 since Oct 5": a price move, green when it moved the way that's better. */
+function priceChangeChip(nb: Notebook, c: { from: number; to: number; since: string }): SafeHtml {
+  const f = nb.fields.find((x) => x.role === 'price');
+  const better = f?.better ?? 'lower';
+  const down = c.to < c.from;
+  const good = (down && better === 'lower') || (!down && better === 'higher');
+  const amount = f ? formatFieldValue(f, Math.abs(c.to - c.from)) : String(Math.abs(c.to - c.from));
+  const since = new Date(c.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return html`<span class="nb-fact ${good ? 'nb-fact--better' : 'nb-fact--worse'}" title="${f ? `${formatFieldValue(f, c.from)} → ${formatFieldValue(f, c.to)}` : ''}">${down ? '↓' : '↑'} ${amount} since ${since}</span>`;
+}
+
+function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): SafeHtml {
   return html`
     <li class="nb-entry nb-entry--${e.kind}${e.ruledOut ? ' nb-entry--out' : ''}" id="entry-${e.id}">
       <div class="nb-entry__head">
@@ -213,15 +227,16 @@ function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
           <button type="submit" class="btn btn--xs btn--ghost" aria-label="Remove “${e.title}”" title="Remove">×</button>
         </form>
       </div>
-      ${e.kind === 'option' ? optionFacts(nb, e) : html``}
+      ${e.kind === 'option' ? optionFacts(nb, e, v) : html``}
       ${e.kind === 'option' ? optionStage(nb, e) : html``}
       ${e.body ? html`<p class="nb-entry__body">${bodyWithLinks(e.body)}</p>` : html``}
       <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}${e.runId ? html` · <a href="/runs/${encodeURIComponent(e.runId)}" class="mono">run ${e.runId.slice(0, 8)}</a>` : html``}</span>
     </li>`;
 }
 
-function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[]): SafeHtml {
+function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
+  const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
   const regions = compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.length === 0) {
     return html`
@@ -236,7 +251,7 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
   return html`${funnelStrip(nb, entries)}${regions.map((r) => html`
     <section class="nb-region" data-surface-region="${r.id}">
       <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span></h2>
-      <ul class="nb-region__list">${[...r.entries].sort((a, b) => out(a.item.id) - out(b.item.id)).map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e) : html``; }) as unknown as SafeHtml[]}</ul>
+      <ul class="nb-region__list">${[...r.entries].sort((a, b) => out(a.item.id) - out(b.item.id)).map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e, views.get(e.id)) : html``; }) as unknown as SafeHtml[]}</ul>
     </section>`) as unknown as SafeHtml[]}`;
 }
 
@@ -326,21 +341,21 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     </details>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${hero(args.nb, args.stages, args.running)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord)}</aside>
     </div>
   `));
 }
 
 /** The notebook's sections alone (GET /notebooks/:id/main), for live updates. */
-export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[]): string {
-  return render(surfaceColumn(nb, compiled, entries));
+export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): string {
+  return render(surfaceColumn(nb, compiled, entries, history));
 }
 
 export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; entries: number }>; openNew?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
