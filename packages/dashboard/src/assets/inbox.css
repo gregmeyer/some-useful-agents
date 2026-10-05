@@ -3102,3 +3102,42 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 /* Why Needs you has what it has (Today). */
 .panel-group__why { margin: 0 var(--space-2) var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .item-pane.is-done .item-pane__why { display: none; }
+
+/* Home's header, compact: title + goal on the left, notebooks / autonomy / Adjust on the right. */
+.home-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-4); }
+.home-head__text { min-width: 0; }
+.home-head__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl); }
+.home-head__goal { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.home-head__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.home-head .home-notebooks { margin: 0; font-size: var(--font-size-sm); }
+.home-notebooks__new { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.inbox-autonomy--compact { padding: 0; border: 0; background: none; gap: var(--space-2); }
+.inbox-autonomy--compact .inbox-autonomy__label { font-size: var(--font-size-xs); }
+.home-adjust { position: relative; }
+.home-adjust > summary { list-style: none; cursor: pointer; }
+.home-adjust > summary::-webkit-details-marker { display: none; }
+.home-adjust > summary::before { content: none; }
+.home-adjust__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: 8;
+  width: min(520px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.home-adjust .home-change { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; max-width: none; }
+.home-change__row { display: flex; gap: var(--space-2); }
+.home-adjust__meta { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); }
+.home-adjust .home-history { margin: 0; max-width: none; }
+.home-adjust__panel { text-align: left; }
+.home-adjust .home-change__label { text-align: left; }
+.home-adjust .home-change__input { flex: 1; min-width: 0; width: auto; }
+.home-adjust .home-change { align-items: stretch; }
+.home-adjust .home-change__row { width: 100%; }

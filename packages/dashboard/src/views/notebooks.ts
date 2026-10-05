@@ -285,5 +285,5 @@ export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; ent
 
 /** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */
 export function renderHomeNotebooksLine(active: number, total: number): SafeHtml {
-  return html`<p class="home-notebooks">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} active notebook${active === 1 ? '' : 's'}`}</a><span aria-hidden="true">·</span><a href="/notebooks?new=1">New notebook</a><span class="home-notebooks__hint">a goal you keep over time</span></p>`;
+  return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks?new=1" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
 }

@@ -143,8 +143,8 @@ describe('notebooks pages', () => {
     const { renderHomeNotebooksLine } = await import('../views/notebooks.js');
     const { render } = await import('../views/html.js');
     expect(render(renderHomeNotebooksLine(0, 0))).toContain('>Notebooks</a>');
-    expect(render(renderHomeNotebooksLine(2, 3))).toContain('>2 active notebooks</a>');
-    expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks?new=1">New notebook');
+    expect(render(renderHomeNotebooksLine(2, 3))).toContain('>2 notebooks</a>');
+    expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks?new=1" class="home-notebooks__new" aria-label="New notebook">+ New');
   });
 });
 
