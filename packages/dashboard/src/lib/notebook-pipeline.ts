@@ -19,6 +19,8 @@ import { keepPhotos } from './notebook-photos.js';
 type Ctx = ReturnType<typeof getContext>;
 
 export const NOTEBOOK_KEEPER_ID = 'notebook-keeper';
+/** The "agent" a setup pass is kept as: no search, just the goal and what the notebook has. */
+export const NOTEBOOK_SETUP = 'notebook-setup';
 const OUTPUT_CAP = 12_000;
 const MAX_ENTRIES_PER_RUN = 12;
 
@@ -49,6 +51,8 @@ export interface KeeperOutcome {
   added: number;
   /** Options the notebook already had, found again and refreshed. */
   refreshed?: number;
+  /** Setup: options given their facts. */
+  factsSet?: number;
   skipped: number;
   criteriaMet: number;
   summary?: string;
@@ -63,7 +67,7 @@ export interface KeeperOutcome {
 export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
-  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown };
+  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
   const searchAt = new Date().toISOString();
   // A notebook's fields are set once, by the first run that finds options.
@@ -74,6 +78,13 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   // Stages too, once; existing options start at the first.
   if (nb.stages.length === 0 && Array.isArray(parsed.stages) && parsed.stages.length > 0) {
     nb = store.setStages(nb.id, parsed.stages);
+  }
+  // Setup: facts for options the notebook already has, by id.
+  let factsSet = 0;
+  for (const f of Array.isArray(parsed.facts) ? parsed.facts.slice(0, 100) : []) {
+    const x = f as { id?: unknown; data?: unknown; fingerprint?: unknown };
+    if (typeof x.id !== 'string' || !x.data || typeof x.data !== 'object') continue;
+    if (store.setOptionFacts(nb.id, x.id, x.data as Record<string, unknown>, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
   }
   const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
   let added = 0;
@@ -103,7 +114,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   }
   // The search counts even when everything it found was known: that's how a
   // later "not in the last 2 searches" knows someone looked.
-  store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt);
+  if (agentId !== NOTEBOOK_SETUP) store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt);
   let criteriaMet = 0;
   for (const c of Array.isArray(parsed.criteriaMet) ? parsed.criteriaMet : []) {
     const x = c as { index?: unknown; why?: unknown };
@@ -114,7 +125,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, ...(refreshed ? { refreshed } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
@@ -126,7 +137,9 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
   const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
   if (!keeper) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
-  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
+  const setup = agentId === NOTEBOOK_SETUP;
+  // Setup needs each option's id and text, to give it its facts.
+  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${setup && e.kind === 'option' ? ` [id: ${e.id}]${e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
   const keepRunId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(keepRunId, ac);
@@ -201,4 +214,27 @@ async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook): Promis
     }
   }
   store.noteRun(nb.id, `${String(total)} new entr${total === 1 ? 'y' : 'ies'} · ${notes.join(' · ')}`);
+}
+
+/**
+ * Set a notebook up (fields, stages, and facts for the options it already
+ * has) with one keeper pass and no search. Runs in the background, once per
+ * notebook at a time; marks the notebook so a page visit doesn't retry it.
+ */
+export function startNotebookSetup(ctx: Ctx, notebookId: string): boolean {
+  const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const nb = store.get(notebookId);
+  if (!nb || nb.fields.length > 0) return false;
+  ctx.notebookSetups ??= new Set();
+  if (ctx.notebookSetups.has(notebookId)) return false;
+  ctx.notebookSetups.add(notebookId);
+  store.markSetup(notebookId);
+  void keep(ctx, store, nb, NOTEBOOK_SETUP, randomUUID(), '(Nothing was searched: set this notebook up from its goal and the entries it already has.)')
+    .catch(() => { /* the page still works without fields */ })
+    .finally(() => ctx.notebookSetups?.delete(notebookId));
+  return true;
+}
+
+export function setupRunning(ctx: Ctx, notebookId: string): boolean {
+  return !!ctx.notebookSetups?.has(notebookId);
 }

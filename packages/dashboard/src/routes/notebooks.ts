@@ -12,7 +12,7 @@ import {
 import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
-import { startNotebookPipeline, pipelineRunning } from '../lib/notebook-pipeline.js';
+import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
@@ -39,7 +39,9 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       params: lines(req.body?.params),
       criteria: lines(req.body?.criteria),
     });
-    res.redirect(303, back(nb.id, 'Notebook started. Add what you know, or set up its pipeline under Edit.'));
+    // sua sets up what options record and the stages they go through, from the goal.
+    startNotebookSetup(getContext(req.app.locals), nb.id);
+    res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks?new=1&flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
   }
@@ -50,6 +52,9 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  // A notebook with options but no fields (kept before fields existed, or
+  // filled by talking): set it up once, in the background; the page redraws.
+  if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   const compiled = compileSurface(surface.doc, notebookEntryItems(nb, entries));
@@ -64,7 +69,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // sua's latest word in the notebook's conversation, so the page shows it remembers.
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
-  res.type('html').send(renderNotebookPage({ nb, entries, compiled, history: s, stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, entries, compiled, history: s, settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -245,10 +250,12 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   res.setHeader('X-Notebook-Entries', String(entries.length));
   // Changes that don't add an entry (a move, a ruling) still redraw the page.
-  res.setHeader('X-Notebook-Changed', (s.get(nb.id) ?? nb).updatedAt);
+  // Setup finishing also redraws (the note goes away).
+  const settingUp = setupRunning(ctx, nb.id);
+  res.setHeader('X-Notebook-Changed', `${(s.get(nb.id) ?? nb).updatedAt}${settingUp ? '+setup' : ''}`);
   // The talk box follows the notebook: its next-step hint and ghost text.
   const step = nextStep(s.get(nb.id) ?? nb, entries);
   res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));
   res.setHeader('X-Notebook-Placeholder', encodeURIComponent(step.placeholder));
-  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, s));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, s, settingUp));
 });

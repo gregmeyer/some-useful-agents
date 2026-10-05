@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage } from '../lib/notebook-chat.js';
-import { startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
+import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
@@ -1063,7 +1063,10 @@ export function executeNotebookAdd(
   const { add, error } = parseNotebookAdd(meta.inputs.CHANGES ?? '');
   if (!add) return { status: 'failed', refusalReason: error };
   try {
-    const out = applyNotebookAdd(notebooksOf(ctx), meta.inputs.NOTEBOOK ?? '', add);
+    const store = notebooksOf(ctx);
+    const out = applyNotebookAdd(store, meta.inputs.NOTEBOOK ?? '', add);
+    // Options but no fields yet: set the notebook up (fields, stages, their facts).
+    if (store.needsSetup(meta.inputs.NOTEBOOK ?? '')) startNotebookSetup(ctx, meta.inputs.NOTEBOOK ?? '');
     if (out.added.length === 0) return { status: 'completed', summary: 'The notebook already has all of that.' };
     return { status: 'completed', summary: `Added ${String(out.added.length)} to the notebook${out.skipped ? ` (${String(out.skipped)} it already had)` : ''}.` };
   } catch (err) {

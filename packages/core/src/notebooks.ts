@@ -80,6 +80,8 @@ export interface Notebook {
   fields: NotebookField[];
   /** The steps an option goes through, in order: Found → Applied → Interview → Offer. */
   stages: string[];
+  /** When sua last set up its fields and stages (so it's tried once, not on every visit). */
+  setupAt?: string;
   /** Five-field cron for the pipeline, or empty for "only when asked". */
   cadence: string;
   status: NotebookStatus;
@@ -225,6 +227,7 @@ export class NotebookStore {
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
+      ['notebooks', 'setup_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -377,6 +380,36 @@ export class NotebookStore {
     const row = this.db.prepare("SELECT * FROM notebook_entries WHERE id = ? AND notebook_id = ? AND kind = 'option'").get(entryId, notebookId) as Record<string, unknown> | undefined;
     if (!row) throw new Error('No such option in this notebook.');
     return this.toEntry(row);
+  }
+
+  /** Note that setup ran (or was tried) for this notebook. */
+  markSetup(id: string): void {
+    this.db.prepare('UPDATE notebooks SET setup_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+  }
+
+  /** Does it need setting up: options to compare, but no fields yet, and setup not tried? */
+  needsSetup(id: string): boolean {
+    const nb = this.get(id);
+    if (!nb || nb.fields.length > 0 || nb.setupAt) return false;
+    return !!this.db.prepare("SELECT 1 FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' LIMIT 1").get(id);
+  }
+
+  /**
+   * Give an option it already has its facts (and a fingerprint if it has
+   * none), e.g. when the notebook gets its fields. Known facts are kept unless
+   * a new value is given.
+   */
+  setOptionFacts(notebookId: string, entryId: string, data: Record<string, unknown>, fingerprint?: string): NotebookEntry | undefined {
+    const nb = this.mustGet(notebookId);
+    const row = this.db.prepare("SELECT * FROM notebook_entries WHERE id = ? AND notebook_id = ? AND kind = 'option'").get(entryId, notebookId) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    const e = this.toEntry(row);
+    const clean = cleanData(data, nb.fields);
+    const merged = { ...(e.data ?? {}), ...clean };
+    const fp = e.fingerprint ?? optionFingerprint(fingerprint, merged, nb.fields);
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ? WHERE id = ?')
+      .run(Object.keys(merged).length ? JSON.stringify(merged) : null, fp ?? null, e.id);
+    return { ...e, ...(Object.keys(merged).length ? { data: merged } : {}), ...(fp ? { fingerprint: fp } : {}) };
   }
 
   /** Replace what options record. Invalid fields are dropped; at most 12. */
@@ -591,6 +624,7 @@ export class NotebookStore {
       pipeline: parse<string[]>(r.pipeline_json, []),
       fields: parse<NotebookField[]>(r.fields_json, []),
       stages: parse<string[]>(r.stages_json, []),
+      ...(r.setup_at ? { setupAt: String(r.setup_at) } : {}),
       cadence: String(r.cadence ?? ''),
       status: String(r.status) as NotebookStatus,
       ...(r.decision ? { decision: String(r.decision) } : {}),

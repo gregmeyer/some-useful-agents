@@ -360,3 +360,63 @@ describe('notebook photos', () => {
     expect(page.text).toContain('Get photos');
   });
 });
+
+describe('setting a notebook up', () => {
+  it('a setup pass sets fields, stages and the facts of options already there, and records no search', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult, NOTEBOOK_SETUP } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Buy a used car' });
+    const rav = store.addEntry(nb.id, { kind: 'option', title: '2010 RAV4, 149,652 mi, $4,023', body: 'https://cars.example/listing/123456', by: 'agent:old' });
+    expect(store.needsSetup(nb.id)).toBe(true);
+    const out = applyKeeperResult(store, nb, NOTEBOOK_SETUP, 'setup-1', `<notebook>${JSON.stringify({
+      entries: [],
+      fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', unit: 'mi', role: 'measure' }, { key: 'url', label: 'Listing', type: 'url', role: 'link' }],
+      stages: ['Found', 'Checked', 'Bought'],
+      facts: [{ id: rav.id, data: { price: 4023, miles: 149652, url: 'https://cars.example/listing/123456' } }, { id: 'nope', data: { price: 1 } }],
+    })}</notebook>`);
+    expect(out).toMatchObject({ added: 0, factsSet: 1 });
+    const after = store.get(nb.id)!;
+    expect(after.fields.map((f) => f.key)).toEqual(['price', 'miles', 'url']);
+    expect(after.stages).toEqual(['Found', 'Checked', 'Bought']);
+    const e = store.findOption(nb.id, 'RAV4')!;
+    expect(e).toMatchObject({ data: { price: 4023, miles: 149652 }, fingerprint: 'cars.example/listing/123456', stage: 'Found' });
+    expect(store.missedSearches(nb.id, { by: 'agent:old', createdAt: '2000-01-01T00:00:00Z' })).toBe(0);
+    expect(runStore.databaseHandle().prepare('SELECT COUNT(*) AS n FROM notebook_searches').get()).toMatchObject({ n: 0 });
+    expect(store.needsSetup(nb.id)).toBe(false); // it has fields now
+  });
+
+  it('starts setup when a notebook is created and when an options-but-no-fields notebook is opened, once', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    expect(decodeURIComponent((await post('/notebooks', { title: 'Find a staff role' })).headers.location)).toContain('sua is setting up what to track');
+    expect(store.get('find-a-staff-role')!.setupAt).toBeTruthy();
+
+    const old = store.create({ title: 'Old car hunt' });
+    store.addEntry(old.id, { kind: 'option', title: '2009 Forester', by: 'you' });
+    expect(store.get(old.id)!.setupAt).toBeUndefined();
+    await request(app).get(`/notebooks/${old.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(store.get(old.id)!.setupAt).toBeTruthy();
+    expect(store.needsSetup(old.id)).toBe(false); // tried: a later visit doesn't try again
+  });
+
+  it('options sua files from conversation keep their facts once the notebook has fields', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Car' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', unit: 'mi', role: 'measure' }]);
+    const { add } = parseNotebookAdd(JSON.stringify({ entries: [
+      { kind: 'option', title: '2011 Forester at the Ballard lot', body: 'saw it Saturday', data: { price: '$6,200', miles: 141000, color: 'blue' }, fingerprint: 'VIN JF2SH' },
+      { kind: 'note', title: 'Wants heated seats', data: { price: 1 } },
+    ] }));
+    applyNotebookAdd(store, nb.id, add!, 'sua');
+    expect(store.findOption(nb.id, 'Ballard')).toMatchObject({ data: { price: 6200, miles: 141000 }, fingerprint: 'vin jf2sh' });
+    expect(store.entries(nb.id).find((e) => e.kind === 'note')!.data).toBeUndefined();
+  });
+});

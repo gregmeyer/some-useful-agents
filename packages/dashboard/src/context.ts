@@ -248,6 +248,8 @@ export interface DashboardContext {
    * agent is on, step N of M. One run per notebook at a time.
    */
   notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number }>;
+  /** Notebooks being set up (fields, stages) right now. */
+  notebookSetups?: Set<string>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage
