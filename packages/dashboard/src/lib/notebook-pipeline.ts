@@ -62,12 +62,16 @@ export interface KeeperOutcome {
 export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
-  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown };
+  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
   // A notebook's fields are set once, by the first run that finds options.
   if (nb.fields.length === 0 && Array.isArray(parsed.fields) && parsed.fields.length > 0) {
     nb = store.setFields(nb.id, parsed.fields);
     store.backfillOptions(nb.id);
+  }
+  // Stages too, once; existing options start at the first.
+  if (nb.stages.length === 0 && Array.isArray(parsed.stages) && parsed.stages.length > 0) {
+    nb = store.setStages(nb.id, parsed.stages);
   }
   const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
   let added = 0;
@@ -84,7 +88,9 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
       if (!optionFingerprint(fingerprint, cleanData(data, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
       const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId });
-      if (r.seenAgain) refreshed++; else { added++; seen.add(key); }
+      if (r.ruledOut) skipped++;
+      else if (r.seenAgain) refreshed++;
+      else { added++; seen.add(key); }
       continue;
     }
     if (!key || seen.has(key)) { skipped++; continue; }
@@ -114,7 +120,7 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
   const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
   if (!keeper) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
-  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}`).join('\n');
+  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
   const keepRunId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(keepRunId, ac);

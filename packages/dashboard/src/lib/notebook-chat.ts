@@ -24,6 +24,16 @@ export interface NotebookAdd {
   statement?: string;
   /** The params given are the whole new list (they replace limits they contradict). */
   replaceParams?: boolean;
+  /** The steps options go through (replaces the list). */
+  stages?: string[];
+  /** Options to move to a stage, named by title (or part of it), fingerprint or id. */
+  moves: Array<{ option: string; stage: string }>;
+  /** Options to rule out, with why ("no callback", "didn't like it"). */
+  ruleOut: Array<{ option: string; reason: string }>;
+  /** Ruled-out options to bring back. */
+  reinstate: string[];
+  /** Done-when criteria now met, by their text (or part of it). */
+  met: string[];
 }
 
 /** CHANGES as sua sends it: {entries?, params?, criteria?, statement?}. */
@@ -31,7 +41,12 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return { error: 'CHANGES is not JSON.' }; }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: 'CHANGES must be an object.' };
-  const o = v as { entries?: unknown; params?: unknown; criteria?: unknown; statement?: unknown };
+  const o = v as { entries?: unknown; params?: unknown; criteria?: unknown; statement?: unknown; stages?: unknown; moves?: unknown; ruleOut?: unknown; reinstate?: unknown };
+  const refs = <K extends string>(list: unknown, key: K): Array<{ option: string } & Record<K, string>> =>
+    (Array.isArray(list) ? list.slice(0, 20) : [])
+      .map((x) => x as { option?: unknown } & Record<K, unknown>)
+      .filter((x) => typeof x.option === 'string' && x.option.trim() && typeof x[key] === 'string')
+      .map((x) => ({ option: String(x.option).trim(), [key]: String(x[key]).trim() }) as { option: string } & Record<K, string>);
   const entries: NotebookAdd['entries'] = [];
   for (const e of Array.isArray(o.entries) ? o.entries.slice(0, 12) : []) {
     const x = e as { kind?: unknown; title?: unknown; body?: unknown };
@@ -44,8 +59,13 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     criteria: strList(o.criteria, 10),
     ...(typeof o.statement === 'string' && o.statement.trim() ? { statement: o.statement.trim().slice(0, 500) } : {}),
     ...((o as { replaceParams?: unknown }).replaceParams === true ? { replaceParams: true } : {}),
+    ...(Array.isArray(o.stages) && strList(o.stages, 8).length ? { stages: strList(o.stages, 8) } : {}),
+    moves: refs(o.moves, 'stage'),
+    ruleOut: refs(o.ruleOut, 'reason'),
+    reinstate: strList(o.reinstate, 20),
+    met: strList((o as { met?: unknown }).met, 10),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -76,6 +96,39 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
   for (const p of after.params.slice(before.params)) added.push(`parameter: ${p}`);
   for (const c of after.criteria.slice(before.criteria)) added.push(`done when: ${c.text}`);
   if (add.statement && !nb.statement) { store.update(nb.id, { statement: add.statement }); added.push(`what it's for: ${add.statement}`); }
+  if (add.stages) { store.setStages(nb.id, add.stages); added.push(`stages: ${add.stages.join(' → ')}`); }
+  // Moves and rulings name an option; one that matches nothing (or several) is reported, not guessed.
+  const option = (ref: string) => {
+    const o = store.findOption(nb.id, ref);
+    if (!o) added.push(`couldn't find an option matching "${ref}"`);
+    return o;
+  };
+  for (const m of add.moves) {
+    const o = option(m.option);
+    if (!o) continue;
+    try { store.moveOption(nb.id, o.id, m.stage); added.push(`moved: ${o.title} → ${m.stage}`); } catch (err) { added.push(err instanceof Error ? err.message : `couldn't move ${o.title}`); }
+  }
+  for (const r of add.ruleOut) {
+    const o = option(r.option);
+    if (!o) continue;
+    store.ruleOut(nb.id, o.id, r.reason, by);
+    added.push(`ruled out: ${o.title} (${r.reason})`);
+  }
+  for (const ref of add.reinstate) {
+    const o = option(ref);
+    if (!o) continue;
+    store.reinstate(nb.id, o.id);
+    added.push(`brought back: ${o.title}`);
+  }
+  for (const text of add.met) {
+    const cur = store.get(nb.id)!;
+    const k = entryKey(text);
+    const i = cur.criteria.findIndex((c) => entryKey(c.text) === k || (k.length > 3 && entryKey(c.text).includes(k)));
+    if (i < 0) { added.push(`couldn't find a done-when matching "${text}"`); continue; }
+    if (cur.criteria[i].met) continue;
+    store.markCriterion(nb.id, i, true);
+    added.push(`met: ${cur.criteria[i].text}`);
+  }
   return { added, skipped };
 }
 
@@ -113,10 +166,10 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
 /** The notebook, for triage: what it is, what it has, what agents could feed it. */
 export function describeNotebookForTriage(ctx: Ctx, nb: Notebook): string {
   const store = notebooksOf(ctx);
-  const entries = store.entries(nb.id, 60).map((e) => `${e.kind}: ${e.title}`);
+  const entries = store.entries(nb.id, 60).map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
-    params: nb.params, criteria: nb.criteria, pipeline: nb.pipeline, cadence: nb.cadence,
+    params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
   });
 }

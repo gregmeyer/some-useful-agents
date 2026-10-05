@@ -234,7 +234,7 @@ describe('the talk box follows the notebook', () => {
   it('suggests the next useful thing to tell sua, step by step', async () => {
     await makeApp();
     const { nextStep } = await import('../views/notebooks.js');
-    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
+    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], stages: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
     const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
     expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
     const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };
@@ -248,5 +248,62 @@ describe('the talk box follows the notebook', () => {
     const met = { ...piped, criteria: [{ text: 'clean title', met: true }] };
     expect(nextStep(met, [opt]).hint).toBe('Every criterion is met. Ready to decide?');
     expect(nextStep({ ...met, status: 'decided' }, [opt]).hint).toContain('Decided');
+  });
+});
+
+describe('the funnel on the page and in the conversation', () => {
+  it('moves, rules out and brings back from the page; the page shows the funnel', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    await post('/notebooks', { title: 'Car' });
+    await post('/notebooks/car/edit', { title: 'Car', stages: 'Found\nChecked\nTest drive' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const rav4 = store.upsertOption('car', { title: '2010 RAV4', by: 'you' }).entry;
+    const xt = store.upsertOption('car', { title: '2009 Forester XT', by: 'you' }).entry;
+
+    expect(decodeURIComponent((await post(`/notebooks/car/entries/${rav4.id}/stage`, { stage: 'Checked' })).headers.location)).toContain('2010 RAV4 → Checked');
+    expect(decodeURIComponent((await post(`/notebooks/car/entries/${rav4.id}/stage`, { stage: 'Bought' })).headers.location)).toContain("isn't one of this notebook's stages");
+    expect(decodeURIComponent((await post(`/notebooks/car/entries/${xt.id}/rule-out`, { quick: 'Too expensive', reason: '' })).headers.location)).toContain("Searches won't suggest it again");
+    expect(store.findOption('car', 'XT')?.ruledOut).toMatchObject({ reason: 'Too expensive', by: 'you', stage: 'Found' });
+
+    const page = await request(app).get('/notebooks/car').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('class="nb-funnel"');
+    expect(page.text).toContain('Ruled out at Found: Too expensive');
+    expect(page.text).toContain('Move to Test drive →');
+    expect(page.text.indexOf('2010 RAV4')).toBeLessThan(page.text.indexOf('2009 Forester XT')); // ruled out sinks
+
+    await post(`/notebooks/car/entries/${xt.id}/reinstate`);
+    expect(store.findOption('car', 'XT')?.ruledOut).toBeUndefined();
+  });
+
+  it('sua rules out, moves, brings back and ticks criteria by name, and says what it couldn\'t find', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Staff role', criteria: ['An offer in hand', 'Decided by Nov'] });
+    store.setStages(nb.id, ['Found', 'Applied', 'Interview', 'Offer']);
+    for (const t of ['Staff Engineer, Stripe', 'Staff Engineer, Plaid', 'Staff Engineer, Ramp']) store.upsertOption(nb.id, { title: t, by: 'agent:jobs' });
+
+    const { add, error } = parseNotebookAdd(JSON.stringify({
+      moves: [{ option: 'Stripe', stage: 'Interview' }, { option: 'Ramp', stage: 'Hired' }],
+      ruleOut: [{ option: 'plaid', reason: 'no callback' }, { option: 'Brex', reason: 'x' }],
+      met: ['offer in hand', 'a pony'],
+    }));
+    expect(error).toBeUndefined();
+    const { added } = applyNotebookAdd(store, nb.id, add!, 'sua');
+    expect(added).toEqual([
+      'moved: Staff Engineer, Stripe → Interview',
+      expect.stringContaining('"Hired" isn\'t one of this notebook\'s stages'),
+      'ruled out: Staff Engineer, Plaid (no callback)',
+      'couldn\'t find an option matching "Brex"',
+      'met: An offer in hand',
+      'couldn\'t find a done-when matching "a pony"',
+    ]);
+    expect(store.findOption(nb.id, 'Plaid')?.ruledOut).toMatchObject({ reason: 'no callback', by: 'sua', stage: 'Found' });
+    expect(applyNotebookAdd(store, nb.id, parseNotebookAdd(JSON.stringify({ reinstate: ['Plaid'] })).add!).added).toEqual(['brought back: Staff Engineer, Plaid']);
+    expect(parseNotebookAdd('{}').error).toBe('Nothing to add.');
   });
 });

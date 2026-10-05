@@ -1333,6 +1333,11 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
           ...add.entries.map((e) => ({ what: e.kind, before: '—', after: e.title })),
           ...add.params.map((p) => ({ what: 'parameter', before: '—', after: p })),
           ...add.criteria.map((c) => ({ what: 'done when', before: '—', after: c })),
+          ...(add.stages ? [{ what: 'stages', before: nb?.stages.join(' → ') || '—', after: add.stages.join(' → ') }] : []),
+          ...add.moves.map((m) => ({ what: 'move', before: m.option, after: m.stage })),
+          ...add.ruleOut.map((r) => ({ what: 'rule out', before: r.option, after: r.reason })),
+          ...add.reinstate.map((r) => ({ what: 'bring back', before: '—', after: r })),
+          ...add.met.map((c) => ({ what: 'done when, met', before: '—', after: c })),
         ];
         return { ...action, inputs: named, surfaceChanges: changes };
       }

@@ -631,6 +631,21 @@ ask them to fill in a form.
   - "replaceParams": true, with "params" as the WHOLE new list, when what
     they said contradicts limits it already has (new budget, mileage, years,
     places): the old ones go. Otherwise params are added.
+  - "ruleOut": [{"option": "<title, or a distinctive part: 'Plaid', 'the XT'>",
+    "reason": "their words: 'no callback', 'didn't like the color', 'too
+    pricey'"}] when they turn an option down. It stays in the notebook as
+    ruled out (it's how the funnel and the search learn), so never use a
+    decision entry or removal for this.
+  - "moves": [{"option": "…", "stage": "<one of the notebook's stages>"}]
+    when an option moves along ("I applied to Stripe" → Applied; "we test
+    drove the RAV4" → Test drive).
+  - "reinstate": ["…"] to bring a ruled-out option back.
+  - "met": ["<a done-when line, or a distinctive part: 'clean title'>"]
+    when what they said shows a criterion is now met. Only on their word or
+    clear evidence, never a guess.
+  - "stages": ["Found", "Applied", …] only when they want different steps.
+  If the same reason has ruled out 3 or more options, offer to make it a
+  limit ("You've passed on 3 cars over 170k miles: make that a limit?").
   Skip what's already in its entries / params / criteria.
 - Agents you run in this conversation (a search, a builder's draft) feed the
   notebook on their own: their findings become options / evidence / notes.

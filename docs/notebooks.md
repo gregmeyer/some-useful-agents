@@ -67,6 +67,19 @@ Options record their facts as data, not only as text, so they can be compared, s
   - `options`, each with its facts by key, plus `price`, `measure`, `place`, `org`, `link` and `image` picked out by role (a range's midpoint for `price` and `measure`), and `firstSeenAt` / `lastSeenAt`;
   - `notes`, `evidence`, `decisions` and `history`.
 
+## Stages and ruling out: the funnel
+
+Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
+
+- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them under **Edit** (one per line). New options start at the first stage. If you remove a stage, its options move to the first one.
+- **Move an option along** with **Move to <next stage> →** on its card, or tell sua ("I applied to Stripe and Plaid", "we test-drove the RAV4").
+- **Rule an option out** with **Rule out…**: pick a quick reason (Not interested, Too expensive, No reply, Failed a check) or write your own. Or tell sua ("rule out the XT, too pricey", "no callback from Plaid").
+  - A ruled-out option **stays in the notebook,** dimmed and at the end of its section, showing where it was ruled out and why: "Ruled out at Applied: no callback". **Bring back** undoes it, and so does moving it to a stage.
+  - **Ruled out stays ruled out.** When a search finds the same option again (same fingerprint), it isn't suggested again. The keeper also sees why options were ruled out and skips others that fail for the same reason. When three or more are ruled out for one reason, sua offers to make it a limit.
+- **The funnel** above the options shows how many reached each stage and how many were ruled out there ("4 Found −2 → 1 Checked → 1 Test drive"); hover for the reasons.
+- **In conversation, sua can also tick a done-when criterion** when what you said shows it's met ("the title's clean").
+- `data.json` includes `stages`, a `funnel` (per stage: reached, here now, ruled out, top reasons), each option's `stage`, `stageIndex` and `ruledOut`, and `active` / `ruledOutCount`.
+
 ## The pipeline
 
 Under **Edit**, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.

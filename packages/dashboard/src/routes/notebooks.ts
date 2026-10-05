@@ -83,6 +83,37 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/remove', (req: Request, res:
   res.redirect(303, back(id, removed ? 'Removed.' : 'That entry was already gone.'));
 });
 
+// An option's stage, ruling it out (it stays, with why), and bringing it back.
+notebooksRouter.post('/notebooks/:id/entries/:entry/stage', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const e = store(req).moveOption(id, String(req.params.entry), str(req.body?.stage));
+    res.redirect(303, back(id, `${e.title} → ${e.stage ?? ''}`, `#entry-${e.id}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+notebooksRouter.post('/notebooks/:id/entries/:entry/rule-out', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const e = store(req).ruleOut(id, String(req.params.entry), str(req.body?.reason).trim() || str(req.body?.quick), 'you');
+    res.redirect(303, back(id, `Ruled out: ${e.title}. Searches won't suggest it again.`, `#entry-${e.id}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const e = store(req).reinstate(id, String(req.params.entry));
+    res.redirect(303, back(id, `Brought back: ${e.title}.`, `#entry-${e.id}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
 notebooksRouter.post('/notebooks/:id/criteria/:index', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
@@ -104,6 +135,7 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
       params: lines(req.body?.params), pipeline: lines(req.body?.pipeline), cadence,
     });
     s.setCriteria(id, lines(req.body?.criteria));
+    if (typeof req.body?.stages === 'string') s.setStages(id, lines(req.body.stages));
     res.redirect(303, back(id, 'Saved.'));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

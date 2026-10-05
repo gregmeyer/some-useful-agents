@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, isRange, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { notebookProgress, notebookViewData, isRange, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { cronToHuman, formatAge } from './components.js';
@@ -163,9 +163,49 @@ function optionFacts(nb: Notebook, e: NotebookEntry): SafeHtml {
   </div>`;
 }
 
+const QUICK_REASONS = ['Not interested', 'Too expensive', 'No reply', 'Failed a check'];
+
+/** An option's place in the funnel: its stage, the next one, and ruling it out (or back in). */
+function optionStage(nb: Notebook, e: NotebookEntry): SafeHtml {
+  const base = `/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}`;
+  if (e.ruledOut) {
+    return html`<div class="nb-stage nb-stage--out">
+      <span class="nb-stage__out">Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}</span>
+      <form method="POST" action="${base}/reinstate"><button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
+    </div>`;
+  }
+  const i = nb.stages.findIndex((s) => s === e.stage);
+  const next = nb.stages.length ? nb.stages[i + 1] : undefined;
+  return html`<div class="nb-stage">
+    ${e.stage ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
+    ${next ? html`<form method="POST" action="${base}/stage"><input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
+    <details class="nb-ruleout">
+      <summary class="btn btn--sm btn--ghost">Rule out…</summary>
+      <form method="POST" action="${base}/rule-out" class="nb-ruleout__form">
+        <span class="nb-ruleout__label">Why? It stays here, and searches won't suggest it again.</span>
+        <div class="nb-ruleout__quick">${QUICK_REASONS.map((r) => html`<button type="submit" name="quick" value="${r}" class="btn btn--sm">${r}</button>`)}</div>
+        <div class="nb-ruleout__row"><input type="text" name="reason" class="form-field" placeholder="or in your words: didn't like the color" aria-label="Reason"><button type="submit" class="btn btn--sm btn--primary">Rule out</button></div>
+      </form>
+    </details>
+  </div>`;
+}
+
+/** Found 9 → Checked 2 → Test drive 0 · 3 ruled out: how far options got. */
+function funnelStrip(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  if (nb.stages.length === 0) return html``;
+  const { funnel, ruledOutCount } = notebookViewData(nb, entries).notebook;
+  return html`<ol class="nb-funnel" aria-label="How far options got">
+    ${funnel.map((f, i) => html`<li class="nb-funnel__step${f.here ? ' nb-funnel__step--here' : ''}" title="${String(f.reached)} reached ${f.stage}; ${String(f.here)} here now${f.ruledOut ? `; ${String(f.ruledOut)} ruled out here (${f.reasons.map((r) => `${r.reason} ×${String(r.count)}`).join(', ')})` : ''}">
+      ${i > 0 ? html`<span class="nb-funnel__arrow" aria-hidden="true">→</span>` : html``}
+      <span class="nb-funnel__n">${String(f.reached)}</span> ${f.stage}${f.ruledOut ? html` <span class="nb-funnel__out">−${String(f.ruledOut)}</span>` : html``}
+    </li>`)}
+    ${ruledOutCount ? html`<li class="nb-funnel__total">${String(ruledOutCount)} ruled out</li>` : html``}
+  </ol>`;
+}
+
 function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
   return html`
-    <li class="nb-entry nb-entry--${e.kind}" id="entry-${e.id}">
+    <li class="nb-entry nb-entry--${e.kind}${e.ruledOut ? ' nb-entry--out' : ''}" id="entry-${e.id}">
       <div class="nb-entry__head">
         <span class="nb-entry__kind">${KIND_LABEL[e.kind]}</span>
         <strong class="nb-entry__title">${e.title}</strong>
@@ -174,6 +214,7 @@ function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
         </form>
       </div>
       ${e.kind === 'option' ? optionFacts(nb, e) : html``}
+      ${e.kind === 'option' ? optionStage(nb, e) : html``}
       ${e.body ? html`<p class="nb-entry__body">${bodyWithLinks(e.body)}</p>` : html``}
       <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}${e.runId ? html` · <a href="/runs/${encodeURIComponent(e.runId)}" class="mono">run ${e.runId.slice(0, 8)}</a>` : html``}</span>
     </li>`;
@@ -190,10 +231,12 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
         ${talkForm(nb, entries, true)}
       </section>`;
   }
-  return html`${regions.map((r) => html`
+  // Ruled-out options sink to the end of their section.
+  const out = (id: string) => (byId.get(id)?.ruledOut ? 1 : 0);
+  return html`${funnelStrip(nb, entries)}${regions.map((r) => html`
     <section class="nb-region" data-surface-region="${r.id}">
       <h2 class="nb-region__title">${r.title} <span class="nb-region__count">${String(r.entries.length)}</span></h2>
-      <ul class="nb-region__list">${r.entries.map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e) : html``; }) as unknown as SafeHtml[]}</ul>
+      <ul class="nb-region__list">${[...r.entries].sort((a, b) => out(a.item.id) - out(b.item.id)).map((ce) => { const e = byId.get(ce.item.id); return e ? entryCard(nb, e) : html``; }) as unknown as SafeHtml[]}</ul>
     </section>`) as unknown as SafeHtml[]}`;
 }
 
@@ -274,6 +317,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
         <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field">${nb.statement}</textarea></label>
         <label class="nb-label">Parameters, one per line<textarea name="params" rows="3" class="form-field">${nb.params.join('\n')}</textarea></label>
         <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field">${nb.criteria.map((c) => c.text).join('\n')}</textarea></label>
+        <label class="nb-label">Stages an option moves through, one per line<textarea name="stages" rows="3" class="form-field" placeholder="Found&#10;Applied&#10;Interview&#10;Offer">${nb.stages.join('\n')}</textarea></label>
         <label class="nb-label">Pipeline: agent ids, one per line<textarea name="pipeline" rows="3" class="form-field mono">${nb.pipeline.join('\n')}</textarea></label>
         <label class="nb-label">Runs (five-field schedule, or empty for when you ask)<input type="text" name="cadence" value="${nb.cadence}" class="form-field mono" placeholder="0 7 * * *"></label>
         <button type="submit" class="btn btn--sm">Save</button>
