@@ -3098,3 +3098,7 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-history__reason { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .home-history__changes { margin: 0; padding-left: var(--space-4); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .panel-row__why { grid-column: 2 / -1; font-size: var(--font-size-xs); color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Why Needs you has what it has (Today). */
+.panel-group__why { margin: 0 var(--space-2) var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.item-pane.is-done .item-pane__why { display: none; }

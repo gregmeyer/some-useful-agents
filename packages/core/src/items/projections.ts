@@ -114,12 +114,26 @@ const FINISHED: ReadonlySet<Run['status']> = new Set(['completed', 'failed', 'ca
  * An agent whose latest finished run failed. `value` = failures in a row
  * (within the runs given, newest first); 3+ is high urgency.
  */
-export function failingAgentItem(agent: Pick<Agent, 'id' | 'name'>, recentRuns: readonly Run[], threadId?: string): Item | undefined {
+/** A failure older than this, on an agent with no schedule, is history, not something to act on today. */
+export const STALE_FAILURE_MS = 7 * 24 * 3600_000;
+const RECENT_SCHEDULED_MS = 3 * 24 * 3600_000;
+
+/**
+ * An agent whose failures are a pattern worth your attention: 2+ in a row, or
+ * a scheduled run that just failed (it will keep failing on its own). One
+ * failed manual run isn't a pattern; an unscheduled agent that last failed a
+ * week ago isn't news.
+ */
+export function failingAgentItem(agent: Pick<Agent, 'id' | 'name'> & Partial<Pick<Agent, 'schedule'>>, recentRuns: readonly Run[], threadId?: string, now = Date.now()): Item | undefined {
   const finished = recentRuns.filter((r) => FINISHED.has(r.status));
   const latest = finished[0];
   if (!latest || latest.status !== 'failed') return undefined;
   let streak = 0;
   for (const r of finished) { if (r.status === 'failed') streak++; else break; }
+  const lastAt = Date.parse(latest.completedAt ?? latest.startedAt);
+  const age = Number.isFinite(lastAt) ? now - lastAt : 0;
+  if (!agent.schedule && age > STALE_FAILURE_MS) return undefined;
+  if (streak < 2 && !(latest.triggeredBy === 'schedule' && age < RECENT_SCHEDULED_MS)) return undefined;
   return {
     id: `agent:${agent.id}:failing`,
     kind: 'alert',
