@@ -511,3 +511,29 @@ describe('agentV2Schema — outputContract', () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe('look-alike node references', () => {
+  const agent = (prompt: string) => ({
+    id: 'sweep', name: 'Sweep', source: 'local', version: 2, status: 'draft',
+    nodes: [
+      { id: 'cargurus', type: 'llm-prompt', prompt: 'find cars' },
+      { id: 'merge', type: 'llm-prompt', dependsOn: ['cargurus'], prompt },
+    ],
+  });
+  const messages = (prompt: string) => {
+    const r = agentV2Schema.safeParse(agent(prompt));
+    return r.success ? [] : r.error.issues.map((i) => i.message);
+  };
+
+  it('rejects {{nodes.X}}, {{steps.X}} and a fieldless {{upstream.X}}, pointing at the right form', () => {
+    for (const bad of ['{{nodes.cargurus}}', '{{steps.cargurus.result}}', '{{upstream.cargurus}}']) {
+      const msgs = messages(`Results: ${bad}`);
+      expect(msgs.some((m) => m.includes('{{upstream.cargurus.result}}')), bad).toBe(true);
+    }
+  });
+
+  it('accepts {{upstream.X.result}} and leaves unrelated text alone', () => {
+    expect(messages('Results: {{upstream.cargurus.result}}')).toEqual([]);
+    expect(messages('Results: {{upstream.cargurus.listings}} {{nodes.not-a-node}}')).toEqual([]);
+  });
+});

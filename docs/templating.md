@@ -32,6 +32,7 @@ Notes:
 - `<nodeId>` is the upstream **node's id**, scoped to the same agent.
 - `.result` is the **full stdout as a single string**. No sub-paths today — for structured access, emit JSON and parse it downstream (`echo "$UPSTREAM_FETCH_RESULT" | jq .count`).
 - A node can only reference upstreams it declares in `dependsOn`. Unknown references fail the schema.
+- Look-alikes such as `{{nodes.<id>}}`, `{{steps.<id>}}` or `{{upstream.<id>}}` (no `.result`) are never substituted, so they'd reach the prompt as literal text. When `<id>` is a node in the agent, saving fails with a message pointing at `{{upstream.<id>.result}}`.
 
 ## What the executor guarantees today
 
