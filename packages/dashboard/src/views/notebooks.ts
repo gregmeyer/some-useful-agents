@@ -112,6 +112,25 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
 
 const KIND_LABEL: Record<NotebookEntry['kind'], string> = { note: 'note', option: 'option', evidence: 'evidence', decision: 'decision' };
 
+const URL_RE = /(https?:\/\/[^\s<>"'()]+)/g;
+
+/**
+ * An entry's text with its web addresses as links. A listing URL is long and
+ * unreadable, so the link reads as its site ("cargurus.com ↗"); the full
+ * address is the tooltip. Only http(s) addresses become links.
+ */
+export function bodyWithLinks(text: string): SafeHtml {
+  const parts = text.split(URL_RE);
+  return html`${parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const trail = /[.,;:!?]+$/.exec(part)?.[0] ?? '';
+    const url = trail ? part.slice(0, -trail.length) : part;
+    let site = url;
+    try { site = new URL(url).hostname.replace(/^www\./, ''); } catch { /* keep the address */ }
+    return html`<a href="${url}" class="nb-entry__link" target="_blank" rel="noopener noreferrer" title="${url}">${site} ↗</a>${trail}`;
+  })}`;
+}
+
 function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
   return html`
     <li class="nb-entry nb-entry--${e.kind}" id="entry-${e.id}">
@@ -122,7 +141,7 @@ function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
           <button type="submit" class="btn btn--xs btn--ghost" aria-label="Remove “${e.title}”" title="Remove">×</button>
         </form>
       </div>
-      ${e.body ? html`<p class="nb-entry__body">${e.body}</p>` : html``}
+      ${e.body ? html`<p class="nb-entry__body">${bodyWithLinks(e.body)}</p>` : html``}
       <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}${e.runId ? html` · <a href="/runs/${encodeURIComponent(e.runId)}" class="mono">run ${e.runId.slice(0, 8)}</a>` : html``}</span>
     </li>`;
 }
