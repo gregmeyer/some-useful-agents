@@ -29,7 +29,9 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
   This follows your autonomy setting: under Full it applies right away, otherwise it waits as a card. Every entry can be removed.
 - **sua suggests a pipeline** when there isn't one, from agents you have (e.g. a listings search every morning). That's a **Set up the pipeline** card you approve, and it can run once right away.
-- **The notebook keeps its conversation.** **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
+- **Agents sua runs in the conversation feed the notebook.** A search becomes options, evidence, or a note such as "Searched Seattle Craigslist for Foresters: nothing that fits yet", each linked to its run. When sua builds an agent for the notebook, it offers to add it to the pipeline.
+- **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
+- **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
 
 ## A notebook's page
 

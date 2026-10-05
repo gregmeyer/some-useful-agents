@@ -75,8 +75,11 @@ nodes:
         ("Ruled out: 2019 Outback, CVT recall not done"). Options that break
         the parameters become decisions like this when they're notable.
       Titles are one line (under 120 characters); put details in "body"
-      (1–3 sentences). At most 8 entries. If the output has nothing for this
-      goal (an error, unrelated content), return no entries.
+      (1–3 sentences). At most 8 entries. If it was a search that found
+      nothing that fits, add ONE note saying so, with where it looked
+      ("Searched Craigslist Seattle for Foresters/RAV4s under $5k: nothing
+      that fits yet"), so the notebook remembers it was tried. If the output
+      is an error or unrelated, return no entries.
 
       Criteria: if the output clearly shows a criterion is now met, list its
       index with a short reason. Never mark a criterion met on a guess.

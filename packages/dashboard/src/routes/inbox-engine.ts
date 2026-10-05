@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage } from '../lib/notebook-chat.js';
-import { startNotebookPipeline } from '../lib/notebook-pipeline.js';
+import { startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
@@ -539,6 +539,15 @@ export async function runProposedAction(
     });
   } catch (err) {
     outcome = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+  }
+  // In a notebook's conversation, what the agent found goes into the notebook
+  // (options, evidence, "searched X: nothing yet"), before sua follows up.
+  if (outcome.status === 'completed' && outcome.id && !SYSTEM_AGENT_IDS.has(meta.agentId)) {
+    try {
+      const msg = ctx.inboxStore?.get(messageId);
+      const nb = msg ? notebookForThread(ctx, messageId, msg.contextJson) : undefined;
+      if (nb && nb.status === 'active') await keepIntoNotebook(ctx, nb, meta.agentId, outcome.id, outcome.result ?? '');
+    } catch { /* the conversation still goes on */ }
   }
   finalizeActionFromOutcome(ctx, messageId, response.id, meta, outcome, { startedAt });
 }
