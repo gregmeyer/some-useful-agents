@@ -29,7 +29,7 @@ export function progressRing(met: number, total: number, size = 78): SafeHtml {
   </svg>`);
 }
 
-export interface PipelineStage { agentId: string; status: 'ok' | 'failed' | 'never'; note: string }
+export interface PipelineStage { agentId: string; status: 'ok' | 'failed' | 'never' | 'running'; note: string }
 
 /** The pipeline as connected nodes, each with its last run. */
 function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
@@ -39,7 +39,7 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
   const step = stages.length > 1 ? (w - pad * 2) / (stages.length - 1) : 0;
   const xs = stages.map((_, i) => (stages.length > 1 ? pad + step * i : w / 2));
   const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => (ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;'));
-  const glyph = { ok: '✓', failed: '!', never: '○' } as const;
+  const glyph = { ok: '✓', failed: '!', never: '○', running: '◌' } as const;
   const nodes = stages.map((s, i) => `
     <g class="nb-pipe__node nb-pipe__node--${s.status}">
       <circle cx="${xs[i].toFixed(0)}" cy="28" r="15"/>
@@ -52,7 +52,7 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
   return unsafeHtml(`<svg class="nb-pipe" role="img" aria-label="${esc(label)}" width="100%" height="76" viewBox="0 0 ${String(w)} 76" preserveAspectRatio="xMidYMid meet">${line}${nodes}</svg>`);
 }
 
-function hero(nb: Notebook, stages: PipelineStage[]): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -71,6 +71,15 @@ function hero(nb: Notebook, stages: PipelineStage[]): SafeHtml {
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}</span>
         </div>
         ${pipelineDiagram(stages)}
+        ${nb.pipeline.length ? html`
+          <div class="nb-run">
+            ${running
+              ? html`<span class="nb-run__now" data-notebook-running role="status">Running step ${String(running.step)} of ${String(running.of)}… this page updates as it goes.</span>`
+              : nb.status === 'active'
+                ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm">Run the pipeline now</button></form>`
+                : html``}
+            ${nb.lastRunAt && !running ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
+          </div>` : html``}
         ${nb.status === 'decided' && nb.decision ? html`<div class="nb-decided"><strong>Decided ${formatAge(nb.decidedAt ?? nb.updatedAt)}:</strong> ${nb.decision}</div>` : html``}
       </div>
       <aside class="nb-hero__side" aria-label="Done when">
@@ -114,7 +123,7 @@ function entryCard(nb: Notebook, e: NotebookEntry): SafeHtml {
         </form>
       </div>
       ${e.body ? html`<p class="nb-entry__body">${e.body}</p>` : html``}
-      <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}</span>
+      <span class="nb-entry__by">${e.by === 'you' ? 'you' : e.by.replace(/^agent:/, '')} · ${formatAge(e.createdAt)}${e.runId ? html` · <a href="/runs/${encodeURIComponent(e.runId)}" class="mono">run ${e.runId.slice(0, 8)}</a>` : html``}</span>
     </li>`;
 }
 
@@ -161,10 +170,11 @@ function sideForms(nb: Notebook): SafeHtml {
     </details>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; stages: PipelineStage[]; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; stages: PipelineStage[]; running?: { step: number; of: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
-    ${hero(args.nb, args.stages)}
+    ${hero(args.nb, args.stages, args.running)}
+    ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
       <aside class="nb-body__side">${sideForms(args.nb)}</aside>

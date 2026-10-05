@@ -61,6 +61,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'dashboard-designer': 'stage 3 of the build orchestrator',
   'goal-surveyor': 'stage 1 of the build orchestrator',
   'inbox-learning-extractor': 'post-resolution distillation, runs unattended',
+  'notebook-keeper': 'notebook pipeline only: turns a run into notebook entries, never proposed',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
   'board-builder': 'invoked by New board from a request (/boards/new)',

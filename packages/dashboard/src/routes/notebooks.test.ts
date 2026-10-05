@@ -147,3 +147,55 @@ describe('notebooks pages', () => {
     expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks?new=1">New notebook');
   });
 });
+
+describe('notebook pipeline (G2–G3)', () => {
+  it('the keeper adds new entries with provenance, skips what the notebook has, and ticks criteria with a reason', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult, pipelineInputs, notebookBrief } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Buy a used car', statement: 'Find a reliable SUV', params: ['AWD'], criteria: ['One fits', 'Clean history'] });
+    store.addEntry(nb.id, { kind: 'option', title: '2019 RAV4 XLE, 54k mi', by: 'you' });
+
+    const raw = `Here you go.\n<notebook>${JSON.stringify({
+      entries: [
+        { kind: 'option', title: '2019 RAV4 XLE — 54k mi!', body: 'dup, reworded punctuation' },
+        { kind: 'option', title: '2020 Mazda CX-5 Touring, 38k mi, $23,400', body: 'one owner' },
+        { kind: 'evidence', title: 'Carfax: CX-5 clean' },
+        { kind: 'gossip', title: 'nope' },
+      ],
+      criteriaMet: [{ index: 0, why: 'The CX-5 fits every parameter.' }, { index: 7, why: 'no such' }],
+      summary: 'One new option and its history.',
+    })}</notebook>`;
+    const out = applyKeeperResult(store, nb, 'listings-search', 'run-abc', raw);
+    expect(out).toEqual({ added: 2, skipped: 2, criteriaMet: 1, summary: 'One new option and its history.' });
+    const entries = store.entries(nb.id);
+    expect(entries.find((e) => e.title.startsWith('2020 Mazda'))).toMatchObject({ by: 'agent:listings-search', runId: 'run-abc' });
+    expect(entries.find((e) => e.title === 'Met: One fits')).toMatchObject({ kind: 'note', body: 'The CX-5 fits every parameter.' });
+    expect(store.get(nb.id)!.criteria[0].met).toBe(true);
+    expect(applyKeeperResult(store, nb, 'x', 'r', 'no block here').error).toContain('no <notebook> block');
+
+    expect(pipelineInputs({ inputs: { GOAL: { type: 'string' }, topic: { type: 'string' }, LIMIT: { type: 'number' } } } as never, nb))
+      .toEqual({ GOAL: notebookBrief(nb), topic: 'Find a reliable SUV' });
+    expect(notebookBrief(nb)).toBe('Find a reliable SUV\nParameters: AWD\nDone when: One fits; Clean history');
+  });
+
+  it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    await post('/notebooks', { title: 'Car' });
+    expect(decodeURIComponent((await post('/notebooks/car/run')).headers.location)).toContain('Add agents to the pipeline under Edit first');
+    await post('/notebooks/car/edit', { title: 'Car', pipeline: 'not-there' });
+    expect(decodeURIComponent((await post('/notebooks/car/run')).headers.location)).toContain('Running the pipeline');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    for (let i = 0; i < 50 && !store.get('car')!.lastRunAt; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.get('car')!.lastRunNote).toBe('0 new entries · not-there: not installed');
+    const page = await request(app).get('/notebooks/car').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('Run the pipeline now');
+    expect(page.text).toMatch(/Last run .*0 new entries · not-there: not installed/);
+    await post('/notebooks/car/decide', { decision: 'done' });
+    expect(decodeURIComponent((await post('/notebooks/car/run')).headers.location)).toContain('Reopen the notebook');
+  });
+});
