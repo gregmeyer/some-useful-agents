@@ -121,7 +121,7 @@ describe('Home\'s surface, drawn (S3)', () => {
   it('an item pane: what it is, evidence, actions in place, and why it is on Home', async () => {
     const app = await makeApp();
     agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
-    for (const id of ['r1', 'r2']) runStore.createRun({ id: `${id}-0000-aaaa`, agentName: 'flaky', status: 'failed', startedAt: `2026-10-03T0${id.slice(1)}:00:00Z`, triggeredBy: 'schedule', error: 'exit 1' });
+    for (const id of ['r1', 'r2']) runStore.createRun({ id: `${id}-0000-aaaa`, agentName: 'flaky', status: 'failed', startedAt: new Date(Date.now() - (3 - Number(id.slice(1))) * 3600_000).toISOString(), triggeredBy: 'schedule', error: 'exit 1' });
     const get = (id: string) => request(app).get(`/items/${encodeURIComponent(id)}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const pane = await get('agent:flaky:failing');
     expect(pane.status).toBe(200);
@@ -165,7 +165,7 @@ describe('changing Home by hand (S4)', () => {
     const app = await makeApp();
     agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
     agentStore.createAgent({ id: 'sketch', name: 'Sketch', status: 'draft', source: 'local', mcp: false, nodes: node }, 'cli');
-    runStore.createRun({ id: 'r1-0000', agentName: 'flaky', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule', error: 'exit 1' });
+    runStore.createRun({ id: 'r1-0000', agentName: 'flaky', status: 'failed', startedAt: new Date(Date.now() - 3600_000).toISOString(), triggeredBy: 'schedule', error: 'exit 1' });
 
     const pinned = await post(app, '/surfaces/home/ops', { ops: [{ op: 'pin', itemId: 'agent:flaky:failing' }], reason: 'Pinned Flaky', expectedVersion: 0, itemId: 'agent:flaky:failing', gesture: 'pin' });
     expect(pinned.status).toBe(200);
@@ -215,5 +215,16 @@ describe('Home\'s history and reasons (S6)', () => {
     const doc = applySurfaceOps({ ...DEFAULT_HOME_SURFACE, rules: [] }, [{ op: 'addRule', rule: { id: 'f', type: 'promote', match: { kinds: ['alert'] }, label: 'failures first' } }], 'user');
     const html = render(renderToday({ compiled: compileSurface(doc, items), version: 1, goal: 'g', needsCount: 3, doc, items }, true));
     expect(html.match(/panel-row__why/g)?.length).toBe(1);
+  });
+});
+
+describe('why Needs you has what it has', () => {
+  it('says it in one line', async () => {
+    await makeApp();
+    const { needsBreakdown } = await import('../views/home-surface.js');
+    const e = (id: string, kind: string, collapsed = false) => ({ item: { id, kind } as never, reasons: [], pinned: false, collapsed, primitive: 'row' as const });
+    expect(needsBreakdown([e('agent:a:failing', 'alert'), e('agent:b:failing', 'alert'), e('thread:t', 'question'), e('agent:d:draft', 'decision', true)]))
+      .toBe('2 agent problems · 1 waiting on your reply · 1 recent draft to look at');
+    expect(needsBreakdown([])).toBe('Nothing urgent');
   });
 });

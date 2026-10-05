@@ -16,6 +16,7 @@ import {
   threadItem, questionItem, failingAgentItem, outcomeItem, draftAgentItem, boardBuildItem, schedulerItem, notebookItem,
 } from './projections.js';
 import { URGENCY_ORDER, type Item, type ItemKind } from './types.js';
+import { SYSTEM_AGENT_IDS } from './system-agents.js';
 
 export interface ItemSources {
   inbox?: InboxStore;
@@ -62,10 +63,17 @@ export function isFixThread(t: Pick<InboxMessage, 'source' | 'title' | 'agentId'
   return t.source === 'manual' && !!t.agentId && /^Fix /.test(t.title);
 }
 
+const RECENT_DRAFT_MS = 14 * 24 * 3600_000;
+function isRecentDraft(agent: { updatedAt?: string }, now: number): boolean {
+  const at = agent.updatedAt ? Date.parse(agent.updatedAt) : NaN;
+  return !Number.isFinite(at) || now - at < RECENT_DRAFT_MS;
+}
+
 export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
   const now = q.now ?? Date.now();
   const items: Item[] = [];
-  const agents = src.agents.listAgents().filter((a) => a.status !== 'archived');
+  // sua's own agents are never your problems.
+  const agents = src.agents.listAgents().filter((a) => a.status !== 'archived' && !SYSTEM_AGENT_IDS.has(a.id));
 
   // Threads still open, newest first. Ones that mirror a question or an agent's
   // failure / outcome are folded into those items below.
@@ -94,20 +102,29 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
 
   // Per agent: failing, missed outcome, draft.
   const agentItemFor = new Set<string>();
+  // Each agent's latest finished run: a failure conversation whose agent has since run fine is over.
+  const latestOk = new Set<string>();
   for (const agent of agents) {
     const runs = src.runs.listRuns({ agentName: agent.id, limit: RUNS_PER_AGENT });
-    const failing = failingAgentItem(agent, runs, failureThreadFor.get(agent.id) ?? fixThreadFor.get(agent.id));
+    const lastFinished = runs.find((r) => r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled');
+    if (lastFinished?.status === 'completed') latestOk.add(agent.id);
+    const failing = failingAgentItem(agent, runs, failureThreadFor.get(agent.id) ?? fixThreadFor.get(agent.id), now);
     if (failing) { items.push(failing); agentItemFor.add(agent.id); }
     const latestOutcome = src.outcomes?.list({ agentId: agent.id, limit: 1 })[0];
     // A failed latest run already says it; only report a missed outcome on a run that finished.
     const outcome = failing ? undefined : outcomeItem(agent, latestOutcome, outcomeThreadFor.get(agent.id) ?? fixThreadFor.get(agent.id));
     if (outcome) { items.push(outcome); agentItemFor.add(agent.id); }
-    if (agent.status === 'draft') items.push(draftAgentItem(agent, runs[0]?.startedAt ?? new Date(now).toISOString()));
+    // A recent draft is waiting on you; an old one is shelved, not a to-do.
+    if (agent.status === 'draft' && isRecentDraft(agent, now)) items.push(draftAgentItem(agent, agent.updatedAt ?? runs[0]?.startedAt ?? new Date(now).toISOString()));
   }
 
   // Remaining threads that need you.
   for (const t of threads) {
     if (questionThreads.has(t.id)) continue;
+    // Conversations about sua's own agents aren't yours to handle here.
+    if (t.agentId && SYSTEM_AGENT_IDS.has(t.agentId)) continue;
+    // A failure (or "Fix …") conversation whose agent has since run fine is over: it's in Open if you want it.
+    if (t.agentId && latestOk.has(t.agentId) && (t.source === 'run-failure' || isFixThread(t))) continue;
     // An agent's failure / outcome / fix conversations are its problem item's conversation, not more items.
     if (t.agentId && agentItemFor.has(t.agentId) && (t.source === 'run-failure' || t.source === 'outcome' || isFixThread(t))) continue;
     const item = threadItem(t, src.inbox!.listResponses(t.id));

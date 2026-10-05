@@ -1466,6 +1466,12 @@ export const INBOX_MODAL_JS = `
     fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) {
         if (!r.ok) throw new Error('act ' + r.status);
+        // An action that settles the item (making a draft active): no more buttons to press.
+        if (pane && form.hasAttribute('data-item-resolves')) {
+          var acts = pane.querySelector('.item-pane__actions');
+          if (acts) acts.innerHTML = '';
+          pane.classList.add('is-done');
+        }
         if (status) {
           status.textContent = form.getAttribute('data-item-done') || 'Done.';
           // A run: link to it.

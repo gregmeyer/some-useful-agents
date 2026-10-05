@@ -52,12 +52,21 @@ describe('projections', () => {
   it('a failing agent counts failures in a row and gets urgent at 3', () => {
     const runs = [run('r4', 'running', '2026-10-03T05:00:00Z'), run('r3', 'failed', '2026-10-03T04:00:00Z', 'boom'),
       run('r2', 'failed', '2026-10-03T03:00:00Z'), run('r1', 'failed', '2026-10-03T02:00:00Z'), run('r0', 'completed', '2026-10-03T01:00:00Z')];
-    const item = failingAgentItem({ id: 'a', name: 'A' }, runs, 't9')!;
+    const NOW = Date.parse('2026-10-03T06:00:00Z');
+    const item = failingAgentItem({ id: 'a', name: 'A' }, runs, 't9', NOW)!;
     expect(item).toMatchObject({ id: 'agent:a:failing', kind: 'alert', urgency: 'high', value: 3, subject: { agentId: 'a', runId: 'r3', threadId: 't9' } });
     expect(item.summary).toBe('3 runs in a row failed: boom');
     expect(item.evidence.map((e) => e.id)).toEqual(['r3', 'r2', 'r1']);
     expect(item.actions.map((a) => a.type)).toEqual(['retry', 'reply', 'open']);
-    expect(failingAgentItem({ id: 'a', name: 'A' }, [run('r5', 'completed', 'x'), ...runs])).toBeUndefined();
+    expect(failingAgentItem({ id: 'a', name: 'A' }, [run('r5', 'completed', 'x'), ...runs], undefined, NOW)).toBeUndefined();
+    // A pattern, not a blip: one failed manual run is nothing; one failed scheduled run in the last 3 days is.
+    const once = (by: Run['triggeredBy'], at: string) => [{ ...run('x1', 'failed', at), triggeredBy: by }];
+    expect(failingAgentItem({ id: 'a', name: 'A' }, once('dashboard', '2026-10-03T05:00:00Z'), undefined, NOW)).toBeUndefined();
+    expect(failingAgentItem({ id: 'a', name: 'A' }, once('schedule', '2026-10-03T05:00:00Z'), undefined, NOW)).toMatchObject({ value: 1 });
+    // Stale: unscheduled, last failed over a week ago, is history; a scheduled one still counts.
+    const later = NOW + 8 * 24 * 3600_000;
+    expect(failingAgentItem({ id: 'a', name: 'A' }, runs, undefined, later)).toBeUndefined();
+    expect(failingAgentItem({ id: 'a', name: 'A', schedule: '0 8 * * *' }, runs, undefined, later)).toMatchObject({ value: 3 });
   });
 
   it('a missed outcome is an alert; a met one is nothing', () => {
@@ -156,7 +165,7 @@ describe('one problem, one item', () => {
     runs = new RunStore(join(dir, 'runs.db'));
     agents = new AgentStore(join(dir, 'runs.db'));
     agents.createAgent({ id: 'apod', name: 'APOD', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'x', dependsOn: [] }] }, 'cli');
-    runs.createRun({ id: 'r1', agentName: 'apod', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule' });
+    runs.createRun({ id: 'r1', agentName: 'apod', status: 'failed', startedAt: new Date(Date.now() - 3600_000).toISOString(), triggeredBy: 'schedule' });
     const src = itemSourcesFromHandle(runs.databaseHandle(), agents, runs);
     const fix = src.inbox!.add({ priority: 'medium', source: 'manual', agentId: 'apod', title: 'Fix APOD', body: '(empty)' });
     src.inbox!.updateStatus(fix.id, 'awaiting_user');
@@ -167,5 +176,33 @@ describe('one problem, one item', () => {
     expect(ids).not.toContain(`thread:${fix.id}`);
     expect(ids).toContain(`thread:${chat.id}`);
     expect(collectItems(src).find((i) => i.id === 'agent:apod:failing')!.subject.threadId).toBe(fix.id);
+  });
+});
+
+describe('Today shows only what needs you', () => {
+  let dir: string;
+  let agents: AgentStore;
+  let runs: RunStore;
+  afterEach(() => {
+    try { runs?.close(); } catch { /* ignore */ }
+    try { agents?.close(); } catch { /* ignore */ }
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('leaves out sua\'s own agents and drafts nobody has touched in two weeks', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-items-quiet-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    agents = new AgentStore(join(dir, 'runs.db'));
+    const node = [{ id: 'n', type: 'shell' as const, command: 'x', dependsOn: [] }];
+    agents.createAgent({ id: 'agent-analyzer', name: 'Agent Analyzer', status: 'active', source: 'examples', mcp: false, nodes: node }, 'cli');
+    agents.createAgent({ id: 'fresh', name: 'Fresh', status: 'draft', source: 'local', mcp: false, nodes: node }, 'cli');
+    agents.createAgent({ id: 'old', name: 'Old', status: 'draft', source: 'local', mcp: false, nodes: node }, 'cli');
+    runs.databaseHandle().prepare("UPDATE agents SET updated_at = '2026-01-01T00:00:00Z' WHERE id = 'old'").run();
+    const at = new Date(Date.now() - 3600_000).toISOString();
+    for (const id of ['a1', 'a2']) runs.createRun({ id, agentName: 'agent-analyzer', status: 'failed', startedAt: at, triggeredBy: 'dashboard' });
+    const ids = collectItems(itemSourcesFromHandle(runs.databaseHandle(), agents, runs)).map((i) => i.id);
+    expect(ids).toContain('agent:fresh:draft');
+    expect(ids).not.toContain('agent:old:draft');
+    expect(ids.some((id) => id.startsWith('agent:agent-analyzer'))).toBe(false);
   });
 });

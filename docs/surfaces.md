@@ -31,6 +31,14 @@ One fact is one item. A conversation that mirrors something else becomes that it
 
 Items are sorted most urgent first, then things waiting on you, then newest.
 
+**What counts as needing you.** Some things are left out of the index on purpose, so Today stays short:
+- **sua's own agents** (triage, the analyzer, the notebook keeper…) are never your problems.
+- **A failing agent** is an item only when it's a pattern: 2 or more failures in a row, or a scheduled run that failed in the last 3 days. One failed manual run doesn't count. An unscheduled agent whose last failure is over a week old is history, not news.
+- **Failure and "Fix …" conversations** whose agent has since run fine are over, and so are conversations about sua's own agents. They're still in Open.
+- **Drafts** are items only if they changed in the last two weeks. Older drafts are shelved, not to-dos.
+
+**Needs you** opens with a line saying what's in it, e.g. "2 agent problems · 3 waiting on your reply · 6 recent drafts to look at".
+
 ### Reading items
 
 - **Dashboard:** `GET /api/items`, which needs a signed-in session. Query parameters: `kind` (repeat it or separate with commas), `agent`, `ok=0` to leave out healthy context items, and `limit` (1–200). It returns `{ items, generatedAt }`.

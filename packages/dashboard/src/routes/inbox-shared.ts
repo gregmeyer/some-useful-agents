@@ -50,20 +50,7 @@ export function deriveTitleFromBody(body: string): string {
  * agent. Kept here (vs in the YAML) so the list stays in sync with the
  * allowlist as new sub-agents are added.
  */
-export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
-  'inbox-triage',
-  'inbox-learning-extractor',
-  'agent-analyzer',
-  'agent-editor',
-  'agent-settings',
-  'adjust-surface',
-  'arrange-board',
-  'notebook-add',
-  'notebook-pipeline',
-  'notebook-keeper',
-  'agent-catalog-search',
-  'agent-builder',
-]);
+export { SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
 
 /** The inbox-triage system agent id. Lives here (the leaf) because both the
  *  catalog and the engine reference it. */

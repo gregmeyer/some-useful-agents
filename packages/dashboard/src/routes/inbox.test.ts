@@ -2205,7 +2205,7 @@ describe('sua changes Home (adjust-surface)', () => {
     const ctx = currentCtx!;
     const node = [{ id: 'n', type: 'shell' as const, command: 'echo hi', dependsOn: [] }];
     agentStore.createAgent({ id: 'flaky', name: 'Flaky', status: 'active', source: 'local', mcp: false, nodes: node }, 'cli');
-    ctx.runStore.createRun({ id: 'fr1', agentName: 'flaky', status: 'failed', startedAt: '2026-10-03T01:00:00Z', triggeredBy: 'schedule', error: 'exit 1' });
+    ctx.runStore.createRun({ id: 'fr1', agentName: 'flaky', status: 'failed', startedAt: new Date(Date.now() - 3600_000).toISOString(), triggeredBy: 'schedule', error: 'exit 1' });
     const q = inboxStore.add({ priority: 'medium', source: 'manual', title: 'A question for you', body: 'x' });
     inboxStore.updateStatus(q.id, 'awaiting_user');
     const { parseProposedActions } = await import('./inbox-plan.js');

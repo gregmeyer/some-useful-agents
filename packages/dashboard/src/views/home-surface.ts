@@ -134,6 +134,22 @@ function hiddenList(today: HomeSurface): SafeHtml {
     </details>`;
 }
 
+/** "3 failing agents · 2 waiting on your reply · 6 drafts folded": why Needs you has what it has. */
+export function needsBreakdown(entries: readonly CompiledEntry[]): string {
+  const n = (pred: (e: CompiledEntry) => boolean) => entries.filter(pred).length;
+  const failing = n((e) => /:(failing|outcome)$/.test(e.item.id) || (e.item.id.startsWith('thread:') && e.item.kind === 'alert'));
+  const replies = n((e) => e.item.id.startsWith('thread:') && e.item.kind !== 'alert' || e.item.id.startsWith('question:'));
+  const drafts = n((e) => e.item.id.endsWith(':draft'));
+  const folded = n((e) => e.collapsed && !e.item.id.endsWith(':draft'));
+  const plural = (k: number, one: string, many: string) => `${String(k)} ${k === 1 ? one : many}`;
+  return [
+    failing ? plural(failing, 'agent problem', 'agent problems') : '',
+    replies ? plural(replies, 'waiting on your reply', 'waiting on your reply') : '',
+    drafts ? plural(drafts, 'recent draft to look at', 'recent drafts to look at') : '',
+    folded ? `${String(folded)} folded` : '',
+  ].filter(Boolean).join(' · ') || 'Nothing urgent';
+}
+
 /** The Today tab: Needs you and Happening now as rows, All good as quiet lines. */
 export function renderToday(today: HomeSurface, wide: boolean): SafeHtml {
   return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide)}${hiddenList(today)}</div>`;
@@ -148,6 +164,7 @@ function todayBody(today: HomeSurface, wide: boolean): SafeHtml {
     ${regions.filter((r) => r.id !== 'all-good').map((r) => html`
       <section class="panel-group" data-surface-region="${r.id}">
         <h3 class="panel-group__label">${r.title}</h3>
+        ${r.id === 'needs-you' ? html`<p class="panel-group__why">${needsBreakdown(r.entries)}</p>` : html``}
         <ul class="panel-group__rows" data-panel-group>${regionRows(r.entries, wide) as unknown as SafeHtml[]}</ul>
         ${r.more ? html`<p class="panel-home__morecount">${String(r.more)} more</p>` : html``}
       </section>`) as unknown as SafeHtml[]}
@@ -173,7 +190,7 @@ function actionControl(a: ItemAction, primary: boolean, item: Item): SafeHtml {
     case 'retry':
       return html`<form method="POST" action="/agents/${encodeURIComponent(a.agentId)}/run" data-item-act data-item-done="Started a run. Its result shows here and on the agent's page." class="item-pane__form"><button type="submit" class="${cls}">${a.label}</button></form>`;
     case 'activate':
-      return html`<form method="POST" action="/scheduled/${encodeURIComponent(a.agentId)}/activate" data-item-act data-item-done="It's active now." class="item-pane__form"><button type="submit" class="${cls}">${a.label}</button></form>`;
+      return html`<form method="POST" action="/scheduled/${encodeURIComponent(a.agentId)}/activate" data-item-act data-item-resolves data-item-done="It's active now, so it's off Today." class="item-pane__form"><button type="submit" class="${cls}">${a.label}</button></form>`;
     case 'reply':
       return html`<button type="button" class="${cls}" data-panel-thread-id="${a.threadId}">${a.label}</button>`;
     case 'answer':
