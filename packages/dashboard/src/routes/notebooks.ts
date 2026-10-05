@@ -244,6 +244,8 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   res.setHeader('X-Notebook-Entries', String(entries.length));
+  // Changes that don't add an entry (a move, a ruling) still redraw the page.
+  res.setHeader('X-Notebook-Changed', (s.get(nb.id) ?? nb).updatedAt);
   // The talk box follows the notebook: its next-step hint and ghost text.
   const step = nextStep(s.get(nb.id) ?? nb, entries);
   res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));

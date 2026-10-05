@@ -191,15 +191,253 @@ const Sparkline = define('Sparkline', 'sua-a2ui-sparkline',
 const Funnel = define('Funnel', 'sua-a2ui-funnel',
   Common.extend({ stages: CommonSchemas.DynamicValue }).strict(),
   css`
-    .stage { margin: 4px 0; }
-    .row { display: flex; justify-content: space-between; font-size: var(--font-size-xs); }
-    .bar { height: 8px; background: var(--color-primary); border-radius: 4px; opacity: .85; }
-    .val { font-family: var(--font-mono); color: var(--color-text-muted); }`,
+    .stage { margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; gap: 8px; font-size: var(--font-size-xs); }
+    .track { position: relative; height: 10px; border-radius: 5px; background: var(--color-surface-raised); overflow: hidden; }
+    .bar { height: 100%; background: var(--color-primary); border-radius: 5px; opacity: .85; }
+    .val { font-family: var(--font-mono); color: var(--color-text-muted); white-space: nowrap; }
+    .out { color: var(--color-warn); }`,
   (p) => {
-    const stages = (Array.isArray(p.stages) ? p.stages : []).map((s) => ({ label: String(s?.label ?? s?.name ?? ''), value: Number(s?.value ?? s?.count ?? 0) }));
+    // {label, value} or a notebook's funnel ({stage, reached, here, ruledOut, reasons}).
+    const stages = (Array.isArray(p.stages) ? p.stages : []).map((s) => ({
+      label: String(s?.label ?? s?.name ?? s?.stage ?? ''),
+      value: Number(s?.value ?? s?.count ?? s?.reached ?? 0),
+      out: Number(s?.ruledOut ?? s?.out ?? 0),
+      reasons: Array.isArray(s?.reasons) ? s.reasons.map((r) => `${r.reason} ×${r.count}`).join(', ') : '',
+    }));
     const max = Math.max(1, ...stages.map((s) => s.value));
-    return html`${stages.map((s) => html`<div class="stage"><div class="row"><span>${s.label}</span><span class="val">${s.value}</span></div>
-      <div class="bar" style="width: ${Math.max(2, (s.value / max) * 100)}%"></div></div>`)}`;
+    return html`${stages.map((s) => html`<div class="stage" title=${s.reasons ? `Ruled out here: ${s.reasons}` : nothing}>
+      <div class="row"><span>${s.label}</span><span class="val">${s.value}${s.out ? html` <span class="out">−${s.out}</span>` : nothing}</span></div>
+      <div class="track"><div class="bar" style="width: ${s.value ? Math.max(3, (s.value / max) * 100) : 0}%"></div></div></div>`)}`;
+  });
+
+// ── Notebook widgets: options as cards or a table, and two fields plotted ──
+// Values are formatted with the notebook's fields: money "$4,023", a unit
+// "149,652 mi", a range "$150,000–$180,000", a year as written.
+const getPath = (o, key) => String(key).split('.').reduce((v, k) => (v == null ? undefined : v[k]), o);
+const nfmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+function fmtField(f, v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') {
+    if (v.min === v.max) return fmtField(f, v.min);
+    const one = (n) => (f?.type === 'money' ? `$${nfmt(n)}` : nfmt(n));
+    return `${one(v.min)}–${one(v.max)}${f?.unit && f.type !== 'money' ? ` ${f.unit}` : ''}`;
+  }
+  if (typeof v === 'number') {
+    if (f?.type === 'money') return `$${nfmt(v)}`;
+    if (f?.type === 'number' && !f.unit && Number.isInteger(v) && v >= 1900 && v <= 2100) return String(v);
+    return f?.unit ? `${nfmt(v)} ${f.unit}` : nfmt(v);
+  }
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+const short = (n, money) => {
+  const a = Math.abs(n);
+  const s = a >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : a >= 1e3 ? `${+(n / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k` : `${+n.toFixed(1)}`;
+  return money ? `$${s}` : s;
+};
+const QUICK_REASONS = ['Not interested', 'Too expensive', 'No reply', 'Failed a check'];
+
+const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
+  Common.extend({
+    options: CommonSchemas.DynamicValue, fields: CommonSchemas.DynamicValue.optional(), stages: CommonSchemas.DynamicValue.optional(),
+    layout: z.enum(['grid', 'table']).optional(), sort: z.string().max(80).optional(), ruledOut: z.enum(['show', 'hide']).optional(),
+    actions: z.boolean().optional(), maxItems: z.number().int().min(1).max(100).optional(),
+  }).strict(),
+  css`
+    .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .bar .sp { flex: 1; }
+    .seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; }
+    .seg button { all: unset; cursor: pointer; padding: 3px 10px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .seg button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-bg); }
+    .seg button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+    .card { display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); overflow: hidden; background: var(--color-surface); min-width: 0; }
+    .card.best { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+    .card.out { opacity: .55; }
+    .pic { position: relative; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-raised)); display: grid; place-items: center; color: var(--color-text-subtle, var(--color-text-muted)); }
+    .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
+    .best .rank { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); }
+    .ribbon { position: absolute; top: 8px; right: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; background: var(--color-surface); color: var(--color-primary); border: 1px solid var(--color-primary); }
+    .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .title { font-weight: 600; font-size: var(--font-size-sm); line-height: 1.3; }
+    .out .title { text-decoration: line-through; }
+    .price { font: 700 1.35rem/1 var(--font-mono); color: var(--color-text); }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip { font: var(--font-size-xs)/1.6 var(--font-mono); padding: 0 6px; border-radius: 4px; background: var(--color-surface-raised); border: 1px solid var(--color-border); white-space: nowrap; }
+    .chip.stage { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; border-radius: 999px; }
+    .chip.better { color: var(--color-ok); border-color: var(--color-ok); } .chip.worse { color: var(--color-warn); border-color: var(--color-warn); }
+    .chip.gone { border-style: dashed; color: var(--color-text-muted); }
+    .why { font-size: var(--font-size-xs); color: var(--color-warn); }
+    .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; align-items: center; }
+    .btn { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
+    .btn:hover, .btn:focus-visible { border-color: var(--color-primary); }
+    .btn.ghost { border-color: transparent; color: var(--color-text-muted); }
+    a.btn { color: var(--color-primary); }
+    .menu { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; margin-top: 4px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface-raised); }
+    .menu input { flex: 1 1 140px; min-width: 0; font: inherit; font-size: var(--font-size-xs); padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface); color: var(--color-text); }
+    table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
+    th { text-align: left; font-weight: 500; font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+    td.num { font-family: var(--font-mono); white-space: nowrap; }
+    tr.out td { opacity: .55; } tr.best td { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+    .thumb { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; display: block; }
+    .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
+  function (p) {
+    const fields = Array.isArray(p.fields) ? p.fields : [];
+    const stages = Array.isArray(p.stages) ? p.stages.map(String) : [];
+    const byRole = (r) => fields.find((f) => f.role === r);
+    const priceF = byRole('price'); const measureF = byRole('measure');
+    const priceBetter = priceF?.better ?? 'lower';
+    let opts = (Array.isArray(p.options) ? p.options : []).filter((o) => o && (p.ruledOut !== 'hide' || !o.ruledOut));
+    // Sort: in the running first, then by the chosen field (price by default, the better way first).
+    const [skey, sdir] = String(p.sort ?? 'price').trim().split(/\s+/);
+    const sval = (o) => (skey === 'price' || skey === 'measure' ? o[skey] : getPath(o.fields ?? {}, skey));
+    const dir = sdir === 'desc' || (sdir === undefined && skey === 'price' && priceBetter === 'higher') ? -1 : 1;
+    opts = opts.map((o, i) => [o, i]).sort((a, b) => (Number(!!a[0].ruledOut) - Number(!!b[0].ruledOut))
+      || (sval(a[0]) == null) - (sval(b[0]) == null) || compare(sval(a[0]) ?? '', sval(b[0]) ?? '') * dir || a[1] - b[1]).map((x) => x[0]);
+    if (p.maxItems) opts = opts.slice(0, p.maxItems);
+    if (!opts.length) return html`<p class="empty">No options yet.</p>`;
+    // Grid or Table: your last choice, kept in this browser.
+    let saved; try { saved = localStorage.getItem('sua-option-layout') ?? undefined; } catch { saved = undefined; }
+    const layout = this._layout ?? (saved === 'grid' || saved === 'table' ? saved : undefined) ?? p.layout ?? 'grid';
+    const set = (k, v) => { this[k] = v; if (k === '_layout') { try { localStorage.setItem('sua-option-layout', v); } catch { /* not kept */ } } this.requestUpdate(); };
+    const act = (detail) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: detail } }));
+    const next = (o) => { const i = stages.indexOf(o.stage); return i >= 0 ? stages[i + 1] : undefined; };
+    const facts = (o) => fields.filter((f) => f.role !== 'price' && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image')
+      .map((f) => fmtField(f, o.fields?.[f.key])).filter(Boolean).slice(0, 5);
+    const change = (o) => {
+      const c = o.priceChange; if (!c || !priceF) return nothing;
+      const down = c.to < c.from; const good = down === (priceBetter === 'lower');
+      return html`<span class="chip ${good ? 'better' : 'worse'}" title="${fmtField(priceF, c.from)} → ${fmtField(priceF, c.to)}">${down ? '↓' : '↑'} ${fmtField(priceF, Math.abs(c.to - c.from))}</span>`;
+    };
+    const ruleMenu = (o) => (this._menu === o.id ? html`<div class="menu" role="group" aria-label="Why rule it out?">
+      ${QUICK_REASONS.map((r) => html`<button type="button" class="btn" @click=${() => { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: r }); }}>${r}</button>`)}
+      <input type="text" placeholder="or your words" aria-label="Reason" @keydown=${(e) => { if (e.key === 'Enter' && e.target.value.trim()) { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: e.target.value.trim() }); } }}>
+    </div>` : nothing);
+    const actions = (o) => html`<div class="acts">
+      ${safeUrl(o.link) ? html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">Listing ↗</a>` : nothing}
+      ${p.actions && !o.ruledOut && next(o) ? html`<button type="button" class="btn" @click=${() => act({ op: 'move', id: o.id, stage: next(o) })}>${next(o)} →</button>` : nothing}
+      ${p.actions && !o.ruledOut ? html`<button type="button" class="btn ghost" aria-expanded=${this._menu === o.id ? 'true' : 'false'} @click=${() => set('_menu', this._menu === o.id ? '' : o.id)}>Rule out…</button>` : nothing}
+      ${p.actions && o.ruledOut ? html`<button type="button" class="btn ghost" @click=${() => act({ op: 'reinstate', id: o.id })}>Bring back</button>` : nothing}
+    </div>${ruleMenu(o)}`;
+    const active = opts.filter((o) => !o.ruledOut);
+    const best = active[0];
+    const toggle = html`<div class="bar"><span>${active.length} in the running${opts.length > active.length ? ` · ${opts.length - active.length} ruled out` : ''}</span><span class="sp"></span>
+      <div class="seg" role="group" aria-label="Layout">
+        <button type="button" aria-pressed=${layout === 'grid' ? 'true' : 'false'} @click=${() => set('_layout', 'grid')}>Grid</button>
+        <button type="button" aria-pressed=${layout === 'table' ? 'true' : 'false'} @click=${() => set('_layout', 'table')}>Table</button>
+      </div></div>`;
+    if (layout === 'table') {
+      return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th><th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>Stage</th><th></th></tr></thead><tbody>
+        ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">
+          <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
+          <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
+          <td><div class="title">${o.title}</div>${o.ruledOut ? html`<div class="why">Ruled out: ${o.ruledOut.reason}</div>` : nothing}</td>
+          <td class="num">${priceF ? fmtField(priceF, o.fields?.[priceF.key]) : ''} ${change(o)}</td>
+          <td class="num">${measureF ? fmtField(measureF, o.fields?.[measureF.key]) : ''}</td>
+          <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
+          <td>${actions(o)}</td></tr>`)}</tbody></table>`;
+    }
+    return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''}">
+      <div class="pic">
+        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy">`
+          : html`<svg aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg>`}
+        <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
+        ${o === best ? html`<span class="ribbon">best ${priceBetter === 'higher' ? 'pay' : 'price'}</span>` : nothing}
+      </div>
+      <div class="body">
+        <div class="title">${o.title}</div>
+        ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
+        <div class="chips">${facts(o).map((f) => html`<span class="chip">${f}</span>`)}${change(o)}
+          ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span>` : nothing}</div>
+        <div class="chips">${o.stage && !o.ruledOut ? html`<span class="chip stage">${o.stage}</span>` : nothing}</div>
+        ${o.ruledOut ? html`<div class="why">Ruled out${o.ruledOut.stage ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>` : nothing}
+        ${actions(o)}
+      </div></article>`)}</div>`;
+  });
+
+// Drawn with DOM calls after render (the vendored lit has no svg tag); text
+// goes in with textContent, so a title is never markup.
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs = {}, text) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+const Scatter = define('Scatter', 'sua-a2ui-scatter',
+  Common.extend({
+    points: CommonSchemas.DynamicValue, x: z.string(), y: z.string(), label: z.string().optional(),
+    xLabel: Str.optional(), yLabel: Str.optional(), xFormat: z.enum(['number', 'money']).optional(), yFormat: z.enum(['number', 'money']).optional(),
+    xBand: CommonSchemas.DynamicValue.optional(), yBand: CommonSchemas.DynamicValue.optional(),
+    xBetter: z.enum(['higher', 'lower']).optional(), yBetter: z.enum(['higher', 'lower']).optional(),
+  }).strict(),
+  css`
+    .chart svg { display: block; width: 100%; height: auto; max-height: 320px; }
+    .axis { fill: var(--color-text-muted); font: 10px var(--font-mono); }
+    .gridline { stroke: var(--color-border); }
+    .band { fill: var(--color-primary); fill-opacity: .08; stroke: var(--color-primary); stroke-opacity: .45; stroke-dasharray: 4 3; }
+    .dot { fill: var(--accent-blue, #60a5fa); stroke: var(--color-surface); stroke-width: 1.5; }
+    .dot.best { fill: var(--color-primary); }
+    .dot.out { fill: none; stroke: var(--color-text-muted); stroke-dasharray: 2 2; }
+    .halo { fill: var(--color-primary); fill-opacity: .18; }
+    .lbl { fill: var(--color-text); font: 600 11px var(--font-sans, system-ui); }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 4px; }
+    .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
+  function (p) {
+    const n = (Array.isArray(p.points) ? p.points : []).filter((o) => Number.isFinite(Number(getPath(o, p.x))) && Number.isFinite(Number(getPath(o, p.y)))).length;
+    if (n === 0) return html`<p class="empty">Nothing to plot yet: options need ${p.xLabel ?? p.x} and ${p.yLabel ?? p.y}.</p>`;
+    const banded = (b) => b && typeof b.min === 'number';
+    return html`<div class="chart" role="img" aria-label="${p.yLabel ?? p.y} by ${p.xLabel ?? p.x} for ${n} options"></div>
+      <div class="legend"><span>● in the running</span><span>◌ ruled out</span>${banded(p.xBand) || banded(p.yBand) ? html`<span>▭ your limits</span>` : nothing}</div>`;
+  },
+  {
+    updated() {
+      const box = this.renderRoot.querySelector('.chart');
+      const p = this.controller?.props;
+      if (!box || !p) return;
+      const band = (b) => (b && typeof b.min === 'number' && typeof b.max === 'number' ? b : undefined);
+      const xb = band(p.xBand); const yb = band(p.yBand);
+      const pts = (Array.isArray(p.points) ? p.points : []).map((o) => ({ o, x: Number(getPath(o, p.x)), y: Number(getPath(o, p.y)) }))
+        .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
+      const W = 520, H = 260, L = 48, R = 14, T = 16, B = 30;
+      const xs = [...pts.map((d) => d.x), ...(xb ? [xb.min, xb.max] : [])];
+      const ys = [...pts.map((d) => d.y), ...(yb ? [yb.min, yb.max] : [])];
+      const pad = (lo, hi) => { const s = hi - lo || Math.abs(hi) || 1; return [lo - s * 0.1, hi + s * 0.1]; };
+      const [x0, x1] = pad(Math.min(...xs), Math.max(...xs)); const [y0, y1] = pad(Math.min(...ys), Math.max(...ys));
+      const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
+      const sy = (v) => H - B - ((v - y0) / (y1 - y0)) * (H - T - B);
+      const ticks = (lo, hi) => [0, 1, 2, 3].map((i) => lo + ((hi - lo) * (i + 0.5)) / 4);
+      const inside = (d) => (!xb || (d.x >= xb.min && d.x <= xb.max)) && (!yb || (d.y >= yb.min && d.y <= yb.max));
+      const ybetter = p.yBetter ?? 'lower';
+      const best = pts.filter((d) => !d.o?.ruledOut).sort((a, b) => (Number(inside(b)) - Number(inside(a))) || (ybetter === 'lower' ? a.y - b.y : b.y - a.y))[0];
+      const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true' });
+      for (const v of ticks(y0, y1)) {
+        svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: sy(v), y2: sy(v) }));
+        svg.append(svgEl('text', { class: 'axis', x: L - 6, y: sy(v) + 3, 'text-anchor': 'end' }, short(v, p.yFormat === 'money')));
+      }
+      for (const v of ticks(x0, x1)) svg.append(svgEl('text', { class: 'axis', x: sx(v), y: H - B + 14, 'text-anchor': 'middle' }, short(v, p.xFormat === 'money')));
+      if (xb || yb) {
+        const bx0 = sx(xb ? xb.min : x0); const bx1 = sx(xb ? xb.max : x1); const by0 = sy(yb ? yb.max : y1); const by1 = sy(yb ? yb.min : y0);
+        svg.append(svgEl('rect', { class: 'band', x: bx0, y: by0, width: bx1 - bx0, height: by1 - by0 }));
+      }
+      svg.append(svgEl('text', { class: 'axis', x: W - R, y: H - 4, 'text-anchor': 'end' }, `${p.xLabel ?? p.x} →`));
+      svg.append(svgEl('text', { class: 'axis', x: 4, y: T - 4 }, `${p.yLabel ?? p.y}`));
+      if (best) svg.append(svgEl('circle', { class: 'halo', cx: sx(best.x), cy: sy(best.y), r: 16 }));
+      for (const d of pts) {
+        const c = svgEl('circle', { class: `dot ${d.o?.ruledOut ? 'out' : d === best ? 'best' : ''}`, cx: sx(d.x), cy: sy(d.y), r: d === best ? 8 : 6 });
+        c.append(svgEl('title', {}, `${d.o?.title ?? ''}: ${short(d.y, p.yFormat === 'money')}, ${short(d.x, p.xFormat === 'money')}${d.o?.ruledOut ? ' (ruled out)' : ''}`));
+        svg.append(c);
+      }
+      if (best) {
+        const name = String(p.label ? getPath(best.o, p.label) ?? '' : best.o?.title ?? '').split(',')[0].slice(0, 30);
+        const tx = sx(best.x) > W / 2 ? sx(best.x) - 14 : sx(best.x) + 14;
+        svg.append(svgEl('text', { class: 'lbl', x: tx, y: sy(best.y) - 12, 'text-anchor': sx(best.x) > W / 2 ? 'end' : 'start' }, name));
+      }
+      box.replaceChildren(svg);
+    },
   });
 
 // The server resolves and sanitizes SanitizedHtml's html (core
@@ -429,7 +667,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

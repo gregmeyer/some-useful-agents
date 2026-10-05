@@ -363,6 +363,7 @@ export class NotebookStore {
   reinstate(notebookId: string, entryId: string): NotebookEntry {
     const e = this.mustGetOption(notebookId, entryId);
     this.db.prepare('UPDATE notebook_entries SET ruled_out_at = NULL, ruled_out_reason = NULL, ruled_out_by = NULL, ruled_out_stage = NULL WHERE id = ?').run(e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), notebookId);
     return this.mustGetOption(notebookId, entryId);
   }
 

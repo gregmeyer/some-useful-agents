@@ -114,6 +114,44 @@ const SUA_COMPONENTS = [
     schema: Common.extend({ stages: CS.DynamicValue }).strict(),
   },
   {
+    name: 'OptionGrid',
+    summary: 'Candidates as cards (photo, rank, price, facts, stage) or a table, with a Grid/Table switch; from an array of options shaped like a notebook\'s (title, fields, price, measure, place, link, image, stage, ruledOut). `fields` (the field list) formats the facts; `actions` adds Move / Rule out buttons that send `notebook-option` actions.',
+    example: { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: 'price' },
+    schema: Common.extend({
+      options: CS.DynamicValue,
+      fields: CS.DynamicValue.optional(),
+      stages: CS.DynamicValue.optional(),
+      layout: z.enum(['grid', 'table']).optional(),
+      /** A field key, or `price` / `measure`, optionally followed by ` desc`. */
+      sort: z.string().max(80).optional(),
+      /** Ruled-out options: hidden, or shown at the end (default). */
+      ruledOut: z.enum(['show', 'hide']).optional(),
+      actions: z.boolean().optional(),
+      maxItems: z.number().int().min(1).max(100).optional(),
+    }).strict(),
+  },
+  {
+    name: 'Scatter',
+    summary: 'Items as dots on two numeric axes, with optional shaded ranges (a budget, a mileage band) and the best one highlighted; from an array of objects.',
+    example: { id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', xLabel: 'Miles', yLabel: 'Price', yFormat: 'money', xBand: { path: '/notebook/bands/measure' }, yBand: { path: '/notebook/bands/price' } },
+    schema: Common.extend({
+      points: CS.DynamicValue,
+      /** Keys into each item (dotted for nested: `fields.year`). */
+      x: z.string().min(1).max(64),
+      y: z.string().min(1).max(64),
+      label: z.string().max(64).optional(),
+      xLabel: Str.optional(),
+      yLabel: Str.optional(),
+      xFormat: z.enum(['number', 'money']).optional(),
+      yFormat: z.enum(['number', 'money']).optional(),
+      /** {min, max} ranges to shade, and which way is better on each axis (for "best"). */
+      xBand: CS.DynamicValue.optional(),
+      yBand: CS.DynamicValue.optional(),
+      xBetter: z.enum(['higher', 'lower']).optional(),
+      yBetter: z.enum(['higher', 'lower']).optional(),
+    }).strict(),
+  },
+  {
     name: 'SanitizedHtml',
     summary: 'Agent-written HTML, passed through sua\'s allowlist sanitizer before display (no scripts).',
     example: { id: 'card', component: 'SanitizedHtml', html: { path: '/outputs/html' } },

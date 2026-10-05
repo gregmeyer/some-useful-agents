@@ -74,6 +74,18 @@ Options record their facts as data, not only as text, so they can be compared, s
   - `options`, each with its facts by key, `priceHistory` and `priceChange`, `missedSearches` and `notSeenLately`, plus `price`, `measure`, `place`, `org` and `link` picked out by role, `image` (the kept photo's address on your dashboard) and `imageSource` (where it came from) (a range's midpoint for `price` and `measure`), and `firstSeenAt` / `lastSeenAt`;
   - `notes`, `evidence`, `decisions` and `history`.
 
+## Widgets
+
+Once a notebook has fields and options, the top of its page is drawn as A2UI widgets (see [A2UI views](a2ui-views.md)), the same components for a car, a job or a product:
+
+- **A summary line:** how many options are in the running and ruled out, the best price (or pay), the furthest stage reached, and the next done-when.
+- **Stats:** in the running, best price, furthest along, ruled out.
+- **How far they got:** the funnel, per stage, with how many were ruled out there and why (hover).
+- **Where they sit:** price against the main measure (miles, sq ft, commute). Your limits are shaded, read from their text ("$3k-$5k budget", "135k-180k miles"). The best option in the running and inside your limits is highlighted; ruled-out options are hollow.
+- **Shortlist:** cards with the photo, rank, price, facts, stage, price move and "not seen lately", or a table (your Grid / Table choice is remembered in this browser). **Listing ↗**, **<next stage> →**, **Rule out…** (quick reasons or your words) and **Bring back** work right on the cards and redraw the widgets.
+
+Notes, evidence and decisions stay as cards below. A notebook without fields shows its options as cards too. The widgets bind to the notebook's data (`/notebook/...`, the same as `data.json`), so they can later be rearranged or placed on a board.
+
 ## Stages and ruling out: the funnel
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
