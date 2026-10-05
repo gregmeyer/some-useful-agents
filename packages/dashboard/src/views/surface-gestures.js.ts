@@ -59,7 +59,39 @@ export const SURFACE_GESTURES_JS = `
       }).catch(function () { toast(host, 'That didn\\u2019t work. Check your connection and try again.'); });
     }
 
+    // Dismiss: off Today until it changes (a conversation is dismissed as one).
+    var lastDismiss = null;
+    function dismiss(host, id, title) {
+      fetch('/items/' + encodeURIComponent(id) + '/dismiss', { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch', 'Accept': 'application/json' } })
+        .then(function (r) {
+          if (!r.ok) throw new Error(String(r.status));
+          lastDismiss = id;
+          refreshList();
+          var pane = document.querySelector('[data-item-pane][data-item-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+          if (pane) pane.innerHTML = '<p class="item-pane__gone">Dismissed. It comes back here if something new happens to it.</p>';
+          toast(host, 'Dismissed \u201c' + esc(title) + '\u201d. It comes back if something new happens. <button type="button" class="surface-toast__btn" data-item-undismiss>Undo</button>');
+        })
+        .catch(function () { toast(host, 'That didn\u2019t work. Try again.'); });
+    }
+
     document.addEventListener('click', function (e) {
+      var und = e.target.closest && e.target.closest('[data-item-undismiss]');
+      if (und) {
+        if (!lastDismiss) return;
+        var back = lastDismiss; lastDismiss = null;
+        fetch('/items/' + encodeURIComponent(back) + '/undismiss', { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+          .then(function () { refreshList(); toast(und, 'Undone.'); });
+        return;
+      }
+      var paneDismiss = e.target.closest && e.target.closest('[data-item-dismiss]');
+      if (paneDismiss) {
+        e.preventDefault();
+        var pane = paneDismiss.closest('[data-item-pane]');
+        if (!pane) return;
+        var t = pane.querySelector('.item-pane__title');
+        dismiss(pane, pane.getAttribute('data-item-id'), t ? t.textContent : 'it');
+        return;
+      }
       var opBtn = e.target.closest && e.target.closest('[data-surface-op]');
       if (opBtn) {
         e.preventDefault();
@@ -73,6 +105,7 @@ export const SURFACE_GESTURES_JS = `
         if (op === 'pin') send(li, [{ op: 'pin', itemId: id }], 'Pinned \\u201c' + title + '\\u201d to the top.', { itemId: id, gesture: 'pin' });
         else if (op === 'unpin') send(li, [{ op: 'unpin', itemId: id }], 'Unpinned \\u201c' + title + '\\u201d.');
         else if (op === 'hide') send(li, [{ op: 'hide', itemId: id }], 'Hid \\u201c' + title + '\\u201d from Home.', { itemId: id, gesture: 'hide' });
+        else if (op === 'dismiss') dismiss(li, id, title);
         else if (op === 'show') send(li, [{ op: 'show', itemId: id }], 'Showing \\u201c' + title + '\\u201d again.');
         else if (op === 'remove-rule') send(li, [{ op: 'removeRule', ruleId: opBtn.getAttribute('data-rule-id') }], 'Stopped the rule that hid \\u201c' + title + '\\u201d.');
         else if (op === 'up' || op === 'down') {

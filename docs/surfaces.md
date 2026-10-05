@@ -103,10 +103,11 @@ Home's defaults are version 0 of its surface: three regions, plus three rules ma
 
 ### Changing Today by hand
 
-Each row on Today has a **⋯** menu, which shows when you point at the row:
+Each row on Today has a **⋯** menu (faint until you point at the row):
 - **Pin to top** (and **Unpin**);
 - **Move up** and **Move down**;
-- **Hide from Home**.
+- **Dismiss**: off Today until something new happens to it (also a button in every item's pane, with Undo). A conversation is dismissed as a conversation. An agent problem stays dismissed through more failures of the same streak, and comes back when the agent recovers and fails again. Dismissing an agent's failure or "Fix …" conversation dismisses its problem too. A draft comes back when it's edited. Dismissals are kept in `item_dismissals` (`POST /items/<id>/dismiss`, `/undismiss`).
+- **Hide from Home**: off Home for good (a surface override, listed under "hidden from Home" with Show).
 
 You can also **drag** a row within its region. Each change is saved as your change to Home's surface (`POST /surfaces/home/ops`, actor `user`), so the reason under an item says "Pinned by you, Oct 4".
 

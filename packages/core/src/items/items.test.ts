@@ -17,6 +17,7 @@ import {
   threadAttention, threadItem, failingAgentItem, outcomeItem, boardBuildItem, schedulerItem,
 } from './projections.js';
 import { collectItems, itemSourcesFromHandle, sortItems } from './collect.js';
+import { ItemDismissals } from './dismissals.js';
 import type { Item } from './types.js';
 
 const msg = (over: Partial<InboxMessage> = {}): InboxMessage => ({
@@ -176,6 +177,69 @@ describe('one problem, one item', () => {
     expect(ids).not.toContain(`thread:${fix.id}`);
     expect(ids).toContain(`thread:${chat.id}`);
     expect(collectItems(src).find((i) => i.id === 'agent:apod:failing')!.subject.threadId).toBe(fix.id);
+  });
+});
+
+describe('dismissing from Today', () => {
+  let dir: string;
+  let runs: RunStore;
+  let agents: AgentStore;
+  afterEach(() => {
+    try { runs?.close(); } catch { /* ignore */ }
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps a dismissed agent problem off Today until a new streak of failures', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-items-dismiss-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    agents = new AgentStore(join(dir, 'runs.db'));
+    agents.createAgent({ id: 'apod', name: 'APOD', status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *', nodes: [{ id: 'n', type: 'shell', command: 'x', dependsOn: [] }] }, 'cli');
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    runs.createRun({ id: 'r1', agentName: 'apod', status: 'failed', startedAt: hourAgo, completedAt: hourAgo, triggeredBy: 'schedule' });
+    const db = runs.databaseHandle();
+    const ids = () => collectItems(itemSourcesFromHandle(db, agents, runs)).map((i) => i.id);
+    expect(ids()).toContain('agent:apod:failing');
+
+    ItemDismissals.fromHandle(db).dismiss('agent:apod:failing');
+    expect(ids()).not.toContain('agent:apod:failing');
+
+    // It fails again in the same streak: still dismissed (the same problem).
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+    runs.createRun({ id: 'r2', agentName: 'apod', status: 'failed', startedAt: at(1000), completedAt: at(1000), triggeredBy: 'schedule' });
+    expect(ids()).not.toContain('agent:apod:failing');
+    // It recovers, then fails again: a new problem, back on Today.
+    runs.createRun({ id: 'r3', agentName: 'apod', status: 'completed', startedAt: at(2000), completedAt: at(2000), triggeredBy: 'schedule' });
+    runs.createRun({ id: 'r4', agentName: 'apod', status: 'failed', startedAt: at(3000), completedAt: at(3000), triggeredBy: 'schedule' });
+    expect(ids()).toContain('agent:apod:failing');
+
+    // Undismiss works too (dismissed after the test's future-dated runs).
+    ItemDismissals.fromHandle(db).dismiss('agent:apod:failing', 'you', at(5000));
+    expect(ids()).not.toContain('agent:apod:failing');
+    expect(ItemDismissals.fromHandle(db).undismiss('agent:apod:failing')).toBe(true);
+    expect(ids()).toContain('agent:apod:failing');
+  });
+
+  it('dismissing a "Fix …" or failure conversation dismisses the agent problem it\'s part of', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-items-dismiss-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    agents = new AgentStore(join(dir, 'runs.db'));
+    agents.createAgent({ id: 'aqi', name: 'AQI', status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *', nodes: [{ id: 'n', type: 'shell', command: 'x', dependsOn: [] }] }, 'cli');
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    runs.createRun({ id: 'r1', agentName: 'aqi', status: 'failed', startedAt: hourAgo, completedAt: hourAgo, triggeredBy: 'schedule' });
+    const src = () => itemSourcesFromHandle(runs.databaseHandle(), agents, runs);
+    const fix = src().inbox!.add({ priority: 'medium', source: 'manual', agentId: 'aqi', title: 'Fix AQI', body: '(empty)' });
+    src().inbox!.updateStatus(fix.id, 'awaiting_user');
+    expect(collectItems(src()).map((i) => i.id)).toContain('agent:aqi:failing');
+
+    src().inbox!.updateStatus(fix.id, 'dismissed');
+    expect(collectItems(src()).map((i) => i.id)).not.toContain('agent:aqi:failing');
+
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+    runs.createRun({ id: 'r2', agentName: 'aqi', status: 'failed', startedAt: at(1000), completedAt: at(1000), triggeredBy: 'schedule' });
+    expect(collectItems(src()).map((i) => i.id)).not.toContain('agent:aqi:failing'); // same streak
+    runs.createRun({ id: 'r3', agentName: 'aqi', status: 'completed', startedAt: at(2000), completedAt: at(2000), triggeredBy: 'schedule' });
+    runs.createRun({ id: 'r4', agentName: 'aqi', status: 'failed', startedAt: at(3000), completedAt: at(3000), triggeredBy: 'schedule' });
+    expect(collectItems(src()).map((i) => i.id)).toContain('agent:aqi:failing'); // a new one
   });
 });
 

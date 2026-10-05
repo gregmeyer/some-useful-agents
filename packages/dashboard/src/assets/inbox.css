@@ -2995,7 +2995,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
   color: var(--color-text-subtle);
   list-style: none;
   cursor: pointer;
-  opacity: 0;
+  /* Visible without hovering (the drawer has no hover on touch), stronger on hover. */
+  opacity: 0.45;
   transition: opacity 120ms ease;
 }
 .panel-row__menu-btn::-webkit-details-marker { display: none; }

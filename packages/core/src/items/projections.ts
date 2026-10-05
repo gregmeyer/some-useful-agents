@@ -151,6 +151,7 @@ export function failingAgentItem(agent: Pick<Agent, 'id' | 'name'> & Partial<Pic
     evidence: finished.slice(0, streak).map((r) => runRef(r.id)),
     provenance: { source: 'runs', producedBy: `run:${latest.id}`, at: latest.completedAt ?? latest.startedAt },
     href: agentHref(agent.id),
+    since: (finished[streak - 1] ?? latest).completedAt ?? (finished[streak - 1] ?? latest).startedAt,
   };
 }
 

@@ -17,6 +17,7 @@ import {
 } from './projections.js';
 import { URGENCY_ORDER, type Item, type ItemKind } from './types.js';
 import { SYSTEM_AGENT_IDS } from './system-agents.js';
+import { ItemDismissals, stillDismissed } from './dismissals.js';
 
 export interface ItemSources {
   inbox?: InboxStore;
@@ -28,6 +29,8 @@ export interface ItemSources {
   runs: RunStore;
   /** Where the scheduler's heartbeat lives; no scheduler item without it. */
   dataDir?: string;
+  /** Items you dismissed (item id → when): off Today until they change. */
+  dismissals?: Map<string, string>;
 }
 
 /** Every source from one open database (what the dashboard and MCP server share). */
@@ -38,6 +41,7 @@ export function itemSourcesFromHandle(db: DatabaseSync, agents: AgentStore, runs
     outcomes: OutcomeStore.fromHandle(db),
     boardBuilds: new BoardBuildStore(db),
     notebooks: NotebookStore.fromHandle(db),
+    dismissals: ItemDismissals.fromHandle(db).all(),
     agents,
     runs,
     ...(dataDir ? { dataDir } : {}),
@@ -156,8 +160,20 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
     items.push(schedulerItem(status, scheduled, heartbeat?.lastHeartbeat ?? new Date(now).toISOString()));
   }
 
+  // Dismissing an agent's failure or "Fix …" conversation dismisses its problem
+  // too, as of then: a newer failure brings it back.
+  const agentDismissedAt = new Map<string, number>();
+  for (const t of src.inbox?.list({ statuses: ['dismissed'], limit: THREAD_SCAN }) ?? []) {
+    if (!t.agentId || !t.resolvedAt || !(t.source === 'run-failure' || t.source === 'outcome' || isFixThread(t))) continue;
+    agentDismissedAt.set(t.agentId, Math.max(agentDismissedAt.get(t.agentId) ?? 0, t.resolvedAt));
+  }
+  // A failing agent "changed" when a new streak began, not on each failure of the same one.
+  const dismissed = (i: Item) => stillDismissed(i.since ?? i.provenance.at, src.dismissals?.get(i.id))
+    || ((i.id.endsWith(':failing') || i.id.endsWith(':outcome')) && !!i.subject.agentId && stillDismissed(i.since ?? i.provenance.at, agentDismissedAt.get(i.subject.agentId)));
+
   return sortItems(items).filter((i) =>
-    (q.includeOk !== false || i.state !== 'ok')
+    !dismissed(i)
+    && (q.includeOk !== false || i.state !== 'ok')
     && (!q.kinds?.length || q.kinds.includes(i.kind))
     && (!q.agentId || i.subject.agentId === q.agentId),
   ).slice(0, q.limit ?? 200);

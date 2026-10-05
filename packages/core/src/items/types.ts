@@ -70,4 +70,10 @@ export interface Item {
   };
   /** Where to look at it in the dashboard. */
   href: string;
+  /**
+   * When this problem began, if that's earlier than `provenance.at` (the first
+   * failure of a streak). Dismissing holds until there's a new problem, not
+   * another round of the same one.
+   */
+  since?: string;
 }

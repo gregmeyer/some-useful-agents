@@ -56,6 +56,7 @@ function rowMenu(e: CompiledEntry): SafeHtml {
       <div class="inbox-modal__menu-panel panel-row__menu-list">
         ${e.pinned ? op('unpin', 'Unpin') : op('pin', 'Pin to top')}
         ${e.pinned ? html`` : html`${op('up', 'Move up')}${op('down', 'Move down')}`}
+        ${op('dismiss', 'Dismiss')}
         ${op('hide', 'Hide from Home')}
       </div>
     </details>`;
@@ -233,7 +234,7 @@ export function renderItemPane(entry: CompiledEntry | undefined, itemId: string)
             ? html`<a class="item-pane__chip mono" href="${ev.href}">${ev.kind} ${shortRef(ev.kind, ev.id)}</a>`
             : html`<span class="item-pane__chip mono">${ev.kind} ${shortRef(ev.kind, ev.id)}</span>`) as unknown as SafeHtml[]}</div>
         </div>` : html``}
-      <div class="item-pane__actions">${controls as unknown as SafeHtml[]}</div>
+      <div class="item-pane__actions">${controls as unknown as SafeHtml[]}<button type="button" class="btn btn--sm btn--ghost" data-item-dismiss title="Off Today until something new happens to it">Dismiss</button></div>
       <p class="item-pane__status" data-item-status role="status" aria-live="polite"></p>
       <section class="item-pane__why" aria-label="Why it's here">
         <span class="item-pane__label">Why it's here</span>
