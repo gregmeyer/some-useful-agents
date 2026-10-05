@@ -6,7 +6,8 @@
  * healthy context items, `limit` (1..200).
  */
 import { Router, type Request, type Response } from 'express';
-import { collectItems, itemSourcesFromHandle, ITEM_KINDS, type ItemKind } from '@some-useful-agents/core';
+import { collectItems, itemSourcesFromHandle, ItemDismissals, ITEM_KINDS, type ItemKind } from '@some-useful-agents/core';
+import { publishInboxChanged } from './inbox-shared.js';
 import { getContext } from '../context.js';
 import { readHomeSurface, findSurfaceEntry } from '../lib/home-surface.js';
 import { renderItemPane } from '../views/home-surface.js';
@@ -36,4 +37,39 @@ itemsRouter.get('/items/:id/fragment', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const entry = findSurfaceEntry(readHomeSurface(ctx), id) as CompiledEntry | undefined;
   res.type('html').send(render(renderItemPane(entry, id)));
+});
+
+/**
+ * POST /items/:id/dismiss: off Today until it changes. A conversation is
+ * dismissed as a conversation; anything else (an agent problem, a draft, a
+ * notebook) is remembered as dismissed, and comes back when something newer
+ * happens to it (a new failure, an edit).
+ */
+itemsRouter.post('/items/:id/dismiss', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  if (id.startsWith('thread:')) {
+    const threadId = id.slice('thread:'.length);
+    if (!ctx.inboxStore?.get(threadId)) { res.status(404).json({ error: 'That conversation is gone.' }); return; }
+    ctx.inboxStore.dismiss(threadId);
+    publishInboxChanged(ctx, threadId, 'dismissed');
+  } else {
+    ItemDismissals.fromHandle(ctx.runStore.databaseHandle()).dismiss(id, 'you');
+  }
+  res.json({ ok: true, itemId: id });
+});
+
+/** POST /items/:id/undismiss: the Undo for a dismiss. */
+itemsRouter.post('/items/:id/undismiss', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  if (id.startsWith('thread:')) {
+    const threadId = id.slice('thread:'.length);
+    if (!ctx.inboxStore?.get(threadId)) { res.status(404).json({ error: 'That conversation is gone.' }); return; }
+    ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
+    publishInboxChanged(ctx, threadId, 'awaiting_user');
+  } else {
+    ItemDismissals.fromHandle(ctx.runStore.databaseHandle()).undismiss(id);
+  }
+  res.json({ ok: true, itemId: id });
 });

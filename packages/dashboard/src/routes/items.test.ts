@@ -228,3 +228,23 @@ describe('why Needs you has what it has', () => {
     expect(needsBreakdown([])).toBe('Nothing urgent');
   });
 });
+
+describe('dismissing an item from Today', () => {
+  it('takes an agent problem off Today until a new streak, and Undo brings it back', async () => {
+    const app = await makeApp({ schedule: '0 8 * * *' });
+    const post = (path: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch');
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    runStore.createRun({ id: 'f1', agentName: 'sched-agent', status: 'failed', startedAt: hourAgo, completedAt: hourAgo, triggeredBy: 'schedule' });
+    const ids = async () => ((await get('/api/items')).body.items as Array<{ id: string }>).map((i) => i.id);
+    expect(await ids()).toContain('agent:sched-agent:failing');
+
+    const pane = await get('/items/agent%3Asched-agent%3Afailing/fragment');
+    expect(pane.text).toContain('data-item-dismiss');
+
+    expect((await post('/items/agent%3Asched-agent%3Afailing/dismiss')).body).toMatchObject({ ok: true });
+    expect(await ids()).not.toContain('agent:sched-agent:failing');
+    await post('/items/agent%3Asched-agent%3Afailing/undismiss');
+    expect(await ids()).toContain('agent:sched-agent:failing');
+  });
+});
