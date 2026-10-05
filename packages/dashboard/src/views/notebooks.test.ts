@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bodyWithLinks } from './notebooks.js';
+import { bodyWithLinks, formatFieldValue } from './notebooks.js';
 import { render } from './html.js';
 
 describe('notebook entry links', () => {
@@ -12,5 +12,17 @@ describe('notebook entry links', () => {
 
   it('links only http(s) addresses', () => {
     expect(render(bodyWithLinks('javascript:alert(1) and ftp://x'))).not.toContain('<a ');
+  });
+});
+
+describe('option facts as people read them', () => {
+  it('formats money, units, years and ranges', () => {
+    const money = { key: 'salary', label: 'Salary', type: 'money' as const, range: true };
+    const sqft = { key: 'size', label: 'Size', type: 'number' as const, unit: 'sq ft' };
+    expect(formatFieldValue(money, { min: 150000, max: 180000 })).toBe('$150,000–$180,000');
+    expect(formatFieldValue(money, { min: 175000, max: 175000 })).toBe('$175,000');
+    expect(formatFieldValue({ ...sqft, range: true }, { min: 650, max: 800 })).toBe('650–800 sq ft');
+    expect(formatFieldValue(sqft, 720)).toBe('720 sq ft');
+    expect(formatFieldValue({ key: 'year', label: 'Year', type: 'number' }, 2010)).toBe('2010');
   });
 });

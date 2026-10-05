@@ -92,11 +92,19 @@ nodes:
       If the notebook has no fields yet and this run found options, also
       return "fields": the 4–8 facts that matter for comparing them, each
       {"key": lowercase_snake, "label", "type": money|number|text|url|image|date,
-      "unit"?, "role"?}. Roles, at most one each: "price" (what it costs),
-      "measure" (the main number to compare: miles, sq ft, commute minutes),
-      "place", "link" (the listing), "image" (a photo of it), "when". For
-      cars: price, miles, year, make_model, location, seller, listing_url,
-      photo. If it was a search that found
+      "unit"?, "role"?, "better"?, "range"?}. Roles, at most one each:
+      "price" (what it costs, or pays), "measure" (the main number to
+      compare: miles, sq ft, commute minutes, rating), "place", "org" (the
+      company or seller), "link" (the listing), "image" (a photo or logo),
+      "when". For money and numbers, "better": "higher" or "lower" (a price
+      is better lower, a salary or a rating higher), and "range": true when
+      values come as a span ("$150k–$180k"); give a range's value as
+      {"min": 150000, "max": 180000}. For cars: price, miles, year,
+      make_model, location, seller, listing_url, photo. For jobs: salary
+      (money, price role, better higher, range), title, company (org),
+      location, remote, level, posted (when), posting_url. For products:
+      price, rating (measure, better higher), store (org), in_stock,
+      product_url, photo. If it was a search that found
       nothing that fits, add ONE note saying so, with where it looked
       ("Searched Craigslist Seattle for Foresters/RAV4s under $5k: nothing
       that fits yet"), so the notebook remembers it was tried. If the output

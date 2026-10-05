@@ -23,9 +23,10 @@ export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
 /**
  * What a field means across notebooks, so a widget can be reused: a shortlist
  * shows the `price` big, a map plots `price` against `measure`, a card shows
- * the `image`, a button opens the `link`.
+ * the `image`, a button opens the `link`, a list groups by `org` (the company
+ * or seller).
  */
-export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when'] as const;
+export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org'] as const;
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
 /** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
@@ -37,9 +38,27 @@ export interface NotebookField {
   /** For numbers: "mi", "sq ft". */
   unit?: string;
   role?: NotebookFieldRole;
+  /** For money and numbers: which way is better (a price is lower, a salary or a rating higher). */
+  better?: 'higher' | 'lower';
+  /** For money and numbers: values may be a range ("$150k–$180k"). */
+  range?: boolean;
 }
 
-export type NotebookFieldValue = string | number;
+/** A value given as a span: a salary band, a price "from … to …". */
+export interface NotebookRange { min: number; max: number }
+
+export type NotebookFieldValue = string | number | NotebookRange;
+
+export function isRange(v: unknown): v is NotebookRange {
+  return !!v && typeof v === 'object' && typeof (v as NotebookRange).min === 'number' && typeof (v as NotebookRange).max === 'number';
+}
+
+/** A number to sort or plot by: a range counts as its midpoint. */
+export function fieldNumber(v: NotebookFieldValue | undefined): number | undefined {
+  if (typeof v === 'number') return v;
+  if (isRange(v)) return (v.min + v.max) / 2;
+  return undefined;
+}
 
 export interface NotebookCriterion {
   text: string;
@@ -447,14 +466,35 @@ export function cleanFields(list: readonly unknown[]): NotebookField[] {
     if (role) roles.add(role);
     const label = typeof x.label === 'string' && x.label.trim() ? x.label.trim().slice(0, 40) : key.replace(/_/g, ' ');
     const unit = typeof x.unit === 'string' && x.unit.trim() ? x.unit.trim().slice(0, 12) : undefined;
-    out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}) });
+    const numeric = type === 'money' || type === 'number';
+    // A price is better lower unless the notebook says otherwise (a salary is a price that's better higher).
+    const better = numeric && (x.better === 'higher' || x.better === 'lower') ? x.better : numeric && role === 'price' ? 'lower' as const : undefined;
+    const range = numeric && x.range === true;
+    out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(range ? { range: true } : {}) });
     if (out.length === 12) break;
   }
   return out;
 }
 
+/** "$150k–$180k", "150,000 - 180,000", "150-180k" → { min, max }. */
+function toRange(v: unknown): NotebookRange | number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (isRange(v)) return v.min <= v.max ? { min: v.min, max: v.max } : { min: v.max, max: v.min };
+  if (Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n))) return toRange({ min: v[0], max: v[1] });
+  if (typeof v !== 'string') return undefined;
+  const parts = [...v.replace(/\s/g, '').matchAll(/(\d[\d,]*(?:\.\d+)?)(k)?/gi)].slice(0, 2);
+  if (parts.length === 0) return undefined;
+  const vals = parts.map((m) => ({ n: Number(m[1].replace(/,/g, '')), k: !!m[2] }));
+  // "150-180k": the k on the second number applies to a bare first one.
+  if (vals.length === 2 && vals[1].k && !vals[0].k && vals[0].n < 1000) vals[0].k = true;
+  const nums = vals.map((x) => (x.k ? x.n * 1000 : x.n));
+  if (nums.some((n) => !Number.isFinite(n))) return undefined;
+  return nums.length === 1 ? nums[0] : toRange({ min: nums[0], max: nums[1] });
+}
+
 /** "$4,023" → 4023, "149,652 mi" → 149652; anything else as trimmed text. */
-function toValue(v: unknown, type: NotebookFieldType): NotebookFieldValue | undefined {
+function toValue(v: unknown, type: NotebookFieldType, range = false): NotebookFieldValue | undefined {
+  if (range && (type === 'money' || type === 'number')) return toRange(v);
   if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
   if (typeof v !== 'string') return undefined;
   const s = v.trim();
@@ -475,7 +515,7 @@ export function cleanData(data: Record<string, unknown> | undefined, fields: rea
   const out: Record<string, NotebookFieldValue> = {};
   if (!data || typeof data !== 'object') return out;
   for (const f of fields) {
-    const v = toValue(data[f.key], f.type);
+    const v = toValue(data[f.key], f.type, f.range);
     if (v !== undefined) out[f.key] = v;
   }
   return out;
@@ -504,9 +544,11 @@ export interface NotebookViewOption {
   body: string;
   /** The option's facts by field key. */
   fields: Record<string, NotebookFieldValue>;
+  /** For sorting and plotting; a range counts as its midpoint (the span is in `fields`). */
   price?: number;
   measure?: number;
   place?: string;
+  org?: string;
   link?: string;
   image?: string;
   when?: string;
@@ -553,10 +595,10 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
   const view = (e: NotebookEntry): NotebookViewEntry => ({ id: e.id, kind: e.kind, title: e.title, body: e.body, by: e.by, ...(e.runId ? { runId: e.runId } : {}), at: e.createdAt });
   const options = entries.filter((e) => e.kind === 'option').map((e): NotebookViewOption => {
     const data = e.data ?? {};
-    const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
-    const price = num(pick(data, 'price'));
-    const measure = num(pick(data, 'measure'));
+    const price = fieldNumber(pick(data, 'price'));
+    const measure = fieldNumber(pick(data, 'measure'));
+    const org = str(pick(data, 'org'));
     const place = str(pick(data, 'place'));
     const link = str(pick(data, 'link'));
     const image = str(pick(data, 'image'));
@@ -564,7 +606,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     return {
       id: e.id, title: e.title, body: e.body, fields: data,
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
-      ...(place ? { place } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}),
+      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
