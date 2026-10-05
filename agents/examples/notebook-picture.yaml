@@ -1,0 +1,74 @@
+# Notebook Picture — a picture for options that have no photo of their own
+# (notebooks, "representative pictures"). Route-dispatched only, by the
+# notebook (dashboard lib/notebook-pictures.ts); never proposed in triage.
+# Its <pictures> JSON is parsed with extractTaggedJson. Found images are
+# fetched with core's guarded fetchImage; SVG is rebuilt by sanitizeSvg.
+
+id: notebook-picture
+name: Notebook Picture
+description: >
+  Finds a representative picture for notebook options that have no photo
+  (a press photo of the car model, the product's image, the company's logo),
+  or draws a simple SVG illustration when nothing suitable turns up.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: What the notebook is for, in a line.
+  OPTIONS:
+    type: string
+    required: true
+    description: >
+      The options as JSON: [{"id", "name", "facts"}], where facts are its key
+      facts (year, make and model, company, product).
+
+nodes:
+  - id: pictures
+    type: llm-prompt
+    allowedTools: [WebSearch, WebFetch]
+    maxTurns: 14
+    timeout: 240
+    outputContract:
+      mustMatch: '<pictures>[\s\S]*?</pictures>'
+      description: a <pictures> JSON block
+    prompt: |
+      A notebook is tracking these options, and they have no photo of their
+      own. Give each one a REPRESENTATIVE picture: not of the exact item, but
+      of what it is, so someone scanning a list recognizes it at a glance.
+
+      The notebook: {{inputs.NOTEBOOK}}
+
+      The options:
+      {{inputs.OPTIONS}}
+
+      For each option, in this order:
+      1. Find a direct image file (https, ending in .jpg, .jpeg, .png, .webp
+         or .gif, or an upload.wikimedia.org file) that shows:
+         - a car: that make, model and generation (Wikimedia Commons press
+           or museum photos are ideal);
+         - a product: that product (the maker's or a store's product image);
+         - a job: the company's logo (its site, or Wikimedia Commons);
+         - anything else: the thing itself.
+         Use WebSearch and WebFetch. Never an .svg address, never a page
+         instead of the image file, never a photo of a different model or
+         company. Spend at most a few searches per option.
+      2. ALWAYS also draw an SVG illustration (used if the image can't be
+         fetched, so every option ends up with a picture): a simple,
+         flat, recognizable drawing (a side view of that body style in a
+         plausible color, a product silhouette, or the company's initials in
+         a rounded square). viewBox "0 0 320 240", only svg, g, path, rect,
+         circle, ellipse, line, polyline, polygon, text, defs, linearGradient,
+         stop. No scripts, no styles, no links, no images, no external
+         references. At most one short text label. Under 6 KB.
+
+      Reply with only this, as valid JSON, one item per option ("url" when
+      you found one, "svg" always):
+      <pictures>
+      {"items": [
+        {"id": "<option id>", "url": "https://…/file.jpg", "svg": "<svg viewBox=\"0 0 320 240\">…</svg>", "what": "Wikimedia photo of a 2010 Toyota RAV4"},
+        {"id": "<option id>", "svg": "<svg viewBox=\"0 0 320 240\">…</svg>", "what": "illustration of a 2009 Subaru Forester"}
+      ]}
+      </pictures>

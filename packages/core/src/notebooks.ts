@@ -29,6 +29,9 @@ export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
 export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org'] as const;
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
+/** Where a kept picture came from: the listing, a representative one found for it, or a drawing. */
+export type NotebookPhotoKind = 'listing' | 'representative' | 'illustration';
+
 /** One site or source a search reached, and what it got there. */
 export interface NotebookSearchSource {
   name: string;
@@ -256,6 +259,7 @@ export class NotebookStore {
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'],
+      ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -383,10 +387,31 @@ export class NotebookStore {
     return Number(r.n);
   }
 
-  /** An option's kept photo, if there is one. */
-  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string } | undefined {
+  /** An option's kept picture, if there is one: its own photo, a representative one, or an illustration. */
+  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string } | undefined {
     const r = this.db.prepare('SELECT * FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as Record<string, unknown> | undefined;
-    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url) } : undefined;
+    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}) } : undefined;
+  }
+
+  /** What kind of picture an option has, if any. */
+  photoKind(entryId: string): NotebookPhotoKind | undefined {
+    const r = this.db.prepare('SELECT kind FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as { kind?: string } | undefined;
+    return r ? (String(r.kind ?? 'listing') as NotebookPhotoKind) : undefined;
+  }
+
+  /** Options with no picture that haven't had a representative one tried (not ruled out). */
+  pictureCandidates(notebookId: string, limit = 8): NotebookEntry[] {
+    const rows = this.db.prepare(`SELECT e.* FROM notebook_entries e LEFT JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
+      WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL AND e.picture_tried_at IS NULL AND p.entry_id IS NULL
+      ORDER BY e.created_at DESC LIMIT ?`).all(notebookId, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.toEntry(r));
+  }
+
+  /** Note that a representative picture was tried for these options. */
+  markPictureTried(entryIds: readonly string[]): void {
+    const now = new Date().toISOString();
+    const st = this.db.prepare('UPDATE notebook_entries SET picture_tried_at = ? WHERE id = ?');
+    for (const id of entryIds) st.run(now, id);
   }
 
   hasPhoto(entryId: string): boolean {
@@ -394,11 +419,11 @@ export class NotebookStore {
   }
 
   /** Keep a photo (or remember that this address didn't give one, so it isn't tried again). */
-  savePhoto(notebookId: string, entryId: string, sourceUrl: string, result: { contentType: string; bytes: Uint8Array } | { error: string }): void {
+  savePhoto(notebookId: string, entryId: string, sourceUrl: string, result: { contentType: string; bytes: Uint8Array } | { error: string }, opts: { kind?: NotebookPhotoKind; what?: string } = {}): void {
     const ok = 'bytes' in result;
-    this.db.prepare(`INSERT INTO notebook_photos (entry_id, notebook_id, source_url, content_type, bytes, fetched_at, error) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(entry_id) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, fetched_at = excluded.fetched_at, error = excluded.error`)
-      .run(entryId, notebookId, sourceUrl, ok ? result.contentType : null, ok ? result.bytes : null, new Date().toISOString(), ok ? null : result.error.slice(0, 200));
+    this.db.prepare(`INSERT INTO notebook_photos (entry_id, notebook_id, source_url, content_type, bytes, fetched_at, error, kind, what) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(entry_id) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, fetched_at = excluded.fetched_at, error = excluded.error, kind = excluded.kind, what = excluded.what`)
+      .run(entryId, notebookId, sourceUrl, ok ? result.contentType : null, ok ? result.bytes : null, new Date().toISOString(), ok ? null : result.error.slice(0, 200), opts.kind ?? 'listing', opts.what?.slice(0, 160) ?? null);
   }
 
   /**
@@ -444,6 +469,11 @@ export class NotebookStore {
     const row = this.db.prepare("SELECT * FROM notebook_entries WHERE id = ? AND notebook_id = ? AND kind = 'option'").get(entryId, notebookId) as Record<string, unknown> | undefined;
     if (!row) throw new Error('No such option in this notebook.');
     return this.toEntry(row);
+  }
+
+  /** Mark the notebook changed (so an open page redraws). */
+  touch(id: string): void {
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
 
   /** Note that setup ran (or was tried) for this notebook. */
@@ -903,6 +933,8 @@ export interface NotebookViewOption {
   lastSeenAt: string;
   /** The seller's photo address, when the kept copy (`image`) came from one. */
   imageSource?: string;
+  /** What the picture is: the listing's own photo, a representative one, or an illustration. */
+  imageKind?: NotebookPhotoKind;
   /** The price over time (oldest first), and how it moved since first seen. */
   priceHistory: Array<{ at: string; value: number }>;
   priceChange?: { from: number; to: number; since: string };
@@ -967,6 +999,7 @@ export interface NotebookViewHistory {
   sightings(entryId: string): Array<{ at: string; data: Record<string, NotebookFieldValue> }>;
   missedSearches(notebookId: string, e: NotebookEntry): number;
   hasPhoto?(entryId: string): boolean;
+  photoKind?(entryId: string): NotebookPhotoKind | undefined;
 }
 
 /** Where the dashboard serves an option's kept photo. */
@@ -992,11 +1025,12 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     // The kept copy when there is one; never the seller's address directly.
     const imageSource = str(pick(data, 'image'));
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
+    const imageKind = image ? history?.photoKind?.(e.id) : undefined;
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
-      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageSource ? { imageSource } : {}),
+      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
