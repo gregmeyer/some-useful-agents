@@ -244,7 +244,7 @@ export function renderItemPane(entry: CompiledEntry | undefined, itemId: string)
 
 /** "· arranged by the defaults" / "· arranged by your rules, v3". The client keeps it current. */
 export function arrangedBy(version: number): string {
-  return version === 0 ? '· arranged by the defaults' : `· arranged by your rules, v${String(version)}`;
+  return version === 0 ? 'Arranged by the defaults' : `Arranged by your rules, v${String(version)}`;
 }
 
 /** Home's history, newest first: who changed what and why, with the way back. */
@@ -275,16 +275,30 @@ export function renderSurfaceHistory(versions: Array<{ version: number; who: str
     </ol>`;
 }
 
-/** The goal line over Home's list. */
+/** Home's goal, as a quiet subtitle under the title. */
 export function renderHomeGoal(today: HomeSurface): SafeHtml {
+  return html`<p class="home-head__goal">${today.goal}</p>`;
+}
+
+/** Adjust Home ▾: ask sua to change it, how it's arranged, and what changed (with Undo). */
+export function renderHomeAdjust(today: HomeSurface): SafeHtml {
   return html`
-    <p class="home-goal"><span class="home-goal__label">Goal:</span> ${today.goal}${unsafeHtml(' ')}<span class="home-goal__by" data-surface-by>${arrangedBy(today.version)}</span>
-      <button type="button" class="home-goal__history" data-surface-history aria-expanded="false">What changed</button></p>
-    <div class="home-history" data-surface-history-panel hidden></div>
-    <form method="POST" action="/surfaces/home/ask" class="home-change" data-ask-fix>
-      <label class="home-change__label" for="home-change-text">Ask sua to change Home</label>
-      <input type="text" id="home-change-text" name="text" class="home-change__input" required autocomplete="off"
-        placeholder="e.g. put failing agents first, hide the drafts, pin the tires thread">
-      <button type="submit" class="btn btn--sm">Ask sua</button>
-    </form>`;
+    <details class="home-adjust">
+      <summary class="btn btn--sm home-adjust__btn">Adjust Home</summary>
+      <div class="home-adjust__panel">
+        <form method="POST" action="/surfaces/home/ask" class="home-change" data-ask-fix>
+          <label class="home-change__label" for="home-change-text">Ask sua to change what Home shows</label>
+          <div class="home-change__row">
+            <input type="text" id="home-change-text" name="text" class="home-change__input" required autocomplete="off"
+              placeholder="e.g. put failing agents first, hide the drafts">
+            <button type="submit" class="btn btn--sm btn--primary">Ask sua</button>
+          </div>
+        </form>
+        <div class="home-adjust__meta">
+          <span class="home-goal__by" data-surface-by>${arrangedBy(today.version)}</span>
+          <button type="button" class="home-goal__history" data-surface-history aria-expanded="false">What changed</button>
+        </div>
+        <div class="home-history" data-surface-history-panel hidden></div>
+      </div>
+    </details>`;
 }

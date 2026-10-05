@@ -192,13 +192,14 @@ function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false):
     </form>`;
 }
 
-function sideForms(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }): SafeHtml {
   const hasEntries = entries.length > 0;
   const id = encodeURIComponent(nb.id);
   return html`
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
+        ${lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
       </section>` : html``}
@@ -229,14 +230,14 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
     </details>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; stages: PipelineStage[]; running?: { step: number; of: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[]; compiled: CompiledSurface; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${hero(args.nb, args.stages, args.running)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}">${surfaceColumn(args.nb, args.compiled, args.entries)}</div>
-      <aside class="nb-body__side">${sideForms(args.nb, args.entries)}</aside>
+      <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord)}</aside>
     </div>
   `));
 }
@@ -284,5 +285,5 @@ export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; ent
 
 /** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */
 export function renderHomeNotebooksLine(active: number, total: number): SafeHtml {
-  return html`<p class="home-notebooks">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} active notebook${active === 1 ? '' : 's'}`}</a><span aria-hidden="true">·</span><a href="/notebooks?new=1">New notebook</a><span class="home-notebooks__hint">a goal you keep over time</span></p>`;
+  return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks?new=1" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
 }
