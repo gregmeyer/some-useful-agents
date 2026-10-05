@@ -85,8 +85,8 @@ Once a notebook has fields and options, its page is drawn as A2UI widgets (see [
 - **Stats:** in the running, best price (or pay), furthest along, ruled out.
 - **Where they sit:** price against the main measure (miles, sq ft, commute). Your limits are shaded, the best lead in the running is highlighted, and ruled-out options are hollow. **How far they got** shows the funnel per stage, with ruled-out counts (hover for why).
 - **Shortlist:** cards (photo or "No photo yet", rank, a short name, price, facts, stage, price move) or a table. Ruled-out options are **hidden by default**; **Show ruled out (N)** brings them back, and your choice is remembered in this browser. Each card has **Listing ↗**, **<next stage> →** and **Rule out…**, whose first choice is **No longer available** (sold, filled, out of stock), followed by quick reasons or your own words. "Not seen lately" cards also offer **Mark gone**.
-- **Before you decide:** a checklist for the top two (the notebook's checks, e.g. Still listed, Clean title). Tick boxes right there.
-- **How we got here:** a timeline of searches (with which sites they reached), notes, decisions, moves and rulings, newest first.
+- **Before you decide** (a third of the row): a checklist for the top two (the notebook's checks, e.g. Still listed, Clean title). Tick boxes right there.
+- **How we got here** (two thirds): a timeline of searches (with which sites they reached), notes, decisions, moves and rulings, newest first.
 - **Where sua looked:** the latest search's sites: how many it found on each, and which were blocked or skipped. **Limits:** your limits, with ones that disagree (two different budgets, two mileage ranges) flagged.
 
 A notebook without fields shows cards instead. The widgets bind to the notebook's data (`/notebook/...`, the same as `data.json`), so they can be rearranged or placed on a board later.
