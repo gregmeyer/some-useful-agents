@@ -32,6 +32,8 @@
  */
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
+import { notebookCardForThread } from '../lib/notebook-card.js';
+import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksLine } from '../views/notebooks.js';
@@ -46,6 +48,7 @@ import {
   type AutonomyMode,
   type AgentTrustLevel,
   NotebookStore,
+  type InboxMessage,
   isFixThread,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -237,6 +240,11 @@ inboxRouter.get('/panel/list', (req: Request, res: Response) => {
   res.type('html').send(render(req.query.rows === '1' ? renderPanelRows(list.rows, list.wide) : renderPanelList(list)));
 });
 
+/** The notebook a thread is about, as a card; undefined for other threads or on any error. */
+function threadNotebook(ctx: ReturnType<typeof getContext>, message: InboxMessage): NotebookCard | undefined {
+  try { return notebookCardForThread(NotebookStore.fromHandle(ctx.runStore.databaseHandle()), message); } catch { return undefined; }
+}
+
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -257,6 +265,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   res.type('html').send(render(renderInboxDetailFragment({
     message,
     responses,
+    notebook: threadNotebook(ctx, message),
     question: questionForMessage(ctx, message),
     triagePending,
     currentTargetYaml,

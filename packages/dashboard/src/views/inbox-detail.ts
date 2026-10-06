@@ -1,4 +1,5 @@
 import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
+import type { NotebookCard } from './notebooks.js';
 import type { HumanQuestion } from '@some-useful-agents/core';
 import {
   renderMarkdownSafe,
@@ -31,6 +32,8 @@ import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 export interface InboxDetailOptions {
   message: InboxMessage;
   responses: InboxResponse[];
+  /** The notebook this conversation is about, shown as a card under the title. */
+  notebook?: NotebookCard;
   /** For a `question` item: the question a run is waiting on (core human-questions.ts). */
   question?: HumanQuestion;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
@@ -446,6 +449,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
           </div>
         </header>
         ${headerMeta}
+        ${opts.notebook ? renderThreadNotebook(opts.notebook) : html``}
         ${flashBlock}
         ${bodyBlock}
         ${approvalBlock}
@@ -459,6 +463,28 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
       ${opts.question ? renderQuestionPanel(message.id, opts.question) : composer}
     </div>
   `;
+}
+
+/** A notebook's conversation: the notebook as a card that opens it. */
+function renderThreadNotebook(c: NotebookCard): SafeHtml {
+  const { nb } = c;
+  const facts = [
+    c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
+    c.options ? `${String(c.active)} in the running` : '',
+    c.done ?? '',
+  ].filter(Boolean).join(' · ');
+  return html`<div class="ib-notebook-wrap">
+    <a class="ib-notebook" href="/notebooks/${encodeURIComponent(nb.id)}" data-thread-notebook="${nb.id}">
+      ${c.cover
+        ? html`<img class="ib-notebook__cover${c.coverKind === 'illustration' ? ' is-drawn' : ''}" src="${c.cover}" alt="" loading="lazy">`
+        : html`<span class="ib-notebook__cover ib-notebook__cover--none" aria-hidden="true"></span>`}
+      <span class="ib-notebook__body">
+        <span class="ib-notebook__kicker">Notebook</span>
+        <span class="ib-notebook__title">${nb.title}</span>
+        <span class="ib-notebook__facts">${facts}${c.best ? html` · best <strong>${c.best}</strong>${c.bestName ? html` ${c.bestName}` : html``}` : html``}</span>
+      </span>
+      <span class="ib-notebook__open">Open notebook →</span>
+    </a></div>`;
 }
 
 /**
