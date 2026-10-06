@@ -241,12 +241,21 @@ See [Tools](tools.md) for the built-in list and [MCP servers](mcp.md) for import
     NODE_ENV: production
   secrets: [API_KEY]          # per-node secret pass-through
   timeout: 120                # seconds, default 300
+  optional: true              # if it fails, the run carries on (see below)
   workingDirectory: ./sub     # relative to project root
   onlyIf:                     # conditional edge from an upstream
     upstream: check
     field: matched
     equals: true
 ```
+
+**`optional: true`: a node whose failure doesn't stop the run.** By default the first failed node stops the run, and every later node is skipped. An optional node that fails or times out is recorded as failed, but the run carries on:
+- **Other nodes** still run.
+- **Nodes that depend on it** get a short note in place of its output, e.g. `(step "autotrader" didn't finish: Request timed out after 75s)`, so a merge step can say what was missing.
+- **The run** completes unless a required node fails.
+
+A cancellation or a budget limit still stops the run. Use it for independent sources (one site of a multi-site search). sua's builder marks each source node of a multi-source agent optional.
+
 
 See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
 

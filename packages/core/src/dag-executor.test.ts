@@ -2513,3 +2513,49 @@ describe('agent memory (memory: on)', () => {
     expect(runStore.getRun(run.id)?.recalledMemories).toBeUndefined();
   });
 });
+
+describe('executeAgentDag — optional nodes', () => {
+  const sweep = (optional: boolean): Agent => ({
+    id: 'sweep', name: 'Sweep', status: 'active', source: 'local', mcp: false, version: 1,
+    nodes: [
+      { id: 'autotrader', type: 'claude-code', prompt: 'search autotrader', ...(optional ? { optional: true } : {}) },
+      { id: 'cargurus', type: 'claude-code', prompt: 'search cargurus', ...(optional ? { optional: true } : {}) },
+      { id: 'merge', type: 'claude-code', prompt: 'Merge {{upstream.autotrader.result}} and {{upstream.cargurus.result}}', dependsOn: ['autotrader', 'cargurus'] },
+    ],
+  });
+  const spawner = () => cannedSpawner({
+    autotrader: { exitCode: 124, error: 'Request timed out after 75s', category: 'timeout' },
+    cargurus: { exitCode: 0, result: '2 listings' },
+    merge: { exitCode: 0, result: 'ranked' },
+  });
+
+  it('a failed optional node is recorded, its siblings and the merge still run, and the run completes', async () => {
+    const run = await executeAgentDag(sweep(true), { triggeredBy: 'cli' }, { runStore, spawnNode: spawner() });
+    expect(run.status).toBe('completed');
+    expect(run.result).toBe('ranked');
+    const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
+    expect(rows.autotrader).toMatchObject({ status: 'failed', errorCategory: 'timeout' });
+    expect(rows.cargurus.status).toBe('completed');
+    expect(rows.merge.status).toBe('completed');
+    // The merge saw a note for the failed source, and the other's output.
+    expect(JSON.parse(rows.merge.upstreamInputsJson!)).toEqual({
+      autotrader: '(step "autotrader" didn\'t finish: Request timed out after 75s)',
+      cargurus: '2 listings',
+    });
+  });
+
+  it('without optional, the first failure still stops the run (unchanged)', async () => {
+    const run = await executeAgentDag(sweep(false), { triggeredBy: 'cli' }, { runStore, spawnNode: spawner() });
+    expect(run.status).toBe('failed');
+    const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
+    expect(rows.cargurus).toMatchObject({ status: 'skipped', errorCategory: 'upstream_failed' });
+    expect(rows.merge.status).toBe('skipped');
+  });
+
+  it('round-trips through YAML', async () => {
+    const { exportAgent, parseAgent } = await import('./agent-yaml.js');
+    const parsed = parseAgent(exportAgent(sweep(true)));
+    expect(parsed.nodes.find((n) => n.id === 'autotrader')!.optional).toBe(true);
+    expect(parsed.nodes.find((n) => n.id === 'merge')!.optional).toBeUndefined();
+  });
+});
