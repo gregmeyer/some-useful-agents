@@ -538,3 +538,17 @@ describe("a notebook's conversation shows the notebook", () => {
     expect(res.text).not.toContain('ib-notebook');
   });
 });
+
+describe('a notebook page names its conversation', () => {
+  it('for the sua panel to open when you arrive with it open', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Bike' });
+    const page = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect((await page()).text).toContain('data-page-thread=""');
+    const thread = InboxStore.fromHandle(runStore.databaseHandle()).add({ priority: 'medium', source: 'manual', title: 'Notebook: Bike', body: '(empty)' });
+    store.setConversation(nb.id, thread.id);
+    expect((await page()).text).toContain(`data-page-thread="${thread.id}"`);
+  });
+});

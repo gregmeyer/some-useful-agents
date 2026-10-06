@@ -51,3 +51,11 @@ describe('the talk box catches up when the sua panel closes', () => {
     expect(NOTEBOOK_PAGE_JS).toContain("querySelector('.nb-talk')");
   });
 });
+
+describe('an open panel follows you to a notebook', () => {
+  it('a page names its conversation, and a restoring open panel opens it instead of the last thread', async () => {
+    const { INBOX_MODAL_JS } = await import('./inbox-modal.js.js');
+    expect(INBOX_MODAL_JS).toContain("document.querySelector('[data-page-thread]')");
+    expect(INBOX_MODAL_JS).toContain("if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own,");
+  });
+});
