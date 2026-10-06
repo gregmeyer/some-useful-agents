@@ -195,9 +195,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Timeline',
-    summary: 'Events newest first from an array of {at, title, body?, kind?, faded?, tag?, link?}.',
-    example: { id: 'tl', component: 'Timeline', events: { path: '/notebook/timeline' } },
-    schema: Common.extend({ events: CS.DynamicValue, maxItems: z.number().int().min(1).max(50).optional() }).strict(),
+    summary: 'Events newest first from an array of {at, title, body?, kind?, who?, faded?, tag?, link?}. `filters` adds chips by kind (searches, notes, decisions and rulings, moves); past `maxItems`, a Show all link.',
+    example: { id: 'tl', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+    schema: Common.extend({ events: CS.DynamicValue, maxItems: z.number().int().min(1).max(50).optional(), filters: z.boolean().optional() }).strict(),
   },
   {
     name: 'ChipList',

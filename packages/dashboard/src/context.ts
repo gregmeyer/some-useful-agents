@@ -255,6 +255,8 @@ export interface DashboardContext {
    * the keeper's output text). Production leaves it unset.
    */
   notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the picture agent instead of running it. */
+  notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
   /**

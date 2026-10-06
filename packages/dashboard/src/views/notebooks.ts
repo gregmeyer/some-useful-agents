@@ -341,6 +341,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
+        <p class="nb-talk__in-drawer">You're talking to sua in the panel. What you say there is filed here.</p>
         ${lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
@@ -432,21 +433,35 @@ export function renderNotebooksList(args: {
   const empty = q.q || q.status !== 'all'
     ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
     : html``;
+  const showNew = counts.all === 0 || !!args.openNew;
   return render(layout({ title: 'Notebooks', activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › Notebooks</p>
-    <div class="nb-list__head">
+    <header class="nbl-head">
       <div>
         <h1 class="nb-list__title">Notebooks</h1>
-        <p class="nb-list__sub">A goal you keep over time: what it's for, when it's done, what you've found, and what you decided.</p>
+        <p class="nb-list__sub">A goal you keep over time: what it's for, what you've found, how far each one got, and what you decided.</p>
       </div>
-    </div>
+      <details class="nbl-new" id="new"${showNew ? unsafeHtml(' open') : unsafeHtml('')}>
+        <summary class="btn btn--primary">+ New notebook</summary>
+        <form method="POST" action="/notebooks" class="nb-form nbl-new__form">
+          <label class="nb-label">Title<input type="text" name="title" required class="form-field" placeholder="Buy a used car"></label>
+          <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field" placeholder="Find a reliable used SUV for family trips, and decide by Oct 15."></textarea></label>
+          <label class="nb-label">Limits, one per line<textarea name="params" rows="3" class="form-field" placeholder="SUV, AWD&#10;under $26,000&#10;under 60k miles"></textarea></label>
+          <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field" placeholder="At least one car that fits&#10;Clean history on the top choice&#10;A decision recorded"></textarea></label>
+          <p class="nbl-new__hint">sua sets up what to track and says hello in the notebook's conversation.</p>
+          <button type="submit" class="btn btn--primary btn--sm">Start the notebook</button>
+        </form>
+      </details>
+    </header>
     ${counts.all ? html`
-      <form method="GET" action="/notebooks" class="nb-tools" role="search">
+      <form method="GET" action="/notebooks" class="nbl-tools" role="search">
         <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}</nav>
         ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
-        <label class="nb-tools__search"><span class="sr-only">Search notebooks</span><input type="search" name="q" value="${q.q}" placeholder="Search notebooks…" class="form-field" autocomplete="off"></label>
-        <label class="nb-tools__sort">Sort
-          <select name="sort" class="form-field" data-autosubmit>
+        <label class="nbl-tools__search"><span class="sr-only">Search notebooks</span>
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+          <input type="search" name="q" value="${q.q}" placeholder="Search notebooks" autocomplete="off"></label>
+        <label class="nbl-tools__sort"><span class="sr-only">Sort</span>
+          <select name="sort" data-autosubmit>
             <option value="updated"${q.sort === 'updated' ? unsafeHtml(' selected') : unsafeHtml('')}>Recently updated</option>
             <option value="created"${q.sort === 'created' ? unsafeHtml(' selected') : unsafeHtml('')}>Newest</option>
             <option value="title"${q.sort === 'title' ? unsafeHtml(' selected') : unsafeHtml('')}>A–Z</option>
@@ -454,36 +469,29 @@ export function renderNotebooksList(args: {
         </label>
         <noscript><button type="submit" class="btn btn--sm">Apply</button></noscript>
       </form>` : html``}
-    <div class="nb-list">
-      <details class="nb-card nb-card--new" id="new"${counts.all === 0 || args.openNew ? unsafeHtml(' open') : unsafeHtml('')}>
-        <summary class="nb-card__new">+ New notebook</summary>
-        <form method="POST" action="/notebooks" class="nb-form">
-          <label class="nb-label">Title<input type="text" name="title" required class="form-field" placeholder="Buy a used car"></label>
-          <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field" placeholder="Find a reliable used SUV for family trips, and decide by Oct 15."></textarea></label>
-          <label class="nb-label">Parameters, one per line<textarea name="params" rows="3" class="form-field" placeholder="SUV, AWD&#10;under $26,000&#10;under 60k miles"></textarea></label>
-          <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field" placeholder="At least one car that fits&#10;Clean history on the top choice&#10;A decision recorded"></textarea></label>
-          <button type="submit" class="btn btn--primary btn--sm">Start the notebook</button>
-        </form>
-      </details>
+    <div class="nbl-grid">
       ${args.notebooks.map((c) => {
         const { nb } = c;
         const facts = [
           c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
           c.options ? `${String(c.active)} in the running` : '',
-          c.best ? `best ${c.best}` : '',
           c.furthest ? `furthest: ${c.furthest}` : '',
-          c.done ?? '',
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean);
         return html`
-          <a class="nb-card nb-card--thumb" href="/notebooks/${encodeURIComponent(nb.id)}">
-            <span class="nb-card__cover">
-              ${c.cover ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">` : html`<span class="nb-card__cover-icon">${NOTEBOOK_ICON}</span>`}
+          <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
+            <span class="nbl-card__cover">
+              ${c.cover
+                ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">`
+                : coverArt(nb)}
+              ${c.done ? html`<span class="nbl-card__done">${c.done}</span>` : html``}
+              ${c.cover && c.coverKind && c.coverKind !== 'listing' ? html`<span class="nbl-card__kind">${c.coverKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}
             </span>
-            <span class="nb-card__text">
-              <span class="nb-card__title">${nb.title} <span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span></span>
-              <span class="nb-card__statement">${nb.decision ?? nb.statement}</span>
-              <span class="nb-card__facts">${facts}</span>
-              <span class="nb-card__meta">updated ${formatAge(nb.updatedAt)}${c.bestName ? html` · lead: ${c.bestName}` : html``}</span>
+            <span class="nbl-card__body">
+              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span><span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span></span>
+              <span class="nbl-card__statement">${nb.decision ?? nb.statement}</span>
+              ${c.best ? html`<span class="nbl-card__lead"><span class="nbl-card__price">${c.best}</span>${c.bestName ? html`<span class="nbl-card__leadname">${c.bestName}</span>` : html``}</span>` : html``}
+              <span class="nbl-card__facts">${facts.map((f) => html`<span class="nbl-chip">${f}</span>`) as unknown as SafeHtml[]}</span>
+              <span class="nbl-card__meta">updated ${formatAge(nb.updatedAt)}</span>
             </span>
           </a>`;
       }) as unknown as SafeHtml[]}
@@ -496,6 +504,48 @@ export function renderNotebooksList(args: {
         ${q.page < q.pages ? html`<a class="btn btn--sm" href="${href({ page: q.page + 1 })}" rel="next">Next ›</a>` : html`<span class="btn btn--sm is-disabled" aria-disabled="true">Next ›</span>`}
       </nav>` : html``}
   `));
+}
+
+/** What a notebook is about, from its words, for its cover's icon. */
+export function notebookKind(nb: Pick<Notebook, 'title' | 'statement'>): 'car' | 'job' | 'music' | 'bike' | 'laptop' | 'home' | 'travel' | 'notebook' {
+  const s = `${nb.title} ${nb.statement}`.toLowerCase();
+  if (/\b(car|suv|truck|vehicle|sedan|wagon|rav4|forester)\b/.test(s)) return 'car';
+  if (/\b(job|role|career|engineer|hire|hiring|position|offer letter)\b/.test(s)) return 'job';
+  if (/\b(guitar|piano|instrument|amp|music|synth)\b/.test(s)) return 'music';
+  if (/\b(bike|bicycle|cycling)\b/.test(s)) return 'bike';
+  if (/\b(laptop|computer|macbook|pc|monitor|phone)\b/.test(s)) return 'laptop';
+  if (/\b(house|home|apartment|flat|rent|condo)\b/.test(s)) return 'home';
+  if (/\b(trip|travel|flight|hotel|vacation)\b/.test(s)) return 'travel';
+  return 'notebook';
+}
+
+const KIND_ICON: Record<ReturnType<typeof notebookKind>, string> = {
+  car: '<path d="M10 44l5-14a6 6 0 0 1 5.6-4h22.8a6 6 0 0 1 5.6 4l5 14"/><path d="M8 44h48v8a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2H16v2a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2z"/><circle cx="18" cy="44" r="0.5"/><circle cx="46" cy="44" r="0.5"/><path d="M15 36h34"/>',
+  job: '<rect x="8" y="20" width="48" height="32" rx="4"/><path d="M24 20v-5a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v5"/><path d="M8 34h48"/><path d="M30 34v4h4v-4"/>',
+  music: '<path d="M26 46V14l24-5v32"/><circle cx="20" cy="46" r="6"/><circle cx="44" cy="41" r="6"/>',
+  bike: '<circle cx="16" cy="42" r="10"/><circle cx="48" cy="42" r="10"/><path d="M16 42l10-18h14l8 18M26 24l6 18h-16M40 24l-4-6h-6"/>',
+  laptop: '<rect x="12" y="14" width="40" height="26" rx="2"/><path d="M6 48h52l-4-8H10z"/>',
+  home: '<path d="M8 30L32 10l24 20"/><path d="M14 26v26h36V26"/><path d="M27 52V38h10v14"/>',
+  travel: '<path d="M6 36l52-20-14 36-10-14-14-2z"/><path d="M34 38l-6 10"/>',
+  notebook: '<rect x="14" y="8" width="36" height="48" rx="4"/><path d="M22 20h20M22 30h20M22 40h12"/>',
+};
+
+/** A notebook's own cover until its options have pictures: its colour, its kind, its stages. */
+export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stages'>): SafeHtml {
+  let h = 0;
+  for (const ch of nb.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const hue = (h + 170) % 360; // keep near the teal family, but each its own
+  const id = `nbc-${nb.id.replace(/[^a-z0-9-]/gi, '')}`;
+  const kind = notebookKind(nb);
+  const bars = nb.stages.slice(0, 5).map((_, i, a) => `<rect x="${String(16 + i * 22)}" y="${String(150 - (a.length - i) * 7)}" width="16" height="${String((a.length - i) * 7)}" rx="3" fill="#fff" fill-opacity="${(0.55 - i * 0.08).toFixed(2)}"/>`).join('');
+  return unsafeHtml(`<svg class="nbl-card__art" viewBox="0 0 320 160" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Notebook' : kind}">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${String(hue)} 55% 46%)"/><stop offset="1" stop-color="hsl(${String((hue + 40) % 360)} 60% 32%)"/></linearGradient></defs>
+    <rect width="320" height="160" fill="url(#${id})"/>
+    <circle cx="270" cy="20" r="70" fill="#fff" fill-opacity="0.08"/><circle cx="300" cy="140" r="46" fill="#fff" fill-opacity="0.06"/>
+    <path d="M0 120 C 60 96, 120 140, 190 112 S 290 86, 320 104" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="2"/>
+    ${bars}
+    <g transform="translate(218 38) scale(1.25)" fill="none" stroke="#fff" stroke-opacity="0.92" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${KIND_ICON[kind]}</g>
+  </svg>`);
 }
 
 /** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */

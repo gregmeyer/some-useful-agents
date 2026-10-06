@@ -411,11 +411,14 @@ export class NotebookStore {
     return r ? (String(r.kind ?? 'listing') as NotebookPhotoKind) : undefined;
   }
 
-  /** Options with no picture that haven't had a representative one tried (not ruled out). */
+  /** Options with no picture yet (or only an illustration, retried daily), not ruled out. */
   pictureCandidates(notebookId: string, limit = 8): NotebookEntry[] {
+    // No picture and never tried; or only an illustration, last tried over a day ago (a real photo may fetch now).
+    const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
     const rows = this.db.prepare(`SELECT e.* FROM notebook_entries e LEFT JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
-      WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL AND e.picture_tried_at IS NULL AND p.entry_id IS NULL
-      ORDER BY e.created_at DESC LIMIT ?`).all(notebookId, limit) as Array<Record<string, unknown>>;
+      WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL
+        AND ((p.entry_id IS NULL AND e.picture_tried_at IS NULL) OR (p.kind = 'illustration' AND (e.picture_tried_at IS NULL OR e.picture_tried_at < ?)))
+      ORDER BY e.created_at DESC LIMIT ?`).all(notebookId, dayAgo, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.toEntry(r));
   }
 
