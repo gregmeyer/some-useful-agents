@@ -59,3 +59,25 @@ describe('an open panel follows you to a notebook', () => {
     expect(INBOX_MODAL_JS).toContain("if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own,");
   });
 });
+
+describe('the decision box speaks about this notebook', () => {
+  it('leads are the options in the running, furthest stage first, then the best price; the example names them', async () => {
+    const { decisionLeads, decisionPlaceholder } = await import('./notebooks.js');
+    const nb = { id: 'n', title: 'Job', statement: '', params: [], criteria: [], status: 'active', pipeline: [], checks: [],
+      stages: ['Found', 'Applied', 'Offer'], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher' }],
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' } as never;
+    const opt = (id: string, title: string, salary: number, extra: Record<string, unknown> = {}) => ({
+      id, notebookId: 'n', kind: 'option', title, body: '', by: 'sua', createdAt: '2026-10-01T00:00:00Z', data: { salary }, ...extra });
+    const entries = [
+      opt('a', 'Acme, staff engineer', 150000),
+      opt('b', 'Globex, senior engineer', 190000),
+      opt('c', 'Initech, lead', 170000, { stage: 'Offer' }),
+      opt('d', 'Umbrella, principal', 250000, { ruledOut: { reason: 'too far', at: '2026-10-02T00:00:00Z', by: 'you' } }),
+    ] as never;
+    const leads = decisionLeads(nb, entries);
+    expect(leads.map((o) => o.name)).toEqual(['Initech, lead', 'Globex, senior engineer', 'Acme, staff engineer']);
+    expect(decisionPlaceholder(leads)).toBe('Chose Initech, lead: why it fits. Not Globex, senior engineer: why not.');
+    expect(decisionPlaceholder(leads.slice(0, 1))).toBe('Chose Initech, lead: why it fits.');
+    expect(decisionPlaceholder([])).not.toMatch(/RAV4|CR-V/);
+  });
+});

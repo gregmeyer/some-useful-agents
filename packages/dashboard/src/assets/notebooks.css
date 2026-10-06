@@ -389,3 +389,9 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-unfiled__what { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; font-size: var(--font-size-sm); }
 .nb-unfiled__what a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-unfiled__when, .nb-unfiled__adding { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* Decide…: start from one of the options still in the running. */
+.nb-decide__picks { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.nb-decide__picks-label { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-right: var(--space-1); }
+.nb-decide__pick { max-width: 100%; padding: 2px var(--space-2); border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-xs); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-decide__pick:hover, .nb-decide__pick:focus-visible { border-color: var(--color-primary); color: var(--color-primary); }

@@ -54,7 +54,29 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
   return unsafeHtml(`<svg class="nb-pipe" role="img" aria-label="${esc(label)}" width="100%" height="76" viewBox="0 0 ${String(w)} 76" preserveAspectRatio="xMidYMid meet">${line}${nodes}</svg>`);
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }): SafeHtml {
+/**
+ * The options still in the running, best first: furthest stage, then the
+ * best price (lower unless the price field says higher is better).
+ */
+export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3): NotebookViewOption[] {
+  const better = nb.fields.find((f) => f.role === 'price')?.better ?? 'lower';
+  const stageAt = (s?: string) => (s ? nb.stages.indexOf(s) : -1);
+  return notebookViewData(nb, [...entries]).notebook.options
+    .filter((o) => !o.ruledOut)
+    .sort((a, b) => stageAt(b.stage) - stageAt(a.stage)
+      || (a.price === undefined ? 1 : 0) - (b.price === undefined ? 1 : 0)
+      || (a.price !== undefined && b.price !== undefined ? (better === 'lower' ? a.price - b.price : b.price - a.price) : 0))
+    .slice(0, limit);
+}
+
+/** The decision box's example, from the notebook's own leads. */
+export function decisionPlaceholder(leads: readonly Pick<NotebookViewOption, 'name'>[]): string {
+  if (leads.length >= 2) return `Chose ${leads[0].name}: why it fits. Not ${leads[1].name}: why not.`;
+  if (leads.length === 1) return `Chose ${leads[0].name}: why it fits.`;
+  return 'What you chose, and why. Or why you stopped looking.';
+}
+
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -105,7 +127,11 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             <summary class="btn btn--primary btn--sm">Decide…</summary>
             <form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
               <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
-              <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="Buy the 2019 RAV4 XLE: clean history, under budget. The CR-V had an accident."></textarea>
+              ${leads.length ? html`<div class="nb-decide__picks" role="group" aria-label="Start from an option">
+                <span class="nb-decide__picks-label">Start from</span>
+                ${leads.map((o) => html`<button type="button" class="nb-decide__pick" data-nb-decide-pick="${`Chose ${o.name}: `}">${o.name}</button>`) as unknown as SafeHtml[]}
+              </div>` : html``}
+              <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder(leads)}"></textarea>
               <button type="submit" class="btn btn--primary btn--sm">Record the decision and close</button>
             </form>
           </details>` : html`
@@ -370,7 +396,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
           ${(['note', 'option', 'evidence', 'decision'] as const).map((k, i) => html`
             <label class="nb-kind"><input type="radio" name="kind" value="${k}"${i === 0 ? unsafeHtml(' checked') : unsafeHtml('')}><span>${KIND_LABEL[k]}</span></label>`) as unknown as SafeHtml[]}
         </div>
-        <input type="text" name="title" required class="form-field" placeholder="One line: 2019 RAV4 XLE, 54k mi, $24,900" autocomplete="off">
+        <input type="text" name="title" required class="form-field" placeholder="${(() => { const o = entries.find((e) => e.kind === 'option'); return o ? `One line, like: ${o.title.length > 60 ? `${o.title.slice(0, 59)}…` : o.title}` : 'One line: what it is and what matters about it'; })()}" autocomplete="off">
         <textarea name="body" rows="3" class="form-field" placeholder="Details (optional)"></textarea>
         <button type="submit" class="btn btn--sm">Add</button>
       </form>
@@ -394,7 +420,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries))}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
