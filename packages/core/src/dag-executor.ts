@@ -708,7 +708,21 @@ export async function executeAgentDag(
     }
   }
 
+  // An optional node's failure doesn't stop the run: it's recorded, and the
+  // nodes that depend on it get a note in place of its output.
+  const optionalFailures: Array<{ nodeId: string; category: NodeErrorCategory; error?: string }> = [];
+  const forgiveOptional = () => {
+    if (!firstFailure) return;
+    const failed = agent.nodes.find((n) => n.id === firstFailure!.nodeId);
+    if (!failed?.optional || firstFailure.category === 'cancelled' || firstFailure.category === 'budget_exhausted') return;
+    optionalFailures.push({ nodeId: failed.id, category: firstFailure.category, ...(firstFailure.error ? { error: firstFailure.error } : {}) });
+    const why = (firstFailure.error ?? firstFailure.category).replace(/\s+/g, ' ').slice(0, 200);
+    outputs.set(failed.id, { result: `(step "${failed.id}" didn't finish: ${why})`, exitCode: 0, source: agent.source });
+    firstFailure = undefined;
+  };
+
   for (const node of order) {
+    forgiveOptional();
     if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
 
@@ -1560,6 +1574,8 @@ export async function executeAgentDag(
       firstFailure = { nodeId: node.id, category, exitCode: result.exitCode, error: result.error };
     }
   }
+
+  forgiveOptional();
 
   // Stopped at an ask node: the run waits, holding no process, until the
   // answer resumes it. Its spend so far is totalled now so per-day limits see it.
