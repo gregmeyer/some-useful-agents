@@ -6,12 +6,13 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, notebookViewData, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
-import { renderNotebookPage, renderNotebooksList, type PipelineStage } from '../views/notebooks.js';
+import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage, type NotebookCard } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
@@ -26,11 +27,51 @@ const lines = (v: unknown): string[] => (typeof v === 'string' ? v.split(/\r?\n/
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const back = (id: string, flash: string, hash = '') => `/notebooks/${encodeURIComponent(id)}?flash=${encodeURIComponent(flash)}${hash}`;
 
+const LIST_PAGE = 12;
+
 notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   const s = store(req);
-  const notebooks = s.list().map((nb) => ({ nb, entries: s.entries(nb.id, 1000).length }));
-  res.type('html').send(renderNotebooksList({ notebooks, openNew: req.query.new === '1', flash: parseFlash(req) }));
+  const q = str(req.query.q).trim().slice(0, 100);
+  const status = (['active', 'decided', 'stopped', 'all'] as const).find((v) => v === req.query.status) ?? 'active';
+  const sort = (['updated', 'created', 'title'] as const).find((v) => v === req.query.sort) ?? 'updated';
+  const all = s.list();
+  const counts = { active: 0, decided: 0, stopped: 0, all: all.length };
+  for (const nb of all) counts[nb.status]++;
+  const needle = q.toLowerCase();
+  const matches = all
+    .filter((nb) => status === 'all' || nb.status === status)
+    .filter((nb) => !needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params].some((t) => t.toLowerCase().includes(needle)))
+    .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+  const pages = Math.max(1, Math.ceil(matches.length / LIST_PAGE));
+  const page = Math.min(pages, Math.max(1, Number(req.query.page) || 1));
+  const notebooks = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE).map((nb) => notebookCard(s, nb));
+  res.type('html').send(renderNotebooksList({
+    notebooks, openNew: req.query.new === '1', flash: parseFlash(req),
+    query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
+  }));
 });
+
+/** One notebook for the list: its cover picture and a line of what it holds. */
+function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
+  const entries = s.entries(nb.id, 1000);
+  const v = notebookViewData(nb, entries).notebook;
+  const priceF = nb.fields.find((f) => f.role === 'price');
+  const better = priceF?.better ?? 'lower';
+  const active = v.options.filter((o) => !o.ruledOut);
+  const priced = active.filter((o) => o.price !== undefined).sort((a, b) => (better === 'lower' ? a.price! - b.price! : b.price! - a.price!));
+  const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
+  const cover = s.coverPhoto(nb.id);
+  return {
+    nb,
+    entries: entries.length,
+    options: v.options.length,
+    active: active.length,
+    ...(priced[0] && priceF ? { best: formatFieldValue(priceF, priced[0].fields[priceF.key] ?? priced[0].price!), bestName: priced[0].name } : {}),
+    ...(nb.criteria.length ? { done: `${String(nb.criteria.filter((c) => c.met).length)} of ${String(nb.criteria.length)} done` } : {}),
+    ...(furthest && furthest !== nb.stages[0] ? { furthest } : {}),
+    ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind } : {}),
+  };
+}
 
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   try {

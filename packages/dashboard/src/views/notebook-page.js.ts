@@ -5,6 +5,11 @@
  */
 export const NOTEBOOK_PAGE_JS = `
   (function () {
+    // The notebooks list: changing the sort applies it.
+    document.addEventListener('change', function (e) {
+      var el = e.target;
+      if (el && el.matches && el.matches('select[data-autosubmit]') && el.form) el.form.submit();
+    });
     var main = document.querySelector('[data-nb-main]');
     if (!main) return;
     var id = main.getAttribute('data-nb-main');

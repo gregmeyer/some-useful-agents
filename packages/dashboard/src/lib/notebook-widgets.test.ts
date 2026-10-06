@@ -44,11 +44,11 @@ describe('notebook widgets', () => {
 
     const d = notebookWidgetData(nb, s.entries(nb.id), s).notebook;
     expect(d.bands).toEqual({ price: { min: 3000, max: 6000 }, measure: { min: 130000, max: 190000 } });
-    expect(d.summary).toBe('**1 in the running**, 1 ruled out. The best lead is the **2010 RAV4**: $4,023, 149,652 mi. Furthest along: Checked.');
+    expect(d.summary).toBe('**1 in the running**, 1 ruled out. The best lead is the **2010 RAV4, Lynnwood**: $4,023, 149,652 mi. Furthest along: Checked.');
     expect(d.next).toBe('check still listed and clean title on the top one before you contact anyone.');
     expect(d.stats).toEqual({ active: '1', best: '$4,023', bestLabel: 'Best price', furthest: 'Checked', ruledOut: '1' });
     expect(d.statItems.map((x) => `${x.label}=${x.value}`)).toEqual(['in the running=1', 'best price=$4,023', 'furthest along=Checked', 'ruled out=1']);
-    expect(d.checklist).toEqual([{ id: rav.id, title: '#1 · 2010 RAV4', items: [{ text: 'Still listed', done: false }, { text: 'Clean title', done: false }] }]);
+    expect(d.checklist).toEqual([{ id: rav.id, title: '#1 · 2010 RAV4, Lynnwood', items: [{ text: 'Still listed', done: false }, { text: 'Clean title', done: false }] }]);
     s.checkOption(nb.id, rav.id, 'Still listed', true);
     expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook.checklist[0].items[0]).toEqual({ text: 'Still listed', done: true });
     expect(d.timeline.map((e) => e.title)).toEqual(expect.arrayContaining(['Ruled out: 2009 Forester', '2010 RAV4 → Checked', 'Notebook started']));
@@ -100,7 +100,7 @@ describe('notebook widget details', () => {
     expect(s.findOption(nb.id, 'RAV4')!.ruledOut).toMatchObject({ reason: 'No longer available', gone: true });
     const d = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook;
     expect(d.statItems[0].value).toBe('0');
-    expect(d.timeline[0]).toMatchObject({ title: 'No longer available: RAV4', faded: true });
+    expect(d.timeline[0]).toMatchObject({ title: 'No longer available: RAV4, sold', faded: true });
     expect(s.reinstate(nb.id, a.id).ruledOut).toBeUndefined();
   });
 });

@@ -134,7 +134,7 @@ describe('notebooks pages', () => {
     expect(done.text).toContain('nb-status--decided');
     expect(done.text).toContain('Buy the RAV4');
     expect(done.text).toContain('>Reopen</button>');
-    expect((await get(app, '/notebooks')).text).toContain('Buy the RAV4');
+    expect((await get(app, '/notebooks?status=decided')).text).toContain('Buy the RAV4');
     expect((await get(app, '/notebooks/nope')).status).toBe(303);
   });
 
@@ -418,5 +418,36 @@ describe('setting a notebook up', () => {
     applyNotebookAdd(store, nb.id, add!, 'sua');
     expect(store.findOption(nb.id, 'Ballard')).toMatchObject({ data: { price: 6200, miles: 141000 }, fingerprint: 'vin jf2sh' });
     expect(store.entries(nb.id).find((e) => e.kind === 'note')!.data).toBeUndefined();
+  });
+});
+
+describe('the notebooks list', () => {
+  it('filters by status (active first), searches, sorts, pages, and shows each notebook\'s facts and cover', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    for (let i = 1; i <= 14; i++) s.create({ title: `Notebook ${String(i).padStart(2, '0')}`, statement: i === 7 ? 'Find a staff role' : 'x' });
+    const car = s.setFields(s.create({ title: 'Buy a used car', params: ['$3k-$5k budget'], criteria: ['One fits'] }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const rav = s.upsertOption(car.id, { title: '2010 Toyota RAV4, 149,652 mi, $4,023', by: 'agent:x', data: { price: 4023 } }).entry;
+    s.savePhoto(car.id, rav.id, 'https://img.example/r.jpg', { contentType: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, 1]) }, { kind: 'representative' });
+    s.decide(s.create({ title: 'Laptop' }).id, 'MacBook');
+
+    const first = await get('/notebooks');
+    expect(first.text).toContain('Active <span class="nb-tabs__n">15</span>');
+    expect(first.text).toContain('Decided <span class="nb-tabs__n">1</span>');
+    expect(first.text).not.toContain('>Laptop ');                 // active by default
+    expect(first.text).toContain('1–12 of 15');
+    expect(first.text).toContain('href="/notebooks?page=2"');
+    expect((await get('/notebooks?page=2')).text).toContain('13–15 of 15');
+    expect((await get('/notebooks?status=decided')).text).toContain('Laptop');
+    const search = await get('/notebooks?q=staff');
+    expect(search.text).toContain('Notebook 07');
+    expect(search.text).not.toContain('Notebook 08');
+    const carCard = await get('/notebooks?q=used%20car');
+    expect(carCard.text).toContain('1 option · 1 in the running · best $4,023 · 0 of 1 done');
+    expect(carCard.text).toContain(`src="/notebooks/buy-a-used-car/entries/${rav.id}/photo"`);
+    expect(carCard.text).toContain('lead: 2010 Toyota RAV4');
+    expect((await get('/notebooks?q=nothing-like-this')).text).toContain('No active notebooks matching');
   });
 });
