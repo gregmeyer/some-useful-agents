@@ -43,6 +43,11 @@ import {
   loadBrandTheme,
   resolveBrandTheme,
   restoreBrandThemeBackup,
+  listSavedBrands,
+  saveBrandAs,
+  applySavedBrand,
+  deleteSavedBrand,
+  isActiveBrand,
   saveBrandTheme,
 } from '@some-useful-agents/core';
 import { existsSync } from 'node:fs';
@@ -761,7 +766,10 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const body = renderSettingsAppearance({
     a2uiWidgets: a2uiWidgetsEnabled(),
     boardPages: boardPagesEnabled(),
-    brand: { theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme) },
+    brand: {
+      theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme),
+      saved: listSavedBrands(ctx.dataDir).map((b) => ({ id: b.id, name: b.name, active: isActiveBrand(theme, b.theme), effective: resolveBrandTheme(b.theme) })),
+    },
   });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
 });
@@ -815,6 +823,34 @@ settingsRouter.post('/settings/appearance/brand', (req: Request, res: Response) 
   } catch (err) {
     redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
   }
+});
+
+// Saved brands: keep the current look under a name, switch to one, delete one.
+settingsRouter.post('/settings/appearance/brands/save', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  try {
+    const b = saveBrandAs(ctx.dataDir, typeof req.body?.name === 'string' ? req.body.name : '', loadBrandTheme(ctx.dataDir));
+    redirectWith(res, '/settings/appearance#brands-title', 'flash', `Saved "${b.name}". Switch to it any time from Your brands.`);
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brands-title', 'error', (err as Error).message);
+  }
+});
+
+settingsRouter.post('/settings/appearance/brands/:id/apply', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  try {
+    const id = String(req.params.id);
+    const { theme } = applySavedBrand(ctx.dataDir, id, { expectedVersion: typeof req.body?.version === 'string' ? req.body.version : undefined });
+    redirectWith(res, '/settings/appearance#brands-title', 'flash', `Now using "${theme.name ?? id}" everywhere. Undo last change puts the previous look back.`);
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brands-title', 'error', (err as Error).message);
+  }
+});
+
+settingsRouter.post('/settings/appearance/brands/:id/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const gone = deleteSavedBrand(ctx.dataDir, String(req.params.id));
+  redirectWith(res, '/settings/appearance#brands-title', gone ? 'flash' : 'error', gone ? 'Brand deleted. The look in use didn\'t change.' : 'That brand was already gone.');
 });
 
 settingsRouter.post('/settings/appearance/brand/undo', (req: Request, res: Response) => {

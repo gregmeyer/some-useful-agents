@@ -305,6 +305,27 @@ describe('brand theme', () => {
     expect(page.text).toContain('action="/settings/appearance/brand/undo"');
     res = await form(app, '/settings/appearance/brand/undo', { version: v3 });
     expect((await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text).toContain('--color-primary: #ff0066;');
+
+    // Saved brands: keep the current look under a name, switch, delete.
+    const themeCss = async () => (await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text;
+    res = await form(app, '/settings/appearance/brands/save', { name: 'Acme' });
+    expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('Saved "Acme"');
+    page = await get(app, '/settings/appearance');
+    let v = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    await form(app, '/settings/appearance/brand', { version: v, reset: '1' });
+    expect(await themeCss()).not.toContain('--color-primary');
+    page = await get(app, '/settings/appearance');
+    expect(page.text).toContain('<span class="brands__name">Acme</span>');
+    expect(page.text).toContain('action="/settings/appearance/brands/acme/apply"');
+    v = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    res = await form(app, '/settings/appearance/brands/acme/apply', { version: v });
+    expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('Now using "Acme" everywhere');
+    expect(await themeCss()).toContain('--color-primary: #ff0066;');
+    expect((await get(app, '/settings/appearance')).text).toContain('<span class="brands__badge">In use</span>');
+    expect((await form(app, '/settings/appearance/brands/save', { name: '   ' })).headers.location).toMatch(/error=/);
+    await form(app, '/settings/appearance/brands/acme/delete', {});
+    expect((await get(app, '/settings/appearance')).text).toContain('No saved brands yet');
+    expect(await themeCss()).toContain('--color-primary: #ff0066;'); // deleting doesn't change the look in use
   });
 });
 

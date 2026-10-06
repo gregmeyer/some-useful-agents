@@ -490,3 +490,19 @@
 .brand-field__row { display: flex; align-items: center; gap: var(--space-2); }
 .brand-field input { font: inherit; font-family: var(--font-mono); font-size: var(--font-size-sm); padding: var(--space-1) var(--space-2); background: var(--color-bg); color: var(--color-text); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; }
 .brand-swatch { flex: none; width: 1.25rem; height: 1.25rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border-strong); }
+
+/* Settings → Appearance: your saved brands */
+.brands { margin: 0 0 var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); }
+.brands__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.brands__title { margin: 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold); }
+.brands__save { display: flex; gap: var(--space-2); align-items: center; }
+.brands__save input { height: 32px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); min-width: 220px; }
+.brands__empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.brands__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.brands__item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.brands__item.is-active { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.brands__item form { margin: 0; }
+.brands__name { flex: 1; font-weight: var(--weight-semibold); font-size: var(--font-size-sm); }
+.brands__badge { font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-primary); }
+.brand-strip { display: inline-flex; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-border); }
+.brand-strip span { width: 18px; height: 24px; }

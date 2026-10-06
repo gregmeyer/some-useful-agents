@@ -13,6 +13,51 @@ export interface BrandFormInput {
   hasBackup: boolean;
   /** Effective (preset + overrides) colours, to show what each field currently is. */
   effective: ReturnType<typeof resolveBrandTheme>;
+  /** Saved brands, with their effective colours and whether each is the one in use. */
+  saved?: Array<{ id: string; name: string; active: boolean; effective: ReturnType<typeof resolveBrandTheme> }>;
+}
+
+/** A saved brand's colours as a strip: accent, page, surface, text (light), then accent (dark). */
+function brandStrip(e: ReturnType<typeof resolveBrandTheme>): SafeHtml {
+  // A theme stores only what differs from sua's own tokens (tokens.css); fill the rest from them.
+  const BASE: Record<'dark' | 'light', Partial<Record<BrandColorToken, string>>> = {
+    light: { primary: '#0f766e', bg: '#faf9f7', surface: '#ffffff', text: '#1c1917' },
+    dark: { primary: '#2dd4bf', bg: '#1a1918', surface: '#242220', text: '#e7e5e4' },
+  };
+  const c = (mode: 'dark' | 'light', k: BrandColorToken) => (e[mode] as Record<string, string | undefined>)[k] ?? BASE[mode][k] ?? '';
+  const sw = [c('light', 'primary'), c('light', 'bg'), c('light', 'surface'), c('light', 'text'), c('dark', 'bg'), c('dark', 'primary')].filter(Boolean);
+  return html`<span class="brand-strip" aria-hidden="true">${sw.map((s) => html`<span style="background: ${s};"></span>`) as unknown as SafeHtml[]}</span>`;
+}
+
+/** Your saved brands: switch with one click, keep the current look under a name. */
+function renderSavedBrands(brand: BrandFormInput): SafeHtml {
+  const saved = brand.saved ?? [];
+  return html`
+    <section class="brands" aria-labelledby="brands-title">
+      <div class="brands__head">
+        <h3 id="brands-title" class="brands__title">Your brands</h3>
+        <form method="POST" action="/settings/appearance/brands/save" class="brands__save">
+          <label class="sr-only" for="brand-save-name">Brand name</label>
+          <input id="brand-save-name" type="text" name="name" required maxlength="60" value="${brand.theme.name ?? ''}" placeholder="Name this look, e.g. Acme">
+          <button type="submit" class="btn btn--sm">Save as a brand</button>
+        </form>
+      </div>
+      ${saved.length === 0
+        ? html`<p class="brands__empty">No saved brands yet. Set the look below, then <strong>Save as a brand</strong> to keep it, and switch between brands here.</p>`
+        : html`<ul class="brands__list">${saved.map((b) => html`
+          <li class="brands__item${b.active ? ' is-active' : ''}">
+            ${brandStrip(b.effective)}
+            <span class="brands__name">${b.name}</span>
+            ${b.active ? html`<span class="brands__badge">In use</span>` : html`
+              <form method="POST" action="/settings/appearance/brands/${encodeURIComponent(b.id)}/apply">
+                <input type="hidden" name="version" value="${brand.version}">
+                <button type="submit" class="btn btn--sm btn--primary">Use this</button>
+              </form>`}
+            <form method="POST" action="/settings/appearance/brands/${encodeURIComponent(b.id)}/delete">
+              <button type="submit" class="btn btn--sm btn--ghost" aria-label="Delete the ${b.name} brand">Delete</button>
+            </form>
+          </li>`) as unknown as SafeHtml[]}</ul>`}
+    </section>`;
 }
 
 /** The colour tokens the form offers (the rest stay editable in .sua/theme.json). */
@@ -69,6 +114,8 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPag
         See <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/brand.md">the brand guide</a>.
       </p>
       ${brand ? html`
+      ${renderSavedBrands(brand)}
+      <h3 class="brands__title" style="margin: var(--space-6) 0 var(--space-3);">The look in use</h3>
       <form method="POST" action="/settings/appearance/brand" class="brand-form">
         <input type="hidden" name="version" value="${brand.version}">
         <div class="theme-grid">${cards as unknown as SafeHtml[]}</div>

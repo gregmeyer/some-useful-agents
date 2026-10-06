@@ -55,3 +55,32 @@ describe('brand theme', () => {
     expect(loadBrandTheme(dir)).toEqual(DEFAULT_BRAND_THEME);
   });
 });
+
+describe('saved brands', () => {
+  it('saves, lists A–Z, applies (keeping Undo), knows which is in use, deletes, and skips bad files', async () => {
+    const { listSavedBrands, saveBrandAs, applySavedBrand, deleteSavedBrand, isActiveBrand, loadBrandTheme, restoreBrandThemeBackup, brandsDir, brandId } = await import('./brand-theme.js');
+    const dir = mkdtempSync(join(tmpdir(), 'sua-brands-'));
+    expect(listSavedBrands(dir)).toEqual([]);
+    saveBrandAs(dir, '  Zebra  Co ', { version: 1, preset: 'neon' });
+    const acme = saveBrandAs(dir, 'Acme', { version: 1, preset: 'warm', dark: { primary: '#ff0066' } });
+    expect(acme).toMatchObject({ id: 'acme', name: 'Acme' });
+    expect(brandId('Zebra Co!')).toBe('zebra-co');
+    mkdirSync(brandsDir(dir), { recursive: true });
+    writeFileSync(join(brandsDir(dir), 'broken.json'), '{"version": 1, "dark": {"primary": "red; }"}}');
+    expect(listSavedBrands(dir).map((b) => b.name)).toEqual(['Acme', 'Zebra Co']);
+    expect(() => saveBrandAs(dir, '', {})).toThrow('Give the brand a name');
+    expect(() => saveBrandAs(dir, 'Bad', { version: 1, dark: { primary: 'red; }' } })).toThrow('Not saved');
+
+    applySavedBrand(dir, 'zebra-co');
+    applySavedBrand(dir, 'acme');
+    expect(loadBrandTheme(dir)).toMatchObject({ name: 'Acme', preset: 'warm' });
+    expect(isActiveBrand(loadBrandTheme(dir), listSavedBrands(dir)[0].theme)).toBe(true);
+    expect(isActiveBrand(loadBrandTheme(dir), listSavedBrands(dir)[1].theme)).toBe(false);
+    restoreBrandThemeBackup(dir);
+    expect(loadBrandTheme(dir).name).toBe('Zebra Co'); // Undo puts the previous brand back
+    expect(() => applySavedBrand(dir, 'nope')).toThrow('That brand is gone');
+    expect(deleteSavedBrand(dir, 'acme')).toBe(true);
+    expect(deleteSavedBrand(dir, '../theme')).toBe(false);
+    expect(listSavedBrands(dir).map((b) => b.id)).toEqual(['zebra-co']);
+  });
+});
