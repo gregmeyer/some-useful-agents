@@ -31,6 +31,8 @@
   background: linear-gradient(135deg, var(--color-primary), var(--color-info));
   color: var(--color-bg);
 }
+.nb-hero__cover { flex: none; width: 64px; height: 64px; border-radius: var(--radius-md); object-fit: cover; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
+.nb-hero__cover.is-drawn { object-fit: contain; }
 .nb-hero__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl); line-height: 1.2; }
 .nb-hero__statement { margin: 0; font-size: var(--font-size-md); line-height: 1.5; color: var(--color-text); }
 .nb-hero__statement--empty { color: var(--color-text-subtle); font-size: var(--font-size-sm); }
