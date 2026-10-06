@@ -79,6 +79,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
     inboxStore: InboxStore.fromHandle(runStore.databaseHandle()),
     // Never a real model in tests: setup gets a fixed keeper answer.
+    // Never a real picture model either.
+    notebookPictureRun: async () => undefined,
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     notebookKeeperRun: async (inputs) => (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
       ? `<notebook>${JSON.stringify({ entries: [], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: ['Found', 'Applied', 'Offer'] })}</notebook>`
@@ -113,7 +115,7 @@ describe('notebooks pages', () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
     expect(empty.text).toContain('+ New notebook');
-    expect(empty.text).toMatch(/<details class="nb-card nb-card--new" id="new" open>/);
+    expect(empty.text).toMatch(/<details class="nbl-new" id="new" open>/);
 
     const made = await post(app, '/notebooks', { title: 'Buy a used car', statement: 'Find a reliable SUV', params: 'AWD\nunder $26k', criteria: 'One fits\nClean history\nDecided' });
     expect(made.status).toBe(303);
@@ -451,9 +453,14 @@ describe('the notebooks list', () => {
     expect(search.text).toContain('Notebook 07');
     expect(search.text).not.toContain('Notebook 08');
     const carCard = await get('/notebooks?q=used%20car');
-    expect(carCard.text).toContain('1 option · 1 in the running · best $4,023 · 0 of 1 done');
+    expect(carCard.text).toContain('<span class="nbl-card__price">$4,023</span><span class="nbl-card__leadname">2010 Toyota RAV4</span>');
+    expect(carCard.text).toContain('<span class="nbl-chip">1 option</span><span class="nbl-chip">1 in the running</span>');
+    expect(carCard.text).toContain('<span class="nbl-card__done">0 of 1 done</span>');
     expect(carCard.text).toContain(`src="/notebooks/buy-a-used-car/entries/${rav.id}/photo"`);
-    expect(carCard.text).toContain('lead: 2010 Toyota RAV4');
+    expect(carCard.text).toContain('example photo');
+    // No picture yet: its own generated cover, with an icon for its kind.
+    const plain = await get('/notebooks?q=Notebook%2001');
+    expect(plain.text).toContain('class="nbl-card__art"');
     expect((await get('/notebooks?q=nothing-like-this')).text).toContain('No active notebooks matching');
   });
 });

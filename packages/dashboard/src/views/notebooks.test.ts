@@ -26,3 +26,17 @@ describe('option facts as people read them', () => {
     expect(formatFieldValue({ key: 'year', label: 'Year', type: 'number' }, 2010)).toBe('2010');
   });
 });
+
+describe('notebook covers', () => {
+  it('picks an icon from what the notebook is about, and draws a safe inline cover', async () => {
+    const { notebookKind, coverArt } = await import('./notebooks.js');
+    expect(notebookKind({ title: 'Buy a used car for Nadia', statement: '' })).toBe('car');
+    expect(notebookKind({ title: 'Find a remote staff engineering role', statement: '' })).toBe('job');
+    expect(notebookKind({ title: 'Search for an acoustic guitar', statement: '' })).toBe('music');
+    expect(notebookKind({ title: 'Plan the reunion', statement: '' })).toBe('notebook');
+    const svg = render(coverArt({ id: 'a"<x', title: '<script>', statement: '', stages: ['Found', 'Checked'] }));
+    expect(svg).toContain('<svg class="nbl-card__art"');
+    expect(svg).not.toContain('<script');
+    expect(svg).toContain('id="nbc-ax"');
+  });
+});
