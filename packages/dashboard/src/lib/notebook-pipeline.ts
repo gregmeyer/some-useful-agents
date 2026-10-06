@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, SYSTEM_AGENT_IDS, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -249,4 +249,52 @@ export function startNotebookSetup(ctx: Ctx, notebookId: string, opts: { onDone?
 
 export function setupRunning(ctx: Ctx, notebookId: string): boolean {
   return !!ctx.notebookSetups?.has(notebookId);
+}
+
+// ── Runs not in the notebook yet ──
+// Only a run started from the notebook's conversation (or its pipeline) is
+// filed automatically. A run of one of its agents started anywhere else (its
+// Run button, a schedule) is offered on the page: Add to notebook.
+
+const UNFILED_DAYS = 14;
+
+export interface UnfiledRun { id: string; agentId: string; startedAt: string }
+
+/** Finished runs of this notebook's agents, from the last two weeks, that aren't in it yet (newest first). */
+export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
+  const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const { agents, runIds } = s.runSources(nb.id);
+  const filed = new Set(runIds);
+  const since = Date.now() - UNFILED_DAYS * 86_400_000;
+  const out: UnfiledRun[] = [];
+  for (const agentId of agents) {
+    if (agentId === NOTEBOOK_SETUP || SYSTEM_AGENT_IDS.has(agentId)) continue;
+    for (const r of ctx.runStore.listRuns({ agentName: agentId, status: 'completed', limit: 10 })) {
+      if (filed.has(r.id) || !r.result || Date.parse(r.startedAt) < since) continue;
+      out.push({ id: r.id, agentId, startedAt: r.startedAt });
+    }
+  }
+  return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+}
+
+/** Runs being added to a notebook right now (run id), so a second click doesn't add one twice. */
+export function addingRun(ctx: Ctx, runId: string): boolean {
+  return !!ctx.notebookAddingRuns?.has(runId);
+}
+
+/** File one of the notebook's unfiled runs into it, in the background. */
+export function addRunToNotebook(ctx: Ctx, notebookId: string, runId: string): { started: boolean; reason?: string } {
+  const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const nb = s.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (nb.status !== 'active') return { started: false, reason: 'This notebook is closed. Reopen it under Edit to add to it.' };
+  const run = unfiledRuns(ctx, nb, 50).find((r) => r.id === runId);
+  if (!run) return { started: false, reason: 'That run is already in the notebook, or it isn\'t one of its agents\' finished runs.' };
+  if (addingRun(ctx, runId)) return { started: false, reason: 'That run is being added already.' };
+  const result = ctx.runStore.getRun(runId)?.result ?? '';
+  (ctx.notebookAddingRuns ??= new Set()).add(runId);
+  void keepIntoNotebook(ctx, nb, run.agentId, runId, result)
+    .catch(() => undefined)
+    .finally(() => { ctx.notebookAddingRuns?.delete(runId); });
+  return { started: true };
 }

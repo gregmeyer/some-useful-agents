@@ -14,7 +14,7 @@ import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
-import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
+import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, greetNotebook } from '../lib/notebook-chat.js';
@@ -119,7 +119,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
   const coverPhoto = s.coverPhoto(nb.id);
-  res.type('html').send(renderNotebookPage({ nb, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled: unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) })), ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -274,6 +274,13 @@ notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
 });
 
 /** Run the pipeline now (G2): each agent in order, then the keeper adds what's new. */
+/** Add to notebook: file a finished run of one of its agents that ran elsewhere. */
+notebooksRouter.post('/notebooks/:id/runs/:runId/add', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = addRunToNotebook(getContext(req.app.locals), id, String(req.params.runId));
+  res.redirect(303, back(id, out.started ? 'Adding that run\'s results. They show up here in a minute or so.' : out.reason ?? 'It could not be added.'));
+});
+
 notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const out = startNotebookPipeline(getContext(req.app.locals), id);

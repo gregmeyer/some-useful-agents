@@ -82,7 +82,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Never a real picture model either.
     notebookPictureRun: async () => undefined,
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
-    notebookKeeperRun: async (inputs) => (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
+    // A test run whose output is already a keeper answer is kept as-is.
+    notebookKeeperRun: async (inputs) => inputs.RUN_OUTPUT.startsWith('<notebook>') ? inputs.RUN_OUTPUT : (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
       ? `<notebook>${JSON.stringify({ entries: [], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: ['Found', 'Applied', 'Offer'] })}</notebook>`
       : undefined),
   };
@@ -556,5 +557,40 @@ describe('a notebook page names its conversation', () => {
     const thread = InboxStore.fromHandle(runStore.databaseHandle()).add({ priority: 'medium', source: 'manual', title: 'Notebook: Bike', body: '(empty)' });
     store.setConversation(nb.id, thread.id);
     expect((await page()).text).toContain(`data-page-thread="${thread.id}"`);
+  });
+});
+
+describe('runs not in the notebook yet', () => {
+  it('lists finished runs of its agents that ran elsewhere, and Add to notebook files one', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Car' });
+    store.addEntry(nb.id, { kind: 'option', title: '2010 RAV4', by: 'agent:sweep', runId: 'run-filed' });
+    const now = Date.now();
+    const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+    const keeper = `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: '2007 Forester 2.5 X' }] })}</notebook>`;
+    const run = (id: string, agentName: string, status: 'completed' | 'failed', msAgo: number, result?: string) =>
+      runStore.createRun({ id, agentName, status, startedAt: iso(msAgo), completedAt: iso(msAgo - 1000), triggeredBy: 'dashboard', ...(result ? { result } : {}) } as never);
+    run('run-filed', 'sweep', 'completed', 3_600_000, keeper);
+    run('run-new', 'sweep', 'completed', 60_000, keeper);
+    run('run-failed', 'sweep', 'failed', 120_000);
+    run('run-old', 'sweep', 'completed', 20 * 86_400_000, keeper);
+    run('run-other', 'weather', 'completed', 60_000, keeper);
+    const get = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    let page = await get();
+    expect(page.text).toContain('Runs not in this notebook yet');
+    expect(page.text).toContain(`/notebooks/${nb.id}/runs/run-new/add`);
+    for (const r of ['run-filed', 'run-failed', 'run-old', 'run-other']) expect(page.text).not.toContain(`/runs/${r}/add`);
+
+    const post = (runId: string) => request(app).post(`/notebooks/${nb.id}/runs/${runId}/add`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(decodeURIComponent((await post('run-other')).headers.location.replace(/\+/g, ' '))).toContain("isn't one of its agents");
+    expect(decodeURIComponent((await post('run-new')).headers.location.replace(/\+/g, ' '))).toContain("Adding that run's results");
+    for (let i = 0; i < 50 && !store.entries(nb.id).some((e) => e.title.startsWith('2007 Forester')); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.entries(nb.id).find((e) => e.title.startsWith('2007 Forester'))?.runId).toBe('run-new');
+    page = await get();
+    expect(page.text).not.toContain('Runs not in this notebook yet');
+    expect(decodeURIComponent((await post('run-new')).headers.location.replace(/\+/g, ' '))).toContain('already in the notebook');
   });
 });
