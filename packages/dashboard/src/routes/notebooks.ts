@@ -30,6 +30,14 @@ const back = (id: string, flash: string, hash = '') => `/notebooks/${encodeURICo
 
 const LIST_PAGE = 12;
 
+/** The store, plus recent runs of an agent, for the widgets' timeline. */
+function widgetHistory(ctx: ReturnType<typeof getContext>, s: NotebookStore): NotebookStore & { recentRuns(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }> } {
+  return Object.assign(Object.create(s) as NotebookStore, {
+    recentRuns: (agentId: string) => ctx.runStore.listRuns({ agentName: agentId, limit: 10 })
+      .map((r) => ({ id: r.id, status: r.status, startedAt: r.startedAt, ...(r.error ? { error: r.error } : {}) })),
+  });
+}
+
 notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   const s = store(req);
   const q = str(req.query.q).trim().slice(0, 100);
@@ -124,7 +132,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // sua's latest word in the notebook's conversation, so the page shows it remembers.
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
-  res.type('html').send(renderNotebookPage({ nb, entries, compiled, history: s, settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -319,5 +327,5 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const step = nextStep(s.get(nb.id) ?? nb, entries);
   res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));
   res.setHeader('X-Notebook-Placeholder', encodeURIComponent(step.placeholder));
-  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, s, settingUp));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp));
 });

@@ -87,7 +87,7 @@ describe('notebook widget details', () => {
     const d = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook;
     expect(d.coverage.sources.map((x) => `${x.name}:${x.status}`)).toEqual(['CarGurus:found', 'Edmunds:blocked']);
     expect(d.coverage.when).toMatch(/^last search · /);
-    expect(d.timeline[0]).toMatchObject({ kind: 'search', title: 'Search found 1 option', body: 'CarGurus 2 · Edmunds blocked' });
+    expect(d.timeline[0]).toMatchObject({ kind: 'search', who: 'sweep', title: 'Search returned 1 option', body: 'CarGurus 2 · Edmunds blocked', linkText: 'run r1' });
   });
 
   it('a gone option is out of the running and reads as no longer available', () => {
@@ -102,5 +102,35 @@ describe('notebook widget details', () => {
     expect(d.statItems[0].value).toBe('0');
     expect(d.timeline[0]).toMatchObject({ title: 'No longer available: RAV4, sold', faded: true });
     expect(s.reinstate(nb.id, a.id).ruledOut).toBeUndefined();
+  });
+});
+
+describe('timeline searches', () => {
+  it('rebuilds searches from before they were recorded, by run, with agent and option count; moves have their own kind', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, CAR);
+    s.setStages(nb.id, ['Found', 'Checked']);
+    const a = s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:used-car-coverage-sweep', runId: 'fe433a7a-1', data: { price: 4000 } }).entry;
+    s.upsertOption(nb.id, { title: 'Forester', by: 'agent:used-car-coverage-sweep', runId: 'fe433a7a-1', data: { price: 4500 } });
+    s.addEntry(nb.id, { kind: 'note', title: 'Edmunds blocked', by: 'agent:used-car-coverage-sweep', runId: 'fe433a7a-1' });
+    s.addEntry(nb.id, { kind: 'note', title: 'Craigslist had nothing', by: 'agent:craigslist-car-search', runId: 'c1' });
+    s.moveOption(nb.id, a.id, 'Checked');
+    const t = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook.timeline;
+    const searches = t.filter((e) => e.kind === 'search');
+    expect(searches.map((e) => `${e.who}|${e.title}|${e.linkText}`).sort()).toEqual([
+      'craigslist-car-search|Search added notes, no options|run c1',
+      'used-car-coverage-sweep|Search returned 2 options|run fe433a7a',
+    ]);
+    expect(t.find((e) => e.title === 'RAV4 → Checked')!.kind).toBe('move');
+    // Failed runs of the agents that feed it show too (they leave nothing behind).
+    const hist = Object.assign(Object.create(s), {
+      recentRuns: (agentId: string) => agentId === 'used-car-coverage-sweep'
+        ? [{ id: 'ab5419bc-9', status: 'failed', startedAt: new Date(Date.now() + 1000).toISOString(), error: 'Node "autotrader-sweep" timed out' }, { id: 'old-ok', status: 'completed', startedAt: new Date().toISOString() }]
+        : [],
+    });
+    const failed = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), hist).notebook.timeline[0];
+    expect(failed).toMatchObject({ kind: 'search', who: 'used-car-coverage-sweep', title: 'Search failed', body: 'Node "autotrader-sweep" timed out', linkText: 'run ab5419bc', faded: true });
   });
 });

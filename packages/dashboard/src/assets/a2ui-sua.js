@@ -588,27 +588,52 @@ const Checklist = define('Checklist', 'sua-a2ui-checklist',
       ${(Array.isArray(g?.items) ? g.items : []).map((it) => html`<label class="${it?.done ? 'done' : ''}"><input type="checkbox" .checked=${!!it?.done} ?disabled=${!p.actions} @change=${(e) => act(g.id, it.text, e.target.checked)}><span>${it?.text ?? ''}</span></label>`)}</div>`)}</div>`;
   });
 
+// Groups the filter chips use; an event's `kind` decides which it's in.
+const TIMELINE_GROUPS = [
+  { id: 'search', label: 'Searches', kinds: ['search'] },
+  { id: 'note', label: 'Notes', kinds: ['note', 'evidence'] },
+  { id: 'decision', label: 'Decisions and rulings', kinds: ['decision', 'out'] },
+  { id: 'move', label: 'Moves', kinds: ['move'] },
+];
 const Timeline = define('Timeline', 'sua-a2ui-timeline',
-  Common.extend({ events: CommonSchemas.DynamicValue, maxItems: z.number().int().min(1).max(50).optional() }).strict(),
+  Common.extend({ events: CommonSchemas.DynamicValue, maxItems: z.number().int().min(1).max(50).optional(), filters: z.boolean().optional() }).strict(),
   css`
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .chip { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-surface); }
+    .chip[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; font-weight: 600; }
+    .chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .chip .n { font-family: var(--font-mono); opacity: .7; margin-left: 3px; }
     ol { list-style: none; margin: 0 0 0 6px; padding: 0 0 0 18px; border-left: 2px solid var(--color-border); display: grid; gap: 14px; }
     li { position: relative; }
     li::before { content: ""; position: absolute; left: -25px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface); border: 2px solid var(--color-primary); }
-    li.decision::before { border-color: var(--color-ok); } li.search::before { border-color: var(--accent-blue, var(--color-primary)); }
-    li.out::before { border-color: var(--color-warn); } li.faded::before { border-color: var(--color-border-strong, var(--color-border)); }
+    li.decision::before { border-color: var(--color-ok); } li.search::before { border-color: var(--accent-blue, var(--color-primary)); background: var(--accent-blue, var(--color-primary)); }
+    li.out::before { border-color: var(--color-warn); } li.move::before { border-color: var(--accent-purple, var(--color-primary)); } li.faded::before { border-color: var(--color-border-strong, var(--color-border)); }
     .when { font: var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
     .when a { color: var(--color-primary); }
+    .who { color: var(--color-text); }
     .t { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
     .b { margin-top: 2px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .faded .t, .faded .b { color: var(--color-text-subtle, var(--color-text-muted)); }
     .tag { margin-left: 6px; font: var(--font-size-xs)/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; border: 1px dashed var(--color-border-strong, var(--color-border)); color: var(--color-text-muted); font-weight: 400; }
+    .more { all: unset; cursor: pointer; margin-top: 12px; font-size: var(--font-size-xs); color: var(--color-primary); }
     .empty { font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
-  (p) => {
-    const ev = (Array.isArray(p.events) ? p.events : []).slice(0, p.maxItems ?? 12);
-    if (!ev.length) return html`<p class="empty">Nothing yet.</p>`;
+  function (p) {
+    const all = Array.isArray(p.events) ? p.events : [];
+    if (!all.length) return html`<p class="empty">Nothing yet.</p>`;
+    const group = TIMELINE_GROUPS.find((g) => g.id === this._group);
+    const shown = group ? all.filter((e) => group.kinds.includes(e?.kind)) : all;
+    const max = this._all ? shown.length : (p.maxItems ?? 12);
+    const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     const when = (at) => { const d = new Date(at); return Number.isFinite(d.getTime()) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
-    return html`<ol>${ev.map((e) => html`<li class="${e?.kind ?? ''} ${e?.faded ? 'faded' : ''}"><div class="when">${when(e?.at)}${safeUrl(e?.link) ? html` · <a href=${safeUrl(e.link)}>${e.linkText ?? 'run'}</a>` : nothing}</div>
-      <div class="t">${e?.title ?? ''}${e?.tag ? html`<span class="tag">${e.tag}</span>` : nothing}</div>${e?.body ? html`<div class="b">${e.body}</div>` : nothing}</li>`)}</ol>`;
+    const counts = TIMELINE_GROUPS.map((g) => ({ ...g, n: all.filter((e) => g.kinds.includes(e?.kind)).length })).filter((g) => g.n);
+    return html`
+      ${p.filters && counts.length > 1 ? html`<div class="chips" role="group" aria-label="Show">
+        <button type="button" class="chip" aria-pressed=${!group ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', ''); }}>All<span class="n">${all.length}</span></button>
+        ${counts.map((g) => html`<button type="button" class="chip" aria-pressed=${group?.id === g.id ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', g.id); }}>${g.label}<span class="n">${g.n}</span></button>`)}
+      </div>` : nothing}
+      <ol>${shown.slice(0, max).map((e) => html`<li class="${e?.kind ?? ''} ${e?.faded ? 'faded' : ''}"><div class="when">${when(e?.at)}${e?.who ? html` · <span class="who">${e.who}</span>` : nothing}${safeUrl(e?.link) ? html` · <a href=${safeUrl(e.link)}>${e.linkText ?? 'run'}</a>` : nothing}</div>
+        <div class="t">${e?.title ?? ''}${e?.tag ? html`<span class="tag">${e.tag}</span>` : nothing}</div>${e?.body ? html`<div class="b">${e.body}</div>` : nothing}</li>`)}</ol>
+      ${shown.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show all ${shown.length}</button>` : nothing}`;
   });
 
 const ChipList = define('ChipList', 'sua-a2ui-chip-list',
