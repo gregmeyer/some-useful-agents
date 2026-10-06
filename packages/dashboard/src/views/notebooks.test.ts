@@ -40,3 +40,14 @@ describe('notebook covers', () => {
     expect(svg).toContain('id="nbc-ax"');
   });
 });
+
+describe('the talk box catches up when the sua panel closes', () => {
+  it('the panel announces its thread on close, and a notebook page on that thread refetches its talk box', async () => {
+    const { INBOX_MODAL_JS } = await import('./inbox-modal.js.js');
+    const { NOTEBOOK_PAGE_JS } = await import('./notebook-page.js.js');
+    expect(INBOX_MODAL_JS).toContain("new CustomEvent('sua:panel-closed', { detail: { threadId: keep } })");
+    expect(NOTEBOOK_PAGE_JS).toContain("addEventListener('sua:panel-closed'");
+    expect(NOTEBOOK_PAGE_JS).toContain("getAttribute('data-nb-continue') === tid");
+    expect(NOTEBOOK_PAGE_JS).toContain("querySelector('.nb-talk')");
+  });
+});

@@ -41,7 +41,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
 
-- **With the sua panel open,** the page's talk box steps aside (one line points to the panel), so there's one place to type.
+- **With the sua panel open,** the page's talk box steps aside (one line points to the panel), so there's one place to type. Closing the panel on the notebook's conversation refreshes the talk box and the notebook, so sua's latest reply shows.
 - **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
 
 ## A notebook's page
