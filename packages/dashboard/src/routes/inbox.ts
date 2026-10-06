@@ -32,6 +32,7 @@
  */
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
+import { renderHomePage, renderHomeToday, homeStatus } from '../views/home-page.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
@@ -113,6 +114,26 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
   const today = readHomeSurfaceSafe(ctx);
   res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today), adjustMenu: renderHomeAdjust(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
 }
+
+/**
+ * Home (`/`): Today full width, rows opening in the sua panel
+ * (views/home-page.ts). With no agents yet it's onboarding, as before.
+ */
+export function sendHomePage(req: Request, res: Response): void {
+  const ctx = getContext(req.app.locals);
+  if (ctx.agentStore.listAgents().length === 0) { sendInboxPage(req, res); return; }
+  let autonomyMode: AutonomyMode = 'full';
+  try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
+  const today = readHomeSurfaceSafe(ctx);
+  res.type('html').send(renderHomePage({ autonomyMode, today, notebooks: notebooksLineFor(ctx), flash: parseFlash(req) }));
+}
+
+/** Home's Today, redrawn in place (home-page.js.ts). */
+inboxRouter.get('/home/today', (req: Request, res: Response) => {
+  const today = readHomeSurfaceSafe(getContext(req.app.locals));
+  const status = homeStatus(today);
+  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs });
+});
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
 

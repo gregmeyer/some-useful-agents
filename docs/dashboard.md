@@ -44,15 +44,20 @@ Asking sua opens the answer in a panel beside the page, not over it, so you can 
 
 On Home the same inbox fills the page instead (below), so it's one inbox at two widths.
 
-## `/` — Home (your inbox)
+## `/` — Home
 
-The first tab, **Today**, is drawn from Home's surface: what needs you, what's happening, and whether everything else is fine, ordered by your rules. Items that aren't conversations (a failing agent, a draft) open beside the list with their actions and why they're there. See [surfaces](surfaces.md#homes-today-tab).
-
-Home is your inbox on one canvas: the list on the left (ask box, **Needs you · Open · Conversations · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox` is the same page, and `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. The **Autonomy** control (Full / Approve first / Off) sits above it. It's the same inbox the conversation panel shows beside other pages.
+Home is what needs you, on one page:
+- **The header** says how things stand ("2 need you", or "Nothing needs you") under the title, with the notebooks link and a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
+- **Today** fills the page: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.
+- **Ask sua** in the bar at the top; there's no second ask box on Home.
 
 With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
 
-On Home the list also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
+## `/inbox` — the full inbox
+
+Every conversation on one canvas: the list on the left (ask box, **Today · Open · Chats · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. It's the same inbox the conversation panel shows beside other pages.
+
+The list here also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
 
 ## `/agents` — Agents list
 

@@ -111,20 +111,39 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(missing.status).toBe(404);
   });
 
-  it('/ and /inbox are the same canvas: list + thread host, autonomy control, a way in for newcomers', async () => {
+  it('/inbox is the canvas (list + thread host); / is Home: Today full width, a ⋯ menu, one ask box', async () => {
     const app = await makeApp();
     // With no agents yet, Home is onboarding.
     const empty = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(empty.text).toContain('No agents yet');
     expect(empty.text).not.toContain('data-inbox-split');
     agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
-    for (const path of ['/', '/inbox']) {
-      const res = await request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-      expect(res.status).toBe(200);
-      expect(res.text).toContain('data-inbox-split data-initial-thread=""');
-      expect(res.text).toContain('action="/inbox/trust/mode"');
-      expect(res.text).toContain('href="/start"');
-    }
+    const inbox = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inbox.text).toContain('data-inbox-split data-initial-thread=""');
+    expect(inbox.text).toContain('action="/inbox/trust/mode"');
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'Pick a colour', body: '(empty)' });
+    const t = inboxStore.list({ limit: 1 })[0];
+    inboxStore.addResponse(t.id, 'triage', 'Blue or green?');
+    inboxStore.updateStatus(t.id, 'awaiting_user');
+    const home = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(home.status).toBe(200);
+    expect(home.text).not.toContain('data-inbox-split');
+    expect(home.text).toContain('data-home-today');
+    expect(home.text).toContain('data-surface-region="needs-you"');
+    expect(home.text).toContain(`data-panel-thread-id="${t.id}"`);
+    expect(home.text).toContain('data-home-status>1 needs you<');
+    // The ⋯ menu: autonomy, Adjust Home, the full inbox.
+    expect(home.text).toContain('class="home-menu"');
+    expect(home.text).toContain('action="/inbox/trust/mode"');
+    expect(home.text).toContain('action="/surfaces/home/ask" class="home-change"');
+    expect(home.text).toContain('href="/inbox">Open the full inbox');
+    expect(home.text).toContain('href="/start"');
+    // One place to ask: the top bar, not the panel's search box.
+    expect(home.text).not.toContain('Search or ask sua');
+    // Today redraws in place.
+    const today = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(today.body).toMatchObject({ status: '1 needs you', needs: 1 });
+    expect(today.body.html).toContain(`data-panel-thread-id="${t.id}"`);
   });
 
   it('fragment is inner HTML only (no <html>, no top-nav)', async () => {
