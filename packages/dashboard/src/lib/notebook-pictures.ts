@@ -78,27 +78,32 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   if (candidates.length === 0) return false;
   ctx.notebookPictures ??= new Set();
   if (ctx.notebookPictures.has(notebookId)) return false;
-  if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_PICTURE_ID, 'notebook pictures')) return false;
-  const agent = ctx.agentStore.getAgent(NOTEBOOK_PICTURE_ID);
-  if (!agent) return false;
+  const fake = ctx.notebookPictureRun;
+  if (!fake && !ensureSystemAgentCurrent(ctx, NOTEBOOK_PICTURE_ID, 'notebook pictures')) return false;
+  const agent = fake ? undefined : ctx.agentStore.getAgent(NOTEBOOK_PICTURE_ID);
+  if (!fake && !agent) return false;
   ctx.notebookPictures.add(notebookId);
   const ids = candidates.map((e) => e.id);
   const options = candidates.map((e) => ({ id: e.id, name: e.title.split(',')[0].trim(), facts: e.data ?? {} }));
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
+  const inputs = { NOTEBOOK: nb.statement || nb.title, OPTIONS: JSON.stringify(options) };
   void (async () => {
     try {
-      // No onRunFailure: a picture hiccup shouldn't open an inbox thread.
-      await executeAgentDag(agent, {
-        triggeredBy: 'dashboard', runId, signal: ac.signal,
-        inputs: { NOTEBOOK: nb.statement || nb.title, OPTIONS: JSON.stringify(options) },
-      }, {
-        runStore: ctx.runStore, secretsStore: ctx.secretsStore, variablesStore: ctx.variablesStore,
-        dataRoot: ctx.agentStore.dataRoot, llmSettings: buildLlmSettingsSnapshot(ctx), spawnNode: ctx.workflowSpawnNode,
-      });
-      const run = ctx.runStore.getRun(runId);
-      if (run?.status === 'completed' && run.result) await applyPictures(store, notebookId, ids, run.result);
+      let result: string | undefined;
+      if (fake) {
+        result = await fake(inputs);
+      } else {
+        // No onRunFailure: a picture hiccup shouldn't open an inbox thread.
+        await executeAgentDag(agent!, { triggeredBy: 'dashboard', runId, signal: ac.signal, inputs }, {
+          runStore: ctx.runStore, secretsStore: ctx.secretsStore, variablesStore: ctx.variablesStore,
+          dataRoot: ctx.agentStore.dataRoot, llmSettings: buildLlmSettingsSnapshot(ctx), spawnNode: ctx.workflowSpawnNode,
+        });
+        const run = ctx.runStore.getRun(runId);
+        result = run?.status === 'completed' ? run.result ?? undefined : undefined;
+      }
+      if (result) await applyPictures(store, notebookId, ids, result);
       else store.markPictureTried(ids);
     } catch {
       store.markPictureTried(ids);
