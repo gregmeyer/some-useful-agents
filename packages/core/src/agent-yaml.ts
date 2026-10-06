@@ -72,6 +72,7 @@ function parsedToAgent(p: AgentV2Parsed): Agent {
     ...(n.prompt !== undefined && { prompt: n.prompt }),
     ...(n.model !== undefined && { model: n.model }),
     ...(n.maxTurns !== undefined && { maxTurns: n.maxTurns }),
+    ...(n.optional !== undefined && { optional: n.optional }),
     ...(n.allowedTools && { allowedTools: n.allowedTools }),
     ...(n.tools && { tools: n.tools }),
     ...(n.provider !== undefined && { provider: n.provider }),
@@ -180,7 +181,7 @@ const NODE_KEY_ORDER = [
   // tool-driven nodes
   'tool', 'action', 'toolInputs',
   // execution
-  'command', 'prompt', 'goal', 'question', 'choices', 'timeoutHours', 'model', 'maxTurns', 'budget', 'allowedTools', 'tools', 'provider',
+  'command', 'prompt', 'goal', 'question', 'choices', 'timeoutHours', 'model', 'maxTurns', 'optional', 'budget', 'allowedTools', 'tools', 'provider',
   // file-write
   'path', 'content', 'append',
   'timeout', 'env', 'envAllowlist', 'secrets', 'redactSecrets', 'workingDirectory',

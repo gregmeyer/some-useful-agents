@@ -20,6 +20,8 @@ import {
 /** What the widgets read from the store beyond the view data: the searches. */
 export interface NotebookWidgetHistory extends NotebookViewHistory {
   searches?(notebookId: string, limit?: number): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }>;
+  /** Recent runs of an agent (to show the ones that failed, which leave nothing in the notebook). */
+  recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
 }
 
 /** Words a limit uses for a field's unit ("mi" → "miles"). */
@@ -117,7 +119,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     limitsNote: string;
     coverage: { sources: NotebookSearchSource[]; when: string };
     checklist: Array<{ id: string; title: string; items: Array<{ text: string; done: boolean }> }>;
-    timeline: Array<{ at: string; title: string; body?: string; kind?: string; tag?: string; link?: string; linkText?: string; faded?: boolean }>;
+    timeline: Array<{ at: string; title: string; body?: string; kind?: string; who?: string; tag?: string; link?: string; linkText?: string; faded?: boolean }>;
     shortlistNote: string;
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
@@ -168,11 +170,42 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const timeline: NotebookWidgetData['notebook']['timeline'] = [];
   for (const s of searches) {
     timeline.push({
-      at: s.at, kind: 'search',
-      title: s.found ? `Search found ${String(s.found)} option${s.found === 1 ? '' : 's'}` : 'Search found nothing new',
-      body: s.sources.length ? s.sources.map((x) => `${x.name} ${x.status === 'found' ? String(x.found) : x.status}`).join(' · ') : s.agentId,
+      at: s.at, kind: 'search', who: s.agentId,
+      title: s.found ? `Search returned ${String(s.found)} option${s.found === 1 ? '' : 's'}` : 'Search returned no options',
+      ...(s.sources.length ? { body: s.sources.map((x) => `${x.name} ${x.status === 'found' ? String(x.found) : x.status}`).join(' · ') } : {}),
       ...(s.runId ? { link: `/runs/${encodeURIComponent(s.runId)}`, linkText: `run ${s.runId.slice(0, 8)}` } : {}),
     });
+  }
+  // Runs from before searches were recorded: rebuilt from the options each run added.
+  const recorded = new Set(searches.map((s) => s.runId).filter(Boolean));
+  const byRun = new Map<string, { at: string; agent: string; options: number }>();
+  for (const e of entries) {
+    if (!e.runId || recorded.has(e.runId) || !e.by.startsWith('agent:')) continue;
+    const g = byRun.get(e.runId) ?? { at: e.createdAt, agent: e.by.slice('agent:'.length), options: 0 };
+    if (e.createdAt < g.at) g.at = e.createdAt;
+    if (e.kind === 'option') g.options++;
+    byRun.set(e.runId, g);
+  }
+  for (const [runId, g] of byRun) {
+    timeline.push({
+      at: g.at, kind: 'search', who: g.agent,
+      title: g.options ? `Search returned ${String(g.options)} option${g.options === 1 ? '' : 's'}` : 'Search added notes, no options',
+      link: `/runs/${encodeURIComponent(runId)}`, linkText: `run ${runId.slice(0, 8)}`,
+    });
+  }
+  // Runs of the agents that feed it that failed (they leave nothing in the notebook).
+  if (history?.recentRuns) {
+    const feeders = new Set([...nb.pipeline, ...searches.map((s) => s.agentId), ...[...byRun.values()].map((g) => g.agent)]);
+    for (const agentId of feeders) {
+      for (const r of history.recentRuns(agentId)) {
+        if (r.status !== 'failed' || r.startedAt < nb.createdAt) continue;
+        timeline.push({
+          at: r.startedAt, kind: 'search', who: agentId, faded: true,
+          title: 'Search failed', ...(r.error ? { body: clip(r.error, 140) } : {}),
+          link: `/runs/${encodeURIComponent(r.id)}`, linkText: `run ${r.id.slice(0, 8)}`,
+        });
+      }
+    }
   }
   for (const o of outOptions) {
     timeline.push(o.ruledOut!.gone
@@ -181,7 +214,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   }
   for (const e of entries) {
     if (e.kind === 'option') {
-      if (e.stage && e.stageAt && e.stage !== nb.stages[0] && !e.ruledOut) timeline.push({ at: e.stageAt, title: `${shortOf(e.title)} → ${e.stage}` });
+      if (e.stage && e.stageAt && e.stage !== nb.stages[0] && !e.ruledOut) timeline.push({ at: e.stageAt, kind: 'move', title: `${shortOf(e.title)} → ${e.stage}` });
       continue;
     }
     if (/^Met: /.test(e.title)) continue;
@@ -210,7 +243,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       limitsNote: disagree ? `${String(disagree)} disagree` : '',
       coverage: { sources: latestWithSources?.sources ?? [], when: latestWithSources ? `last search · ${fmtAge(latestWithSources.at, now)}` : '' },
       checklist: top.map((o, i) => ({ id: o.id, title: `#${String(i + 1)} · ${o.name}`, items: checks.map((c) => ({ text: c, done: o.checked.includes(c) })) })),
-      timeline: timeline.slice(0, 14),
+      timeline: timeline.slice(0, 80),
       shortlistNote: `ranked by ${(priceF?.label ?? 'price').toLowerCase()}${better === 'higher' ? ', highest first' : ''}`,
       stats: {
         active: String(active.length),
@@ -276,7 +309,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
     { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
     panel('time_panel', 'How we got here', 'timeline', 'newest first'),
-    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8 },
+    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true },
     { id: 'ctx', component: 'Columns', children: ['cov_panel', 'lim_panel'], widths: [1, 1] },
     panel('cov_panel', 'Where sua looked', 'coverage', { path: '/notebook/coverage/when' }),
     { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
