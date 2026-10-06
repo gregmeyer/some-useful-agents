@@ -84,3 +84,25 @@ describe('saved brands', () => {
     expect(listSavedBrands(dir).map((b) => b.id)).toEqual(['zebra-co']);
   });
 });
+
+describe('brand contrast', () => {
+  it('measures contrast and flags hard-to-read themes in each mode', async () => {
+    const { contrastRatio, parseColor, brandContrastIssues, brandThemeSchema } = await import('./brand-theme.js');
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0);
+    expect(contrastRatio('#fff', '#fff')).toBeCloseTo(1, 5);
+    expect(parseColor('rgb(255, 0, 0)')).toEqual([255, 0, 0]);
+    expect(parseColor('hsl(0, 100%, 50%)')!.map(Math.round)).toEqual([255, 0, 0]);
+    expect(parseColor('transparent')).toBeUndefined();
+    expect(brandContrastIssues(brandThemeSchema.parse({ version: 1 }))).toEqual([]);
+    const pale = brandThemeSchema.parse({ version: 1, light: { text: '#dddddd' } });
+    expect(brandContrastIssues(pale).join(' ')).toMatch(/Light mode: text on the page is hard to read/);
+    expect(brandContrastIssues(pale).join(' ')).not.toMatch(/Dark mode/);
+  });
+
+  it('accepts font names in any script but nothing that ends a CSS value', async () => {
+    const { brandThemeSchema } = await import('./brand-theme.js');
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: '"Söhne", "Noto Sans JP", sans-serif' } }).success).toBe(true);
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: 'Inter; } body {' } }).success).toBe(false);
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: 'Inter\\' } }).success).toBe(false);
+  });
+});

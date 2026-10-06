@@ -59,7 +59,8 @@ import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
 import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
-import { renderSettingsAppearance } from '../views/settings-appearance.js';
+import { renderSettingsAppearance, type BrandProposalView } from '../views/settings-appearance.js';
+import { readBrandProposal, discardBrandProposal, startBrandProposal, brandProposalRunning } from '../lib/brand-maker.js';
 import { renderSettingsIntegrations } from '../views/settings-integrations.js';
 import { renderSettingsLlm, type ModelServerView } from '../views/settings-llm.js';
 import { getContext, type DashboardContext } from '../context.js';
@@ -769,6 +770,7 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
     brand: {
       theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme),
       saved: listSavedBrands(ctx.dataDir).map((b) => ({ id: b.id, name: b.name, active: isActiveBrand(theme, b.theme), effective: resolveBrandTheme(b.theme) })),
+      proposal: brandProposalView(ctx),
     },
   });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
@@ -851,6 +853,53 @@ settingsRouter.post('/settings/appearance/brands/:id/delete', (req: Request, res
   const ctx = getContext(req.app.locals);
   const gone = deleteSavedBrand(ctx.dataDir, String(req.params.id));
   redirectWith(res, '/settings/appearance#brands-title', gone ? 'flash' : 'error', gone ? 'Brand deleted. The look in use didn\'t change.' : 'That brand was already gone.');
+});
+
+/** The stored proposal for the page; a 'working' one left by a restart reads as failed. */
+function brandProposalView(ctx: ReturnType<typeof getContext>): BrandProposalView | undefined {
+  const p = readBrandProposal(ctx.dataDir);
+  if (!p) return undefined;
+  if (p.status === 'working') {
+    return brandProposalRunning(ctx) ? { status: 'working', source: p.source } : { status: 'failed', source: p.source, error: 'sua stopped before it finished (the dashboard restarted). Try again.' };
+  }
+  if (p.status === 'failed') return { status: 'failed', source: p.source, error: p.error };
+  return { status: 'ready', source: p.source, why: p.why, issues: p.issues, name: p.theme.name, effective: resolveBrandTheme(p.theme) };
+}
+
+// Update my brand: sua proposes a brand from a website or a few words; you use it or not.
+settingsRouter.post('/settings/appearance/brand/propose', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const source = typeof req.body?.source === 'string' ? req.body.source : '';
+  if (!source.trim()) { redirectWith(res, '/settings/appearance#brand-maker-title', 'error', 'Give sua a website or a few words about the look.'); return; }
+  if (!startBrandProposal(ctx, source)) {
+    redirectWith(res, '/settings/appearance#brand-maker-title', 'error', brandProposalRunning(ctx) ? 'sua is already making a brand. Wait for it to finish.' : 'sua couldn\'t start the brand maker. Check Settings → Agents for brand-maker.');
+    return;
+  }
+  res.redirect(303, '/settings/appearance#brand-maker-title');
+});
+
+settingsRouter.get('/settings/appearance/brand/proposal', (req: Request, res: Response) => {
+  const v = brandProposalView(getContext(req.app.locals));
+  res.json({ status: v?.status ?? 'none' });
+});
+
+settingsRouter.post('/settings/appearance/brand/proposal/use', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const p = readBrandProposal(ctx.dataDir);
+  if (p?.status !== 'ready') { redirectWith(res, '/settings/appearance#brand-maker-title', 'error', 'There is no brand to use. Make one first.'); return; }
+  try {
+    saveBrandTheme(ctx.dataDir, p.theme, { expectedVersion: typeof req.body?.version === 'string' ? req.body.version : undefined });
+    discardBrandProposal(ctx.dataDir);
+    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using ${p.theme.name ? `"${p.theme.name}"` : 'sua\'s proposed brand'} everywhere. Undo last change puts the previous look back.`);
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brand-maker-title', 'error', (err as Error).message);
+  }
+});
+
+settingsRouter.post('/settings/appearance/brand/proposal/discard', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!brandProposalRunning(ctx)) discardBrandProposal(ctx.dataDir);
+  redirectWith(res, '/settings/appearance#brand-maker-title', 'flash', 'Proposal discarded. Your brand didn\'t change.');
 });
 
 settingsRouter.post('/settings/appearance/brand/undo', (req: Request, res: Response) => {

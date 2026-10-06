@@ -62,6 +62,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'goal-surveyor': 'stage 1 of the build orchestrator',
   'inbox-learning-extractor': 'post-resolution distillation, runs unattended',
   'notebook-keeper': 'notebook pipeline only: turns a run into notebook entries, never proposed',
+  'brand-maker': 'Settings → Appearance only: proposes a brand theme, never proposed',
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',

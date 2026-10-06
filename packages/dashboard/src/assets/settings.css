@@ -506,3 +506,23 @@
 .brands__badge { font-size: var(--font-size-xs); font-weight: var(--weight-semibold); color: var(--color-primary); }
 .brand-strip { display: inline-flex; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--color-border); }
 .brand-strip span { width: 18px; height: 24px; }
+/* Settings → Appearance: Update my brand (sua proposes one) */
+.brand-maker { margin: 0 0 var(--space-6); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
+.brand-maker__title { margin: 0; font-size: var(--font-size-md); font-weight: var(--weight-semibold); }
+.brand-maker__lede, .brand-maker__status, .brand-maker__why, .brand-maker__ok, .brand-maker__hint { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.brand-maker__why strong { color: var(--color-text); }
+.brand-maker__ask { display: flex; gap: var(--space-2); }
+.brand-maker__ask input { flex: 1; height: 32px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
+.brand-maker__result { display: grid; gap: var(--space-3); }
+.brand-maker__previews { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+@media (max-width: 640px) { .brand-maker__previews { grid-template-columns: 1fr; } .brand-maker__ask { flex-direction: column; } }
+.brand-maker__issues { margin: 0; padding-left: var(--space-4); font-size: var(--font-size-sm); color: var(--color-warn); }
+.brand-maker__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.brand-maker__actions form { margin: 0; }
+.brand-preview { padding: var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-border); display: grid; gap: var(--space-2); }
+.brand-preview__mode { font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.brand-preview__card { padding: var(--space-3); display: grid; gap: var(--space-1); font-size: var(--font-size-sm); }
+.brand-preview__row { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-1); }
+.brand-preview__btn { padding: 2px var(--space-2); font-weight: var(--weight-semibold); font-size: var(--font-size-xs); }
+.brand-preview__accents { display: flex; gap: 4px; }
+.brand-preview__accents span { width: 20px; height: 6px; border-radius: 3px; }

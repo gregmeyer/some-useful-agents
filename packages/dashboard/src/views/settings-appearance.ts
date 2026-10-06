@@ -15,6 +15,8 @@ export interface BrandFormInput {
   effective: ReturnType<typeof resolveBrandTheme>;
   /** Saved brands, with their effective colours and whether each is the one in use. */
   saved?: Array<{ id: string; name: string; active: boolean; effective: ReturnType<typeof resolveBrandTheme> }>;
+  /** sua's brand proposal (Update my brand), if there is one. */
+  proposal?: BrandProposalView;
 }
 
 /** A saved brand's colours as a strip: accent, page, surface, text (light), then accent (dark). */
@@ -57,6 +59,70 @@ function renderSavedBrands(brand: BrandFormInput): SafeHtml {
               <button type="submit" class="btn btn--sm btn--ghost" aria-label="Delete the ${b.name} brand">Delete</button>
             </form>
           </li>`) as unknown as SafeHtml[]}</ul>`}
+    </section>`;
+}
+
+export type BrandProposalView =
+  | { status: 'working'; source: string }
+  | { status: 'failed'; source: string; error: string }
+  | { status: 'ready'; source: string; why?: string; issues: string[]; name?: string; effective: ReturnType<typeof resolveBrandTheme> };
+
+/** A small page drawn in the proposed colours, for one mode. Colours are schema-checked. */
+function brandPreview(e: ReturnType<typeof resolveBrandTheme>, mode: 'dark' | 'light'): SafeHtml {
+  const base = mode === 'dark'
+    ? { bg: '#1a1918', surface: '#242220', border: '#3a3633', text: '#e7e5e4', 'text-muted': '#a8a29e', primary: '#2dd4bf', 'primary-soft': '#134e4a' }
+    : { bg: '#faf9f7', surface: '#ffffff', border: '#e7e5e4', text: '#1c1917', 'text-muted': '#78716c', primary: '#0f766e', 'primary-soft': '#ccfbf1' };
+  const t = { ...base, ...(e[mode] as Record<string, string | undefined>) } as Record<string, string>;
+  const font = e.fonts.sans ?? 'system-ui, sans-serif';
+  const r = e.radius.md ?? 10;
+  const accents = Object.values(e.accents).slice(0, 4);
+  return html`<div class="brand-preview" style="background: ${t.bg}; color: ${t.text}; font-family: ${font};">
+      <span class="brand-preview__mode" style="color: ${t['text-muted']};">${mode === 'dark' ? 'Dark' : 'Light'}</span>
+      <div class="brand-preview__card" style="background: ${t.surface}; border: 1px solid ${t.border}; border-radius: ${String(r)}px;">
+        <strong>Weekly digest</strong>
+        <span style="color: ${t['text-muted']};">3 runs today, all fine</span>
+        <span class="brand-preview__row">
+          <span class="brand-preview__btn" style="background: ${t.primary}; color: ${t.bg}; border-radius: ${String(Math.max(2, r - 4))}px;">Run now</span>
+          <span style="color: ${t.primary};">Open</span>
+        </span>
+      </div>
+      <span class="brand-preview__accents">${accents.map((a) => html`<span style="background: ${a};"></span>`) as unknown as SafeHtml[]}</span>
+    </div>`;
+}
+
+/** Update my brand: ask sua for a brand from a website or a few words, preview it, use it or not. */
+function renderBrandMaker(brand: BrandFormInput): SafeHtml {
+  const p = brand.proposal;
+  const ask = html`<form method="POST" action="/settings/appearance/brand/propose" class="brand-maker__ask">
+      <label class="sr-only" for="brand-maker-source">A website or a few words</label>
+      <input id="brand-maker-source" type="text" name="source" required maxlength="500" value="${p && p.status !== 'working' ? p.source : ''}" placeholder="https://yourcompany.com, or: calm navy and coral, rounded">
+      <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(p?.status === 'working' ? ' disabled' : '')}>${p && p.status !== 'working' ? 'Try again' : 'Make my brand'}</button>
+    </form>`;
+  let body: SafeHtml = html``;
+  if (p?.status === 'working') {
+    body = html`<p class="brand-maker__status" data-brand-working>sua is making a brand from <strong>${p.source}</strong>. This takes a minute or so; the page updates when it's ready.</p>
+      ${unsafeHtml(`<script>(function(){var n=0;var t=setInterval(function(){n++;fetch('/settings/appearance/brand/proposal',{headers:{Accept:'application/json'}}).then(function(r){return r.json()}).then(function(j){if(!j||j.status!=='working'||n>120){clearInterval(t);location.reload();}}).catch(function(){});},3000);})();</script>`)}`;
+  } else if (p?.status === 'failed') {
+    body = html`<p class="flash flash--error" style="margin: 0;">${p.error}</p>`;
+  } else if (p?.status === 'ready') {
+    body = html`
+      <div class="brand-maker__result">
+        <p class="brand-maker__why"><strong>${p.name ?? 'A brand'}</strong>${p.why ? html` · ${p.why}` : html``}</p>
+        <div class="brand-maker__previews">${brandPreview(p.effective, 'light')}${brandPreview(p.effective, 'dark')}</div>
+        ${p.issues.length ? html`<ul class="brand-maker__issues">${p.issues.map((i) => html`<li>${i}</li>`) as unknown as SafeHtml[]}</ul>` : html`<p class="brand-maker__ok">Text and accents are readable in both modes.</p>`}
+        <div class="brand-maker__actions">
+          <form method="POST" action="/settings/appearance/brand/proposal/use"><input type="hidden" name="version" value="${brand.version}">
+            <button type="submit" class="btn btn--sm btn--primary">Use this brand</button></form>
+          <form method="POST" action="/settings/appearance/brand/proposal/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
+          <span class="brand-maker__hint">Nothing changes until you use it. Undo last change puts the current look back.</span>
+        </div>
+      </div>`;
+  }
+  return html`<section class="brand-maker" aria-labelledby="brand-maker-title">
+      <h3 id="brand-maker-title" class="brand-maker__title">Update my brand</h3>
+      <p class="brand-maker__lede">Give sua your website or describe the look, and it proposes colours for both modes, fonts, corners and tile accents. You see it before anything changes.</p>
+      ${ask}
+      ${body}
     </section>`;
 }
 
@@ -114,6 +180,7 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPag
         See <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/brand.md">the brand guide</a>.
       </p>
       ${brand ? html`
+      ${renderBrandMaker(brand)}
       ${renderSavedBrands(brand)}
       <h3 class="brands__title" style="margin: var(--space-6) 0 var(--space-3);">The look in use</h3>
       <form method="POST" action="/settings/appearance/brand" class="brand-form">

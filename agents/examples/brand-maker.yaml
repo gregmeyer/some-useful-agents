@@ -1,0 +1,77 @@
+# Brand Maker — proposes a dashboard brand (docs/brand.md) from a website or
+# a description. Route-dispatched only, by Settings → Appearance → Update my
+# brand (dashboard lib/brand-maker.ts); never proposed in triage. Its <brand>
+# JSON is validated with brandThemeSchema and contrast-checked before you see
+# it; nothing is applied until you choose to.
+
+id: brand-maker
+name: Brand Maker
+description: >
+  Proposes a brand for the sua dashboard (colours for dark and light mode,
+  fonts, corner radius and tile accents) from a website or a few words.
+status: active
+source: examples
+
+inputs:
+  SOURCE:
+    type: string
+    required: true
+    description: A website address, or a few words describing the look.
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: The theme in use now, as JSON (to change only what's asked).
+
+nodes:
+  - id: brand
+    type: llm-prompt
+    allowedTools: [WebFetch]
+    maxTurns: 8
+    timeout: 180
+    outputContract:
+      mustMatch: '<brand>[\s\S]*?</brand>'
+      description: a <brand> JSON block
+    prompt: |
+      Propose a brand for a dashboard app (a dark mode and a light mode),
+      from this:
+
+      {{inputs.SOURCE}}
+
+      If it's a website address, fetch it (WebFetch) and read its look: the
+      theme-color meta tag, CSS custom properties and the colours used most
+      for backgrounds, text, links and buttons, and its font families. Use
+      what you find; don't invent a brand the site doesn't have. If it's a
+      description, make a tasteful brand that matches it.
+
+      The theme in use now (keep anything the request doesn't touch):
+      {{inputs.CURRENT}}
+
+      Rules:
+      - Colours as #rrggbb only.
+      - Both modes: bg (page), surface (cards), surface-raised, border,
+        border-strong, text, text-muted, primary (the brand colour: links,
+        buttons), primary-hover, primary-soft (a pale tint for highlights).
+      - Readable: text on bg and on surface at least 4.5:1; text-muted on
+        surface and primary on bg at least 3:1. Dark mode is dark; light
+        mode is light.
+      - Fonts: a stack that works without downloading anything, the brand's
+        font first if it has one, then system fallbacks, e.g.
+        "Inter", system-ui, -apple-system, "Segoe UI", sans-serif.
+      - radius sm/md/lg in px (0–40) to match how rounded the brand feels.
+      - accents: six tile colours (teal, blue, green, orange, red, purple)
+        in the brand's palette.
+      - preset: "default" (sua's base) unless one of warm, minimal, neon,
+        editorial is clearly closer.
+
+      Do NOT use any tool other than WebFetch. Reply with only this, as valid
+      JSON:
+      <brand>
+      {"name": "short name", "preset": "default",
+       "dark": {"bg": "#…", "surface": "#…", "surface-raised": "#…", "border": "#…", "border-strong": "#…", "text": "#…", "text-muted": "#…", "primary": "#…", "primary-hover": "#…", "primary-soft": "#…"},
+       "light": {…the same keys…},
+       "fonts": {"sans": "…"},
+       "radius": {"sm": 6, "md": 10, "lg": 14},
+       "accents": {"teal": "#…", "blue": "#…", "green": "#…", "orange": "#…", "red": "#…", "purple": "#…"},
+       "why": "one sentence: where the look came from"}
+      </brand>
