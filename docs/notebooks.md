@@ -111,6 +111,8 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 **Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. Facts stored before this check are repaired when you open the notebook. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
 
+**Deciding** (**Decide…** in the header) speaks about this notebook. Its example names your leading options (furthest stage first, then the best price), and **Start from** chips for up to three options still in the running begin the answer with "Chose ___: ". Recording the decision closes the notebook.
+
 ## Stages and ruling out: the funnel
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.

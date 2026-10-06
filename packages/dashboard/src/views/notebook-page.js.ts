@@ -10,6 +10,16 @@ export const NOTEBOOK_PAGE_JS = `
       var el = e.target;
       if (el && el.matches && el.matches('select[data-autosubmit]') && el.form) el.form.submit();
     });
+    // Decide…: an option chip starts the answer with it.
+    document.addEventListener('click', function (e) {
+      var pick = e.target.closest && e.target.closest('[data-nb-decide-pick]');
+      if (!pick) return;
+      var ta = document.getElementById('nb-decision');
+      if (!ta) return;
+      ta.value = pick.getAttribute('data-nb-decide-pick') + ta.value.replace(/^Chose [^:]*: /, '');
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    });
     var main = document.querySelector('[data-nb-main]');
     if (!main) return;
     var id = main.getAttribute('data-nb-main');
