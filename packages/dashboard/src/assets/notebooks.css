@@ -367,3 +367,12 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nbl-chip { font-size: var(--font-size-xs); line-height: 1.7; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-muted); }
 .nbl-card__meta { margin-top: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 @media (max-width: 640px) { .nbl-tools__sort { margin-left: 0; } .nbl-new__form { position: static; width: auto; margin-top: var(--space-2); } }
+
+/* With the sua panel open, the notebook's talk box steps aside: one place to talk. */
+.nb-talk__in-drawer { display: none; margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+body.has-sua-panel .nb-talk__in-drawer { display: block; }
+body.has-sua-panel .nb-talk .nb-talk__last,
+body.has-sua-panel .nb-talk .nb-talk__form,
+body.has-sua-panel .nb-talk .nb-talk__next,
+body.has-sua-panel .nb-talk [data-nb-continue] { display: none; }
+body.has-sua-panel .nb-start__pointer { display: none; }
