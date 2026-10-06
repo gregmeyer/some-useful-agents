@@ -236,6 +236,8 @@ export const INBOX_MODAL_JS = `
       // The panel remembers its thread so Cmd-K brings it back.
       var keep = currentId;
       savePanel(keep, 'closed');
+      // Pages showing this thread elsewhere (a notebook's talk box) catch up.
+      try { document.dispatchEvent(new CustomEvent('sua:panel-closed', { detail: { threadId: keep } })); } catch (_) {}
       if (panelMode === 'min' || reduceMotion) { teardownModal(); return; }
       easePanel(false);
       document.body.classList.remove('has-sua-panel', 'has-sua-panel--docked', 'has-sua-panel--wide');

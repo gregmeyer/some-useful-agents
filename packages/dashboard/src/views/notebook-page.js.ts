@@ -82,5 +82,27 @@ export const NOTEBOOK_PAGE_JS = `
         .catch(function () { /* keep what's shown */ });
     }
     setInterval(refresh, 5000);
+    // Closing the sua panel on this notebook's thread: what was said there shows here now.
+    document.addEventListener('sua:panel-closed', function (e) {
+      var tid = e.detail && e.detail.threadId;
+      if (!tid) return;
+      var ours = document.querySelectorAll('[data-nb-continue]');
+      var match = ours.length === 0; // no thread yet: the panel may have just started one
+      for (var i = 0; i < ours.length; i++) if (ours[i].getAttribute('data-nb-continue') === tid) match = true;
+      if (!match) return;
+      refresh(true);
+      var talk = document.querySelector('.nb-talk');
+      if (!talk) return;
+      var ae = document.activeElement;
+      if (ae && talk.contains(ae)) return; // typing there: leave it
+      fetch('/notebooks/' + encodeURIComponent(id), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+        .then(function (t) {
+          var fresh = new DOMParser().parseFromString(t, 'text/html').querySelector('.nb-talk');
+          var now = document.querySelector('.nb-talk');
+          if (fresh && now) now.replaceWith(document.importNode(fresh, true));
+        })
+        .catch(function () { /* keep what's shown */ });
+    });
   })();
 `;
