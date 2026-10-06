@@ -259,6 +259,10 @@ export interface DashboardContext {
   notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
+  /** Settings → Appearance: sua is proposing a brand right now. */
+  brandProposalRunning?: boolean;
+  /** Tests only: answer for the brand maker instead of running it. Production leaves it unset. */
+  brandMakerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage

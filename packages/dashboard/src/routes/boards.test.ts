@@ -329,6 +329,66 @@ describe('brand theme', () => {
   });
 });
 
+describe('update my brand (sua proposes one)', () => {
+  const form = (app: Parameters<typeof request>[0], p: string, body: Record<string, string>) =>
+    request(app).post(p).type('form').send(body).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  const proposal = (extra = '') => `<brand>{"name": "Harbor", "preset": "default",
+    "dark": {"bg": "#0f1726", "surface": "#16213a", "text": "#e8edf6", "text-muted": "#9aa8c2", "primary": "#ff7a66"},
+    "light": {"bg": "#f6f7fb", "surface": "#ffffff", "text": "#14213d", "text-muted": "#5b6782", "primary": "#e0533d"},
+    "fonts": {"sans": "\\"Söhne\\", \\"Bad;Font\\", system-ui, sans-serif"}, "radius": {"md": 14}${extra},
+    "why": "navy and coral"}</brand>`;
+  const waitReady = async (app: Parameters<typeof request>[0]) => {
+    for (let i = 0; i < 50; i++) {
+      const s = (await get(app, '/settings/appearance/brand/proposal')).body.status;
+      if (s !== 'working') return s as string;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return 'working';
+  };
+
+  it('proposes from a few words, previews, checks it, and changes nothing until used', async () => {
+    const app = await setup();
+    let seen: Record<string, string> = {};
+    ctx.brandMakerRun = async (inputs) => { seen = inputs; return proposal(); };
+    let page = await get(app, '/settings/appearance');
+    expect(page.text).toContain('Update my brand');
+    expect((await form(app, '/settings/appearance/brand/propose', { source: '  ' })).headers.location).toMatch(/error=/);
+    const res = await form(app, '/settings/appearance/brand/propose', { source: 'calm navy and coral' });
+    expect(res.status).toBe(303);
+    expect(await waitReady(app)).toBe('ready');
+    expect(seen.SOURCE).toBe('calm navy and coral');
+    expect(JSON.parse(seen.CURRENT)).toMatchObject({ version: 1 });
+    const themeCss = async () => (await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text;
+    expect(await themeCss()).not.toContain('#e0533d'); // nothing applied yet
+    page = await get(app, '/settings/appearance');
+    expect(page.text).toContain('Harbor');
+    expect(page.text).toContain('Use this brand');
+    expect(page.text).toContain('readable in both modes');
+    const version = /name="version" value="([^"]*)"/.exec(page.text)![1];
+    await form(app, '/settings/appearance/brand/proposal/use', { version });
+    const css = await themeCss();
+    expect(css).toContain('--color-primary: #e0533d;');
+    expect(css).toContain('--font-sans: "Söhne", system-ui, sans-serif;'); // the bad family is dropped, not the brand
+    expect((await get(app, '/settings/appearance')).text).not.toContain('Use this brand');
+  });
+
+  it('flags hard-to-read colours, reports a broken proposal, and discards', async () => {
+    const app = await setup();
+    ctx.brandMakerRun = async () => proposal().replace('"text": "#14213d"', '"text": "#eeeeee"');
+    await form(app, '/settings/appearance/brand/propose', { source: 'pale' });
+    expect(await waitReady(app)).toBe('ready');
+    expect((await get(app, '/settings/appearance')).text).toMatch(/Light mode: text on the page is hard to read/);
+    await form(app, '/settings/appearance/brand/proposal/discard', {});
+    expect((await get(app, '/settings/appearance/brand/proposal')).body.status).toBe('none');
+
+    ctx.brandMakerRun = async () => proposal().replace('"#e0533d"', '"red; } body {"');
+    await form(app, '/settings/appearance/brand/propose', { source: 'broken' });
+    expect(await waitReady(app)).toBe('failed');
+    expect((await get(app, '/settings/appearance')).text).toContain("didn&#39;t check out");
+    expect((await form(app, '/settings/appearance/brand/proposal/use', { version: '' })).headers.location).toMatch(/error=/);
+  });
+});
+
 describe('build a board from a request', { timeout: 30_000 }, () => {
   it('plans with the board builder, arranges a canvas, runs the tiles, and reports in the inbox', async () => {
     const app = await setup();

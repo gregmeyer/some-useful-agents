@@ -23,6 +23,15 @@ Keep more than one look and switch between them. At the top of **Settings → Ap
 - **In use** marks the brand whose colours, fonts, radius and accents match the look in use.
 
 Saved brands are theme files in `.sua/brands/<name>.json`, checked like the active theme (one that doesn't validate is skipped).
+## Update my brand (sua makes one)
+
+At the top of **Settings → Appearance → Brand**, give sua your website (`https://yourcompany.com`) or a few words (`calm navy and coral, rounded`) and choose **Make my brand**. The `brand-maker` agent proposes colours for both modes, a font stack, corner radius and tile accents, and says where the look came from. A website is fetched and read; if its styles can't be read, the note says so.
+
+- **Preview first:** the proposal is drawn as a small light and dark page in its own colours. Nothing changes until you choose **Use this brand**; **Discard** drops it, and **Try again** asks again.
+- **Checked:** the proposal must pass the same checks as a hand-made theme (a font family that doesn't is dropped, not the whole brand). sua also measures contrast and lists anything hard to read: text on the page and on cards needs 4.5:1, muted text and the accent need 3:1.
+- **Undo:** using it is an ordinary save, so **Undo last change** brings the previous look back.
+
+The proposal waits in `.sua/brand-proposal.json`, one at a time.
 
 ## How it works
 
