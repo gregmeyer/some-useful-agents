@@ -378,3 +378,14 @@ body.has-sua-panel .nb-talk .nb-talk__form,
 body.has-sua-panel .nb-talk .nb-talk__next,
 body.has-sua-panel .nb-talk [data-nb-continue] { display: none; }
 body.has-sua-panel .nb-start__pointer { display: none; }
+
+/* Runs of the notebook's agents that ran elsewhere: Add to notebook. */
+.nb-unfiled__lede { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-unfiled__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.nb-unfiled__item { display: grid; gap: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.nb-unfiled__item:first-child { border-top: 0; padding-top: 0; }
+.nb-unfiled__item .btn { white-space: nowrap; }
+.nb-unfiled__item form { margin: 0; }
+.nb-unfiled__what { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; font-size: var(--font-size-sm); }
+.nb-unfiled__what a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-unfiled__when, .nb-unfiled__adding { font-size: var(--font-size-xs); color: var(--color-text-muted); }

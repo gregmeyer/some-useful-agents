@@ -344,6 +344,26 @@ export class NotebookStore {
     }));
   }
 
+  /**
+   * Where a notebook's results come from: the agents that have filled it
+   * (its pipeline, its searches, and "agent:<id>" on its entries), and the
+   * runs already in it.
+   */
+  runSources(notebookId: string): { agents: string[]; runIds: string[] } {
+    const nb = this.mustGet(notebookId);
+    const agents = new Set<string>(nb.pipeline);
+    const runIds = new Set<string>();
+    for (const r of this.db.prepare('SELECT agent_id, run_id FROM notebook_searches WHERE notebook_id = ?').all(notebookId) as Array<{ agent_id: string; run_id: string | null }>) {
+      agents.add(r.agent_id);
+      if (r.run_id) runIds.add(r.run_id);
+    }
+    for (const r of this.db.prepare('SELECT DISTINCT by, run_id FROM notebook_entries WHERE notebook_id = ?').all(notebookId) as Array<{ by: string | null; run_id: string | null }>) {
+      if (r.by?.startsWith('agent:')) agents.add(r.by.slice('agent:'.length));
+      if (r.run_id) runIds.add(r.run_id);
+    }
+    return { agents: [...agents].sort(), runIds: [...runIds] };
+  }
+
   /** What to check on each option before deciding (at most 8). */
   setChecks(id: string, list: readonly unknown[]): Notebook {
     this.mustGet(id);
