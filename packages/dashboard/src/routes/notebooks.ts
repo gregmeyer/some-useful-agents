@@ -6,7 +6,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  NotebookStore, SurfaceStore, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
@@ -15,6 +15,7 @@ import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage, type NotebookCard } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
+import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, greetNotebook } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
@@ -146,8 +147,24 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/remove', (req: Request, res:
 
 // An option's kept photo. Served as an image only: never sniffed, never run.
 notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: Response) => {
-  const photo = store(req).photo(String(req.params.entry));
+  const s = store(req);
+  const photo = s.photo(String(req.params.entry));
   if (!photo) { res.status(404).end(); return; }
+  // An illustration is drawn here, each time (so earlier drawings improve too).
+  if (photo.kind === 'illustration') {
+    const nb = s.get(String(req.params.id));
+    const entry = nb ? s.entries(nb.id, 1000).find((e) => e.id === String(req.params.entry)) : undefined;
+    if (nb && entry) {
+      const name = shortName(entry.title);
+      const svg = optionIllustration({ kind: illustrationKind(nb, name), name, seed: entry.id });
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.end(svg);
+      return;
+    }
+  }
   res.setHeader('Content-Type', photo.contentType);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
