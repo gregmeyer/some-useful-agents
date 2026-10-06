@@ -11,7 +11,7 @@
  * nothing in a theme can break out of a CSS declaration.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
@@ -200,4 +200,70 @@ export function restoreBrandThemeBackup(dataDir: string, opts: { expectedVersion
   if (!existsSync(backup)) throw new BrandThemeError('There is no earlier theme to go back to.');
   writeChecked(dataDir, readFileSync(backup, 'utf-8'), opts.expectedVersion);
   return { version: brandThemeVersion(dataDir) };
+}
+
+// ── Saved brands: named themes you can keep, switch between and delete ──
+// Each is a theme file in `.sua/brands/<id>.json`, checked like the active one.
+
+export interface SavedBrand { id: string; name: string; theme: BrandTheme; savedAt: string }
+
+export function brandsDir(dataDir: string): string {
+  return join(dataDir, '.sua', 'brands');
+}
+
+/** "Acme Corp!" → "acme-corp". */
+export function brandId(name: string): string {
+  return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'brand';
+}
+
+/** Saved brands, A–Z. Files that don't validate are skipped. */
+export function listSavedBrands(dataDir: string): SavedBrand[] {
+  let files: string[];
+  try { files = readdirSync(brandsDir(dataDir)).filter((f) => /^[a-z0-9-]+\.json$/.test(f)); } catch { return []; }
+  const out: SavedBrand[] = [];
+  for (const f of files) {
+    try {
+      const path = join(brandsDir(dataDir), f);
+      const parsed = brandThemeSchema.safeParse(JSON.parse(readFileSync(path, 'utf-8')));
+      if (!parsed.success) continue;
+      const id = f.replace(/\.json$/, '');
+      out.push({ id, name: parsed.data.name ?? id, theme: parsed.data, savedAt: statSync(path).mtime.toISOString() });
+    } catch { /* unreadable: skip */ }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Save a theme as a named brand (replacing one with the same name). */
+export function saveBrandAs(dataDir: string, name: string, theme: unknown): SavedBrand {
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!clean) throw new BrandThemeError('Give the brand a name.');
+  const parsed = brandThemeSchema.safeParse({ ...(theme as object), name: clean });
+  if (!parsed.success) {
+    throw new BrandThemeError(`Not saved: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(theme)'}: ${i.message}`).join('; ')}`);
+  }
+  const id = brandId(clean);
+  mkdirSync(brandsDir(dataDir), { recursive: true });
+  const path = join(brandsDir(dataDir), `${id}.json`);
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(parsed.data, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, path);
+  return { id, name: clean, theme: parsed.data, savedAt: new Date().toISOString() };
+}
+
+/** Make a saved brand the dashboard's theme (the previous one stays one Undo away). */
+export function applySavedBrand(dataDir: string, id: string, opts: { expectedVersion?: string } = {}): { version: string; theme: BrandTheme } {
+  const brand = listSavedBrands(dataDir).find((b) => b.id === id);
+  if (!brand) throw new BrandThemeError('That brand is gone.');
+  return saveBrandTheme(dataDir, brand.theme, opts);
+}
+
+export function deleteSavedBrand(dataDir: string, id: string): boolean {
+  if (!/^[a-z0-9-]+$/.test(id)) return false;
+  try { unlinkSync(join(brandsDir(dataDir), `${id}.json`)); return true; } catch { return false; }
+}
+
+/** Is this saved brand the one in use (same colours, fonts, radius and accents)? */
+export function isActiveBrand(active: BrandTheme, brand: BrandTheme): boolean {
+  const strip = (t: BrandTheme) => JSON.stringify({ ...t, name: undefined });
+  return strip(active) === strip(brand);
 }
