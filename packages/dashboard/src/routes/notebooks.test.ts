@@ -509,3 +509,32 @@ describe('sua greets a new notebook', () => {
     expect(store.get('find-a-staff-role')!.conversationId).toBe(thread.id);
   });
 });
+
+describe("a notebook's conversation shows the notebook", () => {
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  it('as a card under the title: from the page it was started on, or the notebook it belongs to; not on other threads', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Guitar', criteria: ['Has a pickup'] }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    store.upsertOption(nb.id, { title: 'Ibanez Talman', by: 'agent:x', data: { price: 279.99 } });
+    store.upsertOption(nb.id, { title: 'Yamaha FSX', by: 'agent:x', data: { price: 349 } });
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const fromPage = inbox.add({ priority: 'medium', source: 'manual', title: 'Notebook: Guitar', body: '(empty)',
+      contextJson: JSON.stringify({ page: { kind: 'notebook', id: nb.id, path: `/notebooks/${nb.id}`, title: 'Guitar' } }) });
+    let res = await get(app, `/inbox/${fromPage.id}/fragment`);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(`class="ib-notebook" href="/notebooks/${nb.id}"`);
+    expect(res.text).toContain('2 options · 2 in the running · 0 of 1 done');
+    expect(res.text).toContain('<strong>$279.99</strong> Ibanez Talman');
+
+    const linked = inbox.add({ priority: 'medium', source: 'manual', title: 'About the guitar', body: '(empty)' });
+    store.setConversation(nb.id, linked.id);
+    expect((await get(app, `/inbox/${linked.id}/fragment`)).text).toContain(`href="/notebooks/${nb.id}"`);
+
+    const other = inbox.add({ priority: 'medium', source: 'manual', title: 'Something else', body: '(empty)' });
+    res = await get(app, `/inbox/${other.id}/fragment`);
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain('ib-notebook');
+  });
+});

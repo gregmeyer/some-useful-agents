@@ -12,7 +12,8 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash } from './inbox-shared.js';
-import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage, type NotebookCard } from '../views/notebooks.js';
+import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
+import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
@@ -66,28 +67,6 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
     query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
   }));
 });
-
-/** One notebook for the list: its cover picture and a line of what it holds. */
-function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
-  const entries = s.entries(nb.id, 1000);
-  const v = notebookViewData(nb, entries).notebook;
-  const priceF = nb.fields.find((f) => f.role === 'price');
-  const better = priceF?.better ?? 'lower';
-  const active = v.options.filter((o) => !o.ruledOut);
-  const priced = active.filter((o) => o.price !== undefined).sort((a, b) => (better === 'lower' ? a.price! - b.price! : b.price! - a.price!));
-  const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
-  const cover = s.coverPhoto(nb.id);
-  return {
-    nb,
-    entries: entries.length,
-    options: v.options.length,
-    active: active.length,
-    ...(priced[0] && priceF ? { best: formatFieldValue(priceF, priced[0].fields[priceF.key] ?? priced[0].price!), bestName: priced[0].name } : {}),
-    ...(nb.criteria.length ? { done: `${String(nb.criteria.filter((c) => c.met).length)} of ${String(nb.criteria.length)} done` } : {}),
-    ...(furthest && furthest !== nb.stages[0] ? { furthest } : {}),
-    ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind } : {}),
-  };
-}
 
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   try {
