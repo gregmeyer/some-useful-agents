@@ -45,7 +45,13 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
     .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
   const pages = Math.max(1, Math.ceil(matches.length / LIST_PAGE));
   const page = Math.min(pages, Math.max(1, Number(req.query.page) || 1));
-  const notebooks = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE).map((nb) => notebookCard(s, nb));
+  const shown = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE);
+  // Options with no picture get one in the background (once each), so covers fill in.
+  const ctx = getContext(req.app.locals);
+  for (const nb of shown.filter((n) => n.status === 'active' && n.fields.length).slice(0, 4)) {
+    try { startNotebookPictures(ctx, nb.id); } catch { /* covers are a nicety */ }
+  }
+  const notebooks = shown.map((nb) => notebookCard(s, nb));
   res.type('html').send(renderNotebooksList({
     notebooks, openNew: req.query.new === '1', flash: parseFlash(req),
     query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
