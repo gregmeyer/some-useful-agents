@@ -366,6 +366,12 @@ describe('notebook photos', () => {
     expect(page.text).toContain('data-a2ui-surface');
     expect(page.text).toContain(`"image":"/notebooks/car/entries/${e.id}/photo"`);
     expect(page.text).toContain('Get photos');
+    // The header shows the notebook's picture, as the conversation card does.
+    expect(page.text).toContain(`<img class="nb-hero__cover" src="/notebooks/car/entries/${e.id}/photo"`);
+    const bare = store.create({ title: 'Bike' });
+    const barePage = await request(app).get(`/notebooks/${bare.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(barePage.text).not.toContain('nb-hero__cover');
+    expect(barePage.text).toContain('nb-hero__icon');
   });
 });
 
