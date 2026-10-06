@@ -380,7 +380,7 @@ export function renderNotebookPage(args: { nb: Notebook; entries: NotebookEntry[
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'))}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord)}</aside>
     </div>
   `));

@@ -1523,6 +1523,10 @@ export const INBOX_MODAL_JS = `
     if (saved.mode !== 'docked' && saved.mode !== 'wide' && saved.mode !== 'min') return;
     // Its own page shows the thread already.
     if (saved.id && window.location.pathname === inboxThreadHref(saved.id)) return;
+    // A page with its own conversation (a notebook) brings an open panel to it.
+    var pageThread = document.querySelector('[data-page-thread]');
+    var own = pageThread && pageThread.getAttribute('data-page-thread');
+    if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
     if (saved.id) openFor(saved.id, { panel: saved.mode, restore: true });
     else if (saved.mode === 'min') { panelMode = 'min'; applyPanel(); }
     else { panelMode = saved.mode; openPanelHome({ restore: true }); }
