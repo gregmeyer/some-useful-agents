@@ -20,6 +20,12 @@ There's no top-nav item yet. Notebooks show up:
 
 ## Talk to sua; it fills the notebook
 
+**When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:
+- **First, the one most useful thing to tell it:** what the notebook is for, your limits, or any options you've already seen.
+- **Then how it'll keep the notebook:** what it notes for each option, the stages, and what "done" means.
+
+The conversation waits on your reply, so it's on Today. On the notebook page, the message shows under **Talk to sua**, and the big start box points there instead of offering a second place to type.
+
 You don't fill in a notebook by hand. A new notebook opens with **Tell sua what you're looking for**. Talk it through: who it's for, budget, must-haves, what you've seen or ruled out. The conversation opens beside the page in the sua drawer.
 
 - **sua files what you say as you go**, and the page updates on its own:

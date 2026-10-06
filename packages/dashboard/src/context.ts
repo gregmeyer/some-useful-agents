@@ -250,6 +250,11 @@ export interface DashboardContext {
   notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number }>;
   /** Notebooks being set up (fields, stages) right now. */
   notebookSetups?: Set<string>;
+  /**
+   * Tests only: answer for the notebook keeper instead of running it (returns
+   * the keeper's output text). Production leaves it unset.
+   */
+  notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
   /**

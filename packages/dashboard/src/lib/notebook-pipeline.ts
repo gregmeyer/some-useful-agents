@@ -138,41 +138,44 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 }
 
 async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
-  if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
-  const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
-  if (!keeper) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
   const setup = agentId === NOTEBOOK_SETUP;
   // Setup needs each option's id and text, to give it its facts.
   const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${setup && e.kind === 'option' ? ` [id: ${e.id}]${e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
-  const keepRunId = randomUUID();
-  const ac = new AbortController();
-  ctx.activeRuns.set(keepRunId, ac);
-  try {
-    // No onRunFailure: a keeper hiccup shouldn't open an inbox thread.
-    await executeAgentDag(keeper, {
-      triggeredBy: 'dashboard',
-      runId: keepRunId,
-      signal: ac.signal,
-      inputs: {
-        NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })), fields: nb.fields }),
-        SOURCE_AGENT: agentId,
-        RUN_OUTPUT: output.length > OUTPUT_CAP ? `${output.slice(0, OUTPUT_CAP)}\n(truncated)` : output,
-        EXISTING: existing || '(nothing yet)',
-      },
-    }, {
-      runStore: ctx.runStore,
-      secretsStore: ctx.secretsStore,
-      variablesStore: ctx.variablesStore,
-      dataRoot: ctx.agentStore.dataRoot,
-      llmSettings: buildLlmSettingsSnapshot(ctx),
-      spawnNode: ctx.workflowSpawnNode,
-    });
-  } finally {
-    ctx.activeRuns.delete(keepRunId);
+  const inputs = {
+    NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })), fields: nb.fields }),
+    SOURCE_AGENT: agentId,
+    RUN_OUTPUT: output.length > OUTPUT_CAP ? `${output.slice(0, OUTPUT_CAP)}\n(truncated)` : output,
+    EXISTING: existing || '(nothing yet)',
+  };
+  let result: string | undefined;
+  if (ctx.notebookKeeperRun) {
+    result = await ctx.notebookKeeperRun(inputs);
+  } else {
+    if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_KEEPER_ID, 'notebook pipeline')) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
+    const keeper = ctx.agentStore.getAgent(NOTEBOOK_KEEPER_ID);
+    if (!keeper) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The notebook keeper agent is missing.' };
+    const keepRunId = randomUUID();
+    const ac = new AbortController();
+    ctx.activeRuns.set(keepRunId, ac);
+    try {
+      // No onRunFailure: a keeper hiccup shouldn't open an inbox thread.
+      await executeAgentDag(keeper, { triggeredBy: 'dashboard', runId: keepRunId, signal: ac.signal, inputs }, {
+        runStore: ctx.runStore,
+        secretsStore: ctx.secretsStore,
+        variablesStore: ctx.variablesStore,
+        dataRoot: ctx.agentStore.dataRoot,
+        llmSettings: buildLlmSettingsSnapshot(ctx),
+        spawnNode: ctx.workflowSpawnNode,
+      });
+    } finally {
+      ctx.activeRuns.delete(keepRunId);
+    }
+    const run = ctx.runStore.getRun(keepRunId);
+    if (!run || run.status !== 'completed' || !run.result) return { added: 0, skipped: 0, criteriaMet: 0, error: run?.error ?? 'The keeper did not finish.' };
+    result = run.result;
   }
-  const run = ctx.runStore.getRun(keepRunId);
-  if (!run || run.status !== 'completed' || !run.result) return { added: 0, skipped: 0, criteriaMet: 0, error: run?.error ?? 'The keeper did not finish.' };
-  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, run.result);
+  if (!result) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper did not finish.' };
+  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, result);
   // Photos for what it found; a slow or failing site never fails the keep.
   try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
   // Options still without one get a representative picture or a drawing, in the background.
@@ -227,7 +230,7 @@ async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook): Promis
  * has) with one keeper pass and no search. Runs in the background, once per
  * notebook at a time; marks the notebook so a page visit doesn't retry it.
  */
-export function startNotebookSetup(ctx: Ctx, notebookId: string): boolean {
+export function startNotebookSetup(ctx: Ctx, notebookId: string, opts: { onDone?: () => void } = {}): boolean {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb || nb.fields.length > 0) return false;
@@ -237,7 +240,10 @@ export function startNotebookSetup(ctx: Ctx, notebookId: string): boolean {
   store.markSetup(notebookId);
   void keep(ctx, store, nb, NOTEBOOK_SETUP, randomUUID(), '(Nothing was searched: set this notebook up from its goal and the entries it already has.)')
     .catch(() => { /* the page still works without fields */ })
-    .finally(() => ctx.notebookSetups?.delete(notebookId));
+    .finally(() => {
+      ctx.notebookSetups?.delete(notebookId);
+      try { opts.onDone?.(); } catch { /* a greeting is a nicety */ }
+    });
   return true;
 }
 

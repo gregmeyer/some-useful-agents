@@ -3,7 +3,7 @@ import request from 'supertest';
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
+import { InboxStore,
   AgentStore,
   DashboardsStore,
   LocalProvider,
@@ -77,6 +77,12 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     inboxTriagePendingRefires: new Set(),
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
+    inboxStore: InboxStore.fromHandle(runStore.databaseHandle()),
+    // Never a real model in tests: setup gets a fixed keeper answer.
+    // (only "staff role" notebooks get set up, so other tests keep the card layout).
+    notebookKeeperRun: async (inputs) => (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
+      ? `<notebook>${JSON.stringify({ entries: [], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: ['Found', 'Applied', 'Offer'] })}</notebook>`
+      : undefined),
   };
 
   return buildDashboardApp(ctx);
@@ -238,8 +244,8 @@ describe('the talk box follows the notebook', () => {
     const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
     expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
     const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };
-    expect(nextStep(withWhy, []).hint).toBe('Next: the limits sua should hold to.');
-    expect(nextStep(withWhy, []).placeholder).toContain('"Find a reliable car for a new driver"');
+    expect(nextStep(withWhy, []).hint).toBe('Next: your limits (budget, must-haves, deal-breakers).');
+    expect(nextStep(withWhy, []).placeholder).toBe('e.g. a budget, the must-haves, the deal-breakers, and where to look');
     const limited = { ...withWhy, params: ['AWD'] };
     expect(nextStep(limited, []).hint).toContain('candidates');
     expect(nextStep(limited, [opt]).hint).toBe('1 option so far. sua can keep looking for you.');
@@ -449,5 +455,50 @@ describe('the notebooks list', () => {
     expect(carCard.text).toContain(`src="/notebooks/buy-a-used-car/entries/${rav.id}/photo"`);
     expect(carCard.text).toContain('lead: 2010 Toyota RAV4');
     expect((await get('/notebooks?q=nothing-like-this')).text).toContain('No active notebooks matching');
+  });
+});
+
+describe('sua greets a new notebook', () => {
+  it('says what it set up and the first useful thing to tell it', async () => {
+    await makeApp();
+    const { notebookGreeting } = await import('../lib/notebook-chat.js');
+    const nb = {
+      id: 'car', title: 'Buy a used car', statement: 'A reliable car for a new driver.', params: [], pipeline: [], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '', checks: [],
+      criteria: [{ text: 'At least one car that fits', met: false }, { text: 'Clean title', met: false }],
+      fields: [{ key: 'price', label: 'Price', type: 'money' as const, role: 'price' as const }, { key: 'miles', label: 'Miles', type: 'number' as const }, { key: 'photo', label: 'Photo', type: 'image' as const, role: 'image' as const }],
+      stages: ['Found', 'Checked', 'Bought'],
+    };
+    const text = notebookGreeting(nb);
+    expect(text.split('\n')[0]).toBe("I've started **Buy a used car**. What are your limits? Budget, must-haves, deal-breakers, and where to look.");
+    expect(text).toContain("Here's how I'll keep it:");
+    expect(text).toContain("I'll note its price and miles");
+    expect(text).not.toContain('photo');
+    expect(text).toContain('Found → Checked → Bought');
+    expect(text).toContain('**Done when:** at least one car that fits; clean title.');
+    expect(text).toContain('What are your limits? Budget, must-haves, deal-breakers, and where to look.');
+    expect(notebookGreeting({ ...nb, params: ['AWD'] })).toContain("Tell me about any you've already seen, or ask me to search");
+    expect(notebookGreeting({ ...nb, statement: '' })).toContain("What's this notebook for?");
+  });
+
+  it('posts it once, into the notebook\'s own conversation, after setup', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    await post('/notebooks', { title: 'Find a staff role', statement: 'Remote, product company' });
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    for (let i = 0; i < 200 && !store.get('find-a-staff-role')!.conversationId; i++) await new Promise((r) => setTimeout(r, 25));
+    const nb = store.get('find-a-staff-role')!;
+    expect(nb.conversationId).toBeTruthy();
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const thread = inbox.get(nb.conversationId!)!;
+    expect(thread).toMatchObject({ title: 'Notebook: Find a staff role', status: 'awaiting_user' });
+    const said = inbox.listResponses(thread.id);
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatchObject({ role: 'triage' });
+    expect(said[0].body).toContain("I've started **Find a staff role**");
+    // Talking to sua continues the same conversation.
+    await post('/notebooks/find-a-staff-role/ask', { text: 'remote only' });
+    expect(store.get('find-a-staff-role')!.conversationId).toBe(thread.id);
   });
 });
