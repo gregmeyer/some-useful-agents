@@ -8,8 +8,8 @@ id: notebook-picture
 name: Notebook Picture
 description: >
   Finds a representative picture for notebook options that have no photo
-  (a press photo of the car model, the product's image, the company's logo),
-  or draws a simple SVG illustration when nothing suitable turns up.
+  (a press photo of the car model, the product's image, the company's logo);
+  sua draws an illustration for the rest.
 status: active
 source: examples
 
@@ -55,20 +55,14 @@ nodes:
          Use WebSearch and WebFetch. Never an .svg address, never a page
          instead of the image file, never a photo of a different model or
          company. Spend at most a few searches per option.
-      2. ALWAYS also draw an SVG illustration (used if the image can't be
-         fetched, so every option ends up with a picture): a simple,
-         flat, recognizable drawing (a side view of that body style in a
-         plausible color, a product silhouette, or the company's initials in
-         a rounded square). viewBox "0 0 320 240", only svg, g, path, rect,
-         circle, ellipse, line, polyline, polygon, text, defs, linearGradient,
-         stop. No scripts, no styles, no links, no images, no external
-         references. At most one short text label. Under 6 KB.
+      2. If you can't find a good one, leave "url" out: sua draws an
+         illustration for it instead. Don't draw one yourself.
 
-      Reply with only this, as valid JSON, one item per option ("url" when
-      you found one, "svg" always):
+      Reply with only this, as valid JSON, one item per option ("url" only
+      when you found one):
       <pictures>
       {"items": [
-        {"id": "<option id>", "url": "https://…/file.jpg", "svg": "<svg viewBox=\"0 0 320 240\">…</svg>", "what": "Wikimedia photo of a 2010 Toyota RAV4"},
-        {"id": "<option id>", "svg": "<svg viewBox=\"0 0 320 240\">…</svg>", "what": "illustration of a 2009 Subaru Forester"}
+        {"id": "<option id>", "url": "https://…/file.jpg", "what": "Wikimedia photo of a 2010 Toyota RAV4"},
+        {"id": "<option id>", "what": "nothing suitable found"}
       ]}
       </pictures>
