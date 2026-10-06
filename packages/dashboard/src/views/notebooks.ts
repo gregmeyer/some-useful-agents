@@ -388,7 +388,48 @@ export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entr
   return render(surfaceColumn(nb, compiled, entries, history, settingUp));
 }
 
-export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; entries: number }>; openNew?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+/** A notebook on the list page: its cover picture and what it holds. */
+export interface NotebookCard {
+  nb: Notebook;
+  entries: number;
+  options: number;
+  active: number;
+  best?: string;
+  bestName?: string;
+  furthest?: string;
+  /** "1 of 3 done": its done-when criteria. */
+  done?: string;
+  cover?: string;
+  coverKind?: string;
+}
+
+export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
+
+export function renderNotebooksList(args: {
+  notebooks: NotebookCard[];
+  openNew?: boolean;
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  query?: NotebookListQuery;
+  counts?: { active: number; decided: number; stopped: number; all: number };
+}): string {
+  const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
+  const counts = args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length };
+  const href = (over: Partial<Pick<NotebookListQuery, 'q' | 'status' | 'sort' | 'page'>>) => {
+    const p = new URLSearchParams();
+    const v = { q: q.q, status: q.status, sort: q.sort, page: 1, ...over };
+    if (v.q) p.set('q', v.q);
+    if (v.status !== 'active') p.set('status', v.status);
+    if (v.sort !== 'updated') p.set('sort', v.sort);
+    if (v.page > 1) p.set('page', String(v.page));
+    const s = p.toString();
+    return `/notebooks${s ? `?${s}` : ''}`;
+  };
+  const tab = (status: NotebookListQuery['status'], label: string) => html`<a class="nb-tabs__tab${q.status === status ? ' is-on' : ''}" href="${href({ status })}"${q.status === status ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label} <span class="nb-tabs__n">${String(counts[status])}</span></a>`;
+  const first = q.total ? (q.page - 1) * q.perPage + 1 : 0;
+  const last = Math.min(q.total, q.page * q.perPage);
+  const empty = q.q || q.status !== 'all'
+    ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
+    : html``;
   return render(layout({ title: 'Notebooks', activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › Notebooks</p>
     <div class="nb-list__head">
@@ -397,8 +438,22 @@ export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; ent
         <p class="nb-list__sub">A goal you keep over time: what it's for, when it's done, what you've found, and what you decided.</p>
       </div>
     </div>
+    ${counts.all ? html`
+      <form method="GET" action="/notebooks" class="nb-tools" role="search">
+        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}</nav>
+        ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
+        <label class="nb-tools__search"><span class="sr-only">Search notebooks</span><input type="search" name="q" value="${q.q}" placeholder="Search notebooks…" class="form-field" autocomplete="off"></label>
+        <label class="nb-tools__sort">Sort
+          <select name="sort" class="form-field" data-autosubmit>
+            <option value="updated"${q.sort === 'updated' ? unsafeHtml(' selected') : unsafeHtml('')}>Recently updated</option>
+            <option value="created"${q.sort === 'created' ? unsafeHtml(' selected') : unsafeHtml('')}>Newest</option>
+            <option value="title"${q.sort === 'title' ? unsafeHtml(' selected') : unsafeHtml('')}>A–Z</option>
+          </select>
+        </label>
+        <noscript><button type="submit" class="btn btn--sm">Apply</button></noscript>
+      </form>` : html``}
     <div class="nb-list">
-      <details class="nb-card nb-card--new" id="new"${args.notebooks.length === 0 || args.openNew ? unsafeHtml(' open') : unsafeHtml('')}>
+      <details class="nb-card nb-card--new" id="new"${counts.all === 0 || args.openNew ? unsafeHtml(' open') : unsafeHtml('')}>
         <summary class="nb-card__new">+ New notebook</summary>
         <form method="POST" action="/notebooks" class="nb-form">
           <label class="nb-label">Title<input type="text" name="title" required class="form-field" placeholder="Buy a used car"></label>
@@ -408,19 +463,36 @@ export function renderNotebooksList(args: { notebooks: Array<{ nb: Notebook; ent
           <button type="submit" class="btn btn--primary btn--sm">Start the notebook</button>
         </form>
       </details>
-      ${args.notebooks.map(({ nb, entries }) => {
-        const { met, total } = notebookProgress(nb);
+      ${args.notebooks.map((c) => {
+        const { nb } = c;
+        const facts = [
+          c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
+          c.options ? `${String(c.active)} in the running` : '',
+          c.best ? `best ${c.best}` : '',
+          c.furthest ? `furthest: ${c.furthest}` : '',
+          c.done ?? '',
+        ].filter(Boolean).join(' · ');
         return html`
-          <a class="nb-card" href="/notebooks/${encodeURIComponent(nb.id)}">
-            ${progressRing(met, total, 56)}
+          <a class="nb-card nb-card--thumb" href="/notebooks/${encodeURIComponent(nb.id)}">
+            <span class="nb-card__cover">
+              ${c.cover ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">` : html`<span class="nb-card__cover-icon">${NOTEBOOK_ICON}</span>`}
+            </span>
             <span class="nb-card__text">
               <span class="nb-card__title">${nb.title} <span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span></span>
               <span class="nb-card__statement">${nb.decision ?? nb.statement}</span>
-              <span class="nb-card__meta">${String(entries)} entr${entries === 1 ? 'y' : 'ies'} · updated ${formatAge(nb.updatedAt)}</span>
+              <span class="nb-card__facts">${facts}</span>
+              <span class="nb-card__meta">updated ${formatAge(nb.updatedAt)}${c.bestName ? html` · lead: ${c.bestName}` : html``}</span>
             </span>
           </a>`;
       }) as unknown as SafeHtml[]}
     </div>
+    ${args.notebooks.length === 0 ? empty : html``}
+    ${q.pages > 1 ? html`
+      <nav class="nb-pager" aria-label="Pages">
+        ${q.page > 1 ? html`<a class="btn btn--sm" href="${href({ page: q.page - 1 })}" rel="prev">‹ Prev</a>` : html`<span class="btn btn--sm is-disabled" aria-disabled="true">‹ Prev</span>`}
+        <span class="nb-pager__at">${String(first)}–${String(last)} of ${String(q.total)}</span>
+        ${q.page < q.pages ? html`<a class="btn btn--sm" href="${href({ page: q.page + 1 })}" rel="next">Next ›</a>` : html`<span class="btn btn--sm is-disabled" aria-disabled="true">Next ›</span>`}
+      </nav>` : html``}
   `));
 }
 

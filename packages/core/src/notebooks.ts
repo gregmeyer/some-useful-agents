@@ -393,6 +393,18 @@ export class NotebookStore {
     return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}) } : undefined;
   }
 
+  /**
+   * The picture that stands for a notebook: an option still in the running
+   * with a kept picture, its own photo before a representative one before a
+   * drawing, newest first. Undefined when none has one.
+   */
+  coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind } | undefined {
+    const r = this.db.prepare(`SELECT e.id AS id, p.kind AS kind FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
+      WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL
+      ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
+    return r ? { entryId: r.id, kind: (r.kind ?? 'listing') as NotebookPhotoKind } : undefined;
+  }
+
   /** What kind of picture an option has, if any. */
   photoKind(entryId: string): NotebookPhotoKind | undefined {
     const r = this.db.prepare('SELECT kind FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as { kind?: string } | undefined;
@@ -1144,10 +1156,15 @@ export function looksLikeOneListing(url: string): boolean {
   } catch { return false; }
 }
 
-/** "2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood" → "2010 Toyota RAV4 Sport 4WD". */
+/**
+ * "2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood" → "2010 Toyota RAV4 Sport 4WD".
+ * Only when what follows is facts (numbers, a price): "Staff Engineer, Stripe" stays whole.
+ */
 export function shortName(title: string): string {
-  const head = title.split(/,|\s[—–-]\s/)[0].trim();
-  return head.length >= 4 ? head : title;
+  const m = /^(.+?)(?:,|\s[—–-]\s)(.*)$/.exec(title);
+  if (!m) return title;
+  const head = m[1].trim();
+  return head.length >= 4 && /[\d$]/.test(m[2]) ? head : title;
 }
 
 /** Do two sets of facts disagree on a number both state (year, price, the measure)? */

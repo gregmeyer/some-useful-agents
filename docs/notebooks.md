@@ -16,6 +16,8 @@ There's no top-nav item yet. Notebooks show up:
 - **at `/notebooks`:** the list, with a ring showing criteria met, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 
+- **The Notebooks page** lists them as cards. Each has a cover picture (the best kept picture among options still in the running: a listing photo first, then an example photo, then an illustration), what it's for (or what you decided), a facts line ("4 options · 2 in the running · best $4,023 · furthest: Test drive · 1 of 3 done") and its lead option. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
+
 ## Talk to sua; it fills the notebook
 
 You don't fill in a notebook by hand. A new notebook opens with **Tell sua what you're looking for**. Talk it through: who it's for, budget, must-haves, what you've seen or ruled out. The conversation opens beside the page in the sua drawer.

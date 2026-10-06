@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint } from './notebooks.js';
+import { NotebookStore, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -352,5 +352,14 @@ describe('fields without roles, and facts that belong to another option', () => 
     // Rounded text still agrees: no change.
     s.setOptionFacts(nb.id, a.id, { price: 4995, miles: 161870, year: 2006 });
     expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+});
+
+describe('shortName', () => {
+  it('cuts at a comma only when what follows is facts', () => {
+    expect(shortName('2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood')).toBe('2010 Toyota RAV4 Sport 4WD');
+    expect(shortName('Principal Engineer, Ramp')).toBe('Principal Engineer, Ramp');
+    expect(shortName('Ibanez Talman TCY621 acoustic-electric - $279.99')).toBe('Ibanez Talman TCY621 acoustic-electric');
+    expect(shortName('Plain title')).toBe('Plain title');
   });
 });
