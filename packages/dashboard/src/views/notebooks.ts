@@ -254,7 +254,9 @@ function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: Not
       <section class="nb-start" aria-labelledby="nb-start-title">
         <h2 class="nb-start__title" id="nb-start-title">Tell sua what you're looking for</h2>
         <p class="nb-start__sub">Talk it through the way you would with a friend: who it's for, budget, must-haves, what you've already seen or ruled out. sua files it here as you go (notes, options, limits, what "done" means) and can set up agents to keep looking.</p>
-        ${talkForm(nb, entries, true)}
+        ${nb.conversationId
+          ? html`<p class="nb-start__pointer">sua has said hello and asked its first question. Answer it in <strong>Talk to sua</strong>, beside this, or <a href="/inbox/${encodeURIComponent(nb.conversationId)}" data-nb-continue="${nb.conversationId}">open the conversation</a>.</p>`
+          : talkForm(nb, entries, true)}
       </section>`;
   }
   // Ruled-out options sink to the end of their section.
@@ -299,7 +301,7 @@ export function nextStep(nb: Notebook, entries: readonly NotebookEntry[]): { hin
     return { hint: "Start with what it's for and what matters most.", placeholder: `e.g. what "${short(nb.title)}" is for, who it's for, and what matters most` };
   }
   if (nb.params.length === 0) {
-    return { hint: 'Next: the limits sua should hold to.', placeholder: `e.g. budget, size, must-haves and deal-breakers for "${short(goal)}"` };
+    return { hint: 'Next: your limits (budget, must-haves, deal-breakers).', placeholder: 'e.g. a budget, the must-haves, the deal-breakers, and where to look' };
   }
   if (options.length === 0) {
     return { hint: "Next: candidates. Anything you've already seen?", placeholder: 'e.g. paste a link, or describe one you saw (what, price, where) and what you thought of it' };

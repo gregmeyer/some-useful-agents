@@ -194,3 +194,58 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook): string {
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
   });
 }
+
+/** The notebook's conversation with sua: the one it has, else a new one linked to it. */
+export function notebookThread(ctx: Ctx, nb: Notebook): string | undefined {
+  if (!ctx.inboxStore) return undefined;
+  const existing = nb.conversationId && ctx.inboxStore.get(nb.conversationId) ? nb.conversationId : undefined;
+  if (existing) return existing;
+  const created = ctx.inboxStore.add({
+    priority: 'medium', source: 'manual', title: `Notebook: ${nb.title}`, body: '(empty)',
+    contextJson: JSON.stringify({ page: { path: `/notebooks/${encodeURIComponent(nb.id)}`, title: nb.title, kind: 'notebook', id: nb.id } }),
+  });
+  notebooksOf(ctx).setConversation(nb.id, created.id);
+  return created.id;
+}
+
+/**
+ * sua's first message in a new notebook: what it set up (what each option
+ * records, the stages, what "done" means) and the one most useful thing to
+ * say first. Plain words, no tool or field names.
+ */
+export function notebookGreeting(nb: Notebook, hasOptions = false): string {
+  const tracked = nb.fields.filter((f) => f.role !== 'image' && f.type !== 'image').map((f) => f.label.toLowerCase());
+  const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+  const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+  // The one most useful thing to say first, in sua's own words.
+  const first = !nb.statement
+    ? "What's this notebook for? A sentence is enough."
+    : nb.params.length === 0
+      ? 'What are your limits? Budget, must-haves, deal-breakers, and where to look.'
+      : !hasOptions
+        ? "Tell me about any you've already seen, or ask me to search and I'll add what I find here."
+        : 'Tell me what you think of the ones here, or ask me to look for more.';
+  // The question first: a preview that cuts the message short still asks it.
+  const lines = [
+    `I've started **${nb.title}**. ${first}`,
+    '',
+    "Here's how I'll keep it:",
+    tracked.length ? `- **For each option** I'll note its ${list(tracked.slice(0, 7))}, so you can compare them side by side.` : `- **For each option** I'll note what matters for comparing them, once we've seen a few.`,
+    nb.stages.length ? `- **Each one moves along:** ${nb.stages.join(' → ')}. Tell me when one moves, or when you rule one out (and why).` : '',
+    nb.criteria.length ? `- **Done when:** ${nb.criteria.map((c) => lower(c.text)).join('; ')}.` : `- **When are we done?** Tell me what "done" looks like and I'll track it.`,
+  ];
+  return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').filter((l) => l !== undefined).join('\n').replace(/\n\n+/g, '\n\n');
+}
+
+/** Post the greeting into the notebook's conversation (once: only when it has none yet). */
+export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined {
+  const store = notebooksOf(ctx);
+  const nb = store.get(notebookId);
+  if (!nb || nb.conversationId || !ctx.inboxStore) return undefined;
+  const threadId = notebookThread(ctx, nb);
+  if (!threadId) return undefined;
+  const now = store.get(notebookId) ?? nb;
+  ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option')));
+  ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
+  return threadId;
+}

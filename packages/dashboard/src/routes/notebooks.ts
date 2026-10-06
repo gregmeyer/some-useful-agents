@@ -15,6 +15,7 @@ import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage, type NotebookCard } from '../views/notebooks.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
+import { notebookThread, greetNotebook } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
@@ -81,8 +82,16 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       params: lines(req.body?.params),
       criteria: lines(req.body?.criteria),
     });
-    // sua sets up what options record and the stages they go through, from the goal.
-    startNotebookSetup(getContext(req.app.locals), nb.id);
+    // sua sets up what options record and the stages they go through, from the
+    // goal, then says hello in the notebook's conversation with what it set up.
+    const ctx = getContext(req.app.locals);
+    const greet = () => {
+      const now = store(req).get(nb.id);
+      if (!now) return;
+      const threadId = greetNotebook(ctx, nb.id);
+      if (threadId) { publishInboxChanged(ctx, threadId, 'awaiting_user'); store(req).touch(nb.id); }
+    };
+    if (!startNotebookSetup(ctx, nb.id, { onDone: greet })) greet();
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks?new=1&flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
@@ -274,18 +283,9 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
     res.redirect(303, nb ? back(nb.id, 'Say something first.') : '/notebooks');
     return;
   }
-  let threadId = nb.conversationId && ctx.inboxStore.get(nb.conversationId) ? nb.conversationId : undefined;
-  if (!threadId) {
-    const created = ctx.inboxStore.add({
-      priority: 'medium', source: 'manual', title: `Notebook: ${nb.title}`, body: '(empty)',
-      contextJson: JSON.stringify({ page: { path: `/notebooks/${encodeURIComponent(nb.id)}`, title: nb.title, kind: 'notebook', id: nb.id } }),
-    });
-    threadId = created.id;
-    s.setConversation(nb.id, threadId);
-  } else {
-    const cur = ctx.inboxStore.get(threadId);
-    if (cur && (cur.status === 'resolved' || cur.status === 'dismissed')) ctx.inboxStore.updateStatus(threadId, 'open');
-  }
+  const threadId = notebookThread(ctx, nb)!;
+  const cur = ctx.inboxStore.get(threadId);
+  if (cur && (cur.status === 'resolved' || cur.status === 'dismissed')) ctx.inboxStore.updateStatus(threadId, 'open');
   const said = ctx.inboxStore.addResponse(threadId, 'user', text);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
   void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });

@@ -329,3 +329,4 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-pager__at { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-pager .is-disabled { opacity: 0.4; pointer-events: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nb-start__pointer { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--color-primary-soft); font-size: var(--font-size-sm); color: var(--color-text); }
