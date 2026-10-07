@@ -636,9 +636,9 @@ export class NotebookStore {
     const e = this.toEntry(row);
     // Facts that contradict what the option's own text says belong to another
     // option (a model can mix up ids): keep only what the text states.
-    const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
     const facts = splitFacts(data);
     const given = cleanData(facts.values, nb.fields);
+    const stated = withoutTextLink(readOptionText(`${e.title}\n${e.body}`, nb.fields), nb.fields, { ...(e.data ?? {}), ...given });
     const clean = contradicts(given, stated) ? stated : { ...given, ...stated };
     const merged = { ...(e.data ?? {}), ...clean };
     // A fact the option's own text states needs no source; a given one keeps its own.
@@ -1315,11 +1315,22 @@ function contradicts(a: Record<string, NotebookFieldValue>, b: Record<string, No
     if (nx !== undefined && nv !== undefined) {
       // Rounded text ("157k mi") still agrees with 157,000 or 156,870.
       if (Math.abs(nx - nv) > Math.max(1, Math.abs(nv) * 0.01)) return true;
-    } else if (typeof x === 'string' && typeof v === 'string' && x !== v) {
-      return true;
     }
+    // Text (a link especially) isn't evidence of a mix-up: an option's text
+    // often cites another page, a source or the post it's quoted from.
   }
   return false;
+}
+
+/**
+ * The first link in an option's text only stands in for its link when it
+ * has none: the text may cite a source, not the option's own page.
+ */
+function withoutTextLink(stated: Record<string, NotebookFieldValue>, fields: readonly NotebookField[], known: Record<string, unknown>): Record<string, NotebookFieldValue> {
+  const linkKey = fields.find((f) => f.role === 'link')?.key;
+  if (!linkKey || stated[linkKey] === undefined || known[linkKey] === undefined) return stated;
+  const { [linkKey]: _cited, ...rest } = stated;
+  return rest;
 }
 
 /**

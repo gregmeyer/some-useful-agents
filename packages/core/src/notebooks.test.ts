@@ -513,3 +513,29 @@ describe('where a fact came from', () => {
     expect(v.factMeta).toEqual({ employees: { source: 'https://ledgerline.example.com/careers' } });
   });
 });
+
+describe("an option's text vs its facts", () => {
+  it('a link the text cites is not a mix-up and never replaces the option\'s own link; numbers still are', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'careers', label: 'Careers', type: 'url', role: 'link' },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' }, { key: 'tier', label: 'Tier', type: 'text' },
+    ]);
+    const a = s.upsertOption(nb.id, {
+      title: 'Capital: Postgres migration planned', by: 'agent:x',
+      body: 'Tier 2 (76).\n\n"an active Oracle-to-PostgreSQL migration" (https://jobs.lever.co/capital/2b44)',
+      data: { company: 'Capital', careers: 'https://jobs.lever.co/capital', fit: 76, tier: 'Tier 2' },
+    }).entry;
+    // The page's repair leaves it alone, and its facts stay whole.
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'Capital')!.data).toEqual({ company: 'Capital', careers: 'https://jobs.lever.co/capital', fit: 76, tier: 'Tier 2' });
+    // Setup giving facts: the cited post doesn't take over the careers link.
+    s.setOptionFacts(nb.id, a.id, { fit: 80 });
+    expect(s.findOption(nb.id, 'Capital')!.data).toMatchObject({ careers: 'https://jobs.lever.co/capital', fit: 80 });
+    // No link of its own yet: the text's link fills in.
+    const b = s.addEntry(nb.id, { kind: 'option', title: 'Globex', body: 'See https://globex.example.com/jobs', by: 'agent:x' });
+    expect(s.setOptionFacts(nb.id, b.id, { company: 'Globex' })!.data).toEqual({ company: 'Globex', careers: 'https://globex.example.com/jobs' });
+  });
+});
