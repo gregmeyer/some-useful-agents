@@ -594,3 +594,44 @@ describe('runs not in the notebook yet', () => {
     expect(decodeURIComponent((await post('run-new')).headers.location.replace(/\+/g, ' '))).toContain('already in the notebook');
   });
 });
+
+describe("Home's notebooks shelf", () => {
+  it('shows the active notebooks newest first (four at most), what sua is waiting on, and + New', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const home = async () => (await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+
+    // None yet: an inviting + New, nothing else.
+    let page = await home();
+    expect(page).toContain('Your notebooks');
+    expect(page).toContain('class="nbs-new nbs-new--alone" href="/notebooks?new=1"');
+    expect(page).not.toContain('class="nbs-card"');
+
+    const ids: string[] = [];
+    for (const t of ['Bike', 'Laptop', 'Trip', 'Job']) ids.push(store.create({ title: t }).id);
+    const car = store.setFields(store.create({ title: 'Car', criteria: ['Clean title', 'Under budget'] }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    store.markCriterion(car.id, 0, true);
+    store.upsertOption(car.id, { title: '2010 RAV4', by: 'agent:x', data: { price: 4023 } });
+    const done = store.create({ title: 'Old couch' });
+    store.decide(done.id, 'Kept it');
+    const thread = InboxStore.fromHandle(runStore.databaseHandle()).add({ priority: 'medium', source: 'manual', title: 'Notebook: Car', body: '(empty)' });
+    store.setConversation(car.id, thread.id);
+    InboxStore.fromHandle(runStore.databaseHandle()).updateStatus(thread.id, 'awaiting_user');
+
+    page = await home();
+    const cards = page.match(/class="nbs-card" href="\/notebooks\/([^"]+)"/g) ?? [];
+    expect(cards).toHaveLength(4);
+    expect(cards[0]).toContain(`/notebooks/${car.id}"`); // changed last, so first
+    expect(page).not.toContain(`/notebooks/${done.id}"`);
+    expect(page).toContain('All notebooks (5) →');
+    const carCard = page.slice(page.indexOf(`/notebooks/${car.id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${car.id}"`)));
+    expect(carCard).toContain('sua asked you');
+    expect(carCard).toContain('<span class="nbs-card__price">$4,023</span>');
+    expect(carCard).toContain('aria-label="1 of 2 done"');
+    expect((carCard.match(/nbs-dot is-met/g) ?? []).length).toBe(1);
+    expect(page.match(/sua asked you/g)).toHaveLength(1);
+    expect(page).toContain('class="nbs-new" href="/notebooks?new=1"');
+  });
+});

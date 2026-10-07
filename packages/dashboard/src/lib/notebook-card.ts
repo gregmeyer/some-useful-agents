@@ -39,3 +39,22 @@ export function notebookCardForThread(s: NotebookStore, message: InboxMessage): 
   const nb = (id ? s.get(id) : undefined) ?? s.list().find((n) => n.conversationId === message.id);
   return nb ? notebookCard(s, nb) : undefined;
 }
+
+/** A notebook on Home's shelf: its card, its criteria as dots, and whether sua is waiting on you. */
+export interface ShelfCard extends NotebookCard { criteria: boolean[]; waiting: boolean }
+
+/**
+ * Home's notebooks shelf: the active notebooks, most recently changed first
+ * (at most `limit`), and how many there are in all.
+ */
+export function homeShelf(s: NotebookStore, isWaiting: (threadId: string) => boolean, limit = 4): { cards: ShelfCard[]; total: number } {
+  const active = s.list({ status: 'active' }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return {
+    total: active.length,
+    cards: active.slice(0, limit).map((nb) => ({
+      ...notebookCard(s, nb),
+      criteria: nb.criteria.map((c) => c.met),
+      waiting: nb.conversationId ? isWaiting(nb.conversationId) : false,
+    })),
+  };
+}

@@ -47,7 +47,8 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 ## `/` — Home
 
 Home is what needs you, on one page:
-- **The header** says how things stand ("2 need you", or "Nothing needs you") under the title, with the notebooks link and a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
+- **The header** says how things stand ("2 need you", or "Nothing needs you") beside the title, with a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
+- **Your notebooks**: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with its picture, the best option so far and its price, its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**. On a phone the cards are a row you swipe.
 - **Today** fills the page: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.
 - **Ask sua** in the bar at the top; there's no second ask box on Home.
 
