@@ -748,3 +748,42 @@ describe("new notebook's suggestions from your conversations", () => {
     expect(suggesterSaw).toBe('');
   });
 });
+
+describe('how a notebook was made (Workflow)', () => {
+  it('draws its runs and their sub-runs, links them, and run pages link back; sub-runs are never offered to file', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Car' });
+    const now = Date.now();
+    const run = (id: string, agentName: string, msAgo: number, parent?: [string, string]) => runStore.createRun({
+      id, agentName, status: 'completed', startedAt: new Date(now - msAgo).toISOString(), completedAt: new Date(now - msAgo + 1000).toISOString(),
+      triggeredBy: 'dashboard', result: 'found things', ...(parent ? { parentRunId: parent[0], parentNodeId: parent[1] } : {}),
+    } as never);
+    run('sweep-1', 'car-sweep', 120_000);
+    run('cl-a', 'craigslist-search', 110_000, ['sweep-1', 'seattle']);
+    s.recordSearch(nb.id, 'craigslist-search', 'old-direct', 0, new Date(now - 900_000).toISOString()); // makes craigslist-search a source
+    s.recordSearch(nb.id, 'car-sweep', 'sweep-1', 1, new Date(now - 100_000).toISOString());
+    s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-1' });
+
+    expect((await get('/notebooks/car')).text).toContain('href="/notebooks/car/workflow">How it was made →</a>');
+    const page = await get('/notebooks/car/workflow');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('How this notebook was made');
+    const data = JSON.parse(/<script id="dag-data" type="application\/json">([\s\S]*?)<\/script>/.exec(page.text)![1]) as { elements: Array<{ data: Record<string, string> }> };
+    const ids = data.elements.map((e) => e.data.id);
+    expect(ids).toEqual(expect.arrayContaining(['nb', 'sweep-1', 'cl-a', 'nb->sweep-1', 'sweep-1->cl-a', 'left:sweep-1']));
+    expect(data.elements.find((e) => e.data.id === 'cl-a')!.data.href).toBe('/runs/cl-a');
+    expect(data.elements.find((e) => e.data.id === 'left:sweep-1')!.data.label).toBe('1 option');
+    expect(page.text).toContain('data-layout="lr"');
+    expect(page.text).toContain('1 run it started');
+    expect((await get('/notebooks/nope/workflow')).status).toBe(404);
+
+    // The sub-run is part of the sweep's search: not offered to Add to notebook.
+    expect((await get('/notebooks/car')).text).not.toContain('/runs/cl-a/add');
+    // Run pages link back, the sub-run through its parent.
+    expect((await get('/runs/sweep-1')).text).toContain('<a href="/notebooks/car">Car</a> · <a href="/notebooks/car/workflow">how it was made</a>');
+    expect((await get('/runs/cl-a')).text).toContain('(through the run that started this one)');
+  });
+});

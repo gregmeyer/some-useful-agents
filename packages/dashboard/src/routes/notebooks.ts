@@ -5,12 +5,14 @@
  * with a flash.
  */
 import { Router, type Request, type Response } from 'express';
+import { renderNotFoundPage } from '../views/not-found.js';
+import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
 import {
-  NotebookStore, SurfaceStore, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, notebookLineage, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
@@ -39,7 +41,9 @@ const LIST_PAGE = 12;
 /** The store, plus recent runs of an agent, for the widgets' timeline. */
 function widgetHistory(ctx: ReturnType<typeof getContext>, s: NotebookStore): NotebookStore & { recentRuns(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }> } {
   return Object.assign(Object.create(s) as NotebookStore, {
+    // A run another agent started belongs to its parent's search, not the notebook's.
     recentRuns: (agentId: string) => ctx.runStore.listRuns({ agentName: agentId, limit: 10 })
+      .filter((r) => !r.parentRunId)
       .map((r) => ({ id: r.id, status: r.status, startedAt: r.startedAt, ...(r.error ? { error: r.error } : {}) })),
   });
 }
@@ -152,6 +156,15 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   } catch (err) {
     res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
   }
+});
+
+/** How this notebook was made: its runs, the runs they started, and what each left. */
+notebooksRouter.get('/notebooks/:id/workflow', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'No such notebook.' })); return; }
+  res.type('html').send(renderNotebookWorkflow({ nb, lineage: notebookLineage(s, ctx.runStore, nb.id) }));
 });
 
 notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {

@@ -144,6 +144,12 @@ Options move through the notebook's **stages** toward a decision, and you can ru
 - **In conversation, sua can also tick a done-when criterion** when what you said shows it's met ("the title's clean").
 - `data.json` includes `stages`, a `funnel` (per stage: reached, here now, ruled out, top reasons), each option's `stage`, `stageIndex` and `ruledOut`, and `active` / `ruledOutCount`.
 
+## How it was made
+
+**How it was made →** (in the notebook's header) opens its **Workflow**: every run that filed into the notebook, the runs those started (a sweep's calls to other agents, loops, agents used as tools), and what each left ("3 options · 2 notes · saw 3 again"), drawn as one graph, left to right, the same way a run's steps are drawn. Click any box to open that run. The graph shows the newest four searches; the list under it has every run, with the runs each one started.
+
+A run's own page links back too: **Notebook: *title* · how it was made**, including for a run that another agent started ("through the run that started this one"). A run another agent started counts as part of its parent's search, so it's never offered under **Runs not in this notebook yet** and never shows as a failed search of its own.
+
 ## Runs not in the notebook yet
 
 A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated.

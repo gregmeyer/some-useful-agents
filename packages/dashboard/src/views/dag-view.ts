@@ -124,6 +124,53 @@ export function renderDagView(args: {
 }
 
 /**
+ * A graph of anything (not one agent's nodes): the same canvas, zoom and
+ * node dialog as a DAG, fed ready-made cytoscape elements. A node with an
+ * `href` gets an "Open" link in its dialog. Used by a notebook's Workflow.
+ */
+export function renderGraphFrame(args: { title: string; countLabel: string; elements: unknown[] }): SafeHtml {
+  const payload = JSON.stringify({ elements: args.elements });
+  return html`
+    <details class="dag-disclosure dag-disclosure--graph" open>
+      <summary class="dag-disclosure__summary">
+        <span>${args.title}</span>
+        <span class="dim" style="font-size: var(--font-size-xs);">${args.countLabel}</span>
+        <span class="dag-disclosure__hint">Click a box to open it →</span>
+      </summary>
+      <div class="dag-disclosure__body">
+        <div class="dag-frame__wrap dag-frame__wrap--tall">
+          <div id="dag-canvas" class="dag-frame__canvas dag-frame__canvas--tall" data-layout="lr"></div>
+          <div class="dag-zoom-toolbar" aria-label="Graph zoom controls">
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="in"  aria-label="Zoom in">+</button>
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="fit" aria-label="Fit to view" title="Fit to view">⧇</button>
+            <button type="button" class="dag-zoom-toolbar__btn" data-dag-zoom="out" aria-label="Zoom out">−</button>
+          </div>
+        </div>
+        <script id="dag-data" type="application/json">${unsafeHtml(escapeScriptTag(payload))}</script>
+        <dialog id="dag-node-dialog" class="node-dialog">
+          <form method="dialog" class="node-dialog__form">
+            <header class="node-dialog__header">
+              <span class="mono node-dialog__id" data-node-id></span>
+              <span data-node-type></span>
+              <span data-node-status></span>
+              <button type="submit" class="node-dialog__close" aria-label="Close">×</button>
+            </header>
+            <dl class="kv node-dialog__meta">
+              <dt>Depends on</dt><dd class="mono" data-node-deps></dd>
+              <dt>Duration</dt><dd class="mono" data-node-duration></dd>
+            </dl>
+            <div class="node-dialog__explain" data-node-explain></div>
+            <div class="node-dialog__actions" data-node-actions></div>
+          </form>
+        </dialog>
+        <script src="/assets/cytoscape.min.js"></script>
+        <script src="/assets/graph-render.js"></script>
+      </div>
+    </details>
+  `;
+}
+
+/**
  * Wiring-edit controls + the form that saves them. Rendered as a SIBLING of
  * `#dag-canvas` for the same reason the zoom toolbar is: cytoscape replaces
  * the canvas's innerHTML on boot, so anything inside it is wiped.

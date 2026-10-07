@@ -270,7 +270,8 @@ export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
   for (const agentId of agents) {
     if (agentId === NOTEBOOK_SETUP || SYSTEM_AGENT_IDS.has(agentId)) continue;
     for (const r of ctx.runStore.listRuns({ agentName: agentId, status: 'completed', limit: 10 })) {
-      if (filed.has(r.id) || !r.result || Date.parse(r.startedAt) < since) continue;
+      // A run another agent started is part of its parent's search, not one to file on its own.
+      if (filed.has(r.id) || r.parentRunId || !r.result || Date.parse(r.startedAt) < since) continue;
       out.push({ id: r.id, agentId, startedAt: r.startedAt });
     }
   }

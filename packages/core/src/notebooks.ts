@@ -364,6 +364,45 @@ export class NotebookStore {
     return { agents: [...agents].sort(), runIds: [...runIds] };
   }
 
+  /**
+   * Each run that put something in the notebook, with what it left: how many
+   * options its search found, entries by kind, and options it saw again.
+   */
+  runFootprints(notebookId: string): Map<string, { at: string; found?: number; kinds: Partial<Record<NotebookEntryKind, number>>; seenAgain: number }> {
+    const out = new Map<string, { at: string; found?: number; kinds: Partial<Record<NotebookEntryKind, number>>; seenAgain: number }>();
+    const at = (runId: string, when: string) => {
+      const f = out.get(runId) ?? { at: when, kinds: {}, seenAgain: 0 };
+      if (when < f.at) f.at = when;
+      out.set(runId, f);
+      return f;
+    };
+    for (const r of this.db.prepare('SELECT run_id, at, found FROM notebook_searches WHERE notebook_id = ? AND run_id IS NOT NULL').all(notebookId) as Array<{ run_id: string; at: string; found: number }>) {
+      const f = at(r.run_id, r.at);
+      f.found = (f.found ?? 0) + r.found;
+    }
+    for (const r of this.db.prepare('SELECT run_id, kind, COUNT(*) AS n, MIN(created_at) AS at FROM notebook_entries WHERE notebook_id = ? AND run_id IS NOT NULL GROUP BY run_id, kind').all(notebookId) as Array<{ run_id: string; kind: NotebookEntryKind; n: number; at: string }>) {
+      const f = at(r.run_id, r.at);
+      f.kinds[r.kind] = (f.kinds[r.kind] ?? 0) + r.n;
+    }
+    for (const r of this.db.prepare('SELECT run_id, COUNT(*) AS n, MIN(at) AS at FROM notebook_sightings WHERE notebook_id = ? AND run_id IS NOT NULL GROUP BY run_id').all(notebookId) as Array<{ run_id: string; n: number; at: string }>) {
+      at(r.run_id, r.at).seenAgain += r.n;
+    }
+    return out;
+  }
+
+  /** The notebooks these runs filed into (searches, entries or sightings), for a run's page. */
+  notebooksForRuns(runIds: readonly string[]): Array<{ notebookId: string; title: string; runId: string }> {
+    if (runIds.length === 0) return [];
+    const marks = runIds.map(() => '?').join(',');
+    const rows = this.db.prepare(`
+      SELECT DISTINCT n.id AS notebook_id, n.title AS title, x.run_id AS run_id FROM (
+        SELECT notebook_id, run_id FROM notebook_searches WHERE run_id IN (${marks})
+        UNION SELECT notebook_id, run_id FROM notebook_entries WHERE run_id IN (${marks})
+        UNION SELECT notebook_id, run_id FROM notebook_sightings WHERE run_id IN (${marks})
+      ) x JOIN notebooks n ON n.id = x.notebook_id`).all(...runIds, ...runIds, ...runIds) as Array<{ notebook_id: string; title: string; run_id: string }>;
+    return rows.map((r) => ({ notebookId: r.notebook_id, title: r.title, runId: r.run_id }));
+  }
+
   /** What to check on each option before deciding (at most 8). */
   setChecks(id: string, list: readonly unknown[]): Notebook {
     this.mustGet(id);

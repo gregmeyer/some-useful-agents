@@ -390,3 +390,45 @@ describe('shortName', () => {
     expect(shortName('Plain title')).toBe('Plain title');
   });
 });
+
+describe('how a notebook was made', () => {
+  it('collects the runs that filed into it, their sub-runs (nested), and what each left', async () => {
+    const { notebookLineage } = await import('./notebook-lineage.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-lineage-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 7, 12, m)).toISOString();
+    const run = (id: string, agentName: string, m: number, parent?: [string, string]) => runs.createRun({
+      id, agentName, status: 'completed', startedAt: at(m), completedAt: at(m + 1), triggeredBy: 'dashboard',
+      ...(parent ? { parentRunId: parent[0], parentNodeId: parent[1] } : {}),
+    } as never);
+    run('sweep-1', 'car-sweep', 0);
+    run('cl-a', 'craigslist-search', 1, ['sweep-1', 'seattle']);
+    run('cl-b', 'craigslist-search', 2, ['sweep-1', 'bellingham']);
+    run('geo', 'geocode', 3, ['cl-b', 'where']);
+    run('sweep-2', 'car-sweep', 30);
+    run('other', 'unrelated', 40);
+    s.recordSearch(nb.id, 'car-sweep', 'sweep-1', 2, at(5));
+    const a = s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-1', data: { price: 4023 } }).entry;
+    s.upsertOption(nb.id, { title: 'Forester', by: 'agent:car-sweep', runId: 'sweep-1' });
+    s.addEntry(nb.id, { kind: 'note', title: 'One site blocked', by: 'agent:car-sweep', runId: 'sweep-1' });
+    s.recordSearch(nb.id, 'car-sweep', 'sweep-2', 1, at(35));
+    s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-2', data: { price: 3900 } }); // seen again
+    expect(a.id).toBeTruthy();
+
+    const l = notebookLineage(s, runs, nb.id);
+    expect(l.feeders.map((f) => f.run.id)).toEqual(['sweep-2', 'sweep-1']); // newest first; 'other' never filed
+    const first = l.feeders[1];
+    expect(first).toMatchObject({ found: 2, kinds: { option: 2, note: 1 } });
+    expect(first.subRuns.map((r) => [r.id, r.parentRunId, r.parentNodeId])).toEqual([
+      ['cl-a', 'sweep-1', 'seattle'], ['cl-b', 'sweep-1', 'bellingham'], ['geo', 'cl-b', 'where'],
+    ]);
+    expect(l.feeders[0]).toMatchObject({ found: 1, seenAgain: 1 });
+    expect(notebookLineage(s, runs, nb.id, 1)).toMatchObject({ more: 1 });
+
+    // A run's page: which notebooks it (or the run that started it) filed into.
+    expect(s.notebooksForRuns(['geo', 'cl-b', 'sweep-1'])).toEqual([{ notebookId: 'car', title: 'Car', runId: 'sweep-1' }]);
+    expect(s.notebooksForRuns(['other'])).toEqual([]);
+  });
+});
