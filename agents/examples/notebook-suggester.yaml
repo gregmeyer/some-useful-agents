@@ -1,0 +1,65 @@
+# Notebook Suggester — reads the person's recent conversations with sua and
+# suggests up to three notebooks they might want (goals kept over time:
+# something to buy, find, choose or plan), phrased as the sentence they'd
+# type into New notebook. Route-dispatched only (dashboard
+# lib/notebook-suggestions.ts), cached for half a day; never proposed in
+# triage.
+
+id: notebook-suggester
+name: Notebook Suggester
+description: >
+  Suggests up to three notebooks from your recent conversations with sua,
+  each as the sentence you'd type to start it.
+status: active
+source: examples
+
+inputs:
+  CONVERSATIONS:
+    type: string
+    required: true
+    description: "Recent conversations, one per line: the title, then the first thing the person said."
+  NOTEBOOKS:
+    type: string
+    required: false
+    default: "(none)"
+    description: "Notebooks the person already has, one title per line."
+
+nodes:
+  - id: suggest
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 90
+    outputContract:
+      mustMatch: '<suggestions>[\s\S]*?</suggestions>'
+      description: a <suggestions> JSON block
+    prompt: |
+      A "notebook" is a goal someone keeps over time while an assistant
+      searches, notes what it finds and tracks progress to a decision:
+      something to buy, a job to find, a place to rent, a trip to plan, a
+      choice to make between options.
+
+      Their recent conversations (title — what they first said):
+      {{inputs.CONVERSATIONS}}
+
+      Notebooks they already have:
+      {{inputs.NOTEBOOKS}}
+
+      Suggest THREE notebooks they would plausibly want, drawn from the
+      conversations: anything they were looking for, researching, comparing
+      or choosing (something to buy, a job, a place, a plan), even if they
+      only asked once. Give three whenever the conversations support three;
+      give fewer only when they truly don't. Skip:
+      - anything an existing notebook already covers;
+      - one-off questions (a joke, today's weather, a market result);
+      - requests about sua itself (fix an agent, build a board, change a
+        setting).
+
+      For each: "label", 2–5 words for a pill ("Tires for the RAV4"), and
+      "text", the sentence they'd type to start it, in their words, with
+      the details they gave (budget, place, must-haves). "from": the
+      conversation title it came from.
+
+      Reply with only this, as valid JSON:
+      <suggestions>
+      [{"label": "", "text": "", "from": ""}]
+      </suggestions>

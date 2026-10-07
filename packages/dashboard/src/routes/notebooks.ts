@@ -6,7 +6,8 @@
  */
 import { Router, type Request, type Response } from 'express';
 import { render } from '../views/html.js';
-import { renderNotebookNew, renderDraftReview } from '../views/notebook-new.js';
+import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
+import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
@@ -84,7 +85,14 @@ const titleFrom = (text: string): string => {
 
 // New notebook (views/notebook-new.ts): say it, sua drafts it, you check it.
 notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
-  res.type('html').send(renderNotebookNew({ text: str(req.query.text).slice(0, 1000), flash: parseFlash(req) }));
+  const sug = notebookSuggestions(getContext(req.app.locals));
+  res.type('html').send(renderNotebookNew({ text: str(req.query.text).slice(0, 1000), suggestions: sug.items, refreshing: sug.refreshing, flash: parseFlash(req) }));
+});
+
+/** The pills, redrawn when a refresh finishes (notebook-new.js.ts). */
+notebooksRouter.get('/notebooks/suggestions', (req: Request, res: Response) => {
+  const sug = notebookSuggestions(getContext(req.app.locals));
+  res.json({ refreshing: sug.refreshing, html: render(renderSuggestionPills(sug.items, sug.refreshing)) });
 });
 
 notebooksRouter.post('/notebooks/draft', (req: Request, res: Response) => {

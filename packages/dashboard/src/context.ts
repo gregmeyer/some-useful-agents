@@ -256,6 +256,10 @@ export interface DashboardContext {
   notebookDrafts?: Map<string, import('./lib/notebook-draft.js').DraftState>;
   /** Tests only: answer for the notebook drafter instead of running it. */
   notebookDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** New notebook's suggestion pills are being refreshed right now. */
+  notebookSuggesting?: boolean;
+  /** Tests only: answer for the notebook suggester instead of running it. */
+  notebookSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Tests only: answer for the notebook keeper instead of running it (returns
    * the keeper's output text). Production leaves it unset.
