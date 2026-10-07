@@ -72,7 +72,7 @@ import { settingsTemporalRouter } from './routes/settings-temporal.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
-import { inboxRouter, sendInboxPage } from './routes/inbox.js';
+import { inboxRouter, sendHomePage } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
 import { itemsRouter } from './routes/items.js';
@@ -264,10 +264,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       }
     }
 
-    // Home is the inbox canvas (conversations phase 3b): what needs you and
-    // every conversation, list and thread side by side. Its top becomes the
-    // Home surface (~/.claude/plans/goal-surfaces.md).
-    sendInboxPage(req, res);
+    // Home: what needs you (Today), full width; the list-and-thread inbox
+    // canvas is /inbox (views/home-page.ts).
+    sendHomePage(req, res);
   });
 
   app.use(connectModelRouter);

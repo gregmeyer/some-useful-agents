@@ -12,7 +12,11 @@ export const SURFACE_GESTURES_JS = `
 
     function surfaceOf(el) { return el && el.closest ? el.closest('[data-surface]') : null; }
     function version(el) { var s = surfaceOf(el); return s ? Number(s.getAttribute('data-surface-version')) : undefined; }
-    function refreshList() { if (window.suaPanel && window.suaPanel.refreshList) window.suaPanel.refreshList(); }
+    function refreshList() {
+      if (window.suaPanel && window.suaPanel.refreshList) window.suaPanel.refreshList();
+      // Home's own Today (views/home-page.ts) redraws too.
+      try { document.dispatchEvent(new CustomEvent('sua:surface-changed')); } catch (_) {}
+    }
 
     /** Rows in this row's region that can move (not pinned), in order. */
     function movable(li) {

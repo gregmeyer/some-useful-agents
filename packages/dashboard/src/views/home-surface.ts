@@ -288,7 +288,13 @@ export function renderHomeAdjust(today: HomeSurface): SafeHtml {
   return html`
     <details class="home-adjust">
       <summary class="btn btn--sm home-adjust__btn">Adjust Home</summary>
-      <div class="home-adjust__panel">
+      <div class="home-adjust__panel">${renderHomeAdjustPanel(today)}</div>
+    </details>`;
+}
+
+/** What's inside Adjust Home: ask sua to change it, how it's arranged, and what changed. */
+export function renderHomeAdjustPanel(today: HomeSurface): SafeHtml {
+  return html`
         <form method="POST" action="/surfaces/home/ask" class="home-change" data-ask-fix>
           <label class="home-change__label" for="home-change-text">Ask sua to change what Home shows</label>
           <div class="home-change__row">
@@ -301,7 +307,5 @@ export function renderHomeAdjust(today: HomeSurface): SafeHtml {
           <span class="home-goal__by" data-surface-by>${arrangedBy(today.version)}</span>
           <button type="button" class="home-goal__history" data-surface-history aria-expanded="false">What changed</button>
         </div>
-        <div class="home-history" data-surface-history-panel hidden></div>
-      </div>
-    </details>`;
+        <div class="home-history" data-surface-history-panel hidden></div>`;
 }
