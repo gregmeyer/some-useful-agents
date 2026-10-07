@@ -156,6 +156,8 @@ export interface NotebookEntry {
   runId?: string;
   /** An option's facts, by field key. */
   data?: Record<string, NotebookFieldValue>;
+  /** Where a fact came from and whether it's an estimate, by field key (facts given as {value, source, estimate}). */
+  factMeta?: Record<string, NotebookFactMeta>;
   /** What makes an option the same one next time (a listing address, a VIN). */
   fingerprint?: string;
   /** The last run that found it again (first seen is `createdAt`). */
@@ -289,7 +291,7 @@ export class NotebookStore {
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
-      ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'],
+      ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
@@ -635,13 +637,17 @@ export class NotebookStore {
     // Facts that contradict what the option's own text says belong to another
     // option (a model can mix up ids): keep only what the text states.
     const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
-    const given = cleanData(data, nb.fields);
+    const facts = splitFacts(data);
+    const given = cleanData(facts.values, nb.fields);
     const clean = contradicts(given, stated) ? stated : { ...given, ...stated };
     const merged = { ...(e.data ?? {}), ...clean };
+    // A fact the option's own text states needs no source; a given one keeps its own.
+    const meta = cleanFactMeta(facts.meta, Object.fromEntries(Object.entries(clean).filter(([k]) => !(k in stated))));
+    const mergedMeta = mergeFactMeta(e.factMeta, clean, meta);
     const fp = e.fingerprint ?? optionFingerprint(fingerprint, merged, nb.fields);
-    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ? WHERE id = ?')
-      .run(Object.keys(merged).length ? JSON.stringify(merged) : null, fp ?? null, e.id);
-    return { ...e, ...(Object.keys(merged).length ? { data: merged } : {}), ...(fp ? { fingerprint: fp } : {}) };
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, fingerprint = ? WHERE id = ?')
+      .run(Object.keys(merged).length ? JSON.stringify(merged) : null, mergedMeta ? JSON.stringify(mergedMeta) : null, fp ?? null, e.id);
+    return { ...e, ...(Object.keys(merged).length ? { data: merged } : {}), ...(mergedMeta ? { factMeta: mergedMeta } : { factMeta: undefined }), ...(fp ? { fingerprint: fp } : {}) };
   }
 
   /**
@@ -678,7 +684,9 @@ export class NotebookStore {
    */
   upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
     const nb = this.mustGet(notebookId);
-    const data = cleanData(input.data, nb.fields);
+    const facts = splitFacts(input.data);
+    const data = cleanData(facts.values, nb.fields);
+    const meta = cleanFactMeta(facts.meta, data);
     const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
     const now = new Date().toISOString();
     if (fingerprint) {
@@ -691,19 +699,20 @@ export class NotebookStore {
       if (match) {
         const prev = this.toEntry(match);
         const merged = { ...(prev.data ?? {}), ...data };
-        this.db.prepare('UPDATE notebook_entries SET data_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
-          .run(JSON.stringify(merged), now, input.runId ?? null, prev.id);
+        const mergedMeta = mergeFactMeta(prev.factMeta, data, meta);
+        this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
+          .run(JSON.stringify(merged), mergedMeta ? JSON.stringify(mergedMeta) : null, now, input.runId ?? null, prev.id);
         this.addSighting(prev.id, notebookId, input.runId, now, data);
         // Ruled out stays ruled out: a search finding it again only notes when it was seen.
-        return { entry: { ...prev, data: merged, lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(prev.ruledOut ? { ruledOut: true } : {}) };
+        return { entry: { ...prev, data: merged, ...(mergedMeta ? { factMeta: mergedMeta } : {}), lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(prev.ruledOut ? { ruledOut: true } : {}) };
       }
     }
     const entry = this.addEntry(notebookId, { kind: 'option', title: input.title, body: input.body, by: input.by, runId: input.runId });
     const stage = nb.stages[0];
-    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fingerprint = ?, last_seen_at = ?, stage = ?, stage_at = ? WHERE id = ?')
-      .run(Object.keys(data).length ? JSON.stringify(data) : null, fingerprint ?? null, now, stage ?? null, stage ? now : null, entry.id);
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, fingerprint = ?, last_seen_at = ?, stage = ?, stage_at = ? WHERE id = ?')
+      .run(Object.keys(data).length ? JSON.stringify(data) : null, Object.keys(meta).length ? JSON.stringify(meta) : null, fingerprint ?? null, now, stage ?? null, stage ? now : null, entry.id);
     this.addSighting(entry.id, notebookId, input.runId, now, data);
-    return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now, ...(stage ? { stage, stageAt: now } : {}) }, seenAgain: false };
+    return { entry: { ...entry, ...(Object.keys(data).length ? { data } : {}), ...(Object.keys(meta).length ? { factMeta: meta } : {}), ...(fingerprint ? { fingerprint } : {}), lastSeenAt: now, ...(stage ? { stage, stageAt: now } : {}) }, seenAgain: false };
   }
 
   /**
@@ -896,6 +905,7 @@ export class NotebookStore {
       title: String(r.title), body: String(r.body ?? ''), by: String(r.by),
       ...(r.run_id ? { runId: String(r.run_id) } : {}),
       ...(r.data_json ? { data: (() => { try { return JSON.parse(String(r.data_json)) as Record<string, NotebookFieldValue>; } catch { return {}; } })() } : {}),
+      ...(r.fact_meta_json ? { factMeta: (() => { try { return JSON.parse(String(r.fact_meta_json)) as Record<string, NotebookFactMeta>; } catch { return {}; } })() } : {}),
       ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
       ...(r.stage ? { stage: String(r.stage) } : {}),
@@ -1058,6 +1068,8 @@ export interface NotebookViewOption {
   price?: number;
   /** How well it fits (the notebook's score field), when it has one. */
   score?: number;
+  /** Where its facts came from and which are estimates, by field key. */
+  factMeta?: Record<string, NotebookFactMeta>;
   measure?: number;
   place?: string;
   org?: string;
@@ -1167,6 +1179,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
+      ...(e.factMeta && Object.keys(e.factMeta).length ? { factMeta: e.factMeta } : {}),
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}), ...(score !== undefined ? { score } : {}),
       ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
@@ -1331,4 +1344,48 @@ export function rankOptions<T extends Pick<NotebookViewOption, 'price' | 'score'
     if (y === undefined) return -1;
     return r.better === 'lower' ? x - y : y - x;
   });
+}
+
+/** Where a fact came from (an https link) and whether it's an estimate. */
+export interface NotebookFactMeta { source?: string; estimate?: boolean }
+
+/**
+ * An agent can give a fact as a plain value, or as {value, source, estimate}
+ * when it says where a figure came from or that it's a guess. Splits the two.
+ */
+export function splitFacts(data: Record<string, unknown> | undefined): { values: Record<string, unknown>; meta: Record<string, NotebookFactMeta> } {
+  const values: Record<string, unknown> = {};
+  const meta: Record<string, NotebookFactMeta> = {};
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'value' in (v as object)) {
+      const x = v as { value: unknown; source?: unknown; estimate?: unknown; confidence?: unknown };
+      values[k] = x.value;
+      const m: NotebookFactMeta = {};
+      if (typeof x.source === 'string') m.source = x.source;
+      if (x.estimate === true || x.confidence === 'estimate' || x.confidence === 'low') m.estimate = true;
+      if (m.source || m.estimate) meta[k] = m;
+    } else values[k] = v;
+  }
+  return { values, meta };
+}
+
+/** Meta only for facts that were kept, with sources that are plain https links. */
+function cleanFactMeta(meta: Record<string, NotebookFactMeta>, kept: Record<string, unknown>): Record<string, NotebookFactMeta> {
+  const out: Record<string, NotebookFactMeta> = {};
+  for (const [k, m] of Object.entries(meta)) {
+    if (!(k in kept)) continue;
+    const c: NotebookFactMeta = {};
+    if (m.source) { try { const u = new URL(m.source); if (u.protocol === 'https:' || u.protocol === 'http:') c.source = u.toString().slice(0, 500); } catch { /* not a link */ } }
+    if (m.estimate) c.estimate = true;
+    if (c.source || c.estimate) out[k] = c;
+  }
+  return out;
+}
+
+/** A newly stated fact replaces its source and estimate (or clears them); others keep theirs. */
+function mergeFactMeta(prev: Record<string, NotebookFactMeta> | undefined, stated: Record<string, unknown>, next: Record<string, NotebookFactMeta>): Record<string, NotebookFactMeta> | undefined {
+  const out: Record<string, NotebookFactMeta> = { ...(prev ?? {}) };
+  for (const k of Object.keys(stated)) delete out[k];
+  Object.assign(out, next);
+  return Object.keys(out).length ? out : undefined;
 }

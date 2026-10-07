@@ -282,6 +282,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .score b { font: 700 1.35rem/1 var(--font-mono); color: var(--color-primary); }
     .chips { display: flex; flex-wrap: wrap; gap: 4px; }
     .chip { font: var(--font-size-xs)/1.6 var(--font-mono); padding: 0 6px; border-radius: 4px; background: var(--color-surface-raised); border: 1px solid var(--color-border); white-space: nowrap; }
+    .chip.est { border-style: dashed; color: var(--color-text-muted); }
+    a.chip.src { color: var(--color-primary); text-decoration: none; }
+    a.chip.src:hover { border-color: var(--color-primary); }
     .chip.stage { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; border-radius: 999px; }
     .chip.better { color: var(--color-ok); border-color: var(--color-ok); } .chip.worse { color: var(--color-warn); border-color: var(--color-warn); }
     .chip.gone { border-style: dashed; color: var(--color-text-muted); }
@@ -328,7 +331,17 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const act = (detail) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: detail } }));
     const next = (o) => { const i = stages.indexOf(o.stage); return i >= 0 ? stages[i + 1] : undefined; };
     const facts = (o) => fields.filter((f) => f.role !== 'price' && f.role !== 'score' && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image')
-      .map((f) => fmtField(f, o.fields?.[f.key])).filter(Boolean).slice(0, 5);
+      .map((f) => ({ key: f.key, label: f.label, text: fmtField(f, o.fields?.[f.key]) })).filter((x) => x.text).slice(0, 5);
+    // A fact sua wasn't sure of reads "≈ …"; one with a source links to it.
+    const fact = (o, key, text, label) => {
+      const m = o.factMeta?.[key] ?? {};
+      const shown = m.estimate ? `≈ ${text}` : text;
+      const why = [label, m.estimate ? 'an estimate' : '', m.source ? `source: ${m.source}` : ''].filter(Boolean).join(' · ');
+      return safeUrl(m.source)
+        ? html`<a class="chip src${m.estimate ? ' est' : ''}" href=${safeUrl(m.source)} target="_blank" rel="noopener noreferrer" title=${why}>${shown} ↗</a>`
+        : html`<span class="chip${m.estimate ? ' est' : ''}" title=${why}>${shown}</span>`;
+    };
+    const est = (o, f) => (f && o.factMeta?.[f.key]?.estimate ? '≈ ' : '');
     const change = (o) => {
       const c = o.priceChange; if (!c || !priceF) return nothing;
       const down = c.to < c.from; const good = down === (priceBetter === 'lower');
@@ -340,7 +353,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       <input type="text" placeholder="or your words" aria-label="Reason" @keydown=${(e) => { if (e.key === 'Enter' && e.target.value.trim()) { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: e.target.value.trim() }); } }}>
     </div>` : nothing);
     const actions = (o) => html`<div class="acts">
-      ${safeUrl(o.link) ? html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">Listing ↗</a>` : nothing}
+      ${safeUrl(o.link) ? html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">${byRole('link')?.label ?? 'Listing'} ↗</a>` : nothing}
       ${p.actions && !o.ruledOut && next(o) ? html`<button type="button" class="btn" @click=${() => act({ op: 'move', id: o.id, stage: next(o) })}>${next(o)} →</button>` : nothing}
       ${p.actions && !o.ruledOut ? html`<button type="button" class="btn ghost" aria-expanded=${this._menu === o.id ? 'true' : 'false'} @click=${() => set('_menu', this._menu === o.id ? '' : o.id)}>Rule out…</button>` : nothing}
       ${p.actions && o.ruledOut ? html`<button type="button" class="btn ghost" @click=${() => act({ op: 'reinstate', id: o.id })}>Bring back</button>` : nothing}
@@ -361,9 +374,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
           <td><div class="title">${o.name ?? o.title}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
-          ${scoreF ? html`<td class="num">${fmtField(scoreF, o.fields?.[scoreF.key])}</td>` : nothing}
-          <td class="num">${priceF ? fmtField(priceF, o.fields?.[priceF.key]) : ''} ${change(o)}</td>
-          <td class="num">${measureF ? fmtField(measureF, o.fields?.[measureF.key]) : ''}</td>
+          ${scoreF ? html`<td class="num">${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}</td>` : nothing}
+          <td class="num">${priceF && o.fields?.[priceF.key] != null ? html`${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}` : ''} ${change(o)}</td>
+          <td class="num">${measureF && o.fields?.[measureF.key] != null ? html`${est(o, measureF)}${fmtField(measureF, o.fields[measureF.key])}` : ''}</td>
           <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
           <td>${actions(o)}</td></tr>`)}</tbody></table>`;
     }
@@ -376,9 +389,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       </div>
       <div class="body">
         <div class="title" title=${o.title}>${o.name ?? o.title}</div>
-        ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
-        ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
-        <div class="chips">${facts(o).map((f) => html`<span class="chip">${f}</span>`)}${change(o)}
+        ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${est(o, scoreF)}${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
+        ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
+        <div class="chips">${facts(o).map((f) => fact(o, f.key, f.text, f.label))}${change(o)}
           ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>
         <div class="chips">${o.stage && !o.ruledOut ? html`<span class="chip stage">${o.stage}</span>` : nothing}</div>
         ${o.ruledOut ? (o.ruledOut.gone ? html`<div class="why gone-why">No longer available</div>` : html`<div class="why">Ruled out${o.ruledOut.stage ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>`) : nothing}

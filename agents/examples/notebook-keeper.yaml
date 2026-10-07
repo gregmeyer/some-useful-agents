@@ -83,7 +83,13 @@ nodes:
       and shown as cards:
       - "data": one value per field key from the notebook's fields (numbers
         as numbers: 4023, not "$4,023"; addresses as full https links). Leave
-        out what the output doesn't say; never guess a value. Except: when
+        out what the output doesn't say; never guess a value. When the
+        output says where a figure came from, or that it's approximate
+        (revenue and headcount usually are), give it as
+        {"value": 20000000, "source": "https://…", "estimate": true}
+        instead of the bare value ("source" only as a full https link the
+        output gives; "estimate": true only when it says or clearly implies
+        the figure is a guess). Except: when
         the notebook has a field with role "score" (how well an option
         fits), give each option you add a score from 0 to 100 for how well
         it matches the notebook's parameters and criteria, judged from what
