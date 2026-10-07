@@ -286,6 +286,8 @@ export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
   const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const { agents, runIds } = s.runSources(nb.id);
   const filed = new Set(runIds);
+  // A run already filed into another notebook belongs there (an agent can feed several).
+  const candidates: string[] = [];
   const since = Date.now() - UNFILED_DAYS * 86_400_000;
   const out: UnfiledRun[] = [];
   for (const agentId of agents) {
@@ -293,10 +295,12 @@ export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
     for (const r of ctx.runStore.listRuns({ agentName: agentId, status: 'completed', limit: 10 })) {
       // A run another agent started is part of its parent's search, not one to file on its own.
       if (filed.has(r.id) || r.parentRunId || !r.result || Date.parse(r.startedAt) < since) continue;
+      candidates.push(r.id);
       out.push({ id: r.id, agentId, startedAt: r.startedAt });
     }
   }
-  return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+  const elsewhere = new Set(s.notebooksForRuns(candidates).filter((x) => x.notebookId !== nb.id).map((x) => x.runId));
+  return out.filter((r) => !elsewhere.has(r.id)).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
 }
 
 /** Runs being added to a notebook right now (run id), so a second click doesn't add one twice. */

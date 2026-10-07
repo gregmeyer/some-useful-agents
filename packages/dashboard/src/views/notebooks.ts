@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, notebookViewData, isRange, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -59,13 +59,12 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
  * best price (lower unless the price field says higher is better).
  */
 export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3): NotebookViewOption[] {
-  const better = nb.fields.find((f) => f.role === 'price')?.better ?? 'lower';
   const stageAt = (s?: string) => (s ? nb.stages.indexOf(s) : -1);
-  return notebookViewData(nb, [...entries]).notebook.options
-    .filter((o) => !o.ruledOut)
-    .sort((a, b) => stageAt(b.stage) - stageAt(a.stage)
-      || (a.price === undefined ? 1 : 0) - (b.price === undefined ? 1 : 0)
-      || (a.price !== undefined && b.price !== undefined ? (better === 'lower' ? a.price - b.price : b.price - a.price) : 0))
+  // Best first by score (or price), then the furthest stage wins (a stable sort keeps the ranking within a stage).
+  const ranked = rankOptions(nb, notebookViewData(nb, [...entries]).notebook.options);
+  return ranked.map((o, i) => [o, i] as const)
+    .sort((a, b) => stageAt(b[0].stage) - stageAt(a[0].stage) || a[1] - b[1])
+    .map(([o]) => o)
     .slice(0, limit);
 }
 
@@ -149,16 +148,24 @@ export function bodyWithLinks(text: string): SafeHtml {
 }
 
 /** "$4,023", "149,652 mi", "2010": one field's value as people read it. */
+/** Money: "$4,023", "$150,000"; a million and up "$18M", "$2.5B" (a company's revenue). */
+export function formatMoney(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e9) return `$${(n / 1e9).toLocaleString('en-US', { maximumFractionDigits: 1 })}B`;
+  if (a >= 1e6) return `$${(n / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
 export function formatFieldValue(f: NotebookField, v: NotebookFieldValue): string {
   if (isRange(v)) {
     if (v.min === v.max) return formatFieldValue(f, v.min);
     // "$150,000–$180,000", "120–150 sq ft": the unit once, at the end.
-    const one = (n: number) => (f.type === 'money' ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+    const one = (n: number) => (f.type === 'money' ? formatMoney(n) : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
     return `${one(v.min)}–${one(v.max)}${f.unit && f.type !== 'money' ? ` ${f.unit}` : ''}`;
   }
   if (typeof v === 'number') {
     const n = v.toLocaleString('en-US', { maximumFractionDigits: 2 });
-    if (f.type === 'money') return `$${n}`;
+    if (f.type === 'money') return formatMoney(v);
     // Years and ids read without separators.
     if (f.type === 'number' && !f.unit && Number.isInteger(v) && v >= 1900 && v <= 2100) return String(v);
     return f.unit ? `${n} ${f.unit}` : n;

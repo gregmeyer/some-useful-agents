@@ -598,6 +598,11 @@ describe('runs not in the notebook yet', () => {
     expect(page.text).toContain('Runs not in this notebook yet');
     expect(page.text).toContain(`/notebooks/${nb.id}/runs/run-new/add`);
     for (const r of ['run-filed', 'run-failed', 'run-old', 'run-other']) expect(page.text).not.toContain(`/runs/${r}/add`);
+    // A run already filed into another notebook belongs there.
+    run('run-other-nb', 'sweep', 'completed', 30_000, keeper);
+    const other = store.create({ title: 'Other' });
+    store.recordSearch(other.id, 'sweep', 'run-other-nb', 1);
+    expect((await get()).text).not.toContain('/runs/run-other-nb/add');
 
     const post = (runId: string) => request(app).post(`/notebooks/${nb.id}/runs/${runId}/add`)
       .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);

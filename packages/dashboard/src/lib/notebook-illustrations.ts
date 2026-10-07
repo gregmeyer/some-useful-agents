@@ -13,6 +13,8 @@ export function illustrationKind(notebook: { title: string; statement: string },
   const s = `${notebook.title} ${notebook.statement} ${optionName}`.toLowerCase();
   if (/\b(car|suv|truck|vehicle|sedan|wagon|hatchback|rav4|forester|crv|cr-v|outback|civic|corolla|camry|subaru|toyota|honda|mazda)\b/.test(s)) return 'car';
   if (/\b(job|role|career|engineer|hiring|position|manager|designer|developer)\b/.test(s)) return 'job';
+  // Companies to research or qualify (accounts, vendors, leads) get the same monogram tile.
+  if (/\b(compan(y|ies)|accounts?|vendors?|startups?|b2b|saas|leads?|prospects?|customers?)\b/.test(s)) return 'job';
   if (/\b(bike|bicycle|cycling)\b/.test(s)) return 'bike';
   if (/\b(guitar|piano|keyboard|instrument|bass|ukulele|synth)\b/.test(s)) return 'music';
   if (/\b(laptop|computer|macbook|notebook pc|thinkpad)\b/.test(s)) return 'laptop';

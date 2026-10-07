@@ -11,7 +11,7 @@
  *   Before you decide (1/3)        | How we got here (timeline, 2/3)
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
-import {
+import { rankBy, rankOptions,
   notebookViewData, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
@@ -93,14 +93,12 @@ export function limitChips(nb: Pick<Notebook, 'params' | 'fields'>): { chips: Ar
 
 const money = (f: NotebookField | undefined, n: number | undefined) => (n === undefined ? '' : f?.type === 'money' ? `$${Math.round(n).toLocaleString('en-US')}` : n.toLocaleString('en-US'));
 
-/** Options in the running, best first by price (the better way). */
-function ranked(v: NotebookViewData['notebook'], priceF: NotebookField | undefined): NotebookViewOption[] {
-  const better = priceF?.better ?? 'lower';
-  return v.options.filter((o) => !o.ruledOut).sort((a, b) => {
-    if (a.price === undefined) return 1;
-    if (b.price === undefined) return -1;
-    return better === 'lower' ? a.price - b.price : b.price - a.price;
-  });
+/** "fit 86", "$4,023": an option's ranking value, as the notebook says it. */
+function rankText(rank: ReturnType<typeof rankBy>, o: NotebookViewOption | undefined): string {
+  if (!o) return '';
+  const v = rank.by === 'score' ? o.score : o.price;
+  if (v === undefined) return '';
+  return rank.by === 'score' ? `${(rank.field?.label ?? 'fit').toLowerCase()} ${v.toLocaleString('en-US')}` : money(rank.field, v);
 }
 
 const fmtAge = (iso: string, now: number) => {
@@ -136,9 +134,11 @@ function checksFor(nb: Notebook): string[] {
 export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, now = Date.now()): NotebookWidgetData {
   const { notebook: v } = notebookViewData(nb, entries, history);
   const priceF = nb.fields.find((f) => f.role === 'price');
-  const better = priceF?.better ?? 'lower';
-  const active = ranked(v, priceF);
-  const best = active.find((o) => o.price !== undefined);
+  // Best first by the notebook's score field (how well it fits) when it has one, else by price.
+  const rank = rankBy(nb);
+  const better = rank.better;
+  const active = rankOptions(nb, v.options);
+  const best = active.find((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
   const furthest = [...v.funnel].reverse().find((s) => s.here > 0)?.stage ?? '';
   const nextCriterion = v.criteria.find((c) => !c.met)?.text;
   const searches = history?.searches?.(nb.id, 20) ?? [];
@@ -146,14 +146,14 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const top = active.slice(0, 2);
   const checkedTop = top.reduce((n, o) => n + (o.checked.length >= checks.length && checks.length ? 1 : 0), 0);
 
-  const second = active.filter((o) => o.price !== undefined)[1];
+  const second = active.filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined)[1];
   const summary = active.length === 0
     ? (v.options.length ? `All ${String(v.options.length)} options are ruled out.` : 'No options yet. Ask sua to search, or tell it about one you saw.')
     : [
       `**${String(active.length)} in the running**${searches.length ? ` after ${String(searches.length)} search${searches.length === 1 ? '' : 'es'}` : ''}${v.ruledOutCount ? `, ${String(v.ruledOutCount)} ruled out` : ''}.`,
-      best ? `The best lead is the **${best.name}**: ${money(priceF, best.price)}${best.measure !== undefined ? `, ${best.measure.toLocaleString('en-US')}${nb.fields.find((f) => f.role === 'measure')?.unit ? ` ${nb.fields.find((f) => f.role === 'measure')!.unit!}` : ''}` : ''}${best.place ? `, in ${best.place}` : ''}.` : '',
-      second && best && second.price !== undefined && best.price !== undefined
-        ? `Next best: ${second.name} at ${money(priceF, second.price)}.`
+      best ? `The ${rank.by === 'score' ? 'best fit' : 'best lead'} is the **${best.name}**: ${rankText(rank, best)}${rank.by === 'score' && best.price !== undefined ? `, ${money(priceF, best.price)}` : ''}${best.measure !== undefined ? `, ${best.measure.toLocaleString('en-US')} ${(() => { const mf = nb.fields.find((f) => f.role === 'measure'); return mf?.unit ?? (mf?.label ?? '').toLowerCase(); })()}`.trimEnd() : ''}${best.place ? `, in ${best.place}` : ''}.` : '',
+      second && best && rankText(rank, second)
+        ? (rank.by === 'score' ? `Next best: ${second.name} (${rankText(rank, second)}).` : `Next best: ${second.name} at ${rankText(rank, second)}.`)
         : '',
       furthest && furthest !== v.stages[0] ? `Furthest along: ${furthest}.` : '',
     ].filter(Boolean).join(' ');
@@ -231,7 +231,9 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       next,
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
-        { label: `best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`, value: best ? money(priceF, best.price) : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) },
+        rank.by === 'score'
+          ? { label: `best ${(rank.field?.label ?? 'fit').toLowerCase()}`, value: best?.score !== undefined ? best.score.toLocaleString('en-US') : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) }
+          : { label: `best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`, value: best ? money(priceF, best.price) : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) },
         { label: 'furthest along', value: furthest || '—' },
         { label: 'ruled out', value: String(v.ruledOutCount), ...(v.ruledOutCount ? { tone: 'warn' } : {}) },
       ],
@@ -244,10 +246,10 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       coverage: { sources: latestWithSources?.sources ?? [], when: latestWithSources ? `last search · ${fmtAge(latestWithSources.at, now)}` : '' },
       checklist: top.map((o, i) => ({ id: o.id, title: `#${String(i + 1)} · ${o.name}`, items: checks.map((c) => ({ text: c, done: o.checked.includes(c) })) })),
       timeline: timeline.slice(0, 80),
-      shortlistNote: `ranked by ${(priceF?.label ?? 'price').toLowerCase()}${better === 'higher' ? ', highest first' : ''}`,
+      shortlistNote: `ranked by ${(rank.field?.label ?? 'price').toLowerCase()}${better === 'higher' ? ', highest first' : ''}`,
       stats: {
         active: String(active.length),
-        best: best ? money(priceF, best.price) : '—',
+        best: best ? rankText(rank, best) || '—' : '—',
         bestLabel: `Best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`,
         furthest: furthest || '—',
         ruledOut: String(v.ruledOutCount),
@@ -270,6 +272,7 @@ function clip(text: string, n: number): string {
 export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>): ViewComponent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
+  const scoreF = nb.fields.find((f) => f.role === 'score');
   const hasMap = !!(priceF && measureF);
   const hasFunnel = nb.stages.length > 1;
   const panel = (id: string, title: string, child: string, note?: Record<string, unknown> | string): ViewComponent =>
@@ -303,7 +306,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
   }
   c.push(
     panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: 'price', actions: true },
+    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true },
     // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
     { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),

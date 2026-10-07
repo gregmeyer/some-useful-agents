@@ -2,16 +2,17 @@
  * One notebook as a card: its cover picture and a line of what it holds.
  * Used by the Notebooks list and by a notebook's conversation thread.
  */
-import { notebookViewData, notebookPhotoPath, NotebookStore, type Notebook, type InboxMessage } from '@some-useful-agents/core';
+import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type InboxMessage } from '@some-useful-agents/core';
 import { formatFieldValue, type NotebookCard } from '../views/notebooks.js';
 
 export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
   const entries = s.entries(nb.id, 1000);
   const v = notebookViewData(nb, entries).notebook;
   const priceF = nb.fields.find((f) => f.role === 'price');
-  const better = priceF?.better ?? 'lower';
+  const rank = rankBy(nb);
   const active = v.options.filter((o) => !o.ruledOut);
-  const priced = active.filter((o) => o.price !== undefined).sort((a, b) => (better === 'lower' ? a.price! - b.price! : b.price! - a.price!));
+  // Best first by the score field (how well it fits) when there is one, else by price.
+  const priced = rankOptions(nb, active).filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
   const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
   const cover = s.coverPhoto(nb.id);
   return {
@@ -19,7 +20,9 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
     entries: entries.length,
     options: v.options.length,
     active: active.length,
-    ...(priced[0] && priceF ? { best: formatFieldValue(priceF, priced[0].fields[priceF.key] ?? priced[0].price!), bestName: priced[0].name } : {}),
+    ...(priced[0] && rank.by === 'score' && rank.field
+      ? { best: `${(rank.field.label).toLowerCase()} ${String(priced[0].score)}`, bestName: priced[0].name }
+      : priced[0] && priceF ? { best: formatFieldValue(priceF, priced[0].fields[priceF.key] ?? priced[0].price!), bestName: priced[0].name } : {}),
     ...(nb.criteria.length ? { done: `${String(nb.criteria.filter((c) => c.met).length)} of ${String(nb.criteria.length)} done` } : {}),
     ...(furthest && furthest !== nb.stages[0] ? { furthest } : {}),
     ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind } : {}),

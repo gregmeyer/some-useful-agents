@@ -83,7 +83,11 @@ nodes:
       and shown as cards:
       - "data": one value per field key from the notebook's fields (numbers
         as numbers: 4023, not "$4,023"; addresses as full https links). Leave
-        out what the output doesn't say; never guess a value.
+        out what the output doesn't say; never guess a value. Except: when
+        the notebook has a field with role "score" (how well an option
+        fits), give each option you add a score from 0 to 100 for how well
+        it matches the notebook's parameters and criteria, judged from what
+        the output says about it.
       - "fingerprint": what makes it the same option next time, in order of
         preference: a VIN or listing id, else the listing's address, else
         "year make model miles seller". An option already listed above
@@ -102,7 +106,8 @@ nodes:
       "price" (what it costs, or pays), "measure" (the main number to
       compare: miles, sq ft, commute minutes, rating), "place", "org" (the
       company or seller), "link" (the listing), "image" (a photo or logo),
-      "when". For money and numbers, "better": "higher" or "lower" (a price
+      "when", "score" (how well it fits: an ICP or match score, better
+      higher; options then rank by it). For money and numbers, "better": "higher" or "lower" (a price
       is better lower, a salary or a rating higher), and "range": true when
       values come as a span ("$150k–$180k"); give a range's value as
       {"min": 150000, "max": 180000}. For cars: price, miles, year,
@@ -110,7 +115,9 @@ nodes:
       (money, price role, better higher, range), title, company (org),
       location, remote, level, posted (when), posting_url. For products:
       price, rating (measure, better higher), store (org), in_stock,
-      product_url, photo.
+      product_url, photo. For accounts or leads to qualify: company (org),
+      website (link), industry, location (place), revenue (money, range),
+      employees (number, measure, range), fit (number, role "score").
       Where it looked: when the output is a search that names the sites or
       sources it tried, return "sources": [{"name": "CarGurus", "found": 2,
       "status": "found" | "none" | "blocked" | "skipped", "note"?: "why"}],
