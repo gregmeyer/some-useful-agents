@@ -1,5 +1,5 @@
 # Notebook Drafter — turns one sentence ("a reliable used SUV for my
-# daughter, under $8k, near Bellingham") into a draft notebook: title, what
+# commute, under $12k, within 50 miles") into a draft notebook: title, what
 # it's for, limits, done-when, what to note for each option, checks, stages,
 # and which of your agents could search for it. Route-dispatched only, by
 # New notebook (dashboard lib/notebook-draft.ts); never proposed in triage.
@@ -64,11 +64,11 @@ nodes:
 
       Return:
       - "title": short, imperative, under 60 characters ("Buy a used car
-        for Nadia", "Find a remote staff engineer job").
+        for the commute", "Find a remote staff engineer job").
       - "statement": one sentence: what it's for, in their words.
       - "params": their limits, each a short phrase they'd recognise
         ("$3–8k", "under 175k miles", "AWD", "SUV or wagon",
-        "Bellingham to Seattle"). Only what they said or clearly implied;
+        "within 50 miles of home"). Only what they said or clearly implied;
         3–8 of them. No invented budgets.
       - "criteria": 2–4 "done when" checks, the last a decision
         ("At least one car that fits", "Clean title on the top pick",

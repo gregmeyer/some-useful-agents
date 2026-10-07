@@ -20,8 +20,10 @@ There's no top-nav item yet. Notebooks show up:
 
 ## Starting one
 
+![Start a notebook: one sentence becomes a draft you can edit](images/new-notebook-draft.png)
+
 **+ New notebook** (on Home's shelf or the Notebooks page) opens **Start a notebook**:
-1. **Say it in a sentence**, the way you'd tell a friend ("a reliable used SUV for my daughter, AWD, $3–8k, around Bellingham, decide by the 15th"), then **Draft it** (or press Enter).
+1. **Say it in a sentence**, the way you'd tell a friend ("a reliable used hatchback for my commute, under $12k, within 50 miles, decide by the end of the month"), then **Draft it** (or press Enter).
 2. **sua drafts the notebook:** a title, what it's for, your limits, what "done" means (with your deadline), what to note for each option, what to check before deciding, the stages an option moves through, and which of your agents could search for it, with how often.
 3. **Check it.** Every part is editable: change or remove a limit, add a check, edit the stages, untick an agent. Or ask sua to change it ("only over-ear, drop the deadline").
 4. **Looks right, start it** creates the notebook already set up, and sua says hello in its conversation with the next thing to tell it.
@@ -59,6 +61,10 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
 
 ## A notebook's page
+
+![A notebook's page: where it stands, done-when, the price map and the funnel](images/notebook.png)
+
+![The same notebook with its conversation open in the sua panel](images/drawer.png)
 
 **The header shows the notebook's picture** (a listing photo, an example photo or an illustration of the lead option), the same one its card and conversation show. A notebook with no picture yet shows the notebook icon.
 

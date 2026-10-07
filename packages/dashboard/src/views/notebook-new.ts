@@ -28,7 +28,7 @@ export function renderNotebookNew(opts: { text?: string; suggestions?: ReadonlyA
         <label class="nbd-ask__label" for="nbd-text">Describe it like you'd tell a friend</label>
         <div class="nbd-ask__row">
           <textarea id="nbd-text" name="text" rows="3" required class="form-field nbd-ask__text" data-nbd-text
-            placeholder="A reliable used SUV or wagon for my daughter's first car, AWD, $3–8k, under 175k miles, around Bellingham to Seattle. Decide by the 15th.">${opts.text ?? ''}</textarea>
+            placeholder="A reliable used hatchback for my commute, automatic, under $12k and 90k miles, within 50 miles of home. Decide by the end of the month.">${opts.text ?? ''}</textarea>
           <button type="submit" class="btn btn--primary nbd-ask__go" data-nbd-go>Draft it</button>
         </div>
         <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>

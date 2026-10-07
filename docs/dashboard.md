@@ -46,6 +46,8 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 ## `/` — Home
 
+![Home: how things stand, your notebooks, and Today](images/home.png)
+
 Home is what needs you, on one page:
 - **The header** says how things stand ("2 need you", or "Nothing needs you") beside the title, with a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
 - **Your notebooks**: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with its picture, the best option so far and its price, its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**. On a phone the cards are a row you swipe.
@@ -205,6 +207,8 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
 ## `/pulse` — the board
+
+![Pulse with six placed tiles](images/pulse.png)
 
 Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
 

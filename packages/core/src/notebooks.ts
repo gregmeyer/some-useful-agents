@@ -1180,7 +1180,7 @@ export function looksLikeOneListing(url: string): boolean {
 }
 
 /**
- * "2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood" → "2010 Toyota RAV4 Sport 4WD".
+ * "2016 Toyota Corolla iM, 81,300 mi, $9,800, Fairview" → "2016 Toyota Corolla iM".
  * Only when what follows is facts (numbers, a price): "Staff Engineer, Stripe" stays whole.
  */
 export function shortName(title: string): string {
