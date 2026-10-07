@@ -41,7 +41,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **sua suggests a pipeline** when there isn't one, from agents you have (e.g. a listings search every morning). That's a **Set up the pipeline** card you approve, and it can run once right away.
 - **Agents sua runs in the conversation feed the notebook.** A search becomes options, evidence, or a note such as "Searched Seattle Craigslist for Foresters: nothing that fits yet", each linked to its run. When sua builds an agent for the notebook, it offers to add it to the pipeline.
 - **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
-- **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, open **Add an entry yourself**.
+- **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, use **+ Add entry** in the notebook's header.
 
 - **With the sua panel open,** the page's **Talk to sua** box is hidden, so there's one place to type. Closing the panel on the notebook's conversation refreshes the talk box and the notebook, so sua's latest reply shows.
 - **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
@@ -57,8 +57,8 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   - **Options**;
   - **Notes and decisions**, with decisions first;
   - **Evidence**.
-- **Add to this notebook** adds a note, an option, evidence, or a decision.
-- **Edit this notebook** changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule. Editing the criteria keeps the ticks on the ones you didn't change.
+- **+ Add entry** (in the header, beside **Decide…**) adds a note, an option, evidence, or a decision.
+- **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule. Editing the criteria keeps the ticks on the ones you didn't change.
 - **Decide…** records what you decided and why. The decision is also kept as an entry, and the notebook closes. **Reopen** any time; **Stop** pauses a notebook without deciding.
 
 ## Option facts
@@ -117,7 +117,7 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
 
-- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them under **Edit** (one per line). New options start at the first stage. If you remove a stage, its options move to the first one.
+- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them with **Edit** in the header (one per line). New options start at the first stage. If you remove a stage, its options move to the first one.
 - **Move an option along** with **Move to <next stage> →** on its card, or tell sua ("I applied to Stripe and Plaid", "we test-drove the RAV4").
 - **Rule an option out** with **Rule out…**: pick a quick reason (Not interested, Too expensive, No reply, Failed a check) or write your own. Or tell sua ("rule out the XT, too pricey", "no callback from Plaid").
   - A ruled-out option **stays in the notebook,** dimmed and at the end of its section, showing where it was ruled out and why: "Ruled out at Applied: no callback". **Bring back** undoes it, and so does moving it to a stage.
@@ -132,7 +132,7 @@ A run's results go into the notebook by themselves when it was started from the 
 
 ## The pipeline
 
-Under **Edit**, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
+With **Edit** in the header, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
 
 - **Each agent gets the notebook's goal.** Any input it declares named `GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF` gets the statement, parameters and criteria. `TOPIC`, `QUERY`, `QUESTION` or `SEARCH` gets the statement. Other inputs keep their defaults.
 - **The notebook keeper turns output into entries.** After each agent finishes, the keeper (a built-in sua agent, `notebook-keeper`) reads what it found against the notebook's goal, parameters, criteria and existing entries. It writes what's new:

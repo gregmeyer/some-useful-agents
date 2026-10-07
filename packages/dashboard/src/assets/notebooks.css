@@ -6,7 +6,7 @@
 
 .nb-hero {
   position: relative;
-  overflow: hidden;
+  /* Not overflow: hidden — the header's action menus drop down past its edge. */
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: var(--space-6);
@@ -109,10 +109,22 @@
 .nb-crit__btn.is-met { border-color: var(--color-ok); background: var(--color-ok-soft); color: var(--color-ok); }
 .nb-crit__text { font-size: var(--font-size-sm); line-height: 1.4; }
 .nb-crit__text.is-met { color: var(--color-text-muted); }
-.nb-decide > summary { list-style: none; display: inline-flex; cursor: pointer; }
-.nb-decide > summary::-webkit-details-marker { display: none; }
-.nb-decide > summary::before { content: none; }
-.nb-decide__form { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+/* The header's actions (Decide…, + Add entry, Edit): buttons whose forms drop down below them. */
+.nb-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-start; }
+.nb-act { position: relative; }
+.nb-act > summary { list-style: none; display: inline-flex; cursor: pointer; }
+.nb-act > summary::-webkit-details-marker { display: none; }
+.nb-act > summary::before { content: none; }
+.nb-act__panel { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 20; width: min(380px, calc(100vw - 32px)); max-height: min(70vh, 640px); overflow: auto; padding: var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); display: grid; gap: var(--space-3); }
+.nb-act__panel--wide { width: min(480px, calc(100vw - 32px)); }
+.nb-act__title { margin: 0; font-size: var(--font-size-sm); font-weight: var(--weight-semibold); }
+@media (max-width: 640px) {
+  /* On a phone the menus span the actions row, not hang off their button. */
+  .nb-acts { position: relative; }
+  .nb-act { position: static; }
+  .nb-act__panel, .nb-act__panel--wide { left: 0; right: 0; width: auto; }
+}
+.nb-decide__form { display: flex; flex-direction: column; gap: var(--space-2); }
 .nb-reopen { margin: 0; }
 
 /* The notebook's surface and the side forms. */
@@ -155,7 +167,6 @@
 .nb-body__side { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: var(--space-4); }
 .nb-side__card { padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .nb-side__title { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: 600; }
-details.nb-edit > summary { cursor: pointer; margin: 0; }
 .nb-form { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
 .nb-form .form-field { width: 100%; padding: var(--space-2); font-size: var(--font-size-sm); }
 .nb-label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -231,8 +242,6 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-talk__hint { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-talk__continue { margin-top: var(--space-2); }
 .nb-talk { border-color: var(--color-primary); }
-details.nb-addself > summary { cursor: pointer; margin: 0; font-weight: 400; color: var(--color-text-muted); font-size: var(--font-size-xs); }
-details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 .nb-talk__next { font-size: var(--font-size-sm); color: var(--color-primary); }
 .nb-talk__last {
   margin: 0 0 var(--space-3);

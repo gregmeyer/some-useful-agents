@@ -10,6 +10,24 @@ export const NOTEBOOK_PAGE_JS = `
       var el = e.target;
       if (el && el.matches && el.matches('select[data-autosubmit]') && el.form) el.form.submit();
     });
+    // The header's actions: one open at a time; Escape or a click outside closes it.
+    var acts = document.querySelectorAll('[data-nb-act]');
+    for (var ai = 0; ai < acts.length; ai++) {
+      acts[ai].addEventListener('toggle', function (e) {
+        var d = e.target;
+        if (!d.open) return;
+        for (var j = 0; j < acts.length; j++) if (acts[j] !== d) acts[j].open = false;
+        var first = d.querySelector('textarea, input[type="text"]');
+        if (first) setTimeout(function () { first.focus(); }, 0);
+      });
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      for (var j = 0; j < acts.length; j++) if (acts[j].open) { acts[j].open = false; acts[j].querySelector('summary').focus(); }
+    });
+    document.addEventListener('click', function (e) {
+      for (var j = 0; j < acts.length; j++) if (acts[j].open && !acts[j].contains(e.target)) acts[j].open = false;
+    });
     // Decide…: an option chip starts the answer with it.
     document.addEventListener('click', function (e) {
       var pick = e.target.closest && e.target.closest('[data-nb-decide-pick]');

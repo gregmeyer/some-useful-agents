@@ -76,7 +76,7 @@ export function decisionPlaceholder(leads: readonly Pick<NotebookViewOption, 'na
   return 'What you chose, and why. Or why you stopped looking.';
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = []): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -113,7 +113,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${progressRing(met, total)}
           <div class="nb-progress__list">
             <span class="nb-progress__label">Done when</span>
-            ${total === 0 ? html`<span class="nb-progress__empty">No criteria yet. Add them under Edit.</span>` : html``}
+            ${total === 0 ? html`<span class="nb-progress__empty">No criteria yet. Add them with Edit, above.</span>` : html``}
             ${nb.criteria.map((c, i) => html`
               <form method="POST" action="/notebooks/${id}/criteria/${String(i)}" class="nb-crit">
                 <input type="hidden" name="met" value="${c.met ? '0' : '1'}">
@@ -122,20 +122,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               </form>`) as unknown as SafeHtml[]}
           </div>
         </div>`}
-        ${nb.status === 'active' ? html`
-          <details class="nb-decide">
-            <summary class="btn btn--primary btn--sm">Decide…</summary>
-            <form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
-              <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
-              ${leads.length ? html`<div class="nb-decide__picks" role="group" aria-label="Start from an option">
-                <span class="nb-decide__picks-label">Start from</span>
-                ${leads.map((o) => html`<button type="button" class="nb-decide__pick" data-nb-decide-pick="${`Chose ${o.name}: `}">${o.name}</button>`) as unknown as SafeHtml[]}
-              </div>` : html``}
-              <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder(leads)}"></textarea>
-              <button type="submit" class="btn btn--primary btn--sm">Record the decision and close</button>
-            </form>
-          </details>` : html`
-          <form method="POST" action="/notebooks/${id}/status" class="nb-reopen"><input type="hidden" name="status" value="active"><button type="submit" class="btn btn--sm">Reopen</button></form>`}
+        ${heroActions(nb, entries, leads)}
       </aside>
     </section>`;
 }
@@ -388,8 +375,13 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
               : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/runs/${encodeURIComponent(r.id)}/add"><button type="submit" class="btn btn--sm">Add to notebook</button></form>`}
           </li>`) as unknown as SafeHtml[]}</ul>
       </section>` : html``}
-    <details class="nb-side__card nb-addself">
-      <summary class="nb-side__title">Add an entry yourself</summary>
+`;
+}
+
+/** Add an entry yourself (the header's + Add entry). */
+function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  return html`
       <form method="POST" action="/notebooks/${id}/entries" class="nb-form">
         <div class="nb-kinds" role="radiogroup" aria-label="What it is">
           ${(['note', 'option', 'evidence', 'decision'] as const).map((k, i) => html`
@@ -399,9 +391,13 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
         <textarea name="body" rows="3" class="form-field" placeholder="Details (optional)"></textarea>
         <button type="submit" class="btn btn--sm">Add</button>
       </form>
-    </details>
-    <details class="nb-side__card nb-edit">
-      <summary class="nb-side__title">Edit this notebook</summary>
+  `;
+}
+
+/** Edit this notebook (the header's Edit). */
+function editNotebookForm(nb: Notebook): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  return html`
       <form method="POST" action="/notebooks/${id}/edit" class="nb-form">
         <label class="nb-label">Title<input type="text" name="title" value="${nb.title}" required class="form-field"></label>
         <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field">${nb.statement}</textarea></label>
@@ -413,13 +409,54 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
         <button type="submit" class="btn btn--sm">Save</button>
       </form>
       ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button></form>` : html``}
-    </details>`;
+  `;
+}
+
+/**
+ * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
+ * button that opens its form below it; one open at a time (notebook-page.js.ts).
+ */
+function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[]): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  return html`
+    <div class="nb-acts">
+      ${nb.status === 'active' ? html`
+        <details class="nb-act nb-decide" data-nb-act>
+          <summary class="btn btn--primary btn--sm">Decide…</summary>
+          <div class="nb-act__panel">
+            <form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
+              <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
+              ${leads.length ? html`<div class="nb-decide__picks" role="group" aria-label="Start from an option">
+                <span class="nb-decide__picks-label">Start from</span>
+                ${leads.map((o) => html`<button type="button" class="nb-decide__pick" data-nb-decide-pick="${`Chose ${o.name}: `}">${o.name}</button>`) as unknown as SafeHtml[]}
+              </div>` : html``}
+              <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder(leads)}"></textarea>
+              <button type="submit" class="btn btn--primary btn--sm">Record the decision and close</button>
+            </form>
+          </div>
+        </details>` : html`
+        <form method="POST" action="/notebooks/${id}/status" class="nb-reopen"><input type="hidden" name="status" value="active"><button type="submit" class="btn btn--sm">Reopen</button></form>`}
+      <details class="nb-act nb-addself" data-nb-act>
+        <summary class="btn btn--sm">+ Add entry</summary>
+        <div class="nb-act__panel">
+          <h2 class="nb-act__title">Add an entry yourself</h2>
+          ${addEntryForm(nb, entries)}
+        </div>
+      </details>
+      <details class="nb-act nb-edit" data-nb-act>
+        <summary class="btn btn--sm btn--ghost">Edit</summary>
+        <div class="nb-act__panel nb-act__panel--wide">
+          <h2 class="nb-act__title">Edit this notebook</h2>
+          ${editNotebookForm(nb)}
+        </div>
+      </details>
+    </div>`;
 }
 
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries))}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries), args.entries)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
