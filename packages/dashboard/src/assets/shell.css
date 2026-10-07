@@ -50,6 +50,7 @@ main.main--wide {
 .app-ask--home .home-ask__input { font-size: var(--font-size-md); }
 /* Narrow widths: collapse the send label to a bare ↵ glyph. */
 @media (max-width: 640px) {
+  .app-ask .home-ask--bar { padding-left: var(--space-4); padding-right: var(--space-4); }
   .app-ask .home-ask__send { font-size: 0; }
   .app-ask .home-ask__send::after { content: '↵'; font-size: var(--font-size-md); }
 }

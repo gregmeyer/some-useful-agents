@@ -1794,3 +1794,26 @@
 .picker__count { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .picker__prompt { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
 .picker__prompt-title { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
+
+/* Phone width: the top bar fits (16px gutter); the nav scrolls within
+   itself, the "need your reply" pill keeps its dot and count, and Ask sua
+   drops its shortcut hint. */
+@media (max-width: 640px) {
+  .topbar { gap: var(--space-3); padding: 0 var(--space-4); }
+  .topbar__nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; gap: var(--space-3); }
+  .topbar__nav::-webkit-scrollbar { display: none; }
+  .topbar__nav a { white-space: nowrap; }
+  .topbar__right { margin-left: 0; flex: none; gap: var(--space-2); }
+  .topbar__needs { padding: var(--space-1) var(--space-2); }
+  .topbar__needs [data-inbox-label], .topbar__needs-arrow { display: none; }
+  .topbar__ask-key { display: none; }
+  /* Section tabs (Agents · Tools · Runs…, Settings) scroll within themselves. */
+  .tab-strip { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
+  .tab-strip::-webkit-scrollbar { display: none; }
+  .tab-strip a { white-space: nowrap; flex: none; }
+  /* Page intros wrap: the text takes the row, the links go under it. */
+  .page-intro { flex-wrap: wrap; }
+  .page-intro__text { flex: 1 1 100%; }
+  /* Wide tables (runs, tools) scroll sideways within themselves. */
+  table.table { display: block; max-width: 100%; overflow-x: auto; }
+}
