@@ -65,6 +65,10 @@ describe('notebook widgets', () => {
     expect(names).not.toContain('Funnel');
     expect(names).toContain('OptionGrid');
     expect(validateViewComponents(notebookWidgetComponents({ fields: [], stages: [] })).ok).toBe(true);
+    // Where it stands takes two thirds beside Done when; the map two thirds beside the funnel.
+    const car = notebookWidgetComponents({ fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }], stages: ['Found', 'Checked'] });
+    expect(car.find((c) => c.id === 'top')).toMatchObject({ widths: [2, 1] });
+    expect(car.find((c) => c.id === 'mid')).toMatchObject({ widths: [2, 1] });
   });
 });
 

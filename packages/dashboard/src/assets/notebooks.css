@@ -165,6 +165,11 @@
 .nb-entry__by { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 
 .nb-body__side { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: var(--space-4); }
+/* Nothing to show beside it (no cards, or only the talk box while the sua panel is open): the notebook takes the full width. */
+.nb-body:not(:has(.nb-body__side > *)),
+body.has-sua-panel .nb-body:not(:has(.nb-body__side > :not(.nb-talk))) { grid-template-columns: minmax(0, 1fr); }
+.nb-body:not(:has(.nb-body__side > *)) .nb-body__side,
+body.has-sua-panel .nb-body:not(:has(.nb-body__side > :not(.nb-talk))) .nb-body__side { display: none; }
 .nb-side__card { padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .nb-side__title { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: 600; }
 .nb-form { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
