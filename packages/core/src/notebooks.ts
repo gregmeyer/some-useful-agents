@@ -180,6 +180,8 @@ export interface NewOption {
   fingerprint?: string;
   by: string;
   runId?: string;
+  /** Facts come from an agent's own code (a directly filed block): a "checked" quote is believed. */
+  trustedFacts?: boolean;
 }
 
 export interface NewNotebook {
@@ -684,7 +686,7 @@ export class NotebookStore {
    */
   upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
     const nb = this.mustGet(notebookId);
-    const facts = splitFacts(input.data);
+    const facts = splitFacts(input.data, { trusted: input.trustedFacts });
     const data = cleanData(facts.values, nb.fields);
     const meta = cleanFactMeta(facts.meta, data);
     const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
@@ -1357,24 +1359,30 @@ export function rankOptions<T extends Pick<NotebookViewOption, 'price' | 'score'
   });
 }
 
-/** Where a fact came from (an https link) and whether it's an estimate. */
-export interface NotebookFactMeta { source?: string; estimate?: boolean }
+/**
+ * Where a fact came from (an https link), whether it's an estimate, and the
+ * words in the source that back it ("checked": code found them there).
+ */
+export interface NotebookFactMeta { source?: string; estimate?: boolean; quote?: string; checked?: boolean }
 
 /**
  * An agent can give a fact as a plain value, or as {value, source, estimate}
  * when it says where a figure came from or that it's a guess. Splits the two.
  */
-export function splitFacts(data: Record<string, unknown> | undefined): { values: Record<string, unknown>; meta: Record<string, NotebookFactMeta> } {
+export function splitFacts(data: Record<string, unknown> | undefined, opts: { trusted?: boolean } = {}): { values: Record<string, unknown>; meta: Record<string, NotebookFactMeta> } {
   const values: Record<string, unknown> = {};
   const meta: Record<string, NotebookFactMeta> = {};
   for (const [k, v] of Object.entries(data ?? {})) {
     if (v && typeof v === 'object' && !Array.isArray(v) && 'value' in (v as object)) {
-      const x = v as { value: unknown; source?: unknown; estimate?: unknown; confidence?: unknown };
+      const x = v as { value: unknown; source?: unknown; estimate?: unknown; confidence?: unknown; quote?: unknown; checked?: unknown };
       values[k] = x.value;
       const m: NotebookFactMeta = {};
       if (typeof x.source === 'string') m.source = x.source;
       if (x.estimate === true || x.confidence === 'estimate' || x.confidence === 'low') m.estimate = true;
-      if (m.source || m.estimate) meta[k] = m;
+      if (typeof x.quote === 'string' && x.quote.trim()) m.quote = x.quote.replace(/\s+/g, ' ').trim();
+      // Only an agent's own code may say it found the quote in the source; a model's say-so isn't a check.
+      if (m.quote && opts.trusted && x.checked === true) m.checked = true;
+      if (m.source || m.estimate || m.quote) meta[k] = m;
     } else values[k] = v;
   }
   return { values, meta };
@@ -1388,7 +1396,8 @@ function cleanFactMeta(meta: Record<string, NotebookFactMeta>, kept: Record<stri
     const c: NotebookFactMeta = {};
     if (m.source) { try { const u = new URL(m.source); if (u.protocol === 'https:' || u.protocol === 'http:') c.source = u.toString().slice(0, 500); } catch { /* not a link */ } }
     if (m.estimate) c.estimate = true;
-    if (c.source || c.estimate) out[k] = c;
+    if (m.quote && m.quote.length >= 15) { c.quote = m.quote.slice(0, 300); if (m.checked && c.source) c.checked = true; }
+    if (c.source || c.estimate || c.quote) out[k] = c;
   }
   return out;
 }

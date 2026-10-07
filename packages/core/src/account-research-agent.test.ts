@@ -34,7 +34,7 @@ function verify(scored: unknown[], fields: unknown[] = []) {
     encoding: 'utf8',
   });
   expect(r.status, r.stderr).toBe(0);
-  return JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(r.stdout)![1]) as { entries: Array<{ kind: string; title: string; body?: string; data?: Record<string, unknown>; fingerprint?: string }>; fields?: Array<{ key: string; role?: string }> };
+  return JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(r.stdout)![1]) as { entries: Array<{ kind: string; title: string; body?: string; data?: Record<string, unknown>; fingerprint?: string; ruleOut?: string }>; fields?: Array<{ key: string; role?: string }> };
 }
 
 describe.skipIf(!hasPython)('account-research verify step', () => {
@@ -46,16 +46,18 @@ describe.skipIf(!hasPython)('account-research verify step', () => {
       { slug: 'initech', company: 'Initech', fit: 10, why: 'Sells printers.' },
       { slug: 'not-fetched', company: 'Ghost', fit: 99, quote: 'anything at all here', why: 'Invented.' },
     ]);
-    const options = out.entries.filter((e) => e.kind === 'option');
+    const options = out.entries.filter((e) => e.kind === 'option' && !e.ruleOut);
+    // Unfit is filed ruled out (so it isn't found again), with why.
+    expect(out.entries.find((e) => e.ruleOut)).toMatchObject({ title: 'Initech: Sells printers.', ruleOut: 'Unfit (10): Sells printers.' });
     expect(options.map((e) => e.title)).toEqual(['Acme: Oracle-to-Postgres migration in flight', 'Globex: Kafka at scale']);
     // Verified: fit carries the post as its source, tier 1.
-    expect(options[0].data).toMatchObject({ company: 'Acme', post: 'https://jobs.lever.co/acme/1', fit: { value: 91, source: 'https://jobs.lever.co/acme/1' }, tier: 'Tier 1, immediate fit' });
+    expect(options[0].data).toMatchObject({ company: 'Acme', post: 'https://jobs.lever.co/acme/1', fit: { value: 91, source: 'https://jobs.lever.co/acme/1', quote: 'lead our Oracle-to-PostgreSQL migration across 40 services', checked: true }, tier: 'Tier 1, immediate fit' });
     expect(options[0].fingerprint).toBe('lever:acme');
     // Not in the post: capped at 69 (tier 3), no source, said so.
     expect(options[1].data).toMatchObject({ post: 'https://jobs.ashbyhq.com/globex', fit: 69, tier: 'Tier 3, size and industry only' });
     expect(options[1].body).toContain("isn't in the post word for word");
     const note = out.entries.find((e) => e.kind === 'note')!;
-    expect(note.title).toContain('Left out as unfit: Initech');
+    expect(note.title).toContain('Ruled out as unfit: Initech');
     expect(note.title).toContain('1 quote failed');
     expect(out.fields!.find((f) => f.role === 'score')!.key).toBe('fit');
     // The first link in an option's text is its own link, so the page's text-vs-facts repair leaves it alone.
@@ -68,6 +70,6 @@ describe.skipIf(!hasPython)('account-research verify step', () => {
       [{ key: 'name', label: 'Name', type: 'text', role: 'org' }, { key: 'site', label: 'Site', type: 'url', role: 'link' }, { key: 'icp_fit', label: 'ICP fit', type: 'number', role: 'score' }],
     );
     expect(out.fields).toBeUndefined();
-    expect(out.entries[0].data).toEqual({ name: 'Acme', site: 'https://jobs.lever.co/acme/1', icp_fit: { value: 80, source: 'https://jobs.lever.co/acme/1' } });
+    expect(out.entries[0].data).toEqual({ name: 'Acme', site: 'https://jobs.lever.co/acme/1', icp_fit: { value: 80, source: 'https://jobs.lever.co/acme/1', quote: 'Oracle-to-PostgreSQL migration', checked: true } });
   });
 });

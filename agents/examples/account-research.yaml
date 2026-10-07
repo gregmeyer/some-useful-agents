@@ -195,8 +195,22 @@ nodes:
                             "open_roles": len(posts), "signal_hits": scored[0][0], "postings": best})
       companies.sort(key=lambda c: -c["signal_hits"])
       companies = companies[:cap]
-      print(json.dumps({"searched": queries, "words": words, "size": plan.get("size") or "", "candidates": len(found),
-                        "companies": companies, "sources": sources}))
+
+      # Steps see at most 32KB of this inline (more spills to a file a
+      # one-turn prompt can't read): trim the posts' text to fit. The scorer
+      # quotes from exactly this text, so the check below still holds.
+      def dump(n):
+          for c in companies:
+              for p in c["postings"]:
+                  p["text"] = p["text"][:n]
+          return json.dumps({"searched": queries, "words": words, "size": plan.get("size") or "", "candidates": len(found),
+                             "companies": companies, "sources": sources}, separators=(",", ":"))
+      size = 3500
+      out = dump(size)
+      while len(out.encode("utf-8")) > 28000 and size > 300:
+          size = int(size * 0.8)
+          out = dump(size)
+      print(out)
       PYEOF
 
   - id: score
@@ -266,8 +280,16 @@ nodes:
           s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
           return re.sub(r"\s+", " ", s).strip()
 
-      disc = json.loads(os.environ.get("UPSTREAM_DISCOVER_RESULT") or "{}")
-      scored = block(os.environ.get("UPSTREAM_SCORE_RESULT", ""), "scored") or []
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      disc = json.loads(upstream("DISCOVER") or "{}")
+      scored = block(upstream("SCORE"), "scored") or []
       by_slug = {c["slug"].lower(): c for c in disc.get("companies", [])}
 
       try:
@@ -321,7 +343,6 @@ nodes:
           tier = band(fit)
           if tier == "unfit":
               unfit.append(name)
-              continue
           sig = s.get("signals") if isinstance(s.get("signals"), dict) else {}
           sig_text = "; ".join(f"{k}: {v}" for k, v in sig.items() if isinstance(v, str) and v.strip())
           body = f"{TIER_WORDS[tier]} ({fit}). {str(s.get('why') or '').strip()}"
@@ -334,26 +355,31 @@ nodes:
           if org_k: data[org_k] = name
           # The link is the quoted post (so the text and the link agree), else the careers page.
           if link_k: data[link_k] = src or c["careers_url"]
-          if score_k: data[score_k] = {"value": fit, "source": src} if src else fit
+          # The fit carries the words that back it; "checked": this code found them in the post.
+          if score_k: data[score_k] = {"value": fit, "source": src, "quote": quote, "checked": True} if src else fit
           if tier_k: data[tier_k] = TIER_WORDS[tier]
           for k in ("revenue", "employees"):
               v = s.get(k)
               if k in keys and v is not None:
                   data[k] = v
           headline = str(s.get("headline") or "").strip().rstrip(".") or str(s.get("why") or "").strip().split(". ")[0]
-          ranked.append((fit, {"kind": "option", "title": f"{name}: {headline}"[:120].rstrip(": "),
-                          "body": body, "fingerprint": f"{c['board']}:{c['slug'].lower()}", "data": data}))
+          entry = {"kind": "option", "title": f"{name}: {headline}"[:120].rstrip(": "),
+                   "body": body, "fingerprint": f"{c['board']}:{c['slug'].lower()}", "data": data}
+          # Unfit is filed ruled out, so the next search doesn't bring it back.
+          if tier == "unfit":
+              entry["ruleOut"] = f"Unfit ({fit}): {str(s.get('why') or '').strip()}"[:300]
+          ranked.append((fit, entry))
 
       entries = [e for _, e in sorted(ranked, key=lambda x: -x[0])]
       note_bits = [f"Searched job posts for: {', '.join(disc.get('searched') or []) or 'nothing (no plan)'}."]
       note_bits.append(f"{disc.get('candidates', 0)} companies turned up, {len(disc.get('companies') or [])} had posts matching the profile.")
-      if unfit: note_bits.append(f"Left out as unfit: {', '.join(unfit[:10])}.")
+      if unfit: note_bits.append(f"Ruled out as unfit: {', '.join(unfit[:10])}.")
       if unverified: note_bits.append(f"{unverified} quote{'s' if unverified != 1 else ''} failed the word-for-word check.")
       entries.append({"kind": "note", "title": " ".join(note_bits)[:400]})
       out = {"entries": entries, "sources": disc.get("sources") or [],
-             "summary": f"{len(entries) - 1} accounts that fit, each with a quote from its own job post."}
+             "summary": f"{len(entries) - 1 - len(unfit)} accounts that fit, each with a quote from its own job post; {len(unfit)} ruled out as unfit."}
       if own_fields:
           out["fields"] = own_fields
-      print(f"Found {len(entries) - 1} accounts that fit ({len(unfit)} unfit left out, {unverified} unverified quotes).")
+      print(f"Found {len(entries) - 1 - len(unfit)} accounts that fit ({len(unfit)} ruled out as unfit, {unverified} unverified quotes).")
       print("<notebook>" + json.dumps(out) + "</notebook>")
       PYEOF

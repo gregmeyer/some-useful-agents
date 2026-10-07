@@ -279,6 +279,12 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .out .title { text-decoration: line-through; }
     .price { font: 700 1.35rem/1 var(--font-mono); color: var(--color-text); }
     .score { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .quote { margin: 0; padding-left: var(--space-2); border-left: 2px solid var(--color-border); font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+    .quote.checked { border-left-color: var(--color-primary); }
+    .quote .qt { font-style: italic; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .quote a, .quote .qtag { display: block; white-space: nowrap; color: var(--color-primary); text-decoration: none; }
+    .quote .qtag { color: var(--color-text-muted); }
+    .ok { color: var(--color-primary); }
     .score b { font: 700 1.35rem/1 var(--font-mono); color: var(--color-primary); }
     .chips { display: flex; flex-wrap: wrap; gap: 4px; }
     .chip { font: var(--font-size-xs)/1.6 var(--font-mono); padding: 0 6px; border-radius: 4px; background: var(--color-surface-raised); border: 1px solid var(--color-border); white-space: nowrap; }
@@ -342,6 +348,17 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         : html`<span class="chip${m.estimate ? ' est' : ''}" title=${why}>${shown}</span>`;
     };
     const est = (o, f) => (f && o.factMeta?.[f.key]?.estimate ? '≈ ' : '');
+    // The words in the source that back a fact (the fit first), and whether code found them there.
+    const quoteOf = (o) => {
+      const key = [scoreF?.key, ...fields.map((f) => f.key)].find((k) => k && o.factMeta?.[k]?.quote);
+      const m = key ? o.factMeta[key] : undefined;
+      if (!m) return nothing;
+      const href = safeUrl(m.source);
+      const tag = m.checked ? '✓ checked in the source' : 'from the source';
+      return html`<blockquote class="quote${m.checked ? ' checked' : ''}"><span class="qt" title=${m.quote}>“${m.quote}”</span>${href
+        ? html`<a href=${href} target="_blank" rel="noopener noreferrer">${tag} ↗</a>`
+        : html`<span class="qtag">${tag}</span>`}</blockquote>`;
+    };
     const change = (o) => {
       const c = o.priceChange; if (!c || !priceF) return nothing;
       const down = c.to < c.from; const good = down === (priceBetter === 'lower');
@@ -374,7 +391,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
           <td><div class="title">${o.name ?? o.title}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
-          ${scoreF ? html`<td class="num">${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}</td>` : nothing}
+          ${scoreF ? html`<td class="num" title=${o.factMeta?.[scoreF.key]?.quote ? `“${o.factMeta[scoreF.key].quote}”` : ''}>${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}${o.factMeta?.[scoreF.key]?.checked ? html` <span class="ok" aria-label="quote checked in the source">✓</span>` : nothing}</td>` : nothing}
           <td class="num">${priceF && o.fields?.[priceF.key] != null ? html`${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}` : ''} ${change(o)}</td>
           <td class="num">${measureF && o.fields?.[measureF.key] != null ? html`${est(o, measureF)}${fmtField(measureF, o.fields[measureF.key])}` : ''}</td>
           <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
@@ -390,6 +407,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       <div class="body">
         <div class="title" title=${o.title}>${o.name ?? o.title}</div>
         ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${est(o, scoreF)}${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
+        ${quoteOf(o)}
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
         <div class="chips">${facts(o).map((f) => fact(o, f.key, f.text, f.label))}${change(o)}
           ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>
