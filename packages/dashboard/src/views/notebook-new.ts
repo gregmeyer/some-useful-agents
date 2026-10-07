@@ -10,7 +10,16 @@ import type { NotebookDraft } from '../lib/notebook-draft.js';
 
 const CADENCES: Array<[string, string]> = [['', 'when I ask'], ['0 7 * * *', 'every morning'], ['0 7 * * 1,4', 'twice a week'], ['0 7 * * 1', 'every Monday']];
 
-export function renderNotebookNew(opts: { text?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } } = {}): string {
+/** Up to three suggestions from your conversations; clicking one fills the box. */
+export function renderSuggestionPills(items: ReadonlyArray<{ label: string; text: string; from?: string }>, refreshing: boolean): SafeHtml {
+  if (items.length === 0) {
+    return refreshing ? html`<p class="nbd-pills__wait" role="status">sua is looking through your conversations for ideas…</p>` : html``;
+  }
+  return html`<span class="nbd-pills__label">From your conversations</span>
+    ${items.map((s) => html`<button type="button" class="nbd-pill" data-nbd-pill="${s.text}" title="${s.from ? `From “${s.from}”: ${s.text}` : s.text}">${s.label}</button>`) as unknown as SafeHtml[]}`;
+}
+
+export function renderNotebookNew(opts: { text?: string; suggestions?: ReadonlyArray<{ label: string; text: string; from?: string }>; refreshing?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string } } = {}): string {
   return render(layout({ title: 'New notebook', activeNav: 'inbox', flash: opts.flash }, html`
     <div class="nbd" data-nbd>
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › New</p>
@@ -22,6 +31,7 @@ export function renderNotebookNew(opts: { text?: string; flash?: { kind: 'error'
             placeholder="A reliable used SUV or wagon for my daughter's first car, AWD, $3–8k, under 175k miles, around Bellingham to Seattle. Decide by the 15th.">${opts.text ?? ''}</textarea>
           <button type="submit" class="btn btn--primary nbd-ask__go" data-nbd-go>Draft it</button>
         </div>
+        <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>
         <p class="nbd-ask__examples">For example: “a remote staff engineer job paying $180k+” · “a quiet 2-bed rental in Fremont under $2,600” · “noise-cancelling headphones under $300”</p>
       </form>
       <div class="nbd-result" data-nbd-result aria-live="polite"></div>

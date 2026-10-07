@@ -25,6 +25,7 @@ const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 let dir: string;
 let provider: LocalProvider;
 let runStore: RunStore;
+let suggesterSaw = '';
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
@@ -89,6 +90,14 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
       fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'rating', label: 'Rating', type: 'number', role: 'measure', better: 'higher' }, { key: 'bad key!', label: 'x' }],
       checks: ['Comfortable with glasses'], stages: ['Found', 'Shortlist', 'Bought'], pipeline: ['sched-agent', 'made-up-agent'], cadence: 'every morning', why: 'Assumed over-ear.',
     })}</draft>`,
+    // The suggester sees your conversations (kept for the test to read) and answers with fixed pills.
+    notebookSuggesterRun: async (inputs) => { suggesterSaw = inputs.CONVERSATIONS; return `<suggestions>${JSON.stringify([
+      { label: 'Tires for the RAV4', text: 'Good tires for my 2012 RAV4, wet and dry', from: 'tires?' },
+      { label: 'tires for the rav4', text: 'a duplicate label' },
+      { label: 'Remote AI PM job', text: 'A remote senior AI PM job over $200k' },
+      { label: '', text: 'no label' },
+      { label: 'Rental', text: 'A 2-bed rental' }, { label: 'Fourth', text: 'one too many' },
+    ])}</suggestions>`; },
     // A test run whose output is already a keeper answer is kept as-is.
     notebookKeeperRun: async (inputs) => inputs.RUN_OUTPUT.startsWith('<notebook>') ? inputs.RUN_OUTPUT : (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
       ? `<notebook>${JSON.stringify({ entries: [], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: ['Found', 'Applied', 'Offer'] })}</notebook>`
@@ -698,5 +707,44 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     const { NotebookStore } = await import('@some-useful-agents/core');
     const nb = NotebookStore.fromHandle(runStore.databaseHandle()).list()[0];
     expect(nb.title).toBe('A quiet 2-bed rental in Fremont under $2,600');
+  });
+});
+
+describe("new notebook's suggestions from your conversations", () => {
+  it('reads your own conversations (not notebook or fix threads), keeps three clean pills, and caches them', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const say = (title: string, first: string, status?: 'resolved' | 'dismissed') => {
+      const m = inbox.add({ priority: 'medium', source: 'manual', title, body: '(empty)' });
+      inbox.addResponse(m.id, 'user', first);
+      if (status) inbox.updateStatus(m.id, status);
+      return m;
+    };
+    say('tires?', 'can you help me research some good tires for my 2012 rav4', 'dismissed');
+    say('jobs', 'find me remote ai senior product manager roles', 'resolved');
+    say('Fix Apple reminder demo', 'it failed');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbThread = say('Notebook: Car', 'hello');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    s.setConversation(s.create({ title: 'Car' }).id, nbThread.id);
+
+    let page = await get('/notebooks/new');
+    expect(page.text).toContain('data-nbd-pills data-nbd-pills-refreshing');
+    let j: { refreshing: boolean; html: string } = { refreshing: true, html: '' };
+    for (let i = 0; i < 100 && j.refreshing; i++) { j = (await get('/notebooks/suggestions')).body; if (j.refreshing) await new Promise((r) => setTimeout(r, 20)); }
+    expect(suggesterSaw).toContain('tires? — can you help me research some good tires');
+    expect(suggesterSaw).toContain('jobs — find me remote ai senior product manager roles');
+    expect(suggesterSaw).not.toContain('Fix Apple');
+    expect(suggesterSaw).not.toContain('Notebook: Car');
+    const pills = j.html.match(/data-nbd-pill="([^"]+)"/g) ?? [];
+    expect(pills).toEqual(['data-nbd-pill="Good tires for my 2012 RAV4, wet and dry"', 'data-nbd-pill="A remote senior AI PM job over $200k"', 'data-nbd-pill="A 2-bed rental"']);
+    expect(j.html).toContain('From your conversations');
+    // Cached: the next visit shows them at once and doesn't ask again.
+    suggesterSaw = '';
+    page = await get('/notebooks/new');
+    expect(page.text).toContain('>Tires for the RAV4</button>');
+    expect(page.text).not.toContain('data-nbd-pills-refreshing');
+    expect(suggesterSaw).toBe('');
   });
 });

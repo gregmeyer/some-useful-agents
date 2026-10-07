@@ -26,6 +26,8 @@ There's no top-nav item yet. Notebooks show up:
 3. **Check it.** Every part is editable: change or remove a limit, add a check, edit the stages, untick an agent. Or ask sua to change it ("only over-ear, drop the deadline").
 4. **Looks right, start it** creates the notebook already set up, and sua says hello in its conversation with the next thing to tell it.
 
+Under the box, up to three **pills from your conversations** suggest notebooks you might want: things you were looking for, researching or choosing with sua that aren't notebooks yet ("Tires for the RAV4"). Clicking one fills the box with the sentence; then **Draft it**. sua refreshes them in the background about twice a day (the `notebook-suggester` agent reads your own conversations, including finished and dismissed ones, but not a notebook's own conversation or sua fixing its agents).
+
 Nothing is created until you start it. **Skip the draft** starts the notebook from your sentence alone, and sua asks the rest in its conversation.
 
 ## Talk to sua; it fills the notebook

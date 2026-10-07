@@ -94,6 +94,26 @@ export const NOTEBOOK_NEW_JS = `
       var b = root.querySelector('[data-nbd-change]');
       if (b) b.click();
     });
+    // Suggestion pills: one fills the box; while sua is still finding them, check back.
+    root.addEventListener('click', function (e) {
+      var pill = e.target.closest && e.target.closest('[data-nbd-pill]');
+      if (!pill) return;
+      e.preventDefault();
+      text.value = pill.getAttribute('data-nbd-pill');
+      text.focus();
+      text.setSelectionRange(text.value.length, text.value.length);
+    });
+    var pills = root.querySelector('[data-nbd-pills]');
+    if (pills && pills.hasAttribute('data-nbd-pills-refreshing')) {
+      var tries = 0;
+      var check = setInterval(function () {
+        if (++tries > 40) { clearInterval(check); return; }
+        fetch('/notebooks/suggestions', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { if (j.refreshing) return; clearInterval(check); pills.innerHTML = j.html; })
+          .catch(function () {});
+      }, 3000);
+    }
     var skip = root.querySelector('[data-nbd-skip]');
     if (skip) skip.addEventListener('submit', function (e) {
       if (!text.value.trim()) { e.preventDefault(); text.focus(); return; }

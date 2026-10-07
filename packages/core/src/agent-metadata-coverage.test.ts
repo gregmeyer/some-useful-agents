@@ -64,6 +64,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-keeper': 'notebook pipeline only: turns a run into notebook entries, never proposed',
   'brand-maker': 'Settings → Appearance only: proposes a brand theme, never proposed',
   'notebook-drafter': 'New notebook only: drafts a notebook from a sentence, never proposed',
+  'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
