@@ -146,7 +146,9 @@ Options move through the notebook's **stages** toward a decision, and you can ru
 
 ## How it was made
 
-**How it was made →** (in the notebook's header) opens its **Workflow**: every run that filed into the notebook, the runs those started (a sweep's calls to other agents, loops, agents used as tools), and what each left ("3 options · 2 notes · saw 3 again"), drawn as one graph, left to right, the same way a run's steps are drawn. Click any box to open that run. The graph shows the newest four searches; the list under it has every run, with the runs each one started.
+**How it was made →** (in the notebook's header) opens its **Workflow**: every run that filed into the notebook, the runs those started (a sweep's calls to other agents, loops, agents used as tools), and what each left ("3 options · 2 notes · saw 3 again"), drawn as one graph, left to right, the same way a run's steps are drawn. Click any box to open that run.
+
+Runs come in **passes**: one go at filling the notebook. A pipeline run of all its agents is one pass (failed runs included); a run filed from the notebook's conversation, or with **Add to notebook**, is a pass of its own. Pick a pass at the top to draw it (the newest is drawn first); the list under the graph groups every run by pass, with each pass's note ("3 new entries · car-sweep: 3 new"). Runs from before passes were kept show as **Earlier run**, one each.
 
 A run's own page links back too: **Notebook: *title* · how it was made**, including for a run that another agent started ("through the run that started this one"). A run another agent started counts as part of its parent's search, so it's never offered under **Runs not in this notebook yet** and never shows as a failed search of its own.
 

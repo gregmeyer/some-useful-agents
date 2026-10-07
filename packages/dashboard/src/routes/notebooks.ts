@@ -164,7 +164,7 @@ notebooksRouter.get('/notebooks/:id/workflow', (req: Request, res: Response) => 
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'No such notebook.' })); return; }
-  res.type('html').send(renderNotebookWorkflow({ nb, lineage: notebookLineage(s, ctx.runStore, nb.id) }));
+  res.type('html').send(renderNotebookWorkflow({ nb, lineage: notebookLineage(s, ctx.runStore, nb.id), pass: str(req.query.pass) }));
 });
 
 notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {

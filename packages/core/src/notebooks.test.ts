@@ -432,3 +432,31 @@ describe('how a notebook was made', () => {
     expect(s.notebooksForRuns(['other'])).toEqual([]);
   });
 });
+
+describe('passes', () => {
+  it('a pass groups its runs (in order, failed ones too); runs from before passes are one-run passes', async () => {
+    const { notebookLineage } = await import('./notebook-lineage.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-passes-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Car' });
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 7, 12, m)).toISOString();
+    const run = (id: string, agentName: string, m: number, status = 'completed') => runs.createRun({ id, agentName, status, startedAt: at(m), completedAt: at(m + 1), triggeredBy: 'dashboard' } as never);
+    run('old', 'car-sweep', 0);
+    s.recordSearch(nb.id, 'car-sweep', 'old', 2, at(1));
+    run('p1', 'car-sweep', 10);
+    run('p2', 'craigslist-search', 12, 'failed');
+    const pass = s.startPass(nb.id, 'pipeline', at(10));
+    s.addRunToPass(pass, 'p1');
+    s.addRunToPass(pass, 'p2');
+    s.addRunToPass(pass, 'p1'); // once
+    s.recordSearch(nb.id, 'car-sweep', 'p1', 3, at(11));
+    s.finishPass(pass, '3 new entries · car-sweep: 3 new · craigslist-search: failed', at(13));
+    expect(s.passes(nb.id)).toEqual([expect.objectContaining({ id: pass, kind: 'pipeline', runIds: ['p1', 'p2'], finishedAt: at(13), note: expect.stringContaining('3 new') })]);
+
+    const l = notebookLineage(s, runs, nb.id);
+    expect(l.passes.map((p) => [p.kind, p.feeders.map((f) => f.run.id)])).toEqual([['pipeline', ['p1', 'p2']], ['earlier', ['old']]]);
+    expect(l.passes[0].feeders[1]).toMatchObject({ run: { status: 'failed' }, kinds: {} }); // a failed run with nothing filed still shows in its pass
+    expect(l.passes[1]).toMatchObject({ id: 'run:old' });
+  });
+});

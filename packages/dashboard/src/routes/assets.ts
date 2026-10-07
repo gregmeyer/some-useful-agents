@@ -299,7 +299,8 @@ window.renderDagViz = function () {
     userZoomingEnabled: true,
     userPanningEnabled: true,
     minZoom: 0.25,
-    maxZoom: 3,
+    // A small notebook Workflow graph (data-layout=lr) shouldn't be blown up to fill the canvas.
+    maxZoom: el.getAttribute('data-layout') === 'lr' ? 1 : 3,
     wheelSensitivity: 0.2,
     boxSelectionEnabled: false,
   });

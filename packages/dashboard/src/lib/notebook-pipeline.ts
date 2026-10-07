@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
-  type Agent, type Notebook, type NotebookEntryKind,
+  type Agent, type Notebook, type NotebookEntryKind, type NotebookPassKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -133,8 +133,24 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
-export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
-  return keep(ctx, NotebookStore.fromHandle(ctx.runStore.databaseHandle()), nb, agentId, runId, output);
+/** File one run into a notebook, as its own pass (from its conversation, or Add to notebook). */
+export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, runId: string, output: string, kind: NotebookPassKind = 'conversation'): Promise<KeeperOutcome> {
+  const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const passId = store.startPass(nb.id, kind);
+  store.addRunToPass(passId, runId);
+  try {
+    const out = await keep(ctx, store, nb, agentId, runId, output);
+    store.finishPass(passId, passNote(agentId, out));
+    return out;
+  } catch (err) {
+    store.finishPass(passId, `${agentId}: ${err instanceof Error ? err.message.slice(0, 80) : 'failed'}`);
+    throw err;
+  }
+}
+
+/** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
+function passNote(agentId: string, out: KeeperOutcome): string {
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}`;
 }
 
 async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
@@ -208,21 +224,26 @@ export function startNotebookPipeline(ctx: Ctx, notebookId: string): { started: 
 async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook): Promise<void> {
   const notes: string[] = [];
   let total = 0;
+  // One pass for the whole pipeline: every agent's run, failed ones too.
+  const passId = store.startPass(nb.id, 'pipeline');
   for (const [i, agentId] of nb.pipeline.entries()) {
     ctx.notebookPipelines?.set(nb.id, { agentId, step: i + 1, of: nb.pipeline.length, startedAt: Date.now() });
     const agent = ctx.agentStore.getAgent(agentId);
     if (!agent || agent.status === 'archived') { notes.push(`${agentId}: not installed`); continue; }
     try {
       const run = await runDispatchedAgentToTerminal(ctx, agent, pipelineInputs(agent, nb));
+      store.addRunToPass(passId, run.id);
       if (run.status !== 'completed') { notes.push(`${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`); continue; }
       const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
       total += out.added;
-      notes.push(out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}`);
+      notes.push(passNote(agentId, out));
     } catch (err) {
       notes.push(`${agentId}: ${err instanceof Error ? err.message.slice(0, 80) : 'failed'}`);
     }
   }
-  store.noteRun(nb.id, `${String(total)} new entr${total === 1 ? 'y' : 'ies'} · ${notes.join(' · ')}`);
+  const note = `${String(total)} new entr${total === 1 ? 'y' : 'ies'} · ${notes.join(' · ')}`;
+  store.finishPass(passId, note);
+  store.noteRun(nb.id, note);
 }
 
 /**
@@ -294,7 +315,7 @@ export function addRunToNotebook(ctx: Ctx, notebookId: string, runId: string): {
   if (addingRun(ctx, runId)) return { started: false, reason: 'That run is being added already.' };
   const result = ctx.runStore.getRun(runId)?.result ?? '';
   (ctx.notebookAddingRuns ??= new Set()).add(runId);
-  void keepIntoNotebook(ctx, nb, run.agentId, runId, result)
+  void keepIntoNotebook(ctx, nb, run.agentId, runId, result, 'added')
     .catch(() => undefined)
     .finally(() => { ctx.notebookAddingRuns?.delete(runId); });
   return { started: true };
