@@ -371,12 +371,7 @@ details.nb-addself[open] > summary { margin-bottom: var(--space-2); }
 @media (max-width: 640px) { .nbl-tools__sort { margin-left: 0; } .nbl-new__form { position: static; width: auto; margin-top: var(--space-2); } }
 
 /* With the sua panel open, the notebook's talk box steps aside: one place to talk. */
-.nb-talk__in-drawer { display: none; margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
-body.has-sua-panel .nb-talk__in-drawer { display: block; }
-body.has-sua-panel .nb-talk .nb-talk__last,
-body.has-sua-panel .nb-talk .nb-talk__form,
-body.has-sua-panel .nb-talk .nb-talk__next,
-body.has-sua-panel .nb-talk [data-nb-continue] { display: none; }
+body.has-sua-panel .nb-talk { display: none; }
 body.has-sua-panel .nb-start__pointer { display: none; }
 
 /* Runs of the notebook's agents that ran elsewhere: Add to notebook. */

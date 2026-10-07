@@ -372,7 +372,6 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     ${hasEntries || nb.conversationId ? html`
       <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
-        <p class="nb-talk__in-drawer">You're talking to sua in the panel. What you say there is filed here.</p>
         ${lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
