@@ -241,6 +241,10 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(pipelineInputs({ inputs: { GOAL: { type: 'string' }, topic: { type: 'string' }, LIMIT: { type: 'number' } } } as never, nb))
       .toEqual({ GOAL: notebookBrief(nb), topic: 'Find a reliable SUV' });
     expect(notebookBrief(nb)).toBe('Find a reliable SUV\nParameters: AWD\nDone when: One fits; Clean history');
+    // An agent that files directly gets the notebook's field keys and roles.
+    const withFields = store.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    expect(JSON.parse(pipelineInputs({ inputs: { FIELDS: { type: 'string' } } } as never, withFields).FIELDS))
+      .toEqual([{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
   });
 
   it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {

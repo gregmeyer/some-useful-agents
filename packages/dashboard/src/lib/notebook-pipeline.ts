@@ -46,6 +46,8 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook): Reco
     const n = name.toUpperCase();
     if (n === 'NOTEBOOK' || n === 'NOTEBOOK_CONTEXT' || n === 'GOAL' || n === 'BRIEF') out[name] = notebookBrief(nb);
     else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = nb.statement || nb.title;
+    // An agent that files directly needs the notebook's field keys and roles.
+    else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
   }
   return out;
 }

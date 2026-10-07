@@ -165,6 +165,25 @@ Runs come in **passes**: one go at filling the notebook. A pipeline run of all i
 
 A run's own page links back too: **Notebook: *title* · how it was made**, including for a run that another agent started ("through the run that started this one"). A run another agent started counts as part of its parent's search, so it's never offered under **Runs not in this notebook yet** and never shows as a failed search of its own.
 
+## Account research
+
+The **account-research** agent fills an accounts notebook ("B2B software companies with 50–500 people that run Kafka and are hiring platform engineers") from what companies say in their own public job posts. It needs no API keys.
+
+1. **Plan:** it breaks the profile into signals (the stack they run, the problem they have, the roles they're hiring) and searches the Ashby, Greenhouse and Lever job boards for them, skipping job aggregators and staffing firms.
+2. **Read:** code fetches each company's posts from the boards' public APIs and keeps the ones that mention the signals.
+3. **Score:** each company gets a fit score from 0 to 100 on a fixed rubric, backed by a word-for-word quote from its post:
+
+   | Score | Tier | What the post shows |
+   |---|---|---|
+   | 85–100 | Tier 1, immediate fit | an active initiative or problem the profile is about |
+   | 70–84 | Tier 2, high potential | the stack and senior hiring for it; the problem is implied |
+   | 50–69 | Tier 3 | size or industry only |
+   | below 50 | Unfit | left out (the run's note names them) |
+
+4. **Check:** code, not a model, checks every quote is in the post word for word. A score whose quote isn't can't rank above tier 3, and its card says so.
+
+The notebook files the result directly: company, fit (linked to the post it's quoted from), tier, and the job post as the option's link. Revenue and headcount are filled only when a post states them, and marked as estimates. Ideas from [account-fleet](https://github.com/NatesVibeCode/account-fleet).
+
 ## Filing directly (for agent authors)
 
 Normally sua's keeper reads a run's output and decides what to file. An agent that already knows the notebook's shape can skip that: put a `<notebook>` JSON block in its output, and the notebook files it as is: no keeper model, no 12,000-character limit, up to 50 entries per run. It's cleaned exactly like the keeper's own output (fields, links, facts, sources).
